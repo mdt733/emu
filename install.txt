@@ -260,28 +260,44 @@ You can also override one invocation explicitly:
 The ladder refuses a raw run root located inside the Git repository.
 
 
-7. Warm-start checkpoint
-------------------------
+7. Shared 20M foundation bootstrap
+----------------------------------
 
-v5007 is intended to warm-start from the v5005 athletic_torture champion.
+v5007 no longer depends on the old v5005 checkpoint being present. The default
+ladder first trains exactly one conservative shared foundation policy from
+scratch to 20,000,000 steps:
 
-If old raw data has been reorganised into the new layout, place/retain it at:
+  ~/robot_lab/emu_runs/v5007/rung_runs/foundation20/
 
-  ~/robot_lab/emu_runs/v5005/rung_runs/athletic_torture__phase2/checkpoints/
+That policy uses the same hardware/observation contract as v5007 (actuator
+realism, one-step communications latency, sensor noise and true no-software-
+slew), but an easier fixed command envelope and none of the experimental
+frontier/combo levers. Its only job is to recover a competent dynamic
+stepping/catching locomotor.
 
-The ladder automatically looks there for, in order:
+Every phase-1 branch then warm-starts its actor + observation normalizer from
+the exact same foundation checkpoint. Each branch still receives a fresh
+optimizer, curriculum and frontier state, so the branch comparison remains
+clean.
 
-  best_broad_eval.pkl
-  latest_mjx.pkl
+The ladder is restart-safe:
 
-If your old v5005 data still lives elsewhere, that is fine. Pass the exact
-checkpoint explicitly:
+  - if `foundation20` has no checkpoint, it starts cold;
+  - if it was interrupted, it resumes its own latest/best checkpoint toward 20M;
+  - if a completed 20M foundation exists, it reuses it automatically;
+  - `--rebuild-foundation` deliberately deletes/retrains it.
+
+Normal use therefore needs no checkpoint argument:
+
+  python run_ladder.py --device cuda
+
+An explicit known-good checkpoint can still bypass phase 0 when desired:
 
   python run_ladder.py \
       --device cuda \
-      --base-checkpoint /full/path/to/v5005/checkpoint.pkl
+      --base-checkpoint /full/path/to/checkpoint.pkl
 
-Do not use `--allow-cold-start` unless training from scratch is intentional.
+`--skip-foundation` is only valid together with `--base-checkpoint`.
 
 
 8. Check Git provenance before an expensive run
@@ -337,11 +353,8 @@ Reconnect later with:
 
   tmux attach -t emu
 
-If the v5005 checkpoint is not at the auto-detected location:
-
-  python run_ladder.py \
-      --device cuda \
-      --base-checkpoint /full/path/to/v5005/checkpoint.pkl
+The default command needs no warm-start argument; phase 0 creates/reuses the
+shared `foundation20` checkpoint automatically.
 
 
 10. What gets written where
@@ -471,9 +484,10 @@ Out of GPU memory:
   - use `nvidia-smi` to inspect processes;
   - reduce `--envs` for a diagnostic run if necessary.
 
-Warm-start not found:
-  - move/archive the v5005 raw run into `emu_runs/v5005/`, OR
-  - pass `--base-checkpoint /exact/path/file.pkl`.
+Foundation checkpoint missing:
+  - normal on the first run: the ladder creates `foundation20` from scratch;
+  - if a partial foundation exists, rerun the same command and it resumes;
+  - use `--rebuild-foundation` only when you intentionally want a fresh one.
 
 Viewer finds no policy:
   - confirm the raw rung contains `checkpoints/best_broad_eval.pkl` or

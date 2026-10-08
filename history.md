@@ -285,9 +285,21 @@ large separate regression suite from the runtime package.
 
 ## v5007 — repaired frontier + anti-forgetting
 
-v5007 keeps the 220-value actor architecture and warm-start compatibility with
-the v5005 champion.  It is primarily a curriculum/measurement/evaluation
-repair, not another network rewrite.
+v5007 keeps the 220-value actor architecture and checkpoint compatibility with
+the v5005 lineage. The original v5005 champion checkpoint was later lost during
+the repository/data-layout cleanup, so v5007 was deliberately changed to rebuild
+one common locomotion ancestor instead of allowing every experimental branch to
+rediscover walking independently.
+
+The ladder now trains a conservative `foundation20` run from scratch to 20M
+steps, then warm-starts every phase-1 branch from that exact policy + observation
+normalizer while giving each branch fresh optimizer/curriculum/frontier state.
+This preserves the key experimental requirement: all branches share one common
+starting policy. The foundation uses the target no-slew actuator/hardware
+contract but none of the v5007 experimental frontier/combo levers.
+
+v5007 is primarily a curriculum/measurement/evaluation repair, not another
+network rewrite.
 
 Core changes:
 

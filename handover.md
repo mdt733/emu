@@ -130,10 +130,14 @@ that checkpoint instead of blindly resuming the final policy.
 11. `sensor_frontier_repaired` — sensor-margin retest after command fix.
 12. `frontier_beast2` — repaired all-levers combination.
 
-Phase 1 runs each for 60M additional steps from the v5005 champion.  The top two
-branch families are rerun at a second training seed.  The best family across the
-available seeds is then continued to 120M absolute steps from its best broad
-checkpoint.
+Phase 0 first trains one shared `foundation20` locomotor from scratch to 20M
+steps using a conservative fixed command envelope and the same no-slew /
+hardware-observation contract as v5007. Every phase-1 branch then warm-starts
+from that exact same actor + observation-normalizer checkpoint, with fresh
+optimizer/curriculum/frontier state. Phase 1 runs each branch to 60M. The top
+two branch families are rerun at a second training seed. The best family across
+the available seeds is then continued to 120M absolute steps from its best
+broad checkpoint.
 
 
 ## How to judge the results
@@ -198,7 +202,7 @@ Read `install.txt` for a blank-machine setup.  For an already working machine:
 
 ```bash
 python run_ladder.py --list
-python run_ladder.py --device cuda --base-checkpoint /full/path/to/v5005/checkpoint.pkl
+python run_ladder.py --device cuda
 ```
 
 When the run is finished, start with `results/v5007/results.md`. Full branch

@@ -12,6 +12,12 @@ Typical use:
     python run_ladder.py --list
     python run_ladder.py --device cuda
     python run_ladder.py --only slew_static,noslew_static,frontier_repaired --skip-confirm --skip-phase2
+
+Default bootstrap behaviour:
+    1. train one shared foundation policy from scratch to 20M steps;
+    2. use that exact checkpoint as the warm start for every phase-1 branch;
+    3. confirm the top families on a second seed;
+    4. continue the selected family in phase 2.
 """
 from __future__ import annotations
 
@@ -80,6 +86,45 @@ def git_provenance(root: Path) -> dict:
         'source_dirty': bool(source_status),
     }
 
+
+
+def foundation_flags() -> dict:
+    """Conservative shared cold-start curriculum used only to recover a common locomotor.
+
+    The foundation deliberately avoids every v5007 experimental lever: no open
+    frontier, no combo blob, no push/sensor/accel frontier and no special
+    rehearsal.  It *does* retain the target hardware/observation contract
+    (no software target slew, actuator realism, one-step comm latency and the
+    deployable sensor-noise scale), so phase-1 branches do not begin with a
+    gratuitous actuator-domain switch.  Its command envelope is intentionally
+    easier than the old v5005 athletic envelope; the job here is simply to
+    recover a competent shared dynamic stepping/catching policy.
+    """
+    return {
+        '--freeze-obs-norm-after-steps': '0',
+        '--obs-norm-mode': 'continuous',
+        '--difficulty-base-step': '0.0014',
+        '--vx-hi-max': '0.40',
+        '--vx-lo-min': '-0.12',
+        '--vy-max-mps': '0.14',
+        '--yaw-max-rad-s': '0.90',
+        '--disable-target-slew': None,
+        '--phase-speed-gain': '0.75',
+        '--regime-command-frac': '0.60',
+        '--push-max-force-n': '0.70',
+        '--actuator-realism': None,
+        '--comm-latency-steps': '1',
+        '--sensor-noise-scale': '1.5',
+    }
+
+
+def preferred_checkpoint(run_dir: Path) -> Path | None:
+    """Return the best reusable checkpoint available for a run."""
+    for name in ('best_broad_eval.pkl', 'best_eval.pkl', 'latest_mjx.pkl'):
+        ck = run_dir / 'checkpoints' / name
+        if ck.exists():
+            return ck
+    return None
 
 def build_branches() -> list[dict]:
     """Purposeful v5007 matrix around the v5005 athletic champion."""
@@ -267,6 +312,17 @@ def safe_report(run_root: Path, results_dir: Path) -> None:
             '',
         ]
 
+        foundation = meta.get('foundation') or {}
+        if foundation:
+            lines += [
+                '## Shared foundation', '',
+                f"- run: `{foundation.get('name','')}`",
+                f"- target steps: `{int(foundation.get('steps',0)):,}`",
+                f"- seed: `{foundation.get('seed','')}`",
+                f"- checkpoint used by all phase-1 branches: `{foundation.get('checkpoint','')}`",
+                '',
+            ]
+
         if rows:
             lines += [
                 '## Run summary', '',
@@ -401,8 +457,12 @@ def run_rung(args, run_dir: Path, steps: int, flags: dict, *, seed: int, provena
 
 
 def print_plan(branches: list[dict], args) -> None:
-    print(f'{VERSION} plan: {len(branches)} branches x {args.steps_per_branch:,} steps, '
+    print(f'{VERSION} plan: shared foundation -> {len(branches)} branches x {args.steps_per_branch:,} steps, '
           f'{args.eval_cohorts} fixed evaluator cohorts')
+    if args.base_checkpoint:
+        print(f'  foundation:      skipped (explicit --base-checkpoint supplied)')
+    else:
+        print(f'  foundation:      one shared cold-start run to {args.foundation_steps:,} steps ({args.foundation_name})')
     print(f'  raw runs:       {Path(args.run_root).expanduser()}')
     print(f'  tracked results:{Path(args.results_dir).expanduser()}')
     for i,b in enumerate(branches,1):
@@ -415,9 +475,17 @@ def print_plan(branches: list[dict], args) -> None:
 
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(description=f'EMU {VERSION} repaired-frontier capability matrix')
+    p.add_argument('--foundation-steps',type=int,default=20_000_000,
+                   help='absolute steps for the one shared cold-start foundation run')
+    p.add_argument('--foundation-name',default='foundation20',
+                   help='raw-run directory name for the shared foundation policy')
+    p.add_argument('--rebuild-foundation',action='store_true',
+                   help='delete and retrain the shared foundation even if a reusable checkpoint exists')
+    p.add_argument('--skip-foundation',action='store_true',
+                   help='do not train/reuse a foundation; requires --base-checkpoint')
     p.add_argument('--steps-per-branch',type=int,default=60_000_000)
-    p.add_argument('--base-checkpoint',default='',help='v5005 athletic_torture champion checkpoint')
-    p.add_argument('--allow-cold-start',action='store_true',help='explicitly allow phase-1 training without the intended v5005 warm start')
+    p.add_argument('--base-checkpoint',default='',
+                   help='optional explicit warm-start checkpoint; bypasses the automatic shared foundation')
     p.add_argument('--phase2-steps',type=int,default=120_000_000)
     p.add_argument('--phase2-branch',default='auto',help='auto or explicit branch family')
     p.add_argument('--skip-phase2',action='store_true'); p.add_argument('--phase2-only',action='store_true')
@@ -464,16 +532,10 @@ def main(argv=None) -> int:
     print(f'{LOG_PREFIX} raw runs -> {run_root}', flush=True)
     print(f'{LOG_PREFIX} tracked evidence -> {results_dir}', flush=True)
 
-    if not args.base_checkpoint and not args.phase2_only:
-        candidates=[RAW_RUN_BASE/'v5005'/'rung_runs'/'athletic_torture__phase2'/'checkpoints'/'best_broad_eval.pkl',
-                    RAW_RUN_BASE/'v5005'/'rung_runs'/'athletic_torture__phase2'/'checkpoints'/'latest_mjx.pkl']
-        for auto in candidates:
-            if auto.exists(): args.base_checkpoint=str(auto); print(f'{LOG_PREFIX} auto warm-start checkpoint: {auto}',flush=True); break
-        if not args.base_checkpoint:
-            if args.allow_cold_start:
-                print(f'{LOG_PREFIX} WARNING: no v5005 champion found; --allow-cold-start requested, so phase 1 will train from scratch.',flush=True)
-            else:
-                raise SystemExit(f'{LOG_PREFIX} No v5005 athletic_torture champion found. Supply --base-checkpoint, or use --allow-cold-start only if a from-scratch run is intentional.')
+    if args.skip_foundation and not args.base_checkpoint and not args.phase2_only:
+        raise SystemExit(f'{LOG_PREFIX} --skip-foundation requires --base-checkpoint.')
+    if args.foundation_steps <= 0:
+        raise SystemExit('--foundation-steps must be > 0')
     if not args.skip_preflight and not args.phase2_only: run_preflight(run_root)
 
     meta_path=run_root/'run_meta.json'; summary_path=run_root/'ladder_summary.csv'
@@ -493,6 +555,66 @@ def main(argv=None) -> int:
         rows=[r for r in rows if r.get('name')!=name]; rows.append({'name':name,**bm}); write_csv(summary_path,rows)
         meta['last_updated']=time.strftime('%Y-%m-%d %H:%M:%S'); meta_path.write_text(json.dumps(meta,indent=2,default=str),encoding='utf-8')
         safe_report(run_root, results_dir)
+
+    # Phase 0: recover exactly one shared locomotor from scratch.  Every
+    # phase-1 comparison then begins from the same actor + observation
+    # normalizer via --warm-start-weights, while optimizer/curriculum/frontier
+    # state starts fresh per branch.  An explicit --base-checkpoint bypasses
+    # this phase for advanced/recovery use.
+    if not args.phase2_only and not args.base_checkpoint:
+        foundation_dir = rung_root / args.foundation_name
+        ckpt = preferred_checkpoint(foundation_dir)
+        foundation_summary = summarize_rung(foundation_dir) if foundation_dir.exists() else {}
+        foundation_complete = int(foundation_summary.get('final_step', -1) or -1) >= args.foundation_steps and ckpt is not None
+
+        if args.rebuild_foundation and foundation_dir.exists():
+            print(f'{LOG_PREFIX} rebuilding shared foundation: deleting {foundation_dir}', flush=True)
+            shutil.rmtree(foundation_dir)
+            ckpt = None
+            foundation_complete = False
+
+        if foundation_complete:
+            print(f'{LOG_PREFIX} reusing completed shared foundation: {ckpt}', flush=True)
+        else:
+            foundation_dir.mkdir(parents=True, exist_ok=True)
+            rationale = (
+                f'Shared {args.foundation_steps:,}-step cold-start locomotion foundation. '
+                'All v5007 phase-1 branches warm-start from this exact policy; '
+                'this run is not itself an experimental branch.\n'
+            )
+            (foundation_dir / 'rationale.txt').write_text(rationale, encoding='utf-8')
+            resume_ckpt = preferred_checkpoint(foundation_dir)
+            if resume_ckpt:
+                print(f'\n{LOG_PREFIX} === phase 0 foundation: resuming {args.foundation_name} -> {args.foundation_steps:,} ===', flush=True)
+                t0=time.time(); rc,tail=run_rung(args,foundation_dir,args.foundation_steps,foundation_flags(),
+                                                  seed=args.seed,provenance=provenance,resume=str(resume_ckpt))
+            else:
+                print(f'\n{LOG_PREFIX} === phase 0 foundation: cold start {args.foundation_name} -> {args.foundation_steps:,} ===', flush=True)
+                t0=time.time(); rc,tail=run_rung(args,foundation_dir,args.foundation_steps,foundation_flags(),
+                                                  seed=args.seed,provenance=provenance)
+            foundation_branch={'name':args.foundation_name,'flags':foundation_flags(),'tier':'foundation',
+                               'rationale':rationale.strip()}
+            record(args.foundation_name, foundation_branch, 'foundation', rc==0, time.time()-t0, tail, args.seed)
+            if rc:
+                raise SystemExit(f'{LOG_PREFIX} shared foundation failed; phase-1 branches were not started.\n{tail}')
+            ckpt = preferred_checkpoint(foundation_dir)
+            if ckpt is None:
+                raise SystemExit(f'{LOG_PREFIX} foundation completed but no reusable checkpoint was found in {foundation_dir / "checkpoints"}')
+
+        args.base_checkpoint = str(ckpt)
+        meta['foundation'] = {
+            'name': args.foundation_name,
+            'steps': args.foundation_steps,
+            'checkpoint': str(ckpt),
+            'seed': args.seed,
+            'flags': flags_to_cli(foundation_flags()),
+        }
+        meta_path.write_text(json.dumps(meta,indent=2,default=str),encoding='utf-8')
+        safe_report(run_root, results_dir)
+    elif not args.phase2_only:
+        print(f'{LOG_PREFIX} using explicit shared warm start: {args.base_checkpoint}', flush=True)
+        if not Path(args.base_checkpoint).expanduser().exists():
+            raise SystemExit(f'{LOG_PREFIX} --base-checkpoint does not exist: {args.base_checkpoint}')
 
     if not args.phase2_only:
         for i,branch in enumerate(branches,1):
