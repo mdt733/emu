@@ -1,0 +1,15 @@
+# EMU accelerator-independent Python dependencies
+#
+# Install these only after activating the project's .venv.
+#
+# JAX/JAXlib are intentionally NOT listed here because the training machine
+# needs the NVIDIA build selected explicitly in install.txt:
+#   python -m pip install --upgrade "jax[cuda13]"
+# or, for older supported NVIDIA hardware/drivers:
+#   python -m pip install --upgrade "jax[cuda12]"
+
+numpy>=1.26,<3
+optax>=0.2,<1
+mujoco>=3.2,<4
+mujoco-mjx>=3.2,<4
+pygame>=2.5,<3

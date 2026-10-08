@@ -1,0 +1,26 @@
+# Python / virtual environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# EMU heavyweight training artefacts must never enter normal Git history.
+# The normal ladder writes these OUTSIDE the repository to ../emu_runs/<VERSION>/.
+**/checkpoints/
+**/rung_runs/
+*.pkl
+*.npz
+*.npy
+*.log
+
+# Common accidental local raw-output directories if somebody overrides paths.
+/runs/
+/raw_runs/
+/local_runs/
+
+# Keep results/ tracked: it contains compact, durable experiment evidence.

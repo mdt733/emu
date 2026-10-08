@@ -1,0 +1,488 @@
+EMU — blank Ubuntu install, Git setup, training and viewer
+==========================================================
+
+This project now uses one Git working tree for source history and a separate
+external directory for heavyweight training data.
+
+Default layout
+--------------
+
+  ~/robot_lab/
+  ├── emu/                       <- Git repository (small, permanent)
+  │   ├── VERSION
+  │   ├── requirements.txt
+  │   ├── robot.xml
+  │   ├── environment.py
+  │   ├── training.py
+  │   ├── viewer.py
+  │   ├── run_ladder.py
+  │   ├── install.txt
+  │   ├── handover.md
+  │   ├── history.md
+  │   └── results/
+  │       └── v5007/
+  │           ├── results.md
+  │           ├── ladder_summary.csv   <- created during/after a run
+  │           └── run_meta.json        <- created during/after a run
+  │
+  └── emu_runs/                  <- NOT inside Git; may grow to many GB
+      ├── v5005/
+      ├── v5006/
+      └── v5007/
+          ├── preflight.log
+          ├── ladder_summary.csv
+          ├── run_meta.json
+          └── rung_runs/
+              └── <branch>/
+                  ├── metrics.csv
+                  ├── fixed_eval.csv
+                  ├── console.log
+                  └── checkpoints/
+                      └── *.pkl
+
+The single file `VERSION` is the operational source of truth for the current
+experiment generation. `run_ladder.py`, `environment.py`, training metadata,
+default result paths and default raw-run paths all derive the version from it.
+Do NOT auto-increment VERSION at run time. Change it deliberately when creating
+a new experiment generation, commit that change, then tag the release in Git.
+
+
+1. Install Ubuntu packages
+--------------------------
+
+On a blank Ubuntu machine:
+
+  sudo apt update
+  sudo apt install -y \
+      git \
+      python3 \
+      python3-venv \
+      python3-pip \
+      build-essential \
+      tmux \
+      unzip \
+      libgl1 \
+      libglfw3 \
+      libx11-6 \
+      libxrandr2 \
+      libxinerama1 \
+      libxcursor1 \
+      libxi6 \
+      python3-tk
+
+
+2. Install / verify the NVIDIA driver
+-------------------------------------
+
+First see whether Ubuntu already has a working NVIDIA driver:
+
+  nvidia-smi
+
+If `nvidia-smi` works and shows the intended GPU, keep the installed driver.
+
+If there is no working NVIDIA driver, on a normal Ubuntu desktop/server install:
+
+  sudo ubuntu-drivers install
+  sudo reboot
+
+After reboot:
+
+  nvidia-smi
+
+Current JAX guidance prefers CUDA 13 wheels when the GPU and driver support it.
+CUDA 13 JAX wheels require a sufficiently new NVIDIA driver and a GPU with
+compute capability 7.5 or newer. CUDA 12 wheels remain the sensible fallback
+for older supported hardware/drivers.
+
+
+3. Put the Git repository at ~/robot_lab/emu
+--------------------------------------------
+
+FIRST MACHINE / converting this package into a repository:
+
+  mkdir -p ~/robot_lab
+  cd ~/robot_lab
+  unzip /path/to/emu_v5007_git_ready.zip
+  cd emu
+
+If this is your first time using Git on the machine, set the identity that
+will be attached to commits (use your own email):
+
+  git config --global user.name "Mitchell Terry"
+  git config --global user.email "YOUR_EMAIL@example.com"
+
+If this folder does not yet have Git history:
+
+  git init
+  git branch -M main
+  git add .
+  git commit -m "v5007: final training source"
+
+Do not create the final `v5007` tag yet. The ladder records this exact source
+commit hash. After the experiment finishes, commit the small results and tag the
+completed generation so checking out `v5007` contains both source and results.
+
+If using a private remote, create the empty private repository first, then:
+
+  git remote add origin <YOUR_PRIVATE_REPOSITORY_URL>
+  git push -u origin main
+
+SUBSEQUENT BLANK MACHINE:
+
+  mkdir -p ~/robot_lab
+  git clone <YOUR_PRIVATE_REPOSITORY_URL> ~/robot_lab/emu
+  cd ~/robot_lab/emu
+
+The large `~/robot_lab/emu_runs/` directory is intentionally NOT cloned by Git.
+Copy/restore checkpoints separately only when you actually need them.
+
+
+4. Create the Python environment and install Python packages
+--------------------------------------------------------------
+
+All Python packages for EMU belong inside the project virtual environment.
+Do not use `sudo pip`, and do not install EMU's Python dependencies into the
+system Python. Git stores `requirements.txt`; it does not store `.venv/`.
+
+Create and activate the venv:
+
+  cd ~/robot_lab/emu
+  python3 -m venv .venv
+  source .venv/bin/activate
+
+Confirm that `python` now comes from the project venv:
+
+  which python
+
+It should print a path ending in:
+
+  /robot_lab/emu/.venv/bin/python
+
+Upgrade the packaging tools inside the venv:
+
+  python -m pip install --upgrade pip setuptools wheel
+
+Install JAX for the NVIDIA GPU INSIDE THIS SAME VENV. JAX is deliberately not
+listed in requirements.txt because the correct accelerator wheel depends on the
+GPU and driver on this machine.
+
+Preferred current route (CUDA 13-capable GPU/driver):
+
+  python -m pip install --upgrade "jax[cuda13]"
+
+Official JAX guidance currently recommends the pip-provided CUDA libraries.
+CUDA 13 requires an NVIDIA driver >= 580 and GPU compute capability >= 7.5.
+
+Fallback for an older supported NVIDIA GPU/driver:
+
+  python -m pip install --upgrade "jax[cuda12]"
+
+CUDA 12 supports older NVIDIA hardware (SM 5.2+) and requires driver >= 525.
+
+Now install the accelerator-independent EMU dependencies from the repository:
+
+  python -m pip install -r requirements.txt
+
+requirements.txt currently contains:
+
+  - NumPy
+  - Optax
+  - MuJoCo
+  - MuJoCo MJX
+  - pygame (viewer joystick support)
+
+MuJoCo MJX is distributed separately as `mujoco-mjx`; installing only `mujoco`
+is not sufficient for a fresh MJX setup.
+
+Whenever you open a new shell later, reactivate the environment before using
+EMU:
+
+  cd ~/robot_lab/emu
+  source .venv/bin/activate
+
+
+5. Verify Python, JAX, MuJoCo and the robot model
+------------------------------------------------
+
+From ~/robot_lab/emu with the venv active:
+
+  python - <<'PY'
+  import jax
+  import mujoco
+  from pathlib import Path
+
+  model = mujoco.MjModel.from_xml_path(str(Path('robot.xml').resolve()))
+  print('JAX version:', jax.__version__)
+  print('JAX backend:', jax.default_backend())
+  print('JAX devices:', jax.devices())
+  print('MuJoCo version:', mujoco.__version__)
+  print('robot nq/nv/nu:', model.nq, model.nv, model.nu)
+  PY
+
+For the training machine, `JAX backend` must be `gpu`.
+
+Then run the project's cheap prechecks/listing:
+
+  python -m py_compile environment.py training.py viewer.py run_ladder.py
+  python run_ladder.py --list
+
+
+6. Raw-run storage
+------------------
+
+By default no setup is required. Because the Git repository is expected at:
+
+  ~/robot_lab/emu
+
+`run_ladder.py` automatically puts heavyweight output beside it at:
+
+  ~/robot_lab/emu_runs/<VERSION>/
+
+For this checkout that is:
+
+  ~/robot_lab/emu_runs/v5007/
+
+To put the large data on another disk, define a BASE directory before launching:
+
+  export EMU_RUN_ROOT=/mnt/bigdisk/emu_runs
+
+The ladder will then use:
+
+  /mnt/bigdisk/emu_runs/v5007/
+
+`EMU_RUN_ROOT` is the base directory. The current VERSION is appended
+automatically.
+
+You can also override one invocation explicitly:
+
+  python run_ladder.py --run-root /mnt/bigdisk/emu_runs/v5007 --device cuda ...
+
+The ladder refuses a raw run root located inside the Git repository.
+
+
+7. Warm-start checkpoint
+------------------------
+
+v5007 is intended to warm-start from the v5005 athletic_torture champion.
+
+If old raw data has been reorganised into the new layout, place/retain it at:
+
+  ~/robot_lab/emu_runs/v5005/rung_runs/athletic_torture__phase2/checkpoints/
+
+The ladder automatically looks there for, in order:
+
+  best_broad_eval.pkl
+  latest_mjx.pkl
+
+If your old v5005 data still lives elsewhere, that is fine. Pass the exact
+checkpoint explicitly:
+
+  python run_ladder.py \
+      --device cuda \
+      --base-checkpoint /full/path/to/v5005/checkpoint.pkl
+
+Do not use `--allow-cold-start` unless training from scratch is intentional.
+
+
+8. Check Git provenance before an expensive run
+-----------------------------------------------
+
+Before launching:
+
+  git status
+  git log -1 --oneline
+  cat VERSION
+
+Ideally `git status` should show a clean working tree for the executable source
+files. The ladder records:
+
+  - VERSION
+  - Git commit hash
+  - branch
+  - git describe/tag state
+  - whether the repository was dirty
+  - whether executable source files were dirty
+
+That provenance is written into the external run metadata and into checkpoint
+metadata. If executable source files have uncommitted changes, the ladder warns
+but does not abort.
+
+A good pre-run workflow is:
+
+  git add VERSION requirements.txt robot.xml environment.py training.py viewer.py run_ladder.py install.txt handover.md history.md .gitignore results/v5007/results.md
+  git commit -m "v5007: final training source"
+  git push
+
+Then start the long run from that clean commit. The exact commit hash is captured
+inside the run/checkpoint provenance.
+
+
+9. Launch the default overnight v5007 ladder
+--------------------------------------------
+
+  cd ~/robot_lab/emu
+  source .venv/bin/activate
+  python run_ladder.py --list
+
+Recommended long run inside tmux:
+
+  tmux new -s emu
+  python run_ladder.py --device cuda
+
+Detach from tmux with:
+
+  Ctrl+B, then D
+
+Reconnect later with:
+
+  tmux attach -t emu
+
+If the v5005 checkpoint is not at the auto-detected location:
+
+  python run_ladder.py \
+      --device cuda \
+      --base-checkpoint /full/path/to/v5005/checkpoint.pkl
+
+
+10. What gets written where
+---------------------------
+
+HEAVY / external / not Git:
+
+  ~/robot_lab/emu_runs/v5007/
+      preflight.log
+      preflight.json
+      ladder_summary.csv
+      run_meta.json
+      rung_runs/<branch>/metrics.csv
+      rung_runs/<branch>/fixed_eval.csv
+      rung_runs/<branch>/console.log
+      rung_runs/<branch>/checkpoints/*.pkl
+
+SMALL / permanent / Git-tracked:
+
+  ~/robot_lab/emu/results/v5007/results.md
+  ~/robot_lab/emu/results/v5007/ladder_summary.csv
+  ~/robot_lab/emu/results/v5007/run_meta.json
+
+`results.md` is refreshed after each completed rung. The two small CSV/JSON
+summary files are copied from the external run root at the same time.
+
+This means an interrupted overnight run still leaves useful tracked evidence,
+while the multi-gigabyte checkpoint tree never enters the repository.
+
+After a completed experiment, inspect:
+
+  results/v5007/results.md
+
+Then commit the permanent evidence and tag the completed generation:
+
+  git add results/v5007
+  git commit -m "v5007: completed experiment results"
+  git tag -a v5007 -m "EMU v5007 completed"
+  git push
+  git push origin v5007
+
+Now `git checkout v5007` gives the source plus compact results, while
+`results/v5007/run_meta.json` records the exact earlier source commit that
+actually launched training.
+
+Do NOT commit `~/robot_lab/emu_runs/v5007/`; it is outside the repository by
+design.
+
+
+11. Viewer
+----------
+
+The viewer now understands the same external run layout.
+
+With no arguments it searches the current VERSION's raw rung directory:
+
+  python viewer.py
+
+For v5007 that means roughly:
+
+  ~/robot_lab/emu_runs/v5007/rung_runs/
+
+Open a specific run:
+
+  python viewer.py --run-dir ~/robot_lab/emu_runs/v5007/rung_runs/frontier_repaired
+
+Open a specific checkpoint:
+
+  python viewer.py --checkpoint /full/path/to/checkpoint.pkl
+
+If `EMU_RUN_ROOT` is set, the viewer uses the same base directory as the ladder.
+
+
+12. Starting v5008 later
+------------------------
+
+Do not make another copied source folder.
+
+From a clean main branch:
+
+  git switch -c experiment/v5008
+
+Edit the experiment as needed. When it is genuinely the next generation, change
+ONE operational version file:
+
+  printf 'v5008\n' > VERSION
+
+Now these default locations automatically become:
+
+  external raw runs:  ~/robot_lab/emu_runs/v5008/
+  tracked evidence:   ~/robot_lab/emu/results/v5008/
+  robot version:      emu_v5008
+  run/checkpoint metadata version: v5008
+
+Update handover.md/history.md for the new experiment, then:
+
+  git add .
+  git commit -m "v5008: final training source"
+  git switch main
+  git merge --ff-only experiment/v5008
+  git push
+
+Run v5008 from that clean main commit. When its compact results are complete:
+
+  git add results/v5008
+  git commit -m "v5008: completed experiment results"
+  git tag -a v5008 -m "EMU v5008 completed"
+  git push
+  git push origin v5008
+
+The version number is deliberately advanced by a human decision, not by every
+run. Multiple reruns/seeds of v5007 remain v5007 and share the same experiment
+schema.
+
+
+13. Common problems
+-------------------
+
+JAX reports CPU instead of GPU:
+  - run `nvidia-smi`;
+  - confirm the venv is active;
+  - reinstall the appropriate JAX CUDA wheel;
+  - avoid an incompatible `LD_LIBRARY_PATH` overriding pip's CUDA libraries.
+
+Out of GPU memory:
+  - make sure another JAX job is not still running;
+  - use `nvidia-smi` to inspect processes;
+  - reduce `--envs` for a diagnostic run if necessary.
+
+Warm-start not found:
+  - move/archive the v5005 raw run into `emu_runs/v5005/`, OR
+  - pass `--base-checkpoint /exact/path/file.pkl`.
+
+Viewer finds no policy:
+  - confirm the raw rung contains `checkpoints/best_broad_eval.pkl` or
+    `checkpoints/latest_mjx.pkl`;
+  - confirm EMU_RUN_ROOT points to the same raw-run base used during training;
+  - or pass `--run-dir` / `--checkpoint` explicitly.
+
+Git says huge .pkl files are staged:
+  - do NOT commit them;
+  - check that they are not inside the repository;
+  - `git restore --staged <file>` if necessary;
+  - `.gitignore` is only a safety net; raw runs should live outside the repo.
