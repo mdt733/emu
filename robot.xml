@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  robot.xml — EMU v3017 Clean Blob fast training model
+  ═══════════════════════════════════════════════════════
+  ~0.5 kg ball-foot biped, 6 actuated DoF, 2 passive mid-shin flex DoF.
+
+  Kinematic chain per leg:
+    torso → hip_roll → hip_pitch → knee → passive mid-shin flex → ball foot
+
+  Geometry:
+    thigh:  (0,0,0) → (-0.1202, 0, -0.1202)   → 45° down-and-back at q=0
+    shin:   (0,0,0) → (+0.1202, 0, -0.1202)   → 45° down-and-forward at q=0
+    foot:   sphere ball, r=0.018, one main contact point
+
+  Passive spring design:
+    The neutral "< 45/90/45" crouch is spring-supported enough to be recoverable,
+    but not passively stable on ball feet.  Springs make the first survival-walk
+    problem physically reasonable; the policy still has to step and correct.
+
+  Actuators:
+    Feetech STS3215-style joint-direct model (no external reduction; servo itself is internally geared).
+    forcerange = ±1.913 N·m, kp = 10 N·m/rad, joint damping = 0.435 N·m·s/rad.
+    Servo target speed/lag/safety is handled by environment.py.
+
+  Contact contract:
+    v3017 seed model deliberately makes the thin thigh/shin rods non-contacting
+    so early training cannot be dominated by blunt sentinel/proxy deaths.  Feet
+    remain the only contact geoms.  Non-foot geometry is still tracked through
+    a soft body-low diagnostic/penalty in environment.py, and a later validation
+    model should reintroduce stricter sentinel policing before hardware trust.
+-->
+
+<mujoco>
+  <compiler angle="degree" />
+  <option timestep="0.005" integrator="Euler" gravity="0 0 -9.81" />
+
+  <default>
+    <!--
+      damping=0.435 implements the STS3215 torque-speed curve (b = T_stall/ω_noload).
+      Applies to all 6 actuated joints; shin_flex joints override with their own
+      higher damping (3.0) for ankle compliance — unaffected by this default.
+      armature=0.006 kg·m²: effective joint inertia for direct-drive (no gear
+      ratio amplifying rotor inertia, so lower than the 0.01 used for 2:1 gearing).
+    -->
+    <joint damping="0.435" armature="0.006" />
+    <geom friction="1.5 0.005 0.0001" />
+  </default>
+
+  <worldbody>
+    <light name="light_top" pos="0 0 2" directional="true" />
+
+    <geom name="floor" type="plane" size="5 5 0.05" rgba="0.2 0.25 0.3 1" />
+    <body name="torso" pos="0 0 0.2584">
+      <freejoint name="root" />
+      <!-- v3017: torso mass is shifted 26 mm forward so the neutral < stance
+           has COM over/just ahead of the ball feet. v3002 had the leg rods
+           pulling COM behind the contact point, causing immediate backward falls. -->
+      <geom name="torso_box" type="box" size="0.05 0.09 0.025" pos="0.026 0 0" mass="0.30"
+            rgba="0.8 0.1 0.1 1" />
+      <site name="imu" pos="0 0 0" />
+
+      <!-- ═══ RIGHT LEG ═══ -->
+      <body name="r_hip" pos="0 -0.08 0">
+        <inertial mass="0.01" pos="0 0 0" diaginertia="1e-5 1e-5 1e-5" />
+        <joint name="r_hip_roll" type="hinge" axis="1 0 0"
+               range="-25 25" stiffness="2.0" springref="0" />
+        <body name="r_thigh" pos="0 0 0">
+          <!-- Spring-balanced crouch: | has zero spring, q=0 `<` supports ~1x weight, deep `=` ~2x weight. -->
+          <joint name="r_hip_pitch" type="hinge" axis="0 1 0"
+                 range="-50 50" stiffness="0.480" springref="-45" />
+          <geom name="r_thigh_rod" type="capsule" size="0.008"
+                fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
+                contype="0" conaffinity="0" />
+          <body name="r_shin" pos="-0.1202 0 -0.1202">
+            <!-- Knee support for the neutral crouch; motors still do dynamic correction. -->
+            <joint name="r_knee" type="hinge" axis="0 1 0"
+                   range="-55 95" stiffness="0.480" springref="45" />
+            <!-- Carbon shin compliance is modelled at the rod midpoint so the
+                 virtual flex angle has the same semantics as the magnet/Hall
+                 pair on the real shin. -->
+            <geom name="r_shin_upper" type="capsule" size="0.008"
+                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+                  contype="0" conaffinity="0" />
+            <body name="r_shin_lower" pos="0.0601 0 -0.0601">
+              <joint name="r_shin_flex" type="hinge" axis="0 1 0" range="-10 10"
+                     stiffness="4.0" damping="0.08" />
+              <geom name="r_shin_lower_rod" type="capsule" size="0.008"
+                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+                    contype="0" conaffinity="0" />
+              <body name="r_foot" pos="0.0601 0 -0.0601">
+                <geom name="r_foot_ball" type="sphere" size="0.018" pos="0 0 0"
+                      mass="0.010" rgba="0.25 0.35 0.80 1" />
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ═══ LEFT LEG ═══ (mirror) -->
+      <body name="l_hip" pos="0 0.08 0">
+        <inertial mass="0.01" pos="0 0 0" diaginertia="1e-5 1e-5 1e-5" />
+        <joint name="l_hip_roll" type="hinge" axis="1 0 0"
+               range="-25 25" stiffness="2.0" springref="0" />
+        <body name="l_thigh" pos="0 0 0">
+          <joint name="l_hip_pitch" type="hinge" axis="0 1 0"
+                 range="-50 50" stiffness="0.480" springref="-45" />
+          <geom name="l_thigh_rod" type="capsule" size="0.008"
+                fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
+                contype="0" conaffinity="0" />
+          <body name="l_shin" pos="-0.1202 0 -0.1202">
+            <joint name="l_knee" type="hinge" axis="0 1 0"
+                   range="-55 95" stiffness="0.480" springref="45" />
+            <!-- Carbon shin compliance is modelled at the rod midpoint so the
+                 virtual flex angle has the same semantics as the magnet/Hall
+                 pair on the real shin. -->
+            <geom name="l_shin_upper" type="capsule" size="0.008"
+                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+                  contype="0" conaffinity="0" />
+            <body name="l_shin_lower" pos="0.0601 0 -0.0601">
+              <joint name="l_shin_flex" type="hinge" axis="0 1 0" range="-10 10"
+                     stiffness="4.0" damping="0.08" />
+              <geom name="l_shin_lower_rod" type="capsule" size="0.008"
+                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+                    contype="0" conaffinity="0" />
+              <body name="l_foot" pos="0.0601 0 -0.0601">
+                <geom name="l_foot_ball" type="sphere" size="0.018" pos="0 0 0"
+                      mass="0.010" rgba="0.25 0.35 0.80 1" />
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!--
+    Position actuators — Feetech STS3215 @ 6V, direct at robot joint (servo has its own internal geartrain).
+
+    Physical specs:
+      Peak stall torque:  19.5 kg·cm = 1.913 N·m
+      Rated cont. torque:  6.5 kg·cm = 0.638 N·m
+      No-load speed:       60°/0.238s = 4.40 rad/s = 252 deg/s
+
+    Torque-speed curve simulation via joint damping:
+      A brushed/brushless servo has a roughly linear torque-speed relationship:
+        T(ω) = T_stall − b · ω    where  b = T_stall / ω_noload
+      b = 1.913 / 4.40 = 0.435 N·m·s/rad
+
+      This is implemented as joint damping in the <default> block (0.435).
+      The actuator forcerange is set to the STALL torque ceiling (±1.913 N·m).
+      At any joint speed ω, the effective output torque is:
+        T_eff = clip(kp·error, ±1.913) − 0.435·ω
+      which reproduces the torque-speed line:
+        ω=0   → T_eff up to 1.913 N·m  (100% stall)  ✓
+        ω=2.93 → T_eff up to 0.638 N·m  (33%, rated)  ✓
+        ω=4.40 → T_eff → 0             (no-load speed) ✓
+
+    PD servo dynamics (kp=10, J≈armature=0.006 kg·m²):
+      ω_n  = √(kp/J)         = 40.8 rad/s = 6.5 Hz bandwidth
+      ζ    = b/(2√(kp·J))    = 0.887       (slightly under critically damped → no overshoot)
+      Saturation error        = 1.913/10    = 0.191 rad = 11°
+      The servo saturates at ±11° tracking error; within that it tracks perfectly.
+
+    vs old 2:1 geared MG996R:
+      Peak torque: 2.54 → 1.913 N·m  (−25%)  compensated by springs in stance
+      Max speed:   2.62 → 4.40 rad/s (+68%)   step frequency ceiling ~3.5 Hz
+      Backdrivability: poor → good              ground impacts absorbed as motion
+  -->
+  <actuator>
+    <position name="r_hip_roll"  joint="r_hip_roll"
+              kp="10" ctrlrange="-25 25"  forcerange="-1.913 1.913" />
+    <position name="r_hip_pitch" joint="r_hip_pitch"
+              kp="10" ctrlrange="-50 50"  forcerange="-1.913 1.913" />
+    <position name="r_knee"      joint="r_knee"
+              kp="10" ctrlrange="-55 95"  forcerange="-1.913 1.913" />
+    <position name="l_hip_roll"  joint="l_hip_roll"
+              kp="10" ctrlrange="-25 25"  forcerange="-1.913 1.913" />
+    <position name="l_hip_pitch" joint="l_hip_pitch"
+              kp="10" ctrlrange="-50 50"  forcerange="-1.913 1.913" />
+    <position name="l_knee"      joint="l_knee"
+              kp="10" ctrlrange="-55 95"  forcerange="-1.913 1.913" />
+  </actuator>
+
+  <!-- Thigh and shin rods are non-contacting in the v3017 fast seed model.
+       Feet are the only contact geoms.  This avoids the v3009 failure mode where
+       a crouched thin-leg body-origin proxy killed every episode as bad contact.
+       Later validation versions should add explicit sentinel geoms back. -->
+  <contact>
+    <exclude body1="torso" body2="r_thigh"/>
+    <exclude body1="torso" body2="l_thigh"/>
+  </contact>
+
+  <sensor>
+    <accelerometer name="accel" site="imu" />
+    <gyro          name="gyro"  site="imu" />
+  </sensor>
+</mujoco>

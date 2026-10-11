@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emu-biped"
+version = "5011.0.0"
+description = "Self-mapping reinforcement-learning trainer for a dynamically unstable six-actuator biped"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "numpy>=1.26,<3",
+  "optax>=0.2,<1",
+  "mujoco>=3.2,<4",
+  "mujoco-mjx>=3.2,<4",
+  "pygame>=2.5,<3",
+]
+
+[project.scripts]
+emu = "emu_cli:main"
+
+[tool.setuptools]
+py-modules = [
+  "emu_cli", "environment", "training", "run_ladder", "capability_field",
+  "capability_cloud", "atlas", "viewer", "field_viewer"
+]
