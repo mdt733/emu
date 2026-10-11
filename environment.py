@@ -229,7 +229,7 @@ P_PROBE_ANGVEL_RAD_S = 29
 P_PROBE_JOINT_RAD = 30
 P_PROBE_PUSH_N = 31
 P_PROBE_PUSH_STEPS = 32
-# v5011 event-based capability-field teaching packet.  These are TRAINER-side
+# v5012 event-based capability-field teaching packet.  These are TRAINER-side
 # task-sampling hints, never actor observations.  Fixed-size tables keep the JAX
 # parameter shape stable while their contents may change every PPO update.
 FIELD_NODE_ANCHORS = 24
@@ -738,7 +738,7 @@ class EmuMJXEnv:
                 vx = jnp.where(combo, vx_m, vx_a)
                 vy = jnp.where(combo, vy_m, vy_a)
                 yaw = jnp.where(combo, yaw_m, yaw_a)
-            # v5011 self-mapping trainer: a bounded fraction of ordinary births
+            # v5012 self-mapping trainer: a bounded fraction of ordinary births
             # may be drawn from the capability field's current teaching packet.
             # Anchors are clipped to the governor's current envelope; the field
             # chooses *where* to spend practice while the governor still owns
@@ -1096,6 +1096,12 @@ class EmuMJXEnv:
         # the single top-of-step split.
         if self.legacy_rng_reuse:
             next_keys, reset_keys, resample_keys = self._split_batch(state.rng, 3)
+        # A transition is defined by the PRE-advance ramp state.  This is
+        # crucial at the digital limit: when ramp_speed==1 a newly-resampled
+        # command advances 0->1 in one control frame, so testing ramp_frac<1
+        # only *after* the advance made the sharpest maneuver invisible.
+        transition_active = state.cmd_ramp_frac < 1.0
+        cmd_resampled = transition_active & (state.cmd_ramp_frac <= 1e-6) & (state.cmd_ramp_speed > 0.0)
         ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
         cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
         task = state.task.at[:, TASK_VX].set(cmd_now[:, 0]).at[:, TASK_VY].set(cmd_now[:, 1]).at[:, TASK_YAW].set(cmd_now[:, 2])
@@ -1223,7 +1229,8 @@ class EmuMJXEnv:
         # target (ramp_frac < 1, computed above); errors are split by that
         # mask so summarize_rollout can report tracking error DURING
         # transitions vs. during steady holds separately.
-        ramping = (ramp_frac < 1.0).astype(jnp.float32)
+        ramping = transition_active.astype(jnp.float32)
+        resampled = cmd_resampled.astype(jnp.float32)
         steady = 1.0 - ramping
         vx_err = jnp.abs(metrics['vx'] - metrics['cmd_vx'])
         vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
@@ -1231,7 +1238,8 @@ class EmuMJXEnv:
         out_metrics = {
             **metrics,
             'transition_frac': ramping,
-            # v5011 maneuver-event instrumentation.  These describe the target
+            'cmd_resampled': resampled,
+            # v5012 maneuver-event instrumentation.  These describe the target
             # and commanded ramp rate associated with the command the actor is
             # currently observing.  They are training diagnostics only; they do
             # not enter the actor observation or reward.  The capability field

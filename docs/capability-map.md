@@ -8,7 +8,7 @@ Velocity capability is a **node property**. Agility is an **edge property**.
 
 ## Node competence vs quality
 
-v5011 stores these separately.
+v5012 stores these separately.
 
 **Competence** asks a binary physical question over a sustained window: did the robot remain upright, supported and within command-tracking tolerances?
 
@@ -22,7 +22,7 @@ A node is mastered only when it has enough recent effective trials **and** the c
 
 ## Recovery
 
-Recovery is currently an **integrated recovery** layer: the normal resilience birth may combine body tilt, position error, joint disorder, linear/angular velocity mismatch and pushes. v5011 intentionally does not pretend these are separate maps until the training curriculum actually separates them.
+Recovery is currently an **integrated recovery** layer: the normal resilience birth may combine body tilt, position error, joint disorder, linear/angular velocity mismatch and pushes. v5012 intentionally does not pretend these are separate maps until the training curriculum actually separates them.
 
 Each command node has six severity bands. One resilience birth produces one recovery verdict when competent locomotion is sustained again or the attempt fails first.
 

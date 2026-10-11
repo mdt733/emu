@@ -1,6 +1,6 @@
 # Validation status
 
-Before packaging, the v5011 source passed:
+Before packaging, the v5012 source passed:
 
 - Python bytecode compilation for all active modules;
 - nine semantic/unit tests covering command competence, bad tracking, recovery events, maneuver events, conservative mastery, field persistence/schema refusal, teaching-packet shape, and the common matched recovery panel;

@@ -402,6 +402,28 @@ def evaluate_specs_batch(trainer, env, params, obs_mean, obs_std, keys, horizon:
         ff,fr=jax.device_get((ff,fr))
         for i in range(nreal):
             rows.append(_row_from_times(real_specs[i],ff[i],fr[i],int(nbs[i])))
+
+    # v5012 calibration doctrine: node competence is calibrated against a
+    # held-out NODE event, not against the recovery event above. Only controls
+    # need this extra pass; disturbed rows remain purely recovery evidence.
+    control_idx=[i for i,spec in enumerate(specs) if spec.get('family') == 'none']
+    if control_idx and 'evaluate_node_window' in trainer:
+        ncache=trainer.setdefault('_cloud_node_eval_cache',{})
+        nkey=(horizon,chunk_size)
+        nbatched=ncache.get(nkey)
+        if nbatched is None:
+            def nfn(policy_params,om,osd,cps,ks):
+                return jax.vmap(lambda cp,k: trainer['evaluate_node_window'](
+                    policy_params,cp,om,osd,k,horizon,50,25),in_axes=(0,0))(cps,ks)
+            nbatched=jax.jit(nfn); ncache[nkey]=nbatched
+        for start in range(0,len(control_idx),chunk_size):
+            ids=control_idx[start:start+chunk_size]; nreal=len(ids)
+            pad=ids[-1]; pids=ids+[pad]*(chunk_size-nreal)
+            cps=jnp.stack([env.params_array(base_episode(specs[i])) for i in pids],axis=0)
+            ks=jnp.stack([keys[i] for i in pids],axis=0)
+            verdict=np.asarray(jax.device_get(nbatched(params,obs_mean,obs_std,cps,ks)))
+            for j,ri in enumerate(ids):
+                rows[ri]['node_window_rate']=float(verdict[j].mean())
     return rows
 
 

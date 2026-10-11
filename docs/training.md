@@ -31,7 +31,7 @@ No periodic evaluator is needed to make this inner loop adaptive.
 
 ## Capability events
 
-v5011 deliberately avoids treating correlated frames as independent trials.
+v5012 deliberately avoids treating correlated frames as independent trials.
 
 - **Node event:** about one second at a stable command → one success/failure verdict.
 - **Recovery event:** one integrated resilience birth → one recovered/failed verdict.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""EMU v5011 self-mapping trainer runner.
+"""EMU v5012 self-mapping trainer runner.
 
-v5011 keeps older diagnostic routes, but its primary product is the event-based graph cold-start trainer.  Stage ``profile`` is deliberately small: it
+v5012 keeps older diagnostic routes, but its primary product is the event-based graph cold-start trainer.  Stage ``profile`` is deliberately small: it
 runs one short continuation with detailed wall-time attribution so performance
 work is evidence-driven.  Stage ``capability`` runs the focused v5008 matrix,
 adds harder held-out rulers and confirms close winners across extra seeds.
@@ -74,7 +74,7 @@ def git_provenance(root: Path) -> dict:
     _, branch = git('branch', '--show-current')
     _, describe = git('describe', '--tags', '--always', '--dirty')
     _, status = git('status', '--porcelain')
-    source_files = ['VERSION', 'robot.xml', 'environment.py', 'training.py', 'viewer.py', 'run_ladder.py', 'atlas.py', 'capability_cloud.py', 'capability_field.py', 'field_viewer.py', 'emu_cli.py', 'pyproject.toml', 'README.md', 'docs/v5011-design.md']
+    source_files = ['VERSION', 'robot.xml', 'environment.py', 'training.py', 'viewer.py', 'run_ladder.py', 'atlas.py', 'capability_cloud.py', 'capability_field.py', 'field_viewer.py', 'emu_cli.py', 'pyproject.toml', 'README.md', 'docs/v5012-design.md']
     _, source_status = git('status', '--porcelain', '--', *source_files)
     return {
         'available': True,
@@ -146,7 +146,7 @@ def trainer_foundation_flags() -> dict:
 
 
 def build_trainer_branches() -> list[dict]:
-    """Historical ablations plus the v5011 recommended graph trainer from one exact 20M ancestor."""
+    """Historical ablations plus the v5012 recommended graph trainer from one exact 20M ancestor."""
     def br(name, mode, rationale):
         common={
             '--freeze-obs-norm-after-steps':'25000000', '--obs-norm-mode':'continuous',
@@ -162,7 +162,7 @@ def build_trainer_branches() -> list[dict]:
             '--recovery-tilt-max-deg':'28.0', '--recovery-position-max-m':'0.025',
             '--recovery-joint-max-deg':'14.0', '--recovery-linvel-max-mps':'0.65',
             '--recovery-angvel-max-rad-s':'3.6', '--push-frontier':None,
-            '--frontier-push-safety-n':'3.2', '--fall-target':'0.34', '--accel-frontier':None,
+            '--frontier-push-safety-n':'3.2', '--fall-target':'0.34', '--accel-frontier':None, '--legacy-hard-probes':None,
             '--capability-field-mode':mode, '--field-half-life-steps':'20000000',
             '--field-influence-start-steps':'20000000', '--field-influence-full-steps':'30000000',
             '--field-max-influence':'0.65',
@@ -170,11 +170,11 @@ def build_trainer_branches() -> list[dict]:
         return {'name':name,'flags':common,'tier':'trainer','rationale':rationale}
     return [
         br('trainer_shadow','shadow',
-           'Ablation control: builds the v5011 event-based field but never lets it steer births or transitions.'),
+           'Ablation control: builds the v5012 event-based field but never lets it steer births or transitions.'),
         br('trainer_nodes','nodes',
            'Ablation: event-based command/recovery nodes steer bounded births; maneuver edges are observed but do not steer.'),
         br('trainer_graph','graph',
-           'Recommended v5011 trainer: statistically honest node/recovery events plus complete maneuver-edge events steer practice; governor retains global safety/frontiers.'),
+           'Recommended v5012 trainer: statistically honest node/recovery events plus complete maneuver-edge events steer practice; governor retains global safety/frontiers.'),
     ]
 
 
@@ -390,7 +390,7 @@ def summarize_cloud_final(run_dir: Path) -> dict:
     cal=[]
     for r in controls:
         try:
-            a=float(r.get('field_predicted_competence','nan')); b=float(r.get('recovery_rate','nan'))
+            a=float(r.get('field_predicted_competence','nan')); b=float(r.get('node_window_rate','nan'))
             if a==a and b==b: cal.append((a,b))
         except Exception:
             pass
@@ -405,6 +405,7 @@ def summarize_cloud_final(run_dir: Path) -> dict:
         'field_calibration_mae': (sum(abs(a-b) for a,b in cal)/len(cal)) if cal else -1.0,
         'field_calibration_brier': (sum((a-b)**2 for a,b in cal)/len(cal)) if cal else -1.0,
         'field_calibration_points': len(cal),
+        'field_calibration_target': 'node_window_rate',
     }
 
 
@@ -552,7 +553,7 @@ def safe_report(run_root: Path, results_dir: Path) -> None:
             f"- Source dirty at launch: `{git.get('source_dirty')}`",
             f"- Raw run store: `{run_root}`",
             '',
-            ('v5011 continuously turns ordinary PPO experience into semantic command/recovery/maneuver events. Held-out evaluators remain quarantined calibration/exam evidence and never update the live field.'
+            ('v5012 records gait-window node events plus explicit one-frame maneuvers. Held-out node calibration and recovery exams remain quarantined and never update the live field.'
              if (meta.get('args') or {}).get('stage') == 'trainer' else
              'Fixed held-out evaluators are the main comparison ruler. Training fall rate and live frontier values are supporting evidence, not branch-selection scores by themselves.'),
             '',
@@ -717,11 +718,11 @@ def run_preflight(out_dir: Path) -> None:
         "age=(np.arange(T,dtype=np.float32)[:,None]+1)*.02+np.zeros((T,N),np.float32); "
         "m={'cmd_vx':z+.10,'cmd_vy':z,'cmd_yaw':z,'target_cmd_vx':z+.10,'target_cmd_vy':z,'target_cmd_yaw':z,"
         "'transition_ramp_speed':z,'vx':z+.10,'vy':z,'yaw_rate':z,'gravity_z':o,'support':o*.30,'bad_contact':z,"
-        "'episode_fell':z,'episode_done':z,'age_s':age,'regime_resilience':z,'birth_resilience_d':z,'transition_frac':z}; "
+        "'episode_fell':z,'episode_done':z,'age_s':age,'regime_resilience':z,'birth_resilience_d':z,'transition_frac':z,'cmd_resampled':z}; "
         "d=f.update_from_rollout(m,step=65536); p=f.teaching_packet(step=30000000,mode='graph',start=20000000,full=30000000,maximum=.65); "
-        "assert FIELD_VERSION==2 and d['field_node_events_update']>0 and p['field_node_anchors'].shape==(24,5) and p['field_edge_anchors'].shape==(24,7); "
+        "assert FIELD_VERSION==3 and d['field_node_events_update']>0 and p['field_node_anchors'].shape==(24,5) and p['field_edge_anchors'].shape==(24,7); "
         "g=CapabilityField.from_state_dict(f.state_dict()); assert g.summary()['field_node_events_total']==f.summary()['field_node_events_total']; "
-        "print('field-v2-smoke',d['field_node_events_update'],d['field_mean_competence_known'],p['field_node_frac'])"
+        "print('field-v3-smoke',d['field_node_events_update'],d['field_mean_competence_known'],p['field_node_frac'])"
     )
     commands = [
         [sys.executable, '-m', 'py_compile', 'environment.py', 'training.py', 'run_ladder.py', 'viewer.py', 'atlas.py', 'capability_cloud.py', 'capability_field.py', 'field_viewer.py', 'emu_cli.py'],
@@ -877,7 +878,7 @@ def print_plan(branches: list[dict], args) -> None:
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(description=f'EMU {VERSION} performance hardening + focused capability matrix')
     p.add_argument('--stage', choices=['profile','atlas','cloud','capability','trainer'], default='profile',
-                   help='trainer = v5011 cold-start self-mapping trainer qualification; profile/atlas/cloud/capability retain diagnostic compatibility')
+                   help='trainer = v5012 cold-start self-mapping trainer qualification; profile/atlas/cloud/capability retain diagnostic compatibility')
     p.add_argument('--start', choices=['reference','zero','checkpoint'], default='reference',
                    help='reference uses protected v5007 120M policy; zero rebuilds from scratch; checkpoint uses --checkpoint')
     p.add_argument('--reference-checkpoint', default=str(DEFAULT_REFERENCE_CHECKPOINT),
@@ -1073,7 +1074,7 @@ def main(argv=None) -> int:
 
     if args.stage == 'trainer':
         # ---------------------------------------------------------------
-        # v5011 trainer qualification: one genuine 0->20M ancestor, then
+        # v5012 trainer qualification: one genuine 0->20M ancestor, then
         # three 20->120M teaching strategies from the exact same checkpoint.
         # The fork uses --resume, not warm-start, so optimizer, normalizer,
         # governor AND capability-field state are identical at the split.
@@ -1081,7 +1082,7 @@ def main(argv=None) -> int:
         foundation_name=f'trainer_foundation20_seed{args.seed}'
         foundation_dir=rung_root/foundation_name
         foundation_dir.mkdir(parents=True,exist_ok=True)
-        rationale=('Cold-start v5011 nursery. Random actor/critic, fresh optimizer/governor; '
+        rationale=('Cold-start v5012 nursery. Random actor/critic, fresh optimizer/governor; '
                    'continuous capability field observes in shadow mode through 20M.')
         (foundation_dir/'rationale.txt').write_text(rationale+'\n',encoding='utf-8')
         latest=foundation_dir/'checkpoints'/'latest_mjx.pkl'

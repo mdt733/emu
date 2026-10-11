@@ -8,8 +8,8 @@ or, after editable install:
     emu view
 
 The viewer auto-follows the newest capability_field_latest.npz under the current
-version's run root.  It understands v5011 field schema 2 and can still display
-older v5010 schema-1 snapshots for historical comparison.  It never writes to
+version's run root.  It understands v5012 field schema 3 and can still display
+older schema-1/2 snapshots for historical comparison.  It never writes to
 or communicates with the trainer.
 """
 from __future__ import annotations

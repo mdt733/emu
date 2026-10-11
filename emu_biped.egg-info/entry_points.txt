@@ -1,0 +1,2 @@
+[console_scripts]
+emu = emu_cli:main

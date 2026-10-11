@@ -1,0 +1,5 @@
+numpy<3,>=1.26
+optax<1,>=0.2
+mujoco<4,>=3.2
+mujoco-mjx<4,>=3.2
+pygame<3,>=2.5

@@ -1,6 +1,6 @@
 # EMU accelerator-independent Python dependencies.
 #
-# Recommended environment for v5011: Python 3.13 in .venv, created with uv.
+# Recommended environment for v5012: Python 3.13 in .venv, created with uv.
 # JAX/JAXlib are intentionally NOT listed here because the NVIDIA accelerator
 # build is machine-specific. Install it first, e.g.:
 #   uv pip install -U "jax[cuda13]"

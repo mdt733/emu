@@ -3,7 +3,7 @@
 
 This file intentionally keeps the complete learning loop together: a small
 from-scratch actor/critic PPO implementation, observation normalisation, the
-RegimeGovernor curriculum, the v5011 event-based continuous capability field, checkpoint/recovery semantics, held-out calibration/evaluation, logging and CLI entry points. environment.py owns the task/physics
+RegimeGovernor curriculum, the v5012 event-based continuous capability field, checkpoint/recovery semantics, held-out calibration/evaluation, logging and CLI entry points. environment.py owns the task/physics
 side and robot.xml owns the MuJoCo model.
 
 EMU is trained as a dynamically unstable biped. The seed behaviour is a moving
@@ -35,7 +35,7 @@ from environment import (ACTION_DIM, OBS_DIM, PROGRAM_VERSION, ROBOT_VERSION, EN
 from capability_field import CapabilityField, FieldConfig, FIELD_VERSION
 
 LOG_PREFIX = f'[{ROBOT_VERSION}]'
-CHECKPOINT_SCHEMA = 2
+CHECKPOINT_SCHEMA = 3
 ROBOT_MODEL_SHA256 = hashlib.sha256(Path(__file__).with_name('robot.xml').read_bytes()).hexdigest()
 
 class PerfBook:
@@ -776,6 +776,41 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_recovery = jax.jit(evaluate_recovery, static_argnums=(5, 6))
 
+    def evaluate_node_window(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
+                             window_steps=50, settle_steps=25):
+        """Held-out node exam using the exact v5012 clean-window doctrine.
+
+        One deterministic one-second window begins after the same 0.5 s settle
+        delay used by CapabilityField. Tracking is judged on mean absolute error
+        versus mean dynamic tolerance; upright/support/contact health must hold on
+        at least 90% of window frames. The result is one Bernoulli verdict per env.
+        """
+        keys=jax.random.split(eval_key,env.num_envs)
+        env_state=env._reset_with_keys(keys,curriculum_params); obs=env.obs(env_state)
+        err0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
+        tol0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
+        good0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
+        count0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
+        end_step=jnp.minimum(jnp.asarray(horizon,dtype=jnp.int32),jnp.asarray(settle_steps+window_steps,dtype=jnp.int32))
+        def one_step(i,carry):
+            es,ob,err,tol,good,count=carry
+            mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask)); action=jnp.clip(mean,-1.0,1.0)
+            out=env.step(es,action,curriculum_params); m=out.metrics
+            use=(i>=settle_steps)&(i<end_step)
+            usef=use.astype(jnp.float32)
+            vx_tol=jnp.maximum(.08,.25*jnp.abs(m['cmd_vx'])); vy_tol=jnp.maximum(.07,.35*jnp.abs(m['cmd_vy'])); yaw_tol=jnp.maximum(.25,.25*jnp.abs(m['cmd_yaw']))
+            e=jnp.stack((jnp.abs(m['vx']-m['cmd_vx']),jnp.abs(m['vy']-m['cmd_vy']),jnp.abs(m['yaw_rate']-m['cmd_yaw'])),axis=1)
+            tt=jnp.stack((vx_tol,vy_tol,yaw_tol),axis=1)
+            structural=((m['gravity_z']>.9396926)&(m['support']>.05)&(m['bad_contact']<.5)&(m['episode_fell']<.5)).astype(jnp.float32)
+            err=err+usef*e; tol=tol+usef*tt; good=good+usef*structural; count=count+usef
+            return out.state,out.obs,err,tol,good,count
+        _,_,err,tol,good,count=jax.lax.fori_loop(0,horizon,one_step,(env_state,obs,err0,tol0,good0,count0))
+        c=jnp.maximum(count,1.0); tracking=jnp.all((err/c[:,None]) <= (tol/c[:,None]),axis=1); structural=(good/c)>=.90
+        enough=count>=jnp.minimum(jnp.asarray(float(window_steps)),jnp.asarray(float(max(1,horizon-settle_steps))))
+        return tracking & structural & enough
+
+    evaluate_node_window = jax.jit(evaluate_node_window, static_argnums=(5,6,7))
+
     return {
         'make_initial_state': make_initial_state,
         'train_update': train_update,
@@ -784,6 +819,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'evaluate_rollout': evaluate_rollout,
         'evaluate_summary': evaluate_summary,
         'evaluate_recovery': evaluate_recovery,
+        'evaluate_node_window': evaluate_node_window,
         'obs_norm_mask': obs_norm_mask,
         'tiny_random_rollout': tiny_random_rollout,
         'policy_rollout': policy_rollout,
@@ -1613,10 +1649,45 @@ def _settled_frontier_mask(metrics: dict[str, Any]) -> np.ndarray | None:
 
 def _precision_on_mask(actual: np.ndarray, cmd: np.ndarray, mask: np.ndarray,
                        abs_floor: float, rel_frac: float, default: float = -1.0) -> float:
+    """Fraction of environments whose *window-mean* tracking error is in tolerance.
+
+    v5011 counted every instantaneous gait frame as an independent precision
+    verdict. A healthy stepping gait naturally oscillates around its requested
+    velocity, so that metric starved the vy/yaw/combo frontiers even when mean
+    tracking was good. v5012 aggregates each environment first, then asks whether
+    its mean absolute error is within its mean dynamic tolerance.
+    """
+    actual=np.asarray(actual); cmd=np.asarray(cmd); mask=np.asarray(mask,bool)
     if mask.sum() <= 0:
         return default
-    tol = _dynamic_tol(cmd, abs_floor, rel_frac)
-    return float((np.abs(actual - cmd)[mask] <= tol[mask]).mean())
+    tol=_dynamic_tol(cmd,abs_floor,rel_frac)
+    if actual.ndim < 2:
+        return float(np.mean(np.abs(actual-cmd)[mask]) <= np.mean(tol[mask]))
+    counts=mask.sum(axis=0)
+    valid=counts>0
+    if not np.any(valid):
+        return default
+    err_sum=(np.abs(actual-cmd)*mask).sum(axis=0)
+    tol_sum=(tol*mask).sum(axis=0)
+    good=(err_sum/np.maximum(counts,1)) <= (tol_sum/np.maximum(counts,1))
+    return float(good[valid].mean())
+
+
+def _combo_precision_on_mask(vx,cvx,vy,cvy,yw,cyw,mask) -> float:
+    mask=np.asarray(mask,bool)
+    if mask.sum()<=0: return -1.0
+    arrs=((vx,cvx,RegimeGovernor.PRECISION_TOL_VX,RegimeGovernor.PRECISION_REL_VX),
+          (vy,cvy,RegimeGovernor.PRECISION_TOL_VY,RegimeGovernor.PRECISION_REL_VY),
+          (yw,cyw,RegimeGovernor.PRECISION_TOL_YAW,RegimeGovernor.PRECISION_REL_YAW))
+    if np.asarray(vx).ndim < 2:
+        return float(all(np.mean(np.abs(np.asarray(a)-np.asarray(c))[mask]) <= np.mean(_dynamic_tol(np.asarray(c),af,rf)[mask]) for a,c,af,rf in arrs))
+    counts=mask.sum(axis=0); valid=counts>0
+    if not np.any(valid): return -1.0
+    goods=[]
+    for a,c,af,rf in arrs:
+        a=np.asarray(a); c=np.asarray(c); tol=_dynamic_tol(c,af,rf)
+        goods.append(((np.abs(a-c)*mask).sum(axis=0)/np.maximum(counts,1)) <= ((tol*mask).sum(axis=0)/np.maximum(counts,1)))
+    return float((goods[0]&goods[1]&goods[2])[valid].mean())
 
 
 def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str, float] | None,
@@ -1669,13 +1740,7 @@ def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str
     norm=np.power(np.abs(nx)**pp + np.abs(ny)**pp + np.abs(nz)**pp, 1.0/pp)
     active=(np.abs(nx)>0.18).astype(np.int32)+(np.abs(ny)>0.18).astype(np.int32)+(np.abs(nz)>0.18).astype(np.int32)
     cmask=base & (active>=2) & (norm >= edge*radius)
-    if cmask.sum() > 0:
-        goodx=np.abs(vx-cvx)<=_dynamic_tol(cvx,RegimeGovernor.PRECISION_TOL_VX,RegimeGovernor.PRECISION_REL_VX)
-        goody=np.abs(vy-cvy)<=_dynamic_tol(cvy,RegimeGovernor.PRECISION_TOL_VY,RegimeGovernor.PRECISION_REL_VY)
-        goodyaw=np.abs(yw-cyw)<=_dynamic_tol(cyw,RegimeGovernor.PRECISION_TOL_YAW,RegimeGovernor.PRECISION_REL_YAW)
-        out['frontier_precision_combo']=float((goodx & goody & goodyaw)[cmask].mean())
-    else:
-        out['frontier_precision_combo']=-1.0
+    out['frontier_precision_combo']=_combo_precision_on_mask(vx,cvx,vy,cvy,yw,cyw,cmask)
     out['frontier_edge_frac_combo']=float(cmask.mean())
 
     # Acceleration competence is deliberately separate: score the ramp itself
@@ -1688,8 +1753,7 @@ def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str
             for actual,cmd,af,rf in ((vx,cvx,RegimeGovernor.PRECISION_TOL_VX,RegimeGovernor.PRECISION_REL_VX),
                                      (vy,cvy,RegimeGovernor.PRECISION_TOL_VY,RegimeGovernor.PRECISION_REL_VY),
                                      (yw,cyw,RegimeGovernor.PRECISION_TOL_YAW,RegimeGovernor.PRECISION_REL_YAW)):
-                tol=2.0*_dynamic_tol(cmd,af,rf)
-                scores.append(float((np.abs(actual-cmd)[rmask]<=tol[rmask]).mean()))
+                scores.append(_precision_on_mask(actual,cmd,rmask,2.0*af,2.0*rf))
             out['transition_precision']=float(sum(scores)/len(scores))
         else:
             out['transition_precision']=-1.0
@@ -1962,6 +2026,32 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, params: dict[str, 
     return timing
 
 
+def validate_resume_payload(payload: Any, path: Path | None = None) -> dict[str, Any]:
+    """Validate the exact-resume contract; never reinterpret a partial checkpoint."""
+    where=f" at {path}" if path is not None else ""
+    if not isinstance(payload,dict):
+        raise ValueError(f"resume checkpoint{where} is not a dict payload")
+    meta=payload.get('meta')
+    if not isinstance(meta,dict):
+        raise ValueError(f"resume checkpoint{where} has no meta contract")
+    if int(meta.get('checkpoint_schema',-1)) != CHECKPOINT_SCHEMA:
+        raise ValueError(f"checkpoint schema mismatch{where}: checkpoint={meta.get('checkpoint_schema')} current={CHECKPOINT_SCHEMA}")
+    if int(meta.get('field_schema',-1)) != FIELD_VERSION:
+        raise ValueError(f"field schema mismatch{where}: checkpoint={meta.get('field_schema')} current={FIELD_VERSION}")
+    if meta.get('obs_dim') != OBS_DIM or meta.get('action_dim') != ACTION_DIM:
+        raise ValueError(f"checkpoint observation/action contract mismatch{where}: checkpoint={meta.get('obs_dim')}/{meta.get('action_dim')} current={OBS_DIM}/{ACTION_DIM}")
+    if meta.get('robot_model_sha256') != ROBOT_MODEL_SHA256:
+        raise ValueError(f"checkpoint robot.xml hash mismatch{where}: checkpoint={meta.get('robot_model_sha256')} current={ROBOT_MODEL_SHA256}")
+    for key in ('state','curriculum_params','obs_norm','governor_meta'):
+        if payload.get(key) is None:
+            raise ValueError(f"resume checkpoint{where} missing required {key}")
+    gm=payload['governor_meta']
+    if not isinstance(gm,dict) or not isinstance(gm.get('_capability_field'),dict):
+        raise ValueError(f"resume checkpoint{where} missing capability field state")
+    if not payload_params_are_finite(payload):
+        raise ValueError(f"resume checkpoint{where} contains non-finite policy parameters")
+    return payload
+
 def find_newest_valid_snapshot(checkpoints_dir: Path) -> Path | None:
     for candidate in sorted(checkpoints_dir.glob('snapshot_step_*.pkl'), reverse=True):
         try:
@@ -2132,46 +2222,28 @@ def train(args: argparse.Namespace) -> int:
     if getattr(args, 'resume', ''):
         is_auto = args.resume.lower() == 'auto'
         resume_path = (run_dir / 'checkpoints' / 'latest_mjx.pkl') if is_auto else Path(args.resume)
-        if resume_path.exists():
+        if not resume_path.exists():
+            raise RuntimeError(f"--resume requested but checkpoint does not exist: {resume_path}")
+        try:
+            with resume_path.open('rb') as f:
+                resumed_payload = pickle.load(f)
             try:
-                with resume_path.open('rb') as f:
+                validate_resume_payload(resumed_payload, resume_path)
+            except Exception as primary_exc:
+                if not is_auto:
+                    raise
+                fallback = find_newest_valid_snapshot(run_dir / 'checkpoints')
+                if fallback is None:
+                    raise RuntimeError(f"primary resume checkpoint invalid ({primary_exc}); no rotating snapshot is available") from primary_exc
+                with fallback.open('rb') as f:
                     resumed_payload = pickle.load(f)
-                cmeta = resumed_payload.get('meta', {}) if isinstance(resumed_payload, dict) else {}
-                if cmeta.get('obs_dim') not in (None, OBS_DIM) or cmeta.get('action_dim') not in (None, ACTION_DIM):
-                    raise ValueError(f"checkpoint observation/action contract mismatch: checkpoint={cmeta.get('obs_dim')}/{cmeta.get('action_dim')} current={OBS_DIM}/{ACTION_DIM}")
-                if cmeta.get('robot_model_sha256') not in (None, ROBOT_MODEL_SHA256):
-                    print(f"{LOG_PREFIX} --resume WARNING: checkpoint robot.xml hash differs from current source; network shapes are compatible but physics provenance changed.", flush=True)
-                # Don't trust a checkpoint just because it unpickled -- a
-                # NaN-poisoned run can keep overwriting `latest_mjx.pkl`
-                # with a perfectly loadable file full of NaN weights. Only
-                # 'auto' gets the automatic fallback to the newest valid
-                # rotating snapshot -- an explicit --resume path is the
-                # user's deliberate choice, so a bad file there fails safe
-                # to a fresh start instead of silently substituting a
-                # different file they didn't ask for.
-                if not payload_params_are_finite(resumed_payload):
-                    print(f"{LOG_PREFIX} --resume: {resume_path} loaded but contains non-finite "
-                          f"(NaN/Inf) params -- this checkpoint is poisoned, not usable.", flush=True)
-                    resumed_payload = None
-                    if is_auto:
-                        fallback = find_newest_valid_snapshot(run_dir / 'checkpoints')
-                        if fallback is not None:
-                            with fallback.open('rb') as f:
-                                resumed_payload = pickle.load(f)
-                            print(f"{LOG_PREFIX} --resume: falling back to rotating snapshot {fallback}", flush=True)
-                        else:
-                            print(f"{LOG_PREFIX} --resume: no valid rotating snapshot found either -- starting fresh", flush=True)
-                    else:
-                        print(f"{LOG_PREFIX} --resume: starting fresh (pass a specific --resume <snapshot path> "
-                              "if you want to try an older rotating snapshot instead)", flush=True)
-                if resumed_payload is not None:
-                    resumed_step = int(resumed_payload.get('meta', {}).get('step', 0))
-                    print(f"{LOG_PREFIX} --resume: loaded checkpoint (was at step={resumed_step:,})", flush=True)
-            except Exception as exc:
-                print(f"{LOG_PREFIX} --resume: failed to load {resume_path} ({exc!r}) -- starting fresh instead", flush=True)
-                resumed_payload = None
-        else:
-            print(f"{LOG_PREFIX} --resume: no checkpoint found at {resume_path} -- starting fresh", flush=True)
+                validate_resume_payload(resumed_payload, fallback)
+                resume_path = fallback
+                print(f"{LOG_PREFIX} --resume: primary checkpoint invalid; falling back to validated rotating snapshot {fallback}", flush=True)
+            resumed_step = int(resumed_payload['meta']['step'])
+            print(f"{LOG_PREFIX} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})", flush=True)
+        except Exception as exc:
+            raise RuntimeError(f"--resume failed for {resume_path}: {exc}") from exc
 
         # Seed THIS run's own best-tier snapshots from wherever we resumed
         # from, if it has any and we don't already. Auto-recovery (below,
@@ -2373,6 +2445,15 @@ def train(args: argparse.Namespace) -> int:
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
                               frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
                               frontier_sensor_safety=args.frontier_sensor_safety)
+    # When adaptive physical frontiers are disabled, report the actual fixed
+    # command envelope rather than dormant RegimeParams defaults. v5011's 20M
+    # foundation therefore appeared to exceed its own command caps in logs even
+    # though the environment correctly used the smaller fixed limits.
+    if not args.open_frontier and warm_payload is None and resumed_payload is None:
+        governor.params.frontier_vx_hi = float(args.vx_hi_max)
+        governor.params.frontier_vx_lo = float(args.vx_lo_min)
+        governor.params.frontier_vy = float(args.vy_max_mps)
+        governor.params.frontier_yaw = float(args.yaw_max_rad_s)
     if warm_payload is not None and resumed_payload is None and args.warm_start_curriculum:
         try:
             saved_curriculum = warm_payload.get('curriculum_params', {}) or {}
@@ -2398,7 +2479,7 @@ def train(args: argparse.Namespace) -> int:
             known_fields = {f.name for f in dataclass_fields(RegimeParams)}
             governor.params = RegimeParams(**{k: v for k, v in saved_curriculum.items() if k in known_fields})
         except Exception as exc:
-            print(f"{LOG_PREFIX} --resume: could not restore curriculum params ({exc!r}) -- using fresh RegimeParams", flush=True)
+            raise RuntimeError(f"--resume could not restore curriculum params: {exc}") from exc
         gmeta = resumed_payload.get('governor_meta') or {}
         # Current checkpoints carry complete governor state. Keep the compact
         # updates_done_total-only path so older checkpoints remain loadable.
@@ -2412,10 +2493,9 @@ def train(args: argparse.Namespace) -> int:
                 governor._updates_done_total = int(gmeta['updates_done_total'])
                 print(f"{LOG_PREFIX} --resume: restored legacy updates_done_total={governor._updates_done_total}.", flush=True)
         except Exception as exc:
-            print(f"{LOG_PREFIX} --resume: governor dynamic-state restore failed ({exc!r}); "
-                  "curriculum scalars were still restored.", flush=True)
+            raise RuntimeError(f"--resume governor dynamic-state restore failed: {exc}") from exc
 
-    # v5011 event-based continuous self-map.  This field is built from the SAME rollout
+    # v5012 event-based continuous self-map.  This field is built from the SAME rollout
     # metrics already transferred for PPO/governor diagnostics; there is no
     # extra simulation and no per-death host callback.  Held-out cloud results
     # never enter this object.
@@ -2425,13 +2505,14 @@ def train(args: argparse.Namespace) -> int:
     if resumed_payload is not None:
         try:
             fm = (resumed_payload.get('governor_meta') or {}).get('_capability_field')
-            if isinstance(fm, dict):
-                field = CapabilityField.from_state_dict(fm)
-                print(f"{LOG_PREFIX} --resume: restored capability field "
-                      f"({field.summary()['field_known_nodes']:.0f} known nodes, "
-                      f"{field.summary()['field_known_edges']:.0f} known edges)", flush=True)
+            if not isinstance(fm, dict):
+                raise ValueError('checkpoint has no capability field state')
+            field = CapabilityField.from_state_dict(fm)
+            print(f"{LOG_PREFIX} --resume: restored capability field "
+                  f"({field.summary()['field_known_nodes']:.0f} known nodes, "
+                  f"{field.summary()['field_known_edges']:.0f} known edges)", flush=True)
         except Exception as exc:
-            print(f"{LOG_PREFIX} --resume: capability field restore failed ({exc!r}); starting a fresh map", flush=True)
+            raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
     def params_with_field(step: int) -> dict[str, Any]:
         d = governor.params_dict()
@@ -2462,9 +2543,7 @@ def train(args: argparse.Namespace) -> int:
                   f"env-alloc={governor.params.regime_frac_steady:.2f}/{governor.params.regime_frac_transition:.2f}/"
                   f"{governor.params.regime_frac_resilience:.2f}); episode buffers re-initialize fresh.", flush=True)
         except Exception as exc:
-            print(f"{LOG_PREFIX} --resume: could not restore network/optimizer state ({exc!r}) -- starting fresh instead", flush=True)
-            resumed_payload = None
-            resumed_step = 0
+            raise RuntimeError(f"--resume network/optimizer restore failed: {exc}") from exc
     if warm_payload is not None and resumed_payload is None:
         try:
             loaded_state = warm_payload['state']
@@ -2502,7 +2581,7 @@ def train(args: argparse.Namespace) -> int:
             obs_count = float(saved_norm['count'])
             print(f"{LOG_PREFIX} --resume: restored obs normalization (count={obs_count:,.0f})", flush=True)
         except Exception as exc:
-            print(f"{LOG_PREFIX} --resume: could not restore obs normalization ({exc!r}) -- using fresh running stats", flush=True)
+            raise RuntimeError(f"--resume observation-normalizer restore failed: {exc}") from exc
     # KL-adaptive learning-rate controller (standard form: Schulman
     # adaptive-KL PPO, rl_games, Brax) -- a soft, multiplicative, self-
     # tuning complement to the hard KL_HARD_STOP ceiling above. KL cost
@@ -2836,6 +2915,7 @@ def train(args: argparse.Namespace) -> int:
         if count <= 0:
             return
         t0_cloud = time.perf_counter()
+        field_before_exam = field.fingerprint()
 
         # Stage 5.2: control-gated paired cloud. Screen exact no-disturbance
         # controls first; only spend expensive pose/momentum/impact/chaos
@@ -2844,7 +2924,7 @@ def train(args: argparse.Namespace) -> int:
         # away after the fact. Specs are evaluated in small outer-vmap chunks
         # so 256-env cloud points no longer under-fill the GPU one at a time.
         panel_id = 0 if force else max(0, int(step // max(1, every)) - 1)
-        # v5011 calibration review: let the training-derived field choose
+        # v5012 calibration review: let the training-derived field choose
         # *questions* spanning its predicted competence bands, but never let
         # held-out answers update the field. If the map is still too young,
         # fall back to the deterministic paired panel.
@@ -2898,15 +2978,16 @@ def train(args: argparse.Namespace) -> int:
         cloud_annotate_matched_controls(cloud_rows)
         cloud_write_csv(run_dir / 'heldout_capability_cloud.csv', cloud_rows)
         summary = cloud_summarize_rows(cloud_rows)
-        cal_pairs=[(float(r.get('field_predicted_competence',np.nan)),float(r.get('recovery_rate',np.nan)))
-                   for r in control_rows if np.isfinite(float(r.get('field_predicted_competence',np.nan)))]
+        cal_pairs=[(float(r.get('field_predicted_competence',np.nan)),float(r.get('node_window_rate',np.nan)))
+                   for r in control_rows if np.isfinite(float(r.get('field_predicted_competence',np.nan)))
+                   and np.isfinite(float(r.get('node_window_rate',np.nan)))]
         cal_mae=float(np.mean([abs(a-b) for a,b in cal_pairs])) if cal_pairs else -1.0
         cal_brier=float(np.mean([(a-b)**2 for a,b in cal_pairs])) if cal_pairs else -1.0
         summary.update({'policy_step': int(step), 'points': len(cloud_rows),
                         'requested_panel_points': len(requested), 'executed_panel_points': len(new_rows),
                         'envs_per_point': int(args.cloud_envs), 'horizon_steps': int(args.cloud_horizon),
                         'field_calibration_points':len(cal_pairs),'field_calibration_mae':cal_mae,
-                        'field_calibration_brier':cal_brier})
+                        'field_calibration_brier':cal_brier,'field_calibration_target':'node_window_rate'})
         latest_eval['field_calibration_mae']=cal_mae
         latest_eval['field_calibration_brier']=cal_brier
         latest_eval['field_calibration_points']=float(len(cal_pairs))
@@ -2915,6 +2996,9 @@ def train(args: argparse.Namespace) -> int:
         cloud_next_index = len(cloud_rows)
         elapsed = time.perf_counter() - t0_cloud
         perf.add('capability_cloud', elapsed)
+        field_after_exam = field.fingerprint()
+        if field_after_exam != field_before_exam:
+            raise RuntimeError('held-out capability exam mutated the live capability field; quarantine invariant violated')
 
         cloud_annotate_matched_controls(new_rows)
         valid=[r for r in new_rows if int(float(r.get('resilience_valid',0) or 0)) == 1]
@@ -3582,7 +3666,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--cloud-batch-points', type=int, default=4,
                     help='evaluate this many cloud points together with an outer vmap; 4x256 envs is conservative versus 2048-env training')
     p.add_argument('--capability-field-mode', choices=['off','shadow','nodes','graph'], default='off',
-                    help='v5011 event-based capability graph: shadow observes only; nodes steers command geography; graph also steers complete maneuver targets')
+                    help='v5012 event-based capability graph: shadow observes only; nodes steers command geography; graph also steers complete maneuver targets')
     p.add_argument('--field-half-life-steps', type=float, default=20_000_000,
                     help='training-step half-life of live capability evidence')
     p.add_argument('--field-influence-start-steps', type=int, default=10_000_000,

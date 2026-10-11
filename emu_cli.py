@@ -16,6 +16,9 @@ HERE = Path(__file__).resolve().parent
 VERSION = (HERE / 'VERSION').read_text(encoding='utf-8').strip()
 DEFAULT_RUN_ROOT = Path.home() / 'robot_lab' / 'emu_runs' / VERSION
 
+def _run_root_for_seed(seed: int) -> Path:
+    return DEFAULT_RUN_ROOT if int(seed)==733 else Path.home()/'robot_lab'/'emu_runs'/f'{VERSION}_seed{int(seed)}'
+
 
 def _runner(extra: list[str]) -> int:
     return subprocess.call([sys.executable, str(HERE/'run_ladder.py'), *extra], cwd=HERE)
@@ -43,11 +46,13 @@ def _recommended_train_args(args) -> list[str]:
 def _find_checkpoint(run_root: Path) -> Path | None:
     rr = run_root / 'rung_runs'
     if not rr.exists(): return None
-    names=('final.pkl','best_eval.pkl','latest.pkl','latest_mjx.pkl')
-    candidates=[]
-    for name in names:
-        candidates.extend(p for p in rr.glob(f'*/checkpoints/{name}') if p.is_file())
-    return max(candidates,key=lambda p:p.stat().st_mtime) if candidates else None
+    # Semantic priority beats mtime: a terminal final checkpoint is preferred
+    # over a newer intermediate/latest file from another branch/process.
+    for name in ('final.pkl','best_eval.pkl','latest.pkl','latest_mjx.pkl'):
+        candidates=[p for p in rr.glob(f'*/checkpoints/{name}') if p.is_file()]
+        if candidates:
+            return max(candidates,key=lambda p:p.stat().st_mtime)
+    return None
 
 
 def doctor(args) -> int:
@@ -60,6 +65,10 @@ def doctor(args) -> int:
     except Exception as exc:
         failures.append(f'NumPy import: {exc}')
     try:
+        # A diagnostic reset/step does not need JAX's large default VRAM
+        # reservation; disabling preallocation here avoids scary-but-recoverable
+        # OOM spam on display GPUs. This process-local setting does not affect training.
+        os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE','false')
         import jax
         print(f'JAX: {jax.__version__}  backend={jax.default_backend()}  devices={jax.devices()}')
         if args.require_gpu and jax.default_backend() not in ('gpu','cuda'):
@@ -80,9 +89,9 @@ def doctor(args) -> int:
         age=(np.arange(T,dtype=np.float32)[:,None]+1)*.02+z
         metrics={'cmd_vx':z+.1,'cmd_vy':z,'cmd_yaw':z,'target_cmd_vx':z+.1,'target_cmd_vy':z,'target_cmd_yaw':z,
                  'transition_ramp_speed':z,'vx':z+.1,'vy':z,'yaw_rate':z,'gravity_z':o,'support':o*.3,'bad_contact':z,
-                 'episode_fell':z,'episode_done':z,'age_s':age,'regime_resilience':z,'birth_resilience_d':z,'transition_frac':z}
+                 'episode_fell':z,'episode_done':z,'age_s':age,'regime_resilience':z,'birth_resilience_d':z,'transition_frac':z,'cmd_resampled':z}
         d=f.update_from_rollout(metrics,step=65536)
-        assert FIELD_VERSION==2 and d['field_node_events_update']>0
+        assert FIELD_VERSION==3 and d['field_node_events_update']>0
         CapabilityField.from_state_dict(f.state_dict())
         print(f'Capability field schema {FIELD_VERSION}: PASS ({int(d["field_node_events_update"])} semantic node events)')
     except Exception as exc:
@@ -127,11 +136,11 @@ def main(argv=None) -> int:
     training_parser('resume','resume/reuse the current recommended run; safe to rerun after interruption')
 
     q=sub.add_parser('view',help='open the live read-only capability-field viewer')
-    q.add_argument('--run-dir',default=''); q.add_argument('--run-root',default=''); q.add_argument('--port',type=int,default=8765)
+    q.add_argument('--run-dir',default=''); q.add_argument('--run-root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--port',type=int,default=8765)
 
     q=sub.add_parser('evaluate',help='run the physical atlas for a checkpoint')
-    q.add_argument('--checkpoint',default='',help='defaults to newest v5011 final/best/latest checkpoint')
-    q.add_argument('--run-root',default=str(DEFAULT_RUN_ROOT)); q.add_argument('--device',choices=['cuda','gpu','cpu','auto'],default='cuda')
+    q.add_argument('--checkpoint',default='',help='defaults to final, then best, then latest checkpoint')
+    q.add_argument('--run-root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--device',choices=['cuda','gpu','cpu','auto'],default='cuda')
     q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300)
 
     q=sub.add_parser('doctor',help='validate Python, JAX/MJX, robot model and capability-field plumbing')
@@ -142,26 +151,46 @@ def main(argv=None) -> int:
     q.add_argument('--seeds',default='733,1742'); q.add_argument('--steps',type=int,default=120_000_000)
     q.add_argument('--device',choices=['cuda','gpu','cpu','auto'],default='cuda')
 
+    q=sub.add_parser('compare',help='run matched shadow-vs-graph trainer arms from exact 20M foundations')
+    q.add_argument('--seeds',default='733,1742'); q.add_argument('--steps',type=int,default=120_000_000)
+    q.add_argument('--device',choices=['cuda','gpu','cpu','auto'],default='cuda')
+
     q=sub.add_parser('experiment',help='pass advanced arguments directly to run_ladder.py')
     q.add_argument('args',nargs=argparse.REMAINDER)
 
     args=p.parse_args(argv)
     if args.cmd in ('train','resume'):
+        if args.cmd == 'resume':
+            root=Path(args.run_root).expanduser() if args.run_root else _run_root_for_seed(args.seed)
+            checkpoints=list((root/'rung_runs').glob('*/checkpoints/latest_mjx.pkl')) if (root/'rung_runs').exists() else []
+            if not checkpoints:
+                raise SystemExit(f'No resumable run found under {root}; use `emu train` for a new cold start.')
         return _runner(_recommended_train_args(args))
     if args.cmd=='view':
         from field_viewer import main as view_main
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
-        elif args.run_root: av += ['--run-root',args.run_root]
+        else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else _run_root_for_seed(args.seed))]
         return int(view_main(av) or 0)
     if args.cmd=='doctor': return doctor(args)
     if args.cmd=='evaluate':
-        root=Path(args.run_root).expanduser()
+        root=Path(args.run_root).expanduser() if args.run_root else _run_root_for_seed(args.seed)
         ck=Path(args.checkpoint).expanduser() if args.checkpoint else _find_checkpoint(root)
         if ck is None or not ck.exists():
             raise SystemExit(f'No checkpoint found. Pass --checkpoint or train under {root}.')
         return _runner(['--stage','atlas','--start','checkpoint','--checkpoint',str(ck),'--device',args.device,
                         '--atlas-envs',str(args.envs),'--atlas-horizon',str(args.horizon)])
+    if args.cmd=='compare':
+        seeds=[int(x.strip()) for x in args.seeds.split(',') if x.strip()]
+        if not seeds: raise SystemExit('--seeds must contain at least one integer')
+        for seed in seeds:
+            run_root=Path.home()/'robot_lab'/'emu_runs'/f'{VERSION}_compare_seed{seed}'
+            results_dir=Path.home()/'robot_lab'/'emu'/'results'/f'{VERSION}_compare_seed{seed}'
+            rc=_runner(['--stage','trainer','--only','trainer_shadow,trainer_graph','--no-trainer-confirm-zero',
+                        '--seed',str(seed),'--trainer-target-steps',str(args.steps),'--device',args.device,
+                        '--run-root',str(run_root),'--results-dir',str(results_dir)])
+            if rc: return rc
+        return 0
     if args.cmd=='benchmark':
         seeds=[int(x.strip()) for x in args.seeds.split(',') if x.strip()]
         if not seeds: raise SystemExit('--seeds must contain at least one integer')

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emu-biped"
-version = "5011.0.0"
+version = "5012.0.0"
 description = "Self-mapping reinforcement-learning trainer for a dynamically unstable six-actuator biped"
 readme = "README.md"
 requires-python = ">=3.13"

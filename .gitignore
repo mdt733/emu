@@ -24,16 +24,3 @@ __pycache__/
 /local_runs/
 
 # Keep results/ tracked: it contains compact, durable experiment evidence.
-
-# Local Python environment
-.venv/
-
-# Generated training data
-emu_runs/
-results/
-
-# Python/build artefacts
-__pycache__/
-*.pyc
-*.egg-info/
-.pytest_cache/
