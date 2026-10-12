@@ -85,8 +85,27 @@ def build_worlds(config: TrainingConfig) -> dict[str, tuple[Any, dict[str, Any]]
 
 
 def initial_metrics() -> dict[str, float]:
+    """Complete held-out metric schema, including fields populated only after an exam.
+
+    ``metrics.csv`` is intentionally strict about column drift. Therefore every
+    held-out metric that can appear later in a run must exist from row one, with
+    a neutral/sentinel value until the corresponding exam has executed.
+    """
     out = {f'eval_{name}_{field}': -1.0 for name in PANELS for field in EVAL_FIELDS}
     out.update(eval_policy_step=-1.0, eval_broad_score=-1e9, eval_broad_tail3=-1e9)
+    out.update({
+        'perf_fixed_eval_total_s': 0.0,
+        'perf_eval_cohorts_used': 0.0,
+        'perf_eval_env_steps': 0.0,
+        'perf_eval_env_steps_per_s': 0.0,
+        'perf_best_checkpoint_total_s': 0.0,
+        'perf_best_checkpoint_device_get_s': 0.0,
+        'perf_best_checkpoint_pickle_s': 0.0,
+        'field_calibration_mae': -1.0,
+        'field_calibration_brier': -1.0,
+        'field_calibration_points': 0.0,
+    })
+    out.update({f'perf_eval_{name}_s': 0.0 for name in PANELS})
     return out
 
 

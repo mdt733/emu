@@ -390,3 +390,33 @@ def test_training_registers_every_perf_timer_used_by_training_source():
         if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
             used.add(node.args[0].value)
     assert used <= set(training.TRAIN_PERF_TIMER_NAMES)
+
+
+def test_initial_eval_metrics_declares_late_exam_columns_from_row_one():
+    from emu.evaluation import PANELS, initial_metrics
+
+    row = initial_metrics()
+    expected = {
+        'perf_fixed_eval_total_s',
+        'perf_eval_cohorts_used',
+        'perf_eval_env_steps',
+        'perf_eval_env_steps_per_s',
+        'perf_best_checkpoint_total_s',
+        'perf_best_checkpoint_device_get_s',
+        'perf_best_checkpoint_pickle_s',
+        'field_calibration_mae',
+        'field_calibration_brier',
+        'field_calibration_points',
+    }
+    expected.update(f'perf_eval_{name}_s' for name in PANELS)
+    assert expected <= set(row)
+    assert row['field_calibration_mae'] == -1.0
+    assert row['perf_fixed_eval_total_s'] == 0.0
+
+
+def test_field_influence_schema_helper_is_shared_by_periodic_and_final_rows():
+    from emu.training import attach_field_influence
+
+    report = {}
+    attach_field_influence(report, {'field_node_frac': 0.25, 'field_edge_frac': 0.10})
+    assert report == {'field_node_influence': 0.25, 'field_edge_influence': 0.10}

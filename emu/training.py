@@ -83,6 +83,16 @@ def env_kwargs_from_args(args) -> dict:
     )
 
 
+def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> None:
+    """Attach the teaching influence that generated the next task packet.
+
+    Periodic and final metrics rows must share one schema. Keeping this in one
+    helper prevents the final-row path from silently omitting these fields.
+    """
+    report['field_node_influence'] = float(params.get('field_node_frac', 0.0))
+    report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
+
+
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
                      nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any]) -> dict[str, Any]:
@@ -611,8 +621,7 @@ def train(args: TrainingConfig) -> int:
                   f"{health.KL_STRESS_CHRONIC_WINDOW} updates -- ignoring the KL-stress gate so it can't freeze "
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
-        report['field_node_influence'] = float(params.get('field_node_frac', 0.0))
-        report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
+        attach_field_influence(report, params)
         p = env.params_array(params)
         perf.add('governor_and_params', time.perf_counter() - governor_t0)
 
@@ -892,6 +901,8 @@ def train(args: TrainingConfig) -> int:
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
+    params = params_with_field(total_steps)
+    attach_field_influence(report, params)
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
     train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
@@ -903,7 +914,6 @@ def train(args: TrainingConfig) -> int:
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row())
     append_metrics_csv(run_dir / 'metrics.csv', final_row)
-    params = params_with_field(total_steps)
     write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': final_row})
     final_ck_timing = save_checkpoint(
         run_dir / 'checkpoints' / 'latest.pkl', state,
