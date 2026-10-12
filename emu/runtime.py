@@ -15,11 +15,26 @@ class PerfBook:
     bookkeeping, held-out evaluation, checkpoint device->host transfer, or disk
     I/O before attempting more invasive JAX changes.
     """
-    def __init__(self, enabled: bool = False):
+    def __init__(self, enabled: bool = False, known_names: tuple[str, ...] = ()):
         self.enabled = bool(enabled)
         self.total: dict[str, float] = {}
         self.count: dict[str, int] = {}
         self.last: dict[str, float] = {}
+        self.register(*known_names)
+
+    def register(self, *names: str) -> None:
+        """Declare timer names without pretending they have fired.
+
+        Metrics CSV has a strict schema, so event-driven timers (checkpoint,
+        evaluation, cloud, log I/O) must exist as zero-valued columns from the
+        first row instead of appearing only after their first event.
+        """
+        if not self.enabled:
+            return
+        for name in names:
+            self.total.setdefault(str(name), 0.0)
+            self.count.setdefault(str(name), 0)
+            self.last.setdefault(str(name), 0.0)
 
     def add(self, name: str, seconds: float) -> float:
         x = float(seconds)

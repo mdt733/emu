@@ -49,6 +49,8 @@ PANELS = {
     'growthcombo110': ('growth_combo', 919, _episode(1.0, .80, .30, .35, (.55, .35, .10), .90)),
 }
 
+EVAL_PERF_TIMER_NAMES = tuple(f'eval_{name}' for name in PANELS)
+
 
 def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, float, float, float],
            combo_mix: float = 0.0, sensor_scale: float | None = None):

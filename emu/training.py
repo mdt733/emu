@@ -38,7 +38,10 @@ from .ppo import make_trainer, update_running_stats
 from .rollout_metrics import summarize_rollout
 from .runtime import PerfBook, configure_jax, require_backend
 from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
-from .evaluation import build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed
+from .evaluation import (
+    build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
+    EVAL_PERF_TIMER_NAMES,
+)
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
                             validate_resume_payload, find_newest_valid_snapshot,
@@ -46,6 +49,17 @@ from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkp
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
+
+TRAIN_PERF_TIMER_NAMES = (
+    'train_update', 'host_metric_transfer', 'capability_field_update',
+    'host_rollout_summary', 'governor_and_params', 'obs_norm_and_sync',
+    'log_io', 'fixed_eval_total', 'capability_cloud',
+    'checkpoint_best_device_get', 'checkpoint_best_pickle_write', 'checkpoint_best_total',
+    'checkpoint_latest_device_get', 'checkpoint_latest_pickle_write', 'checkpoint_latest_total',
+    'checkpoint_snapshot_device_get', 'checkpoint_snapshot_pickle_write', 'checkpoint_snapshot_total',
+    'checkpoint_final_device_get', 'checkpoint_final_pickle_write', 'checkpoint_final_total',
+    *EVAL_PERF_TIMER_NAMES,
+)
 
 # ---------------------------------------------------------------------------
 # Utilities / artifacts.
@@ -166,7 +180,7 @@ def train(args: TrainingConfig) -> int:
             'config': vars(args), 'doctrine': doctrine_dict(),
             'resumed_from_step': resumed_step if resumed_payload is not None else None}
     write_json(run_dir / 'run_meta.json', meta)
-    perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE))
+    perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
                     max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))

@@ -354,3 +354,39 @@ def test_optax_partition_routes_prefix_labels_when_dependency_is_available():
     np.testing.assert_allclose(np.asarray(updates['pi']['w']), [-0.1])
     np.testing.assert_allclose(np.asarray(updates['log_std']), [-0.1])
     np.testing.assert_allclose(np.asarray(updates['vf']['w']), [-0.2])
+
+
+def test_perfbook_registered_timers_keep_metrics_schema_stable():
+    from emu.runtime import PerfBook
+
+    perf = PerfBook(enabled=True, known_names=('train_update', 'log_io', 'checkpoint_latest_total'))
+    first = perf.row()
+    assert first['perf_log_io_total_s'] == 0.0
+    assert first['perf_log_io_count'] == 0.0
+
+    perf.add('train_update', 1.25)
+    second = perf.row()
+    assert list(second) == list(first)
+
+    perf.add('log_io', 0.05)
+    third = perf.row()
+    assert list(third) == list(first)
+    assert third['perf_log_io_total_s'] == 0.05
+    assert third['perf_log_io_count'] == 1.0
+
+
+def test_training_registers_every_perf_timer_used_by_training_source():
+    import ast
+    import inspect
+    import emu.training as training
+
+    tree = ast.parse(inspect.getsource(training))
+    used = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != 'add' or not isinstance(node.func.value, ast.Name) or node.func.value.id != 'perf':
+            continue
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            used.add(node.args[0].value)
+    assert used <= set(training.TRAIN_PERF_TIMER_NAMES)
