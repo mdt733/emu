@@ -1,7 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
 import numpy as np
 
-from capability_field import CapabilityField, FIELD_VERSION, EDGE_SCALES
+from emu.capability_field import CapabilityField, FIELD_VERSION, EDGE_SCALES
 
 
 def base_metrics(T=96,N=8,cmd=0.10):
@@ -10,13 +12,13 @@ def base_metrics(T=96,N=8,cmd=0.10):
     c=z+cmd
     return {'cmd_vx':c.copy(),'cmd_vy':z.copy(),'cmd_yaw':z.copy(),'target_cmd_vx':c.copy(),'target_cmd_vy':z.copy(),'target_cmd_yaw':z.copy(),
             'transition_ramp_speed':z.copy(),'vx':c.copy(),'vy':z.copy(),'yaw_rate':z.copy(),'gravity_z':o.copy(),'support':o*.30,'bad_contact':z.copy(),
-            'episode_fell':z.copy(),'episode_done':z.copy(),'age_s':age.copy(),'regime_resilience':z.copy(),'birth_resilience_d':z.copy(),'transition_frac':z.copy(),'cmd_resampled':z.copy()}
+            'episode_fell':z.copy(),'episode_done':z.copy(),'age_s':age.copy(),'regime_resilience':z.copy(),'birth_resilience_d':z.copy(),'transition_frac':z.copy(),'cmd_resampled':z.copy(),'field_taught':z.copy()}
 
 
 class CapabilityFieldTests(unittest.TestCase):
     def test_schema_and_mastered_node(self):
         f=CapabilityField(); d=f.update_from_rollout(base_metrics(),step=65536)
-        self.assertEqual(FIELD_VERSION,3)
+        self.assertEqual(FIELD_VERSION,6)
         self.assertGreater(d['field_node_events_update'],0)
         self.assertGreaterEqual(d['field_competent_nodes'],1)
         self.assertGreater(d['field_mean_quality_known'],.8)
@@ -111,6 +113,28 @@ class CapabilityFieldTests(unittest.TestCase):
                 expected=float(np.linalg.norm(np.asarray(target,np.float32)/EDGE_SCALES)/.02)
                 self.assertTrue(np.allclose(rates,expected,rtol=.03))
 
+
+    def test_clean_evidence_excludes_field_taught_practice(self):
+        taught=base_metrics(); taught['field_taught'][:]=1.0
+        f=CapabilityField(); d=f.update_from_rollout(taught,step=65536,exclude_field_taught=True)
+        self.assertEqual(int(d['field_node_events_update']),0)
+        self.assertEqual(int(d['field_recovery_events_update']),0)
+        self.assertEqual(int(d['field_edge_events_update']),0)
+        self.assertEqual(int(d['field_known_nodes']),0)
+
+    def test_teaching_schedule_and_family_masks(self):
+        f=CapabilityField()
+        up=f.teaching_packet(step=40_000_000,mode='graph',start=20_000_000,full=60_000_000,maximum=.40)
+        self.assertAlmostEqual(up['field_node_frac'],.20,places=6)
+        self.assertAlmostEqual(up['field_edge_frac'],.20,places=6)
+        fade=f.teaching_packet(step=52_500_000,mode='graph',start=20_000_000,full=30_000_000,
+                                fade_start=45_000_000,zero=60_000_000,maximum=.40)
+        self.assertAlmostEqual(fade['field_node_frac'],.20,places=6)
+        nodes=f.teaching_packet(step=40_000_000,mode='graph',start=20_000_000,full=30_000_000,maximum=.40,teach_edges=False)
+        self.assertEqual(nodes['field_edge_frac'],0.0)
+        edges=f.teaching_packet(step=40_000_000,mode='graph',start=20_000_000,full=30_000_000,maximum=.40,teach_nodes=False)
+        self.assertEqual(edges['field_node_frac'],0.0)
+
     def test_missing_metric_fails_loudly(self):
         m=base_metrics(); del m['cmd_resampled']
         with self.assertRaises(KeyError): CapabilityField().update_from_rollout(m,step=65536)
@@ -120,10 +144,9 @@ class CapabilityFieldTests(unittest.TestCase):
         d=f.state_dict(); d['node_success']=np.zeros((1,),np.float32)
         with self.assertRaises(ValueError): CapabilityField.from_state_dict(d)
 
-    def test_unknown_config_keys_are_ignored(self):
-        f=CapabilityField(); d=f.state_dict(); d['cfg']['future_optional_knob']=123
-        g=CapabilityField.from_state_dict(d)
-        self.assertEqual(g.shape,f.shape)
+    def test_unknown_state_keys_are_rejected(self):
+        f=CapabilityField(); d=f.state_dict(); d['future_optional_knob']=123
+        with self.assertRaises(ValueError): CapabilityField.from_state_dict(d)
 
     def test_read_only_queries_do_not_mutate_field(self):
         f=CapabilityField(); f.update_from_rollout(base_metrics(),step=65536)
@@ -140,6 +163,26 @@ class CapabilityFieldTests(unittest.TestCase):
         p=g.teaching_packet(step=30_000_000,mode='graph',start=20_000_000,full=30_000_000,maximum=.65)
         self.assertEqual(p['field_node_anchors'].shape,(24,5))
         self.assertEqual(p['field_edge_anchors'].shape,(24,7))
+
+
+    def test_state_omits_retired_diagnostic_arrays(self):
+        keys=set(CapabilityField().state_dict())
+        retired={
+            'rec_quality_sum','rec_time_sum','rec_last_step',
+            'edge_quality_sum','edge_settle_sum','edge_last_step',
+        }
+        self.assertTrue(retired.isdisjoint(keys))
+
+
+    def test_current_npz_is_consumable_by_field_viewer(self):
+        from emu.field_viewer import payload
+        f=CapabilityField(); f.update_from_rollout(base_metrics(),step=65536)
+        with tempfile.TemporaryDirectory() as td:
+            path=Path(td)/'capability_field.npz'
+            f.save_npz(path)
+            d=payload(path)
+        self.assertEqual(d['field_schema'],FIELD_VERSION)
+        self.assertGreaterEqual(d['known_nodes'],1)
 
     def test_schema1_cannot_silently_resume(self):
         with self.assertRaises(ValueError):

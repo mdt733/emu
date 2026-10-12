@@ -1,5 +1,5 @@
 import unittest
-from capability_cloud import make_common_recovery_panel, FAMILIES
+from emu.capability_cloud import make_common_recovery_panel, FAMILIES
 
 class CommonRecoveryPanelTests(unittest.TestCase):
     def test_matched_bundles(self):

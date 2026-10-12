@@ -24,3 +24,6 @@ __pycache__/
 /local_runs/
 
 # Keep results/ tracked: it contains compact, durable experiment evidence.
+
+# Python build metadata
+*.egg-info/

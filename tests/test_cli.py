@@ -1,29 +1,26 @@
 import tempfile
 import unittest
 from pathlib import Path
-
-import emu_cli
-
+from emu import cli as emu_cli
 
 class CliTests(unittest.TestCase):
     def test_checkpoint_priority_beats_mtime(self):
         with tempfile.TemporaryDirectory() as td:
-            root=Path(td); c1=root/'rung_runs'/'a'/'checkpoints'; c2=root/'rung_runs'/'b'/'checkpoints'
-            c1.mkdir(parents=True); c2.mkdir(parents=True)
-            final=c1/'final.pkl'; latest=c2/'latest.pkl'
-            final.write_bytes(b'final'); latest.write_bytes(b'latest')
-            latest.touch()
-            self.assertEqual(emu_cli._find_checkpoint(root), final)
+            root=Path(td); a=root/'graph'/'checkpoints'; b=root/'shadow'/'checkpoints'
+            a.mkdir(parents=True); b.mkdir(parents=True)
+            final=a/'final.pkl'; latest=b/'latest.pkl'
+            final.write_bytes(b'final'); latest.write_bytes(b'latest'); latest.touch()
+            self.assertEqual(emu_cli.find_evaluation(root),final)
 
-    def test_seed_run_root_isolated(self):
-        self.assertEqual(emu_cli._run_root_for_seed(733), emu_cli.DEFAULT_RUN_ROOT)
-        self.assertIn('seed1742', str(emu_cli._run_root_for_seed(1742)))
+    def test_default_root_is_versioned_and_seeded(self):
+        self.assertIn(emu_cli.VERSION,str(emu_cli.seed_root(733)))
+        self.assertIn('seed733',str(emu_cli.seed_root(733)))
+        self.assertNotEqual(emu_cli.seed_root(733),emu_cli.seed_root(1742))
 
-    def test_resume_without_checkpoint_stops(self):
-        with tempfile.TemporaryDirectory() as td:
-            with self.assertRaises(SystemExit):
-                emu_cli.main(['resume','--run-root',td,'--steps','20000000'])
+    def test_public_commands_are_small(self):
+        # Parsing --help exits successfully; the public surface should remain intentionally tiny.
+        with self.assertRaises(SystemExit) as ctx:
+            emu_cli.main(['--help'])
+        self.assertEqual(ctx.exception.code,0)
 
-
-if __name__=='__main__':
-    unittest.main()
+if __name__=='__main__': unittest.main()

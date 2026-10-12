@@ -2,22 +2,26 @@
 
 Evaluation is deliberately quarantined from training.
 
+## Fixed regression panels
+
+`emu/evaluation.py` defines deterministic panel data and fixed evaluation worlds once. Core, dynamic, resilience, combination and growth panels are longitudinal regression rulers: the questions stay fixed while the policy changes.
+
+These panels can select `best.pkl`, but their answers never update PPO, curriculum, health or the capability field.
+
 ## Live field calibration
 
 Routine held-out reviews choose a few command coordinates from different predicted competence bands and ask: **is the self-map calibrated?**
 
-Reported calibration includes raw predicted/observed pairs plus mean absolute calibration error and a Brier-style squared error. These outcomes never update the field.
+Reported calibration includes raw predicted/observed pairs, mean absolute calibration error and a Brier-style squared error. Node predictions are compared with held-out node-window events; recovery predictions are kept as a separate question.
 
 ## Common recovery exam
 
-The forced final recovery exam uses the same moderate 3-D command panel for every policy. This fixes a v5010 pathology where an overly ambitious sparse panel sometimes left only four valid disturbed points because most undisturbed controls failed first.
+The forced final recovery exam uses the same moderate 3-D command panel for every policy. Undisturbed controls are screened first, and expensive disturbed rollouts are spent only on commands the policy can already execute competently.
 
-The common recovery exam measures recovery under comparable commands; it is not intended to discover physical command limits.
-
-## Fixed regression evaluators
-
-Historical core/dynamic/resilience/growth tests remain as sparse longitudinal regression rulers. They are useful for detecting accidental loss of old skills, not as a complete capability definition.
+The common recovery exam compares recovery under common commands; it is not a physical-limit search.
 
 ## Physical atlas
 
-The atlas is the expensive final map of physical-unit frontiers. It is appropriate at major milestones such as 120M and 220M, not as a frequent curriculum signal.
+`emu/atlas.py` is the expensive final map of physical-unit command and recovery frontiers. It is appropriate at major milestones, not as a curriculum signal.
+
+For lateral and yaw sweeps the atlas keeps a +0.08 m/s forward command, so those reported frontiers mean "while moving slowly forward" rather than "from static standing."

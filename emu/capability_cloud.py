@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EMU capability cloud (current VERSION read from VERSION file).
+"""EMU capability cloud helpers.
 
 Low-dimensional on purpose:
   command = (vx, vy, yaw) in real units
@@ -10,21 +10,21 @@ Low-dimensional on purpose:
 The nuisance details inside each family are stratified across vectorized
 environments, so direction remains measurable without becoming another map axis.
 Every disturbed command is paired with an undisturbed control at identical
-(vx, vy, yaw). This module is both a standalone cloud survey and the held-out
-sampler/summary helper used by training.py for continuous capability telemetry.
+(vx, vy, yaw). This module provides the held-out sampler, evaluator and summary helpers
+used by training.py for continuous capability telemetry.
 """
 from __future__ import annotations
 
-import argparse, csv, json, math, pickle, sys, time
-from pathlib import Path
+import math
 from typing import Iterable
 
 import numpy as np
+from .contracts import (CONTROL_DT, COMBO_P, RECOVERY_TILT_MAX_DEG, RECOVERY_LINVEL_MAX_MPS,
+                        RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG, task_param_defaults)
+from .tracking_contract import recovery_outcome_numpy
 
-VERSION = (Path(__file__).with_name('VERSION').read_text(encoding='utf-8').strip())
 
 FAMILIES = ('none', 'pose', 'momentum', 'impact', 'chaos')
-COMMAND_P = 1.35
 # Deliberately a little beyond the current 120M reference envelope.  These are
 # sampling scales, NOT claims of hardware capability and NOT training limits.
 CMD_SCALE = {
@@ -47,7 +47,7 @@ def halton(index: int, base: int) -> float:
     return r
 
 
-def pnorm(v, p: float = COMMAND_P) -> float:
+def pnorm(v, p: float = COMBO_P) -> float:
     a = np.abs(np.asarray(v, dtype=float))
     return float(np.power(np.sum(np.power(a, p)), 1.0 / p))
 
@@ -204,9 +204,7 @@ def make_calibration_panel(commands, *, panel_id: int = 0, source: str = 'field_
 def make_common_recovery_panel(point_budget: int = 50, *, source: str = 'final_common_recovery') -> list[dict]:
     """Deterministic mature-policy recovery exam with useful matched controls.
 
-    v5010's final Halton panel sometimes spent almost all of its budget on
-    commands the policy could not execute cleanly, leaving only four valid
-    disturbed points.  This exam deliberately samples a conservative but
+    Sample a conservative but
     genuinely 3-D operating region; physical limits still belong to the dense
     atlas.  Every command is tested as none/pose/momentum/impact/chaos.
     """
@@ -278,10 +276,10 @@ def disturbance_overrides(spec: dict) -> dict:
         out['probe_push_steps'] = 5.0
         out['probe_push_n'] = 2.8 * s
     elif fam == 'chaos':
-        out['probe_tilt_rad'] = math.radians(28.0) * s
-        out['probe_joint_rad'] = math.radians(14.0) * s
-        out['probe_linvel_mps'] = 0.65 * s
-        out['probe_angvel_rad_s'] = 3.6 * s
+        out['probe_tilt_rad'] = math.radians(RECOVERY_TILT_MAX_DEG) * s
+        out['probe_joint_rad'] = math.radians(RECOVERY_JOINT_MAX_DEG) * s
+        out['probe_linvel_mps'] = RECOVERY_LINVEL_MAX_MPS * s
+        out['probe_angvel_rad_s'] = RECOVERY_ANGVEL_MAX_RAD_S * s
         out['probe_push_steps'] = 5.0
         out['probe_push_n'] = 2.0 * s
     return out
@@ -295,16 +293,14 @@ def physical_descriptor(spec: dict) -> dict:
         'linvel_kick_mps_max': max(0.0, ov['probe_linvel_mps']),
         'angvel_kick_rad_s_max': max(0.0, ov['probe_angvel_rad_s']),
         'push_force_n': max(0.0, ov['probe_push_n']),
-        'push_duration_s': max(0.0, ov['probe_push_steps']) * 0.02 if ov['probe_push_n'] >= 0 else 0.0,
-        'push_impulse_ns': max(0.0, ov['probe_push_n']) * max(0.0, ov['probe_push_steps']) * 0.02 if ov['probe_push_n'] >= 0 else 0.0,
+        'push_duration_s': max(0.0, ov['probe_push_steps']) * CONTROL_DT if ov['probe_push_n'] >= 0 else 0.0,
+        'push_impulse_ns': max(0.0, ov['probe_push_n']) * max(0.0, ov['probe_push_steps']) * CONTROL_DT if ov['probe_push_n'] >= 0 else 0.0,
     }
 
 
 def base_episode(spec: dict) -> dict:
-    ep = dict(steady_difficulty=0.0, transition_difficulty=0.0, resilience_difficulty=0.0,
-              posture_difficulty=0.0, regime_frac_steady=1.0, regime_frac_transition=0.0,
-              regime_frac_resilience=0.0, regime_command_frac=1.0,
-              core_rehearsal_frac=0.0, athletic_rehearsal_frac=0.0,
+    ep = task_param_defaults()
+    ep.update(regime_command_frac=1.0,
               probe_cmd_vx=float(spec['cmd_vx']), probe_cmd_vy=float(spec['cmd_vy']),
               probe_cmd_yaw=float(spec['cmd_yaw']))
     ep.update(disturbance_overrides(spec))
@@ -313,45 +309,15 @@ def base_episode(spec: dict) -> dict:
 
 
 def _not_before_for_spec(spec: dict) -> int:
-    ep = base_episode(spec)
     if spec.get('family') in ('impact', 'chaos'):
-        return 6 + int(round(float(ep.get('probe_push_steps', 5.0))))
+        return 6 + int(round(float(disturbance_overrides(spec)['probe_push_steps'])))
     return 0
 
 
 def _row_from_times(spec: dict, ff, fr, not_before: int) -> dict:
-    ff=np.asarray(ff); fr=np.asarray(fr)
-    survived = ff < 0
-    recovered = fr >= 0
-    sustained = recovered & survived
-    rt = (fr[sustained] - int(not_before)) * 0.02
-
-    bins = np.arange(len(ff), dtype=np.int32) % 8
-    rec_bins=[]; surv_bins=[]
-    for b in range(8):
-        mask = bins == b
-        rec_bins.append(float(sustained[mask].mean()) if np.any(mask) else float('nan'))
-        surv_bins.append(float(survived[mask].mean()) if np.any(mask) else float('nan'))
-
     row = dict(spec)
     row.update(physical_descriptor(spec))
-    row.update({
-        'survival': float(survived.mean()),
-        'recovery_event_rate': float(recovered.mean()),
-        'recovery_rate': float(sustained.mean()),
-        'recovery_given_survival': float(sustained.sum() / max(1, survived.sum())),
-        'recovery_time_mean_s': float(rt.mean()) if len(rt) else -1.0,
-        'recovery_time_p50_s': float(np.percentile(rt, 50)) if len(rt) else -1.0,
-        'recovery_time_p90_s': float(np.percentile(rt, 90)) if len(rt) else -1.0,
-        'fall_time_mean_s': float(ff[~survived].mean() * 0.02) if np.any(~survived) else -1.0,
-        'recovery_not_before_step': int(not_before),
-        'recovery_worst_direction': float(np.nanmin(rec_bins)),
-        'recovery_best_direction': float(np.nanmax(rec_bins)),
-        'survival_worst_direction': float(np.nanmin(surv_bins)),
-    })
-    for b,(rr,ss) in enumerate(zip(rec_bins,surv_bins)):
-        row[f'recovery_dir{b}'] = rr
-        row[f'survival_dir{b}'] = ss
+    row.update(recovery_outcome_numpy(ff, fr, not_before_steps=not_before, direction_bins=8))
     return row
 
 
@@ -403,7 +369,7 @@ def evaluate_specs_batch(trainer, env, params, obs_mean, obs_std, keys, horizon:
         for i in range(nreal):
             rows.append(_row_from_times(real_specs[i],ff[i],fr[i],int(nbs[i])))
 
-    # v5012 calibration doctrine: node competence is calibrated against a
+    # Node competence is calibrated against a
     # held-out NODE event, not against the recovery event above. Only controls
     # need this extra pass; disturbed rows remain purely recovery evidence.
     control_idx=[i for i,spec in enumerate(specs) if spec.get('family') == 'none']
@@ -427,12 +393,6 @@ def evaluate_specs_batch(trainer, env, params, obs_mean, obs_std, keys, horizon:
     return rows
 
 
-def evaluate_spec(trainer, env, params, obs_mean, obs_std, key, horizon: int, spec: dict,
-                  stable_steps: int = 12) -> dict:
-    return evaluate_specs_batch(trainer, env, params, obs_mean, obs_std, [key], horizon,
-                                [spec], stable_steps=stable_steps, chunk_size=1)[0]
-
-
 def annotate_matched_controls(rows: list[dict]) -> list[dict]:
     """Attach matched undisturbed competence to every disturbed row.
 
@@ -449,9 +409,6 @@ def annotate_matched_controls(rows: list[dict]) -> list[dict]:
         controls=[r for r in vals if r.get('family') == 'none']
         if not controls:
             for r in vals:
-                r['matched_control_present']=0
-                r['baseline_recovery']=float('nan')
-                r['baseline_survival']=float('nan')
                 r['baseline_competent']=0
                 r['resilience_valid']=0
                 r['recovery_drop_from_control']=float('nan')
@@ -462,64 +419,11 @@ def annotate_matched_controls(rows: list[dict]) -> list[dict]:
         base_surv=float(np.mean([float(r.get('survival',0.0)) for r in controls]))
         competent = int(base_rec >= 0.80 and base_surv >= 0.95)
         for r in vals:
-            r['matched_control_present']=1
-            r['baseline_recovery']=base_rec
-            r['baseline_survival']=base_surv
             r['baseline_competent']=competent
             r['resilience_valid']=int(competent and r.get('family') != 'none')
             r['recovery_drop_from_control']=(base_rec-float(r.get('recovery_rate',0.0))
                                              if r.get('family') != 'none' else 0.0)
     return rows
-
-
-def refinement_specs(rows: list[dict], count: int, start_index: int) -> list[dict]:
-    """Spend refinement budget as matched control/disturbed pairs near cliffs."""
-    if count <= 1 or not rows:
-        return []
-    annotate_matched_controls(rows)
-    candidates=[r for r in rows if r.get('family') != 'none' and int(float(r.get('matched_control_present',0) or 0)) == 1]
-    if not candidates:
-        return []
-    candidates.sort(key=lambda r: abs(float(r.get('recovery_rate',0.0)) - 0.60))
-    pairs=max(1, int(count)//2)
-    next_bundle=max([int(float(r.get('bundle_id',-1) or -1)) for r in rows]+[-1])+1
-    out=[]
-    for j in range(pairs):
-        parent=candidates[j % len(candidates)]
-        sign=-1.0 if j % 2 == 0 else 1.0
-        sev=max(0.03,float(parent['severity'])*(1.0+sign*0.12))
-        load=max(0.08,float(parent['cmd_load'])*(1.0-sign*0.08))
-        c0=np.array([float(parent['cmd_cx']),float(parent['cmd_cy']),float(parent['cmd_cyaw'])])
-        c=c0/max(pnorm(c0),1e-9)*load
-        vx,vy,yaw=command_from_normalized(c)
-        bid=next_bundle+j
-        common={
-            'panel_id':int(float(parent.get('panel_id',0) or 0)),
-            'bundle_id':bid,'anchor_index':int(float(parent.get('anchor_index',0) or 0)),
-            'cmd_cx':float(c[0]),'cmd_cy':float(c[1]),'cmd_cyaw':float(c[2]),
-            'cmd_load':float(load),'cmd_sector':command_sector(c),
-            'cmd_vx':vx,'cmd_vy':vy,'cmd_yaw':yaw,'cloud_role':'heldout_probe',
-        }
-        out.append({'probe_index':start_index+2*j,'source':'refine_control',
-                    **common,'family':'none','severity':0.0})
-        out.append({'probe_index':start_index+2*j+1,'source':'refine',
-                    **common,'family':parent['family'],'severity':sev})
-    return out
-
-def write_csv(path: Path, rows: list[dict]) -> None:
-    if not rows: return
-    fields=[]
-    for r in rows:
-        for k in r:
-            if k not in fields: fields.append(k)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w',newline='',encoding='utf-8') as f:
-        w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
-
-
-def read_csv(path: Path) -> list[dict]:
-    if not path.exists(): return []
-    with path.open(newline='',encoding='utf-8') as f: return list(csv.DictReader(f))
 
 
 def _bin(x, edges):
@@ -584,89 +488,3 @@ def summarize_rows(rows: list[dict]) -> dict:
     out['direction_sectors']=sector_rows
     out['worst_points']=sorted(rows,key=lambda r:(float(r.get('recovery_rate',0)),float(r.get('survival',0))))[:12]
     return out
-
-
-def render_markdown(summary: dict, rows: list[dict], *, checkpoint: str, wall_s: float) -> str:
-    L=[f'# EMU {VERSION} paired sparse capability cloud','',
-       f'- checkpoint: `{checkpoint}`',f'- cloud points: `{len(rows)}`',f'- wall time: `{wall_s:.1f}s`','',
-       'The active map stays deliberately compact: **combined command vector (vx, vy, yaw) + disturbance family + one severity scalar**. Each disturbed command is paired with the exact same undisturbed command, and nuisance direction is stratified inside the vector batch rather than becoming another map axis.','',
-       'This is a **held-out probe cloud**. It is evaluation evidence; it does not train the policy.','',
-       '## Paired command / recovery summary','']
-    q=summary.get('paired',{})
-    L += ['| metric | value |','|---|---:|',
-          f"| undisturbed command points | {q.get('control_points',0)} |",
-          f"| baseline command-competent fraction | {q.get('baseline_competent_fraction') if q.get('baseline_competent_fraction') is not None else '-'} |",
-          f"| valid disturbed points (matched baseline competent) | {q.get('valid_disturbance_points',0)} |",
-          f"| mean recovery on valid disturbed points | {q.get('valid_recovery_mean') if q.get('valid_recovery_mean') is not None else '-'} |",
-          f"| mean worst-direction recovery on valid disturbed points | {q.get('valid_worst_direction_mean') if q.get('valid_worst_direction_mean') is not None else '-'} |",'',
-          'A disturbed point is only resilience evidence when its exact undisturbed control recovered >=80% and survived >=95%. This prevents command incompetence from being mislabelled as poor disturbance recovery.','',
-          '## Direction-aware command sectors','',
-          '| family | command sector | n | mean load | mean recovery | mean survival | mean worst-direction recovery |',
-          '|---|---|---:|---:|---:|---:|---:|']
-    for r in summary.get('direction_sectors',[]):
-        L.append(f"| {r['family']} | {r['sector']} | {r['n']} | {r['mean_load']:.2f} | {r['mean_recovery']:.3f} | {r['mean_survival']:.3f} | {r['mean_worst_direction']:.3f} |")
-    L += ['', '## Worst sampled combined states','',
-          '| family | severity | load | vx | vy | yaw | baseline recovery | recovery | worst dir | survival |',
-          '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
-    for r in summary.get('worst_points',[]):
-        br=r.get('baseline_recovery',float('nan'))
-        L.append(f"| {r['family']} | {float(r['severity']):.2f} | {float(r['cmd_load']):.2f} | {float(r['cmd_vx']):+.2f} | {float(r['cmd_vy']):+.2f} | {float(r['cmd_yaw']):+.2f} | {br if isinstance(br,(int,float)) and br==br else '-'} | {float(r['recovery_rate']):.3f} | {float(r.get('recovery_worst_direction',0)):.3f} | {float(r['survival']):.3f} |")
-    L += ['', 'The full `capability_cloud.csv` is authoritative. No single physical capability score is produced; the compact JSON is a navigation aid over the point cloud.','']
-    return '\n'.join(L)
-
-def main(argv=None):
-    ap=argparse.ArgumentParser(description=f'EMU {VERSION} sparse combined-command capability cloud')
-    ap.add_argument('--checkpoint',required=True); ap.add_argument('--out-dir',required=True)
-    ap.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); ap.add_argument('--allow-cpu-mjx',action='store_true')
-    ap.add_argument('--envs',type=int,default=256); ap.add_argument('--horizon',type=int,default=220)
-    ap.add_argument('--explore-points',type=int,default=64); ap.add_argument('--refine-points',type=int,default=24)
-    ap.add_argument('--batch-points',type=int,default=4)
-    ap.add_argument('--seed',type=int,default=733)
-    args=ap.parse_args(argv)
-
-    from environment import EmuMJXEnv
-    from training import configure_jax, require_backend, make_trainer, payload_params_are_finite, PPOState
-    configure_jax(args.device,args.allow_cpu_mjx)
-    import jax
-    require_backend(args.allow_cpu_mjx)
-    ck=Path(args.checkpoint).expanduser().resolve(); out=Path(args.out_dir).expanduser().resolve(); out.mkdir(parents=True,exist_ok=True)
-    sys.modules['__main__'].PPOState=PPOState
-    with ck.open('rb') as f: payload=pickle.load(f)
-    if not payload_params_are_finite(payload): raise SystemExit(f'checkpoint has non-finite params: {ck}')
-    state=payload['state']; params=jax.device_put(state.params); norm=payload.get('obs_norm') or {}
-    env=EmuMJXEnv(str(Path(__file__).with_name('robot.xml')),num_envs=args.envs,seed=args.seed,
-                  max_episode_steps=max(700,args.horizon+50),actuator_realism=True,comm_latency_steps=1,
-                  push_max_force_n=4.0,vx_hi_max=1.2,vx_lo_min=-0.65,vy_max_mps=0.65,yaw_max_rad_s=5.0,
-                  disable_target_slew=True,phase_speed_gain=1.25,phase_rate_max_hz=2.6,sensor_noise_scale=1.5,
-                  open_frontier=False,combo_mix_frac=0.0)
-    tr=make_trainer(env,seed=args.seed,lr=2e-4,rollout=32,epochs=1,minibatches=1,obs_norm_mode='continuous')
-    jnp=jax.numpy
-    obs_mean=jnp.asarray(norm.get('mean',np.zeros((tr['obs_dim'],),np.float32)),dtype=jnp.float32)
-    obs_std=jnp.asarray(np.sqrt(norm.get('var',np.ones((tr['obs_dim'],),np.float32))),dtype=jnp.float32)
-    basekey=jax.random.PRNGKey(args.seed+44000); rows=[]; t0=time.time()
-    requested=make_panel(args.explore_points,panel_id=0,source='explore_panel')
-    controls=[x for x in requested if x.get('family')=='none']
-    ckeys=[jax.random.fold_in(basekey,int(x.get('probe_index',i))) for i,x in enumerate(controls)]
-    crows=evaluate_specs_batch(tr,env,params,obs_mean,obs_std,ckeys,args.horizon,controls,chunk_size=args.batch_points)
-    rows.extend(crows); annotate_matched_controls(rows)
-    good={int(r.get('bundle_id',-1)) for r in crows if float(r.get('recovery_rate',0))>=0.80 and float(r.get('survival',0))>=0.95}
-    disturbed=[x for x in requested if x.get('family')!='none' and int(x.get('bundle_id',-1)) in good]
-    dkeys=[jax.random.fold_in(basekey,int(x.get('probe_index',i))+1000003) for i,x in enumerate(disturbed)]
-    drows=evaluate_specs_batch(tr,env,params,obs_mean,obs_std,dkeys,args.horizon,disturbed,chunk_size=args.batch_points) if disturbed else []
-    rows.extend(drows); annotate_matched_controls(rows)
-    print(f'[cloud] screened={len(controls)} competent={len(good)} disturbed={len(drows)}/{len(requested)-len(controls)}',flush=True)
-    refs=refinement_specs(rows,args.refine_points,len(requested))
-    if refs:
-        rkeys=[jax.random.fold_in(basekey,args.explore_points+i) for i in range(len(refs))]
-        rrows=evaluate_specs_batch(tr,env,params,obs_mean,obs_std,rkeys,args.horizon,refs,chunk_size=args.batch_points)
-        rows.extend(rrows)
-    annotate_matched_controls(rows)
-    wall=time.time()-t0; summary=summarize_rows(rows)
-    summary.update({'checkpoint':str(ck),'envs_per_point':args.envs,'horizon_steps':args.horizon,'wall_seconds':round(wall,2),'points':len(rows)})
-    write_csv(out/'capability_cloud.csv',rows)
-    (out/'capability_cloud.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
-    (out/'capability_cloud.md').write_text(render_markdown(summary,rows,checkpoint=str(ck),wall_s=wall),encoding='utf-8')
-    print(f'[cloud] complete: {len(rows)} points in {wall:.1f}s -> {out}',flush=True)
-    return 0
-
-if __name__=='__main__': raise SystemExit(main())

@@ -19,70 +19,41 @@ Retreats are intentionally unrestricted.
 
 The fast path shares one MJX model across environments. Per-environment state,
 commands and external forces vary freely, but true per-env mass/geometry/floor
-friction randomisation is outside this version's architecture. See handover.md
-and history.md for the project rationale and evidence.
+friction randomisation is outside the current architecture. See history.md for
+the project rationale and evidence.
 """
 from __future__ import annotations
 
 from typing import Any, NamedTuple
-from pathlib import Path
-
+from types import SimpleNamespace
 import numpy as np
 
-_PROJECT_ROOT = Path(__file__).resolve().parent
-_VERSION_FILE = _PROJECT_ROOT / 'VERSION'
-try:
-    VERSION = _VERSION_FILE.read_text(encoding='utf-8').strip()
-except OSError as exc:
-    raise RuntimeError(f'Missing VERSION file beside environment.py: {_VERSION_FILE}') from exc
-if not VERSION or not VERSION.startswith('v'):
-    raise RuntimeError(f'Invalid VERSION value {VERSION!r}; expected e.g. v5007')
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+                       FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
+                       TASK_PARAM_FIELDS, P)
 
-ROBOT_VERSION = f'emu_{VERSION}'
-ENV_VERSION = f'emu-{VERSION}-self-mapping-trainer'
-PROGRAM_VERSION = f'emu-mjx-ppo-{VERSION}-self-mapping-trainer'
-REGIME_STEADY = 0
-REGIME_TRANSITION = 1
-REGIME_RESILIENCE = 2
-NUM_REGIMES = 3
-REGIME_NAMES = ('steady', 'transition', 'resilience')
-ACTION_DIM = 6
-# Deployable actor observation. v5006 deliberately removes training-only
+# Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
 # step-evidence composites) from the policy input. Every remaining field has a
 # plausible real-robot source: IMU, servo telemetry, forward kinematics, shin
 # flex Hall sensors, optical-flow/ToF velocity estimation, command/controller
 # state. Reward/evaluation may still use perfect MuJoCo truth.
 #
-# gravity(3)+gyro(3)+q(6)+qv_est(6)+prev_action(6)+prev_ctrl(6)+foot_rel(6)+
-# vxy_est(2)+tof_height(1)+vel_conf(1)+cmd(7)+phase(2)+shin_flex(2)+
-# shin_rate(2)+shin_load(2) = 55.
-BASE_OBS_DIM = 55
-HISTORY_LEN = 4
+# The exact 55-channel order is the shared BASE_OBS_FIELDS contract.
 # Fixed-size history used to model target-delivery latency. The buffer shape is
 # independent of the configured latency so JIT shapes stay stable.
-MAX_COMM_LATENCY_STEPS = 4
-OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
-SIM_DT = 0.005
-CONTROL_SUBSTEPS = 4
-CONTROL_DT = SIM_DT * CONTROL_SUBSTEPS
-
-ACTUATED_JOINTS = ['r_hip_roll', 'r_hip_pitch', 'r_knee', 'l_hip_roll', 'l_hip_pitch', 'l_knee']
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
 TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
 RESET_JOINT_NOISE = 0.004
 RESET_QVEL_NOISE = 0.003
 RESET_FORWARD_VELOCITY_BLEND = 1.0
-TARGET_RATE_LIMIT_RAD_S_DEFAULT = 1.75  # v5004 equivalent: 0.035 rad / 20 ms
 NEUTRAL_ROOT_Z = 0.2584
 # Falling is diagnosed from body geometry/height rather than treating every
 # non-foot contact as an immediate terminal. EMU is expected to recover through
 # dynamic stepping, so termination should represent an unrecoverable fall rather
 # than merely imperfect contact.
 SOFT_BODY_LOW_Z = 0.035
-HARD_BODY_FLOOR_Z = 0.012
-HARD_BODY_TORSO_GATE_Z = 0.190
 BODY_LOW_REWARD_WEIGHT = 0.25
 EARLY_FALL_BASE_PENALTY = 65.0
 EARLY_FALL_TIME_PENALTY = 0.10
@@ -91,7 +62,15 @@ EARLY_FALL_TIME_PENALTY = 0.10
 # not prescribe a cadence. A short grace period avoids judging the first few
 # frames of an episode.
 STEPPING_ACTIVITY_TARGET = 0.15
+SPEED_TOLERANCE = 0.025
 STEPPING_GATE_GRACE_S = 1.0
+# These quantities exist only long enough to compute reward. Keeping them out of
+# StepOut.metrics avoids carrying/transferring eight per-env arrays that no
+# curriculum, evaluator, capability map or logger consumes.
+REWARD_ONLY_METRICS = frozenset({
+    'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
+    'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far', 'ramp_frac',
+})
 # Command-transition dynamics (see _sample_cmd_target / TRANSITION's own
 # difficulty path in _transition_hold_and_jump).
 TRANSITION_HOLD_MIN_STEPS = 45.0   # shortest command hold, reached when min_hold_s bottoms out
@@ -101,8 +80,6 @@ TRANSITION_RAMP_MAX_STEPS = 120.0  # gentle ramp, the starting/easy value
 CARRYOVER_MAX_PROB = 0.35          # at TRANSITION's hardest point, up to this fraction of resets carry over qvel
 # Seed gait used as the project's basic capability reference. It is a slow
 # moving gait, not a near-zero/static-standing task.
-SEED_VX_LO = 0.020
-SEED_VX_HI = 0.060
 # RESILIENCE push parameters. External force is per-environment data, so it can
 # vary cheaply in the shared-model MJX fast path. Mass/geometry/friction changes
 # are model parameters and therefore require a different batched-model design.
@@ -138,10 +115,6 @@ ANGVEL_NOISE_MAX_RAD_S = 1.5 # rad/s -- RESILIENCE: initial angular velocity at 
 TRANSITION_HOLD_MAX_S = TRANSITION_HOLD_MAX_STEPS * CONTROL_DT  # ~14.0s -- TRANSITION:
                                                                   # easiest end of hold-time
 TRANSITION_HOLD_MIN_S = TRANSITION_HOLD_MIN_STEPS * CONTROL_DT  # ~0.9s -- hardest end
-# TRANSITION and RESILIENCE use a fraction of STEADY's current command
-# envelope so the regime-specific challenge is not always combined with the
-# hardest possible locomotion command. Exposed in params for controlled tests.
-REGIME_COMMAND_FRAC_DEFAULT = 0.5
 # Short reward-settle window after reset. Termination remains active; only
 # tracking score avoids over-interpreting a few frames of spawn transient.
 SETTLE_STEPS = 25
@@ -180,95 +153,22 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-# Named indices into the params array (see EmuMJXEnv.params_array below).
-# Bare integer indices into this array have already been a real source of
-# silent bugs when hand-edited; named constants make a copy/paste or
-# off-by-one error loud instead of quiet. 14 fields: four difficulty
-# scalars (0-1, one per regime plus posture) that this file's own sampling
-# code expands into physical ranges via linear interpolation, three
-# regime-allocation fractions, and the small set of diagnostic/assist
-# fields below.
-P_STEADY_DIFFICULTY = 0
-P_TRANSITION_DIFFICULTY = 1
-P_RESILIENCE_DIFFICULTY = 2
-P_POSTURE_DIFFICULTY = 3
-P_REGIME_FRAC_STEADY = 4
-P_REGIME_FRAC_TRANSITION = 5
-P_REGIME_FRAC_RESILIENCE = 6
-P_REGIME_COMMAND_FRAC = 7
-P_ROOT_Z_OFFSET = 8
-P_ASSIST_SCALE = 9
-P_ASSIST_HIP_AMP = 10
-P_ASSIST_KNEE_AMP = 11
-P_ASSIST_SIGN = 12
-P_CORE_REHEARSAL_FRAC = 13
-# v5007: permanent rehearsal of the full, already-proven v5005 athletic
-# command envelope. Unlike core_rehearsal this is not a seed-band crutch; it
-# exists only to prevent a live frontier from erasing old command skills.
-P_ATHLETIC_REHEARSAL_FRAC = 14
-# Adaptive physical frontiers. These are REAL units, not 0-1 completion
-# fractions. They may expand without an arbitrary locomotion ceiling.
-P_FRONTIER_VX_HI = 15
-P_FRONTIER_VX_LO = 16
-P_FRONTIER_VY = 17
-P_FRONTIER_YAW = 18
-P_FRONTIER_PUSH_N = 19
-P_FRONTIER_SENSOR_SCALE = 20
-P_FRONTIER_COMBO_RADIUS = 21
-P_FRONTIER_TRANSITION_HOLD_S = 22
-P_FRONTIER_RAMP_STEPS = 23
-# v5008 recovery/capability-atlas probe controls. NaN/-1 defaults mean
-# 'normal training behaviour'. These live in the task parameter vector rather
-# than the actor observation and are used only by deterministic held-out probes.
-P_PROBE_CMD_VX = 24
-P_PROBE_CMD_VY = 25
-P_PROBE_CMD_YAW = 26
-P_PROBE_TILT_RAD = 27
-P_PROBE_LINVEL_MPS = 28
-P_PROBE_ANGVEL_RAD_S = 29
-P_PROBE_JOINT_RAD = 30
-P_PROBE_PUSH_N = 31
-P_PROBE_PUSH_STEPS = 32
-# v5012 event-based capability-field teaching packet.  These are TRAINER-side
-# task-sampling hints, never actor observations.  Fixed-size tables keep the JAX
-# parameter shape stable while their contents may change every PPO update.
-FIELD_NODE_ANCHORS = 24
-FIELD_EDGE_ANCHORS = 24
-FIELD_NODE_STRIDE = 5   # vx, vy, yaw, weight, recommended recovery severity
-FIELD_EDGE_STRIDE = 7   # source vx/vy/yaw, target vx/vy/yaw, weight
-P_FIELD_NODE_FRAC = 33
-P_FIELD_NODE_START = 34
-P_FIELD_EDGE_FRAC = P_FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE
-P_FIELD_EDGE_START = P_FIELD_EDGE_FRAC + 1
-P_DIM = P_FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
-
-# Task-vector columns. TASK_RESILIENCE stores a unitless disturbance fraction;
-# _step_impl converts that fraction to Newtons exactly once.
-TASK_REGIME = 0
-TASK_VX = 1
-TASK_VY = 2
-TASK_YAW = 3
-TASK_HEIGHT = 4
-TASK_PITCH = 5
-TASK_ROLL = 6
-TASK_STEP_HEIGHT = 7
-TASK_RESILIENCE = 8
-TASK_PHASE_RATE = 9
-# Immutable-at-birth diagnostics. These let the trainer compare episode
-# outcomes against the curriculum difficulty that actually CREATED the
-# episode, rather than the (possibly much newer) difficulty current when it
-# finally ends. TASK_CORE_REHEARSAL marks the permanent easy-practice slice.
-TASK_BIRTH_STEADY_D = 10
-TASK_BIRTH_TRANSITION_D = 11
-TASK_BIRTH_RESILIENCE_D = 12
-TASK_BIRTH_POSTURE_D = 13
-TASK_CORE_REHEARSAL = 14
-# Full-envelope rehearsal flag. Actor never sees this teacher-only tag.
-TASK_ATHLETIC_REHEARSAL = 15
-# Per-episode sensor-error scale used by the deployable observation model.
-# This is NOT exposed as an observation channel; it only controls corruption.
-TASK_SENSOR_SCALE = 16
-TASK_DIM = 17
+# Per-environment task-vector schema.  The actor only sees the command/sensor
+# subset exposed by _base_obs; regime, birth difficulty and rehearsal are
+# teacher-only state.  Resilience is a unitless disturbance fraction and is
+# converted to Newtons exactly once in _step_impl.
+TASK_FIELDS = (
+    "regime", "vx", "vy", "yaw", "height", "pitch", "roll", "step_height",
+    "resilience", "phase_rate",
+    # Immutable-at-birth diagnostics: score an episode against the difficulty
+    # that created it, not the possibly newer governor state when it ends.
+    "birth_steady_d", "birth_transition_d", "birth_resilience_d", "birth_posture_d",
+    "athletic_rehearsal",  # teacher-only full-envelope rehearsal tag
+    "sensor_scale",        # observation corruption scale; never an actor channel
+    "field_taught",        # teacher-only provenance; never actor/reward input
+)
+T = SimpleNamespace(**{name: i for i, name in enumerate(TASK_FIELDS)})
+TASK_DIM = len(TASK_FIELDS)
 
 
 class EnvState(NamedTuple):
@@ -277,13 +177,10 @@ class EnvState(NamedTuple):
     rng: Any
     task: Any
     prev_action: Any
-    prev_ctrl: Any
     # Reward-only previous foot pose for true stance-slip measurement.
     prev_foot_pos: Any
-    # Ring buffer of the last MAX_COMM_LATENCY_STEPS raw (pre-slew-limit)
-    # targets, shape (num_envs, MAX_COMM_LATENCY_STEPS, ACTION_DIM), most
-    # recent last. Always maintained regardless of comm_latency_steps, so
-    # this field's shape never depends on that constructor argument.
+    # Previous raw target. Current hardware doctrine models one control-frame
+    # command-delivery delay, so no configurable latency ring is carried.
     prev_raw_target: Any
     phase: Any
     step_i: Any
@@ -336,17 +233,13 @@ class EmuMJXEnv:
     """A JAX/MJX vector environment with all envs stepped in one device batch."""
 
     def __init__(self, robot_xml: str, num_envs: int, seed: int = 733, max_episode_steps: int = 700,
-                 actuator_realism: bool = False, comm_latency_steps: int = 0,
-                 push_max_force_n: float | None = None, stepping_activity_target: float | None = None,
-                 speed_tolerance: float | None = None, legacy_rng_reuse: bool = False,
+                 push_max_force_n: float | None = None,
                  vx_hi_max: float = VX_HI_MAX, vx_lo_min: float = VX_LO_MIN,
                  vy_max_mps: float = VY_MAX_MPS_LIMIT, yaw_max_rad_s: float = YAW_MAX_RAD_S_LIMIT,
-                 target_rate_limit_rad_s: float = TARGET_RATE_LIMIT_RAD_S_DEFAULT,
-                 disable_target_slew: bool = False,
-                 phase_speed_gain: float = 0.0, phase_rate_max_hz: float = 2.6,
+                 phase_speed_gain: float = 0.0,
                  sensor_noise_scale: float = 1.0, open_frontier: bool = False,
-                 combo_mix_frac: float = 0.0, combo_p: float = 1.35, combo_probe_frac: float = 0.08,
-                 phase_obs_scale: float = 1.0,
+                 combo_mix_frac: float = 0.0, combo_probe_frac: float = 0.08,
+                 field_teach_recovery: bool = True,
                  recovery_tilt_max_deg: float | None = None,
                  recovery_position_max_m: float | None = None,
                  recovery_linvel_max_mps: float = 0.0,
@@ -366,81 +259,36 @@ class EmuMJXEnv:
         self.robot_xml = str(robot_xml)
         self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
         self.mj_model.opt.timestep = SIM_DT
-        # Performance hint from MJX docs: keep contacts explicit/simple.  The XML
-        # already disables shin-rod contact and excludes hip/torso overlaps.
+        # Performance hint from MJX docs: keep contacts explicit/simple. The XML
+        # owns the complete robot physics, including actuated-joint armature and
+        # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
         self.mjx_model = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
         self.key0 = jax.random.PRNGKey(int(seed))
 
-        # actuator_realism: this robot's servo is a 1:345 GEARED actuator
-        # (confirmed against the datasheet), not the direct-drive assumption
-        # this XML's armature value implies. Reflected rotor inertia at the
-        # output shaft is armature ~= N^2 * J_rotor; for a small coreless
-        # rotor (J_rotor ~ 1e-7 kg.m^2) and N=345, that is
-        # 345^2 * 1e-7 ~= 0.012 kg.m^2, double the XML's 0.006. A geared
-        # train of this class also has real Coulomb friction the XML has
-        # none of; ~0.08 N.m (roughly 4% of stall torque) is a reasonable
-        # placeholder pending an actual bench measurement, same honest
-        # caveat as every other actuator number here. A single GLOBAL
-        # correction, not per-env -- every env gets the same corrected
-        # physical constant, so this needs no batched-model machinery at
-        # all, unlike domain randomisation would.
-        self.actuator_realism = bool(actuator_realism)
-        if self.actuator_realism:
-            act_dofs = np.asarray(self.ids['act_qvel'])
-            dof_armature = np.array(self.mjx_model.dof_armature, copy=True)
-            dof_frictionloss = np.array(self.mjx_model.dof_frictionloss, copy=True)
-            dof_armature[act_dofs] = 0.012
-            dof_frictionloss[act_dofs] = 0.08
-            self.mjx_model = self.mjx_model.replace(
-                dof_armature=jnp.asarray(dof_armature, dtype=jnp.float32),
-                dof_frictionloss=jnp.asarray(dof_frictionloss, dtype=jnp.float32))
-
-        # comm_latency_steps: see _step_impl. 0 (default) means instant
-        # target delivery; >0 delays the slew-limiter's reference by that
-        # many steps, reading into EnvState.prev_raw_target as a ring
-        # buffer up to MAX_COMM_LATENCY_STEPS deep.
-        if not (0 <= int(comm_latency_steps) <= MAX_COMM_LATENCY_STEPS):
-            raise ValueError(f'comm_latency_steps must be in [0, {MAX_COMM_LATENCY_STEPS}], '
-                              f'got {comm_latency_steps}')
-        self.comm_latency_steps = int(comm_latency_steps)
-
-        # Per-instance, CLI-overridable versions of a few module-level
-        # defaults (None = use the module constant unchanged). Each is read
+        # Per-instance versions of a few module-level profile defaults
+        # (None = use the module constant unchanged). Each is read
         # via self.* at its use site below instead of the bare module name.
         self.push_max_force_n = float(push_max_force_n) if push_max_force_n is not None else PUSH_MAX_FORCE_N
-        self.stepping_activity_target = (float(stepping_activity_target) if stepping_activity_target is not None
-                                          else STEPPING_ACTIVITY_TARGET)
-        self.speed_tolerance = float(speed_tolerance) if speed_tolerance is not None else 0.025
         self.vx_hi_max = float(vx_hi_max)
         self.vx_lo_min = float(vx_lo_min)
         self.vy_max_mps = float(vy_max_mps)
         self.yaw_max_rad_s = float(yaw_max_rad_s)
-        self.target_rate_limit_rad_s = float(target_rate_limit_rad_s)
-        self.disable_target_slew = bool(disable_target_slew)
         self.phase_speed_gain = float(phase_speed_gain)
-        self.phase_rate_max_hz = float(phase_rate_max_hz)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
-        self.combo_p = float(max(1.0, combo_p))
         self.combo_probe_frac = float(max(0.0, combo_probe_frac))
-        self.phase_obs_scale = float(max(0.0, min(1.0, phase_obs_scale)))
-        # v5008 stage 5: one resilience difficulty scalar still owns recovery
+        self.field_teach_recovery = bool(field_teach_recovery)
+        # One resilience difficulty scalar owns recovery
         # progression, while these physical maxima define what "difficulty=1"
         # means for a particular experiment family. Defaults reproduce the
-        # v5007/v5008 reference exactly; new linear/joint disorder are opt-in.
+        # baseline exactly; linear/joint disorder are opt-in.
         self.recovery_tilt_max_rad = float(np.deg2rad(recovery_tilt_max_deg)) if recovery_tilt_max_deg is not None else POSE_TILT_MAX_RAD
         self.recovery_position_max_m = float(recovery_position_max_m) if recovery_position_max_m is not None else POSITION_NOISE_MAX_M
         self.recovery_linvel_max_mps = max(0.0, float(recovery_linvel_max_mps))
         self.recovery_angvel_max_rad_s = float(recovery_angvel_max_rad_s) if recovery_angvel_max_rad_s is not None else ANGVEL_NOISE_MAX_RAD_S
         self.recovery_joint_max_rad = max(0.0, float(np.deg2rad(recovery_joint_max_deg)))
-        # A/B flag for an RNG-key-reuse bug fixed in _step_impl (push vs.
-        # next/reset/resample) and _sample_task (roll vs. step_height) --
-        # see both call sites for what was wrong and why. Off by default:
-        # this is a correctness fix, not a design choice to weigh.
-        self.legacy_rng_reuse = bool(legacy_rng_reuse)
-
         self.target_span = jnp.asarray(TARGET_SPAN, dtype=jnp.float32)
         self.home_target = jnp.zeros((ACTION_DIM,), dtype=jnp.float32)
         self.act_qpos = jnp.asarray(self.ids['act_qpos'], dtype=jnp.int32)
@@ -496,44 +344,11 @@ class EmuMJXEnv:
         # Order here MUST match the P_* named indices above.
         jnp = self.jnp
         params = params or {}
-        base = [
-            float(params.get('steady_difficulty', 0.0)),           # P_STEADY_DIFFICULTY
-            float(params.get('transition_difficulty', 0.0)),       # P_TRANSITION_DIFFICULTY
-            float(params.get('resilience_difficulty', 0.0)),       # P_RESILIENCE_DIFFICULTY
-            float(params.get('posture_difficulty', 0.0)),          # P_POSTURE_DIFFICULTY
-            float(params.get('regime_frac_steady', 1.0)),          # P_REGIME_FRAC_STEADY
-            float(params.get('regime_frac_transition', 0.0)),      # P_REGIME_FRAC_TRANSITION
-            float(params.get('regime_frac_resilience', 0.0)),      # P_REGIME_FRAC_RESILIENCE
-            float(params.get('regime_command_frac', REGIME_COMMAND_FRAC_DEFAULT)),  # P_REGIME_COMMAND_FRAC
-            # Diagnostic/assist extras: let diagnostics sweep support
-            # height and a tiny phase scaffold without touching the
-            # observation/action contract or adding reward complexity.
-            float(params.get('root_z_offset', 0.0)),               # P_ROOT_Z_OFFSET
-            float(params.get('assist_scale', 0.0)),                # P_ASSIST_SCALE
-            float(params.get('assist_hip_amp', 0.14)),             # P_ASSIST_HIP_AMP
-            float(params.get('assist_knee_amp', 0.22)),            # P_ASSIST_KNEE_AMP
-            float(params.get('assist_sign', 1.0)),                 # P_ASSIST_SIGN
-            float(params.get('core_rehearsal_frac', 0.0)),         # P_CORE_REHEARSAL_FRAC
-            float(params.get('athletic_rehearsal_frac', 0.0)),     # P_ATHLETIC_REHEARSAL_FRAC
-            float(params.get('frontier_vx_hi', 0.60)),              # P_FRONTIER_VX_HI
-            float(params.get('frontier_vx_lo', -0.20)),             # P_FRONTIER_VX_LO
-            float(params.get('frontier_vy', 0.22)),                 # P_FRONTIER_VY
-            float(params.get('frontier_yaw', 1.50)),                # P_FRONTIER_YAW
-            float(params.get('frontier_push_n', 0.70)),             # P_FRONTIER_PUSH_N
-            float(params.get('frontier_sensor_scale', getattr(self, 'sensor_noise_scale', 1.5))), # P_FRONTIER_SENSOR_SCALE
-            float(params.get('frontier_combo_radius', 1.0)),          # P_FRONTIER_COMBO_RADIUS
-            float(params.get('frontier_transition_hold_s', TRANSITION_HOLD_MIN_S)), # P_FRONTIER_TRANSITION_HOLD_S
-            float(params.get('frontier_ramp_steps', TRANSITION_RAMP_MIN_STEPS)),    # P_FRONTIER_RAMP_STEPS
-            float(params.get('probe_cmd_vx', np.nan)),              # P_PROBE_CMD_VX
-            float(params.get('probe_cmd_vy', np.nan)),              # P_PROBE_CMD_VY
-            float(params.get('probe_cmd_yaw', np.nan)),             # P_PROBE_CMD_YAW
-            float(params.get('probe_tilt_rad', -1.0)),              # P_PROBE_TILT_RAD
-            float(params.get('probe_linvel_mps', -1.0)),            # P_PROBE_LINVEL_MPS
-            float(params.get('probe_angvel_rad_s', -1.0)),          # P_PROBE_ANGVEL_RAD_S
-            float(params.get('probe_joint_rad', -1.0)),             # P_PROBE_JOINT_RAD
-            float(params.get('probe_push_n', -1.0)),                 # P_PROBE_PUSH_N
-            float(params.get('probe_push_steps', 5.0)),              # P_PROBE_PUSH_STEPS
-        ]
+        base = []
+        for name, default in TASK_PARAM_FIELDS:
+            if name == 'frontier_sensor_scale':
+                default = self.sensor_noise_scale
+            base.append(float(params.get(name, default)))
         node = np.asarray(params.get('field_node_anchors', np.zeros((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE), np.float32)), dtype=np.float32)
         edge = np.asarray(params.get('field_edge_anchors', np.zeros((FIELD_EDGE_ANCHORS, FIELD_EDGE_STRIDE), np.float32)), dtype=np.float32)
         node_pad = np.zeros((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE), np.float32)
@@ -549,7 +364,7 @@ class EmuMJXEnv:
             np.asarray([float(params.get('field_edge_frac', 0.0))], np.float32),
             edge_pad.reshape(-1),
         ])
-        assert packed.shape[0] == P_DIM, (packed.shape, P_DIM)
+        assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
@@ -601,10 +416,10 @@ class EmuMJXEnv:
         return seed + jnp.clip(difficulty, 0.0, 1.0) * (ceiling - seed)
 
     def _field_node_table(self, params):
-        return params[P_FIELD_NODE_START:P_FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE].reshape((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE))
+        return params[FIELD_NODE_START:FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE].reshape((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE))
 
     def _field_edge_table(self, params):
-        return params[P_FIELD_EDGE_START:P_FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE].reshape((FIELD_EDGE_ANCHORS, FIELD_EDGE_STRIDE))
+        return params[FIELD_EDGE_START:FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE].reshape((FIELD_EDGE_ANCHORS, FIELD_EDGE_STRIDE))
 
     def _weighted_anchor_index(self, key, weights):
         jax, jnp = self.jax, self.jnp
@@ -628,22 +443,22 @@ class EmuMJXEnv:
         with fields that are only ever read once.
         """
         jax, jnp = self.jax, self.jnp
-        steady_d = params[P_STEADY_DIFFICULTY]
-        posture_d = params[P_POSTURE_DIFFICULTY]
-        resilience_d = params[P_RESILIENCE_DIFFICULTY]
-        command_frac = jnp.clip(params[P_REGIME_COMMAND_FRAC], 0.0, 1.0)
+        steady_d = params[P.steady_difficulty]
+        posture_d = params[P.posture_difficulty]
+        resilience_d = params[P.resilience_difficulty]
+        command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
 
         # STEADY's full current envelope -- every regime's command draw is
         # some fraction of THIS, never a separately-scheduled range of its
         # own (see module doctrine: isolate which axis is under test from
         # the aggregate difficulty of everything else).
         if self.open_frontier:
-            # v5006: physical frontier values are live curriculum state, not
+            # Physical frontier values are live curriculum state, not
             # percentages of a programmer-declared final ceiling.
-            vx_hi = jnp.maximum(SEED_VX_HI, params[P_FRONTIER_VX_HI])
-            vx_lo = jnp.minimum(SEED_VX_LO, params[P_FRONTIER_VX_LO])
-            yaw_max = jnp.maximum(0.0, params[P_FRONTIER_YAW])
-            vy_max = jnp.maximum(0.0, params[P_FRONTIER_VY])
+            vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
+            vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
+            yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
+            vy_max = jnp.maximum(0.0, params[P.frontier_vy])
         else:
             vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
             vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
@@ -671,8 +486,8 @@ class EmuMJXEnv:
         # (REGULAR_RESILIENCE_FRAC), and _step_impl converts that fraction
         # to Newtons exactly once at the force-application site.
 
-        regime_probs = jnp.asarray([params[P_REGIME_FRAC_STEADY], params[P_REGIME_FRAC_TRANSITION],
-                                    params[P_REGIME_FRAC_RESILIENCE]], dtype=jnp.float32)
+        regime_probs = jnp.asarray([params[P.regime_frac_steady], params[P.regime_frac_transition],
+                                    params[P.regime_frac_resilience]], dtype=jnp.float32)
         regime_probs = jnp.maximum(regime_probs, 0.0)
         regime_probs = regime_probs / jnp.maximum(jnp.sum(regime_probs), 1e-6)
         regime_cdf = jnp.cumsum(regime_probs)
@@ -684,19 +499,16 @@ class EmuMJXEnv:
             # depending on how two different split-counts happen to overlap,
             # which is why every draw below gets its own key rather than
             # sharing one across quantities.
-            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, k_rehearsal, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
+            # Keep split arity stable so deleting a dead task feature does not
+            # reshuffle unrelated stochastic streams under the same seed.
+            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, _reserved, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
             u = jax.random.uniform(k_regime, ())
             regime = jnp.sum(u > regime_cdf).astype(jnp.float32)
-            is_rehearsal = jax.random.uniform(k_rehearsal, ()) < jnp.clip(params[P_CORE_REHEARSAL_FRAC], 0.0, 0.5)
-            # v5007 full-envelope rehearsal is mutually exclusive with the
-            # seed-band core rehearsal. It preserves the known v5005 command
-            # distribution while the adaptive frontier explores beyond it.
-            is_athletic = jnp.logical_and(
-                jnp.logical_not(is_rehearsal),
-                jax.random.uniform(k_athletic, ()) < jnp.clip(params[P_ATHLETIC_REHEARSAL_FRAC], 0.0, 0.5))
-            # Both rehearsal cohorts are STEADY so they never contaminate the
-            # transition/push difficulty experiments.
-            regime = jnp.where(jnp.logical_or(is_rehearsal, is_athletic), 0.0, regime)
+            # Full-envelope rehearsal preserves the proven athletic distribution
+            # while the adaptive frontier explores beyond it.
+            is_athletic = jax.random.uniform(k_athletic, ()) < jnp.clip(params[P.athletic_rehearsal_frac], 0.0, 0.5)
+            # Rehearsal is STEADY so it never contaminates transition/push tests.
+            regime = jnp.where(is_athletic, 0.0, regime)
             is_steady = regime < 0.5
             is_transition = jnp.logical_and(regime > 0.5, regime < 1.5)
             is_narrow = jnp.logical_not(is_steady)  # TRANSITION or RESILIENCE: both use the reduced envelope
@@ -709,7 +521,7 @@ class EmuMJXEnv:
             vy = jax.random.uniform(k_vy, (), minval=-use_vy, maxval=use_vy)
             yaw = jax.random.uniform(k_yaw, (), minval=-use_yaw, maxval=use_yaw)
 
-            # v5006 command-combination curriculum. A configurable fraction of
+            # Command-combination curriculum: a configurable fraction of
             # samples are true mixed-axis commands constrained by a p-norm
             # blob; the remainder are axis-isolation samples so each boundary
             # remains measurable. Mixed samples sometimes probe just beyond the
@@ -721,8 +533,8 @@ class EmuMJXEnv:
                 nx = vx / vx_scale
                 ny = vy / jnp.maximum(use_vy, 1e-4)
                 nz = yaw / jnp.maximum(use_yaw, 1e-4)
-                norm = jnp.power(jnp.abs(nx)**self.combo_p + jnp.abs(ny)**self.combo_p + jnp.abs(nz)**self.combo_p, 1.0/self.combo_p)
-                combo_radius = jnp.where(self.open_frontier, jnp.maximum(0.10, params[P_FRONTIER_COMBO_RADIUS]), 1.0)
+                norm = jnp.power(jnp.abs(nx)**COMBO_P + jnp.abs(ny)**COMBO_P + jnp.abs(nz)**COMBO_P, 1.0/COMBO_P)
+                combo_radius = jnp.where(self.open_frontier, jnp.maximum(0.10, params[P.frontier_combo_radius]), 1.0)
                 # Mixed samples cover the blob interior and a thin just-outside
                 # probe band instead of living only on the mathematical boundary.
                 radial = 0.35 + (0.65 + self.combo_probe_frac) * jax.random.uniform(k_radius, ())
@@ -738,7 +550,7 @@ class EmuMJXEnv:
                 vx = jnp.where(combo, vx_m, vx_a)
                 vy = jnp.where(combo, vy_m, vy_a)
                 yaw = jnp.where(combo, yaw_m, yaw_a)
-            # v5012 self-mapping trainer: a bounded fraction of ordinary births
+            # A bounded fraction of ordinary births
             # may be drawn from the capability field's current teaching packet.
             # Anchors are clipped to the governor's current envelope; the field
             # chooses *where* to spend practice while the governor still owns
@@ -748,9 +560,9 @@ class EmuMJXEnv:
             node_cmd = node_table[ni, :3]
             node_recovery = jnp.clip(node_table[ni, 4], 0.0, 1.0)
             field_use = jnp.logical_and(
-                jax.random.uniform(k_field_use, ()) < jnp.clip(params[P_FIELD_NODE_FRAC], 0.0, 0.95),
+                jax.random.uniform(k_field_use, ()) < jnp.clip(params[P.field_node_frac], 0.0, 0.95),
                 node_total > 1e-6)
-            field_use = jnp.logical_and(field_use, jnp.logical_not(jnp.logical_or(is_rehearsal, is_athletic)))
+            field_use = jnp.logical_and(field_use, jnp.logical_not(is_athletic))
             nvx = jnp.clip(node_cmd[0], use_vx_lo, use_vx_hi)
             nvy = jnp.clip(node_cmd[1], -use_vy, use_vy)
             nyaw = jnp.clip(node_cmd[2], -use_yaw, use_yaw)
@@ -763,7 +575,7 @@ class EmuMJXEnv:
             step_height = 0.012 + jax.random.uniform(k_step, (), minval=0.0, maxval=step_height_range)
             base_phase_rate = jax.random.uniform(k_phase, (), minval=0.85, maxval=1.20)
             speed_fraction = jnp.clip(jnp.sqrt(vx*vx + vy*vy) / jnp.maximum(0.05, self.vx_hi_max), 0.0, 1.5)
-            phase_rate = jnp.minimum(self.phase_rate_max_hz, base_phase_rate + self.phase_speed_gain * speed_fraction)
+            phase_rate = jnp.minimum(PHASE_RATE_MAX_HZ, base_phase_rate + self.phase_speed_gain * speed_fraction)
             # Keep disturbance intensity unitless in the task vector. Convert it
             # to Newtons only where the external force is applied.
             # The field may choose a locally useful recovery severity for a
@@ -771,18 +583,21 @@ class EmuMJXEnv:
             # resilience difficulty.  This turns the recovery layer into an
             # actual curriculum signal while preserving the governor as the
             # physical safety ceiling.
-            birth_resilience_d = jnp.where(
-                jnp.logical_and(field_use, regime > 1.5),
-                jnp.minimum(node_recovery, jnp.clip(resilience_d, 0.0, 1.0)),
-                jnp.clip(resilience_d, 0.0, 1.0))
+            if self.field_teach_recovery:
+                birth_resilience_d = jnp.where(
+                    jnp.logical_and(field_use, regime > 1.5),
+                    jnp.minimum(node_recovery, jnp.clip(resilience_d, 0.0, 1.0)),
+                    jnp.clip(resilience_d, 0.0, 1.0))
+            else:
+                birth_resilience_d = jnp.clip(resilience_d, 0.0, 1.0)
             if self.open_frontier:
-                resilience_frac = jnp.clip(params[P_FRONTIER_PUSH_N] / jnp.maximum(self.push_max_force_n, 1e-6), 0.0, 1.0)
+                resilience_frac = jnp.clip(params[P.frontier_push_n] / jnp.maximum(self.push_max_force_n, 1e-6), 0.0, 1.0)
             else:
                 resilience_frac = birth_resilience_d
             resilience_task = jnp.where(regime > 1.5, jnp.maximum(resilience_frac, 0.08 / jnp.maximum(self.push_max_force_n, 1e-6)),
                                         resilience_frac * REGULAR_RESILIENCE_FRAC)
-            sensor_scale_task = jnp.maximum(0.0, params[P_FRONTIER_SENSOR_SCALE])
-            # Full athletic rehearsal samples the proven v5005/v5006 control
+            sensor_scale_task = jnp.maximum(0.0, params[P.frontier_sensor_scale])
+            # Full athletic rehearsal samples the proven control
             # envelope directly. The three axes are intentionally independent:
             # this is memory rehearsal of the old rectangular distribution, not
             # evidence for the new p-norm frontier.
@@ -798,26 +613,14 @@ class EmuMJXEnv:
             step_height = jnp.where(is_athletic, 0.012, step_height)
             resilience_task = jnp.where(is_athletic, 0.0, resilience_task)
 
-            # Permanent core rehearsal overrides every difficulty-bearing
-            # component but keeps the same dynamic-birth doctrine: non-zero
-            # seed-band forward command, not standing still.
-            vx = jnp.where(is_rehearsal, jax.random.uniform(k_vx, (), minval=SEED_VX_LO, maxval=SEED_VX_HI), vx)
-            vy = jnp.where(is_rehearsal, 0.0, vy)
-            yaw = jnp.where(is_rehearsal, 0.0, yaw)
             # Capability-atlas command probes use exact physical commands,
             # bypassing random envelope sampling without changing the actor.
-            vx = jnp.where(jnp.isfinite(params[P_PROBE_CMD_VX]), params[P_PROBE_CMD_VX], vx)
-            vy = jnp.where(jnp.isfinite(params[P_PROBE_CMD_VY]), params[P_PROBE_CMD_VY], vy)
-            yaw = jnp.where(jnp.isfinite(params[P_PROBE_CMD_YAW]), params[P_PROBE_CMD_YAW], yaw)
-            height = jnp.where(is_rehearsal, 0.0, height)
-            pitch = jnp.where(is_rehearsal, 0.0, pitch)
-            roll = jnp.where(is_rehearsal, 0.0, roll)
-            step_height = jnp.where(is_rehearsal, 0.012, step_height)
-            resilience_task = jnp.where(is_rehearsal, 0.0, resilience_task)
-
+            vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
+            vy = jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], vy)
+            yaw = jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], yaw)
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
-                    steady_d, params[P_TRANSITION_DIFFICULTY], birth_resilience_d, posture_d, is_rehearsal.astype(jnp.float32),
-                    is_athletic.astype(jnp.float32), sensor_scale_task]
+                    steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
+                    is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32)]
             assert len(cols) == TASK_DIM, f"task vector has {len(cols)} columns, TASK_DIM says {TASK_DIM}"
             return jnp.asarray(cols, dtype=jnp.float32)
         return jax.vmap(one)(keys)
@@ -836,16 +639,16 @@ class EmuMJXEnv:
         moving both at once.
         """
         jax, jnp = self.jax, self.jnp
-        steady_d = params[P_STEADY_DIFFICULTY]
-        command_frac = jnp.clip(params[P_REGIME_COMMAND_FRAC], 0.0, 1.0)
-        _, jump_frac = self._transition_hold_and_jump(params[P_TRANSITION_DIFFICULTY])
+        steady_d = params[P.steady_difficulty]
+        command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
+        _, jump_frac = self._transition_hold_and_jump(params[P.transition_difficulty])
         if self.open_frontier:
             jump_frac = jnp.asarray(1.0, dtype=jnp.float32)
         if self.open_frontier:
-            vx_hi_full = jnp.maximum(SEED_VX_HI, params[P_FRONTIER_VX_HI])
-            vx_lo_full = jnp.minimum(SEED_VX_LO, params[P_FRONTIER_VX_LO])
-            yaw_full = jnp.maximum(0.0, params[P_FRONTIER_YAW])
-            vy_full = jnp.maximum(0.0, params[P_FRONTIER_VY])
+            vx_hi_full = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
+            vx_lo_full = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
+            yaw_full = jnp.maximum(0.0, params[P.frontier_yaw])
+            vy_full = jnp.maximum(0.0, params[P.frontier_vy])
             vx_hi = SEED_VX_HI + command_frac * (vx_hi_full - SEED_VX_HI)
             vx_lo = SEED_VX_LO + command_frac * (vx_lo_full - SEED_VX_LO)
             yaw_max = command_frac * yaw_full
@@ -874,27 +677,28 @@ class EmuMJXEnv:
 
             ni, node_total = self._weighted_anchor_index(k_node_pick, node_table[:, 3])
             node_target = node_table[ni, :3]
-            use_node = jnp.logical_and(jax.random.uniform(k_node_use, ()) < jnp.clip(params[P_FIELD_NODE_FRAC], 0.0, 0.95), node_total > 1e-6)
+            use_node = jnp.logical_and(jax.random.uniform(k_node_use, ()) < jnp.clip(params[P.field_node_frac], 0.0, 0.95), node_total > 1e-6)
 
             # Graph anchors are local source->target maneuvers.  Prefer anchors
             # whose source is near this env's current command, without adding a
             # high-dimensional table to the actor or policy network.
-            scale = jnp.asarray([0.90, 0.55, 3.0], dtype=jnp.float32)
+            scale = jnp.asarray(FIELD_EDGE_SCALES, dtype=jnp.float32)
             dist2 = jnp.sum(((edge_table[:, :3] - cur[None, :]) / scale[None, :]) ** 2, axis=1)
             local_w = jnp.maximum(edge_table[:, 6], 0.0) * jnp.exp(-0.5 * dist2 / (0.45**2))
             ei, edge_total = self._weighted_anchor_index(k_edge_pick, local_w)
             edge_target = edge_table[ei, 3:6]
-            use_edge = jnp.logical_and(jax.random.uniform(k_edge_use, ()) < jnp.clip(params[P_FIELD_EDGE_FRAC], 0.0, 0.95), edge_total > 1e-6)
+            use_edge = jnp.logical_and(jax.random.uniform(k_edge_use, ()) < jnp.clip(params[P.field_edge_frac], 0.0, 0.95), edge_total > 1e-6)
 
             target = jnp.where(use_node, node_target, base)
             target = jnp.where(use_edge, edge_target, target)  # graph has priority
             target = target.at[0].set(jnp.clip(target[0], vx_lo_j, vx_hi_j))
             target = target.at[1].set(jnp.clip(target[1], -vy_max_j, vy_max_j))
             target = target.at[2].set(jnp.clip(target[2], -yaw_max_j, yaw_max_j))
-            target = target.at[0].set(jnp.where(jnp.isfinite(params[P_PROBE_CMD_VX]), params[P_PROBE_CMD_VX], target[0]))
-            target = target.at[1].set(jnp.where(jnp.isfinite(params[P_PROBE_CMD_VY]), params[P_PROBE_CMD_VY], target[1]))
-            target = target.at[2].set(jnp.where(jnp.isfinite(params[P_PROBE_CMD_YAW]), params[P_PROBE_CMD_YAW], target[2]))
-            return target
+            target = target.at[0].set(jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], target[0]))
+            target = target.at[1].set(jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], target[1]))
+            target = target.at[2].set(jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], target[2]))
+            field_taught = jnp.logical_or(use_node, use_edge).astype(jnp.float32)
+            return target, field_taught
         return jax.vmap(one)(keys, current_cmd)
 
     def _transition_hold_and_jump(self, transition_difficulty):
@@ -927,14 +731,14 @@ class EmuMJXEnv:
         instead, which always passes real keys).
         """
         jax, jnp = self.jax, self.jnp
-        cmd_target = task[:, [TASK_VX, TASK_VY, TASK_YAW]]
+        cmd_target = task[:, [T.vx, T.vy, T.yaw]]
         cmd_ramp_from = cmd_target
         cmd_ramp_frac = jnp.ones((self.num_envs,), dtype=jnp.float32)
         cmd_ramp_speed = jnp.zeros((self.num_envs,), dtype=jnp.float32)
-        is_transition = jnp.logical_and(task[:, TASK_REGIME] > 0.5, task[:, TASK_REGIME] < 1.5)
-        min_hold_s, _ = self._transition_hold_and_jump(params[P_TRANSITION_DIFFICULTY])
+        is_transition = jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5)
+        min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
         if self.open_frontier:
-            min_hold_s = jnp.maximum(CONTROL_DT, params[P_FRONTIER_TRANSITION_HOLD_S])
+            min_hold_s = jnp.maximum(CONTROL_DT, params[P.frontier_transition_hold_s])
         hold_min = min_hold_s / CONTROL_DT  # steps
         if hold_keys is None:
             transition_hold = jnp.full((self.num_envs,), hold_min * 0.8, dtype=jnp.int32)
@@ -944,60 +748,17 @@ class EmuMJXEnv:
         cmd_hold_left = jnp.where(is_transition, transition_hold, INFINITE_HOLD_STEPS)
         return cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left
 
-    def _birth_assist_target(self, task, phase, params):
-        """Small optional CPG scaffold for diagnostics only.
-
-        Ball feet are not statically stable; a zero-action standing pose
-        always height-collapses, so the default birth path is organic PPO
-        discovery from a forward-moving seed instead. This assist profile
-        exists only to diagnose sign/phase/mechanical authority if a long
-        organic run stays flat -- assist_scale defaults to 0.0 (off) in
-        real training.
-        """
-        jnp = self.jnp
-        scale = jnp.clip(params[P_ASSIST_SCALE], 0.0, 1.0)
-        hip_amp = jnp.clip(params[P_ASSIST_HIP_AMP], 0.0, 0.40)
-        knee_amp = jnp.clip(params[P_ASSIST_KNEE_AMP], 0.0, 0.55)
-        sign = jnp.where(params[P_ASSIST_SIGN] >= 0.0, 1.0, -1.0)
-        s = jnp.sin(phase)
-        # Alternating hip-pitch and knee-lift scaffold.  Roll joints are left to
-        # the policy/springs so the assist cannot hide side-balance failure.
-        r_swing = jnp.maximum(0.0, s)
-        l_swing = jnp.maximum(0.0, -s)
-        r_hip = sign * hip_amp * s
-        l_hip = -sign * hip_amp * s
-        r_knee = knee_amp * r_swing
-        l_knee = knee_amp * l_swing
-        zeros = jnp.zeros_like(s)
-        assist = jnp.stack([zeros, r_hip, r_knee, zeros, l_hip, l_knee], axis=1)
-        return scale * assist
-
     def _step_impl(self, state: EnvState, action, params) -> StepOut:
         jax, jnp, mjx = self.jax, self.jnp, self.mjx
         action = jnp.clip(action, -1.0, 1.0)
-        assist = self._birth_assist_target(state.task, state.phase, params)
-        raw_target = self.home_target + action * self.target_span + assist
+        raw_target = self.home_target + action * self.target_span
         raw_target = jnp.clip(raw_target, -self.target_span, self.target_span)
-        # Optional, fixed, always-on communication latency: the simplest
-        # honest model of "the servo hasn't received the newest target yet"
-        # is that the slew-limiter chases an EARLIER step's commanded
-        # target, not this step's -- how much earlier is comm_latency_steps.
-        # comm_latency_steps is a plain Python int fixed at env construction
-        # (not a per-step JAX value), so this is static indexing, resolved
-        # at trace time -- no dynamic_slice needed. index=-1 (most recent
-        # buffer slot) is last step's raw_target; more negative indices
-        # reach further back. comm_latency_steps=0 means no delay at all
-        # (the buffer is filled but never read).
-        if self.comm_latency_steps > 0:
-            slew_target = state.prev_raw_target[:, MAX_COMM_LATENCY_STEPS - self.comm_latency_steps, :]
-        else:
-            slew_target = raw_target
-        max_delta = (self.target_rate_limit_rad_s * CONTROL_DT) * (0.75 + 0.25 * jnp.clip(state.task[:, TASK_RESILIENCE], 0.0, 1.0))
-        slew_ctrl = state.prev_ctrl + jnp.clip(slew_target - state.prev_ctrl, -max_delta[:, None], max_delta[:, None])
-        # v5007 can remove the artificial software slew layer entirely. In
-        # that mode the requested position target is delivered directly and
-        # MuJoCo's geared-servo dynamics decide how fast the joint can move.
-        ctrl = slew_target if self.disable_target_slew else slew_ctrl
+        # One control-frame command-delivery delay: servos receive the previous
+        # raw target, matching the current hardware doctrine.
+        ctrl = state.prev_raw_target
+        # The requested position target is delivered directly. MuJoCo's geared
+        # servo dynamics, not an artificial software slew limiter, determine
+        # how fast the joint can move.
         data = state.data.replace(ctrl=state.data.ctrl.at[:, :ACTION_DIM].set(ctrl))
 
         # Push perturbations (RESILIENCE), sized to be a recoverable nudge
@@ -1005,21 +766,18 @@ class EmuMJXEnv:
         # physics substep loop -- applying a push after stepping physics
         # and clearing it before the next step would give it zero actual
         # effect, so this ordering is deliberate. Uses the PER-EPISODE
-        # resilience level (state.task's TASK_RESILIENCE column, set in
+        # resilience level (state.task's T.resilience column, set in
         # _sample_task) instead of the raw
         # global curriculum dial directly -- this is what makes
         # REGULAR_RESILIENCE_FRAC actually take effect on the physics, not
         # just on what the policy is told.
-        resilience_frac = jnp.clip(state.task[:, TASK_RESILIENCE], 0.0, 1.0)
+        resilience_frac = jnp.clip(state.task[:, T.resilience], 0.0, 1.0)
         resilience_push_n = resilience_frac * self.push_max_force_n
         # Split the per-environment RNG once, then dedicate each key to one
         # random purpose. Re-splitting the same unadvanced JAX key can reuse
-        # identical key material. The compatibility flag intentionally
+        # identical key material. Independent splits deliberately
         # reproduces that older path for regression/A-B work only.
-        if self.legacy_rng_reuse:
-            push_rng, angle_key, mag_key, dur_key = self._split_batch(state.rng, 4)
-        else:
-            push_rng, angle_key, mag_key, dur_key, next_keys, reset_keys, resample_keys = self._split_batch(state.rng, 7)
+        push_rng, angle_key, mag_key, dur_key, next_keys, reset_keys, resample_keys = self._split_batch(state.rng, 7)
         push_roll = jax.vmap(lambda k: jax.random.uniform(k, ()))(push_rng)
         push_active = state.push_steps_left > 0
         # Capability-cloud/atlas probe: one controlled horizontal shove shortly
@@ -1027,8 +785,8 @@ class EmuMJXEnv:
         # direction remains random across envs so one cloud point estimates a
         # distribution of nuisance directions instead of adding push-angle as
         # yet another map dimension. Negative probe_push_n disables this path.
-        probe_push_n = params[P_PROBE_PUSH_N]
-        probe_push_steps = jnp.maximum(1.0, params[P_PROBE_PUSH_STEPS])
+        probe_push_n = params[P.probe_push_n]
+        probe_push_steps = jnp.maximum(1.0, params[P.probe_push_steps])
         probe_enabled = probe_push_n >= 0.0
         probe_start = jnp.logical_and(jnp.logical_not(push_active),
                                       jnp.logical_and(state.ep_len >= 5.0, state.ep_len < 6.0))
@@ -1085,17 +843,12 @@ class EmuMJXEnv:
             return post
         data = jax.tree_util.tree_map(_rollback_diverged, state.data, data)
         step_i = state.step_i + 1
-        phase = (state.phase + CONTROL_DT * state.task[:, TASK_PHASE_RATE] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
+        phase = (state.phase + CONTROL_DT * state.task[:, T.phase_rate] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
 
         # Command-transition dynamics: ramps the *tracked* command
         # (task[:, VX/VY/YAW], which every other function below reads)
         # smoothly toward an occasionally-resampled target instead of
         # Command hold/ramp timing tightens with transition difficulty. The
-        # compatibility flag can deliberately reproduce the older shared-key
-        # resampling path for controlled A/B work; the default uses keys from
-        # the single top-of-step split.
-        if self.legacy_rng_reuse:
-            next_keys, reset_keys, resample_keys = self._split_batch(state.rng, 3)
         # A transition is defined by the PRE-advance ramp state.  This is
         # crucial at the digital limit: when ramp_speed==1 a newly-resampled
         # command advances 0->1 in one control frame, so testing ramp_frac<1
@@ -1104,7 +857,7 @@ class EmuMJXEnv:
         cmd_resampled = transition_active & (state.cmd_ramp_frac <= 1e-6) & (state.cmd_ramp_speed > 0.0)
         ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
         cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
-        task = state.task.at[:, TASK_VX].set(cmd_now[:, 0]).at[:, TASK_VY].set(cmd_now[:, 1]).at[:, TASK_YAW].set(cmd_now[:, 2])
+        task = state.task.at[:, T.vx].set(cmd_now[:, 0]).at[:, T.vy].set(cmd_now[:, 1]).at[:, T.yaw].set(cmd_now[:, 2])
 
         hold_left = state.cmd_hold_left - 1
         should_resample = hold_left <= 0
@@ -1115,19 +868,19 @@ class EmuMJXEnv:
         # new_hold below are computed for every env (vmap has no branch)
         # but only ever actually USED where should_resample is True, i.e.
         # only ever for TRANSITION envs.
-        new_target = self._sample_cmd_target(rk_target, params, cmd_now)
+        new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now)
         hold_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_hold)
         ramp_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_ramp)
-        min_hold_s, _ = self._transition_hold_and_jump(params[P_TRANSITION_DIFFICULTY])
+        min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
         if self.open_frontier:
-            min_hold_s = jnp.maximum(CONTROL_DT, params[P_FRONTIER_TRANSITION_HOLD_S])
+            min_hold_s = jnp.maximum(CONTROL_DT, params[P.frontier_transition_hold_s])
         hold_min = min_hold_s / CONTROL_DT  # steps
         new_hold = jnp.maximum(1.0, jnp.round(hold_min * (0.6 + 0.4 * hold_draw))).astype(jnp.int32)
         if self.open_frontier:
             # Explicit acceleration frontier: ramp duration is a real count of
             # 20ms control frames and may shrink toward one frame, the natural
             # digital limit. No arbitrary locomotion-speed ceiling is involved.
-            ramp_min = jnp.maximum(1.0, params[P_FRONTIER_RAMP_STEPS])
+            ramp_min = jnp.maximum(1.0, params[P.frontier_ramp_steps])
             new_ramp_steps = jnp.maximum(1.0, jnp.round(ramp_min * (0.75 + 0.50 * ramp_draw)))
         else:
             trans_frac = (TRANSITION_HOLD_MAX_S - min_hold_s) / (TRANSITION_HOLD_MAX_S - TRANSITION_HOLD_MIN_S)
@@ -1140,6 +893,10 @@ class EmuMJXEnv:
         cmd_ramp_frac_next = jnp.where(should_resample, 0.0, ramp_frac)
         cmd_ramp_speed_next = jnp.where(should_resample, new_ramp_speed, state.cmd_ramp_speed)
         cmd_hold_left_next = jnp.where(should_resample, new_hold, hold_left).astype(jnp.int32)
+        # Provenance follows the newly-selected transition target from the next
+        # state onward.  It never enters actor observation or reward.
+        task_for_state = task.at[:, T.field_taught].set(
+            jnp.where(should_resample, new_field_taught, task[:, T.field_taught]))
 
         # Score this action against the command it actually OBSERVED. `task`
         # above is the next-step command after advancing the transition ramp;
@@ -1165,7 +922,7 @@ class EmuMJXEnv:
         # starts at 0, so settle/stepping-gate grace stay honest either way.
         metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
-        reward, terms = self._reward(metrics, reward_task[:, TASK_REGIME])
+        reward, terms = self._reward(metrics, reward_task[:, T.regime])
         timeout = step_i >= self.max_episode_steps
         # physics_diverged forces a real termination even though the
         # rollback above already made this step's own metrics/reward clean --
@@ -1193,7 +950,7 @@ class EmuMJXEnv:
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
 
-        base = self._base_obs(data, task, action, phase, metrics, ctrl)
+        base = self._base_obs(data, task, action, phase, ctrl)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, OBS_DIM))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1206,25 +963,16 @@ class EmuMJXEnv:
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
-        # Shift the ring buffer -- drop the oldest slot, append this
-        # step's raw_target at the end (index -1 = most recent, matching
-        # what the read side above expects). Must stay shape-matched with
-        # reset_state's own prev_raw_target (see reset()) since tree_map's
-        # per-env `choose` below relies on both sides of the tree having
-        # the same shape at this position.
-        raw_target_history = jnp.concatenate([state.prev_raw_target[:, 1:, :], raw_target[:, None, :]], axis=1)
-        stepped = EnvState(data, hist, next_keys, task, action, ctrl, data.xpos[:, self.foot_bodies, :], raw_target_history, phase, step_i,
+        stepped = EnvState(data, hist, next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            cmd_target_next, cmd_ramp_from_next, cmd_ramp_frac_next, cmd_ramp_speed_next, cmd_hold_left_next,
                            push_force, push_steps_left)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
-        # Command-TRANSITION tracking metrics. Everything logged before
-        # this (precision_*, overspeed/underspeed, reward_command_tracking) is
-        # averaged over whole episodes, so it can't tell "holds a steady
-        # command well" from "follows a CHANGING command well" -- and the
-        # second is the actual controllability goal. `ramping` marks the steps
+        # Command-TRANSITION tracking metrics. Whole-rollout summaries
+        # cannot distinguish steady holding from following a changing command.
+        # `ramping` marks the steps
         # where the tracked command is mid-ramp toward a freshly resampled
         # target (ramp_frac < 1, computed above); errors are split by that
         # mask so summarize_rollout can report tracking error DURING
@@ -1236,10 +984,10 @@ class EmuMJXEnv:
         vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
         yaw_err = jnp.abs(metrics['yaw_rate'] - metrics['cmd_yaw'])
         out_metrics = {
-            **metrics,
+            **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
             'transition_frac': ramping,
             'cmd_resampled': resampled,
-            # v5012 maneuver-event instrumentation.  These describe the target
+            # Maneuver-event instrumentation describes the target
             # and commanded ramp rate associated with the command the actor is
             # currently observing.  They are training diagnostics only; they do
             # not enter the actor observation or reward.  The capability field
@@ -1310,24 +1058,23 @@ class EmuMJXEnv:
         qvel = data.qvel
         ctrl = data.ctrl
 
-        regime = task[:, TASK_REGIME]
+        regime = task[:, T.regime]
         is_resilience = regime > 1.5
-        is_rehearsal = task[:, TASK_CORE_REHEARSAL] > 0.5
-        # Birth difficulty is episode-local in v5011.  The governor owns
+        # Birth difficulty is episode-local. The governor owns
         # the ceiling; field-steered resilience births may intentionally train
         # below it at the locally useful severity for this command voxel.
-        resilience_d = task[:, TASK_BIRTH_RESILIENCE_D]
+        resilience_d = task[:, T.birth_resilience_d]
 
         # Initial position offset (xy + a bit of extra height wobble
-        # on top of posture's own TASK_HEIGHT). RESILIENCE gets the full
+        # on top of posture's own T.height). RESILIENCE gets the full
         # difficulty-scaled magnitude; STEADY/TRANSITION borrow a small
         # fixed fraction of it (see STEADY_RESILIENCE_BORROW_FRAC).
         pos_noise_full = self._lerp(0.0, self.recovery_position_max_m, resilience_d)
-        pos_noise_mag = jnp.where(is_rehearsal, 0.0, jnp.where(is_resilience, pos_noise_full, pos_noise_full * STEADY_RESILIENCE_BORROW_FRAC))
+        pos_noise_mag = jnp.where(is_resilience, pos_noise_full, pos_noise_full * STEADY_RESILIENCE_BORROW_FRAC)
         pos_offset = jax.vmap(lambda k, m: jax.random.uniform(k, (3,), minval=-m, maxval=m))(pos_keys, pos_noise_mag)
         qpos = qpos.at[:, 0:3].set(jnp.stack([
             pos_offset[:, 0], pos_offset[:, 1],
-            NEUTRAL_ROOT_Z + params[P_ROOT_Z_OFFSET] + task[:, TASK_HEIGHT] + pos_offset[:, 2],
+            NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2],
         ], axis=1))
 
         # Initial pose tilt (roll/pitch away from upright). Same
@@ -1336,8 +1083,8 @@ class EmuMJXEnv:
         # approximation -- the ceiling (~20deg) is real enough that a linear
         # shortcut would be visibly wrong at the difficult end.
         tilt_full = self._lerp(0.0, self.recovery_tilt_max_rad, resilience_d)
-        tilt_mag = jnp.where(is_rehearsal, 0.0, jnp.where(is_resilience, tilt_full, tilt_full * STEADY_RESILIENCE_BORROW_FRAC))
-        probe_tilt = params[P_PROBE_TILT_RAD]
+        tilt_mag = jnp.where(is_resilience, tilt_full, tilt_full * STEADY_RESILIENCE_BORROW_FRAC)
+        probe_tilt = params[P.probe_tilt_rad]
         tilt_mag = jnp.where(probe_tilt >= 0.0, probe_tilt, tilt_mag)
         def _sample_tilt(k, mag):
             kr, kp = jax.random.split(k)
@@ -1359,10 +1106,10 @@ class EmuMJXEnv:
 
         qnoise = jax.vmap(lambda k: jax.random.normal(k, (ACTION_DIM,), dtype=jnp.float32))(noise_keys) * RESET_JOINT_NOISE
         joint_full = self.recovery_joint_max_rad * resilience_d
-        joint_mag = jnp.where(is_rehearsal, 0.0, jnp.where(is_resilience, joint_full, joint_full * STEADY_RESILIENCE_BORROW_FRAC))
+        joint_mag = jnp.where(is_resilience, joint_full, joint_full * STEADY_RESILIENCE_BORROW_FRAC)
         joint_extra = jax.vmap(lambda k, m: jax.random.uniform(k, (ACTION_DIM,), minval=-m, maxval=m))(joint_keys, joint_mag)
         qnoise = qnoise + joint_extra
-        probe_joint = params[P_PROBE_JOINT_RAD]
+        probe_joint = params[P.probe_joint_rad]
         probe_joint_noise = jax.vmap(lambda k: jax.random.uniform(k, (ACTION_DIM,), minval=-1.0, maxval=1.0))(joint_keys) * jnp.maximum(probe_joint, 0.0)
         qnoise = jnp.where(probe_joint >= 0.0, probe_joint_noise, qnoise)
         vnoise = jax.vmap(lambda k: jax.random.normal(k, (self.mj_model.nv,), dtype=jnp.float32))(vnoise_keys) * RESET_QVEL_NOISE
@@ -1376,12 +1123,12 @@ class EmuMJXEnv:
         # this state" rather than "stand still". Free-joint qvel layout:
         # [0:3] linear (x,y,z), [3:6] angular (x,y,z) -- yaw-rate is the
         # angular-z term.
-        qvel = qvel.at[:, 0].set(qvel[:, 0] + RESET_FORWARD_VELOCITY_BLEND * task[:, TASK_VX])
-        qvel = qvel.at[:, 1].set(qvel[:, 1] + RESET_FORWARD_VELOCITY_BLEND * task[:, TASK_VY])
-        qvel = qvel.at[:, 5].set(qvel[:, 5] + RESET_FORWARD_VELOCITY_BLEND * task[:, TASK_YAW])
-        probe_lin = params[P_PROBE_LINVEL_MPS]
+        qvel = qvel.at[:, 0].set(qvel[:, 0] + RESET_FORWARD_VELOCITY_BLEND * task[:, T.vx])
+        qvel = qvel.at[:, 1].set(qvel[:, 1] + RESET_FORWARD_VELOCITY_BLEND * task[:, T.vy])
+        qvel = qvel.at[:, 5].set(qvel[:, 5] + RESET_FORWARD_VELOCITY_BLEND * task[:, T.yaw])
+        probe_lin = params[P.probe_linvel_mps]
         lin_full = self.recovery_linvel_max_mps * resilience_d
-        lin_mag = jnp.where(is_rehearsal, 0.0, jnp.where(is_resilience, lin_full, lin_full * STEADY_RESILIENCE_BORROW_FRAC))
+        lin_mag = jnp.where(is_resilience, lin_full, lin_full * STEADY_RESILIENCE_BORROW_FRAC)
         train_lin = jax.vmap(lambda k, m: jax.random.uniform(k, (3,), minval=-m, maxval=m))(linvel_keys, lin_mag)
         train_lin = train_lin * jnp.asarray([1.0, 1.0, 0.35], dtype=jnp.float32)
         # Held-out probes use exact horizontal magnitude with 8 stratified
@@ -1394,8 +1141,8 @@ class EmuMJXEnv:
         # catch, added ON TOP of the commanded yaw-rate blend just above,
         # not instead of it. Same borrow-fraction coupling as tilt/position.
         angvel_full = self._lerp(0.0, self.recovery_angvel_max_rad_s, resilience_d)
-        angvel_mag = jnp.where(is_rehearsal, 0.0, jnp.where(is_resilience, angvel_full, angvel_full * STEADY_RESILIENCE_BORROW_FRAC))
-        probe_ang = params[P_PROBE_ANGVEL_RAD_S]
+        angvel_mag = jnp.where(is_resilience, angvel_full, angvel_full * STEADY_RESILIENCE_BORROW_FRAC)
+        probe_ang = params[P.probe_angvel_rad_s]
         train_angvel = jax.vmap(lambda k, m: jax.random.uniform(k, (3,), minval=-m, maxval=m))(angvel_keys, angvel_mag)
         yaw_sign = jnp.where((probe_bin % 2) == 0, 0.5, -0.5).astype(jnp.float32)
         probe_ang_dir = jnp.stack([jnp.cos(probe_angle), jnp.sin(probe_angle), yaw_sign], axis=1)
@@ -1404,31 +1151,25 @@ class EmuMJXEnv:
         angvel_kick = jnp.where(probe_ang >= 0.0, probe_ang_vec, train_angvel)
         qvel = qvel.at[:, 3:6].set(qvel[:, 3:6] + angvel_kick)
         if carryover_qvel is not None:
-            min_hold_s, _ = self._transition_hold_and_jump(params[P_TRANSITION_DIFFICULTY])
+            min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
             trans_frac = (TRANSITION_HOLD_MAX_S - min_hold_s) / (TRANSITION_HOLD_MAX_S - TRANSITION_HOLD_MIN_S)
             carry_prob = trans_frac * CARRYOVER_MAX_PROB
             do_carry = jax.vmap(lambda k: jax.random.uniform(k, ()))(carry_keys) < carry_prob
-            # The core-rehearsal cohort is deliberately a pristine anchor: no
-            # transition carry-over, no resilience perturbation, no harder
-            # command envelope. Its whole job is to keep rehearsing the seed
-            # gait while the frontier distributions move underneath it.
-            do_carry = jnp.logical_and(do_carry, jnp.logical_not(is_rehearsal))
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
         data = self.forward_batched(data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
-        prev_ctrl = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
-        prev_raw_target = jnp.zeros((self.num_envs, MAX_COMM_LATENCY_STEPS, ACTION_DIM), dtype=jnp.float32)
-        base = self._base_obs(data, task, prev_action, phase)
+        prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
+        base = self._base_obs(data, task, prev_action, phase, prev_action)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
-        return EnvState(data, hist, next_keys, task, prev_action, prev_ctrl, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+        return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros)
 
     def _rotation_body_to_world(self, data):
@@ -1443,7 +1184,7 @@ class EmuMJXEnv:
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
 
-    def _metrics(self, data, task, action, prev_action, phase=None, prev_foot_pos=None):
+    def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
         gravity_z = -projected_gravity[:, 2]
@@ -1466,10 +1207,6 @@ class EmuMJXEnv:
         # stays visible as a pressure signal (below) so strict validation
         # could be reintroduced later without poisoning early training.
         body_low_soft = jnp.any(bad_z[:, 1:] < SOFT_BODY_LOW_Z, axis=1).astype(jnp.float32)
-        body_floor_hard = jnp.logical_and(
-            jnp.any(bad_z[:, 1:] < HARD_BODY_FLOOR_Z, axis=1),
-            height < HARD_BODY_TORSO_GATE_Z,
-        ).astype(jnp.float32)
         low_height_soft = (height < 0.130).astype(jnp.float32)
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
         swing_clearance = jnp.maximum(0.0, jnp.max(foot_z, axis=1) - 0.018)
@@ -1477,37 +1214,26 @@ class EmuMJXEnv:
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
         action_delta = jnp.linalg.norm(action - prev_action, axis=1)
-        # Reward-only true stance-foot slip proxy. v5004 used chassis
-        # horizontal velocity here, accidentally making fast translation itself
-        # mildly undesirable. MuJoCo truth is allowed in the reward: consecutive
+        # Reward-only stance-foot slip proxy. MuJoCo truth is allowed in the
+        # reward: consecutive
         # foot poses estimate tangential speed and only near-floor feet count.
-        if prev_foot_pos is None:
-            stance_slip = jnp.zeros((self.num_envs,), dtype=jnp.float32)
-        else:
-            foot_vel_xy = (data.xpos[:, self.foot_bodies, :2] - prev_foot_pos[:, :, :2]) / CONTROL_DT
-            foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
-            stance_w = jnp.clip((0.040 - foot_z) / 0.020, 0.0, 1.0)
-            stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
+        foot_vel_xy = (data.xpos[:, self.foot_bodies, :2] - prev_foot_pos[:, :, :2]) / CONTROL_DT
+        foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
+        stance_w = jnp.clip((0.040 - foot_z) / 0.020, 0.0, 1.0)
+        stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
         fall_height = height < 0.145
         fall_tilt = gravity_z < 0.35
-        # Seed-stage fast model: proxy floor contact is diagnostic only.
-        # Real non-foot contact enforcement belongs in the later validation model.
-        fall_bad_contact = jnp.zeros_like(body_floor_hard, dtype=bool)
         fall_roll_rate = jnp.abs(body_ang[:, 0]) > 9.0
         fall_pitch_rate = jnp.abs(body_ang[:, 1]) > 9.0
         terminal = jnp.logical_or(fall_height, fall_tilt)
         # Do not terminate on the body-low proxy in fast seed training.
         terminal = jnp.logical_or(terminal, fall_roll_rate)
         terminal = jnp.logical_or(terminal, fall_pitch_rate)
-        overspeed = jnp.maximum(0.0, body_vel[:, 0] - task[:, TASK_VX])
-        underspeed = jnp.maximum(0.0, task[:, TASK_VX] - body_vel[:, 0])
-        if phase is None:
-            phase = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         s_phase = jnp.sin(phase)
         r_expected = jnp.maximum(0.0, s_phase)
         l_expected = jnp.maximum(0.0, -s_phase)
-        r_lift = jnp.clip((foot_z[:, 0] - 0.018) / jnp.maximum(0.008, task[:, TASK_STEP_HEIGHT]), 0.0, 1.0)
-        l_lift = jnp.clip((foot_z[:, 1] - 0.018) / jnp.maximum(0.008, task[:, TASK_STEP_HEIGHT]), 0.0, 1.0)
+        r_lift = jnp.clip((foot_z[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        l_lift = jnp.clip((foot_z[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
         phase_sync = jnp.clip(1.0 - 0.5 * (jnp.abs(r_lift - r_expected) + jnp.abs(l_lift - l_expected)), 0.0, 1.0)
         step_evidence = jnp.clip((jnp.maximum(r_lift, l_lift) - 0.10) / 0.55, 0.0, 1.0)
         alternating_lift = jnp.abs(r_lift - l_lift)
@@ -1516,49 +1242,35 @@ class EmuMJXEnv:
             'terminal': terminal.astype(jnp.float32),
             'fall_height': fall_height.astype(jnp.float32),
             'fall_tilt': fall_tilt.astype(jnp.float32),
-            'fall_bad_contact': fall_bad_contact.astype(jnp.float32),
-            'body_low_soft': body_low_soft,
-            'body_floor_hard': body_floor_hard,
             'fall_roll_rate': fall_roll_rate.astype(jnp.float32),
             'fall_pitch_rate': fall_pitch_rate.astype(jnp.float32),
-            'overspeed': overspeed, 'underspeed': underspeed,
-            'regime_steady': (task[:, TASK_REGIME] < 0.5).astype(jnp.float32),
-            'regime_transition': jnp.logical_and(task[:, TASK_REGIME] > 0.5, task[:, TASK_REGIME] < 1.5).astype(jnp.float32),
-            'regime_resilience': (task[:, TASK_REGIME] > 1.5).astype(jnp.float32),
-            'core_rehearsal': task[:, TASK_CORE_REHEARSAL],
-            'athletic_rehearsal': task[:, TASK_ATHLETIC_REHEARSAL],
-            'regime_steady_frontier': jnp.logical_and(jnp.logical_and(task[:, TASK_REGIME] < 0.5, task[:, TASK_CORE_REHEARSAL] < 0.5), task[:, TASK_ATHLETIC_REHEARSAL] < 0.5).astype(jnp.float32),
-            'regime_transition_frontier': jnp.logical_and(jnp.logical_and(jnp.logical_and(task[:, TASK_REGIME] > 0.5, task[:, TASK_REGIME] < 1.5), task[:, TASK_CORE_REHEARSAL] < 0.5), task[:, TASK_ATHLETIC_REHEARSAL] < 0.5).astype(jnp.float32),
-            'regime_resilience_frontier': jnp.logical_and(jnp.logical_and(task[:, TASK_REGIME] > 1.5, task[:, TASK_CORE_REHEARSAL] < 0.5), task[:, TASK_ATHLETIC_REHEARSAL] < 0.5).astype(jnp.float32),
-            'birth_steady_d': task[:, TASK_BIRTH_STEADY_D],
-            'birth_transition_d': task[:, TASK_BIRTH_TRANSITION_D],
-            'birth_resilience_d': task[:, TASK_BIRTH_RESILIENCE_D],
-            'birth_posture_d': task[:, TASK_BIRTH_POSTURE_D],
+            'regime_steady': (task[:, T.regime] < 0.5).astype(jnp.float32),
+            'regime_transition': jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5).astype(jnp.float32),
+            'regime_resilience': (task[:, T.regime] > 1.5).astype(jnp.float32),
+            'athletic_rehearsal': task[:, T.athletic_rehearsal],
+            'field_taught': task[:, T.field_taught],
+            'regime_steady_frontier': jnp.logical_and(task[:, T.regime] < 0.5, task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
+            'regime_transition_frontier': jnp.logical_and(jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5), task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
+            'regime_resilience_frontier': jnp.logical_and(task[:, T.regime] > 1.5, task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
+            'birth_steady_d': task[:, T.birth_steady_d],
+            'birth_transition_d': task[:, T.birth_transition_d],
+            'birth_resilience_d': task[:, T.birth_resilience_d],
+            'birth_posture_d': task[:, T.birth_posture_d],
             'vx': body_vel[:, 0], 'vy': body_vel[:, 1], 'yaw_rate': body_ang[:, 2],
-            'roll_rate': body_ang[:, 0], 'pitch_rate': body_ang[:, 1],
-            'cmd_vx': task[:, TASK_VX], 'cmd_vy': task[:, TASK_VY], 'cmd_yaw': task[:, TASK_YAW],
-            'height': height, 'target_height': NEUTRAL_ROOT_Z + task[:, TASK_HEIGHT],
+            'cmd_vx': task[:, T.vx], 'cmd_vy': task[:, T.vy], 'cmd_yaw': task[:, T.yaw],
+            'height': height, 'target_height': NEUTRAL_ROOT_Z + task[:, T.height],
             'gravity_z': gravity_z,
-            'foot_mid_angle': foot_mid_angle,
             'foot_mid_angle_deg': foot_mid_angle * 57.29578,
             'foot_mid_cone': foot_mid_cone,
             'phase_sync': phase_sync,
             'step_evidence': step_evidence,
             'organic_step_shape': organic_step_shape,
-            # Positive means torso/root is ahead of the midpoint between the feet;
-            # negative means it is behind.  This is not full COM, but it is cheap,
-            # batched, and exactly the signal we need when HOME zero-action drifts
-            # forward/backward before PPO has a vote.
-            'torso_foot_x': data.xpos[:, self.torso_id, 0] - foot_mid[:, 0],
-            'torso_foot_y': data.xpos[:, self.torso_id, 1] - foot_mid[:, 1],
-            'foot_mean_z': jnp.mean(foot_z, axis=1),
-            'foot_contacts': foot_contacts, 'bad_contact': bad_contact, 'support': support,
+            'bad_contact': bad_contact, 'support': support,
             'stance_slip': stance_slip,
-            'swing_clearance': swing_clearance, 'target_step_height': jnp.maximum(0.008, task[:, TASK_STEP_HEIGHT]),
+            'swing_clearance': swing_clearance, 'target_step_height': jnp.maximum(0.008, task[:, T.step_height]),
             'action_delta_norm': action_delta,
             'joint_limit_pressure': joint_pressure,
             'scissor_pressure': scissor,
-            'regime_id': task[:, TASK_REGIME],
         }
 
     def _reward(self, m, regime):
@@ -1577,7 +1289,7 @@ class EmuMJXEnv:
         # then faceplant" hack is not. RESILIENCE gets a wider dead zone
         # here specifically -- see RESILIENCE_TOLERANCE_MULT's own comment
         # for why.
-        speed_tol = jnp.where(is_resilience > 0.5, self.speed_tolerance * RESILIENCE_TOLERANCE_MULT, self.speed_tolerance)
+        speed_tol = jnp.where(is_resilience > 0.5, SPEED_TOLERANCE * RESILIENCE_TOLERANCE_MULT, SPEED_TOLERANCE)
         overspeed = jnp.maximum(0.0, m['vx'] - m['cmd_vx'] - speed_tol)
         underspeed = jnp.maximum(0.0, m['cmd_vx'] - m['vx'] - speed_tol)
         # TRANSITION weights the WHOLE error sum harder specifically while a
@@ -1619,22 +1331,14 @@ class EmuMJXEnv:
         # Every regime is a real "must actually walk" episode from the
         # first settled step onward.
         locomotion_maturity = jnp.clip((m['age_s'] - 0.20) / 0.45, 0.0, 1.0)
-        # Anti-freezing gate. A policy can learn to balance on one leg and
-        # avoid stepping entirely, rather than walk -- confirmed directly
-        # by watching a real run, and the reward arithmetic explains
-        # exactly why that's attractive. At small commanded speeds, a
-        # robot standing perfectly frozen already scores valid_alive=1,
-        # upright_height~1, feet_only_contact~1, stance_anti_slip~1,
-        # servo_smoothness~1 (it directly rewards LOW action delta, i.e.
-        # stillness), and even command_tracking stays high since the
-        # tracking error from a near-zero commanded speed is small. The
-        # only one of 8 terms that actually requires motion is
-        # swing_clearance (weight 0.16 out of ~4.94 total) -- worked out to
-        # an estimated reward of ~3.56 for doing nothing, higher than the
-        # +3.2 a genuinely well-walking robot earns. Not a hypothesis: this
-        # is the real formula and real arithmetic.
+        # Anti-freezing gate. Earlier reward versions made sustained balancing
+        # without stepping too attractive because survival/upright/contact/
+        # smoothness can all score well while motion evidence stays near zero.
+        # The exact historical arithmetic belongs in docs/history.md; the live
+        # invariant is simply that sustained non-stepping must not outscore
+        # genuine locomotion.
         #
-        # Fix: gate upright_height and feet_only_contact's contribution to
+        # Gate upright_height and feet_only_contact's contribution to
         # the final sum -- the two biggest "free when frozen" terms -- on
         # `stepping_activity_so_far` (an episode-long running average of
         # step_evidence, NOT the instantaneous per-step value, which would
@@ -1645,19 +1349,18 @@ class EmuMJXEnv:
         # demonstrated stepping, not a hard cliff -- a policy that's
         # stepping only a little still gets substantial credit, only
         # *total, sustained* non-stepping is strongly discouraged.
-        stepping_factor = jnp.clip(m['stepping_activity_so_far'] / self.stepping_activity_target, 0.0, 1.0)
+        stepping_factor = jnp.clip(m['stepping_activity_so_far'] / STEPPING_ACTIVITY_TARGET, 0.0, 1.0)
         # Every regime commands real, non-zero movement, so there's no
         # "standing still is correct" case to exempt from this gate.
         stepping_gate = jnp.where(m['age_s'] > STEPPING_GATE_GRACE_S, 0.30 + 0.70 * stepping_factor, 1.0)
+        # Only reward components that are actually inspected off-device cross
+        # the telemetry boundary. The remaining terms still shape reward below.
         terms = {
             'valid_alive': valid_alive,
             'command_tracking': command_tracking,
             'upright_height': upright_height,
             'feet_only_contact': feet_only_contact,
-            'stance_anti_slip': stance_anti_slip,
             'swing_clearance': swing_clearance,
-            'servo_smoothness': servo_smoothness,
-            'joint_safety': joint_safety,
         }
         # Reward remains the same 8-term doctrine, but survival/contact now gate
         # most locomotion payment.  This keeps the reward pure while making
@@ -1667,7 +1370,7 @@ class EmuMJXEnv:
                   0.18*stance_anti_slip + 0.16*swing_clearance + 0.12*servo_smoothness + 0.17*joint_safety)
         return reward, terms
 
-    def _base_obs(self, data, task, prev_action, phase, metrics=None, prev_ctrl=None):
+    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
@@ -1677,7 +1380,7 @@ class EmuMJXEnv:
         shin_rate = data.qvel[:, self.shin_qvel]
         n0 = jnp.sin(1.73 * phase + 0.6180339 * self.env_index)
         n1 = jnp.sin(2.31 * phase + 1.4142136 * self.env_index + 0.7)
-        ns = jnp.where(task[:, TASK_SENSOR_SCALE] >= 0.0, task[:, TASK_SENSOR_SCALE], self.sensor_noise_scale)
+        ns = jnp.where(task[:, T.sensor_scale] >= 0.0, task[:, T.sensor_scale], self.sensor_noise_scale)
         grav_est = projected_gravity + ns[:, None] * 0.008 * jnp.stack([n0, n1, -0.5*n0], axis=1)
         gyro_est = body_ang + ns[:, None] * 0.025 * jnp.stack([n1, n0, -n1], axis=1)
         q_est = q + ns[:, None] * 0.0015 * n0[:, None]
@@ -1695,12 +1398,10 @@ class EmuMJXEnv:
         shin_flex_est = shin_flex + ns[:, None] * 0.0010 * jnp.stack([n0, n1], axis=1)
         shin_rate_est = shin_rate + ns[:, None] * 0.010 * jnp.stack([n1, n0], axis=1)
         shin_load_est = jnp.clip(jnp.abs(shin_flex_est) / 0.10, 0.0, 1.5)
-        cmd = task[:, [TASK_VX, TASK_VY, TASK_YAW, TASK_HEIGHT, TASK_PITCH, TASK_ROLL, TASK_STEP_HEIGHT]]
-        phase_pack = self.phase_obs_scale * jnp.stack([jnp.sin(phase), jnp.cos(phase)], axis=1)
-        if prev_ctrl is None:
-            prev_ctrl = prev_action
-        base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, prev_ctrl,
+        cmd = task[:, [T.vx, T.vy, T.yaw, T.height, T.pitch, T.roll, T.step_height]]
+        phase_pack = jnp.stack([jnp.sin(phase), jnp.cos(phase)], axis=1)
+        base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        assert base.shape[1] == BASE_OBS_DIM, f"_base_obs produced {base.shape[1]} columns, BASE_OBS_DIM says {BASE_OBS_DIM}"
+        assert base.shape[1] == len(BASE_OBS_FIELDS) == BASE_OBS_DIM, f"_base_obs produced {base.shape[1]} columns, contract says {BASE_OBS_DIM}"
         return jnp.nan_to_num(base, nan=0.0, posinf=10.0, neginf=-10.0).astype(jnp.float32)

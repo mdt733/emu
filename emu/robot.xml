@@ -18,9 +18,11 @@
     problem physically reasonable; the policy still has to step and correct.
 
   Actuators:
-    Feetech STS3215-style joint-direct model (no external reduction; servo itself is internally geared).
-    forcerange = ±1.913 N·m, kp = 10 N·m/rad, joint damping = 0.435 N·m·s/rad.
-    Servo target speed/lag/safety is handled by environment.py.
+    Feetech STS3215-style joint-direct model (servo itself is internally geared).
+    Six actuated joints use forcerange = ±1.913 N·m, kp = 10 N·m/rad,
+    damping = 0.435 N·m·s/rad, armature = 0.012 kg·m² and Coulomb
+    frictionloss = 0.08 N·m. Servo target speed/lag/safety is handled by
+    environment.py; the physical joint constants themselves live here.
 
   Contact contract:
     v3017 seed model deliberately makes the thin thigh/shin rods non-contacting
@@ -36,11 +38,11 @@
 
   <default>
     <!--
-      damping=0.435 implements the STS3215 torque-speed curve (b = T_stall/ω_noload).
-      Applies to all 6 actuated joints; shin_flex joints override with their own
-      higher damping (3.0) for ankle compliance — unaffected by this default.
-      armature=0.006 kg·m²: effective joint inertia for direct-drive (no gear
-      ratio amplifying rotor inertia, so lower than the 0.01 used for 2:1 gearing).
+      Base joint defaults preserve the passive-shin model. The six motor joints
+      explicitly override armature/frictionloss below so robot.xml alone fully
+      defines the effective physics used by MJX.
+      damping=0.435 implements the STS3215 torque-speed slope; shin_flex joints
+      override damping to 0.08 for the passive carbon-shin compliance.
     -->
     <joint damping="0.435" armature="0.006" />
     <geom friction="1.5 0.005 0.0001" />
@@ -62,18 +64,18 @@
       <!-- ═══ RIGHT LEG ═══ -->
       <body name="r_hip" pos="0 -0.08 0">
         <inertial mass="0.01" pos="0 0 0" diaginertia="1e-5 1e-5 1e-5" />
-        <joint name="r_hip_roll" type="hinge" axis="1 0 0"
+        <joint name="r_hip_roll" type="hinge" armature="0.012" frictionloss="0.08" axis="1 0 0"
                range="-25 25" stiffness="2.0" springref="0" />
         <body name="r_thigh" pos="0 0 0">
           <!-- Spring-balanced crouch: | has zero spring, q=0 `<` supports ~1x weight, deep `=` ~2x weight. -->
-          <joint name="r_hip_pitch" type="hinge" axis="0 1 0"
+          <joint name="r_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0.480" springref="-45" />
           <geom name="r_thigh_rod" type="capsule" size="0.008"
                 fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
                 contype="0" conaffinity="0" />
           <body name="r_shin" pos="-0.1202 0 -0.1202">
             <!-- Knee support for the neutral crouch; motors still do dynamic correction. -->
-            <joint name="r_knee" type="hinge" axis="0 1 0"
+            <joint name="r_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                    range="-55 95" stiffness="0.480" springref="45" />
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
@@ -99,16 +101,16 @@
       <!-- ═══ LEFT LEG ═══ (mirror) -->
       <body name="l_hip" pos="0 0.08 0">
         <inertial mass="0.01" pos="0 0 0" diaginertia="1e-5 1e-5 1e-5" />
-        <joint name="l_hip_roll" type="hinge" axis="1 0 0"
+        <joint name="l_hip_roll" type="hinge" armature="0.012" frictionloss="0.08" axis="1 0 0"
                range="-25 25" stiffness="2.0" springref="0" />
         <body name="l_thigh" pos="0 0 0">
-          <joint name="l_hip_pitch" type="hinge" axis="0 1 0"
+          <joint name="l_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0.480" springref="-45" />
           <geom name="l_thigh_rod" type="capsule" size="0.008"
                 fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
                 contype="0" conaffinity="0" />
           <body name="l_shin" pos="-0.1202 0 -0.1202">
-            <joint name="l_knee" type="hinge" axis="0 1 0"
+            <joint name="l_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                    range="-55 95" stiffness="0.480" springref="45" />
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
@@ -155,11 +157,11 @@
         ω=2.93 → T_eff up to 0.638 N·m  (33%, rated)  ✓
         ω=4.40 → T_eff → 0             (no-load speed) ✓
 
-    PD servo dynamics (kp=10, J≈armature=0.006 kg·m²):
-      ω_n  = √(kp/J)         = 40.8 rad/s = 6.5 Hz bandwidth
-      ζ    = b/(2√(kp·J))    = 0.887       (slightly under critically damped → no overshoot)
-      Saturation error        = 1.913/10    = 0.191 rad = 11°
-      The servo saturates at ±11° tracking error; within that it tracks perfectly.
+    Effective joint dynamics (kp=10, armature=0.012 kg·m²):
+      ω_n  = √(kp/J)         = 28.9 rad/s = 4.6 Hz
+      ζ    = b/(2√(kp·J))    = 0.628
+      Coulomb frictionloss   = 0.08 N·m
+      Saturation error       = 1.913/10 = 0.191 rad = 11°
 
     vs old 2:1 geared MG996R:
       Peak torque: 2.54 → 1.913 N·m  (−25%)  compensated by springs in stance
@@ -181,14 +183,9 @@
               kp="10" ctrlrange="-55 95"  forcerange="-1.913 1.913" />
   </actuator>
 
-  <!-- Thigh and shin rods are non-contacting in the v3017 fast seed model.
-       Feet are the only contact geoms.  This avoids the v3009 failure mode where
-       a crouched thin-leg body-origin proxy killed every episode as bad contact.
-       Later validation versions should add explicit sentinel geoms back. -->
-  <contact>
-    <exclude body1="torso" body2="r_thigh"/>
-    <exclude body1="torso" body2="l_thigh"/>
-  </contact>
+  <!-- Thigh and shin rods are non-contacting in the fast seed model; feet are
+       the only contact geoms. Later hardware-validation models can reintroduce
+       explicit sentinel geoms without changing the training contact contract. -->
 
   <sensor>
     <accelerometer name="accel" site="imu" />

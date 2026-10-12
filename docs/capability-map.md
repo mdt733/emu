@@ -8,7 +8,7 @@ Velocity capability is a **node property**. Agility is an **edge property**.
 
 ## Node competence vs quality
 
-v5012 stores these separately.
+the current trainer stores these separately.
 
 **Competence** asks a binary physical question over a sustained window: did the robot remain upright, supported and within command-tracking tolerances?
 
@@ -22,7 +22,7 @@ A node is mastered only when it has enough recent effective trials **and** the c
 
 ## Recovery
 
-Recovery is currently an **integrated recovery** layer: the normal resilience birth may combine body tilt, position error, joint disorder, linear/angular velocity mismatch and pushes. v5012 intentionally does not pretend these are separate maps until the training curriculum actually separates them.
+Recovery is currently an **integrated recovery** layer: the normal resilience birth may combine body tilt, position error, joint disorder, linear/angular velocity mismatch and pushes. the current trainer intentionally does not pretend these are separate maps until the training curriculum actually separates them.
 
 Each command node has six severity bands. One resilience birth produces one recovery verdict when competent locomotion is sustained again or the attempt fails first.
 
@@ -30,7 +30,7 @@ Each command node has six severity bands. One resilience birth produces one reco
 
 A maneuver starts at a source command and has a target command/ramp rate. The field waits for the entire ramp and subsequent settling period before issuing one success/failure event.
 
-Each source node has 26 directional sectors. Successful edges also accumulate demonstrated normalized command-change rate and settling time.
+Each source node has 26 directional sectors. Successful edges also accumulate demonstrated normalized command-change rate. Settling duration is part of the edge verdict, not separately stored telemetry.
 
 ## Sampling
 

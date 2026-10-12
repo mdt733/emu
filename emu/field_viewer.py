@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Read-only live viewer for EMU capability fields.
 
-Default:
-    python field_viewer.py
-
-or, after editable install:
+Run with:
     emu view
 
+or from a source checkout:
+    python -m emu.field_viewer
+
 The viewer auto-follows the newest capability_field_latest.npz under the current
-version's run root.  It understands v5012 field schema 3 and can still display
-older schema-1/2 snapshots for historical comparison.  It never writes to
-or communicates with the trainer.
+version's run root. It understands the current field schema only and never writes
+to or communicates with the trainer.
 """
 from __future__ import annotations
 
@@ -22,8 +21,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import numpy as np
+from .paths import seed_root
 
-VERSION = Path(__file__).with_name('VERSION').read_text(encoding='utf-8').strip()
+from .capability_field import FIELD_VERSION
+from .paths import VERSION
 
 HTML = r'''<!doctype html><meta charset="utf-8"><title>EMU capability field</title>
 <style>
@@ -66,10 +67,6 @@ layer.addEventListener('change',draw);yaw.addEventListener('input',()=>{if(SEL)S
 </script>'''
 
 
-def _get(d, key, fallback):
-    return np.asarray(d[key], float) if key in d.files else np.asarray(fallback, float)
-
-
 def payload(path: Path):
     last = None
     for _ in range(3):
@@ -78,20 +75,22 @@ def payload(path: Path):
                 vx, vy, yaw = [np.asarray(d[k], float) for k in ('vx', 'vy', 'yaw')]
                 nc = np.asarray(d['node_competence'], float)
                 ne = np.asarray(d['node_evidence'], float)
-                schema = int(np.asarray(d['field_schema']).ravel()[0]) if 'field_schema' in d.files else 1
-                nl = _get(d, 'node_lower', nc)
-                nq = _get(d, 'node_quality', nc)
-                conf = _get(d, 'node_confidence', np.clip(ne / 8.0, 0.0, 1.0))
-                slow = _get(d, 'node_slow', np.full_like(nc, 0.5))
-                step = int(np.asarray(d['step']).ravel()[0]) if 'step' in d.files else 0
-                half = float(np.asarray(d['half_life_steps']).ravel()[0]) if 'half_life_steps' in d.files else 20_000_000.0
-                last_node = _get(d, 'node_last_step', np.full_like(nc, step))
+                schema = int(np.asarray(d['field_schema']).ravel()[0])
+                if schema != FIELD_VERSION:
+                    raise ValueError(f'field schema {schema} is not current schema {FIELD_VERSION}')
+                nl = np.asarray(d['node_lower'], float)
+                nq = np.asarray(d['node_quality'], float)
+                conf = np.asarray(d['node_confidence'], float)
+                slow = np.asarray(d['node_slow'], float)
+                step = int(np.asarray(d['step']).ravel()[0])
+                half = float(np.asarray(d['half_life_steps']).ravel()[0])
+                last_node = np.asarray(d['node_last_step'], float)
                 rc = np.asarray(d['recovery_competence'], float)
                 re = np.asarray(d['recovery_evidence'], float)
-                rl = _get(d, 'recovery_lower', rc)
+                rl = np.asarray(d['recovery_lower'], float)
                 ec = np.asarray(d['edge_competence'], float)
                 ee = np.asarray(d['edge_evidence'], float)
-                el = _get(d, 'edge_lower', ec)
+                el = np.asarray(d['edge_lower'], float)
                 er = np.asarray(d['edge_rate'], float)
             break
         except Exception as exc:
@@ -100,20 +99,20 @@ def payload(path: Path):
     else:
         raise last
 
-    min_evidence = 3.0 if schema >= 2 else 2.0
+    min_evidence = 3.0
     strong = 8.0
-    node_master = (ne >= strong) & (nl >= .80) if schema >= 2 else (ne >= 2) & (nc >= .80)
+    node_master = (ne >= strong) & (nl >= .80)
     frontier = (ne >= min_evidence) & (~node_master) & (nc >= .35)
     node_learning = np.clip(nc - slow, -1.0, 1.0)
     node_stale = np.clip(np.maximum(0.0, step-last_node) / max(half, 1.0), 0.0, 2.0) / 2.0
 
-    rec_ok = (re >= strong) & (rl >= .70) if schema >= 2 else (re >= .6) & (rc >= .75)
+    rec_ok = (re >= strong) & (rl >= .70)
     bins = (np.arange(rc.shape[-1], dtype=float) + .5) / max(1, rc.shape[-1])
     recovery_frontier = np.max(np.where(rec_ok, bins, 0.0), axis=-1)
-    recovery_known = np.sum(re >= (2.0 if schema >= 2 else .6), axis=-1)
+    recovery_known = np.sum(re >= 2.0, axis=-1)
 
-    edge_known_mask = ee >= (2.0 if schema >= 2 else .6)
-    edge_master_mask = (ee >= strong) & (el >= .70) if schema >= 2 else edge_known_mask & (ec >= .75)
+    edge_known_mask = ee >= 2.0
+    edge_master_mask = (ee >= strong) & (el >= .70)
     edge_coverage = np.sum(edge_known_mask, axis=-1)
     edge_comp_node = np.sum(np.where(edge_known_mask, ec, 0.0), axis=-1) / np.maximum(edge_coverage, 1)
     edge_rate_node = np.max(np.where(edge_known_mask, er, 0.0), axis=-1)
@@ -141,7 +140,7 @@ def payload(path: Path):
         'min_evidence': min_evidence,
         'known_nodes': int(np.sum(ne >= min_evidence)), 'competent_nodes': int(np.sum(node_master)),
         'frontier_nodes': int(np.sum(frontier)),
-        'known_recovery': int(np.sum(re >= (2.0 if schema >= 2 else .6))),
+        'known_recovery': int(np.sum(re >= 2.0)),
         'competent_recovery': int(np.sum(rec_ok)),
         'known_edges': int(np.sum(edge_known_mask)), 'competent_edges': int(np.sum(edge_master_mask)),
         'node_events': int(float(summ.get('field_node_events_total', 0))),
@@ -154,22 +153,22 @@ def payload(path: Path):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=f'EMU {VERSION} live capability-field viewer')
     group = ap.add_mutually_exclusive_group()
-    group.add_argument('--run-dir', default='', help='watch one exact rung directory')
-    group.add_argument('--run-root', default='', help='auto-follow newest field under <run-root>/rung_runs')
+    group.add_argument('--run-dir', default='', help='watch one exact run directory')
+    group.add_argument('--run-root', default='', help='auto-follow newest field under <run-root>')
+    ap.add_argument('--seed', type=int, default=733)
     ap.add_argument('--port', type=int, default=8765)
     args = ap.parse_args(argv)
 
     exact = Path(args.run_dir).expanduser().resolve() if args.run_dir else None
-    root = Path(args.run_root).expanduser().resolve() if args.run_root else (Path.home() / 'robot_lab' / 'emu_runs' / VERSION).resolve()
+    root = Path(args.run_root).expanduser().resolve() if args.run_root else seed_root(args.seed)
 
     def find_npz():
         if exact is not None:
             p = exact / 'capability_field_latest.npz'
             if not p.exists(): p = exact / 'capability_field_final.npz'
             return p if p.exists() else None
-        rr = root / 'rung_runs'
-        if not rr.exists(): return None
-        candidates = [p for pat in ('*/capability_field_latest.npz','*/capability_field_final.npz') for p in rr.glob(pat) if p.is_file()]
+        if not root.exists(): return None
+        candidates = [p for pat in ('*/capability_field_latest.npz','*/capability_field_final.npz') for p in root.glob(pat) if p.is_file()]
         return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
 
     class H(BaseHTTPRequestHandler):
@@ -183,14 +182,14 @@ def main(argv=None):
             if req=='/data':
                 npz=find_npz()
                 if npz is None:
-                    where=str(exact if exact is not None else root/'rung_runs')
+                    where=str(exact if exact is not None else root)
                     return self.send_json({'waiting':True,'message':'waiting for first capability-field snapshot…','search_root':where})
                 try: return self.send_json(payload(npz))
                 except Exception as exc: return self.send_json({'waiting':True,'message':f'field exists but is temporarily unreadable: {exc}','search_root':str(npz)},503)
             return self.send_json({'error':'not found','path':req},404)
 
     srv=ThreadingHTTPServer(('127.0.0.1',args.port),H)
-    mode=f'exact run {exact}' if exact is not None else f'auto-follow newest field under {root / "rung_runs"}'
+    mode=f'exact run {exact}' if exact is not None else f'auto-follow newest field under {root}'
     print(f'EMU {VERSION} capability viewer: http://127.0.0.1:{args.port}/\n{mode}')
     srv.serve_forever()
 

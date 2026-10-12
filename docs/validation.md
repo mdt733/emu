@@ -1,14 +1,16 @@
-# Validation status
+# Validation
 
-Before packaging, the v5012 source passed:
+A release candidate should pass, at minimum:
 
-- Python bytecode compilation for all active modules;
-- nine semantic/unit tests covering command competence, bad tracking, recovery events, maneuver events, conservative mastery, field persistence/schema refusal, teaching-packet shape, and the common matched recovery panel;
-- public CLI parsing/listing checks;
-- editable-install entry-point check in the build Python environment;
-- live viewer HTTP checks, including a JSON waiting response instead of the old HTML-as-JSON failure;
-- a synthetic full-size host capability-field benchmark at 32 frames × 2,048 environments: about 11.6 ms per PPO update on the build CPU.
+- Python compilation for every active module;
+- the semantic/unit test suite;
+- checkpoint exact-resume round trip and canonical discovery order;
+- foundation/shadow/graph profile-contract tests;
+- exact named 55-channel observation schema + shared task-packet layout test;
+- tracking-contract tests, including oscillating error that must not cancel;
+- one-frame maneuver registration;
+- held-out field quarantine/fingerprint test;
+- `emu doctor` on the target JAX/MJX machine;
+- one tiny training/evaluation smoke before an expensive campaign.
 
-The artifact build environment does **not** contain MuJoCo/MJX, so the real physics/JAX reset-step smoke cannot be executed here. `emu doctor` and the training preflight run those checks on the target machine before a long run begins.
-
-The performance benchmark is a build-machine sanity check, not a guarantee for another CPU. It is intended to catch an obviously expensive host-side field implementation.
+The public CLI is intentionally small: `doctor`, `train`, `compare`, `view`, `evaluate`.

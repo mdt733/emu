@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Continuous, event-based capability field for EMU v5012.
+"""Continuous, event-based capability field for EMU.
 
-v5012 keeps the compact command geometry and repairs the v5011 measurement semantics:
+The field keeps compact command geometry and semantic event-based evidence:
 
 * NODE competence is a decayed probability of succeeding at a meaningful,
   sustained command window.  Continuous tracking/upright/support quality is
@@ -16,28 +16,36 @@ pytree to the host once per update; this module reuses that transfer and never
 adds per-death callbacks or an extra simulator pass.  Held-out evaluator
 results remain quarantined and NEVER update this object.
 
-Field schema 3 is intentionally incompatible with older training maps: node
-competence now uses gait-window mean tracking error, and one-frame maneuvers are
-first-class events. Older snapshots remain viewable but are not resumable.
+Field schema 6 requires gait-window mean tracking error, treats one-frame
+maneuvers as first-class events, and persists only evidence modern teaching or
+visualization actually consumes. Incompatible maps are rejected on resume.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields as dataclass_fields
 import json
 import hashlib
-import math
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from .contracts import CONTROL_DT, FIELD_SHAPE, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_EDGE_SCALES
+from .tracking_contract import (VX_ABS_TOL,VX_REL_TOL,VY_ABS_TOL,VY_REL_TOL,YAW_ABS_TOL,YAW_REL_TOL,UPRIGHT_GRAVITY_Z_MIN,SUPPORT_MIN,NODE_WINDOW_S,NODE_SETTLE_DELAY_S,NODE_STRUCTURAL_FRACTION_MIN,RECOVERY_STABLE_S,EDGE_STABLE_S)
 
-FIELD_VERSION = 3
+FIELD_VERSION = 6
 
-DEFAULT_SHAPE = (21, 15, 25)  # vx, vy, yaw-rate
-DEFAULT_BOUNDS = ((-0.65, 1.20), (-0.65, 0.65), (-5.0, 5.0))
+FIELD_BOUNDS = ((-0.65, 1.20), (-0.65, 0.65), (-5.0, 5.0))
 RECOVERY_BINS = 6
-NODE_ANCHORS = 24
-EDGE_ANCHORS = 24
+DEFAULT_HALF_LIFE_STEPS = 20_000_000.0
+RECOVERY_MIN_AGE_S = 0.16
+SLOW_ALPHA = 0.015
+MIN_EFFECTIVE_EVIDENCE = 3.0
+STRONG_EFFECTIVE_EVIDENCE = 8.0
+NODE_MASTER_LOWER = 0.80
+RECOVERY_MASTER_LOWER = 0.70
+EDGE_MASTER_LOWER = 0.70
+STALE_HALF_LIVES = 1.0
+NODE_ANCHORS = FIELD_NODE_ANCHORS
+EDGE_ANCHORS = FIELD_EDGE_ANCHORS
 
 # Twenty-six local directions on the 3-D command lattice.  These are direction
 # sectors, not literal requirements that a maneuver end in an adjacent voxel.
@@ -47,15 +55,8 @@ EDGE_DIRS = np.asarray(
 EDGE_DIRS /= np.maximum(np.linalg.norm(EDGE_DIRS, axis=1, keepdims=True), 1e-6)
 
 # Command normalization used only for maneuver direction/rate geometry.
-EDGE_SCALES = np.asarray([0.90, 0.55, 3.0], np.float32)
+EDGE_SCALES = np.asarray(FIELD_EDGE_SCALES, np.float32)
 
-
-def _safe_float(x: Any, default: float = 0.0) -> float:
-    try:
-        v = float(x)
-        return v if np.isfinite(v) else default
-    except Exception:
-        return default
 
 
 def _posterior_mean(success: np.ndarray, failure: np.ndarray) -> np.ndarray:
@@ -83,39 +84,13 @@ def _wilson_lower(success: np.ndarray, failure: np.ndarray, z: float = 1.2815515
     return np.where(n > 0.0, np.clip(out, 0.0, 1.0), 0.0).astype(np.float32)
 
 
-@dataclass
-class FieldConfig:
-    shape: tuple[int, int, int] = DEFAULT_SHAPE
-    bounds: tuple[tuple[float, float], tuple[float, float], tuple[float, float]] = DEFAULT_BOUNDS
-    half_life_steps: float = 20_000_000.0
-    recovery_bins: int = RECOVERY_BINS
-
-    # Event definitions.  These are semantic windows, not frame weights.
-    node_window_s: float = 1.00
-    node_min_failure_s: float = 0.00
-    node_success_fraction: float = 0.90  # structural-good fraction; tracking uses window means
-    node_settle_delay_s: float = 0.50
-    recovery_stable_s: float = 0.24
-    recovery_min_age_s: float = 0.16
-    edge_stable_s: float = 0.24
-
-    # Evidence / classification.
-    slow_alpha: float = 0.015
-    min_effective_evidence: float = 3.0
-    strong_effective_evidence: float = 8.0
-    node_master_lower: float = 0.80
-    recovery_master_lower: float = 0.70
-    edge_master_lower: float = 0.70
-    stale_half_lives: float = 1.0
-
-
 class CapabilityField:
     """Dense-storage, low-resolution self-map with event-based evidence."""
 
-    def __init__(self, cfg: FieldConfig | None = None):
-        self.cfg = cfg or FieldConfig()
-        self.shape = tuple(int(x) for x in self.cfg.shape)
-        self.bounds = tuple((float(a), float(b)) for a, b in self.cfg.bounds)
+    def __init__(self, half_life_steps: float = DEFAULT_HALF_LIFE_STEPS):
+        self.shape = FIELD_SHAPE
+        self.bounds = FIELD_BOUNDS
+        self.half_life_steps = float(half_life_steps)
         self.centers = tuple(np.linspace(lo, hi, n, dtype=np.float32)
                              for (lo, hi), n in zip(self.bounds, self.shape))
         sh = self.shape
@@ -124,32 +99,20 @@ class CapabilityField:
         self.node_success = np.zeros(sh, np.float32)
         self.node_failure = np.zeros(sh, np.float32)
         self.node_quality_sum = np.zeros(sh, np.float32)
-        self.node_quality_weight = np.zeros(sh, np.float32)
         self.node_slow = np.full(sh, 0.5, np.float32)
         self.node_last_step = np.full(sh, -1, np.int64)
 
         # Integrated recovery layer, indexed by command node + severity band.
-        rsh = sh + (int(self.cfg.recovery_bins),)
+        rsh = sh + (RECOVERY_BINS,)
         self.rec_success = np.zeros(rsh, np.float32)
         self.rec_failure = np.zeros(rsh, np.float32)
-        self.rec_quality_sum = np.zeros(rsh, np.float32)
-        self.rec_quality_weight = np.zeros(rsh, np.float32)
-        self.rec_time_sum = np.zeros(rsh, np.float32)
-        self.rec_time_weight = np.zeros(rsh, np.float32)
-        self.rec_last_step = np.full(rsh, -1, np.int64)
 
         # Maneuver graph edges: source node + one of 26 command directions.
         esh = sh + (len(EDGE_DIRS),)
         self.edge_success = np.zeros(esh, np.float32)
         self.edge_failure = np.zeros(esh, np.float32)
-        self.edge_quality_sum = np.zeros(esh, np.float32)
-        self.edge_quality_weight = np.zeros(esh, np.float32)
         self.edge_rate_sum = np.zeros(esh, np.float32)
-        self.edge_rate_weight = np.zeros(esh, np.float32)
-        self.edge_settle_sum = np.zeros(esh, np.float32)
-        self.edge_settle_weight = np.zeros(esh, np.float32)
         self.edge_slow = np.full(esh, 0.5, np.float32)
-        self.edge_last_step = np.full(esh, -1, np.int64)
 
         self.total_updates = 0
         self.total_node_events = 0
@@ -205,9 +168,6 @@ class CapabilityField:
         self._edge_target = np.zeros((0, 3), np.float32)
         self._edge_source_flat = np.zeros((0,), np.int64)
         self._edge_rate_cmd = np.zeros((0,), np.float32)
-        self._edge_transition_quality_sum = np.zeros((0,), np.float32)
-        self._edge_transition_frames = np.zeros((0,), np.int32)
-        self._edge_settle_frames = np.zeros((0,), np.int32)
         self._edge_success_streak = np.zeros((0,), np.int32)
 
         self._prev_cmd = np.zeros((0, 3), np.float32)
@@ -236,9 +196,6 @@ class CapabilityField:
         self._edge_target = np.zeros((n_envs, 3), np.float32)
         self._edge_source_flat = np.zeros(n_envs, np.int64)
         self._edge_rate_cmd = np.zeros(n_envs, np.float32)
-        self._edge_transition_quality_sum = np.zeros(n_envs, np.float32)
-        self._edge_transition_frames = np.zeros(n_envs, np.int32)
-        self._edge_settle_frames = np.zeros(n_envs, np.int32)
         self._edge_success_streak = np.zeros(n_envs, np.int32)
 
         self._prev_cmd = np.zeros((n_envs, 3), np.float32)
@@ -250,17 +207,15 @@ class CapabilityField:
     def decay_to(self, step: int) -> float:
         step = int(step)
         delta = max(0, step - int(self.last_step))
-        if delta <= 0 or self.cfg.half_life_steps <= 0:
+        if delta <= 0 or self.half_life_steps <= 0:
             self.last_step = step
             self.last_decay = 1.0
             return 1.0
-        d = float(2.0 ** (-delta / float(self.cfg.half_life_steps)))
+        d = float(2.0 ** (-delta / float(self.half_life_steps)))
         for arr in (
-            self.node_success, self.node_failure, self.node_quality_sum, self.node_quality_weight,
-            self.rec_success, self.rec_failure, self.rec_quality_sum, self.rec_quality_weight,
-            self.rec_time_sum, self.rec_time_weight,
-            self.edge_success, self.edge_failure, self.edge_quality_sum, self.edge_quality_weight,
-            self.edge_rate_sum, self.edge_rate_weight, self.edge_settle_sum, self.edge_settle_weight,
+            self.node_success, self.node_failure, self.node_quality_sum,
+            self.rec_success, self.rec_failure,
+            self.edge_success, self.edge_failure, self.edge_rate_sum,
         ):
             arr *= d
         self.last_step = step
@@ -280,10 +235,10 @@ class CapabilityField:
         return self.node_success + self.node_failure
 
     def node_quality(self) -> np.ndarray:
-        return self.node_quality_sum / np.maximum(self.node_quality_weight, 1e-6)
+        return self.node_quality_sum / np.maximum(self.node_evidence(), 1e-6)
 
     def node_confidence(self) -> np.ndarray:
-        return (1.0 - np.exp(-self.node_evidence() / max(self.cfg.strong_effective_evidence, 1e-6))).astype(np.float32)
+        return (1.0 - np.exp(-self.node_evidence() / max(STRONG_EFFECTIVE_EVIDENCE, 1e-6))).astype(np.float32)
 
     def recovery_competence(self) -> np.ndarray:
         return _posterior_mean(self.rec_success, self.rec_failure)
@@ -294,12 +249,6 @@ class CapabilityField:
     def recovery_evidence(self) -> np.ndarray:
         return self.rec_success + self.rec_failure
 
-    def recovery_quality(self) -> np.ndarray:
-        return self.rec_quality_sum / np.maximum(self.rec_quality_weight, 1e-6)
-
-    def recovery_time(self) -> np.ndarray:
-        return self.rec_time_sum / np.maximum(self.rec_time_weight, 1e-6)
-
     def edge_competence(self) -> np.ndarray:
         return _posterior_mean(self.edge_success, self.edge_failure)
 
@@ -309,14 +258,8 @@ class CapabilityField:
     def edge_evidence(self) -> np.ndarray:
         return self.edge_success + self.edge_failure
 
-    def edge_quality(self) -> np.ndarray:
-        return self.edge_quality_sum / np.maximum(self.edge_quality_weight, 1e-6)
-
     def edge_rate(self) -> np.ndarray:
-        return self.edge_rate_sum / np.maximum(self.edge_rate_weight, 1e-6)
-
-    def edge_settle_time(self) -> np.ndarray:
-        return self.edge_settle_sum / np.maximum(self.edge_settle_weight, 1e-6)
+        return self.edge_rate_sum / np.maximum(self.edge_success, 1e-6)
 
     # ------------------------------------------------------------------
     # Event accumulation helpers
@@ -333,34 +276,24 @@ class CapabilityField:
         self.node_success += np.bincount(flat, weights=suc, minlength=size).reshape(self.shape).astype(np.float32)
         self.node_failure += np.bincount(flat, weights=1.0-suc, minlength=size).reshape(self.shape).astype(np.float32)
         self.node_quality_sum += np.bincount(flat, weights=qua, minlength=size).reshape(self.shape).astype(np.float32)
-        self.node_quality_weight += np.bincount(flat, weights=np.ones_like(qua), minlength=size).reshape(self.shape).astype(np.float32)
         touched = np.unique(flat)
         self.node_last_step.ravel()[touched] = int(step)
         self.total_node_events += int(flat.size)
         return int(flat.size)
 
-    def _add_recovery_events(self, flats: list[np.ndarray], bins: list[np.ndarray], successes: list[np.ndarray],
-                             qualities: list[np.ndarray], times_s: list[np.ndarray], step: int) -> int:
+    def _add_recovery_events(self, flats: list[np.ndarray], bins: list[np.ndarray], successes: list[np.ndarray]) -> int:
         if not flats:
             return 0
         flat = np.concatenate(flats).astype(np.int64, copy=False)
         rb = np.concatenate(bins).astype(np.int64, copy=False)
         suc = np.concatenate(successes).astype(np.float32, copy=False)
-        qua = np.concatenate(qualities).astype(np.float32, copy=False)
-        tim = np.concatenate(times_s).astype(np.float32, copy=False)
         if flat.size == 0:
             return 0
-        rflat = flat * int(self.cfg.recovery_bins) + rb
-        rsize = int(np.prod(self.shape)) * int(self.cfg.recovery_bins)
+        rflat = flat * RECOVERY_BINS + rb
+        rsize = int(np.prod(self.shape)) * RECOVERY_BINS
         shape = self.rec_success.shape
         self.rec_success += np.bincount(rflat, weights=suc, minlength=rsize).reshape(shape).astype(np.float32)
         self.rec_failure += np.bincount(rflat, weights=1.0-suc, minlength=rsize).reshape(shape).astype(np.float32)
-        self.rec_quality_sum += np.bincount(rflat, weights=qua, minlength=rsize).reshape(shape).astype(np.float32)
-        self.rec_quality_weight += np.bincount(rflat, weights=np.ones_like(qua), minlength=rsize).reshape(shape).astype(np.float32)
-        self.rec_time_sum += np.bincount(rflat, weights=tim, minlength=rsize).reshape(shape).astype(np.float32)
-        self.rec_time_weight += np.bincount(rflat, weights=np.ones_like(tim), minlength=rsize).reshape(shape).astype(np.float32)
-        touched = np.unique(rflat)
-        self.rec_last_step.ravel()[touched] = int(step)
         self.total_recovery_events += int(flat.size)
         return int(flat.size)
 
@@ -373,8 +306,7 @@ class CapabilityField:
         return sector, rate, mag
 
     def _add_edge_events(self, source_flats: list[np.ndarray], sources: list[np.ndarray], targets: list[np.ndarray],
-                         rate_cmds: list[np.ndarray], successes: list[np.ndarray], qualities: list[np.ndarray],
-                         settle_times: list[np.ndarray], step: int) -> int:
+                         rate_cmds: list[np.ndarray], successes: list[np.ndarray]) -> int:
         if not source_flats:
             return 0
         sf = np.concatenate(source_flats).astype(np.int64, copy=False)
@@ -382,39 +314,34 @@ class CapabilityField:
         tgt = np.concatenate(targets).astype(np.float32, copy=False)
         rc = np.concatenate(rate_cmds).astype(np.float32, copy=False)
         suc = np.concatenate(successes).astype(np.float32, copy=False)
-        qua = np.concatenate(qualities).astype(np.float32, copy=False)
-        settle = np.concatenate(settle_times).astype(np.float32, copy=False)
         if sf.size == 0:
             return 0
         sec, rate, mag = self._edge_sector_and_rate(src, tgt, rc)
         keep = mag >= 0.04  # ignore tiny command jitter / same-cell resamples
         if not np.any(keep):
             return 0
-        sf, sec, rate, suc, qua, settle = (x[keep] for x in (sf, sec, rate, suc, qua, settle))
+        sf, sec, rate, suc = (x[keep] for x in (sf, sec, rate, suc))
         eflat = sf * len(EDGE_DIRS) + sec.astype(np.int64)
         esize = int(np.prod(self.shape)) * len(EDGE_DIRS)
         shape = self.edge_success.shape
         self.edge_success += np.bincount(eflat, weights=suc, minlength=esize).reshape(shape).astype(np.float32)
         self.edge_failure += np.bincount(eflat, weights=1.0-suc, minlength=esize).reshape(shape).astype(np.float32)
-        self.edge_quality_sum += np.bincount(eflat, weights=qua, minlength=esize).reshape(shape).astype(np.float32)
-        self.edge_quality_weight += np.bincount(eflat, weights=np.ones_like(qua), minlength=esize).reshape(shape).astype(np.float32)
         # Maneuver-rate frontier is meaningful only for successful edges.
         self.edge_rate_sum += np.bincount(eflat, weights=rate*suc, minlength=esize).reshape(shape).astype(np.float32)
-        self.edge_rate_weight += np.bincount(eflat, weights=suc, minlength=esize).reshape(shape).astype(np.float32)
-        self.edge_settle_sum += np.bincount(eflat, weights=settle*suc, minlength=esize).reshape(shape).astype(np.float32)
-        self.edge_settle_weight += np.bincount(eflat, weights=suc, minlength=esize).reshape(shape).astype(np.float32)
-        touched = np.unique(eflat)
-        self.edge_last_step.ravel()[touched] = int(step)
         self.total_edge_events += int(eflat.size)
         return int(eflat.size)
 
     # ------------------------------------------------------------------
     # Main rollout ingestion
     # ------------------------------------------------------------------
-    def update_from_rollout(self, metrics: dict[str, Any], *, step: int, control_dt: float = 0.02) -> dict[str, float]:
+    def update_from_rollout(self, metrics: dict[str, Any], *, step: int, control_dt: float = CONTROL_DT,
+                            exclude_field_taught: bool = False) -> dict[str, float]:
         """Convert one PPO rollout into semantic node/recovery/maneuver events.
 
-        v5012 is fail-loud: a missing metric is a broken trainer contract, not
+        ``exclude_field_taught`` is used only by the clean-evidence tournament arm:
+        experience deliberately selected by the field still trains PPO, but cannot
+        reinforce the field that selected it.  Untaught governor experience remains
+        normal evidence.  Missing metrics are a broken trainer contract, not
         permission to continue with an inert self-map.
         """
         self.decay_to(step)
@@ -437,10 +364,16 @@ class CapabilityField:
         resilience=arr('regime_resilience')>.5; sev=np.clip(arr('birth_resilience_d'),0.0,.999999)
         tgt_vx,tgt_vy,tgt_yaw=arr('target_cmd_vx'),arr('target_cmd_vy'),arr('target_cmd_yaw')
         ramp_speed=arr('transition_ramp_speed')
+        if exclude_field_taught:
+            if 'field_taught' not in metrics:
+                raise KeyError('capability field clean-evidence mode requires field_taught rollout metric')
+            taught=arr('field_taught')>.5
+        else:
+            taught=np.zeros_like(cvx,dtype=bool)
 
-        vx_tol=np.maximum(.08,.25*np.abs(cvx)); vy_tol=np.maximum(.07,.35*np.abs(cvy)); yaw_tol=np.maximum(.25,.25*np.abs(cyaw))
+        vx_tol=np.maximum(VX_ABS_TOL,VX_REL_TOL*np.abs(cvx)); vy_tol=np.maximum(VY_ABS_TOL,VY_REL_TOL*np.abs(cvy)); yaw_tol=np.maximum(YAW_ABS_TOL,YAW_REL_TOL*np.abs(cyaw))
         within=(np.abs(vx-cvx)<=vx_tol)&(np.abs(vy-cvy)<=vy_tol)&(np.abs(yaw-cyaw)<=yaw_tol)
-        structural_ok=(gz>.9396926)&(support>.05)&(bad<.5)&(fell<.5)
+        structural_ok=(gz>UPRIGHT_GRAVITY_Z_MIN)&(support>SUPPORT_MIN)&(bad<.5)&(fell<.5)
         core_ok=within&structural_ok
         e1=np.abs(vx-cvx)/np.maximum(vx_tol,1e-6); e2=np.abs(vy-cvy)/np.maximum(vy_tol,1e-6); e3=np.abs(yaw-cyaw)/np.maximum(yaw_tol,1e-6)
         tracking_q=np.exp(-.5*(e1*e1+e2*e2+e3*e3)/3.0)
@@ -448,11 +381,11 @@ class CapabilityField:
         quality=np.clip(tracking_q*(.65+.20*upright_q+.15*support_q),0,1).astype(np.float32)
         ix,iy,iz=self.command_indices(cvx,cvy,cyaw); flat_all=self._flat_index(ix.ravel(),iy.ravel(),iz.ravel()).reshape((T,N))
 
-        node_flats=[]; node_succ=[]; node_qual=[]; rec_flats=[]; rec_bins=[]; rec_succ=[]; rec_qual=[]; rec_time=[]
-        edge_sf=[]; edge_src=[]; edge_tgt=[]; edge_rate=[]; edge_succ=[]; edge_qual=[]; edge_settle=[]
-        node_target=max(1,int(round(float(self.cfg.node_window_s)/max(control_dt,1e-6))))
-        rec_target=max(1,int(round(float(self.cfg.recovery_stable_s)/max(control_dt,1e-6))))
-        edge_target=max(1,int(round(float(self.cfg.edge_stable_s)/max(control_dt,1e-6))))
+        node_flats=[]; node_succ=[]; node_qual=[]; rec_flats=[]; rec_bins=[]; rec_succ=[]
+        edge_sf=[]; edge_src=[]; edge_tgt=[]; edge_rate=[]; edge_succ=[]
+        node_target=max(1,int(round(float(NODE_WINDOW_S)/max(control_dt,1e-6))))
+        rec_target=max(1,int(round(float(RECOVERY_STABLE_S)/max(control_dt,1e-6))))
+        edge_target=max(1,int(round(float(EDGE_STABLE_S)/max(control_dt,1e-6))))
 
         def reset_node(ids):
             if len(ids)==0: return
@@ -462,53 +395,55 @@ class CapabilityField:
         def emit_edge(mask,success):
             ids=np.flatnonzero(mask)
             if not ids.size: return
-            q=np.divide(self._edge_transition_quality_sum[ids],np.maximum(self._edge_transition_frames[ids],1))
-            if success>.5:
-                extra=self._edge_settle_frames[ids].astype(np.float32)*float(control_dt); q=q*np.exp(-extra/.75)
-            else: q=.35*q
             edge_sf.append(self._edge_source_flat[ids].copy()); edge_src.append(self._edge_source[ids].copy()); edge_tgt.append(self._edge_target[ids].copy())
-            edge_rate.append(self._edge_rate_cmd[ids].copy()); edge_succ.append(np.full(ids.size,success,np.float32)); edge_qual.append(np.asarray(q,np.float32))
-            edge_settle.append((self._edge_settle_frames[ids].astype(np.float32)*float(control_dt)).copy())
-            self._edge_phase[ids]=0; self._edge_transition_quality_sum[ids]=0.; self._edge_transition_frames[ids]=0; self._edge_settle_frames[ids]=0; self._edge_success_streak[ids]=0
+            edge_rate.append(self._edge_rate_cmd[ids].copy()); edge_succ.append(np.full(ids.size,success,np.float32))
+            self._edge_phase[ids]=0; self._edge_success_streak[ids]=0
 
         for t in range(T):
             cmd_t=np.stack([cvx[t],cvy[t],cyaw[t]],axis=1).astype(np.float32); target_t=np.stack([tgt_vx[t],tgt_vy[t],tgt_yaw[t]],axis=1).astype(np.float32)
+            blocked=taught[t]
+            if np.any(blocked):
+                # Break every semantic event machine at the boundary of
+                # field-selected practice.  Otherwise an event could begin on
+                # unbiased experience and finish inside the self-selected region.
+                ids=np.flatnonzero(blocked); reset_node(ids)
+                self._rec_active[ids]=False; self._rec_streak[ids]=0
+                self._edge_phase[ids]=0; self._edge_success_streak[ids]=0
+                self._have_prev[ids]=False
             new_ep=age[t] <= (1.5*float(control_dt)+1e-6)
-            node_fall=(fell[t]>.5)&(~resilience[t])&(~ramp[t])&(age[t]>=float(self.cfg.node_settle_delay_s))
+            node_fall=(fell[t]>.5)&(~resilience[t])&(~ramp[t])&(~blocked)&(age[t]>=float(NODE_SETTLE_DELAY_S))
             ids=np.flatnonzero(node_fall)
             if ids.size:
                 ff=np.where(self._node_active[ids],self._node_flat[ids],flat_all[t,ids]); node_flats.append(ff.copy()); node_succ.append(np.zeros(ids.size,np.float32))
                 q=np.where(self._node_active[ids],np.divide(self._node_quality_sum_rt[ids],np.maximum(self._node_frames[ids],1)),quality[t,ids]); node_qual.append(np.asarray(q,np.float32))
             if np.any(new_ep):
-                ids=np.flatnonzero(new_ep); reset_node(ids); self._edge_phase[ids]=0; self._edge_transition_quality_sum[ids]=0.; self._edge_transition_frames[ids]=0; self._edge_settle_frames[ids]=0; self._edge_success_streak[ids]=0
+                ids=np.flatnonzero(new_ep); reset_node(ids); self._edge_phase[ids]=0; self._edge_success_streak[ids]=0
                 self._rec_active[ids]=False; self._rec_streak[ids]=0; self._have_prev[ids]=False
-                rids=ids[resilience[t,ids]]
+                rids=ids[resilience[t,ids]&(~blocked[ids])]
                 if rids.size:
-                    self._rec_active[rids]=True; self._rec_flat[rids]=flat_all[t,rids]; self._rec_bin[rids]=np.clip(np.floor(sev[t,rids]*self.cfg.recovery_bins),0,self.cfg.recovery_bins-1).astype(np.int32)
+                    self._rec_active[rids]=True; self._rec_flat[rids]=flat_all[t,rids]; self._rec_bin[rids]=np.clip(np.floor(sev[t,rids]*RECOVERY_BINS),0,RECOVERY_BINS-1).astype(np.int32)
 
-            eligible=self._rec_active&(age[t]>=float(self.cfg.recovery_min_age_s)); self._rec_streak[eligible&core_ok[t]]+=1; self._rec_streak[eligible&(~core_ok[t])]=0
+            eligible=self._rec_active&(~blocked)&(age[t]>=float(RECOVERY_MIN_AGE_S)); self._rec_streak[eligible&core_ok[t]]+=1; self._rec_streak[eligible&(~core_ok[t])]=0
             ids=np.flatnonzero(self._rec_active&(self._rec_streak>=rec_target))
             if ids.size:
-                rt=age[t,ids].astype(np.float32); rec_flats.append(self._rec_flat[ids].copy()); rec_bins.append(self._rec_bin[ids].copy()); rec_succ.append(np.ones(ids.size,np.float32)); rec_qual.append((quality[t,ids]*np.exp(-np.maximum(rt-.20,0.)/1.5)).astype(np.float32)); rec_time.append(rt); self._rec_active[ids]=False; self._rec_streak[ids]=0
+                rec_flats.append(self._rec_flat[ids].copy()); rec_bins.append(self._rec_bin[ids].copy()); rec_succ.append(np.ones(ids.size,np.float32)); self._rec_active[ids]=False; self._rec_streak[ids]=0
             ids=np.flatnonzero(self._rec_active&(done[t]>.5))
             if ids.size:
-                rec_flats.append(self._rec_flat[ids].copy()); rec_bins.append(self._rec_bin[ids].copy()); rec_succ.append(np.zeros(ids.size,np.float32)); rec_qual.append(np.zeros(ids.size,np.float32)); rec_time.append(age[t,ids].astype(np.float32)); self._rec_active[ids]=False; self._rec_streak[ids]=0
+                rec_flats.append(self._rec_flat[ids].copy()); rec_bins.append(self._rec_bin[ids].copy()); rec_succ.append(np.zeros(ids.size,np.float32)); self._rec_active[ids]=False; self._rec_streak[ids]=0
 
             emit_edge((self._edge_phase>0)&(done[t]>.5),0.0)
-            edge_signal=ramp[t]|cmd_resampled[t]; emit_edge((self._edge_phase==2)&edge_signal&(done[t]<.5),0.0)
+            edge_signal=(ramp[t]|cmd_resampled[t])&(~blocked); emit_edge((self._edge_phase==2)&edge_signal&(done[t]<.5),0.0)
             ids=np.flatnonzero((self._edge_phase==0)&edge_signal&(done[t]<.5))
             if ids.size:
                 src=np.where(self._have_prev[ids,None],self._prev_cmd[ids],cmd_t[ids]); self._edge_source[ids]=src; self._edge_target[ids]=target_t[ids]
                 six,siy,siz=self.command_indices(src[:,0],src[:,1],src[:,2]); self._edge_source_flat[ids]=self._flat_index(six,siy,siz)
                 delta=np.linalg.norm((target_t[ids]-src)/EDGE_SCALES[None,:],axis=1); duration=np.where(ramp_speed[t,ids]>1e-6,float(control_dt)/np.maximum(ramp_speed[t,ids],1e-6),float(control_dt)); self._edge_rate_cmd[ids]=delta/np.maximum(duration,float(control_dt))
-                self._edge_phase[ids]=1; self._edge_transition_quality_sum[ids]=0.; self._edge_transition_frames[ids]=0; self._edge_settle_frames[ids]=0; self._edge_success_streak[ids]=0
-            ids=np.flatnonzero((self._edge_phase==1)&edge_signal)
-            if ids.size: self._edge_transition_quality_sum[ids]+=quality[t,ids]; self._edge_transition_frames[ids]+=1
+                self._edge_phase[ids]=1; self._edge_success_streak[ids]=0
             finish=(self._edge_phase==1)&(~edge_signal)&(done[t]<.5); ids=np.flatnonzero(finish)
-            if ids.size: self._edge_phase[ids]=2; self._edge_settle_frames[ids]=1; self._edge_success_streak[ids]=core_ok[t,ids].astype(np.int32)
-            settling=self._edge_phase==2; cont=settling&(~finish); self._edge_settle_frames[cont]+=1; self._edge_success_streak[cont&core_ok[t]]+=1; self._edge_success_streak[cont&(~core_ok[t])]=0; emit_edge((self._edge_phase==2)&(self._edge_success_streak>=edge_target),1.0)
+            if ids.size: self._edge_phase[ids]=2; self._edge_success_streak[ids]=core_ok[t,ids].astype(np.int32)
+            settling=self._edge_phase==2; cont=settling&(~finish); self._edge_success_streak[cont&core_ok[t]]+=1; self._edge_success_streak[cont&(~core_ok[t])]=0; emit_edge((self._edge_phase==2)&(self._edge_success_streak>=edge_target),1.0)
 
-            clean=(age[t]>=float(self.cfg.node_settle_delay_s))&(~resilience[t])&(~ramp[t])&(done[t]<.5); current_flat=flat_all[t]
+            clean=(age[t]>=float(NODE_SETTLE_DELAY_S))&(~resilience[t])&(~ramp[t])&(~blocked)&(done[t]<.5); current_flat=flat_all[t]
             ids=np.flatnonzero(self._node_active&((self._node_flat!=current_flat)|(~clean))); reset_node(ids)
             ids=np.flatnonzero(clean&(~self._node_active))
             if ids.size: self._node_active[ids]=True; self._node_flat[ids]=current_flat[ids]
@@ -517,12 +452,14 @@ class CapabilityField:
             self._node_tol_sum_rt[active,0]+=vx_tol[t,active]; self._node_tol_sum_rt[active,1]+=vy_tol[t,active]; self._node_tol_sum_rt[active,2]+=yaw_tol[t,active]; self._node_quality_sum_rt[active]+=quality[t,active]
             ids=np.flatnonzero(active&(self._node_frames>=node_target))
             if ids.size:
-                frames=np.maximum(self._node_frames[ids,None],1); ok_track=np.all((self._node_err_sum_rt[ids]/frames)<=(self._node_tol_sum_rt[ids]/frames),axis=1); ok_structure=(self._node_structural_good_frames[ids]/np.maximum(self._node_frames[ids],1))>=float(self.cfg.node_success_fraction)
+                frames=np.maximum(self._node_frames[ids,None],1); ok_track=np.all((self._node_err_sum_rt[ids]/frames)<=(self._node_tol_sum_rt[ids]/frames),axis=1); ok_structure=(self._node_structural_good_frames[ids]/np.maximum(self._node_frames[ids],1))>=float(NODE_STRUCTURAL_FRACTION_MIN)
                 node_flats.append(self._node_flat[ids].copy()); node_succ.append((ok_track&ok_structure).astype(np.float32)); node_qual.append((self._node_quality_sum_rt[ids]/np.maximum(self._node_frames[ids],1)).astype(np.float32)); self._node_frames[ids]=0; self._node_structural_good_frames[ids]=0; self._node_err_sum_rt[ids]=0.; self._node_tol_sum_rt[ids]=0.; self._node_quality_sum_rt[ids]=0.
-            self._prev_cmd[:]=cmd_t; self._have_prev[:]=True
+            unbiased=~blocked
+            self._prev_cmd[unbiased]=cmd_t[unbiased]; self._have_prev[unbiased]=True
+            self._have_prev[blocked]=False
 
-        n_node=self._add_node_events(node_flats,node_succ,node_qual,step); n_rec=self._add_recovery_events(rec_flats,rec_bins,rec_succ,rec_qual,rec_time,step); n_edge=self._add_edge_events(edge_sf,edge_src,edge_tgt,edge_rate,edge_succ,edge_qual,edge_settle,step)
-        a=float(self.cfg.slow_alpha); self.node_slow+=a*(self.node_competence()-self.node_slow); self.edge_slow+=a*(self.edge_competence()-self.edge_slow); self.total_updates+=1
+        n_node=self._add_node_events(node_flats,node_succ,node_qual,step); n_rec=self._add_recovery_events(rec_flats,rec_bins,rec_succ); n_edge=self._add_edge_events(edge_sf,edge_src,edge_tgt,edge_rate,edge_succ)
+        a=float(SLOW_ALPHA); self.node_slow+=a*(self.node_competence()-self.node_slow); self.edge_slow+=a*(self.edge_competence()-self.edge_slow); self.total_updates+=1
         out=self.summary(); out.update({'field_node_events_update':float(n_node),'field_recovery_events_update':float(n_rec),'field_edge_events_update':float(n_edge)}); return out
 
     # ------------------------------------------------------------------
@@ -550,43 +487,43 @@ class CapabilityField:
         p = self.recovery_competence()[q]
         lb = self.recovery_lower()[q]
         n = self.recovery_evidence()[q]
-        bins = int(self.cfg.recovery_bins)
+        bins = RECOVERY_BINS
         known = n >= 1.5
         if not np.any(known):
             return float(0.5 / max(1, bins))
         # Consolidate near the learnable ~60% frontier.
         score = np.where(known, np.abs(p - 0.62), np.inf)
         k = int(np.argmin(score))
-        mastered = np.flatnonzero((n >= self.cfg.strong_effective_evidence) &
-                                  (lb >= self.cfg.recovery_master_lower))
+        mastered = np.flatnonzero((n >= STRONG_EFFECTIVE_EVIDENCE) &
+                                  (lb >= RECOVERY_MASTER_LOWER))
         if mastered.size:
             nxt = min(bins-1, int(mastered.max())+1)
-            if n[nxt] < self.cfg.strong_effective_evidence:
+            if n[nxt] < STRONG_EFFECTIVE_EVIDENCE:
                 k = nxt
         return float((k + 0.5) / max(1, bins))
 
     def node_anchor_packet(self, count: int = NODE_ANCHORS) -> np.ndarray:
         p = self.node_competence(); lb = self.node_lower(); n = self.node_evidence()
         trend = p - self.node_slow
-        known = n >= self.cfg.min_effective_evidence
-        strong = n >= self.cfg.strong_effective_evidence
-        mastered = strong & (lb >= self.cfg.node_master_lower)
+        known = n >= MIN_EFFECTIVE_EVIDENCE
+        strong = n >= STRONG_EFFECTIVE_EVIDENCE
+        mastered = strong & (lb >= NODE_MASTER_LOWER)
 
         # Productive frontier: learnable, not already mastered, with bonus for
         # positive learning velocity and enough evidence to be meaningful.
         frontier = np.exp(-0.5*((p-0.62)/0.19)**2)
         frontier *= (0.65 + 0.35*np.tanh(4.0*np.maximum(trend,0.0)))
-        frontier *= np.clip(n / max(self.cfg.strong_effective_evidence,1e-6),0.0,1.0)
+        frontier *= np.clip(n / max(STRONG_EFFECTIVE_EVIDENCE,1e-6),0.0,1.0)
         frontier *= (~mastered)
 
         # Regression/staleness: a formerly stronger cell whose current
         # competence/evidence is fading deserves rehearsal.
         repair = np.maximum(self.node_slow-p,0.0)*3.0
-        repair += np.where((p>0.75)&(n<self.cfg.strong_effective_evidence),0.35,0.0)
+        repair += np.where((p>0.75)&(n<STRONG_EFFECTIVE_EVIDENCE),0.35,0.0)
 
         # Unknown cells immediately adjacent to mastered territory are the
         # cleanest expansion targets. This mechanism was effectively disabled
-        # in v5010 because its pseudo-probability never reached mastery.
+        # because pseudo-probability alone never reaches reliable mastery.
         adjacent = np.zeros_like(mastered)
         for dx in (-1,0,1):
             for dy in (-1,0,1):
@@ -604,8 +541,8 @@ class CapabilityField:
 
         # Under-covered but already encountered cells receive a modest bonus;
         # this reduces seed-history bias without forcing artificial symmetry.
-        undercovered = known & (n < self.cfg.strong_effective_evidence) & (p > 0.45)
-        coverage_score = np.where(undercovered, 1.0 - n/max(self.cfg.strong_effective_evidence,1e-6), 0.0)
+        undercovered = known & (n < STRONG_EFFECTIVE_EVIDENCE) & (p > 0.45)
+        coverage_score = np.where(undercovered, 1.0 - n/max(STRONG_EFFECTIVE_EVIDENCE,1e-6), 0.0)
 
         n_front=max(1,int(round(count*0.40)))
         n_repair=max(1,int(round(count*0.20)))
@@ -640,12 +577,12 @@ class CapabilityField:
         ep=self.edge_competence(); elb=self.edge_lower(); en=self.edge_evidence(); trend=ep-self.edge_slow
         np_=self.node_competence(); nlb=self.node_lower(); nn=self.node_evidence()
         known=en>=2.0
-        src_ok=(nn>=self.cfg.strong_effective_evidence)&(nlb>=0.65)
-        mastered=(en>=self.cfg.strong_effective_evidence)&(elb>=self.cfg.edge_master_lower)
+        src_ok=(nn>=STRONG_EFFECTIVE_EVIDENCE)&(nlb>=0.65)
+        mastered=(en>=STRONG_EFFECTIVE_EVIDENCE)&(elb>=EDGE_MASTER_LOWER)
         score=np.exp(-0.5*((ep-0.62)/0.20)**2)*(0.7+0.3*np.tanh(4*np.maximum(trend,0)))
         score += 1.5*np.maximum(self.edge_slow-ep,0)
         # Under-covered local directions get a small exploration bonus.
-        score += np.where((en>0)&(en<self.cfg.strong_effective_evidence),0.25,0.0)
+        score += np.where((en>0)&(en<STRONG_EFFECTIVE_EVIDENCE),0.25,0.0)
         score *= src_ok[...,None]
         score *= (~mastered)
         score=np.where(known,score,-np.inf)
@@ -670,17 +607,33 @@ class CapabilityField:
             work[ix,iy,iz,sec]=-np.inf
         return out
 
-    def influence(self, step: int, *, start: int, full: int, maximum: float, mode: str) -> tuple[float,float]:
+    def influence(self, step: int, *, start: int, full: int, maximum: float, mode: str,
+                  fade_start: int = 0, zero: int = 0) -> tuple[float,float]:
+        """Teaching dose with optional ramp-up and fade-out.
+
+        The default is the historical one-way ramp.  ``fade_start``/``zero``
+        create the tutor-then-release schedule without adding another runtime
+        subsystem: influence is simply multiplied by a linear fade to zero.
+        """
         if mode in ('off','shadow') or step <= start:
             return 0.0,0.0
         x=1.0 if full<=start else float(np.clip((step-start)/(full-start),0.0,1.0))
+        if fade_start > 0 and zero > fade_start and step > fade_start:
+            x *= float(np.clip((zero-step)/(zero-fade_start),0.0,1.0))
         node=float(maximum)*x
         edge=node if mode=='graph' else 0.0
         return node,edge
 
     def teaching_packet(self, *, step: int, mode: str, start: int, full: int, maximum: float,
+                        fade_start: int = 0, zero: int = 0,
+                        teach_nodes: bool = True, teach_edges: bool = True,
                         node_count: int = NODE_ANCHORS, edge_count: int = EDGE_ANCHORS) -> dict[str, Any]:
-        nf,ef=self.influence(step,start=start,full=full,maximum=maximum,mode=mode)
+        nf,ef=self.influence(step,start=start,full=full,maximum=maximum,mode=mode,
+                             fade_start=fade_start,zero=zero)
+        if not teach_nodes:
+            nf=0.0
+        if not teach_edges:
+            ef=0.0
         return {
             'field_node_frac':nf,
             'field_edge_frac':ef,
@@ -701,7 +654,7 @@ class CapabilityField:
         p=self.node_competence(); n=self.node_evidence()
         canonical=np.asarray([0.92,0.78,0.62,0.45,0.28],dtype=np.float32)
         targets=[float(canonical[j%len(canonical)]) for j in range(count)]
-        candidates=[]; used=set(); known=n>=self.cfg.min_effective_evidence
+        candidates=[]; used=set(); known=n>=MIN_EFFECTIVE_EVIDENCE
         for t in targets:
             score=np.abs(p-t)+0.16/np.sqrt(np.maximum(n,0.05))
             score=np.where(known,score,np.inf)
@@ -731,17 +684,17 @@ class CapabilityField:
     # ------------------------------------------------------------------
     def summary(self) -> dict[str,float]:
         p=self.node_competence(); lb=self.node_lower(); n=self.node_evidence(); q=self.node_quality()
-        known=n>=self.cfg.min_effective_evidence
-        strong=n>=self.cfg.strong_effective_evidence
-        mastered=strong&(lb>=self.cfg.node_master_lower)
+        known=n>=MIN_EFFECTIVE_EVIDENCE
+        strong=n>=STRONG_EFFECTIVE_EVIDENCE
+        mastered=strong&(lb>=NODE_MASTER_LOWER)
         frontier=known&(~mastered)&(p>=0.35)
         age=np.where(self.node_last_step>=0,np.maximum(0,int(self.last_step)-self.node_last_step),0)
-        stale=mastered&(age>=float(self.cfg.half_life_steps)*float(self.cfg.stale_half_lives))
+        stale=mastered&(age>=float(self.half_life_steps)*float(STALE_HALF_LIVES))
 
         rp=self.recovery_competence(); rlb=self.recovery_lower(); rn=self.recovery_evidence()
-        rknown=rn>=2.0; rmaster=(rn>=self.cfg.strong_effective_evidence)&(rlb>=self.cfg.recovery_master_lower)
+        rknown=rn>=2.0; rmaster=(rn>=STRONG_EFFECTIVE_EVIDENCE)&(rlb>=RECOVERY_MASTER_LOWER)
         ep=self.edge_competence(); elb=self.edge_lower(); en=self.edge_evidence()
-        eknown=en>=2.0; emaster=(en>=self.cfg.strong_effective_evidence)&(elb>=self.cfg.edge_master_lower)
+        eknown=en>=2.0; emaster=(en>=STRONG_EFFECTIVE_EVIDENCE)&(elb>=EDGE_MASTER_LOWER)
         return {
             'field_schema':float(FIELD_VERSION),
             'field_known_nodes':float(np.sum(known)),
@@ -771,53 +724,44 @@ class CapabilityField:
     def state_dict(self) -> dict[str,Any]:
         return {
             'field_version':FIELD_VERSION,
-            'cfg':asdict(self.cfg),
+            'half_life_steps':float(self.half_life_steps),
             'last_step':int(self.last_step),'total_updates':int(self.total_updates),
             'total_node_events':int(self.total_node_events),'total_recovery_events':int(self.total_recovery_events),
             'total_edge_events':int(self.total_edge_events),
             'node_success':self.node_success,'node_failure':self.node_failure,
-            'node_quality_sum':self.node_quality_sum,'node_quality_weight':self.node_quality_weight,
+            'node_quality_sum':self.node_quality_sum,
             'node_slow':self.node_slow,'node_last_step':self.node_last_step,
             'rec_success':self.rec_success,'rec_failure':self.rec_failure,
-            'rec_quality_sum':self.rec_quality_sum,'rec_quality_weight':self.rec_quality_weight,
-            'rec_time_sum':self.rec_time_sum,'rec_time_weight':self.rec_time_weight,'rec_last_step':self.rec_last_step,
             'edge_success':self.edge_success,'edge_failure':self.edge_failure,
-            'edge_quality_sum':self.edge_quality_sum,'edge_quality_weight':self.edge_quality_weight,
-            'edge_rate_sum':self.edge_rate_sum,'edge_rate_weight':self.edge_rate_weight,
-            'edge_settle_sum':self.edge_settle_sum,'edge_settle_weight':self.edge_settle_weight,
-            'edge_slow':self.edge_slow,'edge_last_step':self.edge_last_step,
+            'edge_rate_sum':self.edge_rate_sum,'edge_slow':self.edge_slow,
         }
 
     @classmethod
     def from_state_dict(cls, d: dict[str,Any]) -> 'CapabilityField':
-        version=int(d.get('field_version',1))
+        arrays = (
+            'node_success','node_failure','node_quality_sum','node_slow','node_last_step',
+            'rec_success','rec_failure',
+            'edge_success','edge_failure','edge_rate_sum','edge_slow')
+        expected = {
+            'field_version','half_life_steps','last_step','total_updates','total_node_events',
+            'total_recovery_events','total_edge_events', *arrays}
+        if not isinstance(d, dict) or set(d) != expected:
+            got = sorted(d) if isinstance(d, dict) else type(d).__name__
+            raise ValueError(f'capability field state keys mismatch: expected={sorted(expected)} got={got}')
+        version=int(d['field_version'])
         if version != FIELD_VERSION:
-            raise ValueError(f'capability field schema {version} cannot resume as schema {FIELD_VERSION}; start a fresh v5012 map')
-        cfgd=dict(d.get('cfg') or {})
-        if 'shape' in cfgd: cfgd['shape']=tuple(cfgd['shape'])
-        if 'bounds' in cfgd: cfgd['bounds']=tuple(tuple(x) for x in cfgd['bounds'])
-        # Forward-compatible config loading: ignore future optional config keys,
-        # but never silently accept missing/incompatible evidence arrays.
-        known_cfg={f.name for f in dataclass_fields(FieldConfig)}
-        obj=cls(FieldConfig(**{k:v for k,v in cfgd.items() if k in known_cfg}))
-        names=(
-            'node_success','node_failure','node_quality_sum','node_quality_weight','node_slow','node_last_step',
-            'rec_success','rec_failure','rec_quality_sum','rec_quality_weight','rec_time_sum','rec_time_weight','rec_last_step',
-            'edge_success','edge_failure','edge_quality_sum','edge_quality_weight','edge_rate_sum','edge_rate_weight',
-            'edge_settle_sum','edge_settle_weight','edge_slow','edge_last_step')
-        missing=[name for name in names if name not in d]
-        if missing:
-            raise ValueError('capability field state missing arrays: '+', '.join(missing))
-        for name in names:
+            raise ValueError(f'capability field schema {version} cannot resume as schema {FIELD_VERSION}; start a fresh current-schema map')
+        obj=cls(float(d['half_life_steps']))
+        for name in arrays:
             dtype=np.int64 if name.endswith('_last_step') else np.float32
             arr=np.asarray(d[name],dtype)
-            expected=getattr(obj,name).shape
-            if arr.shape != expected:
-                raise ValueError(f'capability field array shape mismatch for {name}: checkpoint={arr.shape} current={expected}')
+            expected_shape=getattr(obj,name).shape
+            if arr.shape != expected_shape:
+                raise ValueError(f'capability field array shape mismatch for {name}: checkpoint={arr.shape} current={expected_shape}')
             setattr(obj,name,arr.copy())
-        obj.last_step=int(d.get('last_step',0)); obj.total_updates=int(d.get('total_updates',0))
-        obj.total_node_events=int(d.get('total_node_events',0)); obj.total_recovery_events=int(d.get('total_recovery_events',0))
-        obj.total_edge_events=int(d.get('total_edge_events',0))
+        obj.last_step=int(d['last_step']); obj.total_updates=int(d['total_updates'])
+        obj.total_node_events=int(d['total_node_events']); obj.total_recovery_events=int(d['total_recovery_events'])
+        obj.total_edge_events=int(d['total_edge_events'])
         return obj
 
     def fingerprint(self) -> str:
@@ -828,13 +772,12 @@ class CapabilityField:
         exam itself is a hard error.
         """
         h=hashlib.sha256()
-        h.update(json.dumps(asdict(self.cfg),sort_keys=True,default=list).encode('utf-8'))
+        h.update(str(float(self.half_life_steps)).encode('ascii'))
         h.update(str((self.last_step,self.total_updates,self.total_node_events,self.total_recovery_events,self.total_edge_events)).encode('ascii'))
         for name in (
-            'node_success','node_failure','node_quality_sum','node_quality_weight','node_slow','node_last_step',
-            'rec_success','rec_failure','rec_quality_sum','rec_quality_weight','rec_time_sum','rec_time_weight','rec_last_step',
-            'edge_success','edge_failure','edge_quality_sum','edge_quality_weight','edge_rate_sum','edge_rate_weight',
-            'edge_settle_sum','edge_settle_weight','edge_slow','edge_last_step'):
+            'node_success','node_failure','node_quality_sum','node_slow','node_last_step',
+            'rec_success','rec_failure',
+            'edge_success','edge_failure','edge_rate_sum','edge_slow'):
             a=np.ascontiguousarray(getattr(self,name))
             h.update(name.encode('ascii')); h.update(str(a.shape).encode('ascii')); h.update(str(a.dtype).encode('ascii')); h.update(a.tobytes())
         return h.hexdigest()
@@ -843,17 +786,15 @@ class CapabilityField:
         path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
         np.savez_compressed(path,
             field_schema=np.asarray([FIELD_VERSION],np.int32),
-            step=np.asarray([self.last_step],np.int64),half_life_steps=np.asarray([self.cfg.half_life_steps],np.float64),
+            step=np.asarray([self.last_step],np.int64),half_life_steps=np.asarray([self.half_life_steps],np.float64),
             vx=self.centers[0],vy=self.centers[1],yaw=self.centers[2],
             node_competence=self.node_competence(),node_lower=self.node_lower(),node_evidence=self.node_evidence(),
             node_quality=self.node_quality(),node_confidence=self.node_confidence(),node_slow=self.node_slow,
             node_last_step=self.node_last_step,
             recovery_competence=self.recovery_competence(),recovery_lower=self.recovery_lower(),
-            recovery_evidence=self.recovery_evidence(),recovery_quality=self.recovery_quality(),
-            recovery_time=self.recovery_time(),recovery_last_step=self.rec_last_step,
+            recovery_evidence=self.recovery_evidence(),
             edge_competence=self.edge_competence(),edge_lower=self.edge_lower(),edge_evidence=self.edge_evidence(),
-            edge_quality=self.edge_quality(),edge_rate=self.edge_rate(),edge_settle_time=self.edge_settle_time(),
-            edge_last_step=self.edge_last_step,edge_dirs=EDGE_DIRS)
+            edge_rate=self.edge_rate(),edge_dirs=EDGE_DIRS)
 
     def write_summary(self, path: str | Path, *, step: int, mode: str, node_frac: float, edge_frac: float) -> None:
         payload={'step':int(step),'mode':str(mode),'node_influence':float(node_frac),'edge_influence':float(edge_frac),**self.summary()}

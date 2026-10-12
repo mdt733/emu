@@ -1,35 +1,52 @@
 # Architecture
 
-EMU has four deliberately separate control loops.
+EMU keeps six runtime responsibilities deliberately separate.
 
-## 1. Vectorised MJX worlds
+## Environment
 
-The default trainer advances 2,048 robot worlds in parallel. An environment that falls or times out is reset in-place while the rest of the vector batch continues. PPO collects 32 control frames per update, so one update contains 65,536 fresh transitions.
+`emu/environment.py` owns MJX physics, resets, task sampling, disturbances, reward, termination and deployable observations. The default trainer advances 2,048 worlds in parallel.
 
-## 2. PPO
+## PPO
 
-The actor/critic is on-policy. Each rollout is used for PPO updates and then discarded as training data. There is no giant replay buffer silently retraining on ancient experience.
+`emu/ppo.py` owns the actor/critic network, observation normalisation, rollout collection and PPO update. A rollout is consumed once; EMU has no replay buffer.
 
-## 3. Regime governor
+## Curriculum
 
-The governor controls global training safety and progression: steady/transition/recovery allocation, global difficulty, command frontiers, push/sensor frontiers and collapse/retreat logic.
+`emu/curriculum.py` owns regime difficulty/allocation and demonstrated physical frontiers. It answers **how hard is globally legal now?** Curriculum retreat is a task-distribution decision, not a neural-network rewind.
 
-It answers **how adventurous training is allowed to be**.
+## Training health
 
-## 4. Capability graph
+`emu/health.py` owns PPO/KL stress and sustained-collapse detection. It may veto unsafe curriculum expansion or request rollback, but it cannot mutate the task distribution itself.
 
-The capability graph answers **where that training budget should be spent**.
+## Capability field
 
-Its geometry is a low-resolution 3-D lattice over command space:
+`emu/capability_field.py` turns ordinary training experience into semantic node, recovery and maneuver events. It answers **where inside the legal envelope would practice be useful?** The field may propose bounded teaching coordinates; held-out examination never updates it.
 
-```text
-node = [vx, vy, yaw rate]
-```
+## Evaluation
 
-Each node stores clean command competence, quality, confidence and recovery evidence. Twenty-six directional edge sectors from every node store complete maneuver outcomes and demonstrated transition rate.
+`emu/evaluation.py` owns the deterministic fixed regression panels. `emu/capability_cloud.py` performs sparse held-out node/recovery exams, and `emu/atlas.py` reports physical command/recovery curves. Evaluators receive policy snapshots and return evidence; they have no path back into PPO, curriculum, health or field mutation.
 
-The graph produces a tiny fixed-size teaching packet (24 node anchors + 24 edge anchors) for JAX. It never enters the actor observation.
+## Trainer and experiment runner
 
-## Held-out evaluation
+`emu/training.py` is orchestration: it composes the owning modules into one learning loop, manages run-local artifacts and performs complete rollback when health requests it. `emu/experiments.py` knows only the modern experiment shape: random-start foundation, exact fork, then shadow/graph continuations. Git is the archive for historical ladders and ablations.
 
-Evaluation is a one-way observation path. Its results are written to reports but never update the graph/governor/policy. This is what lets us detect self-map overconfidence and curriculum overfitting.
+## Shared contracts
+
+`emu/contracts.py` owns deployable observation dimensions and the fixed-shape JAX task-packet layout. `emu/tracking_contract.py` owns physical competence thresholds. One contract is defined once and consumed by every implementation that needs it.
+
+## Configuration and process boundary
+
+The public CLI exposes experiment-level choices. `emu/experiments.py` creates a `TrainingConfig`, serialises it, and starts a clean trainer subprocess for JAX/GPU isolation. `TrainingConfig` contains only values that genuinely vary between supported runs; invariant current doctrine is named in code and recorded in `run_meta.json`.
+
+## Checkpoints
+
+`emu/checkpoint_io.py` owns current-only schema 7. A rewind point contains exactly:
+
+- policy/value network and optimiser state;
+- observation normaliser;
+- curriculum dynamic state;
+- training-health state;
+- capability-field state;
+- metadata/provenance.
+
+Resume is strict at every layer. Partial, unknown or incompatible state fails loudly. Canonical identities are `latest.pkl`, `best.pkl`, `recovery.pkl`, `final.pkl` plus rotating snapshots.
