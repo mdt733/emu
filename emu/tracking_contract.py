@@ -41,7 +41,7 @@ def tracking_tolerances(vx_cmd,vy_cmd,yaw_cmd):
             dynamic_tolerance(yaw_cmd,YAW_ABS_TOL,YAW_REL_TOL))
 
 
-def node_window_success_numpy(cmd_vx,cmd_vy,cmd_yaw,vx,vy,yaw_rate,gravity_z,support,bad_contact,fell=None,axis=0):
+def node_window_success_numpy(cmd_vx,cmd_vy,cmd_yaw,vx,vy,yaw_rate,gravity_z,support,bad_contact,fell=None,axis=0,structural_attitude_ok=None):
     """Reference NumPy definition used by tests and offline diagnostics.
 
     Tracking uses mean absolute error, not abs(mean(error)); gait oscillation is
@@ -53,7 +53,9 @@ def node_window_success_numpy(cmd_vx,cmd_vy,cmd_yaw,vx,vy,yaw_rate,gravity_z,sup
     good=(np.mean(np.abs(vx-cvx),axis=axis)<=np.mean(tx,axis=axis)) & \
          (np.mean(np.abs(vy-cvy),axis=axis)<=np.mean(ty,axis=axis)) & \
          (np.mean(np.abs(yw-cy),axis=axis)<=np.mean(tz,axis=axis))
-    structural=(np.mean(np.asarray(gravity_z)>UPRIGHT_GRAVITY_Z_MIN,axis=axis)>=NODE_STRUCTURAL_FRACTION_MIN) & \
+    posture=(np.asarray(structural_attitude_ok)>.5 if structural_attitude_ok is not None
+             else np.asarray(gravity_z)>UPRIGHT_GRAVITY_Z_MIN)
+    structural=(np.mean(posture,axis=axis)>=NODE_STRUCTURAL_FRACTION_MIN) & \
                (np.mean(np.asarray(support)>SUPPORT_MIN,axis=axis)>=NODE_STRUCTURAL_FRACTION_MIN) & \
                (np.mean(np.asarray(bad_contact)>.5,axis=axis)<=BAD_CONTACT_FRACTION_MAX)
     if fell is not None:

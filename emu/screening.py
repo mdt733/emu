@@ -26,7 +26,8 @@ from .training_config import (
 )
 
 SCREEN_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
-                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support')
+                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
+                 'pitch_mae', 'height_shortfall_m')
 
 
 def _episode(steady: float, transition: float, resilience: float, posture: float,
@@ -61,6 +62,7 @@ def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
         push_max_force_n=push_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
         phase_speed_gain=config.phase_speed_gain,
+        attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=sensor_scale, open_frontier=False,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
         field_teach_recovery=False,
