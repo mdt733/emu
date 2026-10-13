@@ -1,75 +1,60 @@
-# EMU v5014 — production biped
+# EMU — dynamically unstable six-servo biped
 
-**One dynamically stepping robot, one continuous learning lineage.** EMU trains a six-servo biped using JAX/MJX with a deployable **55-feature × 4-frame = 220-input, 6-output** neural-network policy. The production run uses a restrained 10% capability-field teacher and progressively imperfect robots/floors. It is not a static-standing project.
+EMU learns **dynamic stepping, steering and recovery**, rather than merely standing upright. The v5014 production system uses JAX/MJX + PPO and a deployable actor with **55 observations × 4 frames (220 inputs), 6 actuator outputs**. A separate Three.js/MuJoCo WASM viewer lets you control or watch the same actor entirely in a browser.
 
-## New computer? Start here
+**Release status:** The source and local viewer have passed meaningful tests, but this document does **not** certify completion of the 400-million-step run, the champion's held-out performance, or public GitHub Pages deployment. See [release evidence](RELEASE_VALIDATION.md) and the [project handover](HANDOVER.md).
 
-Use **Linux or WSL2 Ubuntu**. The documented training path needs Python 3.13, Git, a working NVIDIA GPU/JAX CUDA setup, and Node.js 24 for the browser viewer. Python and JavaScript have **separate dependency managers**; npm does not belong in `requirements.txt`.
+## First time installing?
+
+For a fresh **Linux/WSL2** checkout, follow [the installation guide](docs/INSTALL.md). Python **3.13**, Git and Node.js **24** are required for the documented full setup; GPU training additionally requires a compatible NVIDIA driver/JAX CUDA environment. From inside your Git clone:
 
 ```bash
-# Run from your cloned EMU Git repository (not the parent robot_lab directory).
 cd ~/robot_lab/emu
 bash scripts/setup_wsl.sh --cuda13 --install-node
 ```
 
-This creates `.venv/`, installs the Python project/tests, installs Node 24 through nvm if needed, builds the browser from **locked** npm dependencies, runs the tests, and performs the MJX domain smoke test. It **does not start training, delete files, commit Git changes, or touch your existing run data**. `--cuda13` is for machines with a compatible NVIDIA driver/CUDA 13 JAX path; omit it for a CPU-only workstation. If Python 3.13 or a supported NVIDIA driver is missing, follow [the full installation guide](docs/INSTALL.md) first.
+Omit `--cuda13` for a CPU-only viewer/development setup. The script creates a virtual environment, installs Python dependencies, obtains Node via nvm when requested, builds the viewer using the **committed npm lockfile**, and runs checks. **It does not start training, delete files, or rewrite Git history.** Node/npm dependencies are in `viewer/package.json` and `viewer/package-lock.json`, **not** `requirements.txt`.
 
-After setup, open two terminals as appropriate:
+## Common commands
 
-```bash
-cd ~/robot_lab/emu && source .venv/bin/activate
-emu viewer viewer/demo_zero.emupolicy --no-open  # viewer acceptance: http://127.0.0.1:8765/
-# OR:
-emu viewer --live --no-open                   # watches completed training checkpoints
-```
+Activate the environment in each terminal:
 
 ```bash
-cd ~/robot_lab/emu && source .venv/bin/activate
-emu forge --plan                             # preview without starting anything
-emu forge                                    # deliberate 400M-step production run
+cd ~/robot_lab/emu
+source .venv/bin/activate
+emu doctor --domain-smoke   # check GPU/MJX (requires a working JAX backend)
+emu forge --plan            # inspect the long run without starting it
 ```
 
-**Do not start `emu forge` just to test installation.** The first command to run is `emu doctor --domain-smoke`. See [Install & recovery](docs/INSTALL.md) for GPU/JAX notes, Node installation, troubleshooting, and exact fresh-clone expectations.
+| Goal | Command / instructions |
+|---|---|
+| Start/resume the deliberate 400M production lineage | `emu forge` — [architecture and phase boundaries](docs/v5014-production.md) |
+| Watch completed training checkpoints | `emu viewer --live --no-open` → `http://127.0.0.1:8765/` |
+| Open a standalone policy | `emu viewer viewer/demo_zero.emupolicy --no-open` (untrained fixture) |
+| Rebuild the viewer | `emu viewer-build` |
+| Preview a public, fully static demonstration | [Playground guide](docs/PLAYGROUND.md), usually on port **4173** |
+| Run held-out evaluation | `emu evaluate --help` and [evaluation methodology](docs/evaluation.md) |
+| Restore context after a chat handoff | **[HANDOVER.md](HANDOVER.md)** |
 
-## Where everything goes
+**Live viewer and Playground are different services.** Port **8765** belongs to the local Python checkpoint watcher; port **4173** is the independent Vite static preview and cannot watch private training. Do not expose the local watcher to the internet. Launch the trainer and local viewer in separate terminals.
 
-| Location | Purpose | Commit to Git? |
-|---|---|---|
-| `emu/` | Canonical Python trainer, checkpoints/exports, viewer server | Yes, source only |
-| `viewer/` | Canonical browser source, `package.json` and **`package-lock.json`** | Yes |
-| `emu/viewer_src/` | Mirrored viewer source for Python wheel installs | Yes; kept in sync by `emu viewer-build` |
-| `tests/`, `docs/`, `scripts/` | Regression tests, decisions/history, setup/housekeeping | Yes |
-| `results/` | Compact experiment summaries, v5013 tournament evidence | Yes, after review |
-| `.venv/`, `node_modules/`, `dist/`, `emu/webviewer_dist/` | Local generated dependencies/build | **No** |
-| `../emu_runs/` | Large checkpoints, training logs and generated policies | **Never** |
+## Repository map
 
-This source repository is meant to be portable. Don't copy `.venv`, `node_modules` or raw GPU runs from another PC to reproduce it: clone Git and run the setup script.
+```text
+emu/                     # Git repository
+├── emu/                 # Python trainer, policy exporter, local viewer server
+├── viewer/              # Canonical JavaScript viewer source + npm lockfile
+├── emu/viewer_src/      # Packaging mirror of the viewer
+├── scripts/             # Installation, validation, safe housekeeping
+├── tests/               # Regressions
+├── results/             # Small selected experiment evidence
+├── showcase/            # Public actor-only champion export (when available)
+├── docs/                # Operational documentation and research rationale
+├── RELEASE_VALIDATION.md # Observed evidence versus remaining acceptance
+└── HANDOVER.md          # Current state and safe continuation
+../emu_runs/             # Large training runs/checkpoints, outside Git
+```
 
-## Training and viewer contract
+Only source, tests, lockfiles, documentation and selected small results belong in Git. **Do not commit** `.venv/`, `node_modules/`, `dist/`, `webviewer_dist/`, generated `viewer/public/`, raw `*.pkl` checkpoints or entire GPU runs. An explicitly selected `showcase/champion.emupolicy` is intended to be public; review that exported actor before committing it.
 
-The default **400M** production run has phase boundaries at **20M/60M/140M/260M/400M**. The actor, critic, optimiser, normaliser, curriculum and capability field carry forward across phases. Checkpoints use atomic replacement and strict validation/resume checks. The default run root is `~/robot_lab/emu_runs/v5014_production/`.
-
-The live viewer watches **completed, validated checkpoints** on loopback (`127.0.0.1:8765`), not partially written GPU weights. Physics and inference run in the browser; the viewer does not train the policy. Autonomous demonstration commands are training-derived self-assessments, **not held-out competence scores**. Do not forward the local viewer port to the internet.
-
-**What this release does *not* prove:** a full 400M training run, physical-hardware transfer, full geometry randomisation, or successful lateral/yaw sign checks with a genuinely trained policy. The zero-output demo is only a rendering test.
-
-## Project reference
-
-- [Installation / clean-clone checklist](docs/INSTALL.md) — start here on a new machine.
-- [Production architecture and training phases](docs/v5014-production.md)
-- [Browser usage and control mapping](viewer/README.md)
-- [Domain randomisation limits](docs/domain-randomization.md)
-- [Scientific lessons that must survive cleanup](docs/history.md)
-- [Audit results and outstanding acceptance](RELEASE_VALIDATION.md)
-- [Release handover](docs/HANDOVER_5014.md)
-
-## Cleaning `robot_lab/` safely
-
-Run `bash scripts/workspace_tidy.sh` to **preview** recognized legacy extraction/backup folders outside this Git checkout. When comfortable, `bash scripts/workspace_tidy.sh --quarantine` **moves** those candidates into a dated archive **outside `robot_lab`**, without deleting any bytes or touching `emu/` and `emu_runs/`. See [the cleanup instructions](docs/INSTALL.md#workspace-cleanup) before using it.
-
-## Public EMU Playground
-
-The public Playground runs the MuJoCo browser simulator without a Python server
-and starts with an explicitly untrained demo policy until you publish a champion.
-See [Playground setup and deployment](docs/PLAYGROUND.md) for local previews,
-viewer appearance controls, GitHub Pages and release instructions.
+For a guide to every document's purpose, use [docs/README.md](docs/README.md). For scientific lessons, see [docs/history.md](docs/history.md). For workspace cleanup, see [docs/INSTALL.md#workspace-cleanup](docs/INSTALL.md#workspace-cleanup)—preview first; never treat untracked files as disposable.

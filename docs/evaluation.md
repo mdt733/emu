@@ -25,3 +25,7 @@ The common recovery exam compares recovery under common commands; it is not a ph
 `emu/atlas.py` is the expensive final map of physical-unit command and recovery frontiers. It is appropriate at major milestones, not as a curriculum signal.
 
 For lateral and yaw sweeps the atlas keeps a +0.08 m/s forward command, so those reported frontiers mean "while moving slowly forward" rather than "from static standing."
+
+## What the viewer does **not** measure
+
+The browser Playground and live autonomous demo are qualitative visualisations. Command nodes suggested by the training capability field are self-assessed, not independent held-out measurements. Browser MuJoCo has a nominal world and different runtime conditions from the vectorised GPU population. Do not select a public champion by appearance alone; use fixed held-out panels and a deliberate checkpoint comparison, as described in [v5014-production.md](v5014-production.md) and [validation.md](validation.md).

@@ -20,13 +20,13 @@ This website uses the **same** three.js / MuJoCo WASM / JavaScript 220-input act
 
 3. Open the Vite preview URL shown in the terminal. The page must say **UNTRAINED PREVIEW** and must load automatically without drag/drop. The Settings button opens a separate right-hand drawer containing advanced commands and demo controls; joysticks remain unobscured while closed.
 4. Verify actual rendering, WebAssembly loading, policy loading, mouse/touch controls and browser console in Chrome/Edge. The 10-cm grid, 1-m heavy lines, softly lit robot, world-origin X/Y axes and bounded motion trail should be visible. Their grid/trail/shadow toggles are in Settings; the scale legend hides on narrow phones to protect joystick space. The default `demo_zero` policy is not expected to walk.
-5. To return to your ordinary local trainer viewer, you can remove the generated `viewer/public/` directory and rebuild (`emu viewer-build`). Its files are generated and Git-ignored. The `emu viewer` Python API takes precedence on loopback regardless.
+5. To watch **live training checkpoints**, use `emu viewer --live --no-open` in a separate terminal and open **port 8765**, not the static preview on port 4173. Generated `viewer/public/` files are Git-ignored and may remain: the Python viewer serves its actual API independently of the Vite preview.
 
 ## Publish through GitHub Pages
 
-The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JS contract tests and uploads `viewer/dist`. In GitHub repository **Settings → Pages → Source**, choose **GitHub Actions**. The workflow can be manually dispatched, or it runs when relevant files are pushed to `main`. GitHub Pages needs the repository and Actions/Pages permissions configured for the account and repository.
+The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JavaScript contract tests, verifies the static policy and WASM assets, and uploads `viewer/dist`. **Verify that the workflow trigger is `main`**. In GitHub repository **Settings → Pages → Source**, choose **GitHub Actions**. The workflow can be manually dispatched, or runs when relevant files are pushed to `main`. GitHub Pages needs the repository and Actions/Pages permissions configured for the account and repository.
 
-The resulting URL will normally be `https://<account>.github.io/<repository>/`. The Vite build deliberately uses `base: './'` and the manifest uses relative paths so it works at a project subpath (or another static host). Do **not** run `emu viewer --live` on a public server; it is loopback-only and not authenticated.
+The resulting URL will normally be `https://ACCOUNT.github.io/REPOSITORY/` (verify the actual link in GitHub Pages settings). The Vite build deliberately uses `base: './'` and the manifest uses relative paths so it works at a project subpath (or another static host). Do **not** run `emu viewer --live` on a public server; it is loopback-only and not authenticated.
 
 ## After the 400M run
 
@@ -45,7 +45,7 @@ Replace the example checkpoint path with the actual winner. `final.pkl` is merel
 On success, from repository root:
 
 ```bash
-git add .github/workflows/emu-playground.yml docs/PLAYGROUND.md scripts/prepare_showcase.py viewer showcase
+git add .github/workflows/emu-playground.yml docs/PLAYGROUND.md scripts/prepare_showcase.py scripts/verify_showcase_dist.py viewer showcase
 # After reviewing staged files and confirming there are NO .pkl, node_modules, build artefacts or secrets:
 git diff --cached --check
 git diff --cached --stat

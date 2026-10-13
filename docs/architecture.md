@@ -1,52 +1,33 @@
-# Architecture
+# EMU architecture — ownership and trust boundaries
 
-EMU keeps six runtime responsibilities deliberately separate.
+The project separates components because they answer different questions; changes should flow through explicit contracts rather than cross-module mutation.
 
-## Environment
+| Component / owner | Responsibility |
+|---|---|
+| `emu/environment.py` | MuJoCo/MJX physics, task packets, resets, rewards, termination and deployable observations |
+| `emu/ppo.py` | Actor/critic, observation normalisation, PPO rollout and update |
+| `emu/curriculum.py` | Legal difficulty/frontiers and retreat/advance policy |
+| `emu/health.py` | PPO health, collapse detection, learning-rate stress and mature rollback recommendations |
+| `emu/capability_field.py` | Semantic node, maneuver-edge and recovery evidence; bounded teaching proposals |
+| `emu/evaluation.py`, `emu/capability_cloud.py`, `emu/atlas.py` | Read-only fixed tests, calibration and physical frontiers |
+| `emu/training.py` | Composes the update loop and own-run artifacts; never lets held-out evaluators train the field |
+| `emu/production.py` | The single v5014 20/60/140/260/400M learning lineage and exact phase-config compatibility |
+| `emu/domain_randomization.py` | Batched JAX-valued robot/terrain/hardware model variation per training world |
+| `emu/contracts.py`, `emu/tracking_contract.py` | Shared deployable 55×4 observation, six action targets, task packet and physical event thresholds |
+| `emu/checkpoint_io.py`, `emu/checkpoints.py` | Validated schema-7 checkpoint save/read, atomic replacement and finite-policy protection |
+| `emu/policy_export.py` | Actor-only JSON `.emupolicy` export; excludes critic/optimizer and held-out training state |
+| `emu/live_viewer.py`, `emu/viewer_server.py` | Loopback-only, CPU/read-only validated checkpoint feed and viewer build/server |
+| `viewer/` | Canonical MuJoCo WebAssembly + Three.js UI, local inference, manual/demo input and static showcase |
+| `scripts/prepare_showcase.py` | Packages a static manifest and policy for browser-only hosting, without training or Python API |
 
-`emu/environment.py` owns MJX physics, resets, task sampling, disturbances, reward, termination and deployable observations. The default trainer advances 2,048 worlds in parallel.
+## Important invariants
 
-## PPO
+The **capability field** proposes *where* to practise; the **curriculum/governor** decides *what is currently permitted*; the **domain randomiser** samples *what physical conditions exist*. The **held-out examiner** never updates any of these. `emu/training_config.py` holds the narrow varying experiment surface and fixed doctrine; derived reporting-only state should not be duplicated in checkpoints.
 
-`emu/ppo.py` owns the actor/critic network, observation normalisation, rollout collection and PPO update. A rollout is consumed once; EMU has no replay buffer.
+The actor sees only the canonical **220-number** history vector; the inference actor is 220→256→256→6 with tanh hidden layers. `.emupolicy` is not a trainer resume file: only schema-7 `.pkl` checkpoints can continue PPO. See [hardware-model.md](hardware-model.md), [capability-map.md](capability-map.md) and [viewer/POLICY_FORMAT.md](../viewer/POLICY_FORMAT.md).
 
-## Curriculum
+## Process boundaries
 
-`emu/curriculum.py` owns regime difficulty/allocation and demonstrated physical frontiers. It answers **how hard is globally legal now?** Curriculum retreat is a task-distribution decision, not a neural-network rewind.
+The trainer owns CUDA/JAX and writes under `../emu_runs/`. The local `emu viewer --live` is a **separate read-only CPU watcher** serving only on `127.0.0.1:8765`; browser JavaScript runs inference and nominal MuJoCo dynamics. GitHub Pages publishes a **different static bundle**, and has no private training API. The viewer demonstration is not an evaluator.
 
-## Training health
-
-`emu/health.py` owns PPO/KL stress and sustained-collapse detection. It may veto unsafe curriculum expansion or request rollback, but it cannot mutate the task distribution itself.
-
-## Capability field
-
-`emu/capability_field.py` turns ordinary training experience into semantic node, recovery and maneuver events. It answers **where inside the legal envelope would practice be useful?** The field may propose bounded teaching coordinates; held-out examination never updates it.
-
-## Evaluation
-
-`emu/evaluation.py` owns the deterministic fixed regression panels. `emu/capability_cloud.py` performs sparse held-out node/recovery exams, and `emu/atlas.py` reports physical command/recovery curves. Evaluators receive policy snapshots and return evidence; they have no path back into PPO, curriculum, health or field mutation.
-
-## Trainer and experiment runner
-
-`emu/training.py` is orchestration: it composes the owning modules into one learning loop, manages run-local artifacts and performs complete rollback when health requests it. `emu/experiments.py` knows only the modern experiment shape: random-start foundation, exact fork, then shadow/graph continuations. Git is the archive for historical ladders and ablations.
-
-## Shared contracts
-
-`emu/contracts.py` owns deployable observation dimensions and the fixed-shape JAX task-packet layout. `emu/tracking_contract.py` owns physical competence thresholds. One contract is defined once and consumed by every implementation that needs it.
-
-## Configuration and process boundary
-
-The public CLI exposes experiment-level choices. `emu/experiments.py` creates a `TrainingConfig`, serialises it, and starts a clean trainer subprocess for JAX/GPU isolation. `TrainingConfig` contains only values that genuinely vary between supported runs; invariant current doctrine is named in code and recorded in `run_meta.json`.
-
-## Checkpoints
-
-`emu/checkpoint_io.py` owns current-only schema 7. A rewind point contains exactly:
-
-- policy/value network and optimiser state;
-- observation normaliser;
-- curriculum dynamic state;
-- training-health state;
-- capability-field state;
-- metadata/provenance.
-
-Resume is strict at every layer. Partial, unknown or incompatible state fails loudly. Canonical identities are `latest.pkl`, `best.pkl`, `recovery.pkl`, `final.pkl` plus rotating snapshots.
+`emu/experiments.py` and the `train/compare/tournament` CLI remain useful for reproducing previous controlled experiments, but do not constitute the default production pathway. Git history and compact results are the archive; current code should not accumulate new switches solely to relive old experiments.

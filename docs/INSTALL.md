@@ -29,22 +29,36 @@ The script creates/uses `.venv`, installs `emu-biped` and pytest in editable mod
 
 The viewer's Python wheel source mirror (`emu/viewer_src/`) is refreshed from `viewer/` whenever `emu viewer-build` succeeds. It is intentional duplication for wheel packaging; make sure the two browser sources and lockfiles agree before committing. Browser outputs in `emu/webviewer_dist/` are generated, **not** Git content.
 
-## Daily commands
+## Daily commands (separate terminals)
+
+Start by checking the environment; none of these commands launches long training:
 
 ```bash
 cd ~/robot_lab/emu
 source .venv/bin/activate
-emu doctor --domain-smoke            # GPU + randomised MJX reset/step
-python -m pytest -q                  # Python regressions
-emu forge --plan                     # no training
-emu viewer viewer/demo_zero.emupolicy --no-open
-emu viewer --live --no-open          # alternative viewer mode; separate terminal
-emu forge                            # explicitly begins/resumes long training
+emu doctor --domain-smoke
+python -m pytest -q
+emu forge --plan
 ```
 
-The demo policy is a **zero-output, untrained** fixture. It tests the load/render/browser pipeline, *not locomotion*. Confirm the robot actually appears and WebAssembly works; an HTTP 200 on `.wasm` alone is insufficient. In live mode without a trained checkpoint, the viewer should show a waiting status.
+To **train or resume** deliberately, in its own WSL terminal:
 
-Viewer runs on `http://127.0.0.1:8765/` by default. On WSL2 open that address in Windows Chrome/Edge. Never forward this unauthenticated development endpoint outside the machine.
+```bash
+cd ~/robot_lab/emu && source .venv/bin/activate
+emu forge
+```
+
+In a second terminal, watch the newest validated completed checkpoint:
+
+```bash
+cd ~/robot_lab/emu && source .venv/bin/activate
+emu viewer --live --no-open
+# Windows Chrome/Edge: http://127.0.0.1:8765/
+```
+
+For a **standalone rendering test instead of live watching**, stop the existing viewer first (`Ctrl+C`), then run `emu viewer viewer/demo_zero.emupolicy --no-open`. This demo is an untrained zero-output policy; the fact that the robot renders says nothing about walking. A successful `.wasm` HTTP response is necessary but not enough; inspect the actual browser canvas. Never port-forward the unauthenticated local checkpoint feed.
+
+For the *public static* Playground on port 4173 use [PLAYGROUND.md](PLAYGROUND.md), not `emu viewer --live`. The trainer never depends on either viewer being open.
 
 ## Browser dependency locking
 
@@ -82,11 +96,11 @@ git tag -a v5014.0 -m "EMU v5014 production"
 
 Large `.pkl` checkpoints and raw training outputs should live in `../emu_runs`, never in Git. `node_modules`, `.venv`, `dist`, generated bundles and GPU state are ignored. We intentionally track a compact demo `.emupolicy` fixture while ignoring arbitrary trained exports. Review changes before any `git add -A`, especially `results/`.
 
-**Avoid committing on a branch whose status contains unexpected files.** To push, inspect your actual remote with `git remote -v` before deciding whether to push a review branch or merge it into your preferred mainline; don't force-push or rewrite the historical v500x/v5013 commits.
+**Avoid committing on a branch whose status contains unexpected files.** To push, inspect `git branch -vv`, `git remote -v`, `git status --short` and release tags. The intended official mainline is `main`, but do not assume it exists or has already been pushed; don't force-push or rewrite the historical v500x/v5013 commits.
 
-## Workspace cleanup
+## Workspace cleanup (historical migration debris only)
 
-The release installer created `~/robot_lab/emu_upgrade_backups/`. Previous troubleshooting also created `~/robot_lab/incoming-v5014-rc1/` and `~/robot_lab/v5013_results_backup.*/`. These folders are **outside Git**, so `git clean` won't help and could be dangerous if used recursively inside your checkout.
+A previous release installer created `~/robot_lab/emu_upgrade_backups/`. Previous troubleshooting also created `~/robot_lab/incoming-v5014-rc1/` and `~/robot_lab/v5013_results_backup.*/`. These folders are **outside Git**, so `git clean` won't help and could be dangerous if used recursively inside your checkout.
 
 First preview:
 

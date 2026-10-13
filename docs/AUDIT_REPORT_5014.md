@@ -1,5 +1,7 @@
 # EMU v5014: functional release review (2026-10-13)
 
+> **Dated record — RC1 source audit (13 October 2026).** Findings and tests below describe that release candidate, not every later Playground change. For current observed status see [../RELEASE_VALIDATION.md](../RELEASE_VALIDATION.md).
+
 ## Review basis and limits
 
 Inspected the complete uploaded v5014 release, v5014 domain-dev pass, v5013 tournament metrics, and browser viewer sources. This was a *functional source review*, not solely an assertion that tests passed. Checked training phase boundaries, checkpoint/restoration contracts, physical-domain sampling, 55 × 4 observation/6-action export, browser policy inference and WebAssembly serving, live feed and autonomous controls, and repository rollout. The tournament does not prove a nodes-only teacher wins across seeds; this release uses low-dose full graph.

@@ -1,49 +1,33 @@
-# v5014 audited release validation (2026-10-13)
+# EMU v5014 — release evidence ledger
 
-## Passed locally
+**Purpose:** record what was *observed*, on which environment, and what remains unproven. This is not a setup guide; see [docs/validation.md](docs/validation.md) for the test procedure. Do not turn a prior test count into a claim about later modified code.
 
-- `PYTHONPATH=. pytest -q`: **92 passed, 1 skipped, 5 subtests passed**.
-- `node --check` for `viewer/src/main.js`, `sim.js`, and `live-demo.js`.
-- 10,000 deterministic command-generator samples stayed within exported physical command limits, including seven maneuver families.
-- Synthetic schema-7 checkpoint saved and successfully exported into browser `.emupolicy` format, including one training-field-evidenced demonstration node.
-- JavaScript `parsePolicy` + `PolicyRunner` loaded that export and correctly computed a 6-action vector from 220 observations.
-- Unit tests cover atomic checkpoint replacement on interrupted pickle dump, read-only viewer watcher revision cache/corruption fallback, source phase selection, training-field node export, HTTP API config and WASM Content-Type.
+## Operator's WSL workstation — 13 October 2026
 
-## Not yet passed in this environment
+| Gate | Observed result | Scope |
+|---|---|---|
+| Python package | `emu-biped==5014.0.0` editable install; v5014 ten-command CLI | Installed checkout |
+| Python suite | **93 passed; five subtests passed**, after audited RC1 install | Before later Playground/visual/joystick patches |
+| GPU JAX / MJX | JAX 0.11.2, CUDA device 0, MuJoCo 3.15.0, reset/step **PASS**, domain smoke **PASS**, observation `(8, 220)` | Real WSL NVIDIA GPU, 8-world smoke |
+| Viewer build | Node/npm installed; Vite 7.3.7 built JS/CSS and ~10.37 MB MuJoCo WASM | Real WSL, before later front-end add-ons |
+| Python viewer server | Index, JS, CSS, initial policy, `.wasm` returned HTTP 200 | Does not alone prove graphical execution |
+| Browser / live | Operator later confirmed the polished browser looked better and **live training demo loading worked** after switching back from static preview to `:8765` | Functional visual report; not a held-out evaluation |
+| Visuals | 10 cm grid, right-side settings drawer and lighting upgrade reported pleasing | Operator qualitative acceptance |
+| Lateral joystick | `vy` correction delivered using shared `controls.js`; operator later reported satisfaction | Specific sign retest was not pasted into chat |
 
-- Browser bundle npm installation/build: dependency installation timed out (packages not installed in this container); no physical MuJoCo/WASM visualization claim is made here.
-- CUDA+MJX training execution: full GPU prerequisites and user training checkpoints are absent. Run `emu doctor --domain-smoke` and an actual multi-stage run on the training PC.
-- Behavioural comparison of lateral/yaw directions: the UI mapping follows the user's feedback, but should be checked by eye in the running viewer.
+Expected non-blocking notices: missing optional Warp import while MJX passed; CUDA timer accuracy warning; Vite externalised `module`; chunk size warning; favicon 404 before v3 corrected it. None of these logs establish GPU training throughput.
 
-## Post-install acceptance checklist
+## Maintainer source audit (before the user's machine tests)
 
-- Run `emu viewer-build` and open `emu viewer --live` from Chrome or Edge with no policy: no blank overlay, status says waiting for validated checkpoint.
-- Run a known real `.emupolicy`, verify MuJoCo loads `.wasm` with correct MIME, robot appears, sim works, and drop overlay disappears.
-- Test sideways left/right and turn left/right against operator expectation, then keyboard WASD and Q/E.
-- Confirm autonomous demo changes direction/cadence after ~5–10 seconds, restarts after falls, and hands control back to manual joystick immediately.
-- Confirm a newly completed checkpoint updates displayed step and actor hash without modifying trainer throughput and without opening the GPU from the viewer process.
-- Run fixed held-out evaluation on completed 400M policy and compare against v5013 shadow/graph baseline; do not treat live-browser demos as exam scores.
-- Offline Python wheel build (`pip wheel . --no-deps --no-build-isolation`) succeeded and contained the mirrored browser assets, `emu/VERSION`, and `robot.xml`. This verifies packaging structure, not the npm runtime build.
+The original RC1 audit executed **92 Python tests, one skip, five subtests**, JAX/JIT cadence regression and synthetic policy Python-export→JavaScript 220→6 inference. It found and repaired: invalid three-argument `jnp.minimum` at environment birth, unsafe cross-phase checkpoint reuse, non-finite snapshot promotion, mismatch in viewer birth cadence/noise and hidden CSS panels. Details in [docs/AUDIT_REPORT_5014.md](docs/AUDIT_REPORT_5014.md).
 
-## Functional audit additions (post original release)
+Subsequent Playground development reported additional targeted JS/Python tests, but **no final whole-repository test transcript** from the user's checkout after the last changes is available. Re-run [the checklist](docs/validation.md) after this documentation update.
 
-- **Fixed a launch-blocking JAX bug:** phase-rate sampling erroneously called `jnp.minimum` with three positional arguments, accidentally inserting the pitch-command limit. A CPU/JIT executable regression now catches this specific failure.
-- **Checkpoint finiteness:** final and rotating snapshots now use the same host-side finite-policy guard as `latest.pkl`; rejected snapshots do not rotate away usable checkpoints.
-- **Hardened lineage safety:** completed/partial phases cannot silently resume under different seeds, environment counts, capability-teacher schedules, or domain-randomisation radii; expected `training_config.json` is validated before any checkpoint reuse.
-- **Viewer sensor fidelity:** the default now enables the normal training 1.5× synthetic noise, rather than offering a no-noise nominal view as the default. This is still only a single-browser-world approximation, not a quantitative parity certificate.
-- **Browser gait cadence:** model display now samples episode cadence once at birth, matching training’s birth-speed dependence and its fixed cadence through command transitions; a standalone JavaScript range test is included.
-- **Browser hidden panels:** explicitly respect the `[hidden]` attribute across overlays/panels.
-- **Still outstanding:** live GPU training, browser WebAssembly runtime and npm lockfile reproducibility need user-machine acceptance before calling v5014 fully proven.
+## Not yet established
 
-## Owner's WSL acceptance evidence (2026-10-13)
+- Full uninterrupted/resumed **400M** lineage completion and actual last-step checkpoint; throughput, collapse/recovery history and held-out outcome.
+- Held-out selection of a champion; physical transfer to hardware.
+- Public GitHub Pages publication and deployment URL; `main` merge/push/tag status.
+- Browser parity with all hidden MJX physical variations (the browser is a nominal visual simulator, not a robust-domain exam).
 
-The operator confirmed the installed `v5014` on the intended GPU system:
-
-- `93 passed, 5 subtests passed` on the existing audited source, before this portability patch.
-- `emu doctor --domain-smoke` completed with JAX 0.11.2 GPU (`CudaDevice(id=0)`), MuJoCo 3.15.0, reset/step observation `(8,220)`, and randomized terrain slope up to 2.64 degrees.
-- `emu viewer-build` succeeded under Node/npm with Vite 7.3.7 and created the 10.37 MB MuJoCo WASM asset; npm reported no audited vulnerabilities.
-- The Python viewer served index, CSS, JavaScript, initial policy and `.wasm` with HTTP 200. The unrelated favicon returned 404.
-
-The Vite `module` externalization and chunk-size notices did not stop the build. **These logs do not by themselves verify WebGL rendering, manual control directions, live hot-swap or final GPU training.**
-
-The reproducibility/cleanup patch adds `npm ci` lockfile enforcement, fresh-machine setup and workspace archive tooling, plus two unit regressions; rerun the full suite and browser acceptance after applying it. The real Node dependency lock comes from the successful operator build and must be committed with the source. Python dependency versions remain bounded by `pyproject.toml` and GPU/JAX platform selection, rather than being falsely described as bit-for-bit locked across machines.
+If a later test fails, add the actual command, revision and failure here. If a gate passes, record its machine and date rather than rewriting prior evidence.

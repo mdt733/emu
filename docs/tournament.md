@@ -1,5 +1,7 @@
 # v5013 capability-teacher tournament
 
+> **Historical experiment (v5013).** The completed tournament informed v5014 but is not the default production run. Its original results are preserved in [../results/v5013_tournament/](../results/v5013_tournament/README.md).
+
 v5012 showed a repeatable trade: strong graph teaching improved internal capability-map competence and some growth/headroom tests, but hurt hard recovery/robustness and worsened held-out field calibration. v5013 therefore asks three questions in order:
 
 1. **Dose** — is field teaching useful when it does not dominate the training distribution?

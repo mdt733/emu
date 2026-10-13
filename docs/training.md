@@ -1,53 +1,29 @@
-# Training lifecycle
+# EMU training lifecycle and historical comparison design
 
-## Foundation: 0→20M target
+The common learning loop applies to both v5013 experiments and v5014 production. For the **actual v5014 phase sequence** and physical radii, use [v5014-production.md](v5014-production.md) rather than this history/reference page.
 
-The foundation learns basic dynamic locomotion and creates the exact common ancestor for later comparisons. PPO updates are indivisible vectorised batches: the handoff is therefore the first complete update boundary at or beyond 20M (20,054,016 steps for the default 2048×32 batch), and both mature branches must use that same validated checkpoint.
+## A training update
 
-- capability field observes in `shadow` mode;
-- curriculum may expand or retreat;
-- useful snapshots are saved;
-- **network/optimiser rollback is disabled**;
-- no historical reference checkpoint is required.
+1. Advance vectorised MJX environments under the current observation/control contract.
+2. Update the actor/critic using PPO and the collected rollout (no replay buffer).
+3. Reduce rollout telemetry into performance, tracking and semantic capability events.
+4. Update curriculum and training-health decisions; the field proposes bounded practice inside permitted physical frontiers.
+5. Assemble the next fixed-shape task packet, save eligible snapshots and occasionally run held-out exams.
 
-## Mature training: handoff→target
+Metric provenance should refer to the policy/normaliser/field state that generated the rollout. The evaluator never trains PPO or writes back into the capability map.
 
-The exact shared foundation handoff checkpoint can continue as:
+## Foundation and mature training
 
-- `shadow` — field measures but does not steer;
-- `graph` — field proposes bounded node and maneuver practice.
+The foundation ends at the **first complete PPO update boundary at or above 20M environment steps** (at default 2048 worlds × 32 rollout frames, 20,054,016 steps). It learns basic dynamic stepping and permits curriculum retreat, but intentionally disarms network/optimizer rollback. Later mature training can permit health-triggered rollback when there is actually useful competence to preserve.
 
-The governor still owns legal physical frontiers in both arms. Training health remains separate from curriculum and may request rollback only in mature training.
+A **learning-state resume** restores policy/critic, optimizer, observation normaliser, curriculum, training health and capability field from a validated schema-7 checkpoint. The simulator episodes and current rollout buffers start afresh. It is not a byte-for-byte replay of a physical frame. Invalid snapshots must fail loudly, with only validated rotating snapshots considered for explicit recovery.
 
-The mature profile freezes observation-normalizer running statistics at 25M absolute steps. This deliberately fixes the actor's coordinate system before the mature command envelope expands much further; it is a testable profile hypothesis, not an accidental trainer default.
+The shared mature profile freezes running observation-normalizer statistics at its configured absolute-step threshold. Do not change observation ordering, actor dimensions, robot XML or actuator meaning for an ongoing run. Phase compatibility is also enforced by `emu/production.py`.
 
-## One update
+## Why v5013 had paired branches (historical)
 
-1. Collect one vectorised MJX rollout under the current policy/task packet.
-2. Perform PPO optimisation from that rollout.
-3. Reduce the rollout into training metrics and semantic capability events.
-4. Update training health and curriculum using the exact rollout provenance.
-5. Build the next fixed-shape capability teaching packet.
-6. Periodically checkpoint and run quarantined held-out exams.
+The v5013 research used a common foundation checkpoint as the exact ancestor for **shadow** (capability field observes only) versus **graph** (capability field can select bounded practice) continuations. This isolates teaching permission better than comparing unrelated cold starts. The experiment varied dose, source of teaching, evidence feedback and influence schedule—**not** the current production physical domain or PPO interface.
 
-The metrics, normaliser, curriculum state and field state used to judge a rollout are kept aligned with the policy that actually generated it.
+The `field_taught` provenance marker indicates that practice was field-selected; it is not part of the actor's 220 inputs or a reward. The `B4_clean_evidence` experiment let those rollouts train PPO but forbade them from self-confirming the capability field.
 
-## Resume
-
-Resume is an exact learning-state continuation, not an exact physics-frame replay. Current schema 7 restores network, optimiser, normaliser, curriculum, training health and capability field or fails loudly; live MJX episode buffers restart fresh by design. Rotating-snapshot fallback considers only fully schema-valid snapshots.
-
-Run-local evaluation history is also restored from its artifacts so evaluator cadence and best-checkpoint selection do not reset merely because the Python process restarted.
-
-## Rollback
-
-Rollback is an emergency health mechanism for a policy that had useful competence and later collapses. Curriculum retreat is the ordinary response to tasks becoming too hard; rollback rewinds the learned state itself.
-
-The foundation disarms rollback. Mature training keeps one canonical `recovery.pkl`, ranked monotonically so process resume or branch fork cannot replace a stronger recovery point with a weaker one.
-
-## v5013 teacher experiment surface
-
-The normal mature profile remains deliberately narrow. The v5013 tournament varies only capability-teacher dose, teaching family, evidence feedback and influence timing. These fields live in `TrainingConfig` because the experiment genuinely varies them; PPO, reward, robot physics, governor/frontier doctrine and observation-normalizer freeze remain fixed.
-
-A teacher-only `field_taught` task provenance bit records whether the current command target was chosen by the capability field. It is not part of the 220-value actor observation and does not enter reward. The `B4_clean_evidence` arm uses that provenance to prevent self-selected practice from updating the field while still allowing the same experience to train PPO.
-
-See `docs/tournament.md` for the complete funnel.
+See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for science and reproducibility; `emu forge` is the default production path.

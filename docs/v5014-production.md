@@ -31,9 +31,9 @@ The batched domain fast-path currently covers slope-equivalent gravity orientati
 
 ## Browser deployment
 
-`emu export-policy checkpoint.pkl policy.emupolicy` strips training-only state and embeds actor weights, normalizer, control contract and robot XML. `emu viewer` serves static files only; neural inference and MuJoCo physics execute locally in the browser.
+`emu export-policy checkpoint.pkl policy.emupolicy` strips training-only state and embeds actor weights, normalizer, control contract and robot XML. `emu viewer` serves browser assets plus a small **loopback-only JSON API** for an initial policy or validated live checkpoint; neural inference and MuJoCo physics execute locally in the browser. The public static Playground uses a bundled policy and has no Python API.
 
-## Live training viewer (consolidation pass 2)
+## Live training viewer
 
 The local viewer can be launched alongside production training with `emu viewer --live`. The server searches each production phase in newest-first order for complete `latest.pkl`, `final.pkl` or rotated snapshots. Checkpoint I/O commits atomically; the read-only feed validates the schema and exports a cache only on a changed file. When a write is incomplete or the checkpoint is invalid, the last validated actor stays in the browser rather than being replaced by garbage.
 
@@ -43,6 +43,6 @@ The demo sampler draws commands from a compact, training-field-evidenced node li
 
 Checkpoints carry no new browser-rewind state. The exported `.emupolicy` contains just up to 96 small command candidates alongside existing actor/normalizer/control data. Browser telemetry never teaches the field. The viewer is not an evaluation engine.
 
-The live server listens only on loopback, because its checkpoint feed lacks authentication. npm assets must still be built once on an online development machine. Real GPU/CUDA, WebAssembly and browser acceptance tests remain deployment gates before declaring the system field-proven.
+The live server listens only on loopback, because its checkpoint feed lacks authentication. The viewer must be built with Node/npm on a development machine. The operator has confirmed successful GPU domain smoke, Vite WASM build, and local browser/live operation; see [../RELEASE_VALIDATION.md](../RELEASE_VALIDATION.md). Those successes do **not** establish complete 400M convergence, held-out recovery, or physical-hardware transfer.
 
 The Python watch process sets JAX to CPU before importing checkpoint validation. This deliberately prevents an otherwise innocent viewer from initializing or reserving the GPU memory used by the active learner.

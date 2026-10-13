@@ -1,7 +1,9 @@
-# Robot/model notes
+# Robot and deployable observation model
 
-EMU models a dynamically unstable six-actuator biped. The learning target is stepping/catching locomotion rather than static standing.
+EMU models a dynamically unstable six-actuator biped whose primary task is **stepping, steering and recovering**, not freezing in a stable pose. The robot and simulator model are defined by [`emu/robot.xml`](../emu/robot.xml) (15 generalized coordinates, 14 velocities and 6 actuators in the operator's installed MuJoCo 3.15.0 smoke test).
 
-The actor is intentionally restricted to deployable sensor-style observations rather than unrestricted simulator truth. The exact 55-channel observation order is defined once in `emu/contracts.py`; checkpoint metadata records the observation/action dimensions so incompatible source/checkpoint combinations fail clearly.
+The policy deliberately sees only deployable sensor-like signals. **55 named per-frame features × four oldest-to-newest frames = 220 inputs.** The canonical names/order are in `emu/contracts.py`; the exported browser actor has **six clipped action outputs** that map to joint targets through the control contract. Do not change observation order or servo semantics without an explicit schema migration and parity tests.
 
-`emu/robot.xml` is the single physical-model source of truth. the current trainer checkpoints also record its SHA-256 so resume rejects a checkpoint when the physics source has changed.
+Checkpoints record contracts and robot-model provenance so an incompatible resume can be refused. Changing a robot XML parameter during an active production lineage is not a harmless cosmetic edit. By contrast, the browser's grid, trail, sky, lights and shadows are **render-only** and do not alter the training world or policy observations.
+
+For physical variation that is currently integrated, see [domain-randomization.md](domain-randomization.md). For the actor-only browser JSON format, see [viewer/POLICY_FORMAT.md](../viewer/POLICY_FORMAT.md). No real-hardware transfer result is established by this document.

@@ -126,7 +126,7 @@ For paired shadow-vs-graph experiments, report the deltas directly: capability c
 
 ## 18. Delete experimental archaeology
 
-Old phase importers, compatibility filenames, abandoned viewers, tournament logic and one-off ablation flags once served useful purposes. They do not need permanent residency in the current architecture.
+Old phase importers, compatibility filenames, abandoned viewers, and one-off ablation flags once served useful purposes. They do not need permanent residency in the current architecture. The v5013 tournament CLI/source is currently **retained intentionally for research reproducibility**; it is not a reason to clutter `emu forge` with further historical options.
 
 Git is the archive. Current code should express the current system. Reintroduce old experiments one at a time when a concrete question requires them.
 

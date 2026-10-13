@@ -1,39 +1,39 @@
-# EMU v5014 browser viewer
+# EMU browser viewer — local and public modes
 
-This is the **canonical browser source** for EMU, not a separate training project. Install EMU itself and use `emu viewer` or `emu viewer --live`; see the repository-root [README](../README.md).
+The **canonical web source** is in `viewer/`. `emu/viewer_src/` is a generated packaging mirror for Python installations; run `emu viewer-build` after editing canonical files. Browser physics uses MuJoCo WASM, rendering uses Three.js, and inference runs the same schema-1 220→256→256→6 actor in JavaScript. No Python/JAX inference takes place inside the web page.
 
-## Two modes
+## Choose the right viewer
 
-- **Local model viewer** — load or drag `.emupolicy` JSON bundles. Physics executes via official MuJoCo WebAssembly, rendering via Three.js, and the 220→256→256→6 actor via Float32 JavaScript inference.
-- **Live training demonstration** — `emu viewer --live` serves the newest validated, fully written checkpoint from a production lineage. The browser polls every ~12 seconds, hot-swaps compatible actor/normalizer weights, begins a fresh episode, and cycles through training-field-evidenced random command nodes every 5–10 seconds. Until the field has enough evidence, the sampler uses conservative curriculum bounds. It is **not a held-out exam** and it never teaches PPO.
+| Mode | Launch | Policy feed |
+|---|---|---|
+| Local policy | `emu viewer path/to/model.emupolicy --no-open` then `http://127.0.0.1:8765/` | One selected local bundle; can also drag-drop |
+| **Local live training** | `emu viewer --live --no-open` then `http://127.0.0.1:8765/` | Read-only validated checkpoints; browser polls about every 12 seconds |
+| **Public/static preview** | `python scripts/prepare_showcase.py`; `emu viewer-build`; `cd viewer && npm run preview -- --host 127.0.0.1`; open `http://127.0.0.1:4173/` | Static `showcase.json` and bundled `.emupolicy`, **not live training** |
 
-The watcher runs in a separate loopback-only CPU process. The active GPU trainer is unaffected by the viewer. Do not port-forward this unauthenticated development service.
+The local watcher uses CPU for checkpoint validation and never feeds browser telemetry into the PPO learner. Compatible actor weights hot-swap with a fresh simulator episode. Invalid/incomplete writes do not replace the last validated policy. It is loopback-only and unauthenticated: **never port-forward it**.
 
-## Build
+The public static Playground requires no viewer Python API, no GPU training server, and no local WSL machine once deployed. It must show **UNTRAINED PREVIEW** until a real held-out-selected champion is published. The Vite dev/preview server can reply with HTML for nonexistent paths: the viewer now checks response MIME before parsing JSON. See the repository-root `docs/PLAYGROUND.md` for publication instructions.
+
+## Install/build
 
 ```bash
 cd ~/robot_lab/emu
 source .venv/bin/activate
 emu viewer-build
-emu viewer --live
 ```
 
-For front-end development you can run `npm install && npm run dev` inside this folder instead, then drag/drop exported policy files. Vite without the Python server has no live-checkpoint API.
+Node 24 is selected by `.nvmrc`. The viewer uses `viewer/package.json` **plus committed `viewer/package-lock.json`**, and `emu viewer-build` uses `npm ci`; it is not a Python `requirements.txt` dependency. For development, `cd viewer && npm run dev` is separate from the checkpoint-watching Python server.
 
-No JS dependencies are included in the source archive: `emu viewer-build` fetches them using npm. `.wasm` is loaded using an explicit Vite asset URL and served with `application/wasm` from the Python server.
+## Interaction and visual cues
 
-## Controls
+- **Left stick / W-S:** forward and reverse `vx`; **left/right / A-D:** lateral motion. In the current **manual joystick mapping**, screen-right maps to **negative canonical `vy`**. This sign is deliberate for the viewer camera/robot convention, not a reversal of the actor's physical command definition.
+- **Right stick / Q-E:** turning `yaw` (right maps to negative yaw). Right stick up/down or `R/F`: pitch command.
+- `Space`: pause/resume; `Backspace`: reset. Manual joystick input disengages autonomous demonstration.
+- **Settings drawer:** follow camera, auto-reset, training-like sensor noise (enabled by default), advanced commands, live/demo controls and grid/trail/shadow toggles. The drawer does not sit over the joysticks when closed.
+- **World cues:** fine 0.10 m square grid, stronger metre marks, fixed X/Y reference, bounded movement trail, gentle sky/fog, warm shadow light with smaller 1024² shadow map. These do not affect physics and can be disabled for slower mobile GPUs.
 
-- Left joystick or `W/S`: forward/reverse (`vx`). Left joystick left/right or `A/D`: lateral (`vy`).
-- Right joystick left/right or `Q/E`: turning (`yaw`). Right stick up/down or `R/F`: chassis-pitch command.
-- `Space`: pause/resume. `Backspace`: reset.
-- Toggle **Automatically load newer policies** or **Demonstration** independently. Manual joystick movement disables the demonstration.
-- The optional training-like sensor noise is visualisation only; the deterministic actor default remains active.
+In live mode the autonomous command sampler uses training-field-evidenced nodes when available (otherwise conservative limits) and changes commands periodically. It is **an interesting visual demonstration, not an independent held-out score**. A zero-action `demo_zero.emupolicy` fixture only confirms rendering; it cannot walk.
 
-The lateral/yaw sign mapping was corrected in v5014 from operator feedback; check it with the real browser simulation. The first live-policy snapshot may take longer to load because strict checkpoint validation runs before export.
+## Exported-policy contract
 
-## Deployment contract
-
-`.emupolicy` schema 1 includes the robot XML, six-actuator target contract, actor layers, normalization, provenance and optional compact field-evidenced node candidates. It does **not** include critic/optimizer, PPO runtime, raw capability map or held-out exam feedback. The exported command frontiers are trainer-derived boundaries rather than certified physics capability. Browser actors can be driven from other devices only if you separately design a suitably authenticated service; the built-in `emu viewer` binds to 127.0.0.1.
-
-See [`POLICY_FORMAT.md`](POLICY_FORMAT.md) for the JSON contract and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for dependencies.
+`.emupolicy` schema 1 contains model XML, named observation order, actor layers, normalizer, control limits, provenance and optional compact training-field candidates. It excludes critic, optimiser, PPO runtime and held-out examination feedback. Consult [`POLICY_FORMAT.md`](POLICY_FORMAT.md) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

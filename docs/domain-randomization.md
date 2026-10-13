@@ -1,138 +1,43 @@
-# v5014 domain envelope — learn how a biped survives
+# v5014 domain randomisation — physical diversity without hidden controls
 
-v5014 deliberately asks a different question from the v5013 capability-teacher
-tournament: **can one deployable 220-channel policy survive many slightly
-different EMUs on many slightly different ordinary surfaces?** The goal is not
-to prescribe one robust-looking gait. It is to make exact simulator-specific
-gaits unreliable enough that the useful solution is feedback-driven biped
-survival.
+**Status:** the fast MJX/JAX-valued parameter randomiser is integrated into the v5014 `emu forge` lineage. A host-built morphology generator and a low-frequency terrain-heightfield generator also exist, **but their full bank/heightfield physics are not integrated in the default production training run**. Don't describe those generators as active training variation.
 
-This work is additive. The v5013 tournament remains frozen and all new domain
-randomisation defaults to OFF. When v5013 finishes, its evidence about capability
-teaching/dose/schedules can be incorporated without invalidating that comparison.
+## Why it exists
 
-## Three hidden radii, not dozens of knobs
+The same deployable **220-value actor input** must control modestly different robots and contact conditions. The actor is not given the randomisation seed, sampled parameters or domain severity. Ordinary sensor observations must reveal the resulting physical effects. v5013 capability teaching answers *where to practise*; v5014 domain variation answers *which imperfect physical world to practise in*. Their boundaries stay distinct.
 
-Training exposes only three 0..1 severities:
+## Three independent radii
 
-- **R — robot:** mass/inertial uncertainty now; coherent manufactured morphology
-  variants through a host-compiled bank.
-- **T — terrain:** floor/foot friction and slope-equivalent gravity now; smooth
-  low-frequency heightfield roughness after the throughput gate.
-- **H — hardware:** per-servo gain/torque/zero spread and actuated-joint
-  damping/friction/armature spread.
+- **R — robot (0–1):** mass/inertia-style spread, gravity-magnitude variation.
+- **T — terrain (0–1):** equivalent floor tilt via world-gravity orientation, floor friction and independent left/right foot friction.
+- **H — hardware (0–1):** actuated-joint damping/friction/armature, servo gain, torque ceiling and zero offset.
 
-The actor never observes R/T/H or any sampled physical parameter. A large
-near-nominal fraction protects the clean gait; a small hard tail makes the edge
-of the learned envelope fuzzy rather than a cliff.
+`emu/domain_randomization.py` defines the numerical caps. At radius 1 they are:
 
-## Runtime MJX path (implemented in dev1)
-
-MJX permits leading batch dimensions on JAX-valued model leaves. v5014 samples a
-fixed physical world for every vector environment and batches only those leaves,
-keeping one structural model and one XLA compile. At radius 1 the current
-ceilings are intentionally moderate:
-
-| Family | Radius-1 envelope |
+| Variation | Upper magnitude |
 |---|---:|
-| equivalent ground pitch/roll | ±6° |
-| floor friction multiplier | ±35% |
-| each foot friction multiplier | ±20%, independently |
-| global body mass scale | ±8% |
-| per-body mass scale | ±4% |
-| actuated-joint damping | ±18% |
-| actuated-joint frictionloss | ±25% |
-| actuated-joint armature | ±10% |
-| actuator Kp | ±12% |
-| actuator torque ceiling | ±15% |
-| servo zero offset | ±1.5° |
-| gravity magnitude | ±1.5% |
+| Equivalent pitch/roll slope | ±6° |
+| Floor friction | ±35% |
+| Each foot friction (independent) | ±20% |
+| Overall body mass | ±8% |
+| Per-body mass | ±4% |
+| Gravity magnitude | ±1.5% |
+| Actuated-joint damping | ±18% |
+| Actuated-joint friction loss | ±25% |
+| Actuated-joint armature | ±10% |
+| Servo proportional gain | ±12% |
+| Servo torque ceiling | ±15% |
+| Servo zero position | ±1.5° |
 
-Slope uses a rotated gravity vector with the collision plane left flat. For an
-infinite plane this is the same rigidly-rotated physical problem, but it avoids
-mutating collision geometry inside JIT. The projected-gravity observation uses
-the actual per-environment gravity vector, so the actor receives exactly the IMU
-cue that a real tilted robot would receive; it is not told the slope angle.
+The default mixture reserves a near-nominal population and a small difficult tail. Individual environment instances in the current fast path hold their sampled model throughout that vector-world lifetime; the actor receives no explicit domain ID. Slope is gravity-vector equivalent on a flat collision plane, **not actually sloped collision mesh geometry**. That approximation is intentional to avoid structural model changes inside the JAX compile.
 
-These domain instances are fixed per vector world for dev1. With 2048 worlds the
-policy still sees 2048 different physical plants in every PPO batch, while no
-observation exposes world identity. Episode-by-episode model resampling can be
-considered later if it proves useful enough to justify carrying model state more
-dynamically.
+The production severity schedule is in [v5014-production.md](v5014-production.md): R/T/H are zero in foundation, then increase at 60/140/260/400M. Changing radii in an existing run root invalidates its intended learning-lineage contract; see `emu/production.py`.
 
-## Coherent manufactured robots (generator implemented in dev1)
+## Separate development layers, not yet default forge
 
-`emu.morphology` creates deterministic XML variants *before* `mjx.put_model`.
-This is important: changing geom dimensions directly on device can leave MuJoCo
-collision/inertial derived quantities inconsistent. Host compilation lets MuJoCo
-recompute those quantities normally.
+- `emu/morphology.py` can generate *host-compiled*, coherent robot variants with changes to limb lengths, hip width, foot radius, torso mass and COM. Structural geometries need MuJoCo's derived inertial/collision data recomputed before an MJX stack is built. This generator is **not equivalent to training a 16-morphology bank**.
+- `emu/terrain.py` can generate smooth low-frequency 33×33 heightfields and nuisance features; the default forge fast path does **not** train on that terrain. No exteroceptive preview exists, so tall stairs, gaps and blind jump planning are outside the current problem.
 
-A variant jointly changes attachment positions, link collision geometry, link
-mass (constant-density length scaling), feet and reset height. Common-mode and
-left/right error are sampled separately, so the bank includes subtly crooked
-robots rather than only perfectly symmetric big/small copies.
+Avoid claiming simulated hardware-transfer robustness without frozen held-out evaluations. Candidate integration must demonstrate acceptable MJX throughput, nominal-regression preservation, and a measurable improvement on separately seeded morphologies and actual heightfields. A proposed cost gate is under 5% slowdown for simple parameter variation, roughly 10–15% for gentle heightfields, and a redesign review above 25%; **these are engineering budgets, not measured v5014 results**.
 
-Current radius-1 bank envelope:
-
-- thigh and shin scale: ~±3% common plus up to ±1.2% side asymmetry
-- hip width: ±3%
-- foot radius: ±4% common plus asymmetry
-- torso mass: ±8%
-- torso COM x offset: ±3 mm
-
-The intended mature setup is a small bank (initially 16) of fixed held-out and
-training morphologies. Compile them once, validate identical topology/structural
-fields, then interleave groups/blocks rather than recompiling every episode.
-
-## Reactive terrain, not blind stair climbing
-
-EMU has no exteroceptive terrain sensor. Therefore terrain must be something a
-biped can plausibly survive *after contact reveals it*:
-
-- slope and cross-slope;
-- broad low-frequency waviness;
-- shallow bumps and hollows;
-- raised seams / cable-like nuisance features;
-- small local height mismatches under one foot;
-- friction changes and left/right traction mismatch.
-
-Stairs, gaps, stepping stones and tall curbs are deliberately excluded. Those
-are perception/planning tasks, not proprioceptive robustness tasks.
-
-`emu.terrain` now generates deterministic smooth 33×33 physical height maps with
-millimetre-scale RMS roughness and a few broad nuisance features. Production
-hfield wiring is intentionally behind a benchmark gate: MJX-JAX throughput is
-very sensitive to contact complexity.
-
-## Performance gates
-
-v5013 flat training is roughly 32k env-steps/s on the current machine. New
-physics does not get a free pass just because it is realistic.
-
-- batched dynamics/mass/servo spread: target <5% loss;
-- slope/friction: target <5% loss;
-- smooth hfield roughness: target <10–15% loss;
-- roughness + discrete nuisance features: tolerate ~15–20% only if held-out
-  robustness gain justifies it;
-- >25% loss: redesign, reduce contact complexity, or move that family to sparse
-  training/evaluation blocks.
-
-## Evaluation quarantine
-
-Training randomisation must not grade itself. The v5014 evaluator should add
-frozen, never-trained panels containing nominal, morphology, asymmetric,
-slope, rough, low-friction, weak-motor, combined and intentionally-outside-envelope
-cases. A useful headline is not just a scalar DR score but e.g. **15/16 frozen
-virtual manufactured EMUs complete the panel**.
-
-The nominal panel remains a hard regression gate: robustness is not a win if it
-destroys ordinary locomotion.
-
-## Integration after v5013
-
-The capability-field tournament answers *where/when to practise*; the domain
-envelope answers *which physical world practises it*. They remain orthogonal in
-dev1. Once v5013 reports which teacher dose/mechanism survives held-out tests,
-v5014 can decide whether R/T/H severity should be governor-owned, field-aware,
-or simply sampled under a slow global schedule. Do not let the capability map
-learn from a changing domain distribution until that choice is explicit.
+See [evaluation.md](evaluation.md) for the examiner/learner separation and [history.md](history.md) for why deployment truth is more important than flattering simulation metrics.
