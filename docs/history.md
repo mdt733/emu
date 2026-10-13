@@ -164,3 +164,16 @@ Do not infer that more known/mastered field cells imply a better general policy.
 - **v5011** — event-based Honest Map; cold-started a strong policy, but exposed two critical measurement failures: an overly strict instantaneous node doctrine and invisible one-frame maneuvers.
 - **v5012** — windowed node competence, explicit one-frame transitions, strict resume/quarantine checks and the first proper shadow-vs-graph comparison.
 - **v5013** — current-only cleanup: real package/resources; compact training profiles plus named doctrine; separate PPO, curriculum and training-health ownership; read-only data-driven fixed evaluation; schema-7 exact learning-state rewind; field schema 6; an explicit named 55-channel actor contract; a 317-value task packet with dead assist/rehearsal dimensions removed; strict loaders; compact learning-state-only checkpoints; canonical checkpoints; and removal of obsolete experiment/compatibility machinery.
+
+
+## v5014 consolidation
+
+The v5013 capability-teacher tournament selected 10% as the useful low-dose region, but mechanism confirmation was mixed across seeds. v5014 therefore stopped chasing a single branch winner and converted the project to one production lineage. Domain randomisation, gravity-relative pitch control, portable policy export and the local browser viewer became first-class current architecture.
+
+## 23. Viewer feedback and checkpoints must be independent
+
+A policy viewer that watches training must not become part of the training/evaluation feedback loop. Use completed validated snapshots, not a simultaneously written pickle. Transfer only deployable actor state. Train-side runtime remains autonomous; random-command browser demos are anecdotal visuals, not exam results.
+
+Do not rebuild an entire MuJoCo browser model for each new set of neural weights when XML and control contracts are identical. But reset the demo physics/history so different policies are fairly viewed from clean episodes.
+
+The v5014 pass-2 consolidation additionally corrected right-stick yaw and lateral movement mapping based on observed operator feedback. Input direction conventions need human validation in the browser; a contract test can prevent accidental code regression but cannot replace that observation.

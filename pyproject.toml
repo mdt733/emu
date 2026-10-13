@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emu-biped"
-version = "5013.0.0"
+version = "5014.0.0"
 description = "Self-mapping reinforcement-learning trainer for a dynamically unstable six-actuator biped"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -22,4 +22,7 @@ emu = "emu.cli:main"
 include = ["emu*"]
 
 [tool.setuptools.package-data]
-emu = ["VERSION", "robot.xml"]
+emu = ["VERSION", "robot.xml", "webviewer_dist/**/*", "viewer_src/**/*"]
+
+[project.optional-dependencies]
+dev = ["pytest>=9,<10"]

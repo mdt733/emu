@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
+  <title>EMU Viewer</title>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="view"></canvas>
+
+    <header class="topbar glass">
+      <div class="brand">
+        <strong>EMU</strong><span>local policy viewer</span>
+      </div>
+      <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
+      <div class="top-actions">
+        <label class="file-button">
+          <input id="policyFile" type="file" multiple accept=".emupolicy,.json,application/json" />
+          Load policies
+        </label>
+        <select id="policySelect" class="policy-select" aria-label="Loaded policy" hidden></select>
+        <button id="pauseBtn" type="button" disabled>Pause</button>
+        <button id="resetBtn" type="button" disabled>Reset</button>
+      </div>
+    </header>
+
+    <aside class="telemetry glass" aria-label="Simulation telemetry">
+      <div class="metric"><span>Policy</span><b id="policyName">—</b></div>
+      <div class="metric"><span>Step</span><b id="policyStep">—</b></div>
+      <div class="metric"><span>FPS</span><b id="fps">—</b></div>
+      <div class="metric"><span>Height</span><b id="height">—</b></div>
+      <div class="metric"><span>vx</span><b id="vxRead">—</b></div>
+      <div class="metric"><span>vy</span><b id="vyRead">—</b></div>
+      <div class="metric"><span>yaw</span><b id="yawRead">—</b></div>
+      <div class="metric"><span>pitch</span><b id="pitchRead">—</b></div>
+    </aside>
+
+    <section id="livePanel" class="live-panel glass" hidden aria-label="Live training viewer">
+      <div class="live-head"><b>LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
+      <div class="live-progress">Validated step <b id="liveStep">—</b></div>
+      <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
+      <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
+      <label><input id="liveDemo" type="checkbox" checked /> Demonstration: random in-envelope commands</label>
+      <div class="live-demo-status">Current maneuver: <b id="demoKind">—</b></div>
+      <div class="live-foot">Prioritises training-evidenced commands; otherwise uses conservative curriculum limits. Not held-out proof. Read-only.</div>
+    </section>
+
+    <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
+      <div class="result-head"><b>TOURNAMENT</b><span id="resultRole">—</span></div>
+      <div class="result-grid">
+        <div><span>Broad</span><b id="resultBroad">—</b></div>
+        <div><span>Hard recovery</span><b id="resultHard">—</b></div>
+        <div><span>Growth</span><b id="resultGrowth">—</b></div>
+        <div><span>Cloud recovery</span><b id="resultRecovery">—</b></div>
+        <div><span>Worst dir</span><b id="resultWorst">—</b></div>
+        <div><span>Cal MAE</span><b id="resultCal">—</b></div>
+      </div>
+    </section>
+
+    <section id="pitchNotice" class="notice glass" hidden>
+      v5013 already exposes <code>cmd_pitch</code> to the actor, but does not explicitly reward pitch tracking. Pitch control here is experimental until v5014 trains it as an objective.
+    </section>
+
+    <section class="controls-panel glass">
+      <div class="control-row">
+        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
+        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
+        <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
+      </div>
+      <details>
+        <summary>Advanced commands</summary>
+        <div class="sliders">
+          <label>Height <output id="heightCmdOut">0 mm</output><input id="heightCmd" type="range" min="-18" max="18" value="0" step="1" /></label>
+          <label>Roll <output id="rollCmdOut">0.0°</output><input id="rollCmd" type="range" min="-3.2" max="3.2" value="0" step="0.1" /></label>
+          <label>Step height <output id="stepCmdOut">12 mm</output><input id="stepCmd" type="range" min="8" max="42" value="12" step="1" /></label>
+          <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
+        </div>
+      </details>
+    </section>
+
+    <div class="sticks" aria-label="Touch controls">
+      <div class="stick-wrap">
+        <div class="stick-label"><b>MOVE</b><span>vx / vy</span></div>
+        <div id="leftStick" class="stick" tabindex="0" role="application" aria-label="Velocity joystick">
+          <div class="stick-cross"></div><div class="nub"></div>
+        </div>
+        <div id="leftValues" class="stick-values">vx +0.00 · vy +0.00</div>
+      </div>
+      <div class="stick-wrap right">
+        <div class="stick-label"><b>LOOK / TURN</b><span>yaw / pitch</span></div>
+        <div id="rightStick" class="stick" tabindex="0" role="application" aria-label="Yaw and pitch joystick">
+          <div class="stick-cross"></div><div class="nub"></div>
+        </div>
+        <div id="rightValues" class="stick-values">yaw +0.00 · pitch +0.0°</div>
+      </div>
+    </div>
+
+    <div id="dropOverlay" class="drop-overlay" hidden>Drop .emupolicy here</div>
+  </div>
+</body>
+</html>

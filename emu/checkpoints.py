@@ -7,7 +7,11 @@ from pathlib import Path
 def resume_candidates(run_dir: Path) -> list[Path]:
     """Canonical continuation order for one run, strongest semantic file first."""
     ck = Path(run_dir) / "checkpoints"
-    out = [ck / "final.pkl", ck / "latest.pkl"]
+    # Both may exist when a process was interrupted between updating latest
+    # and promoting final. The most recently committed file wins.
+    out = sorted([ck / "final.pkl", ck / "latest.pkl"],
+                 key=lambda p: p.stat().st_mtime_ns if p.exists() else -1,
+                 reverse=True)
     out.extend(sorted(ck.glob("snapshot_step_*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True))
     return [path for path in out if path.exists()]
 

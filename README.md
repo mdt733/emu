@@ -1,235 +1,68 @@
-# EMU
+# EMU v5014 — production biped
 
-**EMU is a reinforcement-learning project for a small, dynamically unstable six-actuator biped.**
+**One dynamically stepping robot, one continuous learning lineage.** EMU trains a six-servo biped using JAX/MJX with a deployable **55-feature × 4-frame = 220-input, 6-output** neural-network policy. The production run uses a restrained 10% capability-field teacher and progressively imperfect robots/floors. It is not a static-standing project.
 
-The robot is not meant to solve locomotion by finding a static pose. It has small feet, springy mechanics and a deliberately limited deployable sensor set, so useful locomotion means continuously stepping, catching itself and adapting to commanded motion.
+## New computer? Start here
 
-The research question is broader than “can PPO eventually produce one good policy?”:
-
-> Can a compact trainer repeatedly build a capable robot from random weights, measure what it can actually do, and spend training effort where it is useful without teaching from the exam?
-
-## The system
-
-```text
-MuJoCo / MJX environment
-        │
-        ▼
-       PPO
-        │
-        ├──────────────► capability field
-        │                     │
-        │                     └── bounded teaching proposals
-        │
-        ▼
- curriculum governor
-        │
-        ▼
- next training distribution
-
-held-out evaluation ───── read only ─────╳ training
-```
-
-The runtime responsibilities are intentionally separate:
-
-- **Environment** — robot physics, deployable observations, commands, disturbances and reward.
-- **PPO** — actor/critic optimisation and observation normalisation.
-- **Curriculum** — global task difficulty and demonstrated physical frontiers.
-- **Training health** — PPO stress, collapse detection and rollback requests.
-- **Capability field** — training-derived evidence about commands, recovery and maneuvers.
-- **Held-out evaluation** — independent exams that never teach.
-
-## Actor observations
-
-The policy receives a four-frame history of a 55-value deployable observation vector: **220 values total**. It includes gravity direction, gyro, joint state, estimated motion, previous control/action, relative foot geometry, estimated planar velocity, ToF height, confidence, command/phase and shin-compliance signals.
-
-The actor does not receive privileged simulator state merely because MuJoCo has it.
-
-## Capability field
-
-The field is a low-resolution map over commanded:
-
-```text
-(vx, vy, yaw rate)
-```
-
-It records three kinds of semantic evidence:
-
-- **Node event** — sustained operation at one command.
-- **Recovery event** — one disturbance followed by recovery or failure.
-- **Edge event** — one complete command transition followed by settling.
-
-Evidence is event-based rather than frame-count based. Old evidence decays and confidence matters. Node tracking quality is retained separately from Bernoulli competence; recovery and maneuver layers keep only evidence that modern teaching/reporting actually consumes.
-
-The field can run in two useful modes:
-
-- `shadow` — observe only.
-- `graph` — observe and propose bounded practice to the governor.
-
-This makes a matched shadow-vs-graph fork the core causal experiment.
-
-## Training shape
-
-The standard experiment is deliberately simple:
-
-```text
-random weights
-     │
-     ▼
-0 ─────── 20M target     shared foundation
-                  │
-                  ├──────── shadow ─────► 120M
-                  │
-                  └──────── graph  ─────► 120M
-```
-
-PPO advances in whole vectorised rollout updates, so the handoff is the **first complete update boundary at or beyond 20M**, not a partial update forced to land on the decimal number. With the default 2048 envs × 32 rollout this is step **20,054,016**. Within one seed, both mature arms resume that same validated checkpoint, including network, optimiser, curriculum, training-health, observation-normaliser and field state.
-
-The foundation may retreat curriculum difficulty, but it does not rewind the network. Rollback is a mature-training emergency mechanism, not a nursery teaching strategy.
-
-## Quick start
-
-EMU is developed on Linux/WSL with Python 3.13, MuJoCo/MJX and a CUDA-enabled JAX install.
+Use **Linux or WSL2 Ubuntu**. The documented training path needs Python 3.13, Git, a working NVIDIA GPU/JAX CUDA setup, and Node.js 24 for the browser viewer. Python and JavaScript have **separate dependency managers**; npm does not belong in `requirements.txt`.
 
 ```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip setuptools wheel
-# Install the JAX build appropriate to this machine first (CUDA example):
-python -m pip install -U "jax[cuda13]"
-python -m pip install -e .
-
-emu doctor
+# Run from your cloned EMU Git repository (not the parent robot_lab directory).
+cd ~/robot_lab/emu
+bash scripts/setup_wsl.sh --cuda13 --install-node
 ```
 
-`emu doctor` checks Python, JAX backend, MuJoCo/XML, field semantics and a tiny MJX reset/step.
+This creates `.venv/`, installs the Python project/tests, installs Node 24 through nvm if needed, builds the browser from **locked** npm dependencies, runs the tests, and performs the MJX domain smoke test. It **does not start training, delete files, commit Git changes, or touch your existing run data**. `--cuda13` is for machines with a compatible NVIDIA driver/CUDA 13 JAX path; omit it for a CPU-only workstation. If Python 3.13 or a supported NVIDIA driver is missing, follow [the full installation guide](docs/INSTALL.md) first.
 
-### Train one graph policy
+After setup, open two terminals as appropriate:
 
 ```bash
-emu train
+cd ~/robot_lab/emu && source .venv/bin/activate
+emu viewer viewer/demo_zero.emupolicy --no-open  # viewer acceptance: http://127.0.0.1:8765/
+# OR:
+emu viewer --live --no-open                   # watches completed training checkpoints
 ```
-
-### Run the matched experiment
 
 ```bash
-emu compare
+cd ~/robot_lab/emu && source .venv/bin/activate
+emu forge --plan                             # preview without starting anything
+emu forge                                    # deliberate 400M-step production run
 ```
 
-### Run the efficient v5013 teacher tournament
+**Do not start `emu forge` just to test installation.** The first command to run is `emu doctor --domain-smoke`. See [Install & recovery](docs/INSTALL.md) for GPU/JAX notes, Node installation, troubleshooting, and exact fresh-clone expectations.
 
-Inspect the adaptive twelve-hypothesis funnel without starting JAX:
+## Where everything goes
 
-```bash
-emu tournament --plan
-```
+| Location | Purpose | Commit to Git? |
+|---|---|---|
+| `emu/` | Canonical Python trainer, checkpoints/exports, viewer server | Yes, source only |
+| `viewer/` | Canonical browser source, `package.json` and **`package-lock.json`** | Yes |
+| `emu/viewer_src/` | Mirrored viewer source for Python wheel installs | Yes; kept in sync by `emu viewer-build` |
+| `tests/`, `docs/`, `scripts/` | Regression tests, decisions/history, setup/housekeeping | Yes |
+| `results/` | Compact experiment summaries, v5013 tournament evidence | Yes, after review |
+| `.venv/`, `node_modules/`, `dist/`, `emu/webviewer_dist/` | Local generated dependencies/build | **No** |
+| `../emu_runs/` | Large checkpoints, training logs and generated policies | **Never** |
 
-Then run it. The tournament shares foundations, screens weak arms at 50/60M, promotes only four to 80M and only two challengers to 120M, then confirms the best challenger against shadow on seed 1742:
+This source repository is meant to be portable. Don't copy `.venv`, `node_modules` or raw GPU runs from another PC to reproduce it: clone Git and run the setup script.
 
-```bash
-emu tournament
-```
+## Training and viewer contract
 
-See [`docs/tournament.md`](docs/tournament.md) for the hypotheses, guardrails and restart-safe promotion rules.
+The default **400M** production run has phase boundaries at **20M/60M/140M/260M/400M**. The actor, critic, optimiser, normaliser, curriculum and capability field carry forward across phases. Checkpoints use atomic replacement and strict validation/resume checks. The default run root is `~/robot_lab/emu_runs/v5014_production/`.
 
-For a simple second independent paired comparison instead:
+The live viewer watches **completed, validated checkpoints** on loopback (`127.0.0.1:8765`), not partially written GPU weights. Physics and inference run in the browser; the viewer does not train the policy. Autonomous demonstration commands are training-derived self-assessments, **not held-out competence scores**. Do not forward the local viewer port to the internet.
 
-```bash
-emu compare --seed 1742
-```
+**What this release does *not* prove:** a full 400M training run, physical-hardware transfer, full geometry randomisation, or successful lateral/yaw sign checks with a genuinely trained policy. The zero-output demo is only a rendering test.
 
-### Live capability map
+## Project reference
 
-```bash
-emu view
-```
+- [Installation / clean-clone checklist](docs/INSTALL.md) — start here on a new machine.
+- [Production architecture and training phases](docs/v5014-production.md)
+- [Browser usage and control mapping](viewer/README.md)
+- [Domain randomisation limits](docs/domain-randomization.md)
+- [Scientific lessons that must survive cleanup](docs/history.md)
+- [Audit results and outstanding acceptance](RELEASE_VALIDATION.md)
+- [Release handover](docs/HANDOVER_5014.md)
 
-### Physical capability/recovery atlas
+## Cleaning `robot_lab/` safely
 
-```bash
-emu evaluate
-```
-
-## Storage
-
-Heavy run data is intentionally outside Git. By default a repository cloned as:
-
-```text
-/path/to/emu/
-```
-
-uses:
-
-```text
-/path/to/emu_runs/<version>_seed<seed>/
-```
-
-Override this with:
-
-```bash
-export EMU_RUN_BASE=/somewhere/fast/emu_runs
-export EMU_RESULTS_BASE=/somewhere/emu_results
-```
-
-Small result summaries may be copied under `results/`; checkpoints and raw telemetry stay out of the repository.
-
-## Evaluation philosophy
-
-EMU keeps three questions separate:
-
-1. **Can the policy perform the command?** — node competence.
-2. **Can it recover from a disturbance?** — recovery competence.
-3. **Can it execute a transition?** — edge/maneuver competence.
-
-Those metrics must not be calibrated against one another as if they were the same event.
-
-Physical capability is reported as curves/frontiers in real units where possible. Fixed regression suites remain useful, but an arbitrary legacy coordinate is never treated as a physical limit.
-
-## Repository
-
-```text
-emu/
-    cli.py              small public CLI
-    paths.py            filesystem/resource policy
-    contracts.py        exact observation + fixed JAX packet contracts
-    training_config.py  foundation/mature profiles + fixed doctrine
-    environment.py      MuJoCo/MJX robot + task environment
-    ppo.py              network, normalisation, PPO + rollout kernels
-    curriculum.py       task difficulty/allocation + physical frontiers
-    health.py           PPO stress + collapse/rollback requests
-    rollout_metrics.py  host reduction of training evidence
-    training.py         training orchestration
-    evaluation.py       deterministic read-only regression panels
-    capability_field.py training-derived command/recovery/maneuver map
-    tracking_contract.py shared locomotion competence thresholds
-    capability_cloud.py sparse held-out node/recovery examination
-    checkpoints.py      canonical checkpoint discovery
-    checkpoint_io.py    strict schema-7 save/load + snapshots
-    runtime.py          JAX/backend setup + performance bookkeeping
-    artifacts.py        run artifact/log I/O
-    atlas.py            physical command/recovery sweeps
-    experiments.py      foundation + matched fork orchestration
-    tournament.py       successive-halving 12-hypothesis experiment
-    screening.py        cheap held-out tournament stress probes
-    field_viewer.py     read-only live map viewer
-    VERSION             package version identity
-    robot.xml           robot model
-
-tests/                  contract/regression tests
-docs/                   current design + concise history
-```
-
-The current code intentionally does **not** carry every old experiment runner or compatibility path. Git history is the archive. If an old ablation becomes useful again, it can be reintroduced deliberately as a small isolated experiment instead of remaining permanent runtime baggage.
-
-## Project rules
-
-A few rules have become more valuable than any individual hyperparameter:
-
-- Held-out evaluation never teaches.
-- Resume either restores the complete contract or fails loudly.
-- One definition of a metric lives in one place.
-- Random-start foundations are first-class; old reference checkpoints are not architectural dependencies.
-- Compare paired arms rather than declaring winners from opaque aggregate scores.
-- Preserve physical-unit evidence and raw curves instead of hiding capability in a scalar.
-- Prefer deleting obsolete experiment machinery over indefinitely supporting it.
-
-See [`docs/history.md`](docs/history.md) for the lessons that led here.
+Run `bash scripts/workspace_tidy.sh` to **preview** recognized legacy extraction/backup folders outside this Git checkout. When comfortable, `bash scripts/workspace_tidy.sh --quarantine` **moves** those candidates into a dated archive **outside `robot_lab`**, without deleting any bytes or touching `emu/` and `emu_runs/`. See [the cleanup instructions](docs/INSTALL.md#workspace-cleanup) before using it.

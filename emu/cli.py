@@ -54,6 +54,20 @@ def doctor(args) -> int:
             p=RegimeGovernor().params_dict(); st,_=e.reset(p); out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),p); out.obs.block_until_ready()
             print(f'MJX reset/step: PASS obs={tuple(out.obs.shape)}')
         except Exception as exc: failures.append(f'MJX reset/step: {exc}')
+    if args.domain_smoke:
+        try:
+            import jax
+            import jax.numpy as jnp
+            from .domain_randomization import DomainRandomizationConfig
+            from .environment import EmuMJXEnv
+            from .curriculum import RegimeGovernor
+            cfg=DomainRandomizationConfig(enabled=True,robot_radius=.6,terrain_radius=.6,hardware_radius=.6)
+            e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=5014,max_episode_steps=40,domain_config=cfg)
+            p=RegimeGovernor().params_dict(); st,_=e.reset(p); out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),p); out.obs.block_until_ready()
+            info=jax.device_get(e.domain_info)
+            max_slope=max(float(abs(info['slope_roll_rad']).max()),float(abs(info['slope_pitch_rad']).max()))
+            print(f'Domain MJX smoke: PASS obs={tuple(out.obs.shape)} max_sampled_slope={max_slope*57.2957795:.2f}deg')
+        except Exception as exc: failures.append(f'Domain MJX smoke: {exc}')
     if failures:
         print('\nNOT READY:'); [print('  -',x) for x in failures]; return 1
     print('\nReady to train.'); return 0
@@ -80,7 +94,11 @@ def main(argv=None) -> int:
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
-    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true')
+    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model')
+    q=sub.add_parser('forge',help='train the single v5014 production lineage'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=400_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
+    q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
+    q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
+    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='v5014 production run root to watch')
 
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
@@ -110,6 +128,21 @@ def main(argv=None) -> int:
         if ck is None or not ck.exists(): raise SystemExit(f'no checkpoint found under {root}')
         out=Path(args.out_dir).expanduser() if args.out_dir else root/'atlas'
         return _run('atlas','--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed))
+    if args.cmd=='forge':
+        av=['--seed',str(args.seed),'--envs',str(args.envs),'--device',args.device,'--target',str(args.target)]
+        if args.root: av += ['--root',args.root]
+        if args.plan: av += ['--plan']
+        return _run('production',*av)
+    if args.cmd=='export-policy':
+        from .policy_export import build_bundle, write_bundle
+        bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0
+    if args.cmd=='viewer-build':
+        from .viewer_server import build
+        return build()
+    if args.cmd=='viewer':
+        from .viewer_server import serve
+        pol=Path(args.policy) if args.policy else None
+        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5014_production') if args.live else None,open_browser=not args.no_open)
     return 2
 
 

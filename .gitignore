@@ -25,5 +25,14 @@ __pycache__/
 
 # Keep results/ tracked: it contains compact, durable experiment evidence.
 
-# Python build metadata
+# Build and JS dependencies
+/build/
 *.egg-info/
+**/node_modules/
+**/dist/
+/emu/webviewer_dist/
+.pytest_cache/
+*.emupolicy
+# Tiny reproducible viewer fixtures are source/test inputs, not trained artefacts.
+!/viewer/demo_zero.emupolicy
+!/emu/viewer_src/demo_zero.emupolicy

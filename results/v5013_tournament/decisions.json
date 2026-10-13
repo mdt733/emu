@@ -1,0 +1,419 @@
+{
+  "confirm_seed": 1742,
+  "foundation_checkpoint": "/home/mdt733/robot_lab/emu_runs/v5013_tournament/seed733/foundation20/checkpoints/final.pkl",
+  "git": {
+    "available": true,
+    "branch": "v5013",
+    "commit": "9b26a17c9536178fe5ae27c23121a80b9e991772",
+    "describe": "v5013.2",
+    "dirty": false
+  },
+  "seed": 733,
+  "stages": {
+    "A_dose": {
+      "ranking": [
+        {
+          "broad": 0.7251310448077591,
+          "calibration_mae": 0.26361859422177075,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.595703125,
+          "hard_recovery": 0.7392578125,
+          "label": "Graph teaching at 10%",
+          "name": "A1_graph10",
+          "recovery": -1.0,
+          "utility": 0.7133427587312393,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.7256263563973885,
+          "calibration_mae": 0.34310236234450714,
+          "dose": 0.4,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.564453125,
+          "hard_recovery": 0.740234375,
+          "label": "Graph teaching at 40%",
+          "name": "A3_graph40",
+          "recovery": -1.0,
+          "utility": 0.7053179450519912,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.7125167172650496,
+          "calibration_mae": 0.2970907736686058,
+          "dose": 0.25,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.5263671875,
+          "hard_recovery": 0.7236328125,
+          "label": "Graph teaching at 25%",
+          "name": "A2_graph25",
+          "recovery": -1.0,
+          "utility": 0.6896719608710846,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.719141973155466,
+          "calibration_mae": 0.5872720010462217,
+          "dose": 0.65,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.62109375,
+          "hard_recovery": 0.7158203125,
+          "label": "v5012-strength graph teaching at 65%",
+          "name": "A4_graph65",
+          "recovery": -1.0,
+          "utility": 0.6874532106443286,
+          "worst_direction": -1.0
+        }
+      ],
+      "selected": "A1_graph10",
+      "target": 50000000
+    },
+    "B_mechanism": {
+      "ranking": [
+        {
+          "broad": 0.7251310448077591,
+          "calibration_mae": 0.26361859422177075,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.595703125,
+          "hard_recovery": 0.7392578125,
+          "label": "Graph teaching at 10%",
+          "name": "A1_graph10",
+          "recovery": -1.0,
+          "utility": 0.7133427587312393,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.7145025541813987,
+          "calibration_mae": 0.3996434276457876,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.5595703125,
+          "hard_recovery": 0.7099609375,
+          "label": "Node births only; node recovery severity remains active",
+          "name": "B1_nodes_only",
+          "recovery": -1.0,
+          "utility": 0.6832846104971304,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.7514404882524501,
+          "calibration_mae": 0.6135794702568091,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.6005859375,
+          "hard_recovery": 0.7412109375,
+          "label": "Maneuver-edge teaching only",
+          "name": "B2_edges_only",
+          "recovery": 0.3701171875,
+          "utility": 0.5949973135878944,
+          "worst_direction": 0.0078125
+        },
+        {
+          "broad": 0.7369104722921145,
+          "calibration_mae": 0.5177065939409659,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.5888671875,
+          "hard_recovery": 0.7568359375,
+          "label": "Node + edge teaching, but no field-selected recovery severity",
+          "name": "B3_no_recovery",
+          "recovery": 0.291015625,
+          "utility": 0.590451483865586,
+          "worst_direction": 0.0078125
+        },
+        {
+          "broad": 0.6451972593051014,
+          "calibration_mae": 0.06737284665323387,
+          "dose": 0.1,
+          "gate_ok": false,
+          "gate_reasons": [
+            "broad >0.04 below shadow"
+          ],
+          "growth_headroom": 0.4892578125,
+          "hard_recovery": 0.7080078125,
+          "label": "Full teacher; field-selected practice cannot reinforce the field",
+          "name": "B4_clean_evidence",
+          "recovery": -1.0,
+          "utility": 0.6675831135838687,
+          "worst_direction": -1.0
+        }
+      ],
+      "selected_overall": "A1_graph10",
+      "selected_variant": "B1_nodes_only",
+      "target": 50000000,
+      "variant_ranking": [
+        {
+          "broad": 0.7145025541813987,
+          "calibration_mae": 0.3996434276457876,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.5595703125,
+          "hard_recovery": 0.7099609375,
+          "label": "Node births only; node recovery severity remains active",
+          "name": "B1_nodes_only",
+          "recovery": -1.0,
+          "utility": 0.6832846104971304,
+          "worst_direction": -1.0
+        },
+        {
+          "broad": 0.7514404882524501,
+          "calibration_mae": 0.6135794702568091,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.6005859375,
+          "hard_recovery": 0.7412109375,
+          "label": "Maneuver-edge teaching only",
+          "name": "B2_edges_only",
+          "recovery": 0.3701171875,
+          "utility": 0.5949973135878944,
+          "worst_direction": 0.0078125
+        },
+        {
+          "broad": 0.7369104722921145,
+          "calibration_mae": 0.5177065939409659,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.5888671875,
+          "hard_recovery": 0.7568359375,
+          "label": "Node + edge teaching, but no field-selected recovery severity",
+          "name": "B3_no_recovery",
+          "recovery": 0.291015625,
+          "utility": 0.590451483865586,
+          "worst_direction": 0.0078125
+        },
+        {
+          "broad": 0.6451972593051014,
+          "calibration_mae": 0.06737284665323387,
+          "dose": 0.1,
+          "gate_ok": false,
+          "gate_reasons": [
+            "broad >0.04 below shadow"
+          ],
+          "growth_headroom": 0.4892578125,
+          "hard_recovery": 0.7080078125,
+          "label": "Full teacher; field-selected practice cannot reinforce the field",
+          "name": "B4_clean_evidence",
+          "recovery": -1.0,
+          "utility": 0.6675831135838687,
+          "worst_direction": -1.0
+        }
+      ]
+    },
+    "C_schedule": {
+      "ranking": [
+        {
+          "broad": 0.797897524154096,
+          "calibration_mae": 0.7103645023424179,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.619140625,
+          "hard_recovery": 0.810546875,
+          "label": "Slow teacher ramp: 20M -> 60M",
+          "name": "C1_slow_ramp",
+          "recovery": 0.41015625,
+          "utility": 0.635589313379108,
+          "worst_direction": 0.046875
+        },
+        {
+          "broad": 0.7924398911371826,
+          "calibration_mae": 0.4163130077533424,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.61328125,
+          "hard_recovery": 0.7802734375,
+          "label": "Graph teaching at 10%",
+          "name": "A1_graph10",
+          "recovery": 0.32421875,
+          "utility": 0.6265842857034877,
+          "worst_direction": 0.01171875
+        },
+        {
+          "broad": 0.7942066944808219,
+          "calibration_mae": 0.698436809994746,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.6298828125,
+          "hard_recovery": 0.771484375,
+          "label": "Delayed teacher: governor-only to 40M, full by 60M",
+          "name": "C2_delayed",
+          "recovery": 0.369140625,
+          "utility": 0.6264944647195092,
+          "worst_direction": 0.103125
+        },
+        {
+          "broad": 0.7667593977792245,
+          "calibration_mae": 0.6782748010242358,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.578125,
+          "hard_recovery": 0.728515625,
+          "label": "Tutor then release: full by 30M, fade 45M -> 60M",
+          "name": "C3_tutor_release",
+          "recovery": 0.31396484375,
+          "utility": 0.5835652511575554,
+          "worst_direction": 0.0078125
+        }
+      ],
+      "selected_overall": "C1_slow_ramp",
+      "selected_variant": "C1_slow_ramp",
+      "target": 60000000,
+      "variant_ranking": [
+        {
+          "broad": 0.797897524154096,
+          "calibration_mae": 0.7103645023424179,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.619140625,
+          "hard_recovery": 0.810546875,
+          "label": "Slow teacher ramp: 20M -> 60M",
+          "name": "C1_slow_ramp",
+          "recovery": 0.41015625,
+          "utility": 0.635589313379108,
+          "worst_direction": 0.046875
+        },
+        {
+          "broad": 0.7942066944808219,
+          "calibration_mae": 0.698436809994746,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.6298828125,
+          "hard_recovery": 0.771484375,
+          "label": "Delayed teacher: governor-only to 40M, full by 60M",
+          "name": "C2_delayed",
+          "recovery": 0.369140625,
+          "utility": 0.6264944647195092,
+          "worst_direction": 0.103125
+        },
+        {
+          "broad": 0.7667593977792245,
+          "calibration_mae": 0.6782748010242358,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.578125,
+          "hard_recovery": 0.728515625,
+          "label": "Tutor then release: full by 30M, fade 45M -> 60M",
+          "name": "C3_tutor_release",
+          "recovery": 0.31396484375,
+          "utility": 0.5835652511575554,
+          "worst_direction": 0.0078125
+        }
+      ]
+    },
+    "confirmation": {
+      "challenger": "B1_nodes_only",
+      "confirm_gate_ok": true,
+      "confirm_gate_reasons": [],
+      "confirm_utility_delta": -0.007772913315573171,
+      "seed": 1742,
+      "seed733_utility_delta": 0.020241777371562963,
+      "status": "mixed_or_tied_review_before_third_seed"
+    },
+    "final120": {
+      "challenger": "B1_nodes_only",
+      "ranking": [
+        {
+          "broad": 0.8028233385108636,
+          "calibration_mae": 0.3890439097924779,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.82421875,
+          "hard_recovery": 0.9091796875,
+          "label": "Node births only; node recovery severity remains active",
+          "name": "B1_nodes_only",
+          "recovery": 0.3831380208333333,
+          "utility": 0.7131265768969686,
+          "worst_direction": 0.0703125
+        },
+        {
+          "broad": 0.8095401370649536,
+          "calibration_mae": 0.43360733756562697,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.734375,
+          "hard_recovery": 0.919921875,
+          "label": "Graph teaching at 10%",
+          "name": "A1_graph10",
+          "recovery": 0.4033203125,
+          "utility": 0.7057715179912047,
+          "worst_direction": 0.08125
+        }
+      ],
+      "shadow_utility": 0.6928847995254056,
+      "target": 120000000
+    },
+    "semifinal80": {
+      "promoted": [
+        "A0_shadow",
+        "A1_graph10",
+        "B1_nodes_only"
+      ],
+      "ranking": [
+        {
+          "broad": 0.802559544115017,
+          "calibration_mae": 0.4360393644000093,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.716796875,
+          "hard_recovery": 0.8515625,
+          "label": "Graph teaching at 10%",
+          "name": "A1_graph10",
+          "recovery": 0.390869140625,
+          "utility": 0.6778770278270047,
+          "worst_direction": 0.068359375
+        },
+        {
+          "broad": 0.8020996659723195,
+          "calibration_mae": 0.4752199237933382,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.701171875,
+          "hard_recovery": 0.8544921875,
+          "label": "Node births only; node recovery severity remains active",
+          "name": "B1_nodes_only",
+          "recovery": 0.40185546875,
+          "utility": 0.6728747629770289,
+          "worst_direction": 0.04296875
+        },
+        {
+          "broad": 0.7974331843062784,
+          "calibration_mae": 0.694940065802075,
+          "dose": 0.1,
+          "gate_ok": true,
+          "gate_reasons": [],
+          "growth_headroom": 0.603515625,
+          "hard_recovery": 0.8466796875,
+          "label": "Slow teacher ramp: 20M -> 60M",
+          "name": "C1_slow_ramp",
+          "recovery": 0.4361979166666667,
+          "utility": 0.6533110770017796,
+          "worst_direction": 0.10677083333333333
+        }
+      ],
+      "target": 80000000
+    }
+  },
+  "version": "v5013"
+}

@@ -133,6 +133,15 @@ class TrainingConfig:
     combo_mix_frac: float = 0.0
     combo_probe_frac: float = 0.08
 
+    # v5014 hidden domain envelope.  All defaults are OFF so every existing
+    # v5013 profile remains mechanically identical unless a new experiment
+    # explicitly enables domain randomisation.  The actor never observes these
+    # radii; they only control the distribution of physical models/worlds.
+    domain_randomization: bool = False
+    domain_robot_radius: float = 0.0
+    domain_terrain_radius: float = 0.0
+    domain_hardware_radius: float = 0.0
+
     # Curriculum / physical frontier.
     fall_target: float | None = None
     difficulty_base_step: float | None = None

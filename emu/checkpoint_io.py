@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import pickle
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -122,8 +123,23 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
         'field_state': field_state,
         'meta': meta,
     }
-    with path.open('wb') as f:
-        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # Never expose partially written latest.pkl to a restart or the live viewer.
+    # os.replace is atomic on the destination filesystem; temporary files are
+    # created beside the final path to guarantee that property.
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile('wb', dir=path.parent,
+                                         prefix=f'.{path.name}.', suffix='.tmp',
+                                         delete=False) as f:
+            temp_path = Path(f.name)
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     t2 = time.perf_counter()
     try:
         size_bytes = float(path.stat().st_size)
@@ -209,7 +225,11 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, meta: dict[str, An
         return {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
     timing = save_checkpoint(
         _snapshot_path(checkpoints_dir, step), state, meta, obs_norm,
-        curriculum_state=curriculum_state, health_state=health_state, field_state=field_state)
+        curriculum_state=curriculum_state, health_state=health_state, field_state=field_state,
+        require_finite_state=True)
+    # Never rotate away known-good snapshots when this update failed finite checks.
+    if not timing.get('saved', 0.0):
+        return timing
     existing = sorted(checkpoints_dir.glob('snapshot_step_*.pkl'))
     for stale in existing[:-keep]:
         try:

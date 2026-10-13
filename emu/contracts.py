@@ -15,6 +15,7 @@ CONTROL_DT = SIM_DT * CONTROL_SUBSTEPS
 ACTION_DIM = 6
 COMBO_P = 1.35
 PHASE_RATE_MAX_HZ = 2.6
+PITCH_CMD_MAX_RAD = 0.14  # ~8 deg operator-requested chassis pitch relative to gravity
 FIELD_EDGE_SCALES = (0.90, 0.55, 3.0)  # vx, vy, yaw command geometry
 SEED_VX_LO = 0.020
 SEED_VX_HI = 0.060

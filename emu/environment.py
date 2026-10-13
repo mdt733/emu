@@ -17,10 +17,12 @@ simultaneous expansions with a shared push budget so several individually safe
 changes cannot accidentally create one oversized task-distribution jump.
 Retreats are intentionally unrestricted.
 
-The fast path shares one MJX model across environments. Per-environment state,
-commands and external forces vary freely, but true per-env mass/geometry/floor
-friction randomisation is outside the current architecture. See history.md for
-the project rationale and evidence.
+The fast path keeps one fixed MJX topology, but selected JAX-valued model leaves
+can carry a leading environment dimension. v5014 uses that intended MJX domain-
+randomisation path for slope-equivalent gravity, contact friction, mass and
+actuator/joint spread. Geometry/topology changes are kept out of the JIT and are
+owned by the host-side morphology-bank path so MuJoCo can recompute derived
+physics coherently before compilation.
 """
 from __future__ import annotations
 
@@ -28,7 +30,8 @@ from typing import Any, NamedTuple
 from types import SimpleNamespace
 import numpy as np
 
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .domain_randomization import DomainRandomizationConfig, build_batched_model
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -82,7 +85,7 @@ CARRYOVER_MAX_PROB = 0.35          # at TRANSITION's hardest point, up to this f
 # moving gait, not a near-zero/static-standing task.
 # RESILIENCE push parameters. External force is per-environment data, so it can
 # vary cheaply in the shared-model MJX fast path. Mass/geometry/friction changes
-# are model parameters and therefore require a different batched-model design.
+# use batched MJX model leaves in v5014; geometry/topology still needs host compilation.
 PUSH_PROB_PER_STEP = 0.0015   # tiny per-step chance a new push starts, at resilience_push_n == PUSH_MAX_FORCE_N
 PUSH_MAX_FORCE_N = 0.35       # peak horizontal push force (newtons); robot is ~0.5kg, sized to impart a
                                # recoverable nudge (tens of mm/s), not an instant launch
@@ -229,6 +232,18 @@ class StepOut(NamedTuple):
     metrics: dict[str, Any]
 
 
+def command_phase_rate(vx, vy, vx_hi_max, phase_speed_gain, base_phase_rate):
+    """Sampled gait cadence: base 0.85–1.20 Hz plus birth-speed gain, max 2.6 Hz.
+
+    Keep pitch-command limits out of this calculation. This function also gives
+    CPU-only contract tests a way to catch invalid JAX argument signatures
+    before a multi-hour MJX GPU compile.
+    """
+    import jax.numpy as jnp
+    speed_fraction = jnp.clip(jnp.sqrt(vx * vx + vy * vy) / jnp.maximum(0.05, vx_hi_max), 0.0, 1.5)
+    return jnp.minimum(PHASE_RATE_MAX_HZ, base_phase_rate + phase_speed_gain * speed_fraction)
+
+
 class EmuMJXEnv:
     """A JAX/MJX vector environment with all envs stepped in one device batch."""
 
@@ -244,7 +259,8 @@ class EmuMJXEnv:
                  recovery_position_max_m: float | None = None,
                  recovery_linvel_max_mps: float = 0.0,
                  recovery_angvel_max_rad_s: float | None = None,
-                 recovery_joint_max_deg: float = 0.0):
+                 recovery_joint_max_deg: float = 0.0,
+                 domain_config: DomainRandomizationConfig | None = None):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -262,8 +278,17 @@ class EmuMJXEnv:
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
-        self.mjx_model = mjx.put_model(self.mj_model)
+        self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
+        self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
+        self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
+            self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
+            config=self.domain_config)
+        gravity_unit = self.domain_info.get('gravity_unit_world')
+        self.gravity_unit_world = (
+            gravity_unit if gravity_unit is not None
+            else jnp.tile(jnp.asarray([[0.0, 0.0, -1.0]], dtype=jnp.float32), (self.num_envs, 1))
+        )
         self.key0 = jax.random.PRNGKey(int(seed))
 
         # Per-instance versions of a few module-level profile defaults
@@ -309,8 +334,8 @@ class EmuMJXEnv:
         # mjx.forward/step directly on a batched Data makes MJX interpret the
         # batch dimension as part of qpos/qvel and crashes with e.g.
         # "q has length 2048, expected 15".
-        self.forward_batched = jax.vmap(lambda d: mjx.forward(self.mjx_model, d))
-        self.step_batched = jax.vmap(lambda d: mjx.step(self.mjx_model, d))
+        self.forward_batched = jax.vmap(mjx.forward, in_axes=(self.model_in_axes, 0))
+        self.step_batched = jax.vmap(mjx.step, in_axes=(self.model_in_axes, 0))
 
         self.reset_jit = jax.jit(self._reset_impl)
         self.step_jit = jax.jit(self._step_impl)
@@ -325,6 +350,14 @@ class EmuMJXEnv:
             i = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, n)
             if i < 0: raise RuntimeError(f'Missing body {n}')
             return int(i)
+        def gid(n: str) -> int:
+            i = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_GEOM, n)
+            if i < 0: raise RuntimeError(f'Missing geom {n}')
+            return int(i)
+        def aid(n: str) -> int:
+            i = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_ACTUATOR, n)
+            if i < 0: raise RuntimeError(f'Missing actuator {n}')
+            return int(i)
         act_j = [jid(n) for n in ACTUATED_JOINTS]
         shin_j = [jid('r_shin_flex'), jid('l_shin_flex')]
         return {
@@ -336,6 +369,9 @@ class EmuMJXEnv:
             'act_joint_range': np.asarray(self.mj_model.jnt_range[act_j], dtype=np.float32),
             'shin_qpos': np.array([self.mj_model.jnt_qposadr[j] for j in shin_j], dtype=np.int32),
             'shin_qvel': np.array([self.mj_model.jnt_dofadr[j] for j in shin_j], dtype=np.int32),
+            'floor_geom': gid('floor'),
+            'foot_geoms': np.array([gid('r_foot_ball'), gid('l_foot_ball')], dtype=np.int32),
+            'actuators': np.array([aid(n) for n in ACTUATED_JOINTS], dtype=np.int32),
         }
 
     def params_array(self, params: dict[str, float] | None = None):
@@ -389,7 +425,9 @@ class EmuMJXEnv:
     def _make_batched_data(self):
         jax, jnp, mjx = self.jax, self.jnp, self.mjx
         def one(_):
-            return mjx.make_data(self.mjx_model)
+            # Data topology is created from the unbatched template. Batched
+            # model leaves are supplied separately through vmap(in_axes).
+            return mjx.make_data(self.mjx_model_template)
         return jax.vmap(one)(jnp.arange(self.num_envs))
 
     def _reset_impl(self, key, params):
@@ -477,7 +515,7 @@ class EmuMJXEnv:
         # a coupled bundle, all driven by the one posture_difficulty
         # fraction directly.
         height_range = self._lerp(0.0, HEIGHT_RANGE_MAX_M, posture_d)
-        pitch_range = 0.08 * posture_d
+        pitch_range = PITCH_CMD_MAX_RAD * posture_d
         roll_range = 0.055 * posture_d
         step_height_range = 0.030 * jnp.maximum(0.05, posture_d)
 
@@ -574,8 +612,8 @@ class EmuMJXEnv:
             roll = jax.random.uniform(k_roll, (), minval=-roll_range, maxval=roll_range)
             step_height = 0.012 + jax.random.uniform(k_step, (), minval=0.0, maxval=step_height_range)
             base_phase_rate = jax.random.uniform(k_phase, (), minval=0.85, maxval=1.20)
-            speed_fraction = jnp.clip(jnp.sqrt(vx*vx + vy*vy) / jnp.maximum(0.05, self.vx_hi_max), 0.0, 1.5)
-            phase_rate = jnp.minimum(PHASE_RATE_MAX_HZ, base_phase_rate + self.phase_speed_gain * speed_fraction)
+            phase_rate = command_phase_rate(vx, vy, self.vx_hi_max,
+                                            self.phase_speed_gain, base_phase_rate)
             # Keep disturbance intensity unitless in the task vector. Convert it
             # to Newtons only where the external force is applied.
             # The field may choose a locally useful recovery severity for a
@@ -810,7 +848,7 @@ class EmuMJXEnv:
         data = data.replace(xfrc_applied=xfrc)
 
         def substep(_, d):
-            return self.step_batched(d)
+            return self.step_batched(self.mjx_model, d)
         data = jax.lax.fori_loop(0, CONTROL_SUBSTEPS, substep, data)
 
         # Physics occasionally goes non-finite (NaN/Inf in qpos/qvel) on a
@@ -1158,7 +1196,7 @@ class EmuMJXEnv:
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
-        data = self.forward_batched(data)
+        data = self.forward_batched(self.mjx_model, data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
@@ -1179,7 +1217,7 @@ class EmuMJXEnv:
         jnp = self.jnp
         R = self._rotation_body_to_world(data)
         RT = jnp.swapaxes(R, 1, 2)
-        projected_gravity = jnp.einsum('nij,j->ni', RT, jnp.asarray([0.0, 0.0, -1.0], dtype=jnp.float32))
+        projected_gravity = jnp.einsum('nij,nj->ni', RT, self.gravity_unit_world)
         body_vel = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 0:3])
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
@@ -1188,6 +1226,11 @@ class EmuMJXEnv:
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
         gravity_z = -projected_gravity[:, 2]
+        # Gravity-relative chassis pitch: this remains meaningful on a slope and
+        # is exactly the operator semantics used by the browser/physical control
+        # surface. Positive command requests nose-up/back lean relative to local
+        # gravity, not relative to the world's nominal flat plane.
+        body_pitch = jnp.arctan2(projected_gravity[:, 0], -projected_gravity[:, 2])
         height = data.xpos[:, self.torso_id, 2]
         foot_pos = data.xpos[:, self.foot_bodies, :]
         foot_z = foot_pos[:, :, 2]
@@ -1258,6 +1301,7 @@ class EmuMJXEnv:
             'birth_posture_d': task[:, T.birth_posture_d],
             'vx': body_vel[:, 0], 'vy': body_vel[:, 1], 'yaw_rate': body_ang[:, 2],
             'cmd_vx': task[:, T.vx], 'cmd_vy': task[:, T.vy], 'cmd_yaw': task[:, T.yaw],
+            'cmd_pitch': task[:, T.pitch], 'body_pitch': body_pitch,
             'height': height, 'target_height': NEUTRAL_ROOT_Z + task[:, T.height],
             'gravity_z': gravity_z,
             'foot_mid_angle_deg': foot_mid_angle * 57.29578,
@@ -1283,6 +1327,7 @@ class EmuMJXEnv:
         is_resilience = (regime > 1.5).astype(jnp.float32)
         valid_alive = 1.0 - m['terminal']
         vx_err = m['vx'] - m['cmd_vx']; vy_err = m['vy'] - m['cmd_vy']; yaw_err = m['yaw_rate'] - m['cmd_yaw']
+        pitch_err = m['body_pitch'] - m['cmd_pitch']
         # Forward overspeed must not be rewarded almost as strongly as clean
         # tracking, or a policy can discover a forward launch into terminal
         # contact -- imperfect motion is fine, a ballistic "close enough,
@@ -1302,6 +1347,7 @@ class EmuMJXEnv:
         tracking_gain = 1.0 + is_transition * ramping * (TRANSITION_TRACKING_BOOST - 1.0)
         tracking_gain = tracking_gain * jnp.where(is_resilience > 0.5, RESILIENCE_TRACKING_RELIEF, 1.0)
         command_tracking = jnp.exp(-tracking_gain * (62.0 * vx_err * vx_err + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
+                                                      + 18.0 * pitch_err * pitch_err
                                                       + 120.0 * overspeed * overspeed + 40.0 * underspeed * underspeed))
         # Episode-start settle grace -- every regime spawns close to a real
         # commanded state, so a few frames of residual spawn noise

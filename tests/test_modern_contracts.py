@@ -58,7 +58,9 @@ def test_resume_checkpoint_order_is_canonical():
         _touch(latest, age_s=100)
         assert find_resume(run) == latest
         _touch(final, age_s=1000)
-        assert find_resume(run) == final
+        # If latest was atomically committed after an older final, never
+        # silently rewind to that earlier final checkpoint.
+        assert find_resume(run) == latest
 
 
 def test_evaluation_prefers_semantic_checkpoint_then_newest_arm():

@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from .environment import EmuMJXEnv
+from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
 from .contracts import ACTION_DIM, OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
@@ -80,6 +81,12 @@ def env_kwargs_from_args(args) -> dict:
         recovery_angvel_max_rad_s=RECOVERY_ANGVEL_MAX_RAD_S,
         recovery_joint_max_deg=RECOVERY_JOINT_MAX_DEG,
         field_teach_recovery=bool(args.field_teach_recovery),
+        domain_config=DomainRandomizationConfig(
+            enabled=bool(args.domain_randomization),
+            robot_radius=float(args.domain_robot_radius),
+            terrain_radius=float(args.domain_terrain_radius),
+            hardware_radius=float(args.domain_hardware_radius),
+        ),
     )
 
 
@@ -187,7 +194,7 @@ def train(args: TrainingConfig) -> int:
                     print(f"{LOG_PREFIX} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
 
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
-            'config': vars(args), 'doctrine': doctrine_dict(),
+            'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
             'resumed_from_step': resumed_step if resumed_payload is not None else None}
     write_json(run_dir / 'run_meta.json', meta)
     perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
@@ -920,7 +927,9 @@ def train(args: TrainingConfig) -> int:
         {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale},
         {'mean': obs_mean, 'var': obs_var, 'count': obs_count},
         curriculum_state=governor.state_dict(), health_state=health.state_dict(),
-        field_state=field.state_dict())
+        field_state=field.state_dict(), require_finite_state=True)
+    if not final_ck_timing.get('saved', 0.0):
+        raise RuntimeError('Refusing to publish a non-finite final checkpoint; prior validated checkpoint remains intact')
     perf.add('checkpoint_final_device_get', final_ck_timing['device_get_s'])
     perf.add('checkpoint_final_pickle_write', final_ck_timing['pickle_write_s'])
     perf.add('checkpoint_final_total', final_ck_timing['total_s'])
