@@ -1,6 +1,14 @@
-# EMU Playground — static browser demo
+# EMU Playground — static browser demonstration
 
-This website uses the **same** three.js / MuJoCo WASM / JavaScript 220-input actor as the local v5014 viewer. It runs entirely in the visitor's browser: **no JAX, GPU, backend, API keys, or Python server**. It is a public **demonstration, not a held-out evaluation**. The local `emu viewer --live` remains a separate loopback-only checkpoint watcher.
+**[▶ Try the public EMU Playground](https://mdt733.github.io/emu/)**
+
+The public page loads a published 60M-step actor and runs MuJoCo/WASM and neural inference entirely in the browser. No server-side training, JAX or CUDA is required. It is a demonstration, **not independent held-out proof of reliability**.
+
+The **View** button cycles: **orbit** (follow and inspect gait), **POV** (rigid chassis-mounted view with shake), and **level POV** (viewer-only horizon levelling and rotation smoothing). The telemetry distinguishes **robot lean** (feet midpoint to chassis-centre line) from **chassis pitch** (rigid torso/IMU angle). [Terminology](architecture.md#robot-lean-vs-chassis-pitch).
+
+Settings → **Physical 1° ramp course (experimental)** inserts a real up/flat/down MuJoCo collision course and resets the simulation. The GPU trainer continues to use its fast flat-plane, rotated-gravity slope approximation, while the browser gets a small physical world. Transitions are not guaranteed within the 60M champion's learned capabilities. Switching the terrain changes no policy weights or training checkpoints.
+
+---
 
 ## Preview before the champion exists
 

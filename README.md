@@ -1,60 +1,57 @@
-# EMU — dynamically unstable six-servo biped
+# EMU — a little robot learning to walk
 
-EMU learns **dynamic stepping, steering and recovery**, rather than merely standing upright. The v5014 production system uses JAX/MJX + PPO and a deployable actor with **55 observations × 4 frames (220 inputs), 6 actuator outputs**. A separate Three.js/MuJoCo WASM viewer lets you control or watch the same actor entirely in a browser.
+**Six motors. Two feet. No prewritten walking animation.** EMU is an open-source biped learning to step, steer, catch itself and recover balance in simulated physics.
 
-**Release status:** The source and local viewer have passed meaningful tests, but this document does **not** certify completion of the 400-million-step run, the champion's held-out performance, or public GitHub Pages deployment. See [release evidence](RELEASE_VALIDATION.md) and the [project handover](HANDOVER.md).
+## [▶ Try the EMU Playground](https://mdt733.github.io/emu/)
 
-## First time installing?
+**[Open the live browser demo](https://mdt733.github.io/emu/)** · [Source code](https://github.com/mdt733/emu) · [How it works](docs/architecture.md)
 
-For a fresh **Linux/WSL2** checkout, follow [the installation guide](docs/INSTALL.md). Python **3.13**, Git and Node.js **24** are required for the documented full setup; GPU training additionally requires a compatible NVIDIA driver/JAX CUDA environment. From inside your Git clone:
+The Playground runs a published **60-million-step policy** in your browser. Move using the left joystick, turn and command chassis pitch with the right, or let the demo select commands. The new **View** button cycles orbit view, raw chassis POV, and visually levelled POV.
 
-```bash
-cd ~/robot_lab/emu
-bash scripts/setup_wsl.sh --cuda13 --install-node
+> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation, and the separate 400M-step training lineage is not claimed complete here.
+
+## How it works
+
+```mermaid
+flowchart TD
+    A[Robot: six powered joints and two passive shin springs] --> B[Environment: MuJoCo physics, tasks, sensors]
+    B --> C[Training: PPO learns what motor actions work]
+    C --> D[Brain: 55 observations across 4 frames → 6 motor outputs]
+    D --> E[Browser Playground: MuJoCo WASM plus the exported brain]
+    D -. practice again during training .-> B
 ```
 
-Omit `--cuda13` for a CPU-only viewer/development setup. The script creates a virtual environment, installs Python dependencies, obtains Node via nvm when requested, builds the viewer using the **committed npm lockfile**, and runs checks. **It does not start training, delete files, or rewrite Git history.** Node/npm dependencies are in `viewer/package.json` and `viewer/package-lock.json`, **not** `requirements.txt`.
+The robot receives movement and posture requests. It senses gravity-relative orientation, motion, joints and foot locations, then chooses six motor targets 50 times per second. Training shapes its neural network through simulated experience; **the exported browser brain does not keep learning**.
 
-## Common commands
+**Two important angles:** *Robot lean* describes the line from the midpoint between the feet to the centre of the chassis relative to vertical; *chassis pitch* describes the actual body/IMU angle relative to gravity. They are different. [See the definitions and explanation](docs/architecture.md#robot-lean-vs-chassis-pitch).
 
-Activate the environment in each terminal:
+### Explore the world
+
+Orbit view makes gait easy to watch. **Raw POV** follows the chassis camera, shake included. **Level POV** smooths the picture without helping the robot balance. The optional **physical 1° ramp** under Settings adds real MuJoCo collision geometry in the *browser only*: unlike the flat-floor baseline, it is an experimental obstacle, **not yet a verified champion capability**. [Playground guide](docs/PLAYGROUND.md).
+
+## The code, without the mystery
+
+| Part | Start with | Purpose |
+|---|---|---|
+| Robot | [`emu/robot.xml`](emu/robot.xml) | Body, masses, joints, motors and contacts |
+| Environment | [`emu/environment.py`](emu/environment.py) | Physics tasks, observations, reward and resets |
+| Training | [`emu/training.py`](emu/training.py) + [`emu/production.py`](emu/production.py) | PPO learning loop and 20/60/140/260/400M training phases |
+| Brain | [`emu/ppo.py`](emu/ppo.py) | Neural actor/critic and optimiser |
+| Viewer | [`viewer/`](viewer/) | Canonical JavaScript source for MuJoCo WASM, controls and cameras |
+
+The other Python modules handle curriculum, domain randomisation, checkpoint safety and evidence. Tests and selected results are intentional, not clutter. `emu/viewer_src/` remains a **generated packaging mirror**, not a second editable viewer. Large training runs and raw checkpoints live outside Git.
+
+## Running EMU yourself
+
+For a fresh Linux/WSL2 checkout you need Python 3.13, Git and Node.js 24. GPU training requires compatible NVIDIA/JAX CUDA support.
 
 ```bash
-cd ~/robot_lab/emu
+bash scripts/setup_wsl.sh --cuda13 --install-node  # omit --cuda13 for CPU-only work
 source .venv/bin/activate
-emu doctor --domain-smoke   # check GPU/MJX (requires a working JAX backend)
-emu forge --plan            # inspect the long run without starting it
+emu doctor --domain-smoke
+emu forge --plan  # inspect the phases without starting training
 ```
 
-| Goal | Command / instructions |
-|---|---|
-| Start/resume the deliberate 400M production lineage | `emu forge` — [architecture and phase boundaries](docs/v5014-production.md) |
-| Watch completed training checkpoints | `emu viewer --live --no-open` → `http://127.0.0.1:8765/` |
-| Open a standalone policy | `emu viewer viewer/demo_zero.emupolicy --no-open` (untrained fixture) |
-| Rebuild the viewer | `emu viewer-build` |
-| Preview a public, fully static demonstration | [Playground guide](docs/PLAYGROUND.md), usually on port **4173** |
-| Run held-out evaluation | `emu evaluate --help` and [evaluation methodology](docs/evaluation.md) |
-| Restore context after a chat handoff | **[HANDOVER.md](HANDOVER.md)** |
+`emu viewer --live --no-open` starts a separate read-only **local** checkpoint viewer at http://127.0.0.1:8765/. The public Playground is static and never accesses your private training run.
 
-**Live viewer and Playground are different services.** Port **8765** belongs to the local Python checkpoint watcher; port **4173** is the independent Vite static preview and cannot watch private training. Do not expose the local watcher to the internet. Launch the trainer and local viewer in separate terminals.
-
-## Repository map
-
-```text
-emu/                     # Git repository
-├── emu/                 # Python trainer, policy exporter, local viewer server
-├── viewer/              # Canonical JavaScript viewer source + npm lockfile
-├── emu/viewer_src/      # Packaging mirror of the viewer
-├── scripts/             # Installation, validation, safe housekeeping
-├── tests/               # Regressions
-├── results/             # Small selected experiment evidence
-├── showcase/            # Public actor-only champion export (when available)
-├── docs/                # Operational documentation and research rationale
-├── RELEASE_VALIDATION.md # Observed evidence versus remaining acceptance
-└── HANDOVER.md          # Current state and safe continuation
-../emu_runs/             # Large training runs/checkpoints, outside Git
-```
-
-Only source, tests, lockfiles, documentation and selected small results belong in Git. **Do not commit** `.venv/`, `node_modules/`, `dist/`, `webviewer_dist/`, generated `viewer/public/`, raw `*.pkl` checkpoints or entire GPU runs. An explicitly selected `showcase/champion.emupolicy` is intended to be public; review that exported actor before committing it.
-
-For a guide to every document's purpose, use [docs/README.md](docs/README.md). For scientific lessons, see [docs/history.md](docs/history.md). For workspace cleanup, see [docs/INSTALL.md#workspace-cleanup](docs/INSTALL.md#workspace-cleanup)—preview first; never treat untracked files as disposable.
+**Details when you're ready:** [Install](docs/INSTALL.md) · [Architecture](docs/architecture.md) · [Training](docs/v5014-production.md) · [Evaluation](docs/evaluation.md) · [Document index](docs/README.md) · [History](docs/history.md) · [Current handover](HANDOVER.md) · [Validation evidence](RELEASE_VALIDATION.md).

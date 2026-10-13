@@ -29,7 +29,7 @@ The same deployable **220-value actor input** must control modestly different ro
 | Servo torque ceiling | ±15% |
 | Servo zero position | ±1.5° |
 
-The default mixture reserves a near-nominal population and a small difficult tail. Individual environment instances in the current fast path hold their sampled model throughout that vector-world lifetime; the actor receives no explicit domain ID. Slope is gravity-vector equivalent on a flat collision plane, **not actually sloped collision mesh geometry**. That approximation is intentional to avoid structural model changes inside the JAX compile.
+The default mixture reserves a near-nominal population and a small difficult tail. Individual environment instances in the current fast path hold their sampled model throughout that vector-world lifetime; the actor receives no explicit domain ID. Slope is gravity-vector equivalent on a flat collision plane, **not actually sloped collision mesh geometry**. At the production phase boundaries, the ±6° per-axis cap scales with terrain severity: at 60M (`T=0.08`) that is at most ±0.48° per axis, rising to ±4.2° at 400M (`T=0.70`). A browser 1° physical ramp introduces height transitions and contacts that the infinite-plane approximation does not teach. That approximation is intentional to avoid structural model changes inside the JAX compile.
 
 The production severity schedule is in [v5014-production.md](v5014-production.md): R/T/H are zero in foundation, then increase at 60/140/260/400M. Changing radii in an existing run root invalidates its intended learning-lineage contract; see `emu/production.py`.
 
