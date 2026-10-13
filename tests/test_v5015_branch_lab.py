@@ -255,3 +255,28 @@ def test_invalid_ladder_knobs_fail_before_training(tmp_path, knobs, match):
     with pytest.raises(ValueError, match=match):
         lab.config(tmp_path/'bad',arm=arm,target=26_000_000,
                    seed=733,envs=2048,device='cpu',resume=None)
+
+
+def test_bad_future_ladder_fails_at_plan_before_any_gpu_work(tmp_path,monkeypatch):
+    from emu.ladder_recipe import Arm
+    # A single invalid challenger must prevent the expensive shared foundation.
+    arms=(Arm('baseline','control'),Arm('bad_option','mistyped',(
+        ('nonexistent_knob', .5),
+    )))
+    monkeypatch.setattr(lab,'ARMS',arms)
+    monkeypatch.setattr(lab,'BY_NAME',{a.name:a for a in arms})
+    with pytest.raises(ValueError,match='Unknown TrainingConfig'):
+        lab.main(['--stage','plan','--root',str(tmp_path)])
+    assert not list(tmp_path.iterdir())
+
+
+def test_ladder_rejects_duplicate_and_path_escape_arm_names(tmp_path,monkeypatch):
+    from emu.ladder_recipe import Arm
+    for arms in [
+        (Arm('baseline','control'),Arm('baseline','duplicate')),
+        (Arm('baseline','control'),Arm('../escape','invalid')),
+    ]:
+        monkeypatch.setattr(lab,'ARMS',arms)
+        monkeypatch.setattr(lab,'BY_NAME',{a.name:a for a in arms})
+        with pytest.raises(ValueError,match='uniquely named|Unsafe ladder'):
+            lab.validate_recipe(seed=733,envs=2048,device='cpu',root=tmp_path)

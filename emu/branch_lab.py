@@ -67,6 +67,30 @@ def config(run, *, arm, target, seed, envs, device, resume):
     return apply_experiment_knobs(baseline, arm.knobs)
 
 
+def validate_recipe(*, seed: int, envs: int, device: str, root: Path) -> None:
+    """Fail on bad ladder definitions BEFORE starting the shared foundation."""
+    import re
+
+    if envs < 1:
+        raise ValueError('Experiment envs must be positive')
+    if list(ROUNDS) != ['round1', 'round2', 'round3']:
+        raise ValueError('Ladder requires ordered round1/round2/round3 stages')
+    targets = [FOUNDATION, *ROUNDS.values()]
+    if any(type(v) is not int or v <= 0 for v in targets) or targets != sorted(set(targets)):
+        raise ValueError('Ladder targets must be strictly increasing integer environment steps')
+    if len(ARMS) < 2 or len(BY_NAME) != len(ARMS):
+        raise ValueError('Ladder needs at least two uniquely named experiment arms')
+    if ARMS[0].name != 'baseline' or ARMS[0].knobs:
+        raise ValueError('First arm must be an unmodified baseline')
+    for arm in ARMS:
+        if not re.fullmatch(r'[a-z][a-z0-9_]*', arm.name):
+            raise ValueError(f'Unsafe ladder arm name: {arm.name}')
+        # Prove every arm maps to a typed TrainingConfig. This is pure:
+        # no JAX compile, file writes, subprocesses, or policy mutation.
+        config(root/'round1'/arm.name, arm=arm, target=ROUNDS['round1'],
+               seed=seed, envs=envs, device=device, resume=None)
+
+
 def completed(root, stage, name, envs):
     if stage == 'foundation':
         run, target = root / 'foundation20', FOUNDATION
@@ -366,12 +390,13 @@ def main(argv=None):
     parser.add_argument('--arm', action='append', default=[], help='optional first-round arm, repeatable')
     parser.add_argument('--select', nargs='+', default=[], help='manually promote 2 or 1 arms')
     args = parser.parse_args(argv)
+    root = args.root.expanduser().resolve()
+    validate_recipe(seed=args.seed, envs=args.envs, device=args.device, root=root)
     if args.stage == 'plan':
         print(json.dumps(plan_dict(args.seed,args.envs),indent=2))
         return 0
-    if args.envs < 1 or args.screen_envs < 1 or args.screen_horizon < 1:
-        parser.error('env counts and screen horizon must be positive')
-    root = args.root.expanduser().resolve()
+    if args.screen_envs < 1 or args.screen_horizon < 1:
+        parser.error('screen env count and horizon must be positive')
     if args.stage == 'score':
         if args.arm or args.select: parser.error('score accepts no --arm or --select')
         context = root / 'lab_context.json'
