@@ -305,3 +305,30 @@ def test_optimizer_knob_invalid_values_rejected(tmp_path,knob):
     with pytest.raises(ValueError):
         lab.config(tmp_path/'bad',arm=Arm('bad','unsafe', (knob,)),
                    target=26_000_000,seed=733,envs=128,device='cpu',resume=None)
+
+
+def test_foundation_config_writes_inside_foundation20_not_old_00_foundation(tmp_path):
+    destination = tmp_path/'foundation20'
+    cfg = lab.config(destination,arm=None,target=20_000_000,seed=733,
+                     envs=2048,device='cpu',resume=None)
+    assert cfg.run_dir == str(destination)
+    assert cfg.steps == 20_000_000
+    assert cfg.attitude_profile == 'v5015'
+
+
+def test_run_rejects_misrouted_checkpoint_destination_before_starting_training(tmp_path,monkeypatch):
+    from dataclasses import replace
+    dest=tmp_path/'foundation20'
+    real_config=lab.config
+    monkeypatch.setattr(lab,'config', lambda *args,**kw: replace(
+        real_config(*args,**kw),
+        run_dir=str(tmp_path/'00_foundation')))
+    monkeypatch.setattr(lab,'verify_existing_phase_config',
+                        lambda *args: (_ for _ in ()).throw(
+                            AssertionError('config should be checked before resume')))
+    monkeypatch.setattr(lab,'run_training',
+                        lambda *args,**kw: (_ for _ in ()).throw(
+                            AssertionError('training must never start')))
+    with pytest.raises(RuntimeError,match='disagree on output folder'):
+        lab.ensure_run(dest,arm=None,parent=None,target=20_000_000,
+                       seed=733,envs=2048,device='cpu',provenance={})

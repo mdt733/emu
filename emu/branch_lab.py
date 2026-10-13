@@ -58,7 +58,7 @@ def config(run, *, arm, target, seed, envs, device, resume):
     """Pure recipe -> training configuration. No GPU, filesystem or PPO side effects."""
     # Foundation is common to every hypothesis. No arm knobs apply before fork.
     if arm is None:
-        return _phase_config('00_foundation', FOUNDATION, 0, 0, 0, root=run.parent,
+        return _phase_config(run.name, FOUNDATION, 0, 0, 0, root=run.parent,
                              seed=seed, device=device, envs=envs, resume=resume,
                              profile='v5015', pitch_deg=8.0)
     baseline = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
@@ -117,6 +117,14 @@ def ensure_run(run, *, arm, parent, target, seed, envs, device, provenance):
         _save(spec_file, spec)
     expected_config = config(run, arm=arm, target=target, seed=seed,
                              envs=envs, device=device, resume=None)
+    # A wrong phase name used to launch a complete 20M foundation into
+    # 00_foundation/ while ensure_run inspected foundation20/. Check BEFORE
+    # launching the trainer so a misplaced checkpoint can never happen again.
+    configured_dir = Path(expected_config.run_dir).resolve()
+    if configured_dir != run.resolve():
+        raise RuntimeError(
+            f'Runner and trainer disagree on output folder: '
+            f'expected {run.resolve()}, got {configured_dir}')
     verify_existing_phase_config(run, expected_config)
     final, partial, expected = resolve_target_checkpoint(
         run, target_steps=target, envs=envs, label=run.name)
