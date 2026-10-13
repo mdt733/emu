@@ -544,13 +544,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
         Output order:
           survival, first_fall_step_mean, vx_mae, vy_mae, yaw_mae,
-          gravity_z, foot_mid_cone, step_evidence, support
+          gravity_z, foot_mid_cone, step_evidence, support,
+          pitch_mae, height_shortfall_m
         """
         keys = jax.random.split(eval_key, env.num_envs)
         env_state = env._reset_with_keys(keys, curriculum_params)
         obs = env.obs(env_state)
         first_fall0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
-        sums0 = jnp.zeros((7,), dtype=jnp.float32)
+        sums0 = jnp.zeros((9,), dtype=jnp.float32)
 
         def one_step(i, carry):
             es, ob, first_fall, sums = carry
@@ -568,6 +569,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 jnp.sum(m['foot_mid_cone']),
                 jnp.sum(m['step_evidence']),
                 jnp.sum(m['support']),
+                jnp.sum(jnp.abs(m['body_pitch'] - m['cmd_pitch'])),
+                jnp.sum(jnp.maximum(0.0, -m['height_error'])),
             ))
             return out.state, out.obs, first_fall, sums
 
@@ -592,8 +595,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                           stable_steps=10, recovery_not_before=0):
         """Return fall/recovery times for capability probes.
 
-        Recovery means sustained healthy dynamic command tracking: alive, broadly
-        upright, supported and tracking all three command axes for ``stable_steps``.
+        Recovery means sustained healthy dynamic command tracking: alive,
+        commanded-attitude-compatible, supported, and tracking the three
+        movement axes for ``stable_steps``.
         """
         keys = jax.random.split(eval_key, env.num_envs)
         env_state = env._reset_with_keys(keys, curriculum_params)
@@ -618,7 +622,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             yaw_tol = jnp.maximum(YAW_ABS_TOL, YAW_REL_TOL * jnp.abs(m['cmd_yaw']))
             stable = (
                 (first_fall < 0) &
-                (m['gravity_z'] > UPRIGHT_GRAVITY_Z_MIN) &  # within ~20 degrees of upright
+                (m['structural_attitude_ok'] > .5) &  # requested chassis attitude, not rigid upright
                 (jnp.abs(m['vx'] - m['cmd_vx']) <= vx_tol) &
                 (jnp.abs(m['vy'] - m['cmd_vy']) <= vy_tol) &
                 (jnp.abs(m['yaw_rate'] - m['cmd_yaw']) <= yaw_tol) &
@@ -661,7 +665,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             vx_tol=jnp.maximum(VX_ABS_TOL,VX_REL_TOL*jnp.abs(m['cmd_vx'])); vy_tol=jnp.maximum(VY_ABS_TOL,VY_REL_TOL*jnp.abs(m['cmd_vy'])); yaw_tol=jnp.maximum(YAW_ABS_TOL,YAW_REL_TOL*jnp.abs(m['cmd_yaw']))
             e=jnp.stack((jnp.abs(m['vx']-m['cmd_vx']),jnp.abs(m['vy']-m['cmd_vy']),jnp.abs(m['yaw_rate']-m['cmd_yaw'])),axis=1)
             tt=jnp.stack((vx_tol,vy_tol,yaw_tol),axis=1)
-            structural=((m['gravity_z']>UPRIGHT_GRAVITY_Z_MIN)&(m['support']>SUPPORT_MIN)&(m['bad_contact']<.5)&(m['episode_fell']<.5)).astype(jnp.float32)
+            structural=((m['structural_attitude_ok']>.5)&(m['support']>SUPPORT_MIN)&(m['bad_contact']<.5)&(m['episode_fell']<.5)).astype(jnp.float32)
             err=err+usef*e; tol=tol+usef*tt; good=good+usef*structural; count=count+usef
             return out.state,out.obs,err,tol,good,count
         _,_,err,tol,good,count=jax.lax.fori_loop(0,horizon,one_step,(env_state,obs,err0,tol0,good0,count0))

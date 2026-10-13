@@ -142,6 +142,10 @@ class TrainingConfig:
     domain_terrain_radius: float = 0.0
     domain_hardware_radius: float = 0.0
 
+    # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
+    attitude_profile: str = "v5014"
+    pitch_command_max_deg: float = 8.0214
+
     # Curriculum / physical frontier.
     fall_target: float | None = None
     difficulty_base_step: float | None = None
@@ -185,8 +189,11 @@ class TrainingConfig:
     def load(cls, path: Path) -> "TrainingConfig":
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
-        if set(data) != expected:
-            raise ValueError(f"training config keys mismatch: expected={sorted(expected)} got={sorted(data)}")
+        # Historical v5014 configs may omit ONLY these new optional fields.
+        optional = {'attitude_profile', 'pitch_command_max_deg'}
+        missing, extra = expected - set(data), set(data) - expected
+        if extra or (missing - optional):
+            raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
         return cls(**data)
 
 
