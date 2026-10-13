@@ -32,7 +32,11 @@ Settings → **Physical 1° ramp course (experimental)** inserts a real up/flat/
 
 ## Publish through GitHub Pages
 
-The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JavaScript contract tests, verifies the static policy and WASM assets, and uploads `viewer/dist`. **Verify that the workflow trigger is `main`**. In GitHub repository **Settings → Pages → Source**, choose **GitHub Actions**. The workflow can be manually dispatched, or runs when relevant files are pushed to `main`. GitHub Pages needs the repository and Actions/Pages permissions configured for the account and repository.
+The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JavaScript contract tests, verifies the static policy and WASM assets, and uploads `viewer/dist`. **As of v5015 it deploys ONLY via a deliberate `workflow_dispatch` action, not on pushes or pull-request merges to `main`.** The published 60M Playground stays at its last successful GitHub Pages deployment when new training and viewer source code are merged.
+
+The workflow also refuses a missing/untrained champion or a changed `showcase/champion.emupolicy` Git blob (pinned to `4743d8d3cd4706edce04809fe1b61df014e57d5e`). That exact blob is shared by the protected `main` and experimental `develop/playground-attitude-terrain` branches today. To deliberately publish a new viewer using the same 60M brain, first verify the build on the local Vite preview, then navigate to **GitHub → Actions → EMU Playground (GitHub Pages) → Run workflow**, choose `main`, and review the deployment result. To replace the champion someday, review and update this pin as a separate explicit release operation.
+
+In GitHub **Settings → Pages → Source**, use **GitHub Actions**. Never confuse merging a code branch with approving a public release.
 
 The resulting URL will normally be `https://ACCOUNT.github.io/REPOSITORY/` (verify the actual link in GitHub Pages settings). The Vite build deliberately uses `base: './'` and the manifest uses relative paths so it works at a project subpath (or another static host). Do **not** run `emu viewer --live` on a public server; it is loopback-only and not authenticated.
 
