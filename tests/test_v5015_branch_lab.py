@@ -14,6 +14,8 @@ def _screen(*, survival=.65, pitch=.1, height=.008):
         result[f'screen_{panel}_height_shortfall_m']=height
         for axis in ('vx','vy','yaw'):
             result[f'screen_{panel}_{axis}_mae']=.08
+    result['screen_gentle_slope_survival']=survival
+    result['screen_gentle_slope_height_shortfall_m']=height
     return result
 
 

@@ -61,7 +61,7 @@ emu lab5015 --stage score --round round3
 
 ### How the competition is judged
 
-A **common, fixed 15° v5015 evaluation world** is used for every contender, independent of the domains/pitch ceiling used during training. It runs the same deterministic stress panels (`resilience100`, `robust70`, `growth140`, `growthcombo140`) using a single batched GPU screening process. It measures recovery/growth survival, chassis pitch tracking error, height shortfall, and motion error. Scores are transparent; any missing/non-finite metric, severe crouching, poor pitch tracking, or major hard-survival regression marks a candidate ineligible. An eligible score is **not proof** of learned 15° pitch or new terrain mastery.
+A **common, fixed 15° v5015 evaluation world** is used for every contender, independent of the domains/pitch ceiling used during training. It runs the same deterministic stress panels (`resilience100`, `robust70`, `growth140`, `growthcombo140`) using a single batched GPU screening process. It measures recovery/growth survival, **an extra fixed gentle slope-equivalent stress panel (T=0.20, up to ~1.2°)**, chassis pitch tracking error, height shortfall, and motion error. Scores are transparent; any missing/non-finite metric, severe crouching, poor pitch tracking, or major hard-survival regression marks a candidate ineligible. An eligible score is **not proof** of learned 15° pitch or new terrain mastery.
 
 A scoreboard and readable Markdown report are written under:
 

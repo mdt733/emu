@@ -180,7 +180,9 @@ def score_row(name, source):
     height = [_number(source.get(f'screen_{p}_height_shortfall_m')) for p in panels]
     motion = [_number(source.get(f'screen_{p}_{axis}_mae'))
               for p in panels for axis in ('vx', 'vy', 'yaw')]
-    if any(n is None for n in surv + pitch + height + motion):
+    slope = _number(source.get('screen_gentle_slope_survival'))
+    slope_height = _number(source.get('screen_gentle_slope_height_shortfall_m'))
+    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion):
         return {'arm': name, 'eligible': False, 'score': None,
                 'reasons': ['missing/nonfinite held-out metrics']}
     hard = sum(surv[:2])/2
@@ -192,10 +194,13 @@ def score_row(name, source):
     if hard < .20: reasons.append('hard survival below 20%')
     if hs > .035: reasons.append('height shortfall exceeds 35mm')
     if pe > .45: reasons.append('pitch tracking error exceeds .45rad')
-    score = .50*hard + .32*growth - .08*min(1, pe/.45) - .07*min(1, hs/.035) - .03*min(1, me/.5)
+    if slope_height > .045: reasons.append('gentle slope height shortfall exceeds 45mm')
+    score = (.43*hard + .26*growth + .13*slope - .08*min(1, pe/.45)
+             - .07*min(1, hs/.035) - .03*min(1, me/.5))
     return {'arm': name, 'eligible': not reasons, 'reasons': reasons,
             'score': round(score, 6), 'hard_survival': round(hard, 5),
-            'growth_survival': round(growth, 5), 'pitch_mae_rad': round(pe, 5),
+            'growth_survival': round(growth, 5), 'gentle_slope_survival': round(slope, 5),
+            'pitch_mae_rad': round(pe, 5),
             'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5)}
 
 
@@ -234,11 +239,12 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
              f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
              'No automatic promotion. Scores are screening evidence, not independent validation.', '',
-             '| arm | eligible | score | hard survival | growth survival | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---|']
+             '| arm | eligible | score | hard survival | growth survival | slope survival | pitch MAE | height shortfall | reasons |',
+             '|---|---|---:|---:|---:|---:|---:|---:|---|']
     for r in rows:
         lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
                      f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
+                     f"{r.get('gentle_slope_survival','—')} | "
                      f"{r.get('pitch_mae_rad','—')} rad | {r.get('height_shortfall_m','—')} m | "
                      f"{', '.join(r['reasons'])} |")
         print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")

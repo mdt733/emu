@@ -53,9 +53,11 @@ SCREEN_PANELS = {
 
 def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
-           sensor_scale: float, combo_mix: float):
+           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
+    from .domain_randomization import DomainRandomizationConfig
+    domain = DomainRandomizationConfig(enabled=terrain_radius > 0, terrain_radius=terrain_radius)
     env = EmuMJXEnv(
         str(ROBOT_XML), num_envs=int(envs), seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
@@ -66,6 +68,7 @@ def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
         sensor_noise_scale=sensor_scale, open_frontier=False,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
         field_teach_recovery=False,
+        domain_config=domain,
     )
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1,
@@ -109,6 +112,15 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                                limits=(1.00,-.42,.40,2.40),push_n=.90,
                                sensor_scale=1.5,combo_mix=1.0),
     }
+    panels = dict(SCREEN_PANELS)
+    if eval_pitch_deg is not None:
+        # Fixed slope-equivalent stress for v5015: one additional compiled
+        # evaluation world for every arm, independent of training exposure.
+        worlds['gentle_slope'] = _world(config,envs=envs,seed_offset=1555,
+            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
+            combo_mix=.20,terrain_radius=.20)
+        panels['gentle_slope'] = ('gentle_slope',1555,
+            _episode(.70,.65,.35,.70,(.45,.40,.15),.80))
     key0=jax.random.PRNGKey(EVAL_SEED)
     results: dict[str,dict[str,Any]]={}
     for run_dir in run_dirs:
@@ -119,7 +131,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
             'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
             'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None}
-        for name,(world_name,salt,episode) in SCREEN_PANELS.items():
+        for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
             compact=trainer['evaluate_summary'](
                 params,env.params_array(episode),norm['mean'],obs_std,
