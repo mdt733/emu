@@ -1,0 +1,49 @@
+name: EMU v5015 checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [develop/playground-attitude-terrain]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install project and tests
+        run: python -m pip install -e ".[dev]"
+      - name: Compile Python source
+        run: python -m compileall -q emu tests
+      - name: Run full contract suite (no GPU)
+        run: python -m pytest -q
+
+  browser-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --prefix viewer --no-audit --no-fund
+      - name: Run viewer tests
+        run: npm test --prefix viewer
+      - name: Prepare the protected champion for a static preview
+        run: python3 scripts/prepare_showcase.py --require-champion
+      - name: Build the browser without publishing
+        run: npm run build --prefix viewer
+      - name: Verify packaged policy and WASM assets
+        run: python3 scripts/verify_showcase_dist.py

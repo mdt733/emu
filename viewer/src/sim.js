@@ -5,6 +5,8 @@ import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands } from './controls.js';
+import { measuredAttitude } from './attitude.js';
+import { withGentleCourse } from './terrain.js';
 import { createGridTexture, createSkyTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -80,6 +82,20 @@ export class EmuBrowserSim {
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
     this.controls.maxDistance = 4;
+    this.cameraMode = 'orbit'; // orbit | raw | level
+    this.orbitPosition = this.camera.position.clone();
+    this.orbitTarget = this.controls.target.clone();
+    this.levelPoseValid = false;
+    this.levelQuaternion = new THREE.Quaternion();
+    // A camera looks along local -Z. Here its optical axis is torso +X,
+    // with image-up equal to torso +Z; the device sits ahead of torso_box.
+    this.cameraMount = new THREE.Vector3(0.089, 0, 0.020);
+    this.cameraBasis = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
+      ),
+    );
+    this.terrainEnabled = false;
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -212,9 +228,35 @@ export class EmuBrowserSim {
     this.renderer?.dispose();
   }
 
+  setCameraMode(mode) {
+    if (!['orbit', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
+    if (mode === this.cameraMode) return;
+    if (this.cameraMode === 'orbit') {
+      this.orbitPosition.copy(this.camera.position);
+      this.orbitTarget.copy(this.controls.target);
+    }
+    this.cameraMode = mode;
+    this.controls.enabled = mode === 'orbit';
+    this.levelPoseValid = false;
+    if (mode === 'orbit') {
+      this.camera.position.copy(this.orbitPosition);
+      this.controls.target.copy(this.orbitTarget);
+      this.camera.up.set(0, 0, 1);
+      this.controls.update();
+    }
+  }
+
+  setTerrainEnabled(enabled) {
+    const next = Boolean(enabled);
+    if (next === this.terrainEnabled) return;
+    this.terrainEnabled = next;
+    this.loadModel(); // new MuJoCo collision world; training and policy stay untouched
+  }
+
   loadModel() {
     this.disposeModel();
-    this.model = this.mujoco.MjModel.from_xml_string(this.bundle.robot_xml);
+    const xml = this.terrainEnabled ? withGentleCourse(this.bundle.robot_xml) : this.bundle.robot_xml;
+    this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
@@ -272,6 +314,7 @@ export class EmuBrowserSim {
     this.controlAccumulator = 0;
     this.fallenFor = 0;
     this.pathTrail.clear();
+    this.levelPoseValid = false;
     this.trailLine.geometry.setDrawRange(0, 0);
     this.refreshScene();
   }
@@ -463,9 +506,13 @@ export class EmuBrowserSim {
     const R = this.bodyRotation();
     const vel = this.worldToBody(R, this.data.qvel[0], this.data.qvel[1], this.data.qvel[2]);
     const ang = this.worldToBody(R, this.data.qvel[3], this.data.qvel[4], this.data.qvel[5]);
-    const pitch = Math.asin(clamp(-R[6], -1, 1));
+    const xyz = id => [this.data.xpos[id * 3], this.data.xpos[id * 3 + 1], this.data.xpos[id * 3 + 2]];
+    const pos = xyz(this.torsoId);
+    const feet = this.footIds.map(xyz);
+    const { chassisPitch, robotLean } = measuredAttitude(R, pos, feet[0], feet[1]);
     return {
-      height: this.heightM(), vx: vel[0], vy: vel[1], yaw: ang[2], pitch,
+      height: this.heightM(), vx: vel[0], vy: vel[1], yaw: ang[2],
+      pitch: chassisPitch, chassisPitch, robotLean,
       cmd: { ...this.command }, fallen: this.isFallen(), phaseRate: this.phaseRate(),
     };
   }
@@ -566,7 +613,7 @@ export class EmuBrowserSim {
       this.trailLine.geometry.setDrawRange(0, this.pathTrail.count);
     }
 
-    if (this.follow) {
+    if (this.follow && this.cameraMode === 'orbit') {
       const o = this.torsoId * 3;
       this.followTarget.set(this.data.xpos[o], this.data.xpos[o+1], Math.max(0.12, this.data.xpos[o+2]-0.04));
       const delta = this.followTarget.clone().sub(this.controls.target).multiplyScalar(0.12);
@@ -575,9 +622,38 @@ export class EmuBrowserSim {
     }
   }
 
+  updateFirstPersonCamera() {
+    const R = this.bodyRotation();
+    const torsoRotation = new THREE.Matrix4().set(
+      R[0], R[1], R[2], 0,
+      R[3], R[4], R[5], 0,
+      R[6], R[7], R[8], 0,
+      0, 0, 0, 1,
+    );
+    const torsoQuaternion = new THREE.Quaternion().setFromRotationMatrix(torsoRotation);
+    const o = this.torsoId * 3;
+    this.camera.position.set(this.data.xpos[o], this.data.xpos[o+1], this.data.xpos[o+2]);
+    this.camera.position.add(this.cameraMount.clone().applyQuaternion(torsoQuaternion));
+    const raw = torsoQuaternion.multiply(this.cameraBasis);
+    if (this.cameraMode === 'raw') {
+      this.camera.quaternion.copy(raw);
+    } else {
+      // Render-only stabilisation: level the image's horizon, then low-pass
+      // remaining camera rotation. The IMU, dynamics and NN never see this.
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(raw);
+      this.camera.up.set(0, 0, 1);
+      this.camera.lookAt(this.camera.position.clone().add(forward));
+      if (!this.levelPoseValid) this.levelQuaternion.copy(this.camera.quaternion);
+      else this.levelQuaternion.slerp(this.camera.quaternion, 0.10);
+      this.camera.quaternion.copy(this.levelQuaternion);
+      this.levelPoseValid = true;
+    }
+  }
+
   render() {
     this.refreshScene();
-    this.controls.update();
+    if (this.cameraMode === 'orbit') this.controls.update();
+    else this.updateFirstPersonCamera();
     this.renderer.render(this.scene, this.camera);
   }
 

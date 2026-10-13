@@ -7,6 +7,7 @@ The documentation is split by **job**, not by version number. Read the current o
 | [../README.md](../README.md) | Project introduction and command quick start | Current |
 | [../HANDOVER.md](../HANDOVER.md) | Succinct state of the project, recent findings, safe continuation after a chat limit | Current — maintain this after meaningful milestones |
 | [INSTALL.md](INSTALL.md) | Fresh clone, Python + Node setup, troubleshooting, workspace cleanup | Current |
+| [tournament.md](tournament.md) | v5015 short experiment lab (current), plus v5013 tournament history | Current experiment guide |
 | [v5014-production.md](v5014-production.md) | Canonical 400M lineage, phase boundaries, teacher and physics contract | Current |
 | [PLAYGROUND.md](PLAYGROUND.md) | Public static demo, local Vite preview, champion promotion, GitHub Pages | Current |
 | [../viewer/README.md](../viewer/README.md) | Local live viewer, controls, render/performance options | Current |

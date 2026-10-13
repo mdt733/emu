@@ -240,6 +240,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'fall_roll_rate': mean_metric(metrics, 'fall_roll_rate'),
         'fall_pitch_rate': mean_metric(metrics, 'fall_pitch_rate'),
         'height': mean_metric(metrics, 'height'),
+        'height_error_m': mean_metric(metrics, 'height_error'),
         'gravity_z': mean_metric(metrics, 'gravity_z'),
         'foot_mid_angle_deg': mean_metric(metrics, 'foot_mid_angle_deg'),
         'foot_mid_cone': mean_metric(metrics, 'foot_mid_cone'),

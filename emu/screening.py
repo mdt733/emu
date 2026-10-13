@@ -26,7 +26,8 @@ from .training_config import (
 )
 
 SCREEN_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
-                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support')
+                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
+                 'pitch_mae', 'height_shortfall_m')
 
 
 def _episode(steady: float, transition: float, resilience: float, posture: float,
@@ -52,18 +53,22 @@ SCREEN_PANELS = {
 
 def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
-           sensor_scale: float, combo_mix: float):
+           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
+    from .domain_randomization import DomainRandomizationConfig
+    domain = DomainRandomizationConfig(enabled=terrain_radius > 0, terrain_radius=terrain_radius)
     env = EmuMJXEnv(
         str(ROBOT_XML), num_envs=int(envs), seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
         push_max_force_n=push_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
         phase_speed_gain=config.phase_speed_gain,
+        attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=sensor_scale, open_frontier=False,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
         field_teach_recovery=False,
+        domain_config=domain,
     )
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1,
@@ -72,7 +77,7 @@ def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
 
 
 def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
-                  device: str | None = None) -> dict[str, dict[str, Any]]:
+                  device: str | None = None, eval_pitch_deg: float | None = None) -> dict[str, dict[str, Any]]:
     """Evaluate multiple final checkpoints through one set of compiled worlds."""
     if not run_dirs:
         return {}
@@ -86,6 +91,12 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         raise ValueError('batched screening requires identical phase_speed_gain')
     if device is not None:
         config=replace(config,device=device)
+    if eval_pitch_deg is not None:
+        # Freeze identical v5015 exam posture conditions for every contender,
+        # independent of the pitch and terrain distribution used for training.
+        if not (0 < eval_pitch_deg <= 45):
+            raise ValueError('eval_pitch_deg must be in (0, 45]')
+        config=replace(config,attitude_profile='v5015',pitch_command_max_deg=float(eval_pitch_deg))
     configure_jax(config.device)
     import jax
     require_backend(config.device == 'cpu')
@@ -101,6 +112,15 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                                limits=(1.00,-.42,.40,2.40),push_n=.90,
                                sensor_scale=1.5,combo_mix=1.0),
     }
+    panels = dict(SCREEN_PANELS)
+    if eval_pitch_deg is not None:
+        # Fixed slope-equivalent stress for v5015: one additional compiled
+        # evaluation world for every arm, independent of training exposure.
+        worlds['gentle_slope'] = _world(config,envs=envs,seed_offset=1555,
+            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
+            combo_mix=.20,terrain_radius=.20)
+        panels['gentle_slope'] = ('gentle_slope',1555,
+            _episode(.70,.65,.35,.70,(.45,.40,.15),.80))
     key0=jax.random.PRNGKey(EVAL_SEED)
     results: dict[str,dict[str,Any]]={}
     for run_dir in run_dirs:
@@ -109,8 +129,9 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         params=payload['state']['params']; norm=payload['obs_norm']
         obs_std=np.asarray(norm['var'])**.5
         out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
-            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck)}
-        for name,(world_name,salt,episode) in SCREEN_PANELS.items():
+            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
+            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None}
+        for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
             compact=trainer['evaluate_summary'](
                 params,env.params_array(episode),norm['mean'],obs_std,
@@ -137,9 +158,10 @@ def main(argv=None) -> int:
     p.add_argument('--run-dir',required=True,nargs='+')
     p.add_argument('--envs',type=int,default=512)
     p.add_argument('--horizon',type=int,default=350)
+    p.add_argument('--eval-pitch-deg',type=float,default=None)
     p.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default=None)
     a=p.parse_args(argv)
-    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device)
+    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg)
     print(json.dumps(out,indent=2,sort_keys=True))
     return 0
 

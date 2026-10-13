@@ -373,11 +373,14 @@ class CapabilityField:
 
         vx_tol=np.maximum(VX_ABS_TOL,VX_REL_TOL*np.abs(cvx)); vy_tol=np.maximum(VY_ABS_TOL,VY_REL_TOL*np.abs(cvy)); yaw_tol=np.maximum(YAW_ABS_TOL,YAW_REL_TOL*np.abs(cyaw))
         within=(np.abs(vx-cvx)<=vx_tol)&(np.abs(vy-cvy)<=vy_tol)&(np.abs(yaw-cyaw)<=yaw_tol)
-        structural_ok=(gz>UPRIGHT_GRAVITY_Z_MIN)&(support>SUPPORT_MIN)&(bad<.5)&(fell<.5)
+        attitude_ok=(arr('structural_attitude_ok')>.5 if 'structural_attitude_ok' in metrics
+                     else gz>UPRIGHT_GRAVITY_Z_MIN)
+        structural_ok=attitude_ok&(support>SUPPORT_MIN)&(bad<.5)&(fell<.5)
         core_ok=within&structural_ok
         e1=np.abs(vx-cvx)/np.maximum(vx_tol,1e-6); e2=np.abs(vy-cvy)/np.maximum(vy_tol,1e-6); e3=np.abs(yaw-cyaw)/np.maximum(yaw_tol,1e-6)
         tracking_q=np.exp(-.5*(e1*e1+e2*e2+e3*e3)/3.0)
-        upright_q=np.clip((gz-.72)/(1-.72),0,1); support_q=np.clip(support/.35,0,1)
+        upright_q=(np.clip(arr('attitude_quality'),0,1) if 'attitude_quality' in metrics
+                   else np.clip((gz-.72)/(1-.72),0,1)); support_q=np.clip(support/.35,0,1)
         quality=np.clip(tracking_q*(.65+.20*upright_q+.15*support_q),0,1).astype(np.float32)
         ix,iy,iz=self.command_indices(cvx,cvy,cyaw); flat_all=self._flat_index(ix.ravel(),iy.ravel(),iz.ravel()).reshape((T,N))
 

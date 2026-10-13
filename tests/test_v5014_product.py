@@ -17,9 +17,9 @@ def test_operator_pitch_keeps_220_observation_contract():
 def test_viewer_joystick_signs_match_operator_semantics():
     root=Path(__file__).resolve().parents[1]/'viewer'/'src'
     main=(root/'main.js').read_text()
+    controls=(root/'controls.js').read_text()
     sim=(root/'sim.js').read_text()
-    assert 'const vy = left.x*l.vy_abs;' in main
-    assert 'const yaw = -right.x*l.yaw_abs;' in main
-    assert 'this.commandTarget.vy = leftX * lim.vy_abs;' in sim
-    assert 'this.commandTarget.yaw = -rightX * lim.yaw_abs;' in sim
+    assert 'vy: -leftX * limits.vy_abs' in controls
+    assert 'yaw: -rightX * limits.yaw_abs' in controls
+    assert 'joystickToCommands' in main and 'joystickToCommands' in sim
     assert 'dropOverlay.hidden = true;' in main

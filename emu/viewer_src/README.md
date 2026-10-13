@@ -1,3 +1,15 @@
+# EMU Browser Viewer
+
+**[Try the public Playground](https://mdt733.github.io/emu/)** · [Project introduction](../README.md)
+
+This is the **only editable browser source**. The package-side `emu/viewer_src/` directory is a generated mirror updated by `emu viewer-build`; keep it synchronised before committing. JavaScript runs exported actor inference and MuJoCo WASM locally.
+
+**Cameras:** View: orbit → View: POV → View: level POV. Raw POV is attached to the chassis and sees its real shake; level POV stabilises only the *image*. **Telemetry:** Robot lean describes a feet-midpoint-to-chassis-centre line; chassis pitch measures torso/IMU rotation. [Definitions](../docs/architecture.md#robot-lean-vs-chassis-pitch).
+
+**Experimental 1° browser ramp:** Settings enables real MuJoCo fixed-box collision geometry (up-ramp, level landing, down-ramp), resets the simulation and leaves the GPU training code and actor weights untouched. Ramp transitions aren't certified abilities of the current champion.
+
+---
+
 # EMU browser viewer — local and public modes
 
 The **canonical web source** is in `viewer/`. `emu/viewer_src/` is a generated packaging mirror for Python installations; run `emu viewer-build` after editing canonical files. Browser physics uses MuJoCo WASM, rendering uses Three.js, and inference runs the same schema-1 220→256→256→6 actor in JavaScript. No Python/JAX inference takes place inside the web page.

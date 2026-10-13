@@ -31,3 +31,26 @@ The actor sees only the canonical **220-number** history vector; the inference a
 The trainer owns CUDA/JAX and writes under `../emu_runs/`. The local `emu viewer --live` is a **separate read-only CPU watcher** serving only on `127.0.0.1:8765`; browser JavaScript runs inference and nominal MuJoCo dynamics. GitHub Pages publishes a **different static bundle**, and has no private training API. The viewer demonstration is not an evaluator.
 
 `emu/experiments.py` and the `train/compare/tournament` CLI remain useful for reproducing previous controlled experiments, but do not constitute the default production pathway. Git history and compact results are the archive; current code should not accumulate new switches solely to relive old experiments.
+
+## Robot lean vs chassis pitch
+
+These are two different geometric measurements; they must not be conflated by the next generation of reward functions.
+
+```mermaid
+flowchart LR
+  F[Midpoint between both feet] -->|line to chassis centre| C[Chassis centre]
+  V[Gravity vertical] -. compared with F→C .-> L[Robot lean]
+  O[Orientation of rigid chassis and IMU] -. compared with gravity .-> P[Chassis pitch]
+```
+
+**Robot lean** is the angle between the foot-midpoint-to-chassis-centre line and gravity-vertical. The viewer displays **signed forward lean** by projecting horizontal displacement into the robot's heading and calculating `atan2(forward displacement, vertical separation)`. Positive means the chassis centre is ahead of the feet midpoint in the facing direction. This is a geometric diagnostic, **not** a contact-aware support-polygon or centre-of-mass calculation; it averages *both* feet even when a foot is airborne.
+
+**Chassis pitch** is the rigid torso/IMU's actual gravity-relative pitch. The training metric currently calls this `body_pitch`; the viewer now labels it `chassis pitch`. It uses `atan2(projected_gravity_x, -projected_gravity_z)`. A chassis can point 45° while robot lean is near zero if the legs keep its centre above the feet, or robot lean can be large while the chassis remains level.
+
+**Do not simply expand the pitch slider to ±45°.** Current v5014 rewards, torso-relative velocity tracking, posture limits and the competence check in `tracking_contract.py` (20° upright threshold) were written for small chassis commands. This viewer-only pass does not change the 220-observation/six-action actor interface or claim 45° training. Separating the robot's support geometry from the chassis's requested attitude is an explicit future training task.
+
+## Why a browser ramp differs from MJX training slopes
+
+In the production GPU path, varying gravity against a flat collision plane is equivalent to a robot on an infinite inclined plane while keeping MJX topology fixed. Its terrain severity radius grows from `T=0.08` near 60M to `T=0.70` near 400M, with a cap of ±6° multiplied by that radius per slope axis: approximately ±0.48° and ±4.2° at these phase targets. Actual samples are typically milder.
+
+The optional viewer-only **1° up/flat/down course** uses physical collision boxes, so the robot experiences height changes and transitions not present in infinite-plane training. Its success is unverified. Neither the terrain switch nor the three camera modes modifies training physics, saved weights, or the policy observation contract. The experimental 33×33 heightfield generator in `emu/terrain.py` is **not part of default forge training**.

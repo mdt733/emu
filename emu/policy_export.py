@@ -236,10 +236,14 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     evaluation, tournament = _tournament_metadata(checkpoint, run_name, run_cfg, tournament_root)
     source_prov = meta.get('source_provenance') or {}
 
+    profile = str(run_cfg.get('attitude_profile') or 'v5014')
+    configured_pitch_deg = _scalar(run_cfg, 'pitch_command_max_deg', 8.0214)
+    policy_pitch_limit = (float(PITCH_CMD_MAX_RAD) if profile != 'v5015'
+                          else float(np.deg2rad(np.clip(configured_pitch_deg, 0.0, 45.0))))
     command_limits = {
         'vx_min': float(vx_lo), 'vx_max': float(vx_hi),
         'vy_abs': float(vy), 'yaw_abs': float(yaw),
-        'pitch_abs_rad': float(PITCH_CMD_MAX_RAD),
+        'pitch_abs_rad': policy_pitch_limit,
     }
     source_version = str(source_prov.get('version') or '')
     bundle = {
@@ -259,6 +263,8 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "actor_sha256": actor_hash.hexdigest(),
         },
         "training": {
+            "attitude_profile": profile,
+            "pitch_command_max_deg": configured_pitch_deg if profile == 'v5015' else 8.0214,
             "capability_field_mode": run_cfg.get('capability_field_mode'),
             "field_max_influence": _number(run_cfg.get('field_max_influence')),
             "field_teach_nodes": run_cfg.get('field_teach_nodes'),
@@ -315,8 +321,11 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
         },
         "features": {
             "pitch_command_actor_channel": True,
-            "pitch_tracking_trained": source_version.startswith('v5014'),
-            "note": "v5014 explicitly rewards gravity-relative chassis pitch tracking as a soft operator objective subordinate to survival.",
+            "pitch_tracking_trained": profile == 'v5015' or source_version.startswith('v5014'),
+            "note": ("v5015: commanded chassis attitude is separated from whole-robot support geometry, "
+                     "with crouch-aware reward and structural tracking."
+                     if profile == 'v5015' else
+                     "v5014: gravity-relative chassis pitch is a soft operator tracking objective."),
         },
         "robot_xml": robot_xml,
     }

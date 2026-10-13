@@ -73,6 +73,8 @@ def env_kwargs_from_args(args) -> dict:
         vx_hi_max=args.vx_hi_max, vx_lo_min=args.vx_lo_min,
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
+        attitude_profile=args.attitude_profile,
+        pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=args.open_frontier,
         combo_mix_frac=args.combo_mix_frac, combo_probe_frac=args.combo_probe_frac,
         recovery_tilt_max_deg=RECOVERY_TILT_MAX_DEG,
@@ -223,6 +225,8 @@ def train(args: TrainingConfig) -> int:
                     push_max_force_n=max(4.0, float(args.push_max_force_n or 0.35)),
                     vx_hi_max=1.20, vx_lo_min=-0.65, vy_max_mps=0.65, yaw_max_rad_s=5.0,
                     phase_speed_gain=args.phase_speed_gain,
+                    attitude_profile=args.attitude_profile,
+                    pitch_command_max_deg=args.pitch_command_max_deg,
                     sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=False, combo_mix_frac=0.0)
         cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)

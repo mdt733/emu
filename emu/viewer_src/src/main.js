@@ -19,6 +19,11 @@ const noiseToggle = $('noiseToggle');
 const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
+const terrainToggle = $('terrainToggle');
+const cameraBtn = $('cameraBtn');
+const cameraModes = ['orbit', 'raw', 'level'];
+let cameraMode = 'orbit';
+function cameraLabel(mode) { return mode === 'orbit' ? 'View: orbit' : mode === 'raw' ? 'View: POV' : 'View: level POV'; }
 const pitchNotice = $('pitchNotice');
 const dropOverlay = $('dropOverlay');
 const leftValues = $('leftValues');
@@ -145,6 +150,8 @@ async function activatePolicy(index) {
       sim = nextSim;
     }
     bundle = entry.bundle;
+    sim.setCameraMode(cameraMode);
+    sim.setTerrainEnabled(terrainToggle.checked);
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -218,6 +225,17 @@ pauseBtn.addEventListener('click', () => {
   pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause';
 });
 resetBtn.addEventListener('click', () => sim?.reset());
+cameraBtn.addEventListener('click', () => {
+  cameraMode = cameraModes[(cameraModes.indexOf(cameraMode) + 1) % cameraModes.length];
+  sim?.setCameraMode(cameraMode);
+  cameraBtn.textContent = cameraLabel(cameraMode);
+  cameraBtn.setAttribute('aria-label', `Camera: ${cameraMode === 'raw' ? 'raw chassis POV' : cameraMode === 'level' ? 'visually levelled POV' : 'orbit'}`);
+});
+terrainToggle.addEventListener('change', () => {
+  if (!sim) return;
+  try { sim.setTerrainEnabled(terrainToggle.checked); applyAdvanced(); updateStickLabels(); }
+  catch (err) { terrainToggle.checked = false; sim.setTerrainEnabled(false); setStatus(`Terrain unavailable: ${err.message}`, 'error'); }
+});
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
@@ -278,6 +296,7 @@ function updateTelemetry(now, dt) {
   $('vxRead').textContent = `${fmtSigned(t.vx)} / ${fmtSigned(t.cmd.vx)}`;
   $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
   $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
+  $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
   $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
 }
 

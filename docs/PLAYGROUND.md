@@ -1,6 +1,14 @@
-# EMU Playground — static browser demo
+# EMU Playground — static browser demonstration
 
-This website uses the **same** three.js / MuJoCo WASM / JavaScript 220-input actor as the local v5014 viewer. It runs entirely in the visitor's browser: **no JAX, GPU, backend, API keys, or Python server**. It is a public **demonstration, not a held-out evaluation**. The local `emu viewer --live` remains a separate loopback-only checkpoint watcher.
+**[▶ Try the public EMU Playground](https://mdt733.github.io/emu/)**
+
+The public page loads a published 60M-step actor and runs MuJoCo/WASM and neural inference entirely in the browser. No server-side training, JAX or CUDA is required. It is a demonstration, **not independent held-out proof of reliability**.
+
+The **View** button cycles: **orbit** (follow and inspect gait), **POV** (rigid chassis-mounted view with shake), and **level POV** (viewer-only horizon levelling and rotation smoothing). The telemetry distinguishes **robot lean** (feet midpoint to chassis-centre line) from **chassis pitch** (rigid torso/IMU angle). [Terminology](architecture.md#robot-lean-vs-chassis-pitch).
+
+Settings → **Physical 1° ramp course (experimental)** inserts a real up/flat/down MuJoCo collision course and resets the simulation. The GPU trainer continues to use its fast flat-plane, rotated-gravity slope approximation, while the browser gets a small physical world. Transitions are not guaranteed within the 60M champion's learned capabilities. Switching the terrain changes no policy weights or training checkpoints.
+
+---
 
 ## Preview before the champion exists
 
@@ -24,7 +32,11 @@ This website uses the **same** three.js / MuJoCo WASM / JavaScript 220-input act
 
 ## Publish through GitHub Pages
 
-The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JavaScript contract tests, verifies the static policy and WASM assets, and uploads `viewer/dist`. **Verify that the workflow trigger is `main`**. In GitHub repository **Settings → Pages → Source**, choose **GitHub Actions**. The workflow can be manually dispatched, or runs when relevant files are pushed to `main`. GitHub Pages needs the repository and Actions/Pages permissions configured for the account and repository.
+The workflow `.github/workflows/emu-playground.yml` builds using `npm ci`, runs the JavaScript contract tests, verifies the static policy and WASM assets, and uploads `viewer/dist`. **As of v5015 it deploys ONLY via a deliberate `workflow_dispatch` action, not on pushes or pull-request merges to `main`.** The published 60M Playground stays at its last successful GitHub Pages deployment when new training and viewer source code are merged.
+
+The workflow also refuses a missing/untrained champion or a changed `showcase/champion.emupolicy` Git blob (pinned to `4743d8d3cd4706edce04809fe1b61df014e57d5e`). That exact blob is shared by the protected `main` and experimental `develop/playground-attitude-terrain` branches today. To deliberately publish a new viewer using the same 60M brain, first verify the build on the local Vite preview, then navigate to **GitHub → Actions → EMU Playground (GitHub Pages) → Run workflow**, choose `main`, and review the deployment result. To replace the champion someday, review and update this pin as a separate explicit release operation.
+
+In GitHub **Settings → Pages → Source**, use **GitHub Actions**. Never confuse merging a code branch with approving a public release.
 
 The resulting URL will normally be `https://ACCOUNT.github.io/REPOSITORY/` (verify the actual link in GitHub Pages settings). The Vite build deliberately uses `base: './'` and the manifest uses relative paths so it works at a project subpath (or another static host). Do **not** run `emu viewer --live` on a public server; it is loopback-only and not authenticated.
 

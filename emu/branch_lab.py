@@ -1,0 +1,447 @@
+"""Checkpoint-safe v5015 successive-halving experiments: manual or autopilot.
+
+One 20M foundation, four 26M forks, two 34M finalists, one 46M follow-up.
+All raw checkpoints remain outside Git; never touches the public 60M brain.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+
+from .experiments import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
+from .paths import source_repo_root
+from .production import _phase_config, verify_existing_phase_config
+
+FOUNDATION = 20_000_000
+ROUNDS = {'round1': 26_000_000, 'round2': 34_000_000, 'round3': 46_000_000}
+SCREEN_PITCH_DEG = 15.0
+
+
+@dataclass(frozen=True)
+class Arm:
+    name: str
+    hypothesis: str
+    teacher_mode: str = 'graph'
+    dose: float = 0.10
+    terrain_radius: float = 0.0
+    pitch_deg: float = 8.0
+
+
+ARMS = (
+    Arm('baseline', '10% graph teaching, level-floor control'),
+    Arm('shadow', 'No capability-field teaching', 'shadow', 0.0),
+    Arm('slope', 'Gentle gravity-equivalent slope practice', terrain_radius=0.12),
+    Arm('pitch15', '15 degree chassis command ceiling', pitch_deg=15.0),
+)
+BY_NAME = {a.name: a for a in ARMS}
+
+
+def _read(path):
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+def _save(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    temporary.replace(path)
+
+
+def _hash(path):
+    h = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _context(root, seed, envs, provenance):
+    repo = source_repo_root()
+    if repo is not None and (root == repo or repo in root.parents):
+        raise RuntimeError('Raw experiment runs must live outside the Git checkout')
+    if provenance.get('available') and provenance.get('dirty'):
+        raise RuntimeError('Git checkout has uncommitted changes; freeze a clean source commit before training')
+    wanted = {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
+              'git_commit': provenance.get('commit', '')}
+    path = root / 'lab_context.json'
+    if path.exists():
+        if _read(path) != wanted:
+            raise RuntimeError('Source commit, seed or environment count changed. Use pinned source or a NEW --root.')
+    else:
+        _save(path, wanted)
+
+
+def config(run, *, arm, target, seed, envs, device, resume):
+    # Build all arms on the same mature profile; each changes exactly one
+    # experiment dimension. All have the v5015 reward/competence semantics.
+    if arm is None:
+        return _phase_config('00_foundation', FOUNDATION, 0, 0, 0, root=run.parent,
+                             seed=seed, device=device, envs=envs, resume=resume,
+                             profile='v5015', pitch_deg=8.0)
+    cfg = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
+                        seed=seed, device=device, envs=envs, resume=resume,
+                        profile='v5015', pitch_deg=arm.pitch_deg)
+    return replace(cfg, capability_field_mode=arm.teacher_mode,
+                   field_max_influence=arm.dose,
+                   domain_randomization=arm.terrain_radius > 0,
+                   domain_robot_radius=0, domain_terrain_radius=arm.terrain_radius,
+                   domain_hardware_radius=0)
+
+
+def completed(root, stage, name, envs):
+    if stage == 'foundation':
+        run, target = root / 'foundation20', FOUNDATION
+    else:
+        run, target = root / stage / name, ROUNDS[stage]
+    complete, partial, expected = resolve_target_checkpoint(
+        run, target_steps=target, envs=envs, label=str(run))
+    if complete is None or checkpoint_step(complete) != expected:
+        raise RuntimeError(f'Missing valid completed {stage} checkpoint at {run}; expected {expected:,} steps')
+    return complete
+
+
+def ensure_run(run, *, arm, parent, target, seed, envs, device, provenance):
+    ancestor = ({'source': str(parent.resolve()), 'step': checkpoint_step(parent),
+                 'sha256': _hash(parent)}
+                if parent is not None else {'source': 'new foundation', 'step': 0, 'sha256': None})
+    spec = {'arm': asdict(arm) if arm is not None else None,
+            'parent': ancestor, 'target': target, 'seed': seed, 'envs': envs}
+    spec_file = run / 'lab_spec.json'
+    if spec_file.exists():
+        if _read(spec_file) != spec:
+            raise RuntimeError(f'Resumption would change checkpoint parent or hypothesis for {run}')
+    else:
+        _save(spec_file, spec)
+    expected_config = config(run, arm=arm, target=target, seed=seed,
+                             envs=envs, device=device, resume=None)
+    verify_existing_phase_config(run, expected_config)
+    final, partial, expected = resolve_target_checkpoint(
+        run, target_steps=target, envs=envs, label=run.name)
+    if final is not None:
+        print(f'{run.name}: validated checkpoint already complete at {expected:,}')
+        return final
+    resume = partial or parent
+    print(f'{run.name}: {checkpoint_step(resume) if resume else 0:,} -> {expected:,} steps', flush=True)
+    run_training(config(run, arm=arm, target=target, seed=seed, envs=envs,
+                        device=device, resume=resume), provenance=provenance)
+    final, partial, expected = resolve_target_checkpoint(
+        run, target_steps=target, envs=envs, label=run.name)
+    if final is None:
+        raise RuntimeError(f'{run.name} did not reach {expected:,}; resumable checkpoint: {partial}')
+    return final
+
+
+def _selection(root, stage, selected, previous, envs):
+    amount = 2 if stage == 'round2' else 1
+    if len(selected) != amount or len(set(selected)) != amount or any(x not in BY_NAME for x in selected):
+        raise ValueError(f'{stage} requires exactly {amount} different valid --select names')
+    file = root / f'{previous}_scoreboard.json'
+    if not file.is_file():
+        raise RuntimeError(f'Score {previous} first; missing {file}')
+    board = _read(file)
+    if board['target'] != ROUNDS[previous]:
+        raise RuntimeError('Stale scorecard target')
+    scored = {r['arm']: r for r in board['results']}
+    for name in selected:
+        if name not in scored or not scored[name]['eligible']:
+            raise RuntimeError(f'Arm {name} has no eligible held-out score for {previous}')
+        ck = completed(root, previous, name, envs)
+        if scored[name].get('checkpoint_sha256') != _hash(ck):
+            raise RuntimeError(f'Checkpoint for {name} differs from the one evaluated; rescore {previous}')
+    if stage == 'round3':
+        if selected[0] not in _read(root / 'round2_selection.json')['selected']:
+            raise RuntimeError('Round3 must continue one of the round2 finalists')
+    selection = {'selected': sorted(selected), 'from_round': previous}
+    locked = root / f'{stage}_selection.json'
+    if locked.exists():
+        if _read(locked) != selection:
+            raise RuntimeError('Selection has already been locked; use a new root to revise an experiment')
+    else:
+        _save(locked, selection)
+
+
+def _number(x):
+    try:
+        n = float(x)
+        return n if math.isfinite(n) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def score_row(name, source):
+    """No automatic winner. Missing data and excessive crouching fail closed."""
+    panels = ['resilience100', 'robust70', 'growth140', 'growthcombo140']
+    surv = [_number(source.get(f'screen_{p}_survival')) for p in panels]
+    pitch = [_number(source.get(f'screen_{p}_pitch_mae')) for p in panels]
+    height = [_number(source.get(f'screen_{p}_height_shortfall_m')) for p in panels]
+    motion = [_number(source.get(f'screen_{p}_{axis}_mae'))
+              for p in panels for axis in ('vx', 'vy', 'yaw')]
+    slope = _number(source.get('screen_gentle_slope_survival'))
+    slope_height = _number(source.get('screen_gentle_slope_height_shortfall_m'))
+    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion):
+        return {'arm': name, 'eligible': False, 'score': None,
+                'reasons': ['missing/nonfinite held-out metrics']}
+    hard = sum(surv[:2])/2
+    growth = sum(surv[2:])/2
+    pe = sum(pitch)/4
+    hs = sum(height)/4
+    me = sum(motion)/12
+    reasons = []
+    if hard < .20: reasons.append('hard survival below 20%')
+    if hs > .035: reasons.append('height shortfall exceeds 35mm')
+    if pe > .45: reasons.append('pitch tracking error exceeds .45rad')
+    if slope_height > .045: reasons.append('gentle slope height shortfall exceeds 45mm')
+    score = (.43*hard + .26*growth + .13*slope - .08*min(1, pe/.45)
+             - .07*min(1, hs/.035) - .03*min(1, me/.5))
+    return {'arm': name, 'eligible': not reasons, 'reasons': reasons,
+            'score': round(score, 6), 'hard_survival': round(hard, 5),
+            'growth_survival': round(growth, 5), 'gentle_slope_survival': round(slope, 5),
+            'pitch_mae_rad': round(pe, 5),
+            'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5)}
+
+
+def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
+    if round_name not in ROUNDS:
+        raise ValueError('Invalid scoring round')
+    if round_name == 'round1':
+        names = list(BY_NAME)
+    else:
+        names = _read(root / f'{round_name}_selection.json')['selected']
+    run_dirs = []
+    for name in names:
+        completed(root, round_name, name, envs)
+        run_dirs.append(root / round_name / name)
+    # All candidates are judged in the SAME deterministic v5015 environment:
+    # independent of their own teacher, domain severity or training pitch limit.
+    from .screening import evaluate_runs
+    raw = evaluate_runs(run_dirs, envs=screen_envs, horizon=screen_horizon,
+                        device=device, eval_pitch_deg=SCREEN_PITCH_DEG)
+    rows = [score_row(name, raw[name]) for name in names]
+    for row in rows:
+        ck = root / round_name / row['arm'] / 'checkpoints' / 'final.pkl'
+        row['checkpoint_sha256'] = _hash(ck)
+    if round_name == 'round1' and rows[0]['score'] is not None:
+        baseline_hard = rows[0]['hard_survival']
+        for item in rows[1:]:
+            if item['score'] is not None and item['hard_survival'] < baseline_hard - .08:
+                item['reasons'].append('hard survival >8 points below baseline')
+                item['eligible'] = False
+    rows.sort(key=lambda r: (r['eligible'], r['score'] if r['score'] is not None else -999),
+              reverse=True)
+    result = {'round': round_name, 'target': ROUNDS[round_name],
+              'screen_pitch_deg': SCREEN_PITCH_DEG, 'screen_envs': screen_envs,
+              'screen_horizon': screen_horizon, 'results': rows}
+    _save(root / f'{round_name}_scoreboard.json', result)
+    lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
+             f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
+             'No automatic promotion. Scores are screening evidence, not independent validation.', '',
+             '| arm | eligible | score | hard survival | growth survival | slope survival | pitch MAE | height shortfall | reasons |',
+             '|---|---|---:|---:|---:|---:|---:|---:|---|']
+    for r in rows:
+        lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
+                     f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
+                     f"{r.get('gentle_slope_survival','—')} | "
+                     f"{r.get('pitch_mae_rad','—')} rad | {r.get('height_shortfall_m','—')} m | "
+                     f"{', '.join(r['reasons'])} |")
+        print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")
+    report = root / f'{round_name}_scorecard.md'
+    temp = report.with_name(report.name + '.tmp')
+    temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
+    temp.replace(report)
+    print(f'Saved {report}. Choose finalists manually; nothing advances automatically.')
+
+
+def promotion_choices(board: dict, slots: int) -> list[str]:
+    """Choose only qualified arms, ordered deterministically by held-out score.
+
+    No eligibility bypass. With insufficient qualified contenders the autopilot
+    stops, preserving every checkpoint for inspection/manual intervention.
+    """
+    if slots not in (1, 2):
+        raise ValueError('Promotion supports 1 or 2 places only')
+    ordered = sorted((row for row in board['results']
+                      if row.get('arm') in BY_NAME and row.get('eligible') is True
+                      and _number(row.get('score')) is not None),
+                     key=lambda row: (-float(row['score']),
+                                      list(BY_NAME).index(row['arm'])))
+    chosen = [row['arm'] for row in ordered[:slots]]
+    if len(chosen) != slots:
+        raise RuntimeError(
+            f"Only {len(chosen)} of {slots} finalists are eligible in "
+            f"{board.get('round', 'unknown round')}. Stopping safely; read "
+            f"the scorecard and examine the checkpoint evidence.")
+    return chosen
+
+
+def score_is_current(root: Path, round_name: str, *, envs: int,
+                     screen_envs: int, screen_horizon: int) -> bool:
+    """Avoid repeated GPU screens after an interrupted/restarted autopilot.
+
+    Fingerprints, cohort size, horizon, and report must all match.
+    """
+    path = root / f'{round_name}_scoreboard.json'
+    if not path.is_file() or not (root / f'{round_name}_scorecard.md').is_file():
+        return False
+    board = _read(path)
+    if (board.get('round') != round_name
+        or board.get('target') != ROUNDS[round_name]
+        or board.get('screen_pitch_deg') != SCREEN_PITCH_DEG
+        or board.get('screen_envs') != screen_envs
+        or board.get('screen_horizon') != screen_horizon):
+        return False
+    expected_names = set(BY_NAME) if round_name == 'round1' else set(
+        _read(root / f'{round_name}_selection.json')['selected'])
+    rows = board.get('results', [])
+    if len(rows) != len(expected_names) or {r.get('arm') for r in rows} != expected_names:
+        return False
+    for row in rows:
+        try:
+            ck = completed(root, round_name, row['arm'], envs)
+        except RuntimeError:
+            return False
+        if _hash(ck) != row.get('checkpoint_sha256'):
+            return False
+    return True
+
+
+def autopilot(root: Path, *, seed: int, envs: int, device: str,
+              screen_envs: int, screen_horizon: int,
+              provenance: dict, stop_after: str = 'round3') -> None:
+    """Sequential stages; each fork restarts from one fixed validated ancestor.
+
+    Pause on failed training or a failed/ambiguous evaluation. Never promote an
+    ineligible policy and never alter the published champion.
+    """
+    print('[EMU lab5015] Auto mode: run 20M foundation, 4x26M forks, '
+          'screen and promote 2x34M then 1x46M', flush=True)
+    ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
+               seed=seed, envs=envs, device=device, provenance=provenance)
+    for round_name in ROUNDS:
+        if round_name == 'round1':
+            names = list(BY_NAME)
+            prior = 'foundation'
+        else:
+            prior = 'round1' if round_name == 'round2' else 'round2'
+            selection_file = root / f'{round_name}_selection.json'
+            if selection_file.exists():
+                names = _read(selection_file)['selected']
+                print(f'[EMU lab5015] Reusing locked {round_name} '
+                      f'selection: {", ".join(names)}', flush=True)
+            else:
+                scored = _read(root / f'{prior}_scoreboard.json')
+                slots = 2 if round_name == 'round2' else 1
+                names = promotion_choices(scored, slots)
+                print(f'[EMU lab5015] Auto-selected from {prior}: '
+                      f'{", ".join(names)}', flush=True)
+            _selection(root, round_name, names, prior, envs)
+        for name in names:
+            parent = completed(root, prior, name if prior != 'foundation' else None, envs)
+            ensure_run(root/round_name/name, arm=BY_NAME[name], parent=parent,
+                       target=ROUNDS[round_name], seed=seed, envs=envs,
+                       device=device, provenance=provenance)
+        if score_is_current(root, round_name, envs=envs, screen_envs=screen_envs,
+                            screen_horizon=screen_horizon):
+            print(f'[EMU lab5015] Reusing validated {round_name} '
+                  'scoreboard, not rerunning GPU evaluation', flush=True)
+        else:
+            print(f'[EMU lab5015] Running common held-out {round_name} '
+                  'evaluation...', flush=True)
+            score(root, round_name, envs=envs, screen_envs=screen_envs,
+                  screen_horizon=screen_horizon, device=device)
+        print(f'[EMU lab5015] Completed {round_name} at '
+              f'{ROUNDS[round_name]:,} policy steps. '
+              f'Scorecard: {root / (round_name + "_scorecard.md")}', flush=True)
+        if stop_after == round_name:
+            print(f'[EMU lab5015] Finished at requested {stop_after} boundary.', flush=True)
+            break
+
+
+def plan_dict(seed=733, envs=2048):
+    return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
+            'foundation': FOUNDATION, 'rounds': ROUNDS,
+            'arms': [asdict(a) for a in ARMS],
+            'nominal_steps': FOUNDATION + 4*6_000_000 + 2*8_000_000 + 12_000_000,
+            'review_points': ['after 20M foundation', 'after 4x26M screen',
+                              'after 2x34M screen', 'after 1x46M follow-up'],
+            'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
+            'recommended': 'emu lab5015 --stage auto',
+            'auto_stop_if_ineligible': True}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='EMU v5015: review-gated common-ancestor experiment lab')
+    parser.add_argument('--stage', choices=['plan','foundation','round1','round2','round3','score','auto'],
+                        default='plan')
+    parser.add_argument('--round', choices=list(ROUNDS), default='round1')
+    parser.add_argument('--stop-after', choices=list(ROUNDS), default='round3',
+                        help='when --stage auto, stop after this round and its score')
+    parser.add_argument('--root', type=Path, default=Path.home()/'robot_lab'/'emu_runs'/'v5015_lab1')
+    parser.add_argument('--seed', type=int, default=733)
+    parser.add_argument('--envs', type=int, default=2048)
+    parser.add_argument('--device', choices=['auto','cpu','cuda','gpu'], default='cuda')
+    parser.add_argument('--screen-envs', type=int, default=256)
+    parser.add_argument('--screen-horizon', type=int, default=350)
+    parser.add_argument('--arm', action='append', default=[], help='optional first-round arm, repeatable')
+    parser.add_argument('--select', nargs='+', default=[], help='manually promote 2 or 1 arms')
+    args = parser.parse_args(argv)
+    if args.stage == 'plan':
+        print(json.dumps(plan_dict(args.seed,args.envs),indent=2))
+        return 0
+    if args.envs < 1 or args.screen_envs < 1 or args.screen_horizon < 1:
+        parser.error('env counts and screen horizon must be positive')
+    root = args.root.expanduser().resolve()
+    if args.stage == 'score':
+        if args.arm or args.select: parser.error('score accepts no --arm or --select')
+        context = root / 'lab_context.json'
+        if not context.is_file():
+            raise RuntimeError('No experiment context; complete a foundation first')
+        saved = _read(context)
+        if saved['envs'] != args.envs or saved['seed'] != args.seed:
+            raise RuntimeError('Scoring must use the experiment original env count and seed')
+        provenance = git_provenance()
+        if saved['git_commit'] != provenance.get('commit', '') or provenance.get('dirty'):
+            raise RuntimeError('Scoring source differs from pinned experiment source')
+        score(root,args.round,envs=args.envs,screen_envs=args.screen_envs,
+              screen_horizon=args.screen_horizon,device=args.device)
+        return 0
+    if args.stage != 'round1' and args.arm:
+        parser.error('--arm is only valid for round1')
+    if args.stage == 'auto' and args.select:
+        parser.error('autopilot ranks eligible candidates; no --select permitted')
+    if args.stage in ('round1','foundation') and args.select:
+        parser.error('--select only applies to round2 and round3')
+    provenance = git_provenance()
+    _context(root, args.seed, args.envs, provenance)
+    if args.stage == 'auto':
+        autopilot(root, seed=args.seed, envs=args.envs, device=args.device,
+                  screen_envs=args.screen_envs, screen_horizon=args.screen_horizon,
+                  provenance=provenance, stop_after=args.stop_after)
+        return 0
+    if args.stage == 'foundation':
+        ensure_run(root/'foundation20',arm=None,parent=None,target=FOUNDATION,
+                   seed=args.seed,envs=args.envs,device=args.device,provenance=provenance)
+        return 0
+    if args.stage == 'round1':
+        names = args.arm or list(BY_NAME)
+        if len(names) != len(set(names)) or any(n not in BY_NAME for n in names):
+            parser.error('unknown or duplicate arm')
+        parent_stage = 'foundation'
+    else:
+        names = args.select
+        prior = 'round1' if args.stage == 'round2' else 'round2'
+        _selection(root,args.stage,names,prior,args.envs)
+        parent_stage = prior
+    for name in names:
+        ancestor = completed(root,parent_stage, name if parent_stage!='foundation' else None,args.envs)
+        ensure_run(root/args.stage/name,arm=BY_NAME[name],parent=ancestor,
+                   target=ROUNDS[args.stage],seed=args.seed,envs=args.envs,
+                   device=args.device,provenance=provenance)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,15 +1,10 @@
 name: EMU Playground (GitHub Pages)
 
+# Public deployment is intentionally MANUAL. Merging experimental Python or
+# browser source to main must not silently replace the working 60M demo.
+# The release custodian explicitly runs this workflow after a browser review.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/emu-playground.yml'
-      - '.nvmrc'
-      - 'viewer/**'
-      - 'showcase/**'
-      - 'scripts/prepare_showcase.py'
 
 permissions:
   contents: read
@@ -30,10 +25,20 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: viewer/package-lock.json
+      - name: Require the protected 60M showcase champion
+        shell: bash
+        run: |
+          test -f showcase/champion.emupolicy
+          ACTUAL="$(git hash-object showcase/champion.emupolicy)"
+          EXPECTED="4743d8d3cd4706edce04809fe1b61df014e57d5e"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "Champion has changed. Update release process deliberately; refusing accidental deployment." >&2
+            exit 1
+          fi
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --source-url "https://github.com/$REPO"
+        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO"
       - name: Install locked viewer dependencies
         run: npm ci --prefix viewer --no-audit --no-fund
       - name: Run JavaScript contract tests

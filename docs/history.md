@@ -177,3 +177,13 @@ A policy viewer that watches training must not become part of the training/evalu
 Do not rebuild an entire MuJoCo browser model for each new set of neural weights when XML and control contracts are identical. But reset the demo physics/history so different policies are fairly viewed from clean episodes.
 
 The v5014 pass-2 consolidation additionally corrected right-stick yaw and lateral movement mapping based on observed operator feedback. Input direction conventions need human validation in the browser; a contract test can prevent accidental code regression but cannot replace that observation.
+
+## v5015: beware a successful-looking crouch
+
+The operator stopped the fresh 400M v5014 attempt on 13 October 2026 after the gait apparently grew progressively lower. This is not yet a confirmed reward exploit: v5014 emitted only absolute torso height, not the difference from its *commanded* height. The height term was a modest fraction of a joint survival/tracking reward, and the hard fall threshold is much lower than the nominal torso height; either could allow a lower stance if rewarded elsewhere. We now log signed height tracking error in new training and provide a read-only historical CSV scanner, before altering incentives or restarting a long run.
+
+## v5015 opt-in posture learning — unproven until GPU experiments
+
+In v5014, an upright-chassis check above cos(20°) could mark a correctly commanded 45° camera/chassis pose as failure. The new v5015 training profile instead separates foot-midpoint-to-chassis robot lean from IMU/chassis pitch; requests the latter explicitly; and judges structural competence against support geometry, height and attitude *tracking error*. It also penalises sustained actual-minus-commanded height shortfall in the reward and held-out checkpoint choice.
+
+Transition-regime tasks now vary commanded chassis pitch alongside movement. A separate production profile ramps the maximum requested angle through 8/15/25/35/45° over its phases, **not** a promise that the robot physically reaches 45°. The true MJX learner and browser physics must still be compared, especially the meaning of forward velocity at substantial chassis pitch; never claim full-pitch or terrain generalisation from a configuration table or passing contract tests alone.
