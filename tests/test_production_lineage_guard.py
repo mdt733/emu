@@ -28,3 +28,11 @@ def test_missing_config_prevents_checkpoint_reuse(tmp_path):
     c=_phase_config('10_adapt',60_000_000,.10,.08,.12,root=tmp_path,seed=733,device='cuda',envs=2048,resume=None)
     with pytest.raises(RuntimeError,match='without training_config'):
         verify_existing_phase_config(phase,c)
+
+
+def test_shared_phase_helpers_are_identical_for_ladder_and_historical_forge():
+    from emu import production, phase_config, branch_lab
+    assert production._phase_config is phase_config._phase_config
+    assert production.verify_existing_phase_config is phase_config.verify_existing_phase_config
+    assert branch_lab._phase_config is phase_config._phase_config
+    assert branch_lab.verify_existing_phase_config is phase_config.verify_existing_phase_config

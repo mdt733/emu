@@ -15,7 +15,7 @@ from pathlib import Path
 from .experiments import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
 from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
 from .paths import source_repo_root
-from .production import _phase_config, verify_existing_phase_config
+from .phase_config import _phase_config, verify_existing_phase_config
 
 
 def _read(path):
