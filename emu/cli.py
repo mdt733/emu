@@ -54,6 +54,46 @@ def doctor(args) -> int:
             p=RegimeGovernor().params_dict(); st,_=e.reset(p); out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),p); out.obs.block_until_ready()
             print(f'MJX reset/step: PASS obs={tuple(out.obs.shape)}')
         except Exception as exc: failures.append(f'MJX reset/step: {exc}')
+    if getattr(args, 'v5015_smoke', False):
+        # Explicit integration smoke: actually JIT-compile and step an
+        # experimental four-command task, then compile the held-out summary.
+        # No training/checkpoint/output files are created by this probe.
+        try:
+            import jax
+            import jax.numpy as jnp
+            from .environment import EmuMJXEnv
+            from .curriculum import RegimeGovernor
+            from .ppo import make_trainer
+            from .contracts import OBS_DIM
+            n = 4
+            env = EmuMJXEnv(str(ROBOT_XML), num_envs=n, seed=5015,
+                            max_episode_steps=40, attitude_profile='v5015',
+                            pitch_command_max_deg=45.0)
+            params = RegimeGovernor().params_dict()
+            state, obs = env.reset(params)
+            if state.cmd_target.shape != (n, 4) or obs.shape != (n, OBS_DIM):
+                raise RuntimeError(f'v5015 reset contract: target={state.cmd_target.shape}, obs={obs.shape}')
+            stepped = env.step(state, jnp.zeros((n, 6), dtype=jnp.float32), params)
+            stepped.obs.block_until_ready()
+            for key in ('body_pitch', 'cmd_pitch', 'robot_lean_forward',
+                        'robot_lean_side', 'structural_attitude_ok', 'height_error'):
+                arr = stepped.metrics[key]
+                if arr.shape != (n,) or not bool(jax.device_get(jnp.all(jnp.isfinite(arr)))):
+                    raise RuntimeError(f'v5015 invalid metric {key}: {arr.shape}')
+            learner = make_trainer(env, seed=5015, lr=2e-4, rollout=4,
+                                   epochs=1, minibatches=1)
+            initial = learner['make_initial_state'](params)
+            compact = learner['evaluate_summary'](
+                initial.params, env.params_array(params),
+                jnp.zeros((OBS_DIM,), dtype=jnp.float32),
+                jnp.ones((OBS_DIM,), dtype=jnp.float32),
+                jax.random.PRNGKey(5015), 3)
+            compact.block_until_ready()
+            if compact.shape != (11,) or not bool(jax.device_get(jnp.all(jnp.isfinite(compact)))):
+                raise RuntimeError(f'v5015 held-out summary invalid: {compact.shape}')
+            print('v5015 MJX + PPO evaluation smoke: PASS (4 envs, 220 obs, 4 command targets, 11 evaluation fields)')
+        except Exception as exc:
+            failures.append(f'v5015 MJX + PPO smoke: {exc}')
     if args.domain_smoke:
         try:
             import jax
@@ -94,7 +134,7 @@ def main(argv=None) -> int:
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
-    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model')
+    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
     q=sub.add_parser('forge5015',help='experimental v5015 posture training (separate run root)'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=20_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
     q=sub.add_parser('forge',help='train the single v5014 production lineage'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=400_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
