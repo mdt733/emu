@@ -203,3 +203,21 @@ def test_top_level_cli_exposes_auto_and_forwards_stop_after(monkeypatch):
     forwarded=list(got[0][1])
     assert forwarded[forwarded.index('--stage')+1]=='auto'
     assert forwarded[forwarded.index('--stop-after')+1]=='round1'
+
+def test_recipe_is_a_separate_explicit_step_and_hypothesis_list():
+    from emu import ladder_recipe
+    assert ladder_recipe.FOUNDATION == 20_000_000
+    assert ladder_recipe.ROUNDS == {'round1':26_000_000,'round2':34_000_000,'round3':46_000_000}
+    assert tuple(ladder_recipe.BY_NAME) == ('baseline','shadow','slope','pitch15')
+    assert lab.ROUNDS is ladder_recipe.ROUNDS  # runner and recipe never drift
+
+
+def test_human_friendly_ladder_command_routes_to_existing_runner(monkeypatch):
+    from emu import cli
+    observed=[]
+    monkeypatch.setattr(cli,'_run',lambda name,*args: observed.append((name,args)) or 0)
+    assert cli.main(['ladder','--stage','plan']) == 0
+    assert observed[0][0]=='branch_lab'
+    assert observed[0][1][:2]==('--stage','plan')
+    assert cli.main(['lab5015','--stage','auto']) == 0
+    assert observed[1][0]=='branch_lab'

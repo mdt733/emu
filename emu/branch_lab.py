@@ -9,35 +9,13 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from .experiments import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
+from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
 from .paths import source_repo_root
 from .production import _phase_config, verify_existing_phase_config
-
-FOUNDATION = 20_000_000
-ROUNDS = {'round1': 26_000_000, 'round2': 34_000_000, 'round3': 46_000_000}
-SCREEN_PITCH_DEG = 15.0
-
-
-@dataclass(frozen=True)
-class Arm:
-    name: str
-    hypothesis: str
-    teacher_mode: str = 'graph'
-    dose: float = 0.10
-    terrain_radius: float = 0.0
-    pitch_deg: float = 8.0
-
-
-ARMS = (
-    Arm('baseline', '10% graph teaching, level-floor control'),
-    Arm('shadow', 'No capability-field teaching', 'shadow', 0.0),
-    Arm('slope', 'Gentle gravity-equivalent slope practice', terrain_radius=0.12),
-    Arm('pitch15', '15 degree chassis command ceiling', pitch_deg=15.0),
-)
-BY_NAME = {a.name: a for a in ARMS}
 
 
 def _read(path):
