@@ -1,10 +1,19 @@
-# EMU — current project handover
+# EMU — current project handover (v5015 WIP)
 
 **Last reconciled:** 13 October 2026, using the audited v5014 sources, Playground v2/v3 changes, joystick `vy` correction, and the operator's WSL terminal/browser feedback. **This document supersedes `docs/HANDOVER_5014.md`.** It is a concise continuation guide, not a second design specification.
 
+## v5015 status (13 October 2026)
+
+- **Baseline:** Keep `main` at `fabba945` and `showcase/champion.emupolicy` unchanged until v5015 is reviewed and tested. This is the successfully deployed 60,030,976-step policy.
+- **Development:** [draft PR #1](https://github.com/mdt733/emu/pull/1) on branch `develop/playground-attitude-terrain`. Optional physical 1° ramp, three camera views, separated lean/pitch telemetry, accessible README. Local MuJoCo WASM/ramp tests remain necessary.
+- **Terminated 400M run:** user stopped it due to gradual crouching. Historical data may remain under `~/robot_lab/emu_runs/`; do not erase it.
+- **Diagnostic first:** v5014 logged absolute height but not the commanded-height error. `emu posture-report` is a read-only standard-library scan of existing `metrics.csv` files. New rollouts also export `height_error_m`. Hypothesis: weak height incentive can favour crouching; not proven without actual results.
+- **Training direction:** geometry-based robot lean is separate from chassis/IMU pitch. Rework tracking, balance competence, physical slope tests and pitch envelope together; don't merely alter the ±8° constant to ±45°. No new run begun.
+- **Versioning:** v5015 is an *experimental milestone*, not a completed training release. v5014 forge code remains intact for forensic reproduction.
+
 ## Mission and invariants
 
-Build a small, dynamically unstable **six-servo biped** that actually catches steps, walks, steers and recovers. Avoid rewarding static survival alone. Use deployable sensors: **55 named features × 4 frames = 220 actor inputs; six actuator targets**. Train with JAX/MJX + PPO. Keep capability evidence semantic, command/recovery units physical, held-out exams quarantined, resume strict, and learning state intact across phases. The current default is **one long production lineage**, not another tournament.
+Build a small, dynamically unstable **six-servo biped** that actually catches steps, walks, steers and recovers. Avoid rewarding static survival alone. Use deployable sensors: **55 named features × 4 frames = 220 actor inputs; six actuator targets**. Train with JAX/MJX + PPO. Keep capability evidence semantic, command/recovery units physical, held-out exams quarantined, resume strict, and learning state intact across phases. The v5014 trainer still offers **one long production lineage**, not another tournament, but the operator stopped the 400M run. v5015 training is not yet released.
 
 ## Current implementation
 

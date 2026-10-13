@@ -1303,6 +1303,9 @@ class EmuMJXEnv:
             'cmd_vx': task[:, T.vx], 'cmd_vy': task[:, T.vy], 'cmd_yaw': task[:, T.yaw],
             'cmd_pitch': task[:, T.pitch], 'body_pitch': body_pitch,
             'height': height, 'target_height': NEUTRAL_ROOT_Z + task[:, T.height],
+            # Signed measured-minus-commanded posture error; negative is too low.
+            # Diagnostic only: no change to PPO observation, action or reward.
+            'height_error': height - (NEUTRAL_ROOT_Z + task[:, T.height]),
             'gravity_z': gravity_z,
             'foot_mid_angle_deg': foot_mid_angle * 57.29578,
             'foot_mid_cone': foot_mid_cone,

@@ -8,7 +8,7 @@
 
 The Playground runs a published **60-million-step policy** in your browser. Move using the left joystick, turn and command chassis pitch with the right, or let the demo select commands. The new **View** button cycles orbit view, raw chassis POV, and visually levelled POV.
 
-> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation, and the separate 400M-step training lineage is not claimed complete here.
+> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation, and the next v5015 training experiment has not yet begun.
 
 ## How it works
 
@@ -40,6 +40,19 @@ Orbit view makes gait easy to watch. **Raw POV** follows the chassis camera, sha
 | Viewer | [`viewer/`](viewer/) | Canonical JavaScript source for MuJoCo WASM, controls and cameras |
 
 The other Python modules handle curriculum, domain randomisation, checkpoint safety and evidence. Tests and selected results are intentional, not clutter. `emu/viewer_src/` remains a **generated packaging mirror**, not a second editable viewer. Large training runs and raw checkpoints live outside Git.
+
+## v5015 development
+
+The **60M public champion remains the protected baseline**. The operator stopped the v5014 400M attempt after noticing the robot progressively crouch. This might be a training incentive problem, but the cause is not yet established.
+
+The v5015 draft adds an optional POV and real browser ramp prototype, separates robot lean from chassis pitch in telemetry, and introduces a **read-only height history finder** plus a signed measured-minus-commanded height metric for *new* training runs. No new policy has been trained yet.
+
+```bash
+emu posture-report                         # scan ~/robot_lab/emu_runs/metrics.csv histories
+emu posture-report --root /path/to/run      # search a selected run
+```
+
+Next we will verify the ramp and POV, diagnose crouch using any surviving run data, then carefully adjust training, evaluation and the ±45° pitch envelope.
 
 ## Running EMU yourself
 

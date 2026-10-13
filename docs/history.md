@@ -177,3 +177,7 @@ A policy viewer that watches training must not become part of the training/evalu
 Do not rebuild an entire MuJoCo browser model for each new set of neural weights when XML and control contracts are identical. But reset the demo physics/history so different policies are fairly viewed from clean episodes.
 
 The v5014 pass-2 consolidation additionally corrected right-stick yaw and lateral movement mapping based on observed operator feedback. Input direction conventions need human validation in the browser; a contract test can prevent accidental code regression but cannot replace that observation.
+
+## v5015: beware a successful-looking crouch
+
+The operator stopped the fresh 400M v5014 attempt on 13 October 2026 after the gait apparently grew progressively lower. This is not yet a confirmed reward exploit: v5014 emitted only absolute torso height, not the difference from its *commanded* height. The height term was a modest fraction of a joint survival/tracking reward, and the hard fall threshold is much lower than the nominal torso height; either could allow a lower stance if rewarded elsewhere. We now log signed height tracking error in new training and provide a read-only historical CSV scanner, before altering incentives or restarting a long run.
