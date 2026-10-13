@@ -45,14 +45,20 @@ The other Python modules handle curriculum, domain randomisation, checkpoint saf
 
 The **60M public champion remains the protected baseline**. The operator stopped the v5014 400M attempt after noticing the robot progressively crouch. This might be a training incentive problem, but the cause is not yet established.
 
-The v5015 draft adds an optional POV and real browser ramp prototype, separates robot lean from chassis pitch in telemetry, and introduces a **read-only height history finder** plus a signed measured-minus-commanded height metric for *new* training runs. No new policy has been trained yet.
+The v5015 draft includes POV and experimental browser ramps **and now includes actual opt-in training changes**: posture rewards follow requested chassis pitch without confusing it with whole-robot lean, a lower-than-commanded gait earns less reward, pitch commands can change during walking, and the capability field/held-out exams use command-aware posture criteria. The 55×4 actor contract and public 60M policy remain unchanged. **These changes pass CPU contract tests but have not been GPU/MJX validated or used to train a new brain yet.**
 
 ```bash
 emu posture-report                         # scan ~/robot_lab/emu_runs/metrics.csv histories
 emu posture-report --root /path/to/run      # search a selected run
 ```
 
-Next we will verify the ramp and POV, diagnose crouch using any surviving run data, then carefully adjust training, evaluation and the ±45° pitch envelope.
+To inspect the experimental training schedule **without starting a run**:
+
+```bash
+emu forge5015 --plan
+```
+
+The v5015 plan expands its *configured* chassis pitch ceiling across phases: **8° → 15° → 25° → 35° → 45°**. These are training requests, not achieved capabilities. Start only after a small MJX smoke run and held-out gait/height comparisons. The previous `emu forge` is the separate v5014 recipe, not an alias for the new experiment.
 
 ## Running EMU yourself
 
