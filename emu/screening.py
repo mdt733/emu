@@ -74,7 +74,7 @@ def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
 
 
 def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
-                  device: str | None = None) -> dict[str, dict[str, Any]]:
+                  device: str | None = None, eval_pitch_deg: float | None = None) -> dict[str, dict[str, Any]]:
     """Evaluate multiple final checkpoints through one set of compiled worlds."""
     if not run_dirs:
         return {}
@@ -88,6 +88,12 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         raise ValueError('batched screening requires identical phase_speed_gain')
     if device is not None:
         config=replace(config,device=device)
+    if eval_pitch_deg is not None:
+        # Freeze identical v5015 exam posture conditions for every contender,
+        # independent of the pitch and terrain distribution used for training.
+        if not (0 < eval_pitch_deg <= 45):
+            raise ValueError('eval_pitch_deg must be in (0, 45]')
+        config=replace(config,attitude_profile='v5015',pitch_command_max_deg=float(eval_pitch_deg))
     configure_jax(config.device)
     import jax
     require_backend(config.device == 'cpu')
@@ -111,7 +117,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         params=payload['state']['params']; norm=payload['obs_norm']
         obs_std=np.asarray(norm['var'])**.5
         out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
-            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck)}
+            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
+            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None}
         for name,(world_name,salt,episode) in SCREEN_PANELS.items():
             env,trainer=worlds[world_name]
             compact=trainer['evaluate_summary'](
@@ -139,9 +146,10 @@ def main(argv=None) -> int:
     p.add_argument('--run-dir',required=True,nargs='+')
     p.add_argument('--envs',type=int,default=512)
     p.add_argument('--horizon',type=int,default=350)
+    p.add_argument('--eval-pitch-deg',type=float,default=None)
     p.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default=None)
     a=p.parse_args(argv)
-    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device)
+    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg)
     print(json.dumps(out,indent=2,sort_keys=True))
     return 0
 
