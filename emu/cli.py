@@ -91,7 +91,20 @@ def doctor(args) -> int:
             compact.block_until_ready()
             if compact.shape != (11,) or not bool(jax.device_get(jnp.all(jnp.isfinite(compact)))):
                 raise RuntimeError(f'v5015 held-out summary invalid: {compact.shape}')
-            print('v5015 MJX + PPO evaluation smoke: PASS (4 envs, 220 obs, 4 command targets, 11 evaluation fields)')
+            # Also JIT-compile one *real* PPO gradient/update, not just forward
+            # inference: this catches reward/rollout/optimizer shape drift
+            # before spending 20 million GPU environment steps.
+            updated, rolled, diagnostics, _, _ = learner['train_update'](
+                initial, env.params_array(params),
+                jnp.zeros((OBS_DIM,), dtype=jnp.float32),
+                jnp.ones((OBS_DIM,), dtype=jnp.float32),
+                jnp.asarray(.25, dtype=jnp.float32))
+            if not all(bool(jax.device_get(jnp.all(jnp.isfinite(leaf))))
+                       for leaf in jax.tree_util.tree_leaves(updated.params)):
+                raise RuntimeError('v5015 PPO smoke produced nonfinite parameters')
+            if not bool(jax.device_get(jnp.isfinite(diagnostics['rollout_reward_mean']))):
+                raise RuntimeError('v5015 PPO smoke produced nonfinite rollout reward')
+            print('v5015 MJX + PPO update + evaluation smoke: PASS (4 envs, one optimizer update, 11 evaluation fields)')
         except Exception as exc:
             failures.append(f'v5015 MJX + PPO smoke: {exc}')
     if args.domain_smoke:
