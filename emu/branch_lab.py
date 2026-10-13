@@ -1,4 +1,4 @@
-"""Human-gated v5015 successive-halving experiments.
+"""Checkpoint-safe v5015 successive-halving experiments: manual or autopilot.
 
 One 20M foundation, four 26M forks, two 34M finalists, one 46M follow-up.
 All raw checkpoints remain outside Git; never touches the public 60M brain.
@@ -255,6 +255,111 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     print(f'Saved {report}. Choose finalists manually; nothing advances automatically.')
 
 
+def promotion_choices(board: dict, slots: int) -> list[str]:
+    """Choose only qualified arms, ordered deterministically by held-out score.
+
+    No eligibility bypass. With insufficient qualified contenders the autopilot
+    stops, preserving every checkpoint for inspection/manual intervention.
+    """
+    if slots not in (1, 2):
+        raise ValueError('Promotion supports 1 or 2 places only')
+    ordered = sorted((row for row in board['results']
+                      if row.get('arm') in BY_NAME and row.get('eligible') is True
+                      and _number(row.get('score')) is not None),
+                     key=lambda row: (-float(row['score']),
+                                      list(BY_NAME).index(row['arm'])))
+    chosen = [row['arm'] for row in ordered[:slots]]
+    if len(chosen) != slots:
+        raise RuntimeError(
+            f"Only {len(chosen)} of {slots} finalists are eligible in "
+            f"{board.get('round', 'unknown round')}. Stopping safely; read "
+            f"the scorecard and examine the checkpoint evidence.")
+    return chosen
+
+
+def score_is_current(root: Path, round_name: str, *, envs: int,
+                     screen_envs: int, screen_horizon: int) -> bool:
+    """Avoid repeated GPU screens after an interrupted/restarted autopilot.
+
+    Fingerprints, cohort size, horizon, and report must all match.
+    """
+    path = root / f'{round_name}_scoreboard.json'
+    if not path.is_file() or not (root / f'{round_name}_scorecard.md').is_file():
+        return False
+    board = _read(path)
+    if (board.get('round') != round_name
+        or board.get('target') != ROUNDS[round_name]
+        or board.get('screen_pitch_deg') != SCREEN_PITCH_DEG
+        or board.get('screen_envs') != screen_envs
+        or board.get('screen_horizon') != screen_horizon):
+        return False
+    expected_names = set(BY_NAME) if round_name == 'round1' else set(
+        _read(root / f'{round_name}_selection.json')['selected'])
+    rows = board.get('results', [])
+    if len(rows) != len(expected_names) or {r.get('arm') for r in rows} != expected_names:
+        return False
+    for row in rows:
+        try:
+            ck = completed(root, round_name, row['arm'], envs)
+        except RuntimeError:
+            return False
+        if _hash(ck) != row.get('checkpoint_sha256'):
+            return False
+    return True
+
+
+def autopilot(root: Path, *, seed: int, envs: int, device: str,
+              screen_envs: int, screen_horizon: int,
+              provenance: dict, stop_after: str = 'round3') -> None:
+    """Sequential stages; each fork restarts from one fixed validated ancestor.
+
+    Pause on failed training or a failed/ambiguous evaluation. Never promote an
+    ineligible policy and never alter the published champion.
+    """
+    print('[EMU lab5015] Auto mode: run 20M foundation, 4x26M forks, '
+          'screen and promote 2x34M then 1x46M', flush=True)
+    ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
+               seed=seed, envs=envs, device=device, provenance=provenance)
+    for round_name in ROUNDS:
+        if round_name == 'round1':
+            names = list(BY_NAME)
+            prior = 'foundation'
+        else:
+            prior = 'round1' if round_name == 'round2' else 'round2'
+            selection_file = root / f'{round_name}_selection.json'
+            if selection_file.exists():
+                names = _read(selection_file)['selected']
+                print(f'[EMU lab5015] Reusing locked {round_name} '
+                      f'selection: {", ".join(names)}', flush=True)
+            else:
+                scored = _read(root / f'{prior}_scoreboard.json')
+                slots = 2 if round_name == 'round2' else 1
+                names = promotion_choices(scored, slots)
+                print(f'[EMU lab5015] Auto-selected from {prior}: '
+                      f'{", ".join(names)}', flush=True)
+            _selection(root, round_name, names, prior, envs)
+        for name in names:
+            parent = completed(root, prior, name if prior != 'foundation' else None, envs)
+            ensure_run(root/round_name/name, arm=BY_NAME[name], parent=parent,
+                       target=ROUNDS[round_name], seed=seed, envs=envs,
+                       device=device, provenance=provenance)
+        if score_is_current(root, round_name, envs=envs, screen_envs=screen_envs,
+                            screen_horizon=screen_horizon):
+            print(f'[EMU lab5015] Reusing validated {round_name} '
+                  'scoreboard, not rerunning GPU evaluation', flush=True)
+        else:
+            print(f'[EMU lab5015] Running common held-out {round_name} '
+                  'evaluation...', flush=True)
+            score(root, round_name, envs=envs, screen_envs=screen_envs,
+                  screen_horizon=screen_horizon, device=device)
+        print(f'[EMU lab5015] Completed {round_name} at '
+              f'{ROUNDS[round_name]:,} policy steps. '
+              f'Scorecard: {root / (round_name + "_scorecard.md")}', flush=True)
+        if stop_after == round_name:
+            print(f'[EMU lab5015] Finished at requested {stop_after} boundary.', flush=True)
+            break
+
+
 def plan_dict(seed=733, envs=2048):
     return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
             'foundation': FOUNDATION, 'rounds': ROUNDS,
@@ -262,14 +367,18 @@ def plan_dict(seed=733, envs=2048):
             'nominal_steps': FOUNDATION + 4*6_000_000 + 2*8_000_000 + 12_000_000,
             'review_points': ['after 20M foundation', 'after 4x26M screen',
                               'after 2x34M screen', 'after 1x46M follow-up'],
-            'automatic_promotion': False}
+            'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
+            'recommended': 'emu lab5015 --stage auto',
+            'auto_stop_if_ineligible': True}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='EMU v5015: review-gated common-ancestor experiment lab')
-    parser.add_argument('--stage', choices=['plan','foundation','round1','round2','round3','score'],
+    parser.add_argument('--stage', choices=['plan','foundation','round1','round2','round3','score','auto'],
                         default='plan')
     parser.add_argument('--round', choices=list(ROUNDS), default='round1')
+    parser.add_argument('--stop-after', choices=list(ROUNDS), default='round3',
+                        help='when --stage auto, stop after this round and its score')
     parser.add_argument('--root', type=Path, default=Path.home()/'robot_lab'/'emu_runs'/'v5015_lab1')
     parser.add_argument('--seed', type=int, default=733)
     parser.add_argument('--envs', type=int, default=2048)
@@ -301,10 +410,17 @@ def main(argv=None):
         return 0
     if args.stage != 'round1' and args.arm:
         parser.error('--arm is only valid for round1')
+    if args.stage == 'auto' and args.select:
+        parser.error('autopilot ranks eligible candidates; no --select permitted')
     if args.stage in ('round1','foundation') and args.select:
         parser.error('--select only applies to round2 and round3')
     provenance = git_provenance()
     _context(root, args.seed, args.envs, provenance)
+    if args.stage == 'auto':
+        autopilot(root, seed=args.seed, envs=args.envs, device=args.device,
+                  screen_envs=args.screen_envs, screen_horizon=args.screen_horizon,
+                  provenance=provenance, stop_after=args.stop_after)
+        return 0
     if args.stage == 'foundation':
         ensure_run(root/'foundation20',arm=None,parent=None,target=FOUNDATION,
                    seed=args.seed,envs=args.envs,device=args.device,provenance=provenance)
