@@ -2,13 +2,13 @@
 
 ## v5015 short experiment lab
 
-**Recommended now:** `emu lab5015`, not an unattended `emu forge5015` marathon. This uses the same schema-7 checkpoint and PPO training engine as the production code, but stops at each review point.
+**Recommended now:** `emu lab5015` with automatic short-experiment promotions, not an unattended `emu forge5015` marathon. This uses schema-7 checkpoints and the normal PPO training engine, with hard eligibility gates after matched evaluations.
 
 | Milestone | Cumulative step per policy | Extra GPU steps |
 |---|---:|---:|
 | Shared foundation | 20M | 20M |
 | Four first-round forks | 26M each | 4 × 6M = 24M |
-| Two manually selected finalists | 34M each | 2 × 8M = 16M |
+| Two selected finalists | 34M each | 2 × 8M = 16M |
 | One finalist continuation | 46M | 12M |
 | **Total** | | **72M** |
 
@@ -39,6 +39,29 @@ emu lab5015 --stage plan
 ```
 
 The new `doctor --v5015-smoke` compiles an actual MJX reset/step and an 11-field held-out summary with the new posture contract. **Do not begin the 20M run if this fails.**
+
+### Unattended tournament — one command
+
+The 20M foundation is a **branch checkpoint**, not a mandatory pause. Let the GPU continue through the complete short experiment, including scores and promotions:
+
+```bash
+cd ~/robot_lab/emu
+bash scripts/run_lab5015.sh
+```
+
+The wrapper unsets any stale `PYTHONPATH`, verifies Python is importing **v5015 from this checkout**, and runs a real GPU/MJX/PPO optimizer-update smoke test **before training**. It then starts `emu lab5015 --stage auto`: foundation → four 26M forks → common 15° and gentle-slope held-out tests → two *eligible* 34M finalists → new tests → one *eligible* 46M finalist → final score.
+
+The runner automatically chooses the top eligible policies, but **never overrides** hard-survival, pitch-tracking, height-shortfall and missing/nonfinite data gates. If fewer than two round-1 candidates or zero round-2 candidates qualify, it stops safely with all checkpoints intact. Selections are locked to those evaluated checkpoint fingerprints, and resuming only reuses screening results if the fingerprints and evaluation settings match.
+
+To inspect the first matched comparison before the finalists continue:
+
+```bash
+bash scripts/run_lab5015.sh --stop-after round1
+```
+
+Restart the default command to continue from validated checkpoints and matching scorecards, **without changing Git commit, seed or environment count**.
+
+**Long-horizon caution:** the observed crouch started around **100–200M steps in one policy lineage**. This first 72M-step *aggregate* funnel only extends one lineage to 46M, so it cannot detect that late collapse. The strongest candidates need staged 100M/150M/200M follow-up measurements.
 
 ### Stop-and-review workflow
 

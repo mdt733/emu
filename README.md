@@ -54,17 +54,17 @@ emu posture-report --root /path/to/run      # search a selected run
 
 ### New in v5015: short, branching GPU experiments
 
-Instead of a single 400M run, **`emu lab5015`** trains one common 20M foundation, then forks four short 6M-step hypotheses. Only two manually chosen candidates earn another 8M, and one earns a further 12M. **Total planned GPU work: approximately 72M environment steps**, with evaluation and review between stages.
+Instead of a single 400M run, **`emu lab5015`** trains one common 20M foundation, then forks four short 6M-step hypotheses. Only the two strongest **eligible** candidates earn another 8M, and one earns a further 12M. **Total planned GPU work: approximately 72M environment steps**, with automatic matched evaluation and safety gates between stages.
 
 ```bash
 emu doctor --v5015-smoke   # verify GPU/MJX and new posture evaluation
 emu lab5015 --stage plan   # inspect without training
-emu lab5015 --stage foundation
-emu lab5015 --stage round1
-emu lab5015 --stage score --round round1
+bash scripts/run_lab5015.sh  # one GPU-safe unattended tournament
+# To manually review after the four branches:
+bash scripts/run_lab5015.sh --stop-after round1
 ```
 
-Then read `~/robot_lab/emu_runs/v5015_lab1/round1_scorecard.md` and choose finalists yourself. See [the experiment guide](docs/tournament.md#v5015-short-experiment-lab). Each candidate has its own validated checkpoint and logs. **No automatic winner, no GitHub Pages publication, no changed 60M champion.**
+The reports under `~/robot_lab/emu_runs/v5015_lab1/` explain the automatically selected eligible finalists; the tournament safely stops if too few qualify. See [the experiment guide](docs/tournament.md#v5015-short-experiment-lab). Each candidate has its own validated checkpoint and logs. **Automatic early hypothesis promotion is provisional, with no GitHub Pages publication and no changes to the protected 60M champion.**
 
 To inspect the experimental training schedule **without starting a run**:
 
