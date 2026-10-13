@@ -221,3 +221,37 @@ def test_human_friendly_ladder_command_routes_to_existing_runner(monkeypatch):
     assert observed[0][1][:2]==('--stage','plan')
     assert cli.main(['lab5015','--stage','auto']) == 0
     assert observed[1][0]=='branch_lab'
+
+
+def test_ladder_supports_new_knobs_without_editing_engine(tmp_path):
+    from emu.ladder_recipe import Arm
+    arm=Arm('experiment','Alter two command-family knobs',(
+        ('combo_mix_frac', 0.48),
+        ('field_teach_edges', False),
+        ('freeze_obs_norm_after_steps', 35_000_000),
+    ))
+    cfg=lab.config(tmp_path/'experiment',arm=arm,target=26_000_000,
+                   seed=733,envs=2048,device='cpu',resume=None)
+    assert cfg.combo_mix_frac == .48
+    assert cfg.field_teach_edges is False
+    assert cfg.freeze_obs_norm_after_steps == 35_000_000
+    assert cfg.attitude_profile == 'v5015'
+    assert cfg.steps == 26_000_000
+
+
+@pytest.mark.parametrize('knobs,match', [
+    ((('nonexistent_config', .1),), 'Unknown'),
+    ((('seed', 12),), 'run identity'),
+    ((('steps', 40_000_000),), 'run identity'),
+    ((('run_dir', '/tmp/hijack'),), 'run identity'),
+    ((('combo_mix_frac', .5),('combo_mix_frac', .2)), 'Duplicate'),
+    ((('domain_randomization', .3),), 'Invalid value'),
+    ((('field_max_influence', float('nan')),), 'Invalid value'),
+    ((('freeze_obs_norm_after_steps', .5),), 'Invalid value'),
+])
+def test_invalid_ladder_knobs_fail_before_training(tmp_path, knobs, match):
+    from emu.ladder_recipe import Arm
+    arm=Arm('bad','Validation test',knobs)
+    with pytest.raises(ValueError, match=match):
+        lab.config(tmp_path/'bad',arm=arm,target=26_000_000,
+                   seed=733,envs=2048,device='cpu',resume=None)

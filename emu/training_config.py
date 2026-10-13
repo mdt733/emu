@@ -197,6 +197,56 @@ class TrainingConfig:
         return cls(**data)
 
 
+# These are run identity / motor-contract parameters, not experiment knobs.
+# Algorithm-independent aspects (physical commands, teaching, curriculum,
+# normalisation) are otherwise modifiable via TrainingConfig fields.
+IMMUTABLE_RUN_FIELDS = frozenset({
+    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile',
+})
+
+
+def apply_experiment_knobs(
+    config: TrainingConfig,
+    knobs: tuple[tuple[str, bool | int | float | str | None], ...],
+) -> TrainingConfig:
+    """Apply a ladder arm's explicit TrainingConfig overrides, fail closed.
+
+    This is the ONLY translation from a human experiment recipe to the stable
+    trainer's knobs. Unknown field, duplicated field, runtime identity override
+    or incompatible value raises before training ever starts.
+    """
+    import math
+
+    valid = {f.name for f in dataclass_fields(TrainingConfig)}
+    values = {}
+    for key, value in knobs:
+        if key not in valid:
+            raise ValueError(f'Unknown TrainingConfig experiment knob: {key}')
+        if key in IMMUTABLE_RUN_FIELDS:
+            raise ValueError(f'Experiment cannot override run identity / contract: {key}')
+        if key in values:
+            raise ValueError(f'Duplicate experiment knob: {key}')
+        old = getattr(config, key)
+        if isinstance(old, bool):
+            valid_value = isinstance(value, bool)
+        elif isinstance(old, int):
+            valid_value = isinstance(value, int) and not isinstance(value, bool)
+        elif isinstance(old, float) or old is None:
+            valid_value = (value is None and old is None) or (
+                isinstance(value, (float, int)) and not isinstance(value, bool)
+                and math.isfinite(float(value)))
+            if value is not None and valid_value:
+                value = float(value)
+        elif isinstance(old, str):
+            valid_value = isinstance(value, str)
+        else:
+            raise TypeError(f'Unsupported existing config knob type: {key}')
+        if not valid_value:
+            raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
+        values[key] = value
+    return replace(config, **values)
+
+
 def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, resume: Path | None) -> dict:
     return dict(
         run_dir=str(run_dir), steps=int(steps), seed=int(seed),

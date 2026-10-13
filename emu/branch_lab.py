@@ -9,13 +9,14 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
 from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
 from .paths import source_repo_root
 from .phase_config import _phase_config, verify_existing_phase_config
+from .training_config import apply_experiment_knobs
 
 
 def _read(path):
@@ -54,20 +55,16 @@ def _context(root, seed, envs, provenance):
 
 
 def config(run, *, arm, target, seed, envs, device, resume):
-    # Build all arms on the same mature profile; each changes exactly one
-    # experiment dimension. All have the v5015 reward/competence semantics.
+    """Pure recipe -> training configuration. No GPU, filesystem or PPO side effects."""
+    # Foundation is common to every hypothesis. No arm knobs apply before fork.
     if arm is None:
         return _phase_config('00_foundation', FOUNDATION, 0, 0, 0, root=run.parent,
                              seed=seed, device=device, envs=envs, resume=resume,
                              profile='v5015', pitch_deg=8.0)
-    cfg = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
-                        seed=seed, device=device, envs=envs, resume=resume,
-                        profile='v5015', pitch_deg=arm.pitch_deg)
-    return replace(cfg, capability_field_mode=arm.teacher_mode,
-                   field_max_influence=arm.dose,
-                   domain_randomization=arm.terrain_radius > 0,
-                   domain_robot_radius=0, domain_terrain_radius=arm.terrain_radius,
-                   domain_hardware_radius=0)
+    baseline = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
+                             seed=seed, device=device, envs=envs, resume=resume,
+                             profile='v5015', pitch_deg=8.0)
+    return apply_experiment_knobs(baseline, arm.knobs)
 
 
 def completed(root, stage, name, envs):
@@ -294,7 +291,7 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
     Pause on failed training or a failed/ambiguous evaluation. Never promote an
     ineligible policy and never alter the published champion.
     """
-    print('[EMU lab5015] Auto mode: run 20M foundation, 4x26M forks, '
+    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x26M forks, '
           'screen and promote 2x34M then 1x46M', flush=True)
     ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
                seed=seed, envs=envs, device=device, provenance=provenance)
@@ -342,7 +339,10 @@ def plan_dict(seed=733, envs=2048):
     return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
             'foundation': FOUNDATION, 'rounds': ROUNDS,
             'arms': [asdict(a) for a in ARMS],
-            'nominal_steps': FOUNDATION + 4*6_000_000 + 2*8_000_000 + 12_000_000,
+            'nominal_steps': (
+                FOUNDATION + len(ARMS)*(ROUNDS['round1']-FOUNDATION)
+                + 2*(ROUNDS['round2']-ROUNDS['round1'])
+                + (ROUNDS['round3']-ROUNDS['round2'])),
             'review_points': ['after 20M foundation', 'after 4x26M screen',
                               'after 2x34M screen', 'after 1x46M follow-up'],
             'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',

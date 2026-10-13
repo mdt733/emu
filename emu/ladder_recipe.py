@@ -24,19 +24,30 @@ SCREEN_PITCH_DEG = 15.0  # common evaluation task, not a training command
 
 @dataclass(frozen=True)
 class Arm:
+    """One hypothesis: changes to named, validated TrainingConfig knobs only.
+
+    Each (field, value) pair becomes an explicit field override to the common
+    mature baseline. No PPO-engine edits or new CLI switches are needed.
+    """
     name: str
     hypothesis: str
-    teacher_mode: str = 'graph'
-    dose: float = 0.10
-    terrain_radius: float = 0.0
-    pitch_deg: float = 8.0
+    knobs: tuple[tuple[str, bool | int | float | str | None], ...] = ()
 
 
-# A hypothesis should differ from baseline in ONE scientifically interpretable way.
+# Each challenger differs from the baseline in one understandable dimension.
+# All knobs are existing fields of emu/training_config.py::TrainingConfig.
 ARMS = (
     Arm('baseline', '10% graph teaching, level-floor control'),
-    Arm('shadow', 'No capability-field teaching', teacher_mode='shadow', dose=0.0),
-    Arm('slope', 'Gentle gravity-equivalent slope practice', terrain_radius=0.12),
-    Arm('pitch15', '15 degree chassis command ceiling', pitch_deg=15.0),
+    Arm('shadow', 'No capability-field teaching', (
+        ('capability_field_mode', 'shadow'),
+        ('field_max_influence', 0.0),
+    )),
+    Arm('slope', 'Gentle gravity-equivalent slope practice', (
+        ('domain_randomization', True),
+        ('domain_terrain_radius', 0.12),
+    )),
+    Arm('pitch15', '15 degree chassis command ceiling', (
+        ('pitch_command_max_deg', 15.0),
+    )),
 )
 BY_NAME = {arm.name: arm for arm in ARMS}
