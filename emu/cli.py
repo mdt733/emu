@@ -149,9 +149,10 @@ def main(argv=None) -> int:
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    q=sub.add_parser('lab5015',help='branch-and-promote v5015 experiments with manual review gates')
-    q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score'],default='plan')
+    q=sub.add_parser('lab5015',help='short v5015 experiments: auto-promote eligible candidates or review manually')
+    q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
     q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
+    q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
     q.add_argument('--root',default='')
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--envs',type=int,default=2048)
@@ -198,7 +199,7 @@ def main(argv=None) -> int:
         from .posture_report import report
         return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
     if args.cmd=='lab5015':
-        av=['--stage',args.stage,'--round',args.round,'--seed',str(args.seed),
+        av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
             '--envs',str(args.envs),'--device',args.device,
             '--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon)]
         if args.root: av += ['--root',args.root]

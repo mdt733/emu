@@ -191,3 +191,15 @@ def test_score_cache_only_reuses_matching_checkpoint_hashes_and_cohort(tmp_path,
     (tmp_path/'round1'/'baseline'/'checkpoints'/'final.pkl').write_bytes(b'different')
     assert not lab.score_is_current(tmp_path,'round1',envs=2048,
                                     screen_envs=256,screen_horizon=350)
+
+
+def test_top_level_cli_exposes_auto_and_forwards_stop_after(monkeypatch):
+    from emu import cli
+    got=[]
+    monkeypatch.setattr(cli,'_run',
+                        lambda module,*args:got.append((module,args)) or 0)
+    assert cli.main(['lab5015','--stage','auto','--stop-after','round1']) == 0
+    assert got and got[0][0]=='branch_lab'
+    forwarded=list(got[0][1])
+    assert forwarded[forwarded.index('--stage')+1]=='auto'
+    assert forwarded[forwarded.index('--stop-after')+1]=='round1'
