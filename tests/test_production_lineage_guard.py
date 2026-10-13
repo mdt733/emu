@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import pytest
 
-from emu.production import _phase_config, verify_existing_phase_config
+from emu.phase_config import _phase_config, verify_existing_phase_config
 
 
 def test_rejects_changed_seed_env_count_and_domain(tmp_path):
@@ -30,9 +30,7 @@ def test_missing_config_prevents_checkpoint_reuse(tmp_path):
         verify_existing_phase_config(phase,c)
 
 
-def test_shared_phase_helpers_are_identical_for_ladder_and_historical_forge():
-    from emu import production, phase_config, branch_lab
-    assert production._phase_config is phase_config._phase_config
-    assert production.verify_existing_phase_config is phase_config.verify_existing_phase_config
+def test_ladder_uses_shared_phase_compatibility():
+    from emu import phase_config, branch_lab
     assert branch_lab._phase_config is phase_config._phase_config
     assert branch_lab.verify_existing_phase_config is phase_config.verify_existing_phase_config

@@ -1,13 +1,5 @@
 from pathlib import Path
 
-def test_production_lineage_is_monotonic_and_ends_400m():
-    from emu.production import PHASES
-    targets=[x[1] for x in PHASES]
-    assert targets == sorted(targets)
-    assert targets[-1] == 400_000_000
-    assert PHASES[0][2:] == (0.0,0.0,0.0)
-    assert PHASES[-1][2:] == (0.75,0.70,0.75)
-
 def test_operator_pitch_keeps_220_observation_contract():
     from emu.contracts import BASE_OBS_DIM, OBS_DIM, HISTORY_LEN, BASE_OBS_FIELDS, PITCH_CMD_MAX_RAD
     assert 'cmd_pitch' in BASE_OBS_FIELDS
