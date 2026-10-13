@@ -96,6 +96,7 @@ def main(argv=None) -> int:
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
+    q=sub.add_parser('forge5015',help='experimental v5015 posture training (separate run root)'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=20_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
     q=sub.add_parser('forge',help='train the single v5014 production lineage'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=400_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
@@ -132,8 +133,9 @@ def main(argv=None) -> int:
     if args.cmd=='posture-report':
         from .posture_report import report
         return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd=='forge':
-        av=['--seed',str(args.seed),'--envs',str(args.envs),'--device',args.device,'--target',str(args.target)]
+    if args.cmd in ('forge','forge5015'):
+        av=['--seed',str(args.seed),'--envs',str(args.envs),'--device',args.device,'--target',str(args.target),
+            '--profile',('v5015' if args.cmd=='forge5015' else 'v5014')]
         if args.root: av += ['--root',args.root]
         if args.plan: av += ['--plan']
         return _run('production',*av)
