@@ -1,6 +1,6 @@
-# v5014 domain randomisation — physical diversity without hidden controls
+# Domain randomisation — the integrated physical diversity controls
 
-**Status:** the fast MJX/JAX-valued parameter randomiser is integrated into the v5014 `emu forge` lineage. A host-built morphology generator and a low-frequency terrain-heightfield generator also exist, **but their full bank/heightfield physics are not integrated in the default production training run**. Don't describe those generators as active training variation.
+**Current:** only JAX-valued robot, slope-equivalent, friction and actuator perturbations are part of training. The old host-side morphology/heightfield generator prototypes were **not integrated** and have been removed from current source; recoverable in Git history at commit `b0f31d8`. Do not describe them as training or evaluated capabilities.
 
 ## Why it exists
 
@@ -31,12 +31,13 @@ The same deployable **220-value actor input** must control modestly different ro
 
 The default mixture reserves a near-nominal population and a small difficult tail. Individual environment instances in the current fast path hold their sampled model throughout that vector-world lifetime; the actor receives no explicit domain ID. Slope is gravity-vector equivalent on a flat collision plane, **not actually sloped collision mesh geometry**. At the production phase boundaries, the ±6° per-axis cap scales with terrain severity: at 60M (`T=0.08`) that is at most ±0.48° per axis, rising to ±4.2° at 400M (`T=0.70`). A browser 1° physical ramp introduces height transitions and contacts that the infinite-plane approximation does not teach. That approximation is intentional to avoid structural model changes inside the JAX compile.
 
-The production severity schedule is in [v5014-production.md](v5014-production.md): R/T/H are zero in foundation, then increase at 60/140/260/400M. Changing radii in an existing run root invalidates its intended learning-lineage contract; see `emu/production.py`.
+The *historical* 400M severity schedule is documented in [v5014-production.md](v5014-production.md). The current v5015 ladder specifies arm-specific radii through named `TrainingConfig` overrides in [`emu/ladder_recipe.py`](../emu/ladder_recipe.py). Changing these radii inside an existing checkpoint run root violates the strict resume contract; see `emu/phase_config.py`.
 
-## Separate development layers, not yet default forge
+## Archived, unintegrated experiments
 
-- `emu/morphology.py` can generate *host-compiled*, coherent robot variants with changes to limb lengths, hip width, foot radius, torso mass and COM. Structural geometries need MuJoCo's derived inertial/collision data recomputed before an MJX stack is built. This generator is **not equivalent to training a 16-morphology bank**.
-- `emu/terrain.py` can generate smooth low-frequency 33×33 heightfields and nuisance features; the default forge fast path does **not** train on that terrain. No exteroceptive preview exists, so tall stairs, gaps and blind jump planning are outside the current problem.
+The former `emu/morphology.py` could render host-compiled variations in limbs, hip width, foot size and torso distribution, while `emu/terrain.py` generated smooth 33×33 MuJoCo heightfield inputs. They were **standalone prototypes**: no trainer ever interleaved a morphology bank or placed those heightfields under EMU's current MJX worlds. Retaining the unused modules in the everyday code made those imagined capabilities look implemented.
+
+The source and unit tests remain recoverable from [the pre-cleanup Git tree](https://github.com/mdt733/emu/tree/b0f31d865198f451414ec0d6e69e1793c69478a7/emu). Reintegration requires real MuJoCo contact correctness, a defined task distribution, measured MJX throughput and independent held-out validation; a generator by itself is not a training feature.
 
 Avoid claiming simulated hardware-transfer robustness without frozen held-out evaluations. Candidate integration must demonstrate acceptable MJX throughput, nominal-regression preservation, and a measurable improvement on separately seeded morphologies and actual heightfields. A proposed cost gate is under 5% slowdown for simple parameter variation, roughly 10–15% for gentle heightfields, and a redesign review above 25%; **these are engineering budgets, not measured v5014 results**.
 
