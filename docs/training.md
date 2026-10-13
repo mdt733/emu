@@ -18,7 +18,7 @@ The foundation ends at the **first complete PPO update boundary at or above 20M 
 
 A **learning-state resume** restores policy/critic, optimizer, observation normaliser, curriculum, training health and capability field from a validated schema-7 checkpoint. The simulator episodes and current rollout buffers start afresh. It is not a byte-for-byte replay of a physical frame. Invalid snapshots must fail loudly, with only validated rotating snapshots considered for explicit recovery.
 
-The shared mature profile freezes running observation-normalizer statistics at its configured absolute-step threshold. Do not change observation ordering, actor dimensions, robot XML or actuator meaning for an ongoing run. Phase compatibility is also enforced by `emu/production.py`.
+The shared mature profile freezes running observation-normalizer statistics at its configured absolute-step threshold. Do not change observation ordering, actor dimensions, robot XML or actuator meaning for an ongoing run. Phase compatibility is enforced by the shared `emu/phase_config.py`.
 
 ## Why v5013 had paired branches (historical)
 
@@ -26,4 +26,4 @@ The v5013 research used a common foundation checkpoint as the exact ancestor for
 
 The `field_taught` provenance marker indicates that practice was field-selected; it is not part of the actor's 220 inputs or a reward. The `B4_clean_evidence` experiment let those rollouts train PPO but forbade them from self-confirming the capability field.
 
-See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for reproducibility. Today's recommended workflow is `emu ladder --stage plan` and `bash scripts/run_ladder.sh`. The older `forge` command still reproduces a historic single-lineage plan.
+See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for reproducibility. Today's recommended workflow is `emu ladder --stage plan` and `bash scripts/run_ladder.sh`. The retired `forge` and v5013 tournament implementations remain reproducible from their Git history commit; they are no longer current CLI commands.

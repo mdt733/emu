@@ -140,7 +140,7 @@ def main(argv=None) -> int:
     for ladder_command in ('ladder', 'lab5015'):
         q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
                                              if ladder_command=='ladder'
-                                             else 'compatibility name for the current ladder'))
+                                             else argparse.SUPPRESS))
         q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
         q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
         q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
@@ -154,7 +154,7 @@ def main(argv=None) -> int:
         q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
-    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='v5014 production run root to watch')
+    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
 
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
@@ -190,7 +190,7 @@ def main(argv=None) -> int:
     if args.cmd=='viewer':
         from .viewer_server import serve
         pol=Path(args.policy) if args.policy else None
-        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5014_production') if args.live else None,open_browser=not args.no_open)
+        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5015_lab1') if args.live else None,open_browser=not args.no_open)
     return 2
 
 

@@ -1,6 +1,6 @@
 # Release validation checklist
 
-This is the **procedure**. For tests actually run, dates and results, see [../RELEASE_VALIDATION.md](../RELEASE_VALIDATION.md). For the 400M plan see [v5014-production.md](v5014-production.md).
+This is the **procedure**. For tests actually run, dates and results, see [../RELEASE_VALIDATION.md](../RELEASE_VALIDATION.md). For the current experiment see [tournament.md](tournament.md); v5014's 400M recipe is archived in [v5014-production.md](v5014-production.md).
 
 ## Source and contract checks
 
@@ -18,7 +18,7 @@ Check actor 55×4=220 observations, six controls, finite weights, schema-7 check
 
 ```bash
 emu doctor --domain-smoke
-emu forge --plan
+emu ladder --stage plan
 emu viewer-build
 python scripts/prepare_showcase.py
 emu viewer-build

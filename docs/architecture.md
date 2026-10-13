@@ -13,10 +13,9 @@ The project separates components because they answer different questions; change
 | `emu/training.py` | Composes the update loop and own-run artifacts; never lets held-out evaluators train the field |
 | `emu/ladder_recipe.py` | **Current human-readable experiment recipe**: stages, arms, step boundaries and common screening target |
 | `emu/branch_lab.py` | Current ladder runner, checkpoint inheritance, comparisons and promotion |
-| `emu/experiments.py` | Shared checkpoint/resume and training helpers used by current and historical recipes |
-| `emu/phase_config.py` | Shared phase configuration and strict restart compatibility, used by current/historic runners |
-| `emu/production.py` | Historical single-lineage v5014 and v5015 forge recipes only (now detached from active ladder) |
-| `emu/tournament.py` | Reproducible historical v5013 successive-halving experiment |
+| `emu/run_support.py` | Validated checkpoint handoff, source provenance and subprocess launch of the stable trainer |
+| `emu/phase_config.py` | Pure foundation/mature presets and strict same-path resume contract |
+| `emu/training_config.py` | Strongly typed training knobs, explicit experiment overrides and frozen algorithm doctrine |
 | `emu/domain_randomization.py` | Batched JAX-valued robot/terrain/hardware model variation per training world |
 | `emu/contracts.py`, `emu/tracking_contract.py` | Shared deployable 55×4 observation, six action targets, task packet and physical event thresholds |
 | `emu/checkpoint_io.py`, `emu/checkpoints.py` | Validated schema-7 checkpoint save/read, atomic replacement and finite-policy protection |
@@ -35,9 +34,9 @@ The actor sees only the canonical **220-number** history vector; the inference a
 
 The trainer owns CUDA/JAX and writes under `../emu_runs/`. The local `emu viewer --live` is a **separate read-only CPU watcher** serving only on `127.0.0.1:8765`; browser JavaScript runs inference and nominal MuJoCo dynamics. GitHub Pages publishes a **different static bundle**, and has no private training API. The viewer demonstration is not an evaluator.
 
-`emu ladder --stage plan` is the recommended human interface; `bash scripts/run_ladder.sh` performs version/GPU checks before training. The `lab5015` spelling stays as a compatibility alias. Older `train`, `compare`, `tournament`, `forge` and `forge5015` commands remain available for historical reproduction, not as competing current workflows.
+**Single responsibility:** `emu/ladder_recipe.py` declares *what to test*. `emu/branch_lab.py` handles *when and who advances*. `emu/run_support.py` handles *validated checkpoints and launching*. `emu/training.py` handles *how learning works*, consuming the typed `TrainingConfig`. Per-arm overrides are validated against declared config field types and cannot rewrite run identity, source profile, or checkpoint destinations.
 
-**Removal caution:** today's ladder now calls the shared `_phase_config` and `verify_existing_phase_config` in `phase_config.py`, rather than the historic `production.py`. The former module re-exports the helpers to preserve old test/import compatibility. The ladder also uses checkpoint and subprocess helpers in `experiments.py`, so that module is **not** obsolete. Keep historical forge available until old runs are no longer needed; remove the public alias separately from deleting archives.
+Old `forge`, `forge5015`, `train`, `compare` and `tournament` source was retired rather than left available as competing current CLIs. The exact original code remains in Git history at main commit `b0f31d8`, along with experiment data and historical rationale. To reproduce it, use a **separate** historical checkout, never the current training run root. The `lab5015` alias remains solely for script compatibility.
 
 ## Robot lean vs chassis pitch
 

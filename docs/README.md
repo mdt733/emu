@@ -7,7 +7,7 @@ The documentation is split by **job**, not by version number. Read the current o
 | [../README.md](../README.md) | Project introduction and command quick start | Current |
 | [../HANDOVER.md](../HANDOVER.md) | Succinct state of the project, recent findings, safe continuation after a chat limit | Current — maintain this after meaningful milestones |
 | [INSTALL.md](INSTALL.md) | Fresh clone, Python + Node setup, troubleshooting, workspace cleanup | Current |
-| [tournament.md](tournament.md) | v5015 short experiment lab (current), plus v5013 tournament history | Current experiment guide |
+| [tournament.md](tournament.md) | Current ladder recipe, fixed exams and promotion workflow | Current experiment guide |
 | [v5014-production.md](v5014-production.md) | Reproducible historical v5014 400M recipe | Historical |
 | [PLAYGROUND.md](PLAYGROUND.md) | Public static demo, local Vite preview, champion promotion, GitHub Pages | Current |
 | [../viewer/README.md](../viewer/README.md) | Local live viewer, controls, render/performance options | Current |
@@ -26,4 +26,4 @@ The documentation is split by **job**, not by version number. Read the current o
 
 **Maintainer rule:** new user-facing instructions go in the relevant current guide; architecture claims need corresponding code evidence; finished experiments live in the historical pages/results. Don't add a second general-purpose README or a second live handover. Retain Git history rather than carrying stale operational steps forward.
 
-If you change the policy interface, update `viewer/POLICY_FORMAT.md` and its mirrored packaged copy together. If you change viewer source, run `emu viewer-build` to refresh the packaging mirror. For a new experiment edit the current recipe in `emu/ladder_recipe.py` and update `tournament.md` and `HANDOVER.md`. The v5014 production guide is history unless deliberately changing the legacy runner.
+If you change the policy interface, update `viewer/POLICY_FORMAT.md` and its mirrored packaged copy together. If you change viewer source, run `emu viewer-build` to refresh the packaging mirror. For a new experiment edit the current recipe in `emu/ladder_recipe.py` and update `tournament.md` and `HANDOVER.md`. The v5014 production guide is history unless using an archived checkout to reproduce historical experiments.

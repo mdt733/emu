@@ -1,6 +1,6 @@
 # Installing and maintaining EMU (v5015 development)
 
-This guide is for a **fresh clone** on Ubuntu/WSL2, or for recovering a known-good existing installation. The production project is a Python/MJX trainer plus a separately built browser viewer. None of these steps start a training run. The v5015 experimental branch uses `emu lab5015` for short shared-foundation experiments; the original `emu forge` remains a separate v5014 training recipe.
+This guide is for a **fresh clone** on Ubuntu/WSL2, or for recovering a known-good existing installation. The production project is a Python/MJX trainer plus a separately built browser viewer. None of these steps start a training run. The current interface is `emu ladder`; the `forge` and v5013 tournament runners are archived in Git history, not the active command line.
 
 ## Prerequisites
 
@@ -38,14 +38,14 @@ cd ~/robot_lab/emu
 source .venv/bin/activate
 emu doctor --domain-smoke
 python -m pytest -q
-emu forge --plan
+emu ladder --stage plan
 ```
 
 To **train or resume** deliberately, in its own WSL terminal:
 
 ```bash
 cd ~/robot_lab/emu && source .venv/bin/activate
-emu forge
+bash scripts/run_ladder.sh
 ```
 
 In a second terminal, watch the newest validated completed checkpoint:

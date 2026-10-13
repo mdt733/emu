@@ -51,40 +51,22 @@ bash scripts/run_ladder.sh     # validate GPU then execute current ladder
 emu viewer --live              # separate read-only live checkpoint viewer
 ```
 
-The **editable recipe is in one small file:** [`emu/ladder_recipe.py`](emu/ladder_recipe.py). The runner calls the existing trainer and evaluators. `lab5015` remains compatible; older `forge`, `forge5015`, `train`, `compare` and `tournament` commands are for reproducing previous research, not competing everyday workflows. Do not pull this refactor into a checkout while its GPU training run is in progress.
+The **editable recipe is in one small file:** [`emu/ladder_recipe.py`](emu/ladder_recipe.py). Each experiment arm supplies typed, validated **`TrainingConfig` knob overrides**; the ladder runner calls the stable training engine. The old `forge`/`tournament`/`train`/`compare` runners have been removed from current code, but remain available in **Git history** for research reproduction. `lab5015` remains as a command alias for older shell scripts.
 
-## v5015 development
+## Current training: v5015 research ladder
 
-The **60M public champion remains the protected baseline**. The operator stopped the v5014 400M attempt after noticing the robot progressively crouch. This might be a training incentive problem, but the cause is not yet established.
+The public 60M champion is protected and is **not replaced by training**. The current learning experiment probes four hypotheses using a shared 20M beginner brain, 26M first-round forks, 34M finalists and a 46M continuation. This spends roughly **72M aggregate environment steps**, including none of the extra long-horizon steps needed to investigate the previous 100–200M crouching failure.
 
-The v5015 draft includes POV and experimental browser ramps **and now includes actual opt-in training changes**: posture rewards follow requested chassis pitch without confusing it with whole-robot lean, a lower-than-commanded gait earns less reward, pitch commands can change during walking, and the capability field/held-out exams use command-aware posture criteria. The 55×4 actor contract and public 60M policy remain unchanged. **The user confirmed the v5015 GPU/MJX/PPO optimiser smoke passed and reports an active training run. Long-horizon learning quality remains unproven.**
-
-```bash
-emu posture-report                         # scan ~/robot_lab/emu_runs/metrics.csv histories
-emu posture-report --root /path/to/run      # search a selected run
-```
-
-### New in v5015: short, branching GPU experiments
-
-Instead of a single 400M run, **`emu lab5015`** trains one common 20M foundation, then forks four short 6M-step hypotheses. Only the two strongest **eligible** candidates earn another 8M, and one earns a further 12M. **Total planned GPU work: approximately 72M environment steps**, with automatic matched evaluation and safety gates between stages.
+The user confirmed a v5015 GPU/MJX/PPO optimiser smoke test. They subsequently reported that the first ladder **failed during training**, but the console error has not yet been provided. Its cause is unknown; don't interpret the incomplete run as a negative experiment result.
 
 ```bash
-emu doctor --v5015-smoke   # verify GPU/MJX and new posture evaluation
-emu lab5015 --stage plan   # inspect without training
-bash scripts/run_ladder.sh  # one GPU-safe unattended tournament
-# To manually review after the four branches:
+emu ladder --stage plan                   # the experiment; no GPU training
+bash scripts/run_ladder.sh                # run a new campaign after validation
 bash scripts/run_ladder.sh --stop-after round1
+emu posture-report --root ~/robot_lab/emu_runs/v5015_lab1
 ```
 
-The reports under `~/robot_lab/emu_runs/v5015_lab1/` explain the automatically selected eligible finalists; the tournament safely stops if too few qualify. See [the experiment guide](docs/tournament.md#v5015-short-experiment-lab). Each candidate has its own validated checkpoint and logs. **Automatic early hypothesis promotion is provisional, with no GitHub Pages publication and no changes to the protected 60M champion.**
-
-To inspect the experimental training schedule **without starting a run**:
-
-```bash
-emu forge5015 --plan
-```
-
-The v5015 plan expands its *configured* chassis pitch ceiling across phases: **8° → 15° → 25° → 35° → 45°**. These are training requests, not achieved capabilities. Start only after a small MJX smoke run and held-out gait/height comparisons. The previous `emu forge` is the separate v5014 recipe, not an alias for the new experiment.
+Every branch inherits complete learning state, uses an independently stored training config and checkpoint, and is screened against the same held-out tasks. Strong early scores are **not** proof of long-term robustness or physical-hardware transfer. [Experiment details](docs/tournament.md).
 
 ## Running EMU yourself
 
@@ -94,9 +76,9 @@ For a fresh Linux/WSL2 checkout you need Python 3.13, Git and Node.js 24. GPU tr
 bash scripts/setup_wsl.sh --cuda13 --install-node  # omit --cuda13 for CPU-only work
 source .venv/bin/activate
 emu doctor --domain-smoke
-emu forge --plan  # inspect the phases without starting training
+emu ladder --stage plan  # inspect current experiment, no training
 ```
 
 `emu viewer --live --no-open` starts a separate read-only **local** checkpoint viewer at http://127.0.0.1:8765/. The public Playground is static and never accesses your private training run.
 
-**Details when you're ready:** [Install](docs/INSTALL.md) · [Architecture](docs/architecture.md) · [Training](docs/v5014-production.md) · [Evaluation](docs/evaluation.md) · [Document index](docs/README.md) · [History](docs/history.md) · [Current handover](HANDOVER.md) · [Validation evidence](RELEASE_VALIDATION.md).
+**Details when you're ready:** [Install](docs/INSTALL.md) · [Architecture](docs/architecture.md) · [Training](docs/training.md) · [Evaluation](docs/evaluation.md) · [Document index](docs/README.md) · [History](docs/history.md) · [Current handover](HANDOVER.md) · [Validation evidence](RELEASE_VALIDATION.md).
