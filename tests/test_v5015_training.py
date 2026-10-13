@@ -96,3 +96,15 @@ def test_pre_knobs_config_defaults_remain_backward_compatible(tmp_path):
     cfg=TrainingConfig.load(filename)
     assert (cfg.ppo_lr,cfg.ppo_entropy_cost,cfg.ppo_value_cost) == (
         PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST)
+
+
+def test_training_metrics_use_the_actual_configured_ppo_rate():
+    from emu.training import make_metrics_row
+    row = make_metrics_row(
+        step=1024, elapsed=1.0, wall_fps=10.0, train_fps=9.0,
+        reward=0.5, row={}, report={}, aux={'lr_scale': .25},
+        nan_grad_skips=0, num_envs=16, jax_backend='cpu', perf_row={},
+        base_lr=1e-4,
+    )
+    assert math.isclose(row['ppo_effective_lr'], .000025, rel_tol=1e-12)
+    assert math.isclose(row['ppo_lr_scale'], .25)

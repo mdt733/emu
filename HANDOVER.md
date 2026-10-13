@@ -32,9 +32,9 @@ emu/training.py        stable GPU learning orchestrator
    └─ capability_field.py, health.py, rollout_metrics.py, evaluation.py
 ```
 
-Current recipe: **20M shared foundation → 4 × 26M arms (baseline, shadow, equivalent slope, 15° pitch) → matched fixed examination → 2 × 34M → 1 × 46M**. About 72M environment steps total. Each future arm can override named `TrainingConfig` fields in `ladder_recipe.py`; run identity fields cannot be overridden. The current phase schedule is not automatically a 400M marathon.
+Current recipe: **20M shared foundation → 4 × 26M arms (baseline, shadow, equivalent slope, 15° pitch) → matched fixed examination → 2 × 34M → 1 × 46M**. About 72M environment steps total. Each future arm can override named `TrainingConfig` fields in `ladder_recipe.py`; run identity fields cannot be overridden. Newly exposed PPO learning rate, entropy and value coefficients preserve existing defaults. The trainer now reads those three optional values from config and reports the correct effective rate. Rollout shape/actor architecture are still fixed doctrine. The current phase schedule is not automatically a 400M marathon.
 
-The obsolete `forge` v5014/v5015 single-lineage runners, `tournament` v5013 experiment, and old `train/compare` CLI were **removed from the draft source tree**; their code remains in Git history at `b0f31d8`, with historical evidence in `results/v5013_tournament/`. Reusable machinery was moved to neutral modules. The `lab5015` spelling and old shell launcher survive as compatibility aliases, not recommended commands.
+The obsolete `forge` v5014/v5015 single-lineage runners, `tournament` v5013 experiment, old `train/compare` CLI, and unused morphology/heightfield prototypes were **removed from the draft source tree**; their code remains in Git history at `b0f31d8`, with historical evidence in `results/v5013_tournament/`. Reusable machinery was moved to neutral modules. The `lab5015` spelling and old shell launcher survive as compatibility aliases, not recommended commands.
 
 ## Commands for a NEW experiment (only after reviewing the failed run)
 
