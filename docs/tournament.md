@@ -14,7 +14,7 @@
 
 All four forks inherit **the exact same validated 20M checkpoint**: actor, critic, optimiser, normaliser, curriculum, training-health and capability-field state. Step counts are absolute environment steps, rounded to the PPO update boundary. Forks run sequentially on one GPU; extra experiment overhead includes JAX compilation and held-out screens.
 
-The candidate hypotheses are intentionally easy to understand:
+The candidate hypotheses are intentionally easy to understand. Experiment settings are now explicit, validated `TrainingConfig` knob pairs in `ladder_recipe.py`; the baseline and four current choices are unchanged:
 
 | Arm | Exactly what it tests |
 |---|---|

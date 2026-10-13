@@ -84,3 +84,15 @@ def test_atlas_reads_phase_contract_and_root_final_lineage(tmp_path):
     assert checkpoint_training_profile(phase/'checkpoints'/'final.pkl') == ('v5015', 25.0)
     (tmp_path / 'lineage.json').write_text(json.dumps({'version':'v5015','phases':[{'pitch_max_deg':35.0}]}))
     assert checkpoint_training_profile(tmp_path/'final.pkl') == ('v5015', 35.0)
+
+
+def test_pre_knobs_config_defaults_remain_backward_compatible(tmp_path):
+    from emu.training_config import PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST
+    old = asdict(TrainingConfig())
+    for key in ('ppo_lr','ppo_entropy_cost','ppo_value_cost'):
+        old.pop(key)
+    filename = tmp_path/'old.json'
+    filename.write_text(json.dumps(old))
+    cfg=TrainingConfig.load(filename)
+    assert (cfg.ppo_lr,cfg.ppo_entropy_cost,cfg.ppo_value_cost) == (
+        PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST)

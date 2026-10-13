@@ -123,6 +123,13 @@ class TrainingConfig:
     run_dir: str = ""
     resume: str = ""
 
+    # Tunable PPO economics. Original doctrine values are the defaults;
+    # only a ladder arm with an explicit override changes them. Rollout length,
+    # network structure and optimiser algorithm remain fixed contracts.
+    ppo_lr: float = PPO_LR
+    ppo_entropy_cost: float = PPO_ENTROPY_COST
+    ppo_value_cost: float = PPO_VALUE_COST
+
     # Physical model / task distribution.
     push_max_force_n: float | None = None
     vx_hi_max: float = 0.45
@@ -190,7 +197,8 @@ class TrainingConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'attitude_profile', 'pitch_command_max_deg'}
+        optional = {'attitude_profile', 'pitch_command_max_deg',
+                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -247,6 +255,10 @@ def apply_experiment_knobs(
             raise TypeError(f'Unsupported config knob annotation: {key} ({declared})')
         if not valid_value:
             raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
+        if key == 'ppo_lr' and value <= 0:
+            raise ValueError('ppo_lr must be positive')
+        if key in ('ppo_entropy_cost','ppo_value_cost') and value < 0:
+            raise ValueError(f'{key} cannot be negative')
         values[key] = value
     return replace(config, **values)
 

@@ -280,3 +280,28 @@ def test_ladder_rejects_duplicate_and_path_escape_arm_names(tmp_path,monkeypatch
         monkeypatch.setattr(lab,'BY_NAME',{a.name:a for a in arms})
         with pytest.raises(ValueError,match='uniquely named|Unsafe ladder'):
             lab.validate_recipe(seed=733,envs=2048,device='cpu',root=tmp_path)
+
+
+def test_optimizer_knobs_are_available_without_changing_the_trainer(tmp_path):
+    from emu.ladder_recipe import Arm
+    from emu.training_config import PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST
+    base=lab.config(tmp_path/'baseline',arm=lab.BY_NAME['baseline'],
+                    target=26_000_000,seed=733,envs=128,device='cpu',resume=None)
+    assert (base.ppo_lr,base.ppo_entropy_cost,base.ppo_value_cost) == (
+        PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST)
+    arm=Arm('half_lr','Lower learning rate with same architecture',
+            (('ppo_lr',PPO_LR/2),('ppo_entropy_cost',.001),('ppo_value_cost',.4)))
+    alt=lab.config(tmp_path/'half_lr',arm=arm,target=26_000_000,
+                   seed=733,envs=128,device='cpu',resume=None)
+    changed={name for name,value in asdict(base).items()
+             if getattr(alt,name)!=value} - {'run_dir'}
+    assert changed=={'ppo_lr','ppo_entropy_cost','ppo_value_cost'}
+
+
+@pytest.mark.parametrize('knob', [('ppo_lr',0),('ppo_lr',-1e-4),
+                                  ('ppo_entropy_cost',-.1),('ppo_value_cost',-.1)])
+def test_optimizer_knob_invalid_values_rejected(tmp_path,knob):
+    from emu.ladder_recipe import Arm
+    with pytest.raises(ValueError):
+        lab.config(tmp_path/'bad',arm=Arm('bad','unsafe', (knob,)),
+                   target=26_000_000,seed=733,envs=128,device='cpu',resume=None)

@@ -27,3 +27,11 @@ The v5013 research used a common foundation checkpoint as the exact ancestor for
 The `field_taught` provenance marker indicates that practice was field-selected; it is not part of the actor's 220 inputs or a reward. The `B4_clean_evidence` experiment let those rollouts train PPO but forbade them from self-confirming the capability field.
 
 See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for reproducibility. Today's recommended workflow is `emu ladder --stage plan` and `bash scripts/run_ladder.sh`. The retired `forge` and v5013 tournament implementations remain reproducible from their Git history commit; they are no longer current CLI commands.
+
+## The experiment knobs, without changing the engine
+
+`emu/training_config.py` defines the single typed `TrainingConfig`. The current `ladder_recipe.py` declares `Arm(name, hypothesis, knobs=((field, value), ...))`: field names are checked against actual `TrainingConfig` annotations before the first GPU step. Run identity, seed, device, checkpoint paths, motor/attitude profile and step target cannot be overridden from a challenger arm. All unchanged values follow the mature baseline preset.
+
+Available trainer knobs include motion envelope (vx/vy/yaw), physical domain radii, teacher family/influence/schedule, frontier and curriculum controls, freeze-normalisation timing, and now **PPO learning rate (`ppo_lr`), entropy coefficient (`ppo_entropy_cost`) and value loss coefficient (`ppo_value_cost`)**. PPO defaults remain numerically unchanged for every existing arm. Rollout shape, optimiser architecture and actor contract remain fixed doctrine and are **not** generic overrides; changing those requires dedicated contract tests, JAX compilation validation and a new clean experiment root.
+
+Example for a *future new campaign only* (do not edit a running recipe): `Arm('low_lr', 'Half learning rate', (('ppo_lr', 1e-4),))`. The trainer receives the resulting serialized config. Held-out exam conditions are independent of the trainee's teaching recipe.

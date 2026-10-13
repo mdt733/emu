@@ -104,7 +104,8 @@ def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> No
 
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
-                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any]) -> dict[str, Any]:
+                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
+                     base_lr: float = PPO_LR) -> dict[str, Any]:
     """Canonical metrics.csv schema for periodic and final rows."""
     return {
         'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
@@ -119,7 +120,7 @@ def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: f
         'ppo_kl_stopped_frac': float(np.asarray(aux.get('kl_stopped', 0.0))),
         'ppo_approx_kl_final': float(np.asarray(aux.get('approx_kl_final', 0.0))),
         'ppo_lr_scale': float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_effective_lr': PPO_LR * float(np.asarray(aux.get('lr_scale', 1.0))),
+        'ppo_effective_lr': base_lr * float(np.asarray(aux.get('lr_scale', 1.0))),
         'ppo_action_clip_frac': float(np.asarray(aux.get('action_clip_frac', 0.0))),
         'ppo_adv_tail_frac': float(np.asarray(aux.get('adv_tail_frac', 0.0))),
         'explained_variance': float(np.asarray(aux.get('explained_variance', 0.0))),
@@ -203,8 +204,8 @@ def train(args: TrainingConfig) -> int:
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
                     max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
-    trainer = make_trainer(env, seed=args.seed, lr=PPO_LR, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
-                           entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
+    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
+                           entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     fixed_eval_worlds = build_eval_worlds(args)
 
     # Sparse capability cloud: intentionally much smaller than the fixed
@@ -228,8 +229,8 @@ def train(args: TrainingConfig) -> int:
                     attitude_profile=args.attitude_profile,
                     pitch_command_max_deg=args.pitch_command_max_deg,
                     sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=False, combo_mix_frac=0.0)
-        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=PPO_LR, rollout=ROLLOUT_STEPS,
-                           epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
+        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
+                           epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
         cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
@@ -790,7 +791,7 @@ def train(args: TrainingConfig) -> int:
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
                 reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-                jax_backend=jax.default_backend(), perf_row=perf.row())
+                jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
             append_metrics_csv(run_dir / 'metrics.csv', log_row)
             write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': log_row})
@@ -923,7 +924,7 @@ def train(args: TrainingConfig) -> int:
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
         reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-        jax_backend=jax.default_backend(), perf_row=perf.row())
+        jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
     append_metrics_csv(run_dir / 'metrics.csv', final_row)
     write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': final_row})
     final_ck_timing = save_checkpoint(
