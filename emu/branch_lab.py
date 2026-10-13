@@ -149,7 +149,9 @@ def _selection(root, stage, selected, previous, envs):
     for name in selected:
         if name not in scored or not scored[name]['eligible']:
             raise RuntimeError(f'Arm {name} has no eligible held-out score for {previous}')
-        completed(root, previous, name, envs)
+        ck = completed(root, previous, name, envs)
+        if scored[name].get('checkpoint_sha256') != _hash(ck):
+            raise RuntimeError(f'Checkpoint for {name} differs from the one evaluated; rescore {previous}')
     if stage == 'round3':
         if selected[0] not in _read(root / 'round2_selection.json')['selected']:
             raise RuntimeError('Round3 must continue one of the round2 finalists')
@@ -214,6 +216,9 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     raw = evaluate_runs(run_dirs, envs=screen_envs, horizon=screen_horizon,
                         device=device, eval_pitch_deg=SCREEN_PITCH_DEG)
     rows = [score_row(name, raw[name]) for name in names]
+    for row in rows:
+        ck = root / round_name / row['arm'] / 'checkpoints' / 'final.pkl'
+        row['checkpoint_sha256'] = _hash(ck)
     if round_name == 'round1' and rows[0]['score'] is not None:
         baseline_hard = rows[0]['hard_survival']
         for item in rows[1:]:
@@ -276,6 +281,15 @@ def main(argv=None):
     root = args.root.expanduser().resolve()
     if args.stage == 'score':
         if args.arm or args.select: parser.error('score accepts no --arm or --select')
+        context = root / 'lab_context.json'
+        if not context.is_file():
+            raise RuntimeError('No experiment context; complete a foundation first')
+        saved = _read(context)
+        if saved['envs'] != args.envs or saved['seed'] != args.seed:
+            raise RuntimeError('Scoring must use the experiment original env count and seed')
+        provenance = git_provenance()
+        if saved['git_commit'] != provenance.get('commit', '') or provenance.get('dirty'):
+            raise RuntimeError('Scoring source differs from pinned experiment source')
         score(root,args.round,envs=args.envs,screen_envs=args.screen_envs,
               screen_horizon=args.screen_horizon,device=args.device)
         return 0
