@@ -26,6 +26,22 @@ from .artifacts import write_rows_csv
 from .contracts import task_param_defaults
 
 
+def checkpoint_training_profile(checkpoint: Path) -> tuple[str, float]:
+    """Identify a policy's training contract for independent atlas tests."""
+    ck = Path(checkpoint).expanduser().resolve()
+    for path in (ck.parent.parent / 'training_config.json', ck.parent / 'training_config.json'):
+        if path.is_file():
+            cfg = json.loads(path.read_text(encoding='utf-8'))
+            return (str(cfg.get('attitude_profile') or 'v5014'),
+                    float(cfg.get('pitch_command_max_deg', 8.0214)))
+    root = ck.parent / 'lineage.json'
+    if root.is_file():
+        lineage = json.loads(root.read_text(encoding='utf-8'))
+        if lineage.get('version') == 'v5015' and lineage.get('phases'):
+            return 'v5015', float(lineage['phases'][-1]['pitch_max_deg'])
+    return 'v5014', 8.0214
+
+
 def fmt(x, d=3):
     try: return f"{float(x):.{d}f}"
     except Exception: return '-'
@@ -79,7 +95,9 @@ def main(argv=None):
     state=payload['state']; params=jax.device_put(state['params'])
     norm=payload.get('obs_norm') or {}
 
+    attitude_profile, pitch_deg = checkpoint_training_profile(ck)
     env=EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
+                  attitude_profile=attitude_profile, pitch_command_max_deg=pitch_deg,
                   max_episode_steps=max(args.horizon+50, 700), push_max_force_n=0.70, vx_hi_max=1.8, vx_lo_min=-0.9,
                   vy_max_mps=0.70, yaw_max_rad_s=4.5,
                   phase_speed_gain=1.25, sensor_noise_scale=1.5,
@@ -88,8 +106,8 @@ def main(argv=None):
     obs_mean=jax.numpy.asarray(norm.get('mean', np.zeros((tr['obs_dim'],),np.float32)), dtype=jax.numpy.float32)
     obs_std=jax.numpy.asarray(np.sqrt(norm.get('var', np.ones((tr['obs_dim'],),np.float32))), dtype=jax.numpy.float32)
 
-    eval_fields=('survival','first_fall_step_mean','vx_mae','vy_mae','yaw_mae','gravity_z','foot_mid_cone','step_evidence','support')
-    rows=[]; summary={'checkpoint':str(ck),'envs':args.envs,'horizon_steps':args.horizon,'control_dt_s':CONTROL_DT,'commands':{},'recovery':{}}
+    eval_fields=('survival','first_fall_step_mean','vx_mae','vy_mae','yaw_mae','gravity_z','foot_mid_cone','step_evidence','support','pitch_mae','height_shortfall_m')
+    rows=[]; summary={'checkpoint':str(ck),'attitude_profile':attitude_profile,'pitch_command_max_deg':pitch_deg,'envs':args.envs,'horizon_steps':args.horizon,'control_dt_s':CONTROL_DT,'commands':{},'recovery':{}}
     t0=time.time(); basekey=jax.random.PRNGKey(args.seed+9000); salt=0
 
     def base_ep():
@@ -167,7 +185,7 @@ def main(argv=None):
     md += ['', 'A command point counts as competent only when survival clears the stated percentage **and** mean tracking MAE stays inside an explicit axis tolerance (recorded per row in the CSV).',
            '', '## Recovery frontiers','', '| disturbance | 95% recovered | 80% recovered | 50% recovered |','|---|---:|---:|---:|']
     for name,v in summary['recovery'].items(): md.append(f"| {name} | {fmt(v['frontier_95'])} | {fmt(v['frontier_80'])} | {fmt(v['frontier_50'])} |")
-    md += ['', 'Recovery means the robot remains unfallen and holds a near-upright, low-roll/pitch-rate, command-tracking, supported state for 0.20s continuously. Recovery time distributions are retained for every point; survival by itself is not treated as recovery.',
+    md += ['', 'Recovery means the robot remains unfallen and holds an appropriately commanded chassis attitude, command-tracking, supported state for 0.20s continuously. Recovery time distributions are retained for every point; survival by itself is not treated as recovery.',
            '', f"Wall time: {summary['wall_seconds']:.1f}s", '']
     (out/'atlas.md').write_text('\n'.join(md),encoding='utf-8')
     print(f"[atlas] complete -> {out/'atlas.md'}",flush=True)

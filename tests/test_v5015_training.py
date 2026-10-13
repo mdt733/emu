@@ -74,3 +74,13 @@ def test_v5015_cli_plan_does_not_start_training(capsys):
     assert plan['version'] == 'v5015'
     assert len(plan['phases']) == 1
     assert plan['phases'][0]['chassis_pitch_max_deg'] == 8
+
+
+def test_atlas_reads_phase_contract_and_root_final_lineage(tmp_path):
+    from emu.atlas import checkpoint_training_profile
+    phase = tmp_path / '20_breadth'
+    (phase / 'checkpoints').mkdir(parents=True)
+    (phase / 'training_config.json').write_text(json.dumps({'attitude_profile':'v5015','pitch_command_max_deg':25.0}))
+    assert checkpoint_training_profile(phase/'checkpoints'/'final.pkl') == ('v5015', 25.0)
+    (tmp_path / 'lineage.json').write_text(json.dumps({'version':'v5015','phases':[{'pitch_max_deg':35.0}]}))
+    assert checkpoint_training_profile(tmp_path/'final.pkl') == ('v5015', 35.0)
