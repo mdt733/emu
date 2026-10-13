@@ -52,6 +52,20 @@ emu posture-report                         # scan ~/robot_lab/emu_runs/metrics.c
 emu posture-report --root /path/to/run      # search a selected run
 ```
 
+### New in v5015: short, branching GPU experiments
+
+Instead of a single 400M run, **`emu lab5015`** trains one common 20M foundation, then forks four short 6M-step hypotheses. Only two manually chosen candidates earn another 8M, and one earns a further 12M. **Total planned GPU work: approximately 72M environment steps**, with evaluation and review between stages.
+
+```bash
+emu doctor --v5015-smoke   # verify GPU/MJX and new posture evaluation
+emu lab5015 --stage plan   # inspect without training
+emu lab5015 --stage foundation
+emu lab5015 --stage round1
+emu lab5015 --stage score --round round1
+```
+
+Then read `~/robot_lab/emu_runs/v5015_lab1/round1_scorecard.md` and choose finalists yourself. See [the experiment guide](docs/tournament.md#v5015-short-experiment-lab). Each candidate has its own validated checkpoint and logs. **No automatic winner, no GitHub Pages publication, no changed 60M champion.**
+
 To inspect the experimental training schedule **without starting a run**:
 
 ```bash

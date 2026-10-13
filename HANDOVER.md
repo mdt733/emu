@@ -2,13 +2,14 @@
 
 **Last reconciled:** 13 October 2026, using the audited v5014 sources, Playground v2/v3 changes, joystick `vy` correction, and the operator's WSL terminal/browser feedback. **This document supersedes `docs/HANDOVER_5014.md`.** It is a concise continuation guide, not a second design specification.
 
-## v5015 status (13 October 2026)
+## v5015 status (14 October 2026)
 
 - **Baseline:** Keep `main` at `fabba945` and `showcase/champion.emupolicy` unchanged until v5015 is reviewed and tested. This is the successfully deployed 60,030,976-step policy.
 - **Development:** [draft PR #1](https://github.com/mdt733/emu/pull/1) on branch `develop/playground-attitude-terrain`. Optional physical 1° ramp, three camera views, separated lean/pitch telemetry, accessible README. Local MuJoCo WASM/ramp tests remain necessary.
 - **Terminated 400M run:** user stopped it due to gradual crouching. Historical data may remain under `~/robot_lab/emu_runs/`; do not erase it.
 - **Diagnostic first:** v5014 logged absolute height but not the commanded-height error. `emu posture-report` is a read-only standard-library scan of existing `metrics.csv` files. New rollouts also export `height_error_m`. Hypothesis: weak height incentive can favour crouching; not proven without actual results.
 - **v5015 training code implemented (not yet GPU-validated):** opt-in `emu forge5015 --plan` has separate `~/robot_lab/emu_runs/v5015_production/` run root and 8/15/25/35/45° *requested* pitch ceilings at the 20/60/140/260/400M milestones. Chassis pitch/roll are compared to their commands in posture reward; robot lean derives from foot-midpoint geometry and is used in structural competence. Uncommanded crouch lowers reward; held-out summary reports pitch MAE/height shortfall and v5015 checkpoint selection penalises both. TRANSITION tasks can change pitch mid-episode. All retain 220 actor inputs and six outputs. Existing `emu forge` and its v5014 defaults remain separate. CPU contract tests passed; **no GPU smoke or new trained policy yet**. Further work: coordinate frame at extreme pitch, real hill transitions, reward tuning and full browser verification.
+- **v5015 branch lab (current):** `emu lab5015 --stage plan` proposes one 20M foundation, four forks at 26M (baseline, shadow/no teacher, T=.12 slope-equivalent, and 15° pitch), two manually promoted 34M finalists, and one manually promoted 46M continuation; 72M environment steps of training total. All offspring resume full validated schema-7 training state. `--stage score --round round1/round2/round3` uses the same 15° held-out evaluation for all arms, records checkpoint SHA-256, includes height shortfall and pitch tracking, and DOES NOT auto-promote. Results under `~/robot_lab/emu_runs/v5015_lab1` outside Git. **No lab experiment has been started yet.** Run `emu doctor --v5015-smoke` before GPU training; see [docs/tournament.md](docs/tournament.md#v5015-short-experiment-lab).
 - **Versioning:** v5015 is an *experimental milestone*, not a completed training release. v5014 forge code remains intact for forensic reproduction.
 
 ## Mission and invariants
