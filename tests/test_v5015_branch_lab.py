@@ -100,3 +100,94 @@ def test_each_branch_ancestry_is_immutable(tmp_path,monkeypatch):
     right=lab._read(tmp_path/'round1'/'slope'/'lab_spec.json')
     assert left['parent']==right['parent']
     assert left['arm']!=right['arm']
+
+
+def test_auto_promotion_only_accepts_eligible_sorted_arms():
+    results={'round':'round1','results':[
+        {'arm':'pitch15','eligible':False,'score':.99},
+        {'arm':'slope','eligible':True,'score':.60},
+        {'arm':'baseline','eligible':True,'score':.60},
+        {'arm':'shadow','eligible':True,'score':.20},
+    ]}
+    assert lab.promotion_choices(results,2)==['baseline','slope']
+    assert lab.promotion_choices(results,1)==['baseline']
+    with pytest.raises(RuntimeError,match='Only 1 of 2'):
+        lab.promotion_choices({'round':'round1','results':results['results'][:2]},2)
+
+
+def test_autopilot_uses_foundation_all_four_arms_then_best_two_then_one(tmp_path,monkeypatch):
+    events=[]
+    def ensure(run,**kw):
+        events.append(('train',str(run.relative_to(tmp_path))))
+        return run/'checkpoints'/'final.pkl'
+    def score(root,round_name,**kw):
+        events.append(('score',round_name))
+        values=({'baseline':.8,'shadow':.9,'slope':.7,'pitch15':.6}
+                if round_name=='round1' else
+                {'baseline':.8,'shadow':.9} if round_name=='round2' else
+                {'shadow':.9})
+        lab._save(root/f'{round_name}_scoreboard.json',
+                  {'round':round_name,'target':lab.ROUNDS[round_name],
+                   'results':[{'arm':n,'eligible':True,'score':v}
+                              for n,v in values.items()]})
+    def select(root,stage,names,previous,envs):
+        events.append(('select',stage,tuple(names)))
+        lab._save(root/f'{stage}_selection.json',
+                  {'selected':sorted(names),'from_round':previous})
+    monkeypatch.setattr(lab,'ensure_run',ensure)
+    monkeypatch.setattr(lab,'completed',lambda *args,**kw:tmp_path/'source.pkl')
+    monkeypatch.setattr(lab,'score_is_current',lambda *args,**kw:False)
+    monkeypatch.setattr(lab,'score',score)
+    monkeypatch.setattr(lab,'_selection',select)
+    lab.autopilot(tmp_path,seed=733,envs=2048,device='cuda',
+                  screen_envs=256,screen_horizon=350,provenance={})
+    assert [e for e in events if e[0]=='train']==[
+        ('train','foundation20'),('train','round1/baseline'),
+        ('train','round1/shadow'),('train','round1/slope'),('train','round1/pitch15'),
+        ('train','round2/shadow'),('train','round2/baseline'),
+        ('train','round3/shadow')]
+    assert [e for e in events if e[0]=='score']==[
+        ('score','round1'),('score','round2'),('score','round3')]
+    assert ('select','round2',('shadow','baseline')) in events
+    assert ('select','round3',('shadow',)) in events
+
+
+def test_autopilot_stops_without_two_eligible_candidates(tmp_path,monkeypatch):
+    seen=[]
+    monkeypatch.setattr(lab,'ensure_run',
+                        lambda run,**kw:seen.append(('train',str(run.relative_to(tmp_path)))))
+    monkeypatch.setattr(lab,'completed',lambda *a,**kw:tmp_path/'parent.pkl')
+    monkeypatch.setattr(lab,'score_is_current',lambda *a,**kw:False)
+    def partial_score(root,round_name,**kw):
+        seen.append(('score',round_name))
+        lab._save(root/f'{round_name}_scoreboard.json',
+                  {'round':round_name,'target':lab.ROUNDS[round_name],
+                   'results':[{'arm':'baseline','eligible':True,'score':.7}]})
+    monkeypatch.setattr(lab,'score',partial_score)
+    with pytest.raises(RuntimeError,match='Only 1 of 2'):
+        lab.autopilot(tmp_path,seed=733,envs=2048,device='cuda',
+                      screen_envs=256,screen_horizon=350,provenance={})
+    assert ('score','round1') in seen
+    assert not any(x[0]=='train' and x[1].startswith('round2/') for x in seen)
+
+
+def test_score_cache_only_reuses_matching_checkpoint_hashes_and_cohort(tmp_path,monkeypatch):
+    data={'round':'round1','target':26_000_000,'screen_pitch_deg':15.,
+          'screen_envs':256,'screen_horizon':350,'results':[]}
+    for name in lab.BY_NAME:
+        folder=tmp_path/'round1'/name/'checkpoints'
+        folder.mkdir(parents=True)
+        ck=folder/'final.pkl'
+        ck.write_bytes(name.encode())
+        data['results'].append({'arm':name,'checkpoint_sha256':lab._hash(ck)})
+    lab._save(tmp_path/'round1_scoreboard.json',data)
+    (tmp_path/'round1_scorecard.md').write_text('test report')
+    monkeypatch.setattr(lab,'completed',
+        lambda root,stage,name,envs:root/stage/name/'checkpoints'/'final.pkl')
+    assert lab.score_is_current(tmp_path,'round1',envs=2048,
+                                screen_envs=256,screen_horizon=350)
+    assert not lab.score_is_current(tmp_path,'round1',envs=2048,
+                                    screen_envs=512,screen_horizon=350)
+    (tmp_path/'round1'/'baseline'/'checkpoints'/'final.pkl').write_bytes(b'different')
+    assert not lab.score_is_current(tmp_path,'round1',envs=2048,
+                                    screen_envs=256,screen_horizon=350)
