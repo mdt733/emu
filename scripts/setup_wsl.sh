@@ -82,7 +82,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
 emu viewer-build
-emu forge --plan
+emu lab5015 --stage plan
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer viewer/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. To begin later: emu forge\n'
+printf 'Setup never starts training. After the v5015 GPU smoke passes, begin the experiment with: emu lab5015 --stage foundation\n'

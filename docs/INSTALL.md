@@ -1,6 +1,6 @@
-# Installing and maintaining EMU v5014
+# Installing and maintaining EMU (v5015 development)
 
-This guide is for a **fresh clone** on Ubuntu/WSL2, or for recovering a known-good existing installation. The production project is a Python/MJX trainer plus a separately built browser viewer. None of these steps start the 400M-step job without an explicit `emu forge`.
+This guide is for a **fresh clone** on Ubuntu/WSL2, or for recovering a known-good existing installation. The production project is a Python/MJX trainer plus a separately built browser viewer. None of these steps start a training run. The v5015 experimental branch uses `emu lab5015` for short shared-foundation experiments; the original `emu forge` remains a separate v5014 training recipe.
 
 ## Prerequisites
 
