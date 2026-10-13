@@ -343,3 +343,7 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
 .scale-legend .axis-y { color: #7fd2e6; }
 .scale-legend .legend-sep { opacity: .5; }
 @media (max-width: 780px) { .scale-legend { display: none; } }
+
+/* Keep the newly added view switch accessible without crowding tiny phones. */
+#cameraBtn { border-color: rgba(80,206,187,.42); color: #b6f1e6; }
+@media (max-width: 540px) { #cameraBtn { padding: 0 8px; font-size: 11px; min-height: 38px; } }
