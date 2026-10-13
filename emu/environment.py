@@ -244,6 +244,24 @@ def command_phase_rate(vx, vy, vx_hi_max, phase_speed_gain, base_phase_rate):
     return jnp.minimum(PHASE_RATE_MAX_HZ, base_phase_rate + phase_speed_gain * speed_fraction)
 
 
+def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
+    """Body-heading velocity across the contact plane, independent of torso pitch.
+
+    A pitched chassis must not redefine what a requested forward or lateral
+    ground speed means. Coordinates use the simulator's flat contact plane:
+    local +X gives forward heading, and local +Y gives left. For v5015 only;
+    actor IMU/body-frame observations retain their original sensor contract.
+    """
+    heading_xy = rotation_world[:, :2, 0]
+    heading_xy = heading_xy / xp.maximum(
+        xp.linalg.norm(heading_xy, axis=1, keepdims=True), 1e-6)
+    hx, hy = heading_xy[:, 0], heading_xy[:, 1]
+    vx = hx * linear_world[:, 0] + hy * linear_world[:, 1]
+    vy = -hy * linear_world[:, 0] + hx * linear_world[:, 1]
+    yaw_rate = angular_world[:, 2]
+    return vx, vy, yaw_rate
+
+
 class EmuMJXEnv:
     """A JAX/MJX vector environment with all envs stepped in one device batch."""
 
@@ -1249,6 +1267,15 @@ class EmuMJXEnv:
         # is exactly the operator semantics used by the browser/physical control
         # surface. Positive command requests nose-up/back lean relative to local
         # gravity, not relative to the world's nominal flat plane.
+        # v5015 movement targets are horizontal world motion relative to
+        # the robot's ground-heading, NOT body-local X/Y speed. Otherwise
+        # the same walk earns a different vx score as the camera tilts.
+        if self.attitude_profile == 'v5015':
+            motion_vx, motion_vy, motion_yaw = horizontal_tracking_motion(
+                jnp, self._rotation_body_to_world(data),
+                data.qvel[:, 0:3], data.qvel[:, 3:6])
+        else:
+            motion_vx, motion_vy, motion_yaw = body_vel[:, 0], body_vel[:, 1], body_ang[:, 2]
         body_pitch = jnp.arctan2(projected_gravity[:, 0], -projected_gravity[:, 2])
         body_roll = jnp.arctan2(-projected_gravity[:, 1], -projected_gravity[:, 2])
         pitch_err = body_pitch - task[:, T.pitch]
@@ -1338,7 +1365,7 @@ class EmuMJXEnv:
             'birth_transition_d': task[:, T.birth_transition_d],
             'birth_resilience_d': task[:, T.birth_resilience_d],
             'birth_posture_d': task[:, T.birth_posture_d],
-            'vx': body_vel[:, 0], 'vy': body_vel[:, 1], 'yaw_rate': body_ang[:, 2],
+            'vx': motion_vx, 'vy': motion_vy, 'yaw_rate': motion_yaw,
             'cmd_vx': task[:, T.vx], 'cmd_vy': task[:, T.vy], 'cmd_yaw': task[:, T.yaw],
             'cmd_pitch': task[:, T.pitch], 'body_pitch': body_pitch,
             'cmd_roll': task[:, T.roll], 'body_roll': body_roll,
