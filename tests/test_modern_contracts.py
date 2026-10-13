@@ -273,7 +273,7 @@ def test_field_teacher_provenance_is_not_an_actor_channel():
     assert 'field_taught' not in BASE_OBS_FIELDS
 
 def test_foundation_handoff_uses_complete_update_boundary():
-    from emu.experiments import foundation_handoff_step, update_boundary_at_or_after
+    from emu.run_support import foundation_handoff_step, update_boundary_at_or_after
     batch = 2048 * 32
     assert foundation_handoff_step(2048) == 20_054_016
     assert foundation_handoff_step(2048) % batch == 0
@@ -282,12 +282,12 @@ def test_foundation_handoff_uses_complete_update_boundary():
 
 
 def test_partial_foundation_checkpoint_is_resume_only_not_fork_ancestor():
-    from emu.experiments import resolve_foundation_handoff
+    from emu.run_support import resolve_foundation_handoff
     foundation = Path('/tmp/foundation-contract')
     partial = foundation / 'checkpoints' / 'latest.pkl'
-    with patch('emu.experiments.find_resume', return_value=partial), \
-         patch('emu.experiments.find_valid_resume', return_value=partial), \
-         patch('emu.experiments.checkpoint_step', return_value=12_000_000):
+    with patch('emu.run_support.find_resume', return_value=partial), \
+         patch('emu.run_support.find_valid_resume', return_value=partial), \
+         patch('emu.run_support.checkpoint_step', return_value=12_000_000):
         complete, resume, expected = resolve_foundation_handoff(foundation, envs=2048)
     assert complete is None
     assert resume == partial
@@ -295,14 +295,14 @@ def test_partial_foundation_checkpoint_is_resume_only_not_fork_ancestor():
 
 
 def test_exact_handoff_checkpoint_is_promoted_to_final():
-    from emu.experiments import resolve_foundation_handoff
+    from emu.run_support import resolve_foundation_handoff
     foundation = Path('/tmp/foundation-contract')
     latest = foundation / 'checkpoints' / 'latest.pkl'
     final = foundation / 'checkpoints' / 'final.pkl'
-    with patch('emu.experiments.find_resume', return_value=latest), \
-         patch('emu.experiments.find_valid_resume', return_value=latest), \
-         patch('emu.experiments.checkpoint_step', return_value=20_054_016), \
-         patch('emu.experiments.promote_checkpoint', return_value=final) as promote:
+    with patch('emu.run_support.find_resume', return_value=latest), \
+         patch('emu.run_support.find_valid_resume', return_value=latest), \
+         patch('emu.run_support.checkpoint_step', return_value=20_054_016), \
+         patch('emu.run_support.promote_checkpoint', return_value=final) as promote:
         complete, resume, expected = resolve_foundation_handoff(foundation, envs=2048)
     assert complete == final and resume is None and expected == 20_054_016
     promote.assert_called_once_with(latest, final)
