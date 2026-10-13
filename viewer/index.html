@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <meta name="theme-color" content="#0b0f14" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230b0f14'/%3E%3Cpath%20d='M18%2014h30v9H28v8h17v9H28v8h20v9H18z'%20fill='%2349c9bf'/%3E%3C/svg%3E" />
   <title>EMU Viewer</title>
   <script type="module" src="/src/main.js"></script>
 </head>
@@ -13,17 +14,18 @@
 
     <header class="topbar glass">
       <div class="brand">
-        <strong>EMU</strong><span>local policy viewer</span>
+        <strong>EMU</strong><span id="modeLabel">policy playground</span>
       </div>
       <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
       <div class="top-actions">
         <label class="file-button">
           <input id="policyFile" type="file" multiple accept=".emupolicy,.json,application/json" />
-          Load policies
+          <span class="load-label">Load policies</span><span class="load-short">Load</span>
         </label>
         <select id="policySelect" class="policy-select" aria-label="Loaded policy" hidden></select>
         <button id="pauseBtn" type="button" disabled>Pause</button>
         <button id="resetBtn" type="button" disabled>Reset</button>
+        <button id="settingsOpen" type="button" aria-controls="settingsDrawer" aria-expanded="false">Settings</button>
       </div>
     </header>
 
@@ -38,18 +40,10 @@
       <div class="metric"><span>pitch</span><b id="pitchRead">—</b></div>
     </aside>
 
-    <section id="livePanel" class="live-panel glass" hidden aria-label="Live training viewer">
-      <div class="live-head"><b>LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
-      <div class="live-progress">Validated step <b id="liveStep">—</b></div>
-      <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
-      <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
-      <label><input id="liveDemo" type="checkbox" checked /> Demonstration: random in-envelope commands</label>
-      <div class="live-demo-status">Current maneuver: <b id="demoKind">—</b></div>
-      <div class="live-foot">Prioritises training-evidenced commands; otherwise uses conservative curriculum limits. Not held-out proof. Read-only.</div>
-    </section>
+
 
     <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
-      <div class="result-head"><b>TOURNAMENT</b><span id="resultRole">—</span></div>
+      <div class="result-head"><b>EVALUATION</b><span id="resultRole">—</span></div>
       <div class="result-grid">
         <div><span>Broad</span><b id="resultBroad">—</b></div>
         <div><span>Hard recovery</span><b id="resultHard">—</b></div>
@@ -60,15 +54,19 @@
       </div>
     </section>
 
-    <section id="pitchNotice" class="notice glass" hidden>
-      v5013 already exposes <code>cmd_pitch</code> to the actor, but does not explicitly reward pitch tracking. Pitch control here is experimental until v5014 trains it as an objective.
-    </section>
 
-    <section class="controls-panel glass">
+
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
+      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>Environment &amp; commands</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
+      <section class="controls-panel">
       <div class="control-row">
         <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
         <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
         <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
+        <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid</label>
+        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
+        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
       </div>
       <details>
         <summary>Advanced commands</summary>
@@ -79,7 +77,27 @@
           <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
         </div>
       </details>
-    </section>
+      <div class="drawer-tip">Settings affect this browser simulation only; they do not change the trained policy.</div>
+      </section>
+      <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
+        <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
+        <div class="live-progress">Validated step <b id="liveStep">—</b></div>
+        <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
+        <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
+        <label><input id="liveDemo" type="checkbox" checked /> Demonstration: random in-envelope commands</label>
+        <div class="live-demo-status">Current maneuver: <b id="demoKind">—</b></div>
+        <div class="live-foot">Prioritises training-evidenced commands; otherwise uses conservative curriculum limits. Not held-out proof. Read-only.</div>
+      </section>
+      <section id="pitchNotice" class="notice glass" hidden>
+            v5013 already exposes <code>cmd_pitch</code> to the actor, but does not explicitly reward pitch tracking. Pitch control here is experimental until v5014 trains it as an objective.
+          </section>
+      <div class="drawer-footer"><a id="sourceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Source on GitHub ↗</a><span id="showcaseNote" hidden></span></div>
+    </aside>
+
+    <div id="scaleLegend" class="scale-legend glass" aria-label="Floor scale">
+      <span><b>10 cm</b> squares</span><span class="legend-sep">·</span><span><b>1 m</b> bold</span>
+      <span class="legend-sep">·</span><span class="axis-x">world X</span><span class="axis-y">world Y</span>
+    </div>
 
     <div class="sticks" aria-label="Touch controls">
       <div class="stick-wrap">
@@ -98,6 +116,9 @@
       </div>
     </div>
 
+    <div id="showcaseBanner" class="showcase-banner glass" hidden role="status">
+      <b id="showcaseTitle">EMU Playground</b><span id="showcaseSubtitle"></span>
+    </div>
     <div id="dropOverlay" class="drop-overlay" hidden>Drop .emupolicy here</div>
   </div>
 </body>

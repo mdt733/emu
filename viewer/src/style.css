@@ -87,15 +87,7 @@ button:disabled { opacity: .4; cursor: default; }
   font-size: 12px;
   line-height: 1.35;
 }
-.controls-panel {
-  position: absolute;
-  z-index: 15;
-  right: 10px;
-  bottom: 202px;
-  width: min(420px, calc(100vw - 20px));
-  border-radius: 14px;
-  padding: 8px 10px;
-}
+.controls-panel { padding: 4px 0 16px; }
 .control-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #b8c4d2; }
 .control-row label { display: inline-flex; gap: 6px; align-items: center; }
 details { margin-top: 7px; }
@@ -175,7 +167,7 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
   .top-actions button { padding: 0 10px; }
   .telemetry { top: 74px; width: 190px; grid-template-columns: 1fr 1fr; }
   .notice { top: 74px; left: 210px; max-width: none; font-size: 10px; }
-  .controls-panel { left: 10px; right: 10px; bottom: 174px; width: auto; padding: 6px 8px; }
+
   .sliders { grid-template-columns: 1fr 1fr; }
   .stick-wrap { width: 145px; }
   .stick { width: 116px; height: 116px; }
@@ -187,7 +179,7 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
   #pauseBtn { display: none; }
   .telemetry { display: none; }
   .notice { left: 10px; right: 10px; top: 70px; }
-  .controls-panel { bottom: 160px; }
+
   .control-row { gap: 8px; }
   .sliders { grid-template-columns: 1fr; max-height: 155px; overflow-y: auto; }
   .stick-wrap { width: 132px; }
@@ -259,3 +251,95 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
  .live-head span { display:block; text-align:left; }
  .live-foot { display:none; }
 }
+
+/* The joystick deck is always clear: settings live in a dismissible drawer. */
+#settingsOpen { border-color: rgba(130,188,255,.4); background: rgba(36,61,82,.9); }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(2,8,16,.55); z-index: 45; }
+.settings-drawer {
+  position: fixed; z-index: 46;
+  top: max(76px, calc(env(safe-area-inset-top) + 66px));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(365px, calc(100vw - 24px));
+  border-radius: 17px;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 22px 90px rgba(0,0,0,.65);
+}
+.drawer-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.1); }
+.drawer-heading > div { display: flex; flex-direction: column; gap: 4px; }
+.drawer-heading b { font-size: 12px; letter-spacing: .14em; }
+.drawer-heading span { font-size: 11px; color: #90a6bc; }
+#settingsClose { min-width: 42px; padding: 0; font-size: 17px; }
+.settings-drawer .control-row { display: flex; flex-direction: column; align-items: start; gap: 15px; padding: 10px 0 16px; }
+.settings-drawer .control-row label { font-size: 13px; }
+.settings-drawer details { border-top: 1px solid rgba(255,255,255,.1); padding-top: 15px; }
+.settings-drawer summary { font-size: 13px; color: #dce9fb; }
+.settings-drawer .sliders { grid-template-columns: 1fr; gap: 16px; }
+.settings-drawer .sliders label { font-size: 12px; }
+.settings-drawer input[type="range"] { accent-color: #8cc4f7; }
+.drawer-tip { font-size: 11px; line-height: 1.5; margin-top: 12px; color: #869ab0; }
+.drawer-footer { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 14px; font-size: 11px; color: #91a8be; }
+.drawer-footer a { color: #a9d6ff; }
+.showcase-banner { position: absolute; left: 10px; bottom: 12px; z-index: 15; max-width: min(390px, calc(100vw - 20px)); padding: 9px 13px; border-radius: 12px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
+.showcase-banner b { font-size: 11px; letter-spacing: .04em; }
+.showcase-banner span { font-size: 11px; color: #afc1d5; line-height: 1.4; }
+@media (max-width: 720px) {
+  .showcase-banner { bottom: 190px; max-width: 230px; }
+  .settings-drawer { top: 72px; bottom: 8px; }
+  .top-actions { gap: 5px; }
+  #settingsOpen { padding: 0 10px; }
+}
+@media (max-width: 430px) {
+  .showcase-banner { bottom: 158px; padding: 7px 9px; }
+  .showcase-banner span { display: none; }
+  .settings-drawer { left: 8px; right: 8px; width: auto; }
+}
+
+.load-short { display:none; }
+@media (max-width:430px) {
+  .load-label { display:none; }
+  .load-short { display:inline; }
+  .topbar { gap:6px; }
+  .top-actions button, .file-button { min-height:39px; }
+}
+
+/* Live checkpoint and autonomous-demo switches are also settings, not overlays. */
+.settings-drawer .live-panel {
+  position: static;
+  width: auto;
+  max-width: none;
+  padding: 15px 0;
+  margin-top: 10px;
+  border: 0;
+  border-top: 1px solid rgba(255,255,255,.1);
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+}
+.settings-drawer .live-panel label { margin: 12px 0; }
+
+/* The status banner sits between controls, never underneath either stick. */
+.showcase-banner { left: 50%; transform: translateX(-50%); right: auto; bottom: 16px; }
+.settings-drawer .notice { position: static; max-width: none; width: 100%; margin-bottom: 12px; }
+@media (max-width:720px) {
+  .showcase-banner { top: 75px; bottom: auto; left: auto; right: 10px; transform: none; }
+}
+@media (max-width:430px) {
+  .showcase-banner { top: 72px; bottom: auto; }
+}
+
+/* Readable scale without crowding joysticks, and without any 3D UI draw calls. */
+.scale-legend {
+  position: absolute; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%;
+  transform: translateX(-50%); z-index: 18; pointer-events: none;
+  border-radius: 999px; padding: 8px 12px; display: flex;
+  align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
+  font-size: 11px; color: #b3c8d6;
+}
+.scale-legend b { color: #f2f8fc; }
+.scale-legend .axis-x { color: #edaf70; }
+.scale-legend .axis-y { color: #7fd2e6; }
+.scale-legend .legend-sep { opacity: .5; }
+@media (max-width: 780px) { .scale-legend { display: none; } }

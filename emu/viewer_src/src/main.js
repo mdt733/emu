@@ -1,8 +1,10 @@
 import './style.css';
 import { parsePolicy } from './policy.js';
 import { VirtualStick } from './joystick.js';
+import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { DemoCommander } from './live-demo.js';
+import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
@@ -14,6 +16,9 @@ const resetBtn = $('resetBtn');
 const followToggle = $('followToggle');
 const autoResetToggle = $('autoResetToggle');
 const noiseToggle = $('noiseToggle');
+const gridToggle = $('gridToggle');
+const trailToggle = $('trailToggle');
+const shadowToggle = $('shadowToggle');
 const pitchNotice = $('pitchNotice');
 const dropOverlay = $('dropOverlay');
 const leftValues = $('leftValues');
@@ -23,6 +28,26 @@ const demo = new DemoCommander();
 let demoActive = false;
 let liveRevision = null;
 let livePolling = false;
+let showcaseManifest = null;
+
+const settingsDrawer = $('settingsDrawer');
+const drawerBackdrop = $('drawerBackdrop');
+const settingsOpen = $('settingsOpen');
+const settingsClose = $('settingsClose');
+function setSettingsOpen(open) {
+  settingsDrawer.hidden = !open;
+  drawerBackdrop.hidden = !open;
+  settingsDrawer.setAttribute('aria-hidden', String(!open));
+  settingsOpen.setAttribute('aria-expanded', String(open));
+  if (open) settingsClose.focus();
+  else settingsOpen.focus();
+}
+settingsOpen.addEventListener('click', () => setSettingsOpen(true));
+settingsClose.addEventListener('click', () => setSettingsOpen(false));
+drawerBackdrop.addEventListener('click', () => setSettingsOpen(false));
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !settingsDrawer.hidden) { setSettingsOpen(false); e.preventDefault(); }
+});
 
 let sim = null;
 let bundle = null;
@@ -48,11 +73,7 @@ function limits() {
 }
 
 function updateStickLabels() {
-  const l = limits();
-  const vx = left.y >= 0 ? left.y*l.vx_max : (-left.y)*l.vx_min;
-  const vy = left.x*l.vy_abs;
-  const yaw = -right.x*l.yaw_abs;
-  const pitch = right.y*l.pitch_abs_rad;
+  const {vx, vy, yaw, pitch} = joystickToCommands(left.x, left.y, right.x, right.y, limits());
   leftValues.textContent = `vx ${fmtSigned(vx)} · vy ${fmtSigned(vy)}`;
   rightValues.textContent = `yaw ${fmtSigned(yaw)} · pitch ${fmtSigned(deg(pitch),1)}°`;
   sim?.setJoystickTargets(left.x, left.y, right.x, right.y);
@@ -127,12 +148,21 @@ async function activatePolicy(index) {
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
+    sim.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
     applyAdvanced();
     updateStickLabels();
 
     const src = bundle.source || {};
     $('policyName').textContent = src.run_name || entry.fileName;
     $('policyStep').textContent = Number(src.step || 0).toLocaleString();
+    if (showcaseManifest) {
+      $('showcaseTitle').textContent = entry.isShowcase
+        ? (showcaseManifest.trained ? 'CHAMPION POLICY' : 'UNTRAINED PREVIEW')
+        : 'LOCAL POLICY';
+      $('showcaseSubtitle').textContent = entry.isShowcase
+        ? (showcaseManifest.trained ? 'Browser-local physics and inference · no account needed' : 'Viewer preview only. This is not a trained walking policy.')
+        : 'Your own dropped policy — not the published model';
+    }
     pitchNotice.hidden = bundle.features?.pitch_tracking_trained === true;
     updateResultCard();
     refreshPolicySelect();
@@ -191,6 +221,12 @@ resetBtn.addEventListener('click', () => sim?.reset());
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
+const applyAppearance = () => {
+  sim?.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
+  $('scaleLegend').hidden = !gridToggle.checked;
+};
+for (const control of [gridToggle, trailToggle, shadowToggle]) control.addEventListener('change', applyAppearance);
+
 
 window.addEventListener('resize', () => sim?.resize());
 window.addEventListener('beforeunload', () => sim?.dispose());
@@ -223,7 +259,7 @@ function updateKeyboard() {
   else if (rightStick.pointerId === null && [...held].some(k => ['KeyQ','KeyE','KeyR','KeyF'].includes(k)) === false) rightStick.set(0,0);
 }
 window.addEventListener('keydown', e => {
-  if (['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
+  if (!settingsDrawer.hidden || ['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
   if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyF'].includes(e.code)) {
     if (demoActive) stopDemo();
     held.add(e.code); updateKeyboard(); e.preventDefault();
@@ -318,26 +354,84 @@ async function pollLive() {
   }
 }
 
+async function startShowcaseFeed() {
+  // Relative URLs intentionally support GitHub Pages project subpaths.
+  const manifestResponse = await fetch(new URL('./showcase.json', document.baseURI), {cache:'no-store'});
+  const manifest = await readShowcaseManifest(manifestResponse);
+  showcaseManifest = manifest;
+  $('modeLabel').textContent = 'public playground';
+  $('showcaseBanner').hidden = false;
+  $('showcaseTitle').textContent = manifest.trained ? 'CHAMPION POLICY' : 'UNTRAINED PREVIEW';
+  $('showcaseSubtitle').textContent = manifest.trained
+    ? 'Browser-local physics and inference · no account needed'
+    : 'Viewer preview only. This is not a trained walking policy.';
+  $('showcaseNote').hidden = false;
+  $('showcaseNote').textContent = manifest.trained
+    ? 'Autonomous commands are demonstrations, not held-out evaluation.'
+    : 'Preview weights are untrained. A trained champion has not been published yet.';
+  if (manifest.source_url) {
+    $('sourceLink').href = manifest.source_url;
+    $('sourceLink').hidden = false;
+  }
+  setStatus('Fetching bundled policy…', 'warn');
+  const file = await fetch(showcasePolicyUrl(manifest, document.baseURI), {cache:'no-store'});
+  assertShowcasePolicyResponse(file);
+  const parsed = parsePolicy(await file.text());
+  policyLibrary.push({fileName:manifest.label, bundle:parsed, isShowcase:true});
+  const ok = await activatePolicy(policyLibrary.length - 1);
+  if (!ok) throw new Error('Showcase policy could not be started');
+  demoActive = manifest.autoplay;
+  $('liveDemo').checked = demoActive;
+  // The public playground gets the same demo controls as the live watcher.
+  livePanel.hidden = false;
+  $('demoPanelTitle').textContent = 'DEMO CONTROLS';
+  $('liveUpdate').closest('label').hidden = true;
+  $('livePhase').textContent = manifest.trained ? 'Published champion' : 'Untrained fixture';
+  $('liveStep').textContent = Number(parsed.source?.step || 0).toLocaleString();
+  $('liveNote').textContent = manifest.trained
+    ? 'Static, published policy — no training server required'
+    : 'Demo fixture: explore the controls, not the walking performance';
+  $('demoKind').textContent = demoActive ? 'choosing command…' : 'manual control';
+  sim.autoReset = autoResetToggle.checked || demoActive;
+  return true;
+}
+
 async function startViewerFeed() {
   try {
-    const response = await fetch('/api/viewer-config', {cache:'no-store'});
-    if (!response.ok) return; // Works as a plain standalone Vite viewer.
-    const config = await response.json();
-    if (config.initial_policy && !config.live) {
-      const file = await fetch('/api/initial-policy', {cache:'no-store'});
-      if (file.ok) {
-        const parsed = parsePolicy(await file.text());
-        policyLibrary.push({fileName:'Preloaded policy',bundle:parsed});
-        await activatePolicy(policyLibrary.length-1);
+    // Local Python server takes precedence, including when a previously built
+    // static showcase manifest happens to be present in webviewer_dist.
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+    if (loopback) {
+      const response = await fetch('/api/viewer-config', {cache:'no-store'});
+      // The Vite preview SPA fallback responds with index.html and HTTP 200
+      // for /api/viewer-config. Only actual JSON can identify our Python API.
+      if (isJsonResponse(response)) {
+        const config = await response.json();
+        if (!isViewerConfig(config)) {
+          throw new Error('Invalid EMU local viewer API configuration');
+        }
+        if (config.initial_policy && !config.live) {
+          const file = await fetch('/api/initial-policy', {cache:'no-store'});
+          if (file.ok) {
+            const parsed = parsePolicy(await file.text());
+            policyLibrary.push({fileName:'Preloaded policy',bundle:parsed});
+            await activatePolicy(policyLibrary.length-1);
+          }
+        }
+        if (config.live) {
+          livePanel.hidden = false;
+          demoActive = $('liveDemo').checked;
+          await pollLive();
+          setInterval(pollLive, 12000);
+        }
+        return;
       }
     }
-    if (config.live) {
-      livePanel.hidden = false;
-      demoActive = $('liveDemo').checked;
-      await pollLive();
-      setInterval(pollLive, 12000);
-    }
-  } catch (err) { console.warn('Viewer feed not configured:', err); }
+    await startShowcaseFeed();
+  } catch (err) {
+    console.error('Viewer startup:', err);
+    setStatus(`Startup: ${err?.message || String(err)}`, 'error');
+  }
 }
 
 applyAdvanced();

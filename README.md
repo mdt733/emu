@@ -66,3 +66,10 @@ The live viewer watches **completed, validated checkpoints** on loopback (`127.0
 ## Cleaning `robot_lab/` safely
 
 Run `bash scripts/workspace_tidy.sh` to **preview** recognized legacy extraction/backup folders outside this Git checkout. When comfortable, `bash scripts/workspace_tidy.sh --quarantine` **moves** those candidates into a dated archive **outside `robot_lab`**, without deleting any bytes or touching `emu/` and `emu_runs/`. See [the cleanup instructions](docs/INSTALL.md#workspace-cleanup) before using it.
+
+## Public EMU Playground
+
+The public Playground runs the MuJoCo browser simulator without a Python server
+and starts with an explicitly untrained demo policy until you publish a champion.
+See [Playground setup and deployment](docs/PLAYGROUND.md) for local previews,
+viewer appearance controls, GitHub Pages and release instructions.

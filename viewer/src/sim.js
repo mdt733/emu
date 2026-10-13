@@ -4,6 +4,8 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
+import { joystickToCommands } from './controls.js';
+import { createGridTexture, createSkyTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -56,11 +58,20 @@ export class EmuBrowserSim {
     this.maxGeoms = 2048;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0b0f14);
+    this.skyTexture = createSkyTexture(THREE);
+    this.scene.background = this.skyTexture;
+    this.scene.fog = new THREE.Fog(0x263944, 7, 24);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.gridTexture = createGridTexture(THREE);
+    this.showGrid = true;
+    this.showTrail = true;
+    this.showShadows = true;
+    this.createWorldGuides();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.01, 50);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(-0.72, -0.78, 0.52);
@@ -103,13 +114,74 @@ export class EmuBrowserSim {
   }
 
   addLights() {
-    const hemi = new THREE.HemisphereLight(0xdde9ff, 0x253040, 1.25);
+    const hemi = new THREE.HemisphereLight(0xc9e0fb, 0x344350, 1.15);
     this.scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.set(-1.5, -1.0, 2.5);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    this.scene.add(key);
+    const fill = new THREE.DirectionalLight(0x9bc4db, 0.5);
+    fill.position.set(2, 2.5, 2.2);
+    this.scene.add(fill);
+    this.keyLight = new THREE.DirectionalLight(0xffefdb, 2.05);
+    this.keyLight.position.set(-1.8, -2.4, 3.5);
+    this.keyLight.castShadow = true;
+    // 1024 rather than 2048: a quarter of the old shadow-map pixels.
+    this.keyLight.shadow.mapSize.set(1024, 1024);
+    this.keyLight.shadow.camera.left = -2.4;
+    this.keyLight.shadow.camera.right = 2.4;
+    this.keyLight.shadow.camera.top = 2.4;
+    this.keyLight.shadow.camera.bottom = -2.4;
+    this.keyLight.shadow.camera.near = 0.15;
+    this.keyLight.shadow.camera.far = 12;
+    this.keyLight.shadow.camera.updateProjectionMatrix();
+    this.keyLight.shadow.bias = -0.00015;
+    this.keyLight.shadow.normalBias = 0.008;
+    this.keyLight.target.position.set(0, 0, 0.08);
+    this.scene.add(this.keyLight, this.keyLight.target);
+  }
+
+  createWorldGuides() {
+    const trail = new GroundTrail();
+    this.pathTrail = trail;
+    const trailGeometry = new THREE.BufferGeometry();
+    trailGeometry.setAttribute('position', new THREE.BufferAttribute(trail.coords, 3).setUsage(THREE.DynamicDrawUsage));
+    trailGeometry.setDrawRange(0, 0);
+    this.trailLine = new THREE.Line(trailGeometry, new THREE.LineBasicMaterial({color: 0x80d6d2, transparent: true, opacity: 0.78, depthWrite: false}));
+    this.trailLine.frustumCulled = false;
+    this.scene.add(this.trailLine);
+
+    // World X (warm), world Y (cyan). Only two simple line segments.
+    const axes = new THREE.BufferGeometry();
+    axes.setAttribute('position', new THREE.Float32BufferAttribute([
+      -1.5, 0, 0.009, 1.5, 0, 0.009,
+      0, -1.5, 0.009, 0, 1.5, 0.009,
+    ], 3));
+    axes.setAttribute('color', new THREE.Float32BufferAttribute([
+      0.94, 0.62, 0.32, 0.94, 0.62, 0.32,
+      0.35, 0.80, 0.91, 0.35, 0.80, 0.91,
+    ], 3));
+    this.worldAxes = new THREE.LineSegments(axes, new THREE.LineBasicMaterial({vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false}));
+    this.scene.add(this.worldAxes);
+  }
+
+  setAppearance({grid, trail, shadows} = {}) {
+    if (typeof grid === 'boolean' && grid !== this.showGrid) {
+      this.showGrid = grid;
+      for (const mesh of this.meshes) {
+        if (!mesh.userData.floor) continue;
+        mesh.material.map = grid ? this.gridTexture : null;
+        mesh.material.color.setHex(grid ? 0xffffff : 0x40515e);
+        mesh.material.needsUpdate = true;
+      }
+      this.worldAxes.visible = grid;
+    }
+    if (typeof trail === 'boolean') {
+      this.showTrail = trail;
+      this.trailLine.visible = trail;
+    }
+    if (typeof shadows === 'boolean' && shadows !== this.showShadows) {
+      this.showShadows = shadows;
+      this.keyLight.castShadow = shadows;
+      this.renderer.shadowMap.enabled = shadows;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
   }
 
   disposeModel() {
@@ -127,6 +199,12 @@ export class EmuBrowserSim {
 
   dispose() {
     this.disposeModel();
+    this.skyTexture.dispose();
+    this.gridTexture.dispose();
+    this.trailLine.geometry.dispose();
+    this.trailLine.material.dispose();
+    this.worldAxes.geometry.dispose();
+    this.worldAxes.material.dispose();
     this.mjvCamera?.delete();
     this.mjvPerturb?.delete();
     this.mjvOption?.delete();
@@ -193,16 +271,17 @@ export class EmuBrowserSim {
     this.flattenHistory();
     this.controlAccumulator = 0;
     this.fallenFor = 0;
+    this.pathTrail.clear();
+    this.trailLine.geometry.setDrawRange(0, 0);
     this.refreshScene();
   }
 
   setJoystickTargets(leftX, leftY, rightX, rightY) {
-    const lim = this.bundle.control.command_limits;
-    const vx = leftY >= 0 ? leftY * lim.vx_max : (-leftY) * lim.vx_min;
-    this.commandTarget.vx = vx;
-    this.commandTarget.vy = leftX * lim.vy_abs;
-    this.commandTarget.yaw = -rightX * lim.yaw_abs;
-    this.commandTarget.pitch = rightY * lim.pitch_abs_rad;
+    // One mapping for manual command values and their on-screen labels.
+    // Positive screen-right must map to the physically rightward strafe.
+    Object.assign(this.commandTarget, joystickToCommands(
+      leftX, leftY, rightX, rightY, this.bundle.control.command_limits,
+    ));
   }
 
   setDemoCommands({ vx, vy, yaw, pitch }) {
@@ -411,7 +490,7 @@ export class EmuBrowserSim {
     if (this.geometryCache.has(key)) return this.geometryCache.get(key);
     let g;
     if (type === mj.mjtGeom.mjGEOM_PLANE.value) {
-      g = new THREE.PlaneGeometry(20, 20);
+      g = new THREE.PlaneGeometry(FLOOR_SIZE_M, FLOOR_SIZE_M);
     } else if (type === mj.mjtGeom.mjGEOM_SPHERE.value) {
       g = new THREE.SphereGeometry(size[0], 24, 16);
     } else if (type === mj.mjtGeom.mjGEOM_CAPSULE.value) {
@@ -442,16 +521,20 @@ export class EmuBrowserSim {
       const pos = Array.from(vg.pos, Number);
       let mesh = this.meshes[i];
       if (!mesh) {
-        const material = new THREE.MeshStandardMaterial({ roughness: 0.72, metalness: 0.02 });
+        const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
+        const material = isFloor
+          ? new THREE.MeshStandardMaterial({map: this.showGrid ? this.gridTexture : null, roughness: 0.98, metalness: 0, color: this.showGrid ? 0xffffff : 0x40515e})
+          : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.userData.floor = isFloor;
+        mesh.castShadow = !isFloor;
+        mesh.receiveShadow = isFloor;
         mesh.matrixAutoUpdate = false;
         this.meshes.push(mesh);
         this.scene.add(mesh);
       }
       mesh.visible = true;
-      mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
+      if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
       mesh.matrix.set(
@@ -460,11 +543,28 @@ export class EmuBrowserSim {
         mat[6], mat[7], mat[8], pos[2],
         0, 0, 0, 1,
       );
+      if (mesh.userData.floor) {
+        // MuJoCo's contact plane is infinite; slide the *render-only* tile by
+        // whole texture repeats. World-space 10-cm squares never move underfoot.
+        const o = this.torsoId * 3;
+        mesh.matrix.elements[12] += floorTileOrigin(Number(this.data.xpos[o]));
+        mesh.matrix.elements[13] += floorTileOrigin(Number(this.data.xpos[o + 1]));
+      }
       mesh.matrixWorldNeedsUpdate = true;
       vg.delete();
     }
     for (let i = count; i < this.meshes.length; i++) this.meshes[i].visible = false;
     geoms.delete();
+
+    const root = this.torsoId * 3;
+    const x = Number(this.data.xpos[root]);
+    const y = Number(this.data.xpos[root + 1]);
+    this.keyLight.position.set(x - 1.8, y - 2.4, 3.5);
+    this.keyLight.target.position.set(x, y, 0.08);
+    if (this.pathTrail.add(x, y)) {
+      this.trailLine.geometry.attributes.position.needsUpdate = true;
+      this.trailLine.geometry.setDrawRange(0, this.pathTrail.count);
+    }
 
     if (this.follow) {
       const o = this.torsoId * 3;

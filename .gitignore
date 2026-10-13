@@ -36,3 +36,7 @@ __pycache__/
 # Tiny reproducible viewer fixtures are source/test inputs, not trained artefacts.
 !/viewer/demo_zero.emupolicy
 !/emu/viewer_src/demo_zero.emupolicy
+/viewer/public/
+/emu/viewer_src/public/
+/showcase/preview/
+!/showcase/champion.emupolicy
