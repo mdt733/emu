@@ -216,8 +216,10 @@ def apply_experiment_knobs(
     or incompatible value raises before training ever starts.
     """
     import math
+    from typing import get_type_hints
 
-    valid = {f.name for f in dataclass_fields(TrainingConfig)}
+    field_types = get_type_hints(TrainingConfig)
+    valid = set(field_types)
     values = {}
     for key, value in knobs:
         if key not in valid:
@@ -226,21 +228,23 @@ def apply_experiment_knobs(
             raise ValueError(f'Experiment cannot override run identity / contract: {key}')
         if key in values:
             raise ValueError(f'Duplicate experiment knob: {key}')
-        old = getattr(config, key)
-        if isinstance(old, bool):
+        declared = field_types[key]
+        # Follow the declared TrainingConfig type, not the current numeric
+        # value: several float fields can legitimately hold integer zero.
+        if declared is bool:
             valid_value = isinstance(value, bool)
-        elif isinstance(old, int):
+        elif declared is int:
             valid_value = isinstance(value, int) and not isinstance(value, bool)
-        elif isinstance(old, float) or old is None:
-            valid_value = (value is None and old is None) or (
+        elif declared in (float, float | None):
+            valid_value = (value is None and declared == float | None) or (
                 isinstance(value, (float, int)) and not isinstance(value, bool)
                 and math.isfinite(float(value)))
             if value is not None and valid_value:
                 value = float(value)
-        elif isinstance(old, str):
+        elif declared is str:
             valid_value = isinstance(value, str)
         else:
-            raise TypeError(f'Unsupported existing config knob type: {key}')
+            raise TypeError(f'Unsupported config knob annotation: {key} ({declared})')
         if not valid_value:
             raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
         values[key] = value
