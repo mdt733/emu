@@ -1,6 +1,6 @@
 # EMU training lifecycle and historical comparison design
 
-The common learning loop applies to both v5013 experiments and v5014 production. For the **actual v5014 phase sequence** and physical radii, use [v5014-production.md](v5014-production.md) rather than this history/reference page.
+The common learning loop serves the current v5015 ladder plus historical v5013/v5014 experiments. For the **actual v5014 phase sequence** and physical radii, use [v5014-production.md](v5014-production.md) rather than this history/reference page.
 
 ## A training update
 
@@ -26,4 +26,4 @@ The v5013 research used a common foundation checkpoint as the exact ancestor for
 
 The `field_taught` provenance marker indicates that practice was field-selected; it is not part of the actor's 220 inputs or a reward. The `B4_clean_evidence` experiment let those rollouts train PPO but forbade them from self-confirming the capability field.
 
-See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for science and reproducibility; `emu forge` is the default production path.
+See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for reproducibility. Today's recommended workflow is `emu ladder --stage plan` and `bash scripts/run_ladder.sh`. The older `forge` command still reproduces a historic single-lineage plan.

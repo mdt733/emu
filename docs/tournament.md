@@ -2,7 +2,7 @@
 
 ## v5015 short experiment lab
 
-**Recommended now:** `emu lab5015` with automatic short-experiment promotions, not an unattended `emu forge5015` marathon. This uses schema-7 checkpoints and the normal PPO training engine, with hard eligibility gates after matched evaluations.
+**Recommended now:** edit/inspect [`emu/ladder_recipe.py`](../emu/ladder_recipe.py), run `emu ladder --stage plan`, and start the campaign with `bash scripts/run_ladder.sh`. The former `lab5015` command remains an alias. This uses schema-7 checkpoints and the normal PPO training engine, with hard eligibility gates after matched evaluations.
 
 | Milestone | Cumulative step per policy | Extra GPU steps |
 |---|---:|---:|
@@ -46,7 +46,7 @@ The 20M foundation is a **branch checkpoint**, not a mandatory pause. Let the GP
 
 ```bash
 cd ~/robot_lab/emu
-bash scripts/run_lab5015.sh
+bash scripts/run_ladder.sh
 ```
 
 The wrapper unsets any stale `PYTHONPATH`, verifies Python is importing **v5015 from this checkout**, and runs a real GPU/MJX/PPO optimizer-update smoke test **before training**. It then starts `emu lab5015 --stage auto`: foundation → four 26M forks → common 15° and gentle-slope held-out tests → two *eligible* 34M finalists → new tests → one *eligible* 46M finalist → final score.
@@ -56,7 +56,7 @@ The runner automatically chooses the top eligible policies, but **never override
 To inspect the first matched comparison before the finalists continue:
 
 ```bash
-bash scripts/run_lab5015.sh --stop-after round1
+bash scripts/run_ladder.sh --stop-after round1
 ```
 
 Restart the default command to continue from validated checkpoints and matching scorecards, **without changing Git commit, seed or environment count**.

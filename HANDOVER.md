@@ -4,6 +4,8 @@
 
 ## v5015 status (14 October 2026)
 
+- **Separate post-merge cleanup work:** `refactor/ladder-human-first` is NOT merged. It extracts the currently tested 20/26/34/46M hypotheses and screening target into `emu/ladder_recipe.py`, adds the friendly `emu ladder` command alias and a thin `run_ladder.sh` wrapper, and reduces obsolete docs. No PPO, physics or training-config behaviour change. The user reports active training; do not pull this into its checkout. Old `forge` still has shared functions consumed by the ladder, so cannot simply be removed.
+
 - **Baseline:** Keep `main` at `fabba945` and `showcase/champion.emupolicy` unchanged until v5015 is reviewed and tested. This is the successfully deployed 60,030,976-step policy.
 - **Development:** [draft PR #1](https://github.com/mdt733/emu/pull/1) on branch `develop/playground-attitude-terrain`. Optional physical 1° ramp, three camera views, separated lean/pitch telemetry, accessible README. Local MuJoCo WASM/ramp tests remain necessary.
 - **Terminated 400M run:** user stopped it due to gradual crouching. Historical data may remain under `~/robot_lab/emu_runs/`; do not erase it.

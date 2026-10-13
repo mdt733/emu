@@ -8,7 +8,7 @@
 
 The Playground runs a published **60-million-step policy** in your browser. Move using the left joystick, turn and command chassis pitch with the right, or let the demo select commands. The new **View** button cycles orbit view, raw chassis POV, and visually levelled POV.
 
-> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation, and the next v5015 training experiment has not yet begun.
+> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation. The current experimental training runs independently; it cannot replace the protected public policy automatically.
 
 ## How it works
 
@@ -35,17 +35,29 @@ Orbit view makes gait easy to watch. **Raw POV** follows the chassis camera, sha
 |---|---|---|
 | Robot | [`emu/robot.xml`](emu/robot.xml) | Body, masses, joints, motors and contacts |
 | Environment | [`emu/environment.py`](emu/environment.py) | Physics tasks, observations, reward and resets |
-| Training | [`emu/training.py`](emu/training.py) + [`emu/production.py`](emu/production.py) | PPO learning loop and 20/60/140/260/400M training phases |
+| Today's ladder | [`emu/ladder_recipe.py`](emu/ladder_recipe.py) | The current list of steps, hypotheses and screening conditions |
+| Experiment runner | [`emu/branch_lab.py`](emu/branch_lab.py) | Checkpoint/resume safety, held-out comparison and promotion |
+| Training engine | [`emu/training.py`](emu/training.py) | PPO learning loop driven by a serialized configuration |
 | Brain | [`emu/ppo.py`](emu/ppo.py) | Neural actor/critic and optimiser |
 | Viewer | [`viewer/`](viewer/) | Canonical JavaScript source for MuJoCo WASM, controls and cameras |
 
 The other Python modules handle curriculum, domain randomisation, checkpoint safety and evidence. Tests and selected results are intentional, not clutter. `emu/viewer_src/` remains a **generated packaging mirror**, not a second editable viewer. Large training runs and raw checkpoints live outside Git.
 
+## The commands you actually need
+
+```bash
+emu ladder --stage plan        # inspect current experiment, no training
+bash scripts/run_ladder.sh     # validate GPU then execute current ladder
+emu viewer --live              # separate read-only live checkpoint viewer
+```
+
+The **editable recipe is in one small file:** [`emu/ladder_recipe.py`](emu/ladder_recipe.py). The runner calls the existing trainer and evaluators. `lab5015` remains compatible; older `forge`, `forge5015`, `train`, `compare` and `tournament` commands are for reproducing previous research, not competing everyday workflows. Do not pull this refactor into a checkout while its GPU training run is in progress.
+
 ## v5015 development
 
 The **60M public champion remains the protected baseline**. The operator stopped the v5014 400M attempt after noticing the robot progressively crouch. This might be a training incentive problem, but the cause is not yet established.
 
-The v5015 draft includes POV and experimental browser ramps **and now includes actual opt-in training changes**: posture rewards follow requested chassis pitch without confusing it with whole-robot lean, a lower-than-commanded gait earns less reward, pitch commands can change during walking, and the capability field/held-out exams use command-aware posture criteria. The 55×4 actor contract and public 60M policy remain unchanged. **These changes pass CPU contract tests but have not been GPU/MJX validated or used to train a new brain yet.**
+The v5015 draft includes POV and experimental browser ramps **and now includes actual opt-in training changes**: posture rewards follow requested chassis pitch without confusing it with whole-robot lean, a lower-than-commanded gait earns less reward, pitch commands can change during walking, and the capability field/held-out exams use command-aware posture criteria. The 55×4 actor contract and public 60M policy remain unchanged. **The user confirmed the v5015 GPU/MJX/PPO optimiser smoke passed and reports an active training run. Long-horizon learning quality remains unproven.**
 
 ```bash
 emu posture-report                         # scan ~/robot_lab/emu_runs/metrics.csv histories
@@ -59,9 +71,9 @@ Instead of a single 400M run, **`emu lab5015`** trains one common 20M foundation
 ```bash
 emu doctor --v5015-smoke   # verify GPU/MJX and new posture evaluation
 emu lab5015 --stage plan   # inspect without training
-bash scripts/run_lab5015.sh  # one GPU-safe unattended tournament
+bash scripts/run_ladder.sh  # one GPU-safe unattended tournament
 # To manually review after the four branches:
-bash scripts/run_lab5015.sh --stop-after round1
+bash scripts/run_ladder.sh --stop-after round1
 ```
 
 The reports under `~/robot_lab/emu_runs/v5015_lab1/` explain the automatically selected eligible finalists; the tournament safely stops if too few qualify. See [the experiment guide](docs/tournament.md#v5015-short-experiment-lab). Each candidate has its own validated checkpoint and logs. **Automatic early hypothesis promotion is provisional, with no GitHub Pages publication and no changes to the protected 60M champion.**
