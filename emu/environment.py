@@ -260,7 +260,8 @@ class EmuMJXEnv:
                  recovery_linvel_max_mps: float = 0.0,
                  recovery_angvel_max_rad_s: float | None = None,
                  recovery_joint_max_deg: float = 0.0,
-                 domain_config: DomainRandomizationConfig | None = None):
+                 domain_config: DomainRandomizationConfig | None = None,
+                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -270,6 +271,13 @@ class EmuMJXEnv:
         self.jnp = jnp
         self.mujoco = mujoco
         self.mjx = mjx
+        if attitude_profile not in ('v5014', 'v5015'):
+            raise ValueError(f'unknown attitude profile {attitude_profile!r}')
+        if not (0.0 < pitch_command_max_deg <= 45.0):
+            raise ValueError('pitch command maximum must be within (0, 45] degrees')
+        self.attitude_profile = attitude_profile
+        self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
+                                else float(np.deg2rad(pitch_command_max_deg)))
         self.num_envs = int(num_envs)
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
@@ -515,7 +523,7 @@ class EmuMJXEnv:
         # a coupled bundle, all driven by the one posture_difficulty
         # fraction directly.
         height_range = self._lerp(0.0, HEIGHT_RANGE_MAX_M, posture_d)
-        pitch_range = PITCH_CMD_MAX_RAD * posture_d
+        pitch_range = self.pitch_limit_rad * posture_d
         roll_range = 0.055 * posture_d
         step_height_range = 0.030 * jnp.maximum(0.05, posture_d)
 
@@ -769,7 +777,11 @@ class EmuMJXEnv:
         instead, which always passes real keys).
         """
         jax, jnp = self.jax, self.jnp
-        cmd_target = task[:, [T.vx, T.vy, T.yaw]]
+        # v5015 adds a continuously changing chassis-pitch target to the
+        # existing task ramps. The learned field remains 3D (vx,vy,yaw).
+        columns = ([T.vx, T.vy, T.yaw, T.pitch] if self.attitude_profile == 'v5015'
+                   else [T.vx, T.vy, T.yaw])
+        cmd_target = task[:, columns]
         cmd_ramp_from = cmd_target
         cmd_ramp_frac = jnp.ones((self.num_envs,), dtype=jnp.float32)
         cmd_ramp_speed = jnp.zeros((self.num_envs,), dtype=jnp.float32)
@@ -896,6 +908,8 @@ class EmuMJXEnv:
         ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
         cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
         task = state.task.at[:, T.vx].set(cmd_now[:, 0]).at[:, T.vy].set(cmd_now[:, 1]).at[:, T.yaw].set(cmd_now[:, 2])
+        if self.attitude_profile == 'v5015':
+            task = task.at[:, T.pitch].set(cmd_now[:, 3])
 
         hold_left = state.cmd_hold_left - 1
         should_resample = hold_left <= 0
@@ -906,7 +920,12 @@ class EmuMJXEnv:
         # new_hold below are computed for every env (vmap has no branch)
         # but only ever actually USED where should_resample is True, i.e.
         # only ever for TRANSITION envs.
-        new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now)
+        new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now[:, :3])
+        if self.attitude_profile == 'v5015':
+            pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
+            pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
+            pitch_draws = jax.vmap(lambda k: jax.random.uniform(k, (), minval=-1.0, maxval=1.0))(pitch_keys)
+            new_target = jnp.concatenate((new_target, (pitch_draws * pitch_range)[:, None]), axis=1)
         hold_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_hold)
         ramp_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_ramp)
         min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
@@ -1231,6 +1250,9 @@ class EmuMJXEnv:
         # surface. Positive command requests nose-up/back lean relative to local
         # gravity, not relative to the world's nominal flat plane.
         body_pitch = jnp.arctan2(projected_gravity[:, 0], -projected_gravity[:, 2])
+        body_roll = jnp.arctan2(-projected_gravity[:, 1], -projected_gravity[:, 2])
+        pitch_err = body_pitch - task[:, T.pitch]
+        roll_err = body_roll - task[:, T.roll]
         height = data.xpos[:, self.torso_id, 2]
         foot_pos = data.xpos[:, self.foot_bodies, :]
         foot_z = foot_pos[:, :, 2]
@@ -1241,6 +1263,23 @@ class EmuMJXEnv:
         vertical_to_feet = jnp.maximum(0.025, torso_to_feet[:, 2])
         foot_mid_angle = jnp.arctan2(horiz_to_feet, vertical_to_feet)
         foot_mid_cone = jnp.clip((0.4363323 - foot_mid_angle) / 0.4363323, 0.0, 1.0)
+        # Robot lean comes from the feet-to-chassis line, never the IMU pitch.
+        # Both feet count even in swing: this is a diagnostic, not a contact polygon.
+        torso_R = self._rotation_body_to_world(data)
+        heading_xy = torso_R[:, :2, 0]
+        heading_xy = heading_xy / jnp.maximum(1e-6, jnp.linalg.norm(heading_xy, axis=1, keepdims=True))
+        delta_xy = torso_to_feet[:, :2]
+        robot_lean_forward = jnp.arctan2(jnp.sum(delta_xy * heading_xy, axis=1), torso_to_feet[:, 2])
+        robot_lean_side = jnp.arctan2(-delta_xy[:, 0] * heading_xy[:, 1] + delta_xy[:, 1] * heading_xy[:, 0], torso_to_feet[:, 2])
+        height_error = height - (NEUTRAL_ROOT_Z + task[:, T.height])
+        # v5015: healthy support and requested attitude, not a level camera.
+        posture_ok_5015 = ((foot_mid_angle < 0.6108652) &
+                            (jnp.abs(pitch_err) < 0.3141593) &
+                            (jnp.abs(roll_err) < 0.2792527) &
+                            (height_error > -0.040))
+        posture_ok = (posture_ok_5015 if self.attitude_profile == 'v5015'
+                      else (-projected_gravity[:, 2] > 0.93969262))
+        attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
         foot_contacts = jnp.sum((foot_z < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
         bad_z = data.xpos[:, self.bad_bodies, 2]
@@ -1302,10 +1341,15 @@ class EmuMJXEnv:
             'vx': body_vel[:, 0], 'vy': body_vel[:, 1], 'yaw_rate': body_ang[:, 2],
             'cmd_vx': task[:, T.vx], 'cmd_vy': task[:, T.vy], 'cmd_yaw': task[:, T.yaw],
             'cmd_pitch': task[:, T.pitch], 'body_pitch': body_pitch,
+            'cmd_roll': task[:, T.roll], 'body_roll': body_roll,
+            'robot_lean_forward': robot_lean_forward,
+            'robot_lean_side': robot_lean_side,
+            'structural_attitude_ok': posture_ok.astype(jnp.float32),
+            'attitude_quality': attitude_quality,
             'height': height, 'target_height': NEUTRAL_ROOT_Z + task[:, T.height],
             # Signed measured-minus-commanded posture error; negative is too low.
             # Diagnostic only: no change to PPO observation, action or reward.
-            'height_error': height - (NEUTRAL_ROOT_Z + task[:, T.height]),
+            'height_error': height_error,
             'gravity_z': gravity_z,
             'foot_mid_angle_deg': foot_mid_angle * 57.29578,
             'foot_mid_cone': foot_mid_cone,
@@ -1366,7 +1410,15 @@ class EmuMJXEnv:
         # but if the feet midpoint to chassis vector exceeds about 25 degrees
         # the policy is no longer catching the fall.  This is shaping, not a
         # static-stand gate.
-        upright_height = 0.52 * upright + 0.28 * height + 0.20 * m['foot_mid_cone']
+        if self.attitude_profile == 'v5015':
+            # Reward the requested chassis orientation without allowing an
+            # increasingly low gait to masquerade as improved locomotion.
+            pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
+            height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
+            height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
+            upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
+        else:
+            upright_height = 0.52 * upright + 0.28 * height + 0.20 * m['foot_mid_cone']
         feet_only_contact = (1.0 - m['bad_contact']) * (0.35 + 0.65 * m['support'])
         stance_anti_slip = jnp.exp(-6.0 * m['stance_slip'])
         raw_swing = jnp.clip(m['swing_clearance'] / jnp.maximum(0.006, m['target_step_height']), 0.0, 1.0)
@@ -1415,6 +1467,10 @@ class EmuMJXEnv:
         # most locomotion payment.  This keeps the reward pure while making
         # short terminal episodes mathematically unattractive.
         locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * (0.30 + 0.70 * m['foot_mid_cone'])
+        if self.attitude_profile == 'v5015':
+            remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
+                                    0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
+            locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
         reward = (0.58*valid_alive + 1.55*locomotion_quality + 0.68*upright_height*stepping_gate + 0.50*feet_only_contact*stepping_gate +
                   0.18*stance_anti_slip + 0.16*swing_clearance + 0.12*servo_smoothness + 0.17*joint_safety)
         return reward, terms
