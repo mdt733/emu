@@ -332,3 +332,36 @@ def test_run_rejects_misrouted_checkpoint_destination_before_starting_training(t
     with pytest.raises(RuntimeError,match='disagree on output folder'):
         lab.ensure_run(dest,arm=None,parent=None,target=20_000_000,
                        seed=733,envs=2048,device='cpu',provenance={})
+
+
+
+def test_completed_foundation_handoff_uses_the_same_directory_as_the_trainer(tmp_path, monkeypatch):
+    """CPU-only contract: simulate trainer output; use the real recipe/config wiring."""
+    destination = tmp_path / 'foundation20'
+    expected_steps = 20_054_016
+    training_calls = []
+
+    def synthetic_training(cfg, *, provenance):
+        assert cfg.run_dir == str(destination)
+        assert cfg.steps == 20_000_000
+        training_calls.append(cfg.run_dir)
+        final = destination / 'checkpoints' / 'final.pkl'
+        final.parent.mkdir(parents=True)
+        final.write_bytes(b'validated synthetic checkpoint')
+
+    def synthetic_completion(run, *, target_steps, envs, label):
+        assert run == destination
+        assert target_steps == 20_000_000
+        assert envs == 2048
+        final = run / 'checkpoints' / 'final.pkl'
+        return (final if final.exists() else None), None, expected_steps
+
+    monkeypatch.setattr(lab, 'verify_existing_phase_config', lambda *a: None)
+    monkeypatch.setattr(lab, 'resolve_target_checkpoint', synthetic_completion)
+    monkeypatch.setattr(lab, 'run_training', synthetic_training)
+
+    final = lab.ensure_run(destination, arm=None, parent=None, target=20_000_000,
+                           seed=733, envs=2048, device='cpu', provenance={})
+    assert final == destination / 'checkpoints' / 'final.pkl'
+    assert training_calls == [str(destination)]
+    assert lab._read(destination / 'lab_spec.json')['parent']['step'] == 0
