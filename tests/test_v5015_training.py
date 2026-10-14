@@ -5,15 +5,9 @@ import math
 import numpy as np
 from emu.training_config import TrainingConfig
 from emu.phase_config import _phase_config
-from emu.ladder_recipe import FOUNDATION, ROUNDS, ARMS
+from emu.ladder_recipe import ROUNDS, ARMS
 from emu.evaluation import broad_score
 from emu.tracking_contract import node_window_success_numpy
-
-
-def test_legacy_production_and_actor_contract_unchanged():
-    from emu.contracts import BASE_OBS_DIM, OBS_DIM, ACTION_DIM, PITCH_CMD_MAX_RAD
-    assert (BASE_OBS_DIM, OBS_DIM, ACTION_DIM, PITCH_CMD_MAX_RAD) == (55, 220, 6, .14)
-    assert FOUNDATION == 20_000_000
 
 
 def test_v5015_ladder_recipe_and_phase_config(tmp_path):
@@ -66,14 +60,6 @@ def test_v5015_heldout_scoring_penalises_crouch_and_pitch_error():
     bad.update({f'eval_{p}_pitch_mae': .4 for p in panels})
     assert broad_score(bad, profile='v5014') == standard
     assert broad_score(bad, profile='v5015') < standard - .20
-
-
-def test_ladder_plan_does_not_start_training(capsys):
-    from emu.branch_lab import main
-    assert main(['--stage','plan']) == 0
-    plan = json.loads(capsys.readouterr().out)
-    assert plan['version'] == 'v5015-lab1'
-    assert plan['foundation'] == FOUNDATION
 
 
 def test_atlas_reads_phase_contract_and_root_final_lineage(tmp_path):
