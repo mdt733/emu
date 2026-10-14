@@ -7,7 +7,9 @@ mutate PPO, curriculum, health or the capability field.
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import dataclass
 import time
+import math
 
 import numpy as np
 
@@ -20,6 +22,27 @@ from .training_config import (
     PPO_LR, ROLLOUT_STEPS, PPO_ENTROPY_COST,
     PPO_VALUE_COST, EVAL_SEED, EVAL_HORIZON, SENSOR_NOISE_SCALE,
 )
+
+@dataclass(frozen=True)
+class PolicySnapshot:
+    """Exact post-update policy and normalizer selected for held-out evaluation."""
+    step: int
+    state: Any
+    obs_mean: Any
+    obs_var: Any
+    obs_count: float
+
+    @property
+    def params(self):
+        return self.state.params
+
+    def norm(self) -> dict[str, Any]:
+        return {'mean': self.obs_mean, 'var': self.obs_var, 'count': self.obs_count}
+
+
+def outranks_best(current_score: float, best_score: float) -> bool:
+    return math.isfinite(current_score) and current_score > best_score
+
 
 EVAL_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
                'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',

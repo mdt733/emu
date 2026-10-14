@@ -42,7 +42,7 @@ from .runtime import PerfBook, configure_jax, require_backend
 from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
-    EVAL_PERF_TIMER_NAMES,
+    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best,
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
@@ -428,25 +428,27 @@ def train(args: TrainingConfig) -> int:
         if not force and step - last_eval_step < EVAL_EVERY_STEPS:
             return
         cohorts = FINAL_EVAL_COHORTS if force else EVAL_COHORTS
+        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out = evaluate_fixed(
-            fixed_eval_worlds, evaluated_state.params, evaluated_obs_norm,
-            step=step, cohorts=cohorts, perf=perf)
+            fixed_eval_worlds, snapshot.params, snapshot.norm(),
+            step=snapshot.step, cohorts=cohorts, perf=perf)
         broad_eval_history.append(float(out['eval_broad_score']))
         out['eval_broad_tail3'] = float(sum(broad_eval_history[-3:]) / len(broad_eval_history[-3:]))
         last_eval_step = step
 
         best_ckpt_timing = {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
-        if out['eval_broad_tail3'] > best_eval_score:
-            best_eval_score = out['eval_broad_tail3']
+        if outranks_best(float(out['eval_broad_score']), best_eval_score):
+            best_eval_score = float(out['eval_broad_score'])
             best_ckpt_timing = save_checkpoint(
-                best_path, evaluated_state,
-                {'step': step, 'version': version, 'best_eval_score': best_eval_score,
+                best_path, snapshot.state,
+                {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
+                 'best_eval_score': best_eval_score,
                  'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
-                 'lr_scale': rollout_lr_scale_for_metrics},
-                evaluated_obs_norm,
-                curriculum_state=rollout_curriculum_state_for_metrics,
-                health_state=rollout_health_state_for_metrics,
-                field_state=rollout_field_state_for_metrics)
+                 'lr_scale': lr_scale},
+                snapshot.norm(),
+                curriculum_state=governor.state_dict(),
+                health_state=health.state_dict(),
+                field_state=field.state_dict())
             perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
             perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
             perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
@@ -508,12 +510,13 @@ def train(args: TrainingConfig) -> int:
             else:
                 requested = cloud_make_panel(count, panel_id=panel_id, source='routine_panel')
         controls = [x for x in requested if x.get('family') == 'none']
+        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         base_key = jax.random.PRNGKey(int(EVAL_SEED) + 44000)
         control_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)))
                         for i, x in enumerate(controls)]
         control_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, evaluated_state.params,
-            evaluated_obs_norm['mean'], evaluated_obs_norm['var'] ** 0.5,
+            cloud_eval_trainer, cloud_eval_env, snapshot.params,
+            snapshot.obs_mean, snapshot.obs_var ** 0.5,
             control_keys, int(CLOUD_HORIZON), controls, chunk_size=int(CLOUD_BATCH_POINTS))
         for r in control_rows:
             r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
@@ -526,8 +529,8 @@ def train(args: TrainingConfig) -> int:
         disturb_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)) + 1000003)
                         for i, x in enumerate(disturbed)]
         disturbed_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, evaluated_state.params,
-            evaluated_obs_norm['mean'], evaluated_obs_norm['var'] ** 0.5,
+            cloud_eval_trainer, cloud_eval_env, snapshot.params,
+            snapshot.obs_mean, snapshot.obs_var ** 0.5,
             disturb_keys, int(CLOUD_HORIZON), disturbed, chunk_size=int(CLOUD_BATCH_POINTS)) if disturbed else []
         for r in disturbed_rows:
             r['policy_step'] = int(step); r['forced_final'] = int(bool(force))

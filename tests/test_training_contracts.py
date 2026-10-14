@@ -94,3 +94,32 @@ def test_training_metrics_use_the_actual_configured_ppo_rate():
     )
     assert math.isclose(row['ppo_effective_lr'], .000025, rel_tol=1e-12)
     assert math.isclose(row['ppo_lr_scale'], .25)
+
+
+
+def test_fixed_eval_snapshot_owns_the_policy_and_normalizer_it_scores():
+    from types import SimpleNamespace
+    from emu.evaluation import PolicySnapshot
+    old = SimpleNamespace(params={'pi': np.asarray([1.0])})
+    current = SimpleNamespace(params={'pi': np.asarray([2.0])})
+    snap = PolicySnapshot(20_054_016, current, np.asarray([3.0]),
+                          np.asarray([4.0]), 100.0)
+    assert snap.params is current.params and snap.params is not old.params
+    assert snap.norm()['mean'] is snap.obs_mean
+    assert snap.norm()['var'] is snap.obs_var
+    assert snap.norm()['count'] == 100.0
+    assert snap.step == 20_054_016
+
+
+def test_best_policy_uses_individual_score_not_tail3():
+    from emu.evaluation import outranks_best
+    scores = [0.0, 0.0, 0.9, 0.8]
+    best = -1e9
+    winners = []
+    for i, individual in enumerate(scores):
+        if outranks_best(individual, best):
+            best = individual
+            winners.append(i)
+    assert winners == [0, 2]
+    assert best == .9
+    assert not outranks_best(float('nan'), best)
