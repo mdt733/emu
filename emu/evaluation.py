@@ -44,6 +44,12 @@ def outranks_best(current_score: float, best_score: float) -> bool:
     return math.isfinite(current_score) and current_score > best_score
 
 
+def checkpoint_eval_score(meta: dict[str, Any]) -> float:
+    """Read the score of THIS policy, not a historical rolling average."""
+    score = float(meta.get('instant_eval_score', meta.get('best_eval_score', -1e9)))
+    return score if math.isfinite(score) else -1e9
+
+
 EVAL_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
                'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
                'pitch_mae', 'height_shortfall_m')

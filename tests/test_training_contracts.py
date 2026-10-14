@@ -123,3 +123,13 @@ def test_best_policy_uses_individual_score_not_tail3():
     assert winners == [0, 2]
     assert best == .9
     assert not outranks_best(float('nan'), best)
+
+
+
+def test_legacy_rolling_best_score_is_not_used_as_the_current_policy_score():
+    from emu.evaluation import checkpoint_eval_score, outranks_best
+    historical_best = {'best_eval_score': 0.78, 'instant_eval_score': 0.31}
+    assert checkpoint_eval_score(historical_best) == 0.31
+    assert outranks_best(0.42, checkpoint_eval_score(historical_best))
+    assert checkpoint_eval_score({'best_eval_score': 0.27}) == 0.27
+    assert checkpoint_eval_score({'instant_eval_score': float('nan')}) == -1e9

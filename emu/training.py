@@ -42,7 +42,7 @@ from .runtime import PerfBook, configure_jax, require_backend
 from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
-    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best,
+    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best, checkpoint_eval_score,
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
@@ -419,7 +419,7 @@ def train(args: TrainingConfig) -> int:
     best_path = run_dir / 'checkpoints' / 'best.pkl'
     if best_path.exists():
         try:
-            best_eval_score = float(load_checkpoint(best_path).get('meta', {}).get('best_eval_score', best_eval_score))
+            best_eval_score = checkpoint_eval_score(load_checkpoint(best_path).get('meta', {}))
         except Exception:
             pass
 
@@ -448,7 +448,9 @@ def train(args: TrainingConfig) -> int:
                 snapshot.norm(),
                 curriculum_state=governor.state_dict(),
                 health_state=health.state_dict(),
-                field_state=field.state_dict())
+                field_state=field.state_dict(), require_finite_state=True)
+            if not best_ckpt_timing.get('saved', 0.0):
+                raise RuntimeError('Best-policy publication refused: non-finite actor or optimizer state')
             perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
             perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
             perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
