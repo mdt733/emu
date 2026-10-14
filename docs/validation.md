@@ -1,40 +1,52 @@
-# Release validation checklist
+# Validation and release gates
 
-This is the **procedure**. For tests actually run, dates and results, see [../RELEASE_VALIDATION.md](../RELEASE_VALIDATION.md). For the current experiment see [tournament.md](tournament.md); v5014's 400M recipe is archived in [v5014-production.md](v5014-production.md).
+EMU has **three different questions**: does the code run, does the learning loop behave correctly, and can the resulting policy actually walk? Passing one does not answer the others.
 
-## Source and contract checks
+## 1. Every change: source and contract checks
+
+Run from the repository root with the editable Python environment active:
 
 ```bash
-cd ~/robot_lab/emu
-source .venv/bin/activate
+python -m compileall -q emu tests scripts
 python -m pytest -q
-node --test viewer/tests/*.test.mjs
+npm ci --prefix viewer --no-audit --no-fund
+npm test --prefix viewer
+npm run build --prefix viewer
 git diff --check
 ```
 
-Check actor 55×4=220 observations, six controls, finite weights, schema-7 checkpoints, exact learning-state resume, phase-configuration compatibility, field-event semantics, held-out quarantine and safe snapshot replacement. Python tests are **not** a substitute for a real MJX compile.
+Python tests check checkpoint schema and publication, learning-state resume contracts, the 220-input/six-action interface, ladder ancestry, matched screening and experiment validation. The `test_policy_inference_parity.py` suite uses a deterministic NumPy actor oracle and the **actual Node.js/browser PolicyRunner**, checking float32 packing, masked normalisation, layer orientation and output values.
 
-## Target machine / actual viewer
+The browser CI job additionally packages and verifies the pinned 60M public policy and MuJoCo WASM. A successful web build does **not** establish visual correctness.
+
+## 2. Physics, trainer or observation changes: GPU smoke
+
+On a supported NVIDIA/JAX CUDA system:
 
 ```bash
-emu doctor --domain-smoke
-emu ladder --stage plan
-emu viewer-build
-python scripts/prepare_showcase.py
-emu viewer-build
-python scripts/verify_showcase_dist.py
+emu doctor --v5015-smoke --domain-smoke
 ```
 
-Run `emu viewer --live --no-open` at `127.0.0.1:8765` and confirm it receives completed checkpoints, updates the revision without modifying the trainer, and actually renders a robot. Run `npm run preview -- --host 127.0.0.1` inside `viewer/`, open `127.0.0.1:4173` and confirm it autoloads the **untrained** static policy (not the live feed). Verify MIME-safe fallback, settings drawer, 10 cm grid, trail, shadows, reset/overlay, joystick `vy`/yaw signs, and no console errors. Run an actual MJX rollout/training/evaluation smoke appropriate to the GPU before changing production settings.
+Confirm the backend is `gpu`, MJX can reset/step, domain variation stays finite, and the doctor executes a **real PPO optimiser update** plus a held-out evaluation summary. If this fails, do not launch a long run.
 
-## Evidence and release gates
+A new checkpoint/run-loop change also needs a bounded fresh-root experiment: validate the saved checkpoint, deliberately stop, warm-resume it, perform a new update and compare the saved meta, normaliser, optimiser and evaluator artifacts. Warm resume restores *learning state* but starts new simulator episodes; it is **not** byte-for-byte trajectory replay.
 
-- Do **not** equate passing unit tests, WASM HTTP 200, browser visual activity or training-derived command nodes with verified locomotion quality.
-- Record versions (`python`, `node`, `npm`, MuJoCo, JAX, CUDA), code revision (`git rev-parse HEAD` plus dirty status), observed test results and training checkpoint step.
-- Choose the final public policy with **held-out evaluation**; never by elapsed steps or live browser appearance alone.
-- Review `git diff --cached --name-only`, `git diff --cached --check`, remote, branch and tags before any merge or push. Reject raw `.pkl`, private configs, `node_modules/`, `.venv/`, generated `dist/`.
-- Validate the GitHub Pages build artefact (`index.html`, manifest, bundled `.emupolicy`, MuJoCo WASM) before deployment. A public preview must say it is untrained until a true champion exists.
+## 3. Candidate policies: measure actual locomotion
 
-## CLI inventory
+A promising training reward is only a hypothesis. Collect deterministic fixed exams, a common matched screen, independent command tracking, stepping/support metrics, and any applicable changed-physics stress test. Report seeds, cohorts, absolute checkpoint steps, source commit and evaluator config. The current v5015 promotion gates require survival/posture/slope evidence but **do not yet establish a calibrated minimum for stepping and command-following**; treat a winner as provisional.
 
-`emu --help` is authoritative. v5014 currently exposes `train`, `compare`, `tournament`, `view`, `evaluate`, `doctor`, `forge`, `export-policy`, `viewer-build` and `viewer`. The first set retains historical/experimental entry points; the intended production path is `forge` plus `viewer --live`.
+Do not call `robust40` a changed-hardware test: it varies **task demands**. Gravity-equivalent slopes are a separate physics variation; they do not prove performance on the browser's actual collision ramp.
+
+Long-term height degradation previously appeared at ~100–200M **per lineage**. A ladder whose longest branch reaches 46M cannot verify that failure is solved.
+
+## Public Playground gate
+
+The public demonstration is a deliberately separate manual deployment. Before running the Pages workflow, confirm: the intended 60M or separately approved champion policy matches its source identity; `showcase.json` reports the correct trained status and policy URL; MuJoCo WASM is loaded; joystick signs and camera/ramp switches work in a real browser; and the published site still loads after deployment.
+
+The local `emu viewer --live` server is loopback-only and unauthenticated. Never use it as a public deployment.
+
+## Record what was actually observed
+
+For each significant release or training experiment, record `git rev-parse HEAD`, clean/dirty status, package versions, exact test commands, actual results, checkpoint step, evaluator settings and remaining failures. Use [project status](STATUS.md) for the current evidence summary; dated historical observations remain in [history](history.md) and Git history.
+
+**Do not promote or publish a checkpoint solely because its tests pass or its viewer motion looks impressive.**
