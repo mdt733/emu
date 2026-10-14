@@ -2,7 +2,7 @@
 
 ## v5015 short experiment lab
 
-**Recommended now:** edit/inspect [`emu/ladder_recipe.py`](../emu/ladder_recipe.py), run `emu ladder --stage plan`, and start the campaign with `bash scripts/run_ladder.sh`. The former `lab5015` command remains an alias. This uses schema-7 checkpoints and the normal PPO training engine, with hard eligibility gates after matched evaluations.
+**Recommended now:** edit/inspect [`emu/ladder_recipe.py`](../emu/ladder_recipe.py), run `emu ladder --stage plan`, and start the campaign with `bash scripts/run_ladder.sh`. The former `lab5015` command remains an alias. This uses schema-7 checkpoints and the normal PPO training engine, with hard eligibility gates after matched evaluations. Automatic advancement is **not** a claim that the policy has independently demonstrated sustained walking.
 
 | Milestone | Cumulative step per policy | Extra GPU steps |
 |---|---:|---:|
@@ -84,7 +84,7 @@ emu ladder --stage score --round round3
 
 ### How the competition is judged
 
-A **common, fixed 15° v5015 evaluation world** is used for every contender, independent of the domains/pitch ceiling used during training. It runs the same deterministic stress panels (`resilience100`, `robust70`, `growth140`, `growthcombo140`) using a single batched GPU screening process. It measures recovery/growth survival, **an extra fixed gentle slope-equivalent stress panel (T=0.20, up to ~1.2°)**, chassis pitch tracking error, height shortfall, and motion error. Scores are transparent; any missing/non-finite metric, severe crouching, poor pitch tracking, or major hard-survival regression marks a candidate ineligible. An eligible score is **not proof** of learned 15° pitch or new terrain mastery.
+A **common, fixed 15° v5015 evaluation world** is used for every contender, independent of the domains/pitch ceiling used during training. It runs the same deterministic stress panels (`resilience100`, `robust70`, `growth140`, `growthcombo140`) using a single batched GPU screening process. It measures recovery/growth survival, **an extra fixed gentle slope-equivalent stress panel (T=0.20, up to ~1.2°)**, chassis pitch tracking error, height shortfall, and motion error, plus reported stepping/support evidence. These last metrics do not yet carry calibrated promotion minimums. Scores are transparent; any missing/non-finite metric, severe crouching, poor pitch tracking, or major hard-survival regression marks a candidate ineligible. An eligible score is **not proof** of learned 15° pitch or new terrain mastery.
 
 A scoreboard and readable Markdown report are written under:
 
@@ -105,7 +105,7 @@ Scores include a SHA-256 fingerprint of each evaluated checkpoint, and promotion
 
 A single seed is useful for choosing **hypotheses worth more compute**, not establishing statistical superiority. Once the first funnel identifies promising changes, confirm a pair on a different independent seed or on additional held-out tasks. Watch actual-minus-commanded height in `metrics.csv`; if everything starts crouching again, investigate rather than letting a global reward average choose the winner.
 
-The retired `forge5015` 400M single-lineage recipe is available from Git history only; it is not part of the current CLI. The user-reported 100–200M crouch and first failed v5015 lab run both require separate logged investigations.
+The retired `forge5015` 400M single-lineage recipe is available from Git history only; it is not part of the current CLI. The reported 100–200M crouch still needs long-horizon investigation. The first v5015 foundation handoff failure was traced to mismatched output-directory names; it was not caused by PPO convergence. See [status](STATUS.md).
 
 ---
 
