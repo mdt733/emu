@@ -12,6 +12,8 @@ def _screen(*, survival=.65, pitch=.1, height=.008):
         result[f'screen_{panel}_survival']=survival
         result[f'screen_{panel}_pitch_mae']=pitch
         result[f'screen_{panel}_height_shortfall_m']=height
+        result[f'screen_{panel}_step_evidence']=0.54
+        result[f'screen_{panel}_support']=0.47
         for axis in ('vx','vy','yaw'):
             result[f'screen_{panel}_{axis}_mae']=.08
     result['screen_gentle_slope_survival']=survival
@@ -365,3 +367,15 @@ def test_completed_foundation_handoff_uses_the_same_directory_as_the_trainer(tmp
     assert final == destination / 'checkpoints' / 'final.pkl'
     assert training_calls == [str(destination)]
     assert lab._read(destination / 'lab_spec.json')['parent']['step'] == 0
+
+
+
+def test_ladder_reports_real_stepping_telemetry_and_rejects_missing_evidence():
+    row = lab.score_row('baseline', _screen())
+    assert row['eligible']
+    assert row['step_evidence'] == .54
+    assert row['support'] == .47
+    assert row['motion_mae'] == .08
+    missing = _screen()
+    del missing['screen_growth140_step_evidence']
+    assert not lab.score_row('missing', missing)['eligible']

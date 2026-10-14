@@ -187,9 +187,11 @@ def score_row(name, source):
     height = [_number(source.get(f'screen_{p}_height_shortfall_m')) for p in panels]
     motion = [_number(source.get(f'screen_{p}_{axis}_mae'))
               for p in panels for axis in ('vx', 'vy', 'yaw')]
+    steps = [_number(source.get(f'screen_{p}_step_evidence')) for p in panels]
+    support = [_number(source.get(f'screen_{p}_support')) for p in panels]
     slope = _number(source.get('screen_gentle_slope_survival'))
     slope_height = _number(source.get('screen_gentle_slope_height_shortfall_m'))
-    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion):
+    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion + steps + support):
         return {'arm': name, 'eligible': False, 'score': None,
                 'reasons': ['missing/nonfinite held-out metrics']}
     hard = sum(surv[:2])/2
@@ -197,6 +199,8 @@ def score_row(name, source):
     pe = sum(pitch)/4
     hs = sum(height)/4
     me = sum(motion)/12
+    step_evidence = sum(steps)/len(steps)
+    mean_support = sum(support)/len(support)
     reasons = []
     if hard < .20: reasons.append('hard survival below 20%')
     if hs > .035: reasons.append('height shortfall exceeds 35mm')
@@ -208,7 +212,8 @@ def score_row(name, source):
             'score': round(score, 6), 'hard_survival': round(hard, 5),
             'growth_survival': round(growth, 5), 'gentle_slope_survival': round(slope, 5),
             'pitch_mae_rad': round(pe, 5),
-            'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5)}
+            'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5),
+            'step_evidence': round(step_evidence, 5), 'support': round(mean_support, 5)}
 
 
 def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
@@ -245,21 +250,23 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     _save(root / f'{round_name}_scoreboard.json', result)
     lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
              f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
-             'No automatic promotion. Scores are screening evidence, not independent validation.', '',
-             '| arm | eligible | score | hard survival | growth survival | slope survival | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---:|---|']
+             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
+             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
+             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
     for r in rows:
         lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
                      f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
                      f"{r.get('gentle_slope_survival','—')} | "
-                     f"{r.get('pitch_mae_rad','—')} rad | {r.get('height_shortfall_m','—')} m | "
+                     f"{r.get('motion_mae','—')} | {r.get('step_evidence','—')} | "
+                     f"{r.get('support','—')} | {r.get('pitch_mae_rad','—')} rad | "
+                     f"{r.get('height_shortfall_m','—')} m | "
                      f"{', '.join(r['reasons'])} |")
         print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")
     report = root / f'{round_name}_scorecard.md'
     temp = report.with_name(report.name + '.tmp')
     temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
     temp.replace(report)
-    print(f'Saved {report}. Choose finalists manually; nothing advances automatically.')
+    print(f'Saved {report}. Auto mode promotes eligible contenders; manual review is also supported.')
 
 
 def promotion_choices(board: dict, slots: int) -> list[str]:
