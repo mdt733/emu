@@ -1,37 +1,49 @@
-# EMU training lifecycle and historical comparison design
+# Training lifecycle
 
-The common learning loop serves the current v5015 ladder plus historical v5013/v5014 experiments. For the **actual v5014 phase sequence** and physical radii, use [v5014-production.md](v5014-production.md) rather than this history/reference page.
+The durable principle is **one learning engine, many replaceable experiment recipes**. The current `emu ladder` command is an experimental successive-halving runner; `emu/training.py` is the reusable PPO training orchestrator and never decides which research hypothesis deserves more GPU compute.
 
-## A training update
+## Responsibilities
 
-1. Advance vectorised MJX environments under the current observation/control contract.
-2. Update the actor/critic using PPO and the collected rollout (no replay buffer).
-3. Reduce rollout telemetry into performance, tracking and semantic capability events.
-4. Update curriculum and training-health decisions; the field proposes bounded practice inside permitted physical frontiers.
-5. Assemble the next fixed-shape task packet, save eligible snapshots and occasionally run held-out exams.
+| Owner | Decides / produces |
+|---|---|
+| `ladder_recipe.py` | Absolute step targets and typed, named differences between hypotheses |
+| `branch_lab.py` | Forking a shared ancestor, matched screens, hard eligibility and automatic/manual promotion |
+| `training_config.py` | The exact serialised knobs for one training run |
+| `training.py` | Lifecycle of updates, observations, governor/health, evaluations and artifacts |
+| `ppo.py` | Vectorised rollout, actor/value optimisation, update diagnostics |
+| `evaluation.py` | Fixed read-only questions about a specific saved actor/normaliser |
+| `checkpoint_io.py`, `run_support.py` | Atomic save, validated resume, exact-target handoff and source provenance |
 
-Metric provenance should refer to the policy/normaliser/field state that generated the rollout. The evaluator never trains PPO or writes back into the capability map.
+## One update boundary
 
-## Foundation and mature training
+A real PPO step advances by `envs × ROLLOUT_STEPS` environment transitions. Targets are **absolute** environment steps, rounded up to a complete boundary. The training process compiles and performs its first update, processes that rollout, and repeats until it reaches the target. A resume already at the target returns without applying another optimiser update.
 
-The foundation ends at the **first complete PPO update boundary at or above 20M environment steps** (at default 2048 worlds × 32 rollout frames, 20,054,016 steps). It learns basic dynamic stepping and permits curriculum retreat, but intentionally disarms network/optimizer rollback. Later mature training can permit health-triggered rollback when there is actually useful competence to preserve.
+Within that loop, EMU:
+1. Collects MJX experience with the current command/curriculum parameters and a particular actor/normaliser.
+2. Updates the actor and critic with PPO; retains the rollout-generating actor separately for accurately attributed rollout metrics.
+3. Reduces command tracking, stepping and performance metrics; updates the health monitor and curriculum governor.
+4. Lets the capability field propose bounded practice; the governor constrains permitted difficulty. Held-out exam results **never** teach the field.
+5. Runs read-only fixed or cloud evaluations when due, on the *post-update actor* and matching normaliser.
+6. Saves validated `latest.pkl`, rotating snapshots, `best.pkl` and `recovery.pkl` for distinct purposes. `final.pkl` is published atomically from a validated latest checkpoint.
 
-A **learning-state resume** restores policy/critic, optimizer, observation normaliser, curriculum, training health and capability field from a validated schema-7 checkpoint. The simulator episodes and current rollout buffers start afresh. It is not a byte-for-byte replay of a physical frame. Invalid snapshots must fail loudly, with only validated rotating snapshots considered for explicit recovery.
+`best.pkl` is an evaluation winner, `recovery.pkl` is a safe fallback for a degraded learner, `latest.pkl` is the most recent learner state, and `final.pkl` is the completed stage. **They are not interchangeable.**
 
-The shared mature profile freezes running observation-normalizer statistics at its configured absolute-step threshold. Do not change observation ordering, actor dimensions, robot XML or actuator meaning for an ongoing run. Phase compatibility is enforced by the shared `emu/phase_config.py`.
+## Resume semantics
 
-## Why v5013 had paired branches (historical)
+Schema-7 checkpoints preserve actor/critic, optimiser, normaliser, governor/curriculum, health, capability field and learning-rate controller state. MJX episode buffers and simulator RNG are reset: this is a **warm learning-state resume**, not a byte-identical continuation of the prior physics episode.
 
-The v5013 research used a common foundation checkpoint as the exact ancestor for **shadow** (capability field observes only) versus **graph** (capability field can select bounded practice) continuations. This isolates teaching permission better than comparing unrelated cold starts. The experiment varied dose, source of teaching, evidence feedback and influence schedule—**not** the current production physical domain or PPO interface.
+On a complete resumed target, no new PPO update should execute. Checkpoint step, robot model, policy dimensions and training configuration must agree before resuming; incompatible states are rejected rather than guessed around.
 
-The `field_taught` provenance marker indicates that practice was field-selected; it is not part of the actor's 220 inputs or a reward. The `B4_clean_evidence` experiment let those rollouts train PPO but forbade them from self-confirming the capability field.
+## Teaching and experiment knobs
 
-See [tournament.md](tournament.md) and the archived original [results](../results/v5013_tournament/README.md). The tournament is retained for reproducibility. Today's recommended workflow is `emu ladder --stage plan` and `bash scripts/run_ladder.sh`. The retired `forge` and v5013 tournament implementations remain reproducible from their Git history commit; they are no longer current CLI commands.
+A candidate in `emu/ladder_recipe.py` declares `Arm(name, hypothesis, knobs=((field, value), ...))`. The runner validates **every candidate before starting** the shared foundation. Unknown/duplicate field names, incompatible/nonfinite values, unsafe arm names and changes to protected run identity are rejected.
 
-## The experiment knobs, without changing the engine
+Knobs include movement envelopes, curriculum/frontier limits, domain perturbation radii, capability-teacher influence/schedule, normaliser freeze, and PPO learning rate/entropy/value-loss weights. **The current arm defaults remain unchanged unless that arm explicitly overrides a field.** Network architecture, rollout shape and the 220-input/six-output actor contract are not general-purpose knobs.
 
-`emu/training_config.py` defines the single typed `TrainingConfig`. The current `ladder_recipe.py` declares `Arm(name, hypothesis, knobs=((field, value), ...))`: field names are checked against actual `TrainingConfig` annotations before the first GPU step. Run identity, seed, device, checkpoint paths, motor/attitude profile and step target cannot be overridden from a challenger arm. All unchanged values follow the mature baseline preset.
+The older `forge` and v5013 tournament implementations are archived in Git history, not parallel current execution paths. See [Experiments](tournament.md) and [History](history.md).
 
-Available trainer knobs include motion envelope (vx/vy/yaw), physical domain radii, teacher family/influence/schedule, frontier and curriculum controls, freeze-normalisation timing, and now **PPO learning rate (`ppo_lr`), entropy coefficient (`ppo_entropy_cost`) and value loss coefficient (`ppo_value_cost`)**. PPO defaults remain numerically unchanged for every existing arm. Rollout shape, optimiser architecture and actor contract remain fixed doctrine and are **not** generic overrides; changing those requires dedicated contract tests, JAX compilation validation and a new clean experiment root.
+## What the trainer does not prove
 
-Example for a *future new campaign only* (do not edit a running recipe): `Arm('low_lr', 'Half learning rate', (('ppo_lr', 1e-4),))`. The trainer receives the resulting serialized config. Held-out exam conditions are independent of the trainee's teaching recipe.
+High PPO reward, a green CI build or a browser robot that appears to walk is not a reliable locomotion metric. Fixed screens currently include survival, tracking and stepping telemetry, but stepping thresholds still need calibration. Long-horizon posture drift and real contact-ramp ability require independent testing.
+
+[Architecture](architecture.md) · [Evaluation](evaluation.md) · [Validation](validation.md)
