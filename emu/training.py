@@ -356,7 +356,7 @@ def train(args: TrainingConfig) -> int:
 
     t0 = time.time()
     old_mean, old_std = obs_mean, obs_var ** 0.5
-    state, rollout_metrics, aux, raw_obs, evaluated_state = trainer['train_update'](state, p, obs_mean, old_std, lr_scale)
+    state, rollout_metrics, aux, raw_obs, rollout_policy_state = trainer['train_update'](state, p, obs_mean, old_std, lr_scale)
     warmup_end_steps = resumed_step + args.envs * ROLLOUT_STEPS
     norm_frozen = args.freeze_obs_norm_after_steps > 0 and resumed_step >= args.freeze_obs_norm_after_steps
     if not norm_frozen:
@@ -416,10 +416,10 @@ def train(args: TrainingConfig) -> int:
 
     # Preserve evaluation cadence/history and best-checkpoint monotonicity across
     # same-run process restarts. External forks have no local eval artifacts.
-    best_path = run_dir / 'checkpoints' / 'best.pkl'
-    if best_path.exists():
+    best_eval_path = run_dir / 'checkpoints' / 'best.pkl'
+    if best_eval_path.exists():
         try:
-            best_eval_score = checkpoint_eval_score(load_checkpoint(best_path).get('meta', {}))
+            best_eval_score = checkpoint_eval_score(load_checkpoint(best_eval_path).get('meta', {}))
         except Exception:
             pass
 
@@ -440,7 +440,7 @@ def train(args: TrainingConfig) -> int:
         if outranks_best(float(out['eval_broad_score']), best_eval_score):
             best_eval_score = float(out['eval_broad_score'])
             best_ckpt_timing = save_checkpoint(
-                best_path, snapshot.state,
+                best_eval_path, snapshot.state,
                 {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
                  'best_eval_score': best_eval_score,
                  'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
@@ -573,7 +573,7 @@ def train(args: TrainingConfig) -> int:
     def augment_rollout_row(row: dict[str, Any], aux_now: dict[str, Any]) -> None:
         """Attach diagnostics with the exact rollout provenance.
 
-        `row` describes the rollout collected by evaluated_state, under
+        `row` describes the rollout collected by rollout_policy_state, under
         rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
         curriculum that exist after the gradient/governor update. Keeping
         these aligned is what makes collapse forensics trustworthy.
@@ -666,7 +666,7 @@ def train(args: TrainingConfig) -> int:
         if recovery_rank > best_recovery_rank:
             best_recovery_rank = recovery_rank
             save_checkpoint(
-                run_dir / 'checkpoints' / 'recovery.pkl', evaluated_state,
+                run_dir / 'checkpoints' / 'recovery.pkl', rollout_policy_state,
                 {'step': total_steps, 'run_name': run_name,
                  'competence': comp_med, 'core_competence': core_med,
                  'recovery_tier': recovery_tier, 'recovery_rank': list(recovery_rank),
@@ -862,7 +862,7 @@ def train(args: TrainingConfig) -> int:
         evaluated_obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
         old_mean, old_std = obs_mean, obs_var ** 0.5
         train_update_t0 = time.perf_counter()
-        state, rollout_metrics, aux, raw_obs, evaluated_state = trainer['train_update'](
+        state, rollout_metrics, aux, raw_obs, rollout_policy_state = trainer['train_update'](
             state, p, obs_mean, old_std, lr_scale)
         if perf.enabled:
             # JAX dispatch is asynchronous; block one small result so this timer

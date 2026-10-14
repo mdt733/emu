@@ -53,7 +53,7 @@ flowchart LR
 
 **Chassis pitch** is the rigid torso/IMU's actual gravity-relative pitch. The training metric currently calls this `body_pitch`; the viewer now labels it `chassis pitch`. It uses `atan2(projected_gravity_x, -projected_gravity_z)`. A chassis can point 45° while robot lean is near zero if the legs keep its centre above the feet, or robot lean can be large while the chassis remains level.
 
-**Do not simply expand the pitch slider to ±45°.** Current v5014 rewards, torso-relative velocity tracking, posture limits and the competence check in `tracking_contract.py` (20° upright threshold) were written for small chassis commands. This viewer-only pass does not change the 220-observation/six-action actor interface or claim 45° training. Separating the robot's support geometry from the chassis's requested attitude is an explicit future training task.
+**A slider range is not proof of physical capability.** The v5015 ladder includes a 15° pitch-ceiling hypothesis, but held-out chassis tracking at wide angles remains to be demonstrated. Older small-angle assumptions, posture rewards and the upright competence threshold in `tracking_contract.py` (20°) still need scrutiny before treating ±45° as reliable. Robot lean and commanded chassis pitch must be evaluated separately; this does not change the 220-observation/six-action actor interface.
 
 ## Why a browser ramp differs from MJX training slopes
 
