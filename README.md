@@ -1,84 +1,82 @@
-# EMU — a little robot learning to walk
+# EMU — a small robot learning to walk
 
-**Six motors. Two feet. No prewritten walking animation.** EMU is an open-source biped learning to step, steer, catch itself and recover balance in simulated physics.
+**Six actuators, two feet, and no scripted walking animation.** EMU is an experimental biped trained with reinforcement learning to step, steer, and recover balance in MuJoCo physics.
 
-## [▶ Try the EMU Playground](https://mdt733.github.io/emu/)
+**[Try the public EMU Playground](https://mdt733.github.io/emu/)** · [Architecture](docs/architecture.md) · [Install](docs/INSTALL.md) · [Project status](docs/STATUS.md)
 
-**[Open the live browser demo](https://mdt733.github.io/emu/)** · [Source code](https://github.com/mdt733/emu) · [How it works](docs/architecture.md)
+The public Playground runs a previously trained **60-million-step policy** in your browser using MuJoCo WebAssembly and a JavaScript neural-network interpreter. It does not train a robot, and looking good in the viewer is not proof of held-out performance.
 
-The Playground runs a published **60-million-step policy** in your browser. Move using the left joystick, turn and command chassis pitch with the right, or let the demo select commands. The new **View** button cycles orbit view, raw chassis POV, and visually levelled POV.
-
-> This is a learning experiment, not an animation or a finished physical robot. The public demo is not a held-out scientific evaluation. The current experimental training runs independently; it cannot replace the protected public policy automatically.
-
-## How it works
+## The project in one picture
 
 ```mermaid
 flowchart TD
-    A[Robot: six powered joints and two passive shin springs] --> B[Environment: MuJoCo physics, tasks, sensors]
-    B --> C[Training: PPO learns what motor actions work]
-    C --> D[Brain: 55 observations across 4 frames → 6 motor outputs]
-    D --> E[Browser Playground: MuJoCo WASM plus the exported brain]
-    D -. practice again during training .-> B
+    Robot["MuJoCo biped + six motor targets"] --> Task["Physics, sensors, movement commands"]
+    Task --> Engine["Stable trainer: PPO + curriculum + health"]
+    Recipe["Human-editable experiment ladder"] --> Engine
+    Engine --> Checkpoint["Validated checkpoint: full learning state"]
+    Checkpoint --> Evaluation["Independent fixed tests and stress screens"]
+    Evaluation --> Decision["Compare, reject or promote branches"]
+    Checkpoint --> Export["Actor-only .emupolicy export"]
+    Export --> Browser["Local viewer / public Playground"]
 ```
 
-The robot receives movement and posture requests. It senses gravity-relative orientation, motion, joints and foot locations, then chooses six motor targets 50 times per second. Training shapes its neural network through simulated experience; **the exported browser brain does not keep learning**.
+The actor receives **55 deployable observations over four frames (220 inputs)** and produces **six motor commands**. The simulator, curriculum, capability field and evaluators have separate responsibilities. The browser runs a frozen policy; it does not alter checkpoints.
 
-**Two important angles:** *Robot lean* describes the line from the midpoint between the feet to the centre of the chassis relative to vertical; *chassis pitch* describes the actual body/IMU angle relative to gravity. They are different. [See the definitions and explanation](docs/architecture.md#robot-lean-vs-chassis-pitch).
+## Start here
 
-### Explore the world
-
-Orbit view makes gait easy to watch. **Raw POV** follows the chassis camera, shake included. **Level POV** smooths the picture without helping the robot balance. The optional **physical 1° ramp** under Settings adds real MuJoCo collision geometry in the *browser only*: unlike the flat-floor baseline, it is an experimental obstacle, **not yet a verified champion capability**. [Playground guide](docs/PLAYGROUND.md).
-
-## The code, without the mystery
-
-| Part | Start with | Purpose |
-|---|---|---|
-| Robot | [`emu/robot.xml`](emu/robot.xml) | Body, masses, joints, motors and contacts |
-| Environment | [`emu/environment.py`](emu/environment.py) | Physics tasks, observations, reward and resets |
-| Today's ladder | [`emu/ladder_recipe.py`](emu/ladder_recipe.py) | The current list of steps, hypotheses and screening conditions |
-| Experiment runner | [`emu/branch_lab.py`](emu/branch_lab.py) | Checkpoint/resume safety, held-out comparison and promotion |
-| Training engine | [`emu/training.py`](emu/training.py) | PPO learning loop driven by a serialized configuration |
-| Brain | [`emu/ppo.py`](emu/ppo.py) | Neural actor/critic and optimiser |
-| Viewer | [`viewer/`](viewer/) | Canonical JavaScript source for MuJoCo WASM, controls and cameras |
-
-The other Python modules handle curriculum, domain randomisation, checkpoint safety and evidence. Tests and selected results are intentional, not clutter. `emu/viewer_src/` remains a **generated packaging mirror**, not a second editable viewer. Large training runs and raw checkpoints live outside Git.
-
-## The commands you actually need
+Requires **Python 3.13+**, Git and **Node.js 24** on Linux/WSL2. GPU training additionally requires a compatible NVIDIA/JAX CUDA setup. A normal clone can explore the code and run CPU contract tests without a GPU.
 
 ```bash
-emu ladder --stage plan        # inspect current experiment, no training
-bash scripts/run_ladder.sh     # validate GPU then execute current ladder
-emu viewer --live              # separate read-only live checkpoint viewer
-```
-
-The **editable recipe is in one small file:** [`emu/ladder_recipe.py`](emu/ladder_recipe.py). Each experiment arm supplies typed, validated **`TrainingConfig` knob overrides**; the ladder runner calls the stable training engine. The old `forge`/`tournament`/`train`/`compare` runners have been removed from current code, but remain available in **Git history** for research reproduction. `lab5015` remains as a command alias for older shell scripts.
-
-## Current training: v5015 research ladder
-
-The public 60M champion is protected and is **not replaced by training**. The current learning experiment probes four hypotheses using a shared 20M beginner brain, 26M first-round forks, 34M finalists and a 46M continuation. This spends roughly **72M aggregate environment steps**, including none of the extra long-horizon steps needed to investigate the previous 100–200M crouching failure.
-
-The user confirmed a v5015 GPU/MJX/PPO optimiser smoke test. They subsequently reported that the first ladder **failed during training**, but the console error has not yet been provided. Its cause is unknown; don't interpret the incomplete run as a negative experiment result.
-
-```bash
-emu ladder --stage plan                   # the experiment; no GPU training
-bash scripts/run_ladder.sh                # run a new campaign after validation
-bash scripts/run_ladder.sh --stop-after round1
-emu posture-report --root ~/robot_lab/emu_runs/v5015_lab1
-```
-
-Every branch inherits complete learning state, uses an independently stored training config and checkpoint, and is screened against the same held-out tasks. Strong early scores are **not** proof of long-term robustness or physical-hardware transfer. [Experiment details](docs/tournament.md).
-
-## Running EMU yourself
-
-For a fresh Linux/WSL2 checkout you need Python 3.13, Git and Node.js 24. GPU training requires compatible NVIDIA/JAX CUDA support.
-
-```bash
-bash scripts/setup_wsl.sh --cuda13 --install-node  # omit --cuda13 for CPU-only work
+git clone https://github.com/mdt733/emu.git
+cd emu
+bash scripts/setup_wsl.sh --install-node
 source .venv/bin/activate
-emu doctor --domain-smoke
-emu ladder --stage plan  # inspect current experiment, no training
+emu doctor --no-require-gpu --no-mjx-smoke
+emu ladder --stage plan
+python -m pytest -q
 ```
 
-`emu viewer --live --no-open` starts a separate read-only **local** checkpoint viewer at http://127.0.0.1:8765/. The public Playground is static and never accesses your private training run.
+To train on a configured GPU, finish the CUDA installation and run the real MJX/PPO smoke test first:
 
-**Details when you're ready:** [Install](docs/INSTALL.md) · [Architecture](docs/architecture.md) · [Training](docs/training.md) · [Evaluation](docs/evaluation.md) · [Document index](docs/README.md) · [History](docs/history.md) · [Current handover](HANDOVER.md) · [Validation evidence](RELEASE_VALIDATION.md).
+```bash
+emu doctor --v5015-smoke --domain-smoke
+bash scripts/run_ladder.sh
+```
+
+**Never change the source commit, ladder recipe or training configuration during an active run.** Run outputs and large checkpoints belong outside Git, normally under `~/robot_lab/emu_runs/`. The launcher verifies the local source, compiles a real PPO update and refuses to begin if the GPU smoke fails. See the [installation guide](docs/INSTALL.md) and [validation gates](docs/validation.md) before spending GPU time.
+
+To watch *completed, validated* checkpoints separately:
+
+```bash
+emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open
+```
+
+Then open `http://127.0.0.1:8765/` on that computer. This loopback-only server is **not authenticated**; do not publish or port-forward it.
+
+## Where the code lives
+
+| Area | Authoritative source | Responsibility |
+|---|---|---|
+| Robot and physics | [`emu/robot.xml`](emu/robot.xml), [`emu/environment.py`](emu/environment.py) | Bodies, contacts, sensors, rewards, resets |
+| Learning engine | [`emu/training.py`](emu/training.py), [`emu/ppo.py`](emu/ppo.py) | PPO updates, rollout processing, health/evaluation schedule |
+| Configurable experiments | [`emu/ladder_recipe.py`](emu/ladder_recipe.py), [`emu/branch_lab.py`](emu/branch_lab.py) | Step targets, hypothesis arms, checkpoints, promotion |
+| State and safety | [`emu/training_config.py`](emu/training_config.py), [`emu/checkpoint_io.py`](emu/checkpoint_io.py) | Validated knobs, schema, atomic publication |
+| Independent evaluation | [`emu/evaluation.py`](emu/evaluation.py), [`emu/screening.py`](emu/screening.py) | Fixed questions, matched branch comparisons |
+| Browser | [`viewer/`](viewer/) | Canonical JavaScript inference and MuJoCo/Three.js UI |
+
+`emu/viewer_src/` is a generated *packaging mirror*; edit `viewer/`, not both. Retired `forge` and `tournament` recipes remain available through Git history rather than as competing current runners.
+
+## What the evidence does — and doesn't — say
+
+- The **public 60M champion** is protected from automatic replacement. Publishing viewer changes is a separate, manual GitHub Pages action.
+- A v5015 foundation **completed 20,054,016 environment steps**, but the first ladder stopped because the trainer and runner disagreed about its output directory. The draft fix is covered by CPU regression tests; a complete resumed GPU experiment has **not** been demonstrated yet.
+- The experiment ladder compares hypotheses up to **46M steps per surviving policy** (about **72M aggregate training steps**). It cannot by itself establish long-horizon robustness at 100–200M steps.
+- Training rewards, self-assessed capability nodes and attractive viewer motion are **not** interchangeable with independently measured locomotion. The current screening gates also need calibration against genuine stepping and command tracking evidence.
+
+For precise acceptance criteria and limitations, read [Project status](docs/STATUS.md), [Evaluation](docs/evaluation.md), [Training](docs/training.md) and [Validation](docs/validation.md).
+
+## Contributing
+
+Run Python contracts, browser tests, and the [cross-runtime inference parity test](tests/test_policy_inference_parity.py) before proposing changes. Changes to PPO, robot physics, actor observation ordering or checkpoint format require additional GPU checks. See [CONTRIBUTING.md](CONTRIBUTING.md) for review expectations and [docs/README.md](docs/README.md) for the document index.
+
+EMU is a research project, not a verified hardware controller. Its aim is measurable *dynamic walking*, not a robot that discovers standing still is the easiest way to survive.
