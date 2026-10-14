@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from .run_support import finish_if_target_reached, promote_checkpoint
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
@@ -173,6 +174,12 @@ def train(args: TrainingConfig) -> int:
                 print(f"{LOG_PREFIX} --resume: primary checkpoint invalid; falling back to validated rotating snapshot {fallback}", flush=True)
             resumed_step = int(resumed_payload['meta']['step'])
             print(f"{LOG_PREFIX} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})", flush=True)
+            if finish_if_target_reached(
+                run_dir, resume_path, resumed_step, args.steps, args.envs,
+            ):
+                print(f"{LOG_PREFIX} already complete at step={resumed_step:,}; "
+                      "published final.pkl without any new PPO update", flush=True)
+                return 0
         except Exception as exc:
             raise RuntimeError(f"--resume failed for {resume_path}: {exc}") from exc
 
@@ -674,11 +681,10 @@ def train(args: TrainingConfig) -> int:
         # balance-and-avoid-stepping rather than walk, with ordinary
         # per-regime retreat unable to pull it back out on its own.
         if args.allow_rollback and report['needs_recovery']:
-            best_path = recovery_path
             recovered = False
-            if best_path.exists():
+            if recovery_path.exists():
                 try:
-                    best_payload = load_checkpoint(best_path)
+                    best_payload = load_checkpoint(recovery_path)
                     if payload_train_state_is_finite(best_payload):
                         loaded_state = best_payload['state']
                         state = state._replace(params=jax.device_put(loaded_state['params']),
@@ -723,10 +729,10 @@ def train(args: TrainingConfig) -> int:
                               f"left it in.", flush=True)
                         recovered = True
                     else:
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {best_path.name} contains non-finite "
+                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                               f"params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
                 except Exception as exc:
-                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {best_path.name} ({exc!r}) "
+                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
                           f"-- continuing with ordinary retreat only.", flush=True)
             else:
                 print(f"{LOG_PREFIX} AUTO-RECOVERY triggered after {int(report['stepping_collapse_streak'])} "
@@ -938,12 +944,8 @@ def train(args: TrainingConfig) -> int:
     perf.add('checkpoint_final_device_get', final_ck_timing['device_get_s'])
     perf.add('checkpoint_final_pickle_write', final_ck_timing['pickle_write_s'])
     perf.add('checkpoint_final_total', final_ck_timing['total_s'])
-    try:
-        final_alias = run_dir / 'checkpoints' / 'final.pkl'
-        if final_alias.exists() or final_alias.is_symlink(): final_alias.unlink()
-        os.link(run_dir / 'checkpoints' / 'latest.pkl', final_alias)
-    except OSError:
-        pass
+    promote_checkpoint(run_dir / 'checkpoints' / 'latest.pkl',
+                       run_dir / 'checkpoints' / 'final.pkl')
     field.save_npz(run_dir / 'capability_field_final.npz')
     field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
                         mode=args.capability_field_mode,

@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -43,13 +44,33 @@ def promote_checkpoint(src: Path, dst: Path) -> Path:
     if src.resolve() == dst.resolve():
         return dst
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists() or dst.is_symlink():
-        dst.unlink()
+    temporary = dst.with_name(f'.{dst.name}.{uuid.uuid4().hex}.tmp')
     try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copy2(src, dst)
+        try:
+            os.link(src, temporary)
+        except OSError:
+            shutil.copy2(src, temporary)
+        os.replace(temporary, dst)
+    finally:
+        temporary.unlink(missing_ok=True)
     return dst
+
+
+def finish_if_target_reached(
+    run_dir: Path, resume_path: Path, resumed_step: int,
+    target_steps: int, envs: int,
+) -> bool:
+    """Never execute another PPO update after a completed resumed run."""
+    expected = update_boundary_at_or_after(target_steps, envs)
+    if resumed_step > expected:
+        raise RuntimeError(f'resumed step {resumed_step:,} exceeds target boundary {expected:,}')
+    if resumed_step < expected:
+        return False
+    ck_dir = run_dir.resolve() / 'checkpoints'
+    if resume_path.resolve().parent != ck_dir:
+        raise RuntimeError('already-complete checkpoint must belong to this run directory')
+    promote_checkpoint(resume_path, ck_dir / 'final.pkl')
+    return True
 
 
 def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str) -> tuple[Path | None, Path | None, int]:
