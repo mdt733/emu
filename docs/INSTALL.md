@@ -11,15 +11,67 @@ EMU has two independent environments: a **Python JAX/MJX trainer** and a **Node.
 
 Python dependencies are owned by `pyproject.toml`; browser dependencies by `viewer/package.json` and its committed lockfile.
 
+## From blank Windows 11 to a ready Ubuntu shell
+
+This section is the **Windows-side prerequisite** for a completely new machine. If WSL already exists, inspect it first; do not delete or unregister any distribution to follow this guide.
+
+Open **PowerShell as Administrator**:
+
+```powershell
+wsl --list --verbose
+wsl --install -d Ubuntu-24.04
+```
+
+Install Ubuntu **only if you do not already have the intended clean distro**. Reboot if Windows requests it, open the Ubuntu terminal and create its Linux username/password at first launch. Then from PowerShell confirm WSL 2:
+
+```powershell
+wsl --update
+wsl --list --verbose
+```
+
+If you already have a suitable Ubuntu WSL instance, use it rather than installing a duplicate. Microsoft documents these controls in [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands).
+
+**Ubuntu 24.04 ships Python 3.12 by default; EMU needs 3.13+.** The repository's setup script deliberately refuses to install under 3.12. In the new **Ubuntu terminal**, install prerequisites and versioned Python 3.13:
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates software-properties-common
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install -y python3.13 python3.13-venv
+python3.13 --version
+git --version
+curl --version
+```
+
+[deadsnakes](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) is a third-party Ubuntu package repository, **not Canonical's default Python packaging**. Review its security/update policy before opting in. It installs a versioned interpreter alongside Ubuntu's Python; **do not change** `/usr/bin/python3` or use `update-alternatives` to replace Ubuntu's system Python. Other Ubuntu releases may already supply Python 3.13+ without the PPA; check their package availability instead of blindly adding it.
+
+For a CUDA-capable Windows host, install/update the **Windows** NVIDIA driver first. Inside WSL check `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` if it isn't in `PATH`). NVIDIA's [CUDA on WSL guide](https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html) warns **not to install the Linux display driver inside WSL**; WSL uses the host Windows driver. If no compatible GPU is visible, take the CPU install path below rather than claiming CUDA support.
+
+### Pre-merge release-candidate check
+
+Until the cleanup is merged, GitHub's default `main` does **not** contain its new `emu ladder` CLI. To verify the exact proposed source before merge, checkout the draft branch **before running setup**:
+
+```bash
+git clone https://github.com/mdt733/emu.git
+cd emu
+git switch --track origin/refactor/ladder-human-first
+git rev-parse HEAD
+```
+
+This is a temporary release-candidate testing step. After the merge a normal `main` clone should work without switching branches. Avoid reusing any training data from an older checkout.
+
 ## Clone and configure
 
 ```bash
 git clone https://github.com/mdt733/emu.git
 cd emu
+# For unmerged PR #2 validation only:
+git switch --track origin/refactor/ladder-human-first
 bash scripts/setup_wsl.sh --install-node
 ```
 
-That is the **CPU-only** install. For a CUDA 13-compatible machine use `bash scripts/setup_wsl.sh --cuda13 --install-node`. Don't pass `--cuda13` unless your actual driver supports it; the setup script does not install NVIDIA drivers. It creates `.venv`, installs the editable package, runs contract checks and builds the packaged viewer. No long training run starts.
+The example is the **CPU-only** install; it works without an NVIDIA card and is the safest first boot test. For a confirmed CUDA 13-compatible machine use `bash scripts/setup_wsl.sh --cuda13 --install-node`. Don't pass `--cuda13` unless your actual driver supports it; the setup script does not install NVIDIA drivers. It creates `.venv`, installs the editable package, runs contract checks and builds the packaged viewer. No long training run starts.
 
 ```bash
 source .venv/bin/activate

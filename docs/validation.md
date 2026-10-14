@@ -2,6 +2,12 @@
 
 EMU has **three different questions**: does the code run, does the learning loop behave correctly, and can the resulting policy actually walk? Passing one does not answer the others.
 
+## 0. Clean WSL bootstrap and branch identity
+
+Follow the [Windows → Ubuntu → Python 3.13 installation sequence](INSTALL.md#from-blank-windows-11-to-a-ready-ubuntu-shell). During pre-merge acceptance explicitly switch to `refactor/ladder-human-first` **before** installation; `main` is not yet the test candidate. Record `wsl --list --verbose` in PowerShell and `python3.13 --version`, `node --version`, `git rev-parse HEAD` in the Ubuntu checkout.
+
+The first user-visible milestone is the **existing trained 60M Playground running locally**, not a zero-weight fixture. Follow [the exact static-preview steps](PLAYGROUND.md#preview-the-exact-static-site-locally), then test a joystick command in the real browser. Only after that verify the GPU learning pipeline.
+
 ## 1. Every change: source and contract checks
 
 Run from the repository root with the editable Python environment active:
