@@ -103,3 +103,19 @@ def test_train_one_uses_existing_runner_without_any_other_training_loop(tmp_path
     assert len(calls) == 1
     assert calls[0][0].steps == 256
     assert calls[0][0].resume == ''
+
+
+def test_public_emu_train_command_parses_plan_without_creating_data(tmp_path, capsys):
+    from emu.cli import main
+    root = tmp_path / 'cli_trial'
+    assert main(['train', '--run-dir', str(root), '--steps', '256',
+                 '--envs', '8', '--profile', 'foundation', '--plan']) == 0
+    assert not root.exists()
+    assert 'Planning only' in capsys.readouterr().out
+
+
+def test_mature_profile_is_explicit_and_uses_existing_graph_config(tmp_path):
+    config = run.one_run_config(options(tmp_path, profile='mature', steps=30_000_000))
+    assert config.capability_field_mode == 'graph'
+    assert config.attitude_profile == 'v5015'
+    assert config.steps == 30_000_000
