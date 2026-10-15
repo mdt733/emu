@@ -62,9 +62,9 @@ Then open `http://127.0.0.1:8765/` on that computer. This loopback-only server i
 | Configurable experiments | [`emu/ladder_recipe.py`](emu/ladder_recipe.py), [`emu/branch_lab.py`](emu/branch_lab.py) | Step targets, hypothesis arms, checkpoints, promotion |
 | State and safety | [`emu/training_config.py`](emu/training_config.py), [`emu/checkpoint_io.py`](emu/checkpoint_io.py) | Validated knobs, schema, atomic publication |
 | Independent evaluation | [`emu/evaluation.py`](emu/evaluation.py), [`emu/screening.py`](emu/screening.py) | Fixed questions, matched branch comparisons |
-| Browser | [`viewer/`](viewer/) | Canonical JavaScript inference and MuJoCo/Three.js UI |
+| Browser | [`emu/viewer_src/`](emu/viewer_src/) | Canonical JavaScript inference and MuJoCo/Three.js UI |
 
-`emu/viewer_src/` is a generated *packaging mirror*; edit `viewer/`, not both. Retired `forge` and `tournament` recipes remain available through Git history rather than as competing current runners.
+`emu/viewer_src/` is the **only** tracked viewer source; no generated mirror needs synchronising. Retired `forge` and `tournament` recipes remain available through Git history rather than as competing current runners.
 
 ## What the evidence does — and doesn't — say
 
