@@ -12,7 +12,7 @@ Use a **separate branch** and run root for experiments. Do not pull source chang
 
 ```bash
 python -m compileall -q emu tests
-python -m pytest -q
+bash scripts/check.sh all # full Python + JS tests; CI also builds browser assets
 npm ci --prefix emu/viewer_src --no-audit --no-fund
 npm test --prefix emu/viewer_src
 npm run build --prefix emu/viewer_src
@@ -43,3 +43,5 @@ That is a **small GPU integration smoke**, not evidence of locomotion quality. A
 Explain *why* the change is needed, *which invariant it protects*, test commands/results, and whether it affects learned weights, checkpoint compatibility, viewer assets or the public champion. Add a regression test for a demonstrated failure, and remove obsolete duplicate assertions when appropriate. Distinguish CPU-only contract checks from actual GPU validation.
 
 **Do not merge an unverified change solely because CI is green.** See [validation](docs/validation.md) for the separate release gates.
+
+For quick feedback during edits, run `bash scripts/check.sh quick` (15 chosen behavioural assertions). It is **not** a substitute for the full CI/GPU acceptance gates. See [test guide](docs/TESTING.md).

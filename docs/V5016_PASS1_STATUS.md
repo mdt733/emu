@@ -9,8 +9,8 @@
 | `emu/directional.py` | Pure world-frame requested-course examiner, tilted-gravity uphill basis, yaw errors over full and 1s/3s windows, bounded optional heading P step | **No** — intended as independent evaluation oracle |
 | `emu/ground_plane.py` | Three body-fixed distance beams + gravity -> valid ground plane normal, slope angle and local uphill direction | **No** — read-only prototype for sensor validation |
 | `emu/observation_versions.py` | Explicit v5015 220/6 and proposed v5016 244/6 actor contracts; old mapping retains exact ordering | **No** — candidate schema only, not falsely claimed deployable |
-| `tests/test_directional5016.py` | Synthetic perfect and cheating trajectories, yaw control, turning, reverse/sidestep, resets, slope direction and versioned contract | CPU-only |
-| `tests/test_ground_plane5016.py` | Flat and ±0.5/1/2° inclines, independent robot leaning, defective/missing ranges, geometry degeneracy | CPU-only |
+| `tests/test_v5016_control.py` | Synthetic perfect and cheating trajectories, yaw control, turning, reverse/sidestep, resets, slope direction and versioned contract | CPU-only |
+| `tests/test_v5016_ground.py` | Flat and ±0.5/1/2° inclines, independent robot leaning, defective/missing ranges, geometry degeneracy | CPU-only |
 | `docs/EMU_V5016_PLAN.md` | Plan revised to permit new actor inputs while demanding complete versioned training/export/hardware integration | Documentation |
 
 ### Strict boundaries
@@ -27,7 +27,7 @@
 From a clean worktree containing this branch, the CPU-only pass is:
 
 ```bash
-python -m pytest -q tests/test_directional5016.py tests/test_ground_plane5016.py
+python -m pytest -q tests/test_v5016_control.py tests/test_v5016_ground.py
 python -m pytest -q tests
 ```
 

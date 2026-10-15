@@ -11,7 +11,8 @@ Start with the [project introduction](../README.md), then choose the guide for t
 | Edit and run the experiment ladder | [Experiments](tournament.md) |
 | Compare and interpret policy capability | [Evaluation](evaluation.md) |
 | Preview/publish the protected browser demo | [Playground](PLAYGROUND.md) |
-| Check code, GPU integration and release evidence | [Validation](validation.md) |
+| Choose a small everyday test or full regression | [Testing](TESTING.md) |
+| Check GPU integration and release evidence | [Validation](validation.md) |
 | Understand the robot and observations | [Hardware model](hardware-model.md) |
 | Understand capability-map semantics | [Capability map](capability-map.md) |
 | Understand integrated physical randomisation | [Domain randomisation](domain-randomization.md) |

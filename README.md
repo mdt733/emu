@@ -33,7 +33,7 @@ bash scripts/setup_wsl.sh --install-node
 source .venv/bin/activate
 emu doctor --no-require-gpu --no-mjx-smoke
 emu ladder --stage plan
-python -m pytest -q
+bash scripts/check.sh quick   # everyday edits: selected behavioural checks
 ```
 
 To train on a configured GPU, finish the CUDA installation and run the real MJX/PPO smoke test first:
@@ -76,6 +76,9 @@ Then open `http://127.0.0.1:8765/` on that computer. This loopback-only server i
 For precise acceptance criteria and limitations, read [Project status](docs/STATUS.md), [Evaluation](docs/evaluation.md), [Training](docs/training.md) and [Validation](docs/validation.md).
 
 ## Contributing
+
+Run `bash scripts/check.sh all` before proposing changes. [Test guide](docs/TESTING.md) explains quick vs full vs actual GPU experiments.
+
 
 Run Python contracts, browser tests, and the [cross-runtime inference parity test](tests/test_policy_inference_parity.py) before proposing changes. Changes to PPO, robot physics, actor observation ordering or checkpoint format require additional GPU checks. See [CONTRIBUTING.md](CONTRIBUTING.md) for review expectations and [docs/README.md](docs/README.md) for the document index.
 

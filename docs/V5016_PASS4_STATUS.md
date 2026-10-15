@@ -11,8 +11,8 @@
 | `emu/directional_exam.py` | Per-policy ON/OFF comparison now supports schedule and gyro realism; logs independent issued-vs-operator errors; validates same protocol in each pair |
 | `emu/v5016_batch.py` | Four stage profiles; PLAN by default, explicit `--run`; subprocess isolation for each case, fail-closed resume on source/checkpoint/parameter mismatch, automatic `results.md`/`results.csv`/`results_data.json`/`results_bundle.zip` |
 | `emu/cli.py` | Exposes `emu directional-batch` and single-case schedule/gyro options |
-| `tests/test_v5016_schedule_batch.py` | CPU protocol generation, invalid inputs, no-write plan, bundle/no-checkpoint rules and matching-checkpoint resume checks |
-| `tests/test_gait_exam5016.py` | Existing real MJX CPU smoke extended to **mid-episode change of yaw direction and zero yaw**, bias, random gyro noise, delayed gyro reading, and post-step environment command parity with PPO request |
+| `tests/test_v5016_exam.py` | CPU protocol generation, invalid inputs, no-write plan, bundle/no-checkpoint rules and matching-checkpoint resume checks |
+| `tests/test_v5016_exam.py` | Existing real MJX CPU smoke extended to **mid-episode change of yaw direction and zero yaw**, bias, random gyro noise, delayed gyro reading, and post-step environment command parity with PPO request |
 
 Why the internal ramp matters: `environment._step_impl` derives its next command from `state.cmd_target`, `state.cmd_ramp_from` and `state.cmd_ramp_frac`; changing just `state.task` or the actor observation is not sufficient. The examiner now forces one coherent issued command through all of these values during read-only evaluation.
 
@@ -82,3 +82,7 @@ Each profile writes `$OUT/<profile>/results.md`, `results_data.json`, `results.c
 - Sensor stress must expose effect of bias/noise/delay without passing privileged simulator compass yaw to PPO.
 - Contact pair events are geometric proxies; no claim of load-bearing walking until force/impulse and slip are validated.
 - v5016 candidate **244-input actor is still an explicit proposal**; this pass doesn't convert old weights or alter active training observations.
+
+## Pass 5 housekeeping
+
+Tests have been regrouped by question (direction/heading, ground sensing, physical exams + batch reports), without deleting unique behaviour assertions. There is now one short daily `bash scripts/check.sh quick` route and `full/physics/browser/all` options. See [the current testing guide](TESTING.md) instead of running every historical test after each edit. This is a **readability pass**, not a new claim of robot walking competency.

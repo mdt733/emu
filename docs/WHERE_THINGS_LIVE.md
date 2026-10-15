@@ -78,3 +78,9 @@ offline from a new reporting-only checkout using `python3 emu/results.py --root 
 Do not change an in-progress trainer's pinned source revision just to run
 the reporter. Scores and motor telemetry are labelled by evidence type; no
 measured shaft power should be mistaken for electrical battery draw.
+
+## v5016 directional experiments (draft, not PPO training)
+
+The new independent **course examiner** is in `emu/directional.py`; `emu/gait_exam.py` uses physical trajectory/contact evidence without changing learning rewards. `emu/command_exams.py` declares external operator-command schedules, `emu/directional_exam.py` runs read-only saved-policy exams, and `emu/v5016_batch.py` assembles matched OFF/ON comparisons and results bundles. `emu/ground_plane.py` is a read-only candidate for 3-range/IMU slope estimation; `emu/observation_versions.py` declares the **untrained** 244-input candidate. Keep these draft pieces distinct from the production 220-input actor.
+
+For developers: **`bash scripts/check.sh quick`** covers 15 representative contracts; **`bash scripts/check.sh all`** checks the entire Python suite and browser. The complete list is intentionally kept for CI; it is not the normal editing workflow. See [the testing guide](TESTING.md).

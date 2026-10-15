@@ -14,8 +14,8 @@ reward/optimizer, browser showcase and policy observation contract.
 | `emu/gait_exam.py` | Separately records issued-vs-operator yaw request, gyro relative-heading error and correction magnitude. World-fixed course scoring still uses original operator commands, not corrected policy request |
 | `emu/directional_exam.py` | `--compare-heading` runs OFF and ON with same initial seeds/checkpoint/commands, writes separate full per-world evidence and a human-readable delta scorecard in a new output directory |
 | `emu/cli.py` | Forwards `--compare-heading --heading-kp` without changing old `emu` commands |
-| `tests/test_gait_exam5016.py` | Tiny *actual* 2-world MJX smoke for both controller OFF and ON with identical operator commands, plus separate trace-shape/finite checks |
-| `tests/test_heading_pair5016.py` | Pure sign/saturation/wrap tests, same-checkpoint/same-protocol pairing, missing-data and overwrite safety |
+| `tests/test_v5016_exam.py` | Tiny *actual* 2-world MJX smoke for both controller OFF and ON with identical operator commands, plus separate trace-shape/finite checks |
+| `tests/test_v5016_control.py` | Pure sign/saturation/wrap tests, same-checkpoint/same-protocol pairing, missing-data and overwrite safety |
 
 **Not implemented:** gyro sensor noise/bias/delay injection, adaptive gains,
 turn-stop schedules, controller deployment parity tests, physical ramps,

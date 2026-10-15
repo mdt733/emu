@@ -12,7 +12,7 @@
 | `emu/gait_exam.py` | Converts uninterrupted episode prefixes into signed world-course and candidate stride verdicts; counts alternating floor-foot touchdown pairs with airborne clearance, foot relocation and body displacement | Not a learned reward. Does **not** use foot lift as proof of real locomotion or confuse a reset teleport with movement |
 | `emu/directional_exam.py` | Explicit legacy-checkpoint read-only command: exact 0–5° tilted-gravity tests on shared plane, deterministic command probes, output SHA/provenance and per-world MD/JSON | No checkpoint writes or edits, no automatic campaign winner promotion; **no ramp geometry or heading P yet** |
 | `emu/cli.py` | Public `emu directional-exam` dispatch with bounded inputs and required separate output | Does not enable the experimental 244-input actor |
-| `tests/test_gait_exam5016.py` | Pure reset/footfall/numeric tests and small bounded real-MJX CPU trace smoke (when optional physics dependencies available) | Not proof of the user's real GPU or finished gait |
+| `tests/test_v5016_exam.py` | Pure reset/footfall/numeric tests and small bounded real-MJX CPU trace smoke (when optional physics dependencies available) | Not proof of the user's real GPU or finished gait |
 
 ### Why episodes are truncated before auto-reset
 
