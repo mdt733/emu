@@ -119,3 +119,18 @@ def test_mature_profile_is_explicit_and_uses_existing_graph_config(tmp_path):
     assert config.capability_field_mode == 'graph'
     assert config.attitude_profile == 'v5015'
     assert config.steps == 30_000_000
+
+
+def test_pre_cuda_abort_allows_safe_retry_but_not_ambiguous_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, 'source_repo_root', lambda: tmp_path / 'source')
+    cfg = run.one_run_config(options(tmp_path))
+    root = Path(cfg.run_dir)
+    cfg.save(root / 'training_config.json')
+    (root / 'console.log').write_text('GPU not found; no trainer was created')
+    monkeypatch.setattr(run, 'resolve_target_checkpoint',
+                        lambda *a, **kw: (None, None, 256))
+    assert run.inspect_run(cfg, provenance=identity(), resume='') == (None, False)
+    (root / 'orphan.pkl').write_bytes(b'preserve unknown evidence')
+    with pytest.raises(RuntimeError, match='ambiguous lineage'):
+        run.inspect_run(cfg, provenance=identity(), resume='')
+    assert (root / 'orphan.pkl').read_bytes() == b'preserve unknown evidence'
