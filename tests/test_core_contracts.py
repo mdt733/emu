@@ -156,19 +156,24 @@ def test_environment_task_schema_is_named_and_contiguous():
 
 
 def test_reward_telemetry_exports_only_consumed_components():
+    """The five shaping diagnostics are defined by scoring, not by physics."""
     import ast
-    import emu.environment as environment
-    source = Path(environment.__file__).read_text(encoding='utf-8')
+    import inspect
+    from emu import scoring
+    source = inspect.getsource(scoring.training_reward)
     tree = ast.parse(source)
     term_keys = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == '_reward':
-            for child in ast.walk(node):
-                if isinstance(child, ast.Assign):
-                    if any(isinstance(t, ast.Name) and t.id == 'terms' for t in child.targets):
-                        if isinstance(child.value, ast.Dict):
-                            term_keys.update(k.value for k in child.value.keys if isinstance(k, ast.Constant))
-    assert term_keys == {'valid_alive','command_tracking','upright_height','feet_only_contact','swing_clearance'}
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == 'terms' for t in node.targets):
+            if isinstance(node.value, ast.Dict):
+                term_keys.update(k.value for k in node.value.keys
+                                 if isinstance(k, ast.Constant))
+    assert term_keys == {'valid_alive', 'command_tracking', 'upright_height',
+                         'feet_only_contact', 'swing_clearance'}
+    # No legacy second reward owner hiding back in the simulation.
+    import emu.environment as environment
+    assert not hasattr(environment.EmuMJXEnv, '_reward')
 
 
 def test_task_packet_contains_no_retired_assist_or_rehearsal_fields():
