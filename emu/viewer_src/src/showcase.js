@@ -9,8 +9,10 @@ export function parseShowcaseManifest(value) {
   }
   const source_url = typeof value.source_url === 'string' && /^https:\/\/github\.com\//.test(value.source_url)
     ? value.source_url : '';
+  const source_commit = typeof value.source_commit === 'string' && /^[0-9a-f]{40}$/.test(value.source_commit)
+    ? value.source_commit : '';
   return {
-    policy, source_url,
+    policy, source_url, source_commit,
     trained: value.trained === true,
     autoplay: value.autoplay !== false,
     label: typeof value.label === 'string' ? value.label.slice(0, 100) : 'Published policy',
@@ -36,7 +38,7 @@ export function isViewerConfig(value) {
 
 export async function readShowcaseManifest(response) {
   if (!isJsonResponse(response)) {
-    throw new Error('Static showcase.json missing or not JSON. Run: python scripts/prepare_showcase.py && emu viewer-build. Verify viewer/dist/showcase.json exists.');
+    throw new Error('Static showcase.json missing or not JSON. Run: python scripts/prepare_showcase.py && emu viewer-build. Verify emu/viewer_src/dist/showcase.json exists.');
   }
   let value;
   try {
@@ -51,6 +53,6 @@ export function assertShowcasePolicyResponse(response) {
   if (!response.ok) throw new Error(`Showcase policy HTTP ${response.status}`);
   const mime = (response.headers?.get('content-type') || '').toLowerCase();
   if (mime.includes('text/html')) {
-    throw new Error('Bundled .emupolicy file is missing; preview server returned HTML. Rebuild the showcase and check viewer/dist/policies/champion.emupolicy.');
+    throw new Error('Bundled .emupolicy file is missing; preview server returned HTML. Rebuild the showcase and check emu/viewer_src/dist/policies/champion.emupolicy.');
   }
 }
