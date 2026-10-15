@@ -31,6 +31,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from .domain_randomization import DomainRandomizationConfig, build_batched_model
+from .scoring import weighted_training_terms
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
@@ -1077,6 +1078,7 @@ class EmuMJXEnv:
             'steady_vx_err': vx_err * steady, 'steady_vy_err': vy_err * steady,
             'steady_yaw_err': yaw_err * steady,
             **{f'reward_{k}': v for k, v in terms.items()},
+            'reward_weighted_fall_penalty': jnp.where(terminal_fail, -early_fall_penalty, jnp.zeros_like(reward)),
             'episode_done': done.astype(jnp.float32),
             'episode_length': ep_len,
             'episode_return': ep_return,
@@ -1498,9 +1500,13 @@ class EmuMJXEnv:
             remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
                                     0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
             locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
-        reward = (0.58*valid_alive + 1.55*locomotion_quality + 0.68*upright_height*stepping_gate + 0.50*feet_only_contact*stepping_gate +
-                  0.18*stance_anti_slip + 0.16*swing_clearance + 0.12*servo_smoothness + 0.17*joint_safety)
-        return reward, terms
+        reward, payments = weighted_training_terms(
+            alive=valid_alive, locomotion=locomotion_quality,
+            posture=upright_height, contact=feet_only_contact,
+            anti_slip=stance_anti_slip, clearance=swing_clearance,
+            smoothness=servo_smoothness, joint_safety=joint_safety,
+            stepping_gate=stepping_gate)
+        return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()}}
 
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
