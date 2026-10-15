@@ -163,6 +163,9 @@ def main(argv=None) -> int:
     q.add_argument('--lateral',type=float,default=0.)
     q.add_argument('--yaw-rate',type=float,default=0.)
     q.add_argument('--settle-frames',type=int,default=25)
+    q.add_argument('--compare-heading',action='store_true',
+                   help='matched read-only controller OFF/ON comparison')
+    q.add_argument('--heading-kp',type=float,default=0.75)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
@@ -212,7 +215,9 @@ def main(argv=None) -> int:
                     '--worlds',str(args.worlds),'--horizon',str(args.horizon),
                     '--speed',str(args.speed),'--lateral',str(args.lateral),
                     '--yaw-rate',str(args.yaw_rate),'--settle-frames',str(args.settle_frames),
-                    '--seed',str(args.seed),'--device',args.device)
+                    '--seed',str(args.seed),'--device',args.device,
+                    '--heading-kp',str(args.heading_kp),
+                    *(['--compare-heading'] if args.compare_heading else []))
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):

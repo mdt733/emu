@@ -146,6 +146,24 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
                     completed_strides=strides,
                     uphill_world_xy=uphill,slope_deg=slope)
         result.update(course)
+        if 'issued_yaw_rate' in trace:
+            issued = np.asarray(trace['issued_yaw_rate'])[:stop, w]
+            operator_yaw = arrays['command'][:stop, w, 2]
+            delta = issued - operator_yaw
+            result['mean_abs_controller_correction_rad_s'] = float(
+                np.mean(np.abs(delta[settle_frames:])))
+            result['peak_abs_controller_correction_rad_s'] = float(
+                np.max(np.abs(delta[settle_frames:])))
+            result['issued_yaw_mae_vs_operator_rad_s'] = float(
+                np.mean(np.abs(delta[settle_frames:])))
+        if 'estimated_heading_rad' in trace:
+            estimated = np.asarray(trace['estimated_heading_rad'])[:stop, w]
+            true_relative = np.unwrap(head[:-1]) - head[0]
+            # Ideal simulated body gyro is not identical to world yaw rate
+            # when body roll/pitch are nonzero. Keep this as a diagnostic.
+            result['gyro_heading_error_mae_deg'] = float(np.degrees(
+                np.mean(np.abs(estimated[settle_frames:] -
+                               true_relative[settle_frames:]))))
         result.update(contact_stride_pairs=strides,measured_slope_deg=slope,
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)

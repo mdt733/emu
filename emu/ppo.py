@@ -13,6 +13,8 @@ import numpy as np
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
 from .environment import T
 from .gait_exam import contact_pair_mask
+from .directional import heading_rate_request
+from .contracts import CONTROL_DT
 from .tracking_contract import (
     VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
     UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
@@ -593,18 +595,26 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
-    def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key, horizon):
-        """Read-only, bounded physical timeline for the v5016 directional examiner.
+    def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
+                       horizon, heading_kp=0.0):
+        """Pre-reset physics trace, optionally with IMU-relative heading hold.
 
-        Samples PRE-STEP world XY, ground heading, raw task commands, foot
-        positions, real floor-foot contact PAIRS and step termination flags.
-        PPO training/evaluate_summary remain unchanged. An episode's first
-        `done` terminates its usable prefix; the host never interprets the
-        automatically reset world position as travel.
+        ON/OFF use the exact same operator commands, initial states and seeds.
+        The ON controller integrates measured body gyro-Z (not simulator yaw
+        truth) and modifies ONLY the yaw-rate request delivered to PPO.
+        The examiner always grades against the original operator command.
+        This first integration supports fixed STEADY commands, not transitions.
         """
         keys = jax.random.split(eval_key, env.num_envs)
         initial = env._reset_with_keys(keys, curriculum_params)
         obs = env.obs(initial)
+        # Fixed requested commands must survive any controller correction.
+        operator = jnp.stack((initial.task[:, T.vx], initial.task[:, T.vy],
+                              initial.task[:, T.yaw]), axis=-1)
+        yaw_field = BASE_OBS_FIELDS.index('cmd_yaw')
+        kp = float(heading_kp)
+        if not 0.0 <= kp <= 2.0:
+            raise ValueError('heading_kp must be in [0, 2]')
 
         def record_state(es):
             data = es.data
@@ -614,30 +624,51 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 jnp, data.contact.geom1, data.contact.geom2,
                 data.contact.dist, int(env.ids['floor_geom']),
                 tuple(int(x) for x in env.ids['foot_geoms']))
-            return (data.qpos[:, :2], yaw,
-                    data.xpos[:, env.foot_bodies, :], contacts)
+            return data.qpos[:, :2], yaw, data.xpos[:, env.foot_bodies, :], contacts
 
         def step(carry, _):
-            es, ob = carry
+            es, ob, target, estimated = carry
             xy, yaw, foot_xyz, contacts = record_state(es)
-            commands = jnp.stack((es.task[:, T.vx], es.task[:, T.vy],
-                                  es.task[:, T.yaw]), axis=-1)
-            mean, _ = apply(params, normalize_obs(ob, obs_mean, obs_std, obs_norm_mask))
-            out = env.step(es, jnp.clip(mean, -1.0, 1.0), curriculum_params)
+            # Body gyro integration: no perfect MuJoCo yaw oracle is used
+            # to control the trained actor. This is noiseless simulated gyro;
+            # sensor bias/latency robustness remains a separate future gate.
+            body_gyro_z = env._body_packets(es.data)[2][:, 2]
+            next_target = target + operator[:, 2] * CONTROL_DT
+            next_estimated = estimated + body_gyro_z * CONTROL_DT
+            corrected, error = heading_rate_request(
+                jnp, operator[:, 2], next_target, next_estimated,
+                kp=kp, max_rate=env.yaw_max_rad_s)
+            if kp > 0:
+                delivered_task = es.task.at[:, T.yaw].set(corrected)
+                # The latest history frame is the current command received
+                # by PPO. Earlier frames remain real history, not rewritten.
+                hist = es.hist.at[:, -1, yaw_field].set(corrected)
+                stepped_state = es._replace(task=delivered_task, hist=hist)
+                policy_obs = hist.reshape((env.num_envs, OBS_DIM))
+            else:
+                stepped_state, policy_obs = es, ob
+            mean, _ = apply(params, normalize_obs(
+                policy_obs, obs_mean, obs_std, obs_norm_mask))
+            out = env.step(stepped_state, jnp.clip(mean, -1.0, 1.0),
+                           curriculum_params)
             sample = dict(position_xy=xy, heading_rad=yaw,
                           foot_xyz=foot_xyz, floor_contact=contacts,
-                          command=commands, done=out.done,
-                          fell=out.metrics['episode_fell'])
-            return (out.state, out.obs), sample
+                          command=operator, issued_yaw_rate=corrected,
+                          estimated_heading_rad=next_estimated,
+                          requested_heading_rad=next_target,
+                          controller_heading_error_rad=error,
+                          done=out.done, fell=out.metrics['episode_fell'])
+            return (out.state, out.obs, next_target, next_estimated), sample
 
-        (end_state, _), frames = jax.lax.scan(
-            step, (initial, obs), xs=None, length=horizon)
+        zeros = jnp.zeros((env.num_envs,), dtype=jnp.float32)
+        (end_state, _, _, _), frames = jax.lax.scan(
+            step, (initial, obs, zeros, zeros), xs=None, length=horizon)
         last_xy, last_yaw, last_feet, last_contact = record_state(end_state)
         return dict(**frames, last_position_xy=last_xy,
                     last_heading_rad=last_yaw, last_foot_xyz=last_feet,
                     last_floor_contact=last_contact)
 
-    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,))
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5, 6))
 
     def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
                           stable_steps=10, recovery_not_before=0):

@@ -150,3 +150,26 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert data['command'].shape==(4,2,3)
     assert data['last_position_xy'].shape==(2,2)
     assert np.isfinite(data['position_xy']).all()
+    # Exercise the actual optional gyro-integrated heading controller JIT path.
+    on=trainer['evaluate_trace'](
+        params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,
+                                 'probe_cmd_yaw':.2}),
+        mean,std,jax.random.PRNGKey(199),4,0.75)
+    off=trainer['evaluate_trace'](
+        params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,
+                                 'probe_cmd_y':.2}),
+        mean,std,jax.random.PRNGKey(199),4,0.0)
+    on=jax.device_get(on); off=jax.device_get(off)
+    assert on['issued_yaw_rate'].shape==(4,2)
+    assert on['estimated_heading_rad'].shape==(4,2)
+    assert np.isfinite(on['issued_yaw_rate']).all()
+    # Grade original requests: exact same operator command in both conditions.
+    np.testing.assert_array_equal(on['command'],off['command'])
+    np.testing.assert_allclose(off['issued_yaw_rate'],
+                               off['command'][:,:,2],rtol=1e-6,atol=1e-6)
+    assert np.max(np.abs(on['issued_yaw_rate'])) <= 1.5+1e-6
+    measured=evaluate_trace_arrays(on,np.tile([0,0,-9.81],(2,1)),
+                                   settle_frames=0)
+    assert len(measured)==2
+    assert all('mean_abs_controller_correction_rad_s' in w
+               for w in measured if w['frames_recorded']>2)

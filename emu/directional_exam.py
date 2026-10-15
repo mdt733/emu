@@ -75,7 +75,9 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
 
 def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
                  horizon=350, speed=.10, lateral=0., yaw_rate=0.,
-                 seed=1701, device='cuda', settle_frames=25):
+                 seed=1701, device='cuda', settle_frames=25, heading_kp=0.0):
+    if not math.isfinite(heading_kp) or not 0 <= heading_kp <= 2:
+        raise ValueError('heading-kp must lie in [0,2] per second')
     run_dir,output,g=validate_request(
         run_dir=run_dir,output=output,worlds=int(worlds),horizon=int(horizon),
         settle_frames=int(settle_frames),angle_deg=angle_deg,direction=direction,
@@ -129,7 +131,7 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
     trace=trainer['evaluate_trace'](
         params,env.params_array(task),
         jnp.asarray(norm['mean']),jnp.sqrt(jnp.asarray(norm['var'])),
-        jax.random.PRNGKey(int(seed)),int(horizon))
+        jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp))
     frames=jax.device_get(trace)
     evaluated=evaluate_trace_arrays(
         frames,np.tile(g,(int(worlds),1)),dt=.02,
@@ -143,7 +145,8 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
                     horizon=int(horizon),settle_frames=int(settle_frames),
                     speed=float(speed),lateral=float(lateral),
                     yaw_rate=float(yaw_rate),seed=int(seed),device=device,
-                    heading_p_enabled=False),
+                    heading_p_enabled=heading_kp>0,heading_kp=float(heading_kp),
+                    heading_sensor='ideal simulated body gyro-Z integrated'),
         'worlds':evaluated,
     }
     output.mkdir(parents=True,exist_ok=True)
@@ -160,11 +163,15 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
         'Contact-pair stride candidate success: '+str(gait)+'/'+str(worlds),
         '',
         'The contact-pair gait count is an estimate, not measured ground-reaction force.',
-        'No heading P controller, PPO retraining, or policy modification was used.',
+        'Heading P gain: '+str(heading_kp)+' /s (0 means OFF).',
+        'When ON, only the yaw-rate request delivered to PPO is corrected.',
+        'Exam course is ALWAYS scored against original operator commands.',
+        'Yaw estimate integrates simulated body gyro, not perfect world yaw.',
+        'No PPO retraining, reward or policy modification was performed.',
         'A rotated gravity field represents infinite uniform ground; not a physical ramp.',
         '',
-        '| World | Full horizon | Course pass | Gait candidate | Signed progress m | Heading MAE deg | Contact stride pairs |',
-        '|---|---|---|---|---:|---:|---:|',
+        '| World | Full horizon | Course pass | Gait candidate | Signed progress m | Heading MAE deg | Correction rad/s | Contact stride pairs |',
+        '|---|---|---|---|---:|---:|---:|---:|',
     ]
     for r in evaluated:
         head=r.get('heading_mae_deg')
@@ -175,11 +182,95 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
             'yes' if r.get('walking_pass') else 'not proven',
             f"{r['signed_course_progress_m']:.3f}" if 'signed_course_progress_m' in r else '—',
             f'{head:.2f}' if head is not None else '—',
+            f"{r['mean_abs_controller_correction_rad_s']:.3f}"
+                if 'mean_abs_controller_correction_rad_s' in r else '—',
             str(r.get('contact_stride_pairs',0)),
         ])+' |')
     output_md=output/'directional_exam.md'
     output_md.write_text('\n'.join(lines)+'\n')
     return output_json,output_md
+
+
+
+def _summarize_worlds(worlds):
+    """Keep survival and course/gait obedience distinct; do not merge them."""
+    def mean_optional(key):
+        values=[float(w[key]) for w in worlds if key in w]
+        return sum(values)/len(values) if values else None
+    count=len(worlds)
+    return dict(worlds=count,
+                survived_full=sum(bool(w['full_horizon_survival']) for w in worlds)/count,
+                course_pass=sum(bool(w.get('course_pass')) for w in worlds)/count,
+                gait_candidate_pass=sum(bool(w.get('walking_pass')) for w in worlds)/count,
+                progress_m=mean_optional('signed_course_progress_m'),
+                heading_mae_deg=mean_optional('heading_mae_deg'),
+                gyro_heading_error_mae_deg=mean_optional('gyro_heading_error_mae_deg'),
+                mean_abs_controller_correction_rad_s=
+                    mean_optional('mean_abs_controller_correction_rad_s'))
+
+
+def evaluate_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
+    """Two matched read-only exams plus one human-readable delta report.
+
+    The same saved policy, initial seeds, command and slope are evaluated once
+    with the outer heading loop OFF, once ON. Never silently select a winner.
+    """
+    target=Path(output).expanduser().resolve()
+    run=Path(run_dir).expanduser().resolve()
+    if target==run or run in target.parents or target in run.parents:
+        raise ValueError('comparison output must be outside original run')
+    if target.exists() and (not target.is_dir() or any(target.iterdir())):
+        raise FileExistsError('comparison requires new/empty --output root')
+    if not math.isfinite(heading_kp) or not 0 < heading_kp <= 2.0:
+        raise ValueError('compare mode needs a positive heading-kp in (0,2]')
+    off_json,_=evaluate_run(run_dir,output=target/'off',
+                            heading_kp=0.0,**kwargs)
+    on_json,_=evaluate_run(run_dir,output=target/'on',
+                           heading_kp=heading_kp,**kwargs)
+    off=json.loads(off_json.read_text())
+    on=json.loads(on_json.read_text())
+    if (off['checkpoint_sha256']!=on['checkpoint_sha256'] or
+            off['checkpoint_training_step']!=on['checkpoint_training_step']):
+        raise RuntimeError('paired evaluations did not use same checkpoint')
+    for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
+                'angle_deg','direction','settle_frames'):
+        if off['exam'][key]!=on['exam'][key]:
+            raise RuntimeError('paired examinations have unequal '+key)
+    s_off=_summarize_worlds(off['worlds'])
+    s_on=_summarize_worlds(on['worlds'])
+    keys=('survived_full','course_pass','gait_candidate_pass','progress_m',
+          'heading_mae_deg','gyro_heading_error_mae_deg',
+          'mean_abs_controller_correction_rad_s')
+    delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
+           for k in keys}
+    result=dict(schema=1,checkpoint_sha256=off['checkpoint_sha256'],
+                examined_at_revision=off['source_commit'],
+                protocol={k:off['exam'][k] for k in off['exam'] if k not in
+                          ('heading_p_enabled','heading_kp')},
+                heading_kp=heading_kp,off=s_off,on=s_on,
+                on_minus_off=delta,conclusion='comparison only; no automatic promotion')
+    path=target/'heading_comparison.json'
+    path.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    lines=['# Paired v5016 heading-hold evaluation','',
+           'Checkpoint SHA256: '+result['checkpoint_sha256'],
+           'Gain ON: '+str(heading_kp)+'/s. Both cases use same seeds and operator requests.',
+           'The controller sees gyro-integrated relative yaw, not simulator true yaw.',
+           'Course scoring always uses unmodified operator commands.',
+           '',
+           '| Measurement | OFF | ON | ON minus OFF |',
+           '|---|---:|---:|---:|']
+    for key in keys:
+        vals=[s_off[key],s_on[key],delta[key]]
+        lines.append('| '+key+' | '+' | '.join(
+            '—' if x is None else f'{x:.4f}' for x in vals)+' |')
+    lines+=['','Fractions are over all examined worlds. Other metrics are means',
+            'of valid measured episodes, NOT conditionally matched survivor pairs.',
+            'Review individual world outcomes in off/ and on/ before any decision.',
+            'A better heading MAE does not compensate for worse survival or course progress.',
+            'This comparison did not retrain or alter the checkpoint.']
+    md=target/'heading_comparison.md'
+    md.write_text('\n'.join(lines)+'\n')
+    return path,md
 
 
 def main(argv=None):
@@ -196,11 +287,23 @@ def main(argv=None):
     p.add_argument('--settle-frames',type=int,default=25)
     p.add_argument('--seed',type=int,default=1701)
     p.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cuda')
+    p.add_argument('--heading-kp',type=float,default=0.75,
+                   help='P gain per second, used for ON/compare; default OFF unless selected')
+    p.add_argument('--compare-heading',action='store_true',
+                   help='evaluate matched OFF and ON rollouts into one separate bundle')
     a=p.parse_args(argv)
-    for path in evaluate_run(a.run_dir,angle_deg=a.angle,direction=a.direction,
-                  output=a.output,worlds=a.worlds,horizon=a.horizon,
-                  speed=a.speed,lateral=a.lateral,yaw_rate=a.yaw_rate,
-                  seed=a.seed,device=a.device,settle_frames=a.settle_frames):
+    kw=dict(angle_deg=a.angle,direction=a.direction,worlds=a.worlds,
+            horizon=a.horizon,speed=a.speed,lateral=a.lateral,
+            yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
+            settle_frames=a.settle_frames)
+    if a.compare_heading:
+        outputs=evaluate_pair(a.run_dir,output=a.output,
+                              heading_kp=a.heading_kp,**kw)
+    else:
+        # Single-case invocation deliberately remains controller OFF by default.
+        outputs=evaluate_run(a.run_dir,output=a.output,
+                             heading_kp=0.0,**kw)
+    for path in outputs:
         print(path)
     return 0
 

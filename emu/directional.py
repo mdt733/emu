@@ -16,6 +16,18 @@ def wrap_radians(angle):
     return math.atan2(math.sin(float(angle)), math.cos(float(angle)))
 
 
+def heading_rate_request(xp, requested_rate, target_heading, estimated_heading,
+                         *, kp, max_rate):
+    """Shared NumPy/JAX P law; caller owns heading integration and sensor validity.
+
+    This does not act on servos. It returns a bounded *policy yaw command*
+    and the shortest signed target-vs-estimate heading error.
+    """
+    error = xp.arctan2(xp.sin(target_heading - estimated_heading),
+                      xp.cos(target_heading - estimated_heading))
+    return xp.clip(requested_rate + kp * error, -max_rate, max_rate), error
+
+
 @dataclass(frozen=True)
 class HeadingState:
     target_rad: float = 0.0  # unwrapped, integrated operator command
@@ -45,8 +57,9 @@ def heading_hold_step(
     measured = float(measured_yaw_rad)
     base = state.target_rad if state.has_reference else measured
     target = base + cmd * dt
-    error = wrap_radians(target - measured)
-    corrected = max(-max_rate, min(max_rate, cmd + kp * error))
+    corrected, error = heading_rate_request(
+        np, cmd, target, measured, kp=kp, max_rate=max_rate)
+    corrected, error = float(corrected), float(error)
     return HeadingState(target, True), corrected, error
 
 
