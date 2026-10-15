@@ -13,9 +13,9 @@ Use a **separate branch** and run root for experiments. Do not pull source chang
 ```bash
 python -m compileall -q emu tests
 python -m pytest -q
-npm ci --prefix viewer --no-audit --no-fund
-npm test --prefix viewer
-npm run build --prefix viewer
+npm ci --prefix emu/viewer_src --no-audit --no-fund
+npm test --prefix emu/viewer_src
+npm run build --prefix emu/viewer_src
 git diff --check
 ```
 
@@ -35,7 +35,7 @@ That is a **small GPU integration smoke**, not evidence of locomotion quality. A
 - **Training algorithm:** keep updates inside `emu/ppo.py`; `training.py` orchestrates state transitions, evaluations and checkpoint publication.
 - **Evaluation:** score the *same actor and observation normaliser* that you checkpoint. Rollout telemetry describes a different (rollout-generating) actor and must remain distinguishable.
 - **Persistence:** publish checkpoints atomically; never unlink the only validated resume point before a replacement is ready. A resume restores learning state but not simulator episodes.
-- **Browser:** edit `viewer/` and build the package mirror with `emu viewer-build`; never edit the mirror as the source of truth.
+- **Browser:** edit `emu/viewer_src/` directly and build with `emu viewer-build`; the package owns the only viewer source.
 - **Research claims:** cite the run source commit, seed, checkpoint step, evaluator cohorts and results. Do not infer robustness from training reward or the browser alone.
 
 ## Pull-request checklist
