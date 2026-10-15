@@ -280,6 +280,20 @@ def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
     }
 
 
+def joint_spring_energy(xp, joint_position_rad, spring_ref_rad, stiffness_nm_rad):
+    """Stored elastic potential: sum(0.5 * stiffness * (q - springref)^2).
+
+    Includes six driven hinge springs and both passive shin-flex springs.
+    This is a *state* in joules, not a net transfer from springs to motion.
+    For the nominal XML model, stiffness is not domain-randomised.
+    """
+    energy = 0.5 * stiffness_nm_rad * (joint_position_rad - spring_ref_rad) ** 2
+    return {
+        'spring_potential_energy_j': xp.sum(energy, axis=1),
+        'shin_spring_energy_j': xp.sum(energy[:, -2:], axis=1),
+    }
+
+
 class EmuMJXEnv:
     """A JAX/MJX vector environment with all envs stepped in one device batch."""
 
@@ -367,7 +381,23 @@ class EmuMJXEnv:
         limits = np.asarray(self.mj_model.actuator_forcerange, dtype=np.float32)
         if limits.shape != (ACTION_DIM, 2):
             raise ValueError('Expected exactly six force-limited robot actuators')
-        self.servo_stall_torque_nm = jnp.asarray(np.max(np.abs(limits), axis=1))
+        # Hardware domain randomisation can vary actuator forcerange per
+        # world. Use the actual model limits, not the nominal XML ceiling.
+        self.servo_stall_torque_nm = jnp.max(
+            jnp.abs(self.mjx_model.actuator_forcerange), axis=-1)
+        # The six actuated hinge springs and two passive shin-flex springs.
+        # MuJoCo exposes each hinge's spring reference via qpos_spring.
+        spring_names = (*ACTUATED_JOINTS, 'r_shin_flex', 'l_shin_flex')
+        joints = [mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, name)
+                  for name in spring_names]
+        if any(j < 0 for j in joints):
+            raise ValueError('Missing a joint needed for spring-energy diagnostics')
+        joint_pos = np.asarray(self.mj_model.jnt_qposadr)[joints].astype(np.int32)
+        self.spring_qpos = jnp.asarray(joint_pos)
+        self.spring_reference = jnp.asarray(
+            np.asarray(self.mj_model.qpos_spring)[joint_pos], dtype=jnp.float32)
+        self.spring_stiffness = jnp.asarray(
+            np.asarray(self.mj_model.jnt_stiffness)[joints], dtype=jnp.float32)
         self.act_joint_range = jnp.asarray(self.ids['act_joint_range'], dtype=jnp.float32)
         self.shin_qpos = jnp.asarray(self.ids['shin_qpos'], dtype=jnp.int32)
         self.shin_qvel = jnp.asarray(self.ids['shin_qvel'], dtype=jnp.int32)
@@ -1355,6 +1385,9 @@ class EmuMJXEnv:
         servo_effort = servo_effort_metrics(
             jnp, data.actuator_force[:, :ACTION_DIM],
             data.qvel[:, self.act_qvel], self.servo_stall_torque_nm)
+        spring_energy = joint_spring_energy(
+            jnp, data.qpos[:, self.spring_qpos],
+            self.spring_reference, self.spring_stiffness)
         # Reward-only stance-foot slip proxy. MuJoCo truth is allowed in the
         # reward: consecutive
         # foot poses estimate tangential speed and only near-floor feet count.
@@ -1422,6 +1455,7 @@ class EmuMJXEnv:
             'joint_limit_pressure': joint_pressure,
             'scissor_pressure': scissor,
             **servo_effort,
+            **spring_energy,
         }
 
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl):
