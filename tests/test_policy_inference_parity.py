@@ -72,7 +72,7 @@ def test_exported_actor_matches_browser_inference():
     }
     js = r"""
 import fs from 'node:fs';
-import { PolicyRunner, parsePolicy } from './viewer/src/policy.js';
+import { PolicyRunner, parsePolicy } from './emu/viewer_src/src/policy.js';
 const request = JSON.parse(fs.readFileSync(0, 'utf8'));
 const runner = new PolicyRunner(parsePolicy(JSON.stringify(request.bundle)));
 const actions = request.observations.map(
