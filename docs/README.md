@@ -15,9 +15,9 @@ Start with the [project introduction](../README.md), then choose the guide for t
 | Understand the robot and observations | [Hardware model](hardware-model.md) |
 | Understand capability-map semantics | [Capability map](capability-map.md) |
 | Understand integrated physical randomisation | [Domain randomisation](domain-randomization.md) |
-| Inspect browser policy and controls | [Policy format](../viewer/POLICY_FORMAT.md), [Viewer](../viewer/README.md) |
+| Inspect browser policy and controls | [Policy format](../emu/viewer_src/POLICY_FORMAT.md), [Viewer](../emu/viewer_src/README.md) |
 | Read historical experiments and lessons | [History](history.md), [v5014 recipe](v5014-production.md), [v5013 data](../results/v5013_tournament/README.md) |
 
 [Contributing](../CONTRIBUTING.md) explains the review/test expectations.
 
-**Source-of-truth rules:** edit `viewer/`, not its generated packaging mirror. Update the current `ladder_recipe.py` *between* training campaigns, not during an active lineage. Code-contract claims belong with tests. Historical explanations should be marked as historical, not copied into live installation instructions.
+**Source-of-truth rules:** edit the single package-owned browser source `emu/viewer_src/`. Update the current `ladder_recipe.py` *between* training campaigns, not during an active lineage. Code-contract claims belong with tests. Historical explanations should be marked as historical, not copied into live installation instructions.
