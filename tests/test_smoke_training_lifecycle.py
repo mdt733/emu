@@ -52,3 +52,30 @@ def test_dirty_source_gate_explains_exact_changed_files(monkeypatch):
         stdout=" M emu/viewer_src/README.md\n"))
     with pytest.raises(RuntimeError, match="emu/viewer_src/README.md"):
         smoke.current_source()
+
+
+def test_gpu_smoke_requires_physical_telemetry_not_silent_zero_fallback(tmp_path):
+    import csv
+    import pytest
+    smoke = _module()
+    run = tmp_path / 'first'
+    run.mkdir()
+    path = run / 'metrics.csv'
+    values = {k: 0.0 for k in smoke.PHYSICAL_DIAGNOSTICS}
+    values['spring_potential_energy_j'] = 0.2
+    values['shin_spring_energy_j'] = 0.1
+    with path.open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=values)
+        writer.writeheader()
+        writer.writerow(values)
+    smoke.physical_telemetry_exists(run)
+    path.write_text('servo_shaft_abs_power_w\\n0\\n')
+    with pytest.raises(RuntimeError, match='missing/invalid'):
+        smoke.physical_telemetry_exists(run)
+    values['servo_shaft_abs_power_w'] = float('nan')
+    with path.open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=values)
+        writer.writeheader()
+        writer.writerow(values)
+    with pytest.raises(RuntimeError, match='nonfinite'):
+        smoke.physical_telemetry_exists(run)
