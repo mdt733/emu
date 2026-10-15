@@ -596,7 +596,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
-                       horizon, heading_kp=0.0):
+                       horizon, heading_kp=0.0, operator_command=None):
         """Pre-reset physics trace, optionally with IMU-relative heading hold.
 
         ON/OFF use the exact same operator commands, initial states and seeds.
@@ -609,8 +609,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         initial = env._reset_with_keys(keys, curriculum_params)
         obs = env.obs(initial)
         # Fixed requested commands must survive any controller correction.
-        operator = jnp.stack((initial.task[:, T.vx], initial.task[:, T.vy],
-                              initial.task[:, T.yaw]), axis=-1)
+        # The examination contract can supply explicit fixed commands; this
+        # avoids treating any stale/default task sampling as the operator's
+        # intent. The same explicit command is delivered in both ON/OFF modes.
+        if operator_command is None:
+            operator = jnp.stack((initial.task[:, T.vx], initial.task[:, T.vy],
+                                  initial.task[:, T.yaw]), axis=-1)
+        else:
+            operator = jnp.broadcast_to(
+                jnp.asarray(operator_command,dtype=jnp.float32),
+                (env.num_envs, 3))
         yaw_field = BASE_OBS_FIELDS.index('cmd_yaw')
         kp = float(heading_kp)
         if not 0.0 <= kp <= 2.0:
@@ -638,12 +646,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             corrected, error = heading_rate_request(
                 jnp, operator[:, 2], next_target, next_estimated,
                 kp=kp, max_rate=env.yaw_max_rad_s)
-            if kp > 0:
-                delivered_task = es.task.at[:, T.yaw].set(corrected)
-                # The latest history frame is the current command received
-                # by PPO. Earlier frames remain real history, not rewritten.
-                hist = es.hist.at[:, -1, yaw_field].set(corrected)
-                stepped_state = es._replace(task=delivered_task, hist=hist)
+            if kp > 0 or operator_command is not None:
+                # The source of truth is the operator's EXPLICIT command,
+                # with only yaw corrected by the optional outer controller.
+                # This runs every control frame, not just at birth, and fixes
+                # both the policy observation and environment task together.
+                task = (es.task.at[:, T.vx].set(operator[:, 0])
+                        .at[:, T.vy].set(operator[:, 1])
+                        .at[:, T.yaw].set(corrected))
+                hist = es.hist.at[:, -1, BASE_OBS_FIELDS.index('cmd_vx')].set(operator[:,0])
+                hist = hist.at[:, -1, BASE_OBS_FIELDS.index('cmd_vy')].set(operator[:,1])
+                hist = hist.at[:, -1, yaw_field].set(corrected)
+                stepped_state = es._replace(task=task, hist=hist)
                 policy_obs = hist.reshape((env.num_envs, OBS_DIM))
             else:
                 stepped_state, policy_obs = es, ob

@@ -26,9 +26,12 @@ actual 244-input PPO actors, motor-load promotion gates, or new rewards.
 All trajectories are evaluated against the **original operator command**.
 The controller may request a different yaw rate from the trained PPO actor, but
 it cannot rewrite what the user asked or the world-frame course oracle.
-The last observation history frame's `cmd_yaw` is updated to match the actual
-corrected request *before* the policy forward pass; previous frames remain real
-history. This first evaluator intentionally uses **constant STEADY commands**,
+The **explicit operator triplet** `(vx,vy,yaw_rate)` is supplied separately
+to the JAX evaluator for each matched exam (not inferred from potentially stale
+sampled task values). At every control step the environment task and the last
+observation history frame receive the same operator vx/vy and either the operator
+yaw-rate (OFF) or controller-corrected yaw-rate (ON), *before* the policy forward
+pass. Previous frames remain real history. This first evaluator intentionally uses **constant STEADY commands**,
 not command transitions. Rollout input and checkpoint/network shapes remain
 the original 220→6; the independent v5016-candidate 244-input contract stays
 declared but not runtime-ready until later passes.

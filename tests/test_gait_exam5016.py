@@ -154,17 +154,18 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     on=trainer['evaluate_trace'](
         params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,
                                  'probe_cmd_yaw':.2}),
-        mean,std,jax.random.PRNGKey(199),4,0.75)
+        mean,std,jax.random.PRNGKey(199),4,0.75,jnp.asarray([.1,0.,.2]))
     off=trainer['evaluate_trace'](
         params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,
                                  'probe_cmd_y':.2}),
-        mean,std,jax.random.PRNGKey(199),4,0.0)
+        mean,std,jax.random.PRNGKey(199),4,0.0,jnp.asarray([.1,0.,.2]))
     on=jax.device_get(on); off=jax.device_get(off)
     assert on['issued_yaw_rate'].shape==(4,2)
     assert on['estimated_heading_rad'].shape==(4,2)
     assert np.isfinite(on['issued_yaw_rate']).all()
     # Grade original requests: exact same operator command in both conditions.
     np.testing.assert_array_equal(on['command'],off['command'])
+    np.testing.assert_allclose(on['command'][:,:,2],.2,rtol=0,atol=1e-7)
     np.testing.assert_allclose(off['issued_yaw_rate'],
                                off['command'][:,:,2],rtol=1e-6,atol=1e-6)
     assert np.max(np.abs(on['issued_yaw_rate'])) <= 1.5+1e-6

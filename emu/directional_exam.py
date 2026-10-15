@@ -131,7 +131,9 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
     trace=trainer['evaluate_trace'](
         params,env.params_array(task),
         jnp.asarray(norm['mean']),jnp.sqrt(jnp.asarray(norm['var'])),
-        jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp))
+        jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp),
+        jnp.asarray([float(speed),float(lateral),float(yaw_rate)],
+                    dtype=jnp.float32))
     frames=jax.device_get(trace)
     evaluated=evaluate_trace_arrays(
         frames,np.tile(g,(int(worlds),1)),dt=.02,
