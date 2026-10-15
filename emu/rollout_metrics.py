@@ -252,6 +252,12 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'reward_upright_height': mean_metric(metrics, 'reward_upright_height'),
         'reward_feet_only_contact': mean_metric(metrics, 'reward_feet_only_contact'),
         'reward_swing_clearance': mean_metric(metrics, 'reward_swing_clearance'),
+        # Read-only nominal servo mechanics: no effect on PPO or governance.
+        'servo_shaft_abs_power_w': mean_metric(metrics, 'servo_shaft_abs_power_w'),
+        'servo_shaft_drive_power_w': mean_metric(metrics, 'servo_shaft_drive_power_w'),
+        'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
+        'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
+        'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
            for name in ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
                         'clearance', 'smoothness', 'joint_safety', 'fall_penalty')},
