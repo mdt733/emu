@@ -90,3 +90,24 @@ def test_spring_energy_supports_jax_jit_and_joint_reference_offset():
     readings = jax.device_get(result(q))
     np.testing.assert_allclose(readings['spring_potential_energy_j'],
                                [0, .06], atol=1e-6)
+
+
+def test_loaded_robot_xml_owns_actuator_limits_and_spring_reference():
+    import mujoco
+    from emu.contracts import ACTUATED_JOINTS
+    from emu.paths import ROBOT_XML
+    model = mujoco.MjModel.from_xml_path(str(ROBOT_XML))
+    assert model.nu == 6
+    assert [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+            for i in range(model.nu)] == list(ACTUATED_JOINTS)
+    np.testing.assert_allclose(model.actuator_forcerange[:, 1],
+                               np.full(6, 1.913), atol=1e-6)
+    names = (*ACTUATED_JOINTS, 'r_shin_flex', 'l_shin_flex')
+    ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+           for name in names]
+    assert all(j >= 0 for j in ids)
+    positions = model.jnt_qposadr[ids]
+    spring_ref = model.qpos_spring[positions]
+    stiffness = model.jnt_stiffness[ids]
+    assert spring_ref.shape == stiffness.shape == (8,)
+    np.testing.assert_allclose(stiffness[-2:], [4., 4.], atol=1e-6)
