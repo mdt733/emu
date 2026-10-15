@@ -61,3 +61,15 @@ def test_viewer_required_ui_elements_and_drop_overlay_exit():
     for element in ('settingsDrawer', 'settingsOpen', 'settingsClose', 'drawerBackdrop'):
         assert f'id="{element}"' in html
     assert 'dropOverlay.hidden = true;' in main
+
+
+def test_release_manifest_reports_exact_frontend_commit(tmp_path):
+    out = _tree(tmp_path)
+    mod = _module()
+    mod.ROOT = tmp_path
+    revision = 'f' * 40
+    manifest = mod.prepare(output_dir=out, source_commit=revision)
+    assert manifest['source_commit'] == revision
+    assert json.loads((out / 'showcase.json').read_text())['source_commit'] == revision
+    with pytest.raises(ValueError, match='source_commit'):
+        mod.prepare(output_dir=out, source_commit='not-a-git-revision')
