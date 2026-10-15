@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def prepare(*, output_dir: Path, policy_path: Path | None = None,
             source_url: str = '', require_champion: bool = False) -> dict:
     champion = ROOT / 'showcase' / 'champion.emupolicy'
-    fixture = ROOT / 'viewer' / 'demo_zero.emupolicy'
+    fixture = ROOT / 'emu' / 'viewer_src' / 'demo_zero.emupolicy'
     if policy_path is not None:
         selected = policy_path.expanduser().resolve()
         trained = selected != fixture.resolve()
@@ -57,8 +57,8 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
     # Write a complete immutable set into a temporary staging folder, then
     # replace the public directory. Never remove an arbitrary --output-dir.
     output_dir = output_dir.expanduser().resolve()
-    if not (output_dir.name == 'public' and output_dir.parent == (ROOT / 'viewer').resolve()):
-        raise ValueError('Output must be this checkout\'s viewer/public directory')
+    if not (output_dir.name == 'public' and output_dir.parent == (ROOT / 'emu' / 'viewer_src').resolve()):
+        raise ValueError('Output must be this checkout\'s emu/viewer_src/public directory')
     staging = output_dir.parent / '.showcase-build-tmp'
     if staging.exists():
         shutil.rmtree(staging)
@@ -83,7 +83,7 @@ def main() -> None:
     parser.add_argument('--require-champion', action='store_true', help='Refuse to publish the untrained fixture')
     args = parser.parse_args()
     manifest = prepare(
-        output_dir=ROOT / 'viewer' / 'public',
+        output_dir=ROOT / 'emu' / 'viewer_src' / 'public',
         policy_path=args.policy,
         source_url=args.source_url,
         require_champion=args.require_champion,
