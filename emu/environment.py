@@ -254,6 +254,32 @@ def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
     return vx, vy, yaw_rate
 
 
+# Read-only motor observables, distinct from scoring. Joint positions and
+# velocities are true MJX physics values; actuator_force is the actual position
+# actuator output (N m) after actuator limits, NOT servo electrical current.
+# These are per-control-frame *instantaneous* estimates, not joule integration,
+# winding temperature, battery watts or a calibrated thermal model.
+SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.638  # STS3215 nominal rating, robot.xml
+
+
+def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
+    """Six-actuator nominal shaft demand from MuJoCo actuator force and qvel.
+
+    Shapes: [worlds, 6] inputs -> [worlds] named diagnostics.
+    Drive/brake are mechanical power sign splits; braking isn't regeneration.
+    A high fraction over rated torque indicates load exposure, not overheating.
+    """
+    power = torque_nm * joint_rate_rad_s
+    torque_abs = xp.abs(torque_nm)
+    return {
+        'servo_shaft_abs_power_w': xp.sum(xp.abs(power), axis=1),
+        'servo_shaft_drive_power_w': xp.sum(xp.maximum(power, 0.0), axis=1),
+        'servo_shaft_brake_power_w': xp.sum(xp.maximum(-power, 0.0), axis=1),
+        'servo_over_rated_frac': xp.mean((torque_abs > SERVO_RATED_CONTINUOUS_TORQUE_NM).astype(torque_nm.dtype), axis=1),
+        'servo_peak_torque_limit_frac': xp.max(torque_abs / xp.maximum(stall_limit_nm, 1e-6), axis=1),
+    }
+
+
 class EmuMJXEnv:
     """A JAX/MJX vector environment with all envs stepped in one device batch."""
 
@@ -336,6 +362,12 @@ class EmuMJXEnv:
         self.home_target = jnp.zeros((ACTION_DIM,), dtype=jnp.float32)
         self.act_qpos = jnp.asarray(self.ids['act_qpos'], dtype=jnp.int32)
         self.act_qvel = jnp.asarray(self.ids['act_qvel'], dtype=jnp.int32)
+        # Resolve the nominal stall limit from the actual loaded XML instead
+        # of duplicating six force ceilings in training code.
+        limits = np.asarray(self.mj_model.actuator_forcerange, dtype=np.float32)
+        if limits.shape != (ACTION_DIM, 2):
+            raise ValueError('Expected exactly six force-limited robot actuators')
+        self.servo_stall_torque_nm = jnp.asarray(np.max(np.abs(limits), axis=1))
         self.act_joint_range = jnp.asarray(self.ids['act_joint_range'], dtype=jnp.float32)
         self.shin_qpos = jnp.asarray(self.ids['shin_qpos'], dtype=jnp.int32)
         self.shin_qvel = jnp.asarray(self.ids['shin_qvel'], dtype=jnp.int32)
@@ -1318,6 +1350,11 @@ class EmuMJXEnv:
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
         action_delta = jnp.linalg.norm(action - prev_action, axis=1)
+        # Passive telemetry only. It never enters the deployable 220-input
+        # observation or the scalar PPO reward.
+        servo_effort = servo_effort_metrics(
+            jnp, data.actuator_force[:, :ACTION_DIM],
+            data.qvel[:, self.act_qvel], self.servo_stall_torque_nm)
         # Reward-only stance-foot slip proxy. MuJoCo truth is allowed in the
         # reward: consecutive
         # foot poses estimate tangential speed and only near-floor feet count.
@@ -1384,6 +1421,7 @@ class EmuMJXEnv:
             'action_delta_norm': action_delta,
             'joint_limit_pressure': joint_pressure,
             'scissor_pressure': scissor,
+            **servo_effort,
         }
 
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl):
