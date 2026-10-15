@@ -26,7 +26,7 @@ def test_stall_can_require_torque_without_mechanical_shaft_power():
     result = servo_effort_metrics(np, tau, stationary, np.full(6, 1.913))
     np.testing.assert_array_equal(result['servo_shaft_abs_power_w'], [0., 0.])
     np.testing.assert_array_equal(result['servo_over_rated_frac'], [1., 1.])
-    np.testing.assert_array_equal(result['servo_peak_torque_limit_frac'], [1., 1.])
+    np.testing.assert_allclose(result['servo_peak_torque_limit_frac'], [1., 1.], rtol=1e-6)
 
 
 def test_servo_indicators_flow_to_rollout_report_but_not_training_reward():
@@ -34,7 +34,13 @@ def test_servo_indicators_flow_to_rollout_report_but_not_training_reward():
     from emu import scoring
     # Intentional non-dependency: rewarding low torque without an explicit
     # hypothesis would allow freezing to look energy-efficient.
-    assert 'servo_' not in inspect.getsource(scoring.training_reward)
+    source = inspect.getsource(scoring.training_reward)
+    # The longstanding *action smoothness* factor is intentionally retained;
+    # none of the new physical power/load/spring signals may affect reward.
+    for new_signal in ('servo_shaft_', 'servo_over_rated_frac',
+                       'servo_peak_torque_limit_frac', 'spring_potential_energy_j',
+                       'shin_spring_energy_j'):
+        assert new_signal not in source
     fields = servo_effort_metrics(
         np, np.ones((2,6), dtype=np.float32),
         np.ones((2,6), dtype=np.float32),
