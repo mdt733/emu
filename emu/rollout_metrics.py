@@ -252,6 +252,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'reward_upright_height': mean_metric(metrics, 'reward_upright_height'),
         'reward_feet_only_contact': mean_metric(metrics, 'reward_feet_only_contact'),
         'reward_swing_clearance': mean_metric(metrics, 'reward_swing_clearance'),
+        **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
+           for name in ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
+                        'clearance', 'smoothness', 'joint_safety', 'fall_penalty')},
         # Fall-conditioned vs. timeout-conditioned episode length.
         # default=-1.0 (not 0.0) means "no episodes of this kind ended this
         # rollout" so it's never confused with a real, alarming zero.
