@@ -36,6 +36,8 @@ Use `--resume auto` to continue a partial checkpoint in the **same run directory
 
 `--profile foundation` uses the accepted v5015 foundation physics/curriculum defaults (shadow field mode); `--profile mature` uses the accepted mature graph profile. Neither removes the historical field/teacher implementation yet. Targets are absolute environment steps, rounded up to one complete PPO update. `--plan` is a configuration print, **not** a GPU readiness check.
 
+A first startup that fails **before** CUDA/training initialises may leave only `training_config.json` and `console.log`. Retrying the identical command in that directory is allowed; any unexpected files, missing checkpoint metadata, dirty source or different run configuration still fail closed. Do not delete unknown checkpoint files to make the guard pass.
+
 The existing `emu ladder` remains unchanged while we test the simpler one-run interface. Branch GPU acceptance and browser loading remain mandatory before merging.
 
 ## Contract and checkpoints
