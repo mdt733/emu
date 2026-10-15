@@ -38,7 +38,7 @@ jobs:
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO"
+        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
       - name: Install locked viewer dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run JavaScript contract tests
@@ -46,7 +46,7 @@ jobs:
       - name: Build static MuJoCo viewer
         run: npm run build --prefix emu/viewer_src
       - name: Verify bundled policy and WASM assets
-        run: python3 scripts/verify_showcase_dist.py
+        run: python3 scripts/verify_showcase_dist.py --expect-source-commit "$GITHUB_SHA"
       - name: Reject viewer builds that modify tracked source
         run: |
           git diff --exit-code
