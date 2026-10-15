@@ -30,5 +30,5 @@ def verify(dist: Path) -> dict:
 
 
 if __name__ == '__main__':
-    data = verify(ROOT / 'viewer' / 'dist')
+    data = verify(ROOT / 'emu' / 'viewer_src' / 'dist')
     print(f"Showcase build verified: {data['label']} (trained={data['trained']})")
