@@ -86,7 +86,7 @@ normaliser count, an unchanged parent checkpoint, and a validated
 resuming an already-completed step 512 is a no-op.
 
 **Do not merge just on this result.** This proves two updates and their
-persistence plumbing, not end-to-end 20M/72M experiment selection, survival,
+persistence plumbing, not end-to-end 20M/260M draft four-way experiment selection, survival,
 command following, slope ability or long-horizon walking.
 
 ## 3. Candidate policies: measure actual locomotion
@@ -95,7 +95,7 @@ A promising training reward is only a hypothesis. Collect deterministic fixed ex
 
 Do not call `robust40` a changed-hardware test: it varies **task demands**. Gravity-equivalent slopes are a separate physics variation; they do not prove performance on the browser's actual collision ramp.
 
-Long-term height degradation previously appeared at ~100–200M **per lineage**. A ladder whose longest branch reaches 46M cannot verify that failure is solved.
+Long-term height degradation previously appeared at ~100–200M **per lineage**. The new draft ladder's four primary branches reach 80M each; its optional 120M finalist can probe later deterioration, but cannot validate survival to 200M.
 
 ## Public Playground gate
 
