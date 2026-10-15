@@ -123,6 +123,13 @@ class TrainingConfig:
     run_dir: str = ""
     resume: str = ""
 
+    # Tunable PPO economics. Original doctrine values are the defaults;
+    # only a ladder arm with an explicit override changes them. Rollout length,
+    # network structure and optimiser algorithm remain fixed contracts.
+    ppo_lr: float = PPO_LR
+    ppo_entropy_cost: float = PPO_ENTROPY_COST
+    ppo_value_cost: float = PPO_VALUE_COST
+
     # Physical model / task distribution.
     push_max_force_n: float | None = None
     vx_hi_max: float = 0.45
@@ -190,11 +197,70 @@ class TrainingConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'attitude_profile', 'pitch_command_max_deg'}
+        optional = {'attitude_profile', 'pitch_command_max_deg',
+                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
         return cls(**data)
+
+
+# These are run identity / motor-contract parameters, not experiment knobs.
+# Algorithm-independent aspects (physical commands, teaching, curriculum,
+# normalisation) are otherwise modifiable via TrainingConfig fields.
+IMMUTABLE_RUN_FIELDS = frozenset({
+    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile',
+})
+
+
+def apply_experiment_knobs(
+    config: TrainingConfig,
+    knobs: tuple[tuple[str, bool | int | float | str | None], ...],
+) -> TrainingConfig:
+    """Apply a ladder arm's explicit TrainingConfig overrides, fail closed.
+
+    This is the ONLY translation from a human experiment recipe to the stable
+    trainer's knobs. Unknown field, duplicated field, runtime identity override
+    or incompatible value raises before training ever starts.
+    """
+    import math
+    from typing import get_type_hints
+
+    field_types = get_type_hints(TrainingConfig)
+    valid = set(field_types)
+    values = {}
+    for key, value in knobs:
+        if key not in valid:
+            raise ValueError(f'Unknown TrainingConfig experiment knob: {key}')
+        if key in IMMUTABLE_RUN_FIELDS:
+            raise ValueError(f'Experiment cannot override run identity / contract: {key}')
+        if key in values:
+            raise ValueError(f'Duplicate experiment knob: {key}')
+        declared = field_types[key]
+        # Follow the declared TrainingConfig type, not the current numeric
+        # value: several float fields can legitimately hold integer zero.
+        if declared is bool:
+            valid_value = isinstance(value, bool)
+        elif declared is int:
+            valid_value = isinstance(value, int) and not isinstance(value, bool)
+        elif declared in (float, float | None):
+            valid_value = (value is None and declared == float | None) or (
+                isinstance(value, (float, int)) and not isinstance(value, bool)
+                and math.isfinite(float(value)))
+            if value is not None and valid_value:
+                value = float(value)
+        elif declared is str:
+            valid_value = isinstance(value, str)
+        else:
+            raise TypeError(f'Unsupported config knob annotation: {key} ({declared})')
+        if not valid_value:
+            raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
+        if key == 'ppo_lr' and value <= 0:
+            raise ValueError('ppo_lr must be positive')
+        if key in ('ppo_entropy_cost','ppo_value_cost') and value < 0:
+            raise ValueError(f'{key} cannot be negative')
+        values[key] = value
+    return replace(config, **values)
 
 
 def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, resume: Path | None) -> dict:

@@ -455,7 +455,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # This is the exact policy/optimizer state that GENERATED `traj`.
         # Health/checkpoint decisions made from this rollout must save THIS
         # state, not the post-gradient policy produced below.
-        evaluated_state = state
+        rollout_policy_state = state
         raw_obs_batch = traj['obs'].reshape((batch_size, obs_dim))
         adv, ret = compute_gae(traj, next_values)
         traj = {**traj, 'obs': normalize_obs(traj['obs'], obs_mean, obs_std, obs_norm_mask)}
@@ -533,7 +533,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         exploration_std_mean = jnp.mean(jnp.exp(eff_log_std(params)))
         aux_mean = {**aux_mean, 'rollout_reward_mean': jnp.mean(traj['reward']), 'rollout_done_rate': jnp.mean(traj['done']),
                     'explained_variance': explained_variance, 'exploration_std_mean': exploration_std_mean}
-        return new_state, rollout_metrics, aux_mean, raw_obs_batch, evaluated_state
+        return new_state, rollout_metrics, aux_mean, raw_obs_batch, rollout_policy_state
 
     def evaluate_summary(params, curriculum_params, obs_mean, obs_std, eval_key, horizon):
         """Same fixed evaluator semantics, but aggregate on-device.

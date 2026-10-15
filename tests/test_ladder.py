@@ -12,6 +12,8 @@ def _screen(*, survival=.65, pitch=.1, height=.008):
         result[f'screen_{panel}_survival']=survival
         result[f'screen_{panel}_pitch_mae']=pitch
         result[f'screen_{panel}_height_shortfall_m']=height
+        result[f'screen_{panel}_step_evidence']=0.54
+        result[f'screen_{panel}_support']=0.47
         for axis in ('vx','vy','yaw'):
             result[f'screen_{panel}_{axis}_mae']=.08
     result['screen_gentle_slope_survival']=survival
@@ -203,3 +205,177 @@ def test_top_level_cli_exposes_auto_and_forwards_stop_after(monkeypatch):
     forwarded=list(got[0][1])
     assert forwarded[forwarded.index('--stage')+1]=='auto'
     assert forwarded[forwarded.index('--stop-after')+1]=='round1'
+
+def test_recipe_is_a_separate_explicit_step_and_hypothesis_list():
+    from emu import ladder_recipe
+    assert ladder_recipe.FOUNDATION == 20_000_000
+    assert ladder_recipe.ROUNDS == {'round1':26_000_000,'round2':34_000_000,'round3':46_000_000}
+    assert tuple(ladder_recipe.BY_NAME) == ('baseline','shadow','slope','pitch15')
+    assert lab.ROUNDS is ladder_recipe.ROUNDS  # runner and recipe never drift
+
+
+def test_human_friendly_ladder_command_routes_to_existing_runner(monkeypatch):
+    from emu import cli
+    observed=[]
+    monkeypatch.setattr(cli,'_run',lambda name,*args: observed.append((name,args)) or 0)
+    assert cli.main(['ladder','--stage','plan']) == 0
+    assert observed[0][0]=='branch_lab'
+    assert observed[0][1][:2]==('--stage','plan')
+    assert cli.main(['lab5015','--stage','auto']) == 0
+    assert observed[1][0]=='branch_lab'
+
+
+def test_ladder_supports_new_knobs_without_editing_engine(tmp_path):
+    from emu.ladder_recipe import Arm
+    arm=Arm('experiment','Alter two command-family knobs',(
+        ('combo_mix_frac', 0.48),
+        ('field_teach_edges', False),
+        ('freeze_obs_norm_after_steps', 35_000_000),
+    ))
+    cfg=lab.config(tmp_path/'experiment',arm=arm,target=26_000_000,
+                   seed=733,envs=2048,device='cpu',resume=None)
+    assert cfg.combo_mix_frac == .48
+    assert cfg.field_teach_edges is False
+    assert cfg.freeze_obs_norm_after_steps == 35_000_000
+    assert cfg.attitude_profile == 'v5015'
+    assert cfg.steps == 26_000_000
+
+
+@pytest.mark.parametrize('knobs,match', [
+    ((('nonexistent_config', .1),), 'Unknown'),
+    ((('seed', 12),), 'run identity'),
+    ((('steps', 40_000_000),), 'run identity'),
+    ((('run_dir', '/tmp/hijack'),), 'run identity'),
+    ((('combo_mix_frac', .5),('combo_mix_frac', .2)), 'Duplicate'),
+    ((('domain_randomization', .3),), 'Invalid value'),
+    ((('field_max_influence', float('nan')),), 'Invalid value'),
+    ((('freeze_obs_norm_after_steps', .5),), 'Invalid value'),
+])
+def test_invalid_ladder_knobs_fail_before_training(tmp_path, knobs, match):
+    from emu.ladder_recipe import Arm
+    arm=Arm('bad','Validation test',knobs)
+    with pytest.raises(ValueError, match=match):
+        lab.config(tmp_path/'bad',arm=arm,target=26_000_000,
+                   seed=733,envs=2048,device='cpu',resume=None)
+
+
+def test_bad_future_ladder_fails_at_plan_before_any_gpu_work(tmp_path,monkeypatch):
+    from emu.ladder_recipe import Arm
+    # A single invalid challenger must prevent the expensive shared foundation.
+    arms=(Arm('baseline','control'),Arm('bad_option','mistyped',(
+        ('nonexistent_knob', .5),
+    )))
+    monkeypatch.setattr(lab,'ARMS',arms)
+    monkeypatch.setattr(lab,'BY_NAME',{a.name:a for a in arms})
+    with pytest.raises(ValueError,match='Unknown TrainingConfig'):
+        lab.main(['--stage','plan','--root',str(tmp_path)])
+    assert not list(tmp_path.iterdir())
+
+
+def test_ladder_rejects_duplicate_and_path_escape_arm_names(tmp_path,monkeypatch):
+    from emu.ladder_recipe import Arm
+    for arms in [
+        (Arm('baseline','control'),Arm('baseline','duplicate')),
+        (Arm('baseline','control'),Arm('../escape','invalid')),
+    ]:
+        monkeypatch.setattr(lab,'ARMS',arms)
+        monkeypatch.setattr(lab,'BY_NAME',{a.name:a for a in arms})
+        with pytest.raises(ValueError,match='uniquely named|Unsafe ladder'):
+            lab.validate_recipe(seed=733,envs=2048,device='cpu',root=tmp_path)
+
+
+def test_optimizer_knobs_are_available_without_changing_the_trainer(tmp_path):
+    from emu.ladder_recipe import Arm
+    from emu.training_config import PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST
+    base=lab.config(tmp_path/'baseline',arm=lab.BY_NAME['baseline'],
+                    target=26_000_000,seed=733,envs=128,device='cpu',resume=None)
+    assert (base.ppo_lr,base.ppo_entropy_cost,base.ppo_value_cost) == (
+        PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST)
+    arm=Arm('half_lr','Lower learning rate with same architecture',
+            (('ppo_lr',PPO_LR/2),('ppo_entropy_cost',.001),('ppo_value_cost',.4)))
+    alt=lab.config(tmp_path/'half_lr',arm=arm,target=26_000_000,
+                   seed=733,envs=128,device='cpu',resume=None)
+    changed={name for name,value in asdict(base).items()
+             if getattr(alt,name)!=value} - {'run_dir'}
+    assert changed=={'ppo_lr','ppo_entropy_cost','ppo_value_cost'}
+
+
+@pytest.mark.parametrize('knob', [('ppo_lr',0),('ppo_lr',-1e-4),
+                                  ('ppo_entropy_cost',-.1),('ppo_value_cost',-.1)])
+def test_optimizer_knob_invalid_values_rejected(tmp_path,knob):
+    from emu.ladder_recipe import Arm
+    with pytest.raises(ValueError):
+        lab.config(tmp_path/'bad',arm=Arm('bad','unsafe', (knob,)),
+                   target=26_000_000,seed=733,envs=128,device='cpu',resume=None)
+
+
+def test_foundation_config_writes_inside_foundation20_not_old_00_foundation(tmp_path):
+    destination = tmp_path/'foundation20'
+    cfg = lab.config(destination,arm=None,target=20_000_000,seed=733,
+                     envs=2048,device='cpu',resume=None)
+    assert cfg.run_dir == str(destination)
+    assert cfg.steps == 20_000_000
+    assert cfg.attitude_profile == 'v5015'
+
+
+def test_run_rejects_misrouted_checkpoint_destination_before_starting_training(tmp_path,monkeypatch):
+    from dataclasses import replace
+    dest=tmp_path/'foundation20'
+    real_config=lab.config
+    monkeypatch.setattr(lab,'config', lambda *args,**kw: replace(
+        real_config(*args,**kw),
+        run_dir=str(tmp_path/'00_foundation')))
+    monkeypatch.setattr(lab,'verify_existing_phase_config',
+                        lambda *args: (_ for _ in ()).throw(
+                            AssertionError('config should be checked before resume')))
+    monkeypatch.setattr(lab,'run_training',
+                        lambda *args,**kw: (_ for _ in ()).throw(
+                            AssertionError('training must never start')))
+    with pytest.raises(RuntimeError,match='disagree on output folder'):
+        lab.ensure_run(dest,arm=None,parent=None,target=20_000_000,
+                       seed=733,envs=2048,device='cpu',provenance={})
+
+
+
+def test_completed_foundation_handoff_uses_the_same_directory_as_the_trainer(tmp_path, monkeypatch):
+    """CPU-only contract: simulate trainer output; use the real recipe/config wiring."""
+    destination = tmp_path / 'foundation20'
+    expected_steps = 20_054_016
+    training_calls = []
+
+    def synthetic_training(cfg, *, provenance):
+        assert cfg.run_dir == str(destination)
+        assert cfg.steps == 20_000_000
+        training_calls.append(cfg.run_dir)
+        final = destination / 'checkpoints' / 'final.pkl'
+        final.parent.mkdir(parents=True)
+        final.write_bytes(b'validated synthetic checkpoint')
+
+    def synthetic_completion(run, *, target_steps, envs, label):
+        assert run == destination
+        assert target_steps == 20_000_000
+        assert envs == 2048
+        final = run / 'checkpoints' / 'final.pkl'
+        return (final if final.exists() else None), None, expected_steps
+
+    monkeypatch.setattr(lab, 'verify_existing_phase_config', lambda *a: None)
+    monkeypatch.setattr(lab, 'resolve_target_checkpoint', synthetic_completion)
+    monkeypatch.setattr(lab, 'run_training', synthetic_training)
+
+    final = lab.ensure_run(destination, arm=None, parent=None, target=20_000_000,
+                           seed=733, envs=2048, device='cpu', provenance={})
+    assert final == destination / 'checkpoints' / 'final.pkl'
+    assert training_calls == [str(destination)]
+    assert lab._read(destination / 'lab_spec.json')['parent']['step'] == 0
+
+
+
+def test_ladder_reports_real_stepping_telemetry_and_rejects_missing_evidence():
+    row = lab.score_row('baseline', _screen())
+    assert row['eligible']
+    assert row['step_evidence'] == .54
+    assert row['support'] == .47
+    assert row['motion_mae'] == .08
+    missing = _screen()
+    del missing['screen_growth140_step_evidence']
+    assert not lab.score_row('missing', missing)['eligible']

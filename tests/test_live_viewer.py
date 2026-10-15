@@ -50,9 +50,14 @@ def test_live_picks_newest_phase_and_does_not_reload_same_file(tmp_path, monkeyp
     assert 'retaining last valid' in watcher.status()['note']
 
 
-def test_candidate_order_uses_later_phases_first(tmp_path):
-    paths = candidates(tmp_path)
-    names = [name for name, _ in paths]
+def test_candidate_order_uses_later_existing_phases_first(tmp_path):
+    _checkpoint(tmp_path / '00_foundation' / 'checkpoints' / 'latest.pkl')
+    _checkpoint(tmp_path / '40_generalist' / 'checkpoints' / 'final.pkl')
+    _checkpoint(tmp_path / 'round1' / 'baseline' / 'checkpoints' / 'latest.pkl')
+    _checkpoint(tmp_path / 'round3' / 'pitch15' / 'checkpoints' / 'final.pkl')
+    names = [name for name, _ in candidates(tmp_path)]
+    assert names.index('round3/pitch15') < names.index('round1/baseline')
+    assert names.index('round1/baseline') < names.index('40_generalist')
     assert names.index('40_generalist') < names.index('00_foundation')
     assert names.index('complete') > names.index('00_foundation')
 

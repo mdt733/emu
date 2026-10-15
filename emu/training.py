@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from .run_support import finish_if_target_reached, promote_checkpoint
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
@@ -41,7 +42,7 @@ from .runtime import PerfBook, configure_jax, require_backend
 from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
-    EVAL_PERF_TIMER_NAMES,
+    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best, checkpoint_eval_score,
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
@@ -104,7 +105,8 @@ def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> No
 
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
-                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any]) -> dict[str, Any]:
+                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
+                     base_lr: float = PPO_LR) -> dict[str, Any]:
     """Canonical metrics.csv schema for periodic and final rows."""
     return {
         'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
@@ -119,7 +121,7 @@ def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: f
         'ppo_kl_stopped_frac': float(np.asarray(aux.get('kl_stopped', 0.0))),
         'ppo_approx_kl_final': float(np.asarray(aux.get('approx_kl_final', 0.0))),
         'ppo_lr_scale': float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_effective_lr': PPO_LR * float(np.asarray(aux.get('lr_scale', 1.0))),
+        'ppo_effective_lr': base_lr * float(np.asarray(aux.get('lr_scale', 1.0))),
         'ppo_action_clip_frac': float(np.asarray(aux.get('action_clip_frac', 0.0))),
         'ppo_adv_tail_frac': float(np.asarray(aux.get('adv_tail_frac', 0.0))),
         'explained_variance': float(np.asarray(aux.get('explained_variance', 0.0))),
@@ -172,6 +174,12 @@ def train(args: TrainingConfig) -> int:
                 print(f"{LOG_PREFIX} --resume: primary checkpoint invalid; falling back to validated rotating snapshot {fallback}", flush=True)
             resumed_step = int(resumed_payload['meta']['step'])
             print(f"{LOG_PREFIX} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})", flush=True)
+            if finish_if_target_reached(
+                run_dir, resume_path, resumed_step, args.steps, args.envs,
+            ):
+                print(f"{LOG_PREFIX} already complete at step={resumed_step:,}; "
+                      "published final.pkl without any new PPO update", flush=True)
+                return 0
         except Exception as exc:
             raise RuntimeError(f"--resume failed for {resume_path}: {exc}") from exc
 
@@ -203,8 +211,8 @@ def train(args: TrainingConfig) -> int:
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
                     max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
-    trainer = make_trainer(env, seed=args.seed, lr=PPO_LR, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
-                           entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
+    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
+                           entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     fixed_eval_worlds = build_eval_worlds(args)
 
     # Sparse capability cloud: intentionally much smaller than the fixed
@@ -228,8 +236,8 @@ def train(args: TrainingConfig) -> int:
                     attitude_profile=args.attitude_profile,
                     pitch_command_max_deg=args.pitch_command_max_deg,
                     sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=False, combo_mix_frac=0.0)
-        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=PPO_LR, rollout=ROLLOUT_STEPS,
-                           epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
+        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
+                           epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
         cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
@@ -348,7 +356,7 @@ def train(args: TrainingConfig) -> int:
 
     t0 = time.time()
     old_mean, old_std = obs_mean, obs_var ** 0.5
-    state, rollout_metrics, aux, raw_obs, evaluated_state = trainer['train_update'](state, p, obs_mean, old_std, lr_scale)
+    state, rollout_metrics, aux, raw_obs, rollout_policy_state = trainer['train_update'](state, p, obs_mean, old_std, lr_scale)
     warmup_end_steps = resumed_step + args.envs * ROLLOUT_STEPS
     norm_frozen = args.freeze_obs_norm_after_steps > 0 and resumed_step >= args.freeze_obs_norm_after_steps
     if not norm_frozen:
@@ -408,10 +416,10 @@ def train(args: TrainingConfig) -> int:
 
     # Preserve evaluation cadence/history and best-checkpoint monotonicity across
     # same-run process restarts. External forks have no local eval artifacts.
-    best_path = run_dir / 'checkpoints' / 'best.pkl'
-    if best_path.exists():
+    best_eval_path = run_dir / 'checkpoints' / 'best.pkl'
+    if best_eval_path.exists():
         try:
-            best_eval_score = float(load_checkpoint(best_path).get('meta', {}).get('best_eval_score', best_eval_score))
+            best_eval_score = checkpoint_eval_score(load_checkpoint(best_eval_path).get('meta', {}))
         except Exception:
             pass
 
@@ -420,25 +428,29 @@ def train(args: TrainingConfig) -> int:
         if not force and step - last_eval_step < EVAL_EVERY_STEPS:
             return
         cohorts = FINAL_EVAL_COHORTS if force else EVAL_COHORTS
+        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out = evaluate_fixed(
-            fixed_eval_worlds, evaluated_state.params, evaluated_obs_norm,
-            step=step, cohorts=cohorts, perf=perf)
+            fixed_eval_worlds, snapshot.params, snapshot.norm(),
+            step=snapshot.step, cohorts=cohorts, perf=perf)
         broad_eval_history.append(float(out['eval_broad_score']))
         out['eval_broad_tail3'] = float(sum(broad_eval_history[-3:]) / len(broad_eval_history[-3:]))
         last_eval_step = step
 
         best_ckpt_timing = {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
-        if out['eval_broad_tail3'] > best_eval_score:
-            best_eval_score = out['eval_broad_tail3']
+        if outranks_best(float(out['eval_broad_score']), best_eval_score):
+            best_eval_score = float(out['eval_broad_score'])
             best_ckpt_timing = save_checkpoint(
-                best_path, evaluated_state,
-                {'step': step, 'version': version, 'best_eval_score': best_eval_score,
+                best_eval_path, snapshot.state,
+                {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
+                 'best_eval_score': best_eval_score,
                  'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
-                 'lr_scale': rollout_lr_scale_for_metrics},
-                evaluated_obs_norm,
-                curriculum_state=rollout_curriculum_state_for_metrics,
-                health_state=rollout_health_state_for_metrics,
-                field_state=rollout_field_state_for_metrics)
+                 'lr_scale': lr_scale},
+                snapshot.norm(),
+                curriculum_state=governor.state_dict(),
+                health_state=health.state_dict(),
+                field_state=field.state_dict(), require_finite_state=True)
+            if not best_ckpt_timing.get('saved', 0.0):
+                raise RuntimeError('Best-policy publication refused: non-finite actor or optimizer state')
             perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
             perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
             perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
@@ -500,12 +512,13 @@ def train(args: TrainingConfig) -> int:
             else:
                 requested = cloud_make_panel(count, panel_id=panel_id, source='routine_panel')
         controls = [x for x in requested if x.get('family') == 'none']
+        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         base_key = jax.random.PRNGKey(int(EVAL_SEED) + 44000)
         control_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)))
                         for i, x in enumerate(controls)]
         control_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, evaluated_state.params,
-            evaluated_obs_norm['mean'], evaluated_obs_norm['var'] ** 0.5,
+            cloud_eval_trainer, cloud_eval_env, snapshot.params,
+            snapshot.obs_mean, snapshot.obs_var ** 0.5,
             control_keys, int(CLOUD_HORIZON), controls, chunk_size=int(CLOUD_BATCH_POINTS))
         for r in control_rows:
             r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
@@ -518,8 +531,8 @@ def train(args: TrainingConfig) -> int:
         disturb_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)) + 1000003)
                         for i, x in enumerate(disturbed)]
         disturbed_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, evaluated_state.params,
-            evaluated_obs_norm['mean'], evaluated_obs_norm['var'] ** 0.5,
+            cloud_eval_trainer, cloud_eval_env, snapshot.params,
+            snapshot.obs_mean, snapshot.obs_var ** 0.5,
             disturb_keys, int(CLOUD_HORIZON), disturbed, chunk_size=int(CLOUD_BATCH_POINTS)) if disturbed else []
         for r in disturbed_rows:
             r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
@@ -560,7 +573,7 @@ def train(args: TrainingConfig) -> int:
     def augment_rollout_row(row: dict[str, Any], aux_now: dict[str, Any]) -> None:
         """Attach diagnostics with the exact rollout provenance.
 
-        `row` describes the rollout collected by evaluated_state, under
+        `row` describes the rollout collected by rollout_policy_state, under
         rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
         curriculum that exist after the gradient/governor update. Keeping
         these aligned is what makes collapse forensics trustworthy.
@@ -653,7 +666,7 @@ def train(args: TrainingConfig) -> int:
         if recovery_rank > best_recovery_rank:
             best_recovery_rank = recovery_rank
             save_checkpoint(
-                run_dir / 'checkpoints' / 'recovery.pkl', evaluated_state,
+                run_dir / 'checkpoints' / 'recovery.pkl', rollout_policy_state,
                 {'step': total_steps, 'run_name': run_name,
                  'competence': comp_med, 'core_competence': core_med,
                  'recovery_tier': recovery_tier, 'recovery_rank': list(recovery_rank),
@@ -673,11 +686,10 @@ def train(args: TrainingConfig) -> int:
         # balance-and-avoid-stepping rather than walk, with ordinary
         # per-regime retreat unable to pull it back out on its own.
         if args.allow_rollback and report['needs_recovery']:
-            best_path = recovery_path
             recovered = False
-            if best_path.exists():
+            if recovery_path.exists():
                 try:
-                    best_payload = load_checkpoint(best_path)
+                    best_payload = load_checkpoint(recovery_path)
                     if payload_train_state_is_finite(best_payload):
                         loaded_state = best_payload['state']
                         state = state._replace(params=jax.device_put(loaded_state['params']),
@@ -722,10 +734,10 @@ def train(args: TrainingConfig) -> int:
                               f"left it in.", flush=True)
                         recovered = True
                     else:
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {best_path.name} contains non-finite "
+                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                               f"params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
                 except Exception as exc:
-                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {best_path.name} ({exc!r}) "
+                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
                           f"-- continuing with ordinary retreat only.", flush=True)
             else:
                 print(f"{LOG_PREFIX} AUTO-RECOVERY triggered after {int(report['stepping_collapse_streak'])} "
@@ -790,7 +802,7 @@ def train(args: TrainingConfig) -> int:
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
                 reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-                jax_backend=jax.default_backend(), perf_row=perf.row())
+                jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
             append_metrics_csv(run_dir / 'metrics.csv', log_row)
             write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': log_row})
@@ -850,7 +862,7 @@ def train(args: TrainingConfig) -> int:
         evaluated_obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
         old_mean, old_std = obs_mean, obs_var ** 0.5
         train_update_t0 = time.perf_counter()
-        state, rollout_metrics, aux, raw_obs, evaluated_state = trainer['train_update'](
+        state, rollout_metrics, aux, raw_obs, rollout_policy_state = trainer['train_update'](
             state, p, obs_mean, old_std, lr_scale)
         if perf.enabled:
             # JAX dispatch is asynchronous; block one small result so this timer
@@ -923,7 +935,7 @@ def train(args: TrainingConfig) -> int:
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
         reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-        jax_backend=jax.default_backend(), perf_row=perf.row())
+        jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
     append_metrics_csv(run_dir / 'metrics.csv', final_row)
     write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': final_row})
     final_ck_timing = save_checkpoint(
@@ -937,12 +949,8 @@ def train(args: TrainingConfig) -> int:
     perf.add('checkpoint_final_device_get', final_ck_timing['device_get_s'])
     perf.add('checkpoint_final_pickle_write', final_ck_timing['pickle_write_s'])
     perf.add('checkpoint_final_total', final_ck_timing['total_s'])
-    try:
-        final_alias = run_dir / 'checkpoints' / 'final.pkl'
-        if final_alias.exists() or final_alias.is_symlink(): final_alias.unlink()
-        os.link(run_dir / 'checkpoints' / 'latest.pkl', final_alias)
-    except OSError:
-        pass
+    promote_checkpoint(run_dir / 'checkpoints' / 'latest.pkl',
+                       run_dir / 'checkpoints' / 'final.pkl')
     field.save_npz(run_dir / 'capability_field_final.npz')
     field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
                         mode=args.capability_field_mode,

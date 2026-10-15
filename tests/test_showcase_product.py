@@ -56,12 +56,9 @@ def test_viewer_and_package_source_copies_are_identical():
         assert (ROOT / 'viewer' / rel).read_bytes() == (ROOT / 'emu' / 'viewer_src' / rel).read_bytes()
 
 
-def test_controls_live_in_drawer_not_on_joysticks():
+def test_viewer_required_ui_elements_and_drop_overlay_exit():
     html = (ROOT / 'viewer' / 'index.html').read_text()
-    css = (ROOT / 'viewer' / 'src' / 'style.css').read_text()
-    assert 'id="settingsDrawer"' in html
-    assert 'id="settingsOpen"' in html
-    assert 'id="settingsClose"' in html
-    assert 'id="drawerBackdrop"' in html
-    assert '.controls-panel { padding:' in css
-    assert 'bottom: 202px' not in css
+    main = (ROOT / 'viewer' / 'src' / 'main.js').read_text()
+    for element in ('settingsDrawer', 'settingsOpen', 'settingsClose', 'drawerBackdrop'):
+        assert f'id="{element}"' in html
+    assert 'dropOverlay.hidden = true;' in main

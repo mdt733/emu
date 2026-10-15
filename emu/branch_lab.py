@@ -9,35 +9,14 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict
 from pathlib import Path
 
-from .experiments import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
+from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
+from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
 from .paths import source_repo_root
-from .production import _phase_config, verify_existing_phase_config
-
-FOUNDATION = 20_000_000
-ROUNDS = {'round1': 26_000_000, 'round2': 34_000_000, 'round3': 46_000_000}
-SCREEN_PITCH_DEG = 15.0
-
-
-@dataclass(frozen=True)
-class Arm:
-    name: str
-    hypothesis: str
-    teacher_mode: str = 'graph'
-    dose: float = 0.10
-    terrain_radius: float = 0.0
-    pitch_deg: float = 8.0
-
-
-ARMS = (
-    Arm('baseline', '10% graph teaching, level-floor control'),
-    Arm('shadow', 'No capability-field teaching', 'shadow', 0.0),
-    Arm('slope', 'Gentle gravity-equivalent slope practice', terrain_radius=0.12),
-    Arm('pitch15', '15 degree chassis command ceiling', pitch_deg=15.0),
-)
-BY_NAME = {a.name: a for a in ARMS}
+from .phase_config import _phase_config, verify_existing_phase_config
+from .training_config import apply_experiment_knobs
 
 
 def _read(path):
@@ -76,20 +55,40 @@ def _context(root, seed, envs, provenance):
 
 
 def config(run, *, arm, target, seed, envs, device, resume):
-    # Build all arms on the same mature profile; each changes exactly one
-    # experiment dimension. All have the v5015 reward/competence semantics.
+    """Pure recipe -> training configuration. No GPU, filesystem or PPO side effects."""
+    # Foundation is common to every hypothesis. No arm knobs apply before fork.
     if arm is None:
-        return _phase_config('00_foundation', FOUNDATION, 0, 0, 0, root=run.parent,
+        return _phase_config(run.name, FOUNDATION, 0, 0, 0, root=run.parent,
                              seed=seed, device=device, envs=envs, resume=resume,
                              profile='v5015', pitch_deg=8.0)
-    cfg = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
-                        seed=seed, device=device, envs=envs, resume=resume,
-                        profile='v5015', pitch_deg=arm.pitch_deg)
-    return replace(cfg, capability_field_mode=arm.teacher_mode,
-                   field_max_influence=arm.dose,
-                   domain_randomization=arm.terrain_radius > 0,
-                   domain_robot_radius=0, domain_terrain_radius=arm.terrain_radius,
-                   domain_hardware_radius=0)
+    baseline = _phase_config(run.name, target, 0, 0, 0, root=run.parent,
+                             seed=seed, device=device, envs=envs, resume=resume,
+                             profile='v5015', pitch_deg=8.0)
+    return apply_experiment_knobs(baseline, arm.knobs)
+
+
+def validate_recipe(*, seed: int, envs: int, device: str, root: Path) -> None:
+    """Fail on bad ladder definitions BEFORE starting the shared foundation."""
+    import re
+
+    if envs < 1:
+        raise ValueError('Experiment envs must be positive')
+    if list(ROUNDS) != ['round1', 'round2', 'round3']:
+        raise ValueError('Ladder requires ordered round1/round2/round3 stages')
+    targets = [FOUNDATION, *ROUNDS.values()]
+    if any(type(v) is not int or v <= 0 for v in targets) or targets != sorted(set(targets)):
+        raise ValueError('Ladder targets must be strictly increasing integer environment steps')
+    if len(ARMS) < 2 or len(BY_NAME) != len(ARMS):
+        raise ValueError('Ladder needs at least two uniquely named experiment arms')
+    if ARMS[0].name != 'baseline' or ARMS[0].knobs:
+        raise ValueError('First arm must be an unmodified baseline')
+    for arm in ARMS:
+        if not re.fullmatch(r'[a-z][a-z0-9_]*', arm.name):
+            raise ValueError(f'Unsafe ladder arm name: {arm.name}')
+        # Prove every arm maps to a typed TrainingConfig. This is pure:
+        # no JAX compile, file writes, subprocesses, or policy mutation.
+        config(root/'round1'/arm.name, arm=arm, target=ROUNDS['round1'],
+               seed=seed, envs=envs, device=device, resume=None)
 
 
 def completed(root, stage, name, envs):
@@ -118,6 +117,14 @@ def ensure_run(run, *, arm, parent, target, seed, envs, device, provenance):
         _save(spec_file, spec)
     expected_config = config(run, arm=arm, target=target, seed=seed,
                              envs=envs, device=device, resume=None)
+    # A wrong phase name used to launch a complete 20M foundation into
+    # 00_foundation/ while ensure_run inspected foundation20/. Check BEFORE
+    # launching the trainer so a misplaced checkpoint can never happen again.
+    configured_dir = Path(expected_config.run_dir).resolve()
+    if configured_dir != run.resolve():
+        raise RuntimeError(
+            f'Runner and trainer disagree on output folder: '
+            f'expected {run.resolve()}, got {configured_dir}')
     verify_existing_phase_config(run, expected_config)
     final, partial, expected = resolve_target_checkpoint(
         run, target_steps=target, envs=envs, label=run.name)
@@ -180,9 +187,11 @@ def score_row(name, source):
     height = [_number(source.get(f'screen_{p}_height_shortfall_m')) for p in panels]
     motion = [_number(source.get(f'screen_{p}_{axis}_mae'))
               for p in panels for axis in ('vx', 'vy', 'yaw')]
+    steps = [_number(source.get(f'screen_{p}_step_evidence')) for p in panels]
+    support = [_number(source.get(f'screen_{p}_support')) for p in panels]
     slope = _number(source.get('screen_gentle_slope_survival'))
     slope_height = _number(source.get('screen_gentle_slope_height_shortfall_m'))
-    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion):
+    if slope is None or slope_height is None or any(n is None for n in surv + pitch + height + motion + steps + support):
         return {'arm': name, 'eligible': False, 'score': None,
                 'reasons': ['missing/nonfinite held-out metrics']}
     hard = sum(surv[:2])/2
@@ -190,6 +199,8 @@ def score_row(name, source):
     pe = sum(pitch)/4
     hs = sum(height)/4
     me = sum(motion)/12
+    step_evidence = sum(steps)/len(steps)
+    mean_support = sum(support)/len(support)
     reasons = []
     if hard < .20: reasons.append('hard survival below 20%')
     if hs > .035: reasons.append('height shortfall exceeds 35mm')
@@ -201,7 +212,8 @@ def score_row(name, source):
             'score': round(score, 6), 'hard_survival': round(hard, 5),
             'growth_survival': round(growth, 5), 'gentle_slope_survival': round(slope, 5),
             'pitch_mae_rad': round(pe, 5),
-            'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5)}
+            'height_shortfall_m': round(hs, 5), 'motion_mae': round(me, 5),
+            'step_evidence': round(step_evidence, 5), 'support': round(mean_support, 5)}
 
 
 def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
@@ -238,21 +250,23 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     _save(root / f'{round_name}_scoreboard.json', result)
     lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
              f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
-             'No automatic promotion. Scores are screening evidence, not independent validation.', '',
-             '| arm | eligible | score | hard survival | growth survival | slope survival | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---:|---|']
+             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
+             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
+             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
     for r in rows:
         lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
                      f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
                      f"{r.get('gentle_slope_survival','—')} | "
-                     f"{r.get('pitch_mae_rad','—')} rad | {r.get('height_shortfall_m','—')} m | "
+                     f"{r.get('motion_mae','—')} | {r.get('step_evidence','—')} | "
+                     f"{r.get('support','—')} | {r.get('pitch_mae_rad','—')} rad | "
+                     f"{r.get('height_shortfall_m','—')} m | "
                      f"{', '.join(r['reasons'])} |")
         print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")
     report = root / f'{round_name}_scorecard.md'
     temp = report.with_name(report.name + '.tmp')
     temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
     temp.replace(report)
-    print(f'Saved {report}. Choose finalists manually; nothing advances automatically.')
+    print(f'Saved {report}. Auto mode promotes eligible contenders; manual review is also supported.')
 
 
 def promotion_choices(board: dict, slots: int) -> list[str]:
@@ -316,7 +330,7 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
     Pause on failed training or a failed/ambiguous evaluation. Never promote an
     ineligible policy and never alter the published champion.
     """
-    print('[EMU lab5015] Auto mode: run 20M foundation, 4x26M forks, '
+    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x26M forks, '
           'screen and promote 2x34M then 1x46M', flush=True)
     ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
                seed=seed, envs=envs, device=device, provenance=provenance)
@@ -364,7 +378,10 @@ def plan_dict(seed=733, envs=2048):
     return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
             'foundation': FOUNDATION, 'rounds': ROUNDS,
             'arms': [asdict(a) for a in ARMS],
-            'nominal_steps': FOUNDATION + 4*6_000_000 + 2*8_000_000 + 12_000_000,
+            'nominal_steps': (
+                FOUNDATION + len(ARMS)*(ROUNDS['round1']-FOUNDATION)
+                + 2*(ROUNDS['round2']-ROUNDS['round1'])
+                + (ROUNDS['round3']-ROUNDS['round2'])),
             'review_points': ['after 20M foundation', 'after 4x26M screen',
                               'after 2x34M screen', 'after 1x46M follow-up'],
             'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
@@ -388,12 +405,13 @@ def main(argv=None):
     parser.add_argument('--arm', action='append', default=[], help='optional first-round arm, repeatable')
     parser.add_argument('--select', nargs='+', default=[], help='manually promote 2 or 1 arms')
     args = parser.parse_args(argv)
+    root = args.root.expanduser().resolve()
+    validate_recipe(seed=args.seed, envs=args.envs, device=args.device, root=root)
     if args.stage == 'plan':
         print(json.dumps(plan_dict(args.seed,args.envs),indent=2))
         return 0
-    if args.envs < 1 or args.screen_envs < 1 or args.screen_horizon < 1:
-        parser.error('env counts and screen horizon must be positive')
-    root = args.root.expanduser().resolve()
+    if args.screen_envs < 1 or args.screen_horizon < 1:
+        parser.error('screen env count and horizon must be positive')
     if args.stage == 'score':
         if args.arm or args.select: parser.error('score accepts no --arm or --select')
         context = root / 'lab_context.json'

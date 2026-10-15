@@ -1,4 +1,4 @@
-"""Read-only browser feed of the newest *completed* production checkpoint.
+"""Read-only browser feed of the newest validated ladder checkpoint.
 
 This module never interacts with a running trainer, never changes PPO state, and
 only exports model snapshots that pass the strict checkpoint contract.
@@ -10,8 +10,6 @@ import json
 from pathlib import Path
 from threading import Lock
 
-from .production import PHASES
-
 
 @dataclass(frozen=True)
 class Snapshot:
@@ -20,19 +18,38 @@ class Snapshot:
     phase: str
 
 
+def _run_priority(relative_parts: tuple[str, ...]) -> tuple[int, str]:
+    """Later ladder rounds outrank their parent, independent of runner version."""
+    first = relative_parts[0] if relative_parts else ''
+    if first.startswith('round') and first[5:].isdigit():
+        return (1000 + int(first[5:]), '/'.join(relative_parts))
+    if first == 'foundation20':
+        return (500, '/'.join(relative_parts))
+    # Historical 00_foundation/10_adapt/40_generalist directories, or any
+    # user-defined numbered stage. No dependency on a retired forge recipe.
+    if len(first) >= 3 and first[:2].isdigit() and first[2] == '_':
+        return (int(first[:2]) + 500, '/'.join(relative_parts))
+    return (100, '/'.join(relative_parts))
+
+
 def candidates(root: Path) -> list[tuple[str, Path]]:
-    """Newest phase first; latest snapshot before final for active phases."""
+    """Newest logical ladder stages first, regardless of recipe filenames.
+
+    Only existing checkpoint directories are visited; this also recognises
+    arbitrary arm names and history without importing any training runners.
+    """
     root = Path(root)
-    result = []
-    for phase, *_ in reversed(PHASES):
-        ck = root / phase / 'checkpoints'
-        result.extend([(phase, ck / 'latest.pkl'), (phase, ck / 'final.pkl')])
-        result.extend((phase, p) for p in sorted(ck.glob('snapshot_step_*.pkl'), reverse=True))
+    dirs = [p for p in root.rglob('checkpoints') if p.is_dir()]
+    dirs.sort(key=lambda ck: _run_priority(ck.parent.relative_to(root).parts),
+              reverse=True)
+    result: list[tuple[str, Path]] = []
+    for ck in dirs:
+        rel = ck.parent.relative_to(root)
+        phase = '/'.join(rel.parts) if rel.parts else 'training'
+        result.extend(((phase, ck / 'latest.pkl'), (phase, ck / 'final.pkl')))
+        result.extend((phase, p) for p in sorted(
+            ck.glob('snapshot_step_*.pkl'), reverse=True))
     result.append(('complete', root / 'final.pkl'))
-    # Also support a normal emu train/compare run directory.
-    ck = root / 'checkpoints'
-    result.extend([('training', ck / 'latest.pkl'), ('training', ck / 'final.pkl')])
-    result.extend(('training', p) for p in sorted(ck.glob('snapshot_step_*.pkl'), reverse=True))
     return result
 
 

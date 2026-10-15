@@ -127,62 +127,37 @@ def doctor(args) -> int:
 
 
 def main(argv=None) -> int:
-    p=argparse.ArgumentParser(prog='emu',description=f'EMU {VERSION} — dynamically unstable biped RL')
+    p=argparse.ArgumentParser(
+        prog='emu', description=f'EMU {VERSION} — dynamically unstable biped RL',
+        epilog='Current recipe: emu ladder --stage plan. To train safely: bash scripts/run_ladder.sh')
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
-
-    for name,help_text in [('train','cold-start one trainer'),('compare','paired shadow-vs-graph experiment')]:
-        q=sub.add_parser(name,help=help_text); q.add_argument('--seed',type=int,default=733); q.add_argument('--steps',type=int,default=120_000_000)
-        q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=2048)
-        q.add_argument('--run-root',default=''); q.add_argument('--results-dir',default='')
-        if name=='train': q.add_argument('--mode',choices=['shadow','graph'],default='graph')
-
-
-    q=sub.add_parser('tournament',help='run the efficient 12-hypothesis v5013 successive-halving tournament')
-    q.add_argument('--seed',type=int,default=733); q.add_argument('--confirm-seed',type=int,default=1742)
-    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=2048)
-    q.add_argument('--screen-envs',type=int,default=512); q.add_argument('--screen-horizon',type=int,default=350)
-    q.add_argument('--run-root',default=''); q.add_argument('--results-dir',default='')
-    q.add_argument('--stop-after',choices=['A','B','C','80','120','confirm'],default='confirm'); q.add_argument('--plan',action='store_true')
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    q=sub.add_parser('lab5015',help='short v5015 experiments: auto-promote eligible candidates or review manually')
-    q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
-    q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
-    q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
-    q.add_argument('--root',default='')
-    q.add_argument('--seed',type=int,default=733)
-    q.add_argument('--envs',type=int,default=2048)
-    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--screen-envs',type=int,default=256)
-    q.add_argument('--screen-horizon',type=int,default=350)
-    q.add_argument('--arm',action='append',default=[])
-    q.add_argument('--select',nargs='+',default=[])
-    q=sub.add_parser('forge5015',help='experimental v5015 posture training (separate run root)'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=20_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
-    q=sub.add_parser('forge',help='train the single v5014 production lineage'); q.add_argument('--root',default=''); q.add_argument('--seed',type=int,default=733); q.add_argument('--envs',type=int,default=2048); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--target',type=int,default=400_000_000,choices=[20_000_000,60_000_000,140_000_000,260_000_000,400_000_000]); q.add_argument('--plan',action='store_true')
+    for ladder_command in ('ladder', 'lab5015'):
+        q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
+                                             if ladder_command=='ladder'
+                                             else argparse.SUPPRESS))
+        q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
+        q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
+        q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
+        q.add_argument('--root',default='')
+        q.add_argument('--seed',type=int,default=733)
+        q.add_argument('--envs',type=int,default=2048)
+        q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
+        q.add_argument('--screen-envs',type=int,default=256)
+        q.add_argument('--screen-horizon',type=int,default=350)
+        q.add_argument('--arm',action='append',default=[])
+        q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
-    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='v5014 production run root to watch')
+    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
 
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
-    if args.cmd in ('train','compare'):
-        av=[args.cmd,'--seed',str(args.seed),'--steps',str(args.steps),'--device',args.device,'--envs',str(args.envs)]
-        if getattr(args,'mode',None): av += ['--mode',args.mode]
-        if args.run_root: av += ['--run-root',args.run_root]
-        if args.results_dir: av += ['--results-dir',args.results_dir]
-        return _run('experiments',*av)
-    if args.cmd=='tournament':
-        av=['--seed',str(args.seed),'--confirm-seed',str(args.confirm_seed),'--device',args.device,
-            '--envs',str(args.envs),'--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon),
-            '--stop-after',args.stop_after]
-        if args.plan: av += ['--plan']
-        if args.run_root: av += ['--run-root',args.run_root]
-        if args.results_dir: av += ['--results-dir',args.results_dir]
-        return _run('tournament',*av)
     if args.cmd=='view':
         from .field_viewer import main as view
         av=['--port',str(args.port)]
@@ -198,7 +173,7 @@ def main(argv=None) -> int:
     if args.cmd=='posture-report':
         from .posture_report import report
         return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd=='lab5015':
+    if args.cmd in ('ladder','lab5015'):
         av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
             '--envs',str(args.envs),'--device',args.device,
             '--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon)]
@@ -206,12 +181,6 @@ def main(argv=None) -> int:
         for arm in args.arm: av += ['--arm',arm]
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
-    if args.cmd in ('forge','forge5015'):
-        av=['--seed',str(args.seed),'--envs',str(args.envs),'--device',args.device,'--target',str(args.target),
-            '--profile',('v5015' if args.cmd=='forge5015' else 'v5014')]
-        if args.root: av += ['--root',args.root]
-        if args.plan: av += ['--plan']
-        return _run('production',*av)
     if args.cmd=='export-policy':
         from .policy_export import build_bundle, write_bundle
         bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0
@@ -221,7 +190,7 @@ def main(argv=None) -> int:
     if args.cmd=='viewer':
         from .viewer_server import serve
         pol=Path(args.policy) if args.policy else None
-        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5014_production') if args.live else None,open_browser=not args.no_open)
+        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5015_lab1') if args.live else None,open_browser=not args.no_open)
     return 2
 
 

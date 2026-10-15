@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import pytest
 
-from emu.production import _phase_config, verify_existing_phase_config
+from emu.phase_config import _phase_config, verify_existing_phase_config
 
 
 def test_rejects_changed_seed_env_count_and_domain(tmp_path):
@@ -28,3 +28,9 @@ def test_missing_config_prevents_checkpoint_reuse(tmp_path):
     c=_phase_config('10_adapt',60_000_000,.10,.08,.12,root=tmp_path,seed=733,device='cuda',envs=2048,resume=None)
     with pytest.raises(RuntimeError,match='without training_config'):
         verify_existing_phase_config(phase,c)
+
+
+def test_ladder_uses_shared_phase_compatibility():
+    from emu import phase_config, branch_lab
+    assert branch_lab._phase_config is phase_config._phase_config
+    assert branch_lab.verify_existing_phase_config is phase_config.verify_existing_phase_config

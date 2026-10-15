@@ -126,7 +126,7 @@ For paired shadow-vs-graph experiments, report the deltas directly: capability c
 
 ## 18. Delete experimental archaeology
 
-Old phase importers, compatibility filenames, abandoned viewers, and one-off ablation flags once served useful purposes. They do not need permanent residency in the current architecture. The v5013 tournament CLI/source is currently **retained intentionally for research reproducibility**; it is not a reason to clutter `emu forge` with further historical options.
+Old phase importers, compatibility filenames, abandoned viewers, and one-off ablation flags once served useful purposes. They do not need permanent residency in the current architecture. The v5013 tournament and v5014 forge code have been retired from current imports/CLI. Reproduction uses the frozen Git history (original main merge commit `b0f31d8`) and compact saved results, not competing active runners.
 
 Git is the archive. Current code should express the current system. Reintroduce old experiments one at a time when a concrete question requires them.
 
@@ -187,3 +187,7 @@ The operator stopped the fresh 400M v5014 attempt on 13 October 2026 after the g
 In v5014, an upright-chassis check above cos(20°) could mark a correctly commanded 45° camera/chassis pose as failure. The new v5015 training profile instead separates foot-midpoint-to-chassis robot lean from IMU/chassis pitch; requests the latter explicitly; and judges structural competence against support geometry, height and attitude *tracking error*. It also penalises sustained actual-minus-commanded height shortfall in the reward and held-out checkpoint choice.
 
 Transition-regime tasks now vary commanded chassis pitch alongside movement. A separate production profile ramps the maximum requested angle through 8/15/25/35/45° over its phases, **not** a promise that the robot physically reaches 45°. The true MJX learner and browser physics must still be compared, especially the meaning of forward velocity at substantial chassis pitch; never claim full-pitch or terrain generalisation from a configuration table or passing contract tests alone.
+
+## 2026-10-14: Keep only capabilities actually exercised by the trainer
+
+The previously present `emu/morphology.py` and `emu/terrain.py` had standalone tests, but neither fed the live MJX training path. They were culled from the human-first refactor to avoid implying that actual collision heightfields and morphology banks were being trained. Their source remains in the v5015 main commit `b0f31d8`. JAX-valued physical-domain randomisation remains integrated and covered by tests. Future morphology/terrain features should earn their way into the runtime with end-to-end simulation and throughput evidence.

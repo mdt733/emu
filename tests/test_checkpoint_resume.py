@@ -1,4 +1,6 @@
 import pickle
+import os
+import pytest
 import tempfile
 import unittest
 from pathlib import Path
@@ -160,3 +162,54 @@ def test_snapshot_fallback_skips_incompatible_newer_checkpoint():
 
 if __name__ == '__main__':
     unittest.main()
+
+
+
+def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
+    from emu.run_support import promote_checkpoint
+    source = tmp_path / 'latest.pkl'
+    target = tmp_path / 'final.pkl'
+    source.write_bytes(b'new complete checkpoint')
+    target.write_bytes(b'old complete checkpoint')
+    assert promote_checkpoint(source, target) == target
+    assert source.read_bytes() == target.read_bytes() == b'new complete checkpoint'
+    assert not list(tmp_path.glob('*.tmp'))
+    original_link = os.link
+    def no_hard_links(*args, **kwargs):
+        raise OSError('hard links unsupported')
+    monkeypatch.setattr(os, 'link', no_hard_links)
+    source.write_bytes(b'copy fallback')
+    promote_checkpoint(source, target)
+    assert target.read_bytes() == b'copy fallback'
+    monkeypatch.setattr(os, 'link', original_link)
+
+
+def test_failed_final_publication_preserves_previous_final(tmp_path, monkeypatch):
+    from emu import run_support
+    source = tmp_path / 'latest.pkl'
+    target = tmp_path / 'final.pkl'
+    source.write_bytes(b'candidate')
+    target.write_bytes(b'last good final')
+    def fail_replace(*args, **kwargs):
+        raise OSError('simulated interrupted atomic publication')
+    monkeypatch.setattr(run_support.os, 'replace', fail_replace)
+    with pytest.raises(OSError, match='simulated'):
+        run_support.promote_checkpoint(source, target)
+    assert target.read_bytes() == b'last good final'
+    assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_resume_at_target_performs_no_new_training(tmp_path):
+    from emu.run_support import finish_if_target_reached
+    ck_dir = tmp_path / 'checkpoints'
+    ck_dir.mkdir()
+    latest = ck_dir / 'latest.pkl'
+    latest.write_bytes(b'saved validated payload')
+    assert finish_if_target_reached(tmp_path, latest, 20_000_000, 20_000_000, 2048) is False
+    assert not (ck_dir / 'final.pkl').exists()
+    assert finish_if_target_reached(tmp_path, latest, 20_054_016, 20_000_000, 2048)
+    assert (ck_dir / 'final.pkl').read_bytes() == latest.read_bytes()
+    with pytest.raises(RuntimeError, match='exceeds target'):
+        finish_if_target_reached(tmp_path, latest, 20_119_552, 20_000_000, 2048)
+    with pytest.raises(RuntimeError, match='must belong'):
+        finish_if_target_reached(tmp_path, tmp_path / 'other.pkl', 20_054_016, 20_000_000, 2048)

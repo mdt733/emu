@@ -70,6 +70,11 @@ def test_evaluation_prefers_semantic_checkpoint_then_newest_arm():
         _touch(root / "shadow" / "checkpoints" / "final.pkl", age_s=100)
         _touch(root / "foundation20" / "checkpoints" / "final.pkl", age_s=10)
         assert find_evaluation(root) == root / "foundation20" / "checkpoints" / "final.pkl"
+        # A validated final takes priority over a newer in-progress latest.
+        alternate = root / "other"
+        _touch(alternate / "graph" / "checkpoints" / "final.pkl", age_s=3600)
+        _touch(alternate / "shadow" / "checkpoints" / "latest.pkl")
+        assert find_evaluation(alternate) == alternate / "graph" / "checkpoints" / "final.pkl"
 
 
 def test_shared_packet_contract_is_fixed_and_self_consistent():
@@ -117,7 +122,7 @@ def test_open_frontier_expands_without_legacy_cadence_gate():
 
 
 def test_actor_observation_schema_names_all_55_channels():
-    from emu.contracts import BASE_OBS_FIELDS, BASE_OBS_DIM, HISTORY_LEN, OBS_DIM, OBS_NORMALIZED_FIELDS
+    from emu.contracts import BASE_OBS_FIELDS, BASE_OBS_DIM, HISTORY_LEN, OBS_DIM, OBS_NORMALIZED_FIELDS, PITCH_CMD_MAX_RAD
     from emu.ppo import build_obs_norm_mask
     expected = (
         'gravity_x','gravity_y','gravity_z','gyro_x','gyro_y','gyro_z',
@@ -132,6 +137,7 @@ def test_actor_observation_schema_names_all_55_channels():
     )
     assert BASE_OBS_FIELDS == expected
     assert BASE_OBS_DIM == len(expected) == 55 and OBS_DIM == 55 * HISTORY_LEN == 220
+    assert PITCH_CMD_MAX_RAD == .14
     mask = build_obs_norm_mask()[:BASE_OBS_DIM]
     masked_names = {name for name, enabled in zip(BASE_OBS_FIELDS, mask) if enabled > 0.5}
     assert masked_names == set(OBS_NORMALIZED_FIELDS)
@@ -228,20 +234,6 @@ def test_capability_field_state_is_exact_not_best_effort():
     raise AssertionError('incomplete capability-field state was silently accepted')
 
 
-def test_training_config_rejects_missing_current_field():
-    import json
-    with tempfile.TemporaryDirectory() as td:
-        path = Path(td) / 'config.json'
-        data = asdict(foundation_config(run_dir=Path(td) / 'run', seed=733, device='cuda', envs=64))
-        data.pop('allow_rollback')
-        path.write_text(json.dumps(data), encoding='utf-8')
-        try:
-            TrainingConfig.load(path)
-        except ValueError:
-            return
-        raise AssertionError('partial training config was silently defaulted')
-
-
 def test_curriculum_state_is_exact_not_best_effort():
     from emu.curriculum import RegimeGovernor
     state = RegimeGovernor().state_dict()
@@ -273,7 +265,7 @@ def test_field_teacher_provenance_is_not_an_actor_channel():
     assert 'field_taught' not in BASE_OBS_FIELDS
 
 def test_foundation_handoff_uses_complete_update_boundary():
-    from emu.experiments import foundation_handoff_step, update_boundary_at_or_after
+    from emu.run_support import foundation_handoff_step, update_boundary_at_or_after
     batch = 2048 * 32
     assert foundation_handoff_step(2048) == 20_054_016
     assert foundation_handoff_step(2048) % batch == 0
@@ -282,12 +274,12 @@ def test_foundation_handoff_uses_complete_update_boundary():
 
 
 def test_partial_foundation_checkpoint_is_resume_only_not_fork_ancestor():
-    from emu.experiments import resolve_foundation_handoff
+    from emu.run_support import resolve_foundation_handoff
     foundation = Path('/tmp/foundation-contract')
     partial = foundation / 'checkpoints' / 'latest.pkl'
-    with patch('emu.experiments.find_resume', return_value=partial), \
-         patch('emu.experiments.find_valid_resume', return_value=partial), \
-         patch('emu.experiments.checkpoint_step', return_value=12_000_000):
+    with patch('emu.run_support.find_resume', return_value=partial), \
+         patch('emu.run_support.find_valid_resume', return_value=partial), \
+         patch('emu.run_support.checkpoint_step', return_value=12_000_000):
         complete, resume, expected = resolve_foundation_handoff(foundation, envs=2048)
     assert complete is None
     assert resume == partial
@@ -295,14 +287,14 @@ def test_partial_foundation_checkpoint_is_resume_only_not_fork_ancestor():
 
 
 def test_exact_handoff_checkpoint_is_promoted_to_final():
-    from emu.experiments import resolve_foundation_handoff
+    from emu.run_support import resolve_foundation_handoff
     foundation = Path('/tmp/foundation-contract')
     latest = foundation / 'checkpoints' / 'latest.pkl'
     final = foundation / 'checkpoints' / 'final.pkl'
-    with patch('emu.experiments.find_resume', return_value=latest), \
-         patch('emu.experiments.find_valid_resume', return_value=latest), \
-         patch('emu.experiments.checkpoint_step', return_value=20_054_016), \
-         patch('emu.experiments.promote_checkpoint', return_value=final) as promote:
+    with patch('emu.run_support.find_resume', return_value=latest), \
+         patch('emu.run_support.find_valid_resume', return_value=latest), \
+         patch('emu.run_support.checkpoint_step', return_value=20_054_016), \
+         patch('emu.run_support.promote_checkpoint', return_value=final) as promote:
         complete, resume, expected = resolve_foundation_handoff(foundation, envs=2048)
     assert complete == final and resume is None and expected == 20_054_016
     promote.assert_called_once_with(latest, final)

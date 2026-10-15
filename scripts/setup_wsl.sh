@@ -25,7 +25,7 @@ if command -v python3.13 >/dev/null 2>&1; then
 elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys;sys.exit(sys.version_info < (3,13))'; then
   PYTHON=python3
 else
-  echo 'EMU requires Python >= 3.13. See docs/INSTALL.md for installing Python 3.13 on WSL.' >&2
+  echo 'EMU requires Python >= 3.13. Install Python 3.13+ with venv for your distribution before retrying.' >&2
   exit 1
 fi
 if [[ ! -f viewer/package-lock.json ]]; then
@@ -57,7 +57,8 @@ fi
 if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   export NVM_DIR="$HOME/.nvm"
   # shellcheck disable=SC1091
-  source "$NVM_DIR/nvm.sh"
+  # Prevent nvm from auto-using Node 24 from .nvmrc before it is installed.
+  source "$NVM_DIR/nvm.sh" --no-use
   if [[ $INSTALL_NODE -eq 1 ]]; then
     nvm install "$(cat .nvmrc)"
   elif nvm ls "$(cat .nvmrc)" 2>/dev/null | grep -q 'N/A'; then
@@ -82,7 +83,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
 emu viewer-build
-emu lab5015 --stage plan
+emu ladder --stage plan
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer viewer/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. After the v5015 GPU smoke passes, begin the experiment with: emu lab5015 --stage foundation\n'
+printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke && bash scripts/run_ladder.sh\n'

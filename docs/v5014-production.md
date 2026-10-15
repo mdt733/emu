@@ -1,4 +1,7 @@
-# v5014 production lineage
+# v5014 production lineage — historical reference
+
+> Archived training recipe. The original `emu forge` implementation is preserved in Git history (e.g. commit `b0f31d8`), not in the current executable. These settings are **not** the active v5015 ladder. Do not use a historical checkout against a current v5015 run directory.
+
 
 ## Purpose
 

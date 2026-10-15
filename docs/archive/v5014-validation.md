@@ -1,4 +1,6 @@
-# EMU v5014 — release evidence ledger
+# EMU v5014 — dated historical verification ledger
+
+> Archived snapshot from 13 October 2026. The currently validated code and open limitations are in [Status](../STATUS.md). The following findings refer to the older v5014 release, not the current training ladder or public Pages state.
 
 **Purpose:** record what was *observed*, on which environment, and what remains unproven. This is not a setup guide; see [docs/validation.md](docs/validation.md) for the test procedure. Do not turn a prior test count into a claim about later modified code.
 
