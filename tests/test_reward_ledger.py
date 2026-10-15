@@ -24,10 +24,9 @@ def test_weighted_reward_is_bitwise_equivalent_to_original_float32_expression():
     np.testing.assert_array_equal(actual, sum(parts.values()))
 
 
-def test_environment_reward_calls_ledger_and_reports_weighted_payments():
+def test_scoring_reward_reaches_rollout_ledger_for_both_profiles():
     """Exercise the real _reward method without MuJoCo, for both posture profiles."""
-    from types import SimpleNamespace
-    from emu.environment import EmuMJXEnv
+    from emu.scoring import training_reward, apply_early_fall_penalty
     from emu.rollout_metrics import summarize_rollout
 
     rng = np.random.default_rng(733)
@@ -52,8 +51,7 @@ def test_environment_reward_calls_ledger_and_reports_weighted_payments():
     names = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
              'clearance', 'smoothness', 'joint_safety')
     for profile in ('v5014', 'v5015'):
-        environment = SimpleNamespace(jnp=np, attitude_profile=profile)
-        reward, terms = EmuMJXEnv._reward(environment, measurements, u(0, 3))
+        reward, terms = training_reward(measurements, u(0, 3), attitude_profile=profile, xp=np)
         np.testing.assert_allclose(
             reward, sum(terms[f'weighted_{name}'] for name in names),
             rtol=2e-6, atol=2e-6,
@@ -69,3 +67,51 @@ def test_environment_reward_calls_ledger_and_reports_weighted_payments():
                 np.mean(packet[f'reward_weighted_{name}']),
                 rtol=1e-6,
             )
+
+
+def test_early_fall_penalty_matches_accepted_main_and_exempts_timeouts():
+    """Read-only oracle of the original environmental terminal arithmetic."""
+    from emu.scoring import apply_early_fall_penalty
+    rewards = np.array([0.2, 1.0, -0.3, 1.7], np.float32)
+    fails = np.array([True, False, True, False])
+    ages = np.array([1., 1., 500., 700.], np.float32)
+    horizon = 700
+    old_amount = 65.0 + 0.10 * np.maximum(0.0, horizon - ages)
+    old_reward = np.where(fails, rewards - old_amount, rewards)
+    expected_payment = np.where(fails, -old_amount, np.zeros_like(rewards))
+    result, payment = apply_early_fall_penalty(rewards, fails, ages, horizon, xp=np)
+    np.testing.assert_array_equal(result, old_reward)
+    np.testing.assert_array_equal(payment, expected_payment)
+
+
+def test_training_reward_and_terminal_payment_jit_compile_in_jax():
+    import jax
+    import jax.numpy as jnp
+    from emu.scoring import training_reward, apply_early_fall_penalty
+
+    m = dict(
+        terminal=jnp.array([0., 1.]), vx=jnp.array([.2, .4]),
+        cmd_vx=jnp.array([.2, .3]), vy=jnp.zeros(2), cmd_vy=jnp.zeros(2),
+        yaw_rate=jnp.zeros(2), cmd_yaw=jnp.zeros(2),
+        body_pitch=jnp.zeros(2), cmd_pitch=jnp.zeros(2),
+        gravity_z=jnp.ones(2), height=jnp.full(2, .25),
+        target_height=jnp.full(2, .25), height_error=jnp.zeros(2),
+        attitude_quality=jnp.ones(2), foot_mid_cone=jnp.ones(2),
+        bad_contact=jnp.zeros(2), support=jnp.ones(2),
+        stance_slip=jnp.zeros(2), swing_clearance=jnp.array([.02, .0]),
+        target_step_height=jnp.full(2, .04),
+        organic_step_shape=jnp.zeros(2), action_delta_norm=jnp.zeros(2),
+        joint_limit_pressure=jnp.zeros(2), scissor_pressure=jnp.zeros(2),
+        age_s=jnp.array([1.0, 1.0]), ramp_frac=jnp.ones(2),
+        stepping_activity_so_far=jnp.array([.2, 0.]),
+    )
+    @jax.jit
+    def one_step(values):
+        raw, parts = training_reward(values, jnp.zeros(2), attitude_profile='v5015', xp=jnp)
+        out, fall = apply_early_fall_penalty(raw, values['terminal'] > .5,
+                                             jnp.array([10., 10.]), 700, xp=jnp)
+        return out, parts['weighted_locomotion'], fall
+
+    reward, locomotion, fall = jax.device_get(one_step(m))
+    assert np.isfinite(reward).all() and np.isfinite(locomotion).all()
+    assert fall[0] == 0.0 and fall[1] < 0.0
