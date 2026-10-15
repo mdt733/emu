@@ -9,7 +9,7 @@ def test_one_canonical_viewer_source_no_tracked_mirror():
     tracked = subprocess.check_output(
         ['git', 'ls-files', '-z', '--', 'viewer/', 'emu/viewer_src/'],
         cwd=ROOT,
-    ).decode('utf-8').split('\\0')
+    ).decode('utf-8').split(chr(0))
     assert not [p for p in tracked if p.startswith('viewer/')], (
         'Old top-level viewer source was accidentally reintroduced')
     canonical = {p.removeprefix('emu/viewer_src/') for p in tracked
