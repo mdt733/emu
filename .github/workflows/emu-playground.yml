@@ -24,7 +24,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: viewer/package-lock.json
+          cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Require the protected 60M showcase champion
         shell: bash
         run: |
@@ -40,11 +40,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO"
       - name: Install locked viewer dependencies
-        run: npm ci --prefix viewer --no-audit --no-fund
+        run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run JavaScript contract tests
-        run: npm run test --prefix viewer
+        run: npm run test --prefix emu/viewer_src
       - name: Build static MuJoCo viewer
-        run: npm run build --prefix viewer
+        run: npm run build --prefix emu/viewer_src
       - name: Verify bundled policy and WASM assets
         run: python3 scripts/verify_showcase_dist.py
       - name: Configure Pages
@@ -52,7 +52,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: viewer/dist
+          path: emu/viewer_src/dist
 
   deploy:
     runs-on: ubuntu-latest
