@@ -70,7 +70,7 @@ Then open `http://127.0.0.1:8765/` on that computer. This loopback-only server i
 
 - The **public 60M champion** is protected from automatic replacement. Publishing viewer changes is a separate, manual GitHub Pages action.
 - A v5015 foundation **completed 20,054,016 environment steps**, but the first ladder stopped because the trainer and runner disagreed about its output directory. The draft fix is covered by CPU regression tests; a complete resumed GPU experiment has **not** been demonstrated yet.
-- The experiment ladder compares hypotheses up to **46M steps per surviving policy** (about **72M aggregate training steps**). It cannot by itself establish long-horizon robustness at 100–200M steps.
+- The draft tinyEmu experiment recipe is a **20M shared foundation plus four independently continued 80M policies** (60M additional steps each; **260M aggregate through the four-way screen**). Optional finalists reach 100M and 120M. See [the isolated WSL GPU campaign runbook](docs/TINYEMU_GPU_CAMPAIGN.md). The new branch still requires its own GPU acceptance and the score alone does not establish walking quality.
 - Training rewards, self-assessed capability nodes and attractive viewer motion are **not** interchangeable with independently measured locomotion. The current screening gates also need calibration against genuine stepping and command tracking evidence.
 
 For precise acceptance criteria and limitations, read [Project status](docs/STATUS.md), [Evaluation](docs/evaluation.md), [Training](docs/training.md) and [Validation](docs/validation.md).
