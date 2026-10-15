@@ -57,7 +57,8 @@ fi
 if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   export NVM_DIR="$HOME/.nvm"
   # shellcheck disable=SC1091
-  source "$NVM_DIR/nvm.sh"
+  # Prevent nvm from auto-using Node 24 from .nvmrc before it is installed.
+  source "$NVM_DIR/nvm.sh" --no-use
   if [[ $INSTALL_NODE -eq 1 ]]; then
     nvm install "$(cat .nvmrc)"
   elif nvm ls "$(cat .nvmrc)" 2>/dev/null | grep -q 'N/A'; then

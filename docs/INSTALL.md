@@ -115,6 +115,7 @@ Do not manually edit generated `viewer/dist/` or publish the local live checkpoi
 |---|---|
 | Unexpected EMU version or missing `ladder` command | `git branch --show-current`, `git rev-parse HEAD`, `python -c "import emu.cli; print(emu.cli.__file__)"` |
 | `PYTHONPATH` loads an old checkout | `unset PYTHONPATH`; verify the `emu.cli` source path |
+| New WSL setup exited 3 immediately after nvm installed | The original script auto-selected the uninstalled Node 24 from `.nvmrc`. Update the draft branch and rerun setup; the fixed script sources nvm with `--no-use`. Leave the fresh Ubuntu, Python and nvm installation intact. |
 | CUDA smoke fails | Verify `nvidia-smi`, installed JAX wheel and GPU backend; do not begin training |
 | Optional Warp import warning | MJX may still work; trust the actual reset/step and PPO smoke results |
 | Viewer reports an HTML response instead of JSON | Check whether you're running static Vite preview or the real local Python API and whether the manifest exists |
