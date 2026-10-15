@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -16,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def prepare(*, output_dir: Path, policy_path: Path | None = None,
-            source_url: str = '', require_champion: bool = False) -> dict:
+            source_url: str = '', source_commit: str = '', require_champion: bool = False) -> dict:
     champion = ROOT / 'showcase' / 'champion.emupolicy'
     fixture = ROOT / 'emu' / 'viewer_src' / 'demo_zero.emupolicy'
     if policy_path is not None:
@@ -44,6 +45,8 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
     if trained and int(source.get('step') or 0) <= 0:
         raise ValueError('Refusing to publish a zero-step policy as a trained champion')
     label = str(source.get('run_name') or ('Selected EMU champion' if trained else 'Zero-action test fixture'))[:100]
+    if source_commit and not re.fullmatch(r'[0-9a-f]{40}', source_commit):
+        raise ValueError('source_commit must be a complete lowercase Git commit SHA')
     manifest = {
         'schema': 1,
         'mode': 'showcase',
@@ -52,6 +55,7 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
         'autoplay': True,
         'label': label,
         'source_url': source_url if source_url.startswith('https://github.com/') else '',
+        'source_commit': source_commit,
     }
 
     # Write a complete immutable set into a temporary staging folder, then
@@ -80,12 +84,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--policy', type=Path, default=None, help='Optional exported policy (otherwise showcase/champion.emupolicy or zero fixture)')
     parser.add_argument('--source-url', default='', help='Public GitHub repository URL')
+    parser.add_argument('--source-commit', default='', help='Full Git commit used to build this static frontend')
     parser.add_argument('--require-champion', action='store_true', help='Refuse to publish the untrained fixture')
     args = parser.parse_args()
     manifest = prepare(
         output_dir=ROOT / 'emu' / 'viewer_src' / 'public',
         policy_path=args.policy,
         source_url=args.source_url,
+        source_commit=args.source_commit,
         require_champion=args.require_champion,
     )
     print(f"Static EMU showcase ready: {manifest['label']} ({'trained policy' if manifest['trained'] else 'UNTRAINED preview'})")
