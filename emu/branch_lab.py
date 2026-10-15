@@ -1,6 +1,6 @@
 """Checkpoint-safe v5015 successive-halving experiments: manual or autopilot.
 
-One 20M foundation, four 26M forks, two 34M finalists, one 46M follow-up.
+One 20M foundation, four 80M forks (+60M each), optional two 100M finalists, one 120M follow-up.
 All raw checkpoints remain outside Git; never touches the public 60M brain.
 """
 from __future__ import annotations
@@ -330,8 +330,8 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
     Pause on failed training or a failed/ambiguous evaluation. Never promote an
     ineligible policy and never alter the published champion.
     """
-    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x26M forks, '
-          'screen and promote 2x34M then 1x46M', flush=True)
+    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x80M forks '
+          '(+60M each); optional 2x100M then 1x120M.', flush=True)
     ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
                seed=seed, envs=envs, device=device, provenance=provenance)
     for round_name in ROUNDS:
@@ -382,10 +382,12 @@ def plan_dict(seed=733, envs=2048):
                 FOUNDATION + len(ARMS)*(ROUNDS['round1']-FOUNDATION)
                 + 2*(ROUNDS['round2']-ROUNDS['round1'])
                 + (ROUNDS['round3']-ROUNDS['round2'])),
-            'review_points': ['after 20M foundation', 'after 4x26M screen',
-                              'after 2x34M screen', 'after 1x46M follow-up'],
+            'review_points': ['after common 20M foundation', 'after four 80M branches (+60M each)',
+                              'optional: two 100M finalists', 'optional: one 120M finalist'],
+            'recommended': 'emu ladder --stage foundation, inspect, then emu ladder --stage auto --stop-after round1',
+            'round1_incremental_steps': len(ARMS) * (ROUNDS['round1'] - FOUNDATION),
+            'through_round1_total_steps': FOUNDATION + len(ARMS) * (ROUNDS['round1'] - FOUNDATION),
             'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
-            'recommended': 'emu lab5015 --stage auto',
             'auto_stop_if_ineligible': True}
 
 
