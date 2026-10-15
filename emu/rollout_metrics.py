@@ -258,6 +258,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
         'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
+        'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
+        'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
            for name in ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
                         'clearance', 'smoothness', 'joint_safety', 'fall_penalty')},
