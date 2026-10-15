@@ -21,14 +21,14 @@ The project separates components because they answer different questions; change
 | `emu/checkpoint_io.py`, `emu/checkpoints.py` | Validated schema-7 checkpoint save/read, atomic replacement and finite-policy protection |
 | `emu/policy_export.py` | Actor-only JSON `.emupolicy` export; excludes critic/optimizer and held-out training state |
 | `emu/live_viewer.py`, `emu/viewer_server.py` | Loopback-only, CPU/read-only validated checkpoint feed and viewer build/server |
-| `viewer/` | Canonical MuJoCo WebAssembly + Three.js UI, local inference, manual/demo input and static showcase |
+| `emu/viewer_src/` | Canonical MuJoCo WebAssembly + Three.js UI, local inference, manual/demo input and static showcase |
 | `scripts/prepare_showcase.py` | Packages a static manifest and policy for browser-only hosting, without training or Python API |
 
 ## Important invariants
 
 The **capability field** proposes *where* to practise; the **curriculum/governor** decides *what is currently permitted*; the **domain randomiser** samples *what physical conditions exist*. The **held-out examiner** never updates any of these. `emu/training_config.py` holds the narrow varying experiment surface and fixed doctrine; derived reporting-only state should not be duplicated in checkpoints.
 
-The actor sees only the canonical **220-number** history vector; the inference actor is 220→256→256→6 with tanh hidden layers. `.emupolicy` is not a trainer resume file: only schema-7 `.pkl` checkpoints can continue PPO. See [hardware-model.md](hardware-model.md), [capability-map.md](capability-map.md) and [viewer/POLICY_FORMAT.md](../viewer/POLICY_FORMAT.md).
+The actor sees only the canonical **220-number** history vector; the inference actor is 220→256→256→6 with tanh hidden layers. `.emupolicy` is not a trainer resume file: only schema-7 `.pkl` checkpoints can continue PPO. See [hardware-model.md](hardware-model.md), [capability-map.md](capability-map.md) and [viewer/POLICY_FORMAT.md](../emu/viewer_src/POLICY_FORMAT.md).
 
 ## Process boundaries
 
