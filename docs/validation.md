@@ -37,6 +37,51 @@ Confirm the backend is `gpu`, MJX can reset/step, domain variation stays finite,
 
 A new checkpoint/run-loop change also needs a bounded fresh-root experiment: validate the saved checkpoint, deliberately stop, warm-resume it, perform a new update and compare the saved meta, normaliser, optimiser and evaluator artifacts. Warm resume restores *learning state* but starts new simulator episodes; it is **not** byte-for-byte trajectory replay.
 
+### Documented two-update checkpoint/resume acceptance (GPU only)
+
+The basic doctor checks only one in-memory PPO update. The **separate training-lifecycle
+smoke** below checks on-disk checkpoint creation, a new process restoring a prior
+policy/optimizer/normalizer/governor/field, an independent fixed examination, the
+already-complete no-update path, and a browser-policy export.
+
+This is a **strictly bounded acceptance test, not the 20M training ladder**:
+8 parallel environments × 32 rollout frames = **256 environment steps per
+PPO update**. Stage 1 trains one update to step 256; stage 2 starts from its
+unchanged `final.pkl` and performs one more update to step 512 in a **new**
+folder. Both have forced final held-out evaluations, so those GPU exams are
+additional work beyond the two PPO updates. No policy trained for only two
+updates is expected to walk.
+
+From a clean checkout, create a unique scratch root **outside the Git tree**:
+
+```bash
+cd ~/emu
+source .venv/bin/activate
+git status --short
+git rev-parse HEAD
+python scripts/smoke_training_lifecycle.py first --root ~/robot_lab/emu_runs/pr2_acceptance_01
+python scripts/smoke_training_lifecycle.py continue --root ~/robot_lab/emu_runs/pr2_acceptance_01
+python scripts/smoke_training_lifecycle.py verify --root ~/robot_lab/emu_runs/pr2_acceptance_01
+```
+
+**Run these commands one at a time and inspect errors before advancing.** The
+helper refuses a non-empty/old root at stage 1 or an existing continuation at
+stage 2. It never deletes files, changes the public champion or edits a source
+file. Each training stage writes its full console log and `training_config.json`
+under the scratch root. If an error occurs, retain the outputs for diagnosis;
+do not wipe/reuse the root blindly.
+
+Expected outcome: `first/checkpoints/final.pkl` at step 256,
+`continued/checkpoints/final.pkl` at step 512, a finite best policy and
+`fixed_eval.csv` for each stage, restored `resumed_from_step=256`, increased
+normaliser count, an unchanged parent checkpoint, and a validated
+`tiny_smoke_actor.emupolicy`. The third command additionally confirms that
+resuming an already-completed step 512 is a no-op.
+
+**Do not merge just on this result.** This proves two updates and their
+persistence plumbing, not end-to-end 20M/72M experiment selection, survival,
+command following, slope ability or long-horizon walking.
+
 ## 3. Candidate policies: measure actual locomotion
 
 A promising training reward is only a hypothesis. Collect deterministic fixed exams, a common matched screen, independent command tracking, stepping/support metrics, and any applicable changed-physics stress test. Report seeds, cohorts, absolute checkpoint steps, source commit and evaluator config. The current v5015 promotion gates require survival/posture/slope evidence but **do not yet establish a calibrated minimum for stepping and command-following**; treat a winner as provisional.
