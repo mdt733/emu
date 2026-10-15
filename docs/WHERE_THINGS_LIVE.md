@@ -28,6 +28,16 @@ This is a map of **current branch code**, not a claim that the Pass 9 runtime wa
 
 A true early fall incurs a separate negative penalty in `environment._step_impl`. **No calibrated torque, mechanical work, servo heat or spring-energy objective currently exists.** Read-only measurement is the next prerequisite; only then consider shaping rewards.
 
+## Run one experiment (new in this branch)
+
+`emu train --run-dir ~/robot_lab/emu_runs/tiny_trial --steps 256 --envs 8 --profile foundation --plan` prints the exact configuration **without creating files or starting PPO**. Remove `--plan` only on a clean committed source checkout with a unique run directory and an available GPU. Training itself still occurs in `emu/training.py` using the existing `run_support.run_training`; this wrapper is **not** a second trainer.
+
+Use `--resume auto` to continue a partial checkpoint in the **same run directory with the same source commit and full experiment config**. For a new run descended from a compatible complete checkpoint, choose a **new** directory and pass `--resume /absolute/path/to/final.pkl`; parent and child must share the source commit, and the parent cannot already be beyond the requested target.
+
+`--profile foundation` uses the accepted v5015 foundation physics/curriculum defaults (shadow field mode); `--profile mature` uses the accepted mature graph profile. Neither removes the historical field/teacher implementation yet. Targets are absolute environment steps, rounded up to one complete PPO update. `--plan` is a configuration print, **not** a GPU readiness check.
+
+The existing `emu ladder` remains unchanged while we test the simpler one-run interface. Branch GPU acceptance and browser loading remain mandatory before merging.
+
 ## Contract and checkpoints
 
 The deployable actor has 55 ordered measurements × four frames = **220 inputs**, and **six motor actions**. `emu/contracts.py`, `emu/ppo.py`, `emu/policy_export.py` and `viewer/src/policy.js` must agree. The candidate Pass 9 checkpoint schema 9 is **not directly compatible** with the present main-derived schema 7; use new run roots, never edit/reinterpret old training snapshots. The public `showcase/champion.emupolicy` stays untouched.
