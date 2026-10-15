@@ -6,12 +6,12 @@ This is a map of **current branch code**, not a claim that the Pass 9 runtime wa
 
 1. `emu/robot.xml` defines physical joints, actuator limits, passive springs, and body geometry. The servo model is an approximation: there is no calibrated electrical current, battery wattage or winding-temperature measurement.
 2. `emu/environment.py::_metrics` reads MuJoCo/JAX physics and task commands. Important caveat: `support` is principally a foot-height proxy, and `step_evidence` is foot lifting, not a verified stride.
-3. `emu/environment.py::_reward` computes tracking, posture, contact, anti-slip, smoothness and joint-position safety *shaping factors*. `emu/scoring.py::weighted_training_terms` is the sole table of **weighted positive reward payments**. Actual per-step reward is their sum, **minus the early-fall penalty** in `environment.py::_step_impl`. Do not confuse payment names with observed electrical motor effort.
+3. `emu/scoring.py::training_reward` computes tracking, posture, contact, anti-slip, smoothness and joint-position safety *shaping factors*, while `weighted_training_terms` owns all eight **positive reward payments**. `scoring.apply_early_fall_penalty` owns the independent early-fall cost; `environment.py::_step_impl` merely invokes these functions. Do not confuse payment names with observed electrical motor effort.
 4. `emu/ppo.py::rollout_once` hands `out.reward` to PPO in the trajectory's `reward` field; `compute_gae` then builds advantages. PPO does not independently read spring torque or heating.
 5. `emu/environment.py::_step_impl` exposes `reward_weighted_*` telemetry; `emu/rollout_metrics.py::summarize_rollout` reduces per-frame values, including a negative `reward_weighted_fall_penalty`; `emu/training.py::make_metrics_row` writes the rollout columns. The columns use **mean reward contributions per observed frame**, not individual episode totals.
 6. `emu/curriculum.py::RegimeGovernor.update` uses survival/tracking and posture signals to move task difficulty. **There is no thermal-efficiency curriculum dial.**
 7. `emu/evaluation.py` owns fixed held-out panels and a survival-weighted broad checkpoint score. `emu/screening.py` runs common held-out screening; `emu/branch_lab.py::score_row` and `promotion_choices` decide branch eligibility/ranking. Current stepping/support are reported but are **not hard promotion requirements**, and motor energy is not a promotion input.
-8. `tests/test_reward_ledger.py` checks the old payment arithmetic against the new table. More physics/regression tests are required before moving all reward shaping to scoring.py.
+8. `tests/test_reward_ledger.py` checks original payment arithmetic, fall-penalty equivalence, both posture profiles, JAX compilation and the reducer. The actual environment `_reward` method has been removed. Whole-MJX training equivalence is still a separate GPU acceptance gate.
 
 ## What the current objective actually says
 
@@ -26,7 +26,7 @@ This is a map of **current branch code**, not a claim that the Pass 9 runtime wa
 | smoothness | 0.12 | action-delta norm | **Not** joules or electrical power |
 | joint_safety | 0.17 | position-limit and scissor pressure | **Not** sustained motor overload |
 
-A true early fall incurs a separate negative penalty in `environment._step_impl`. **No calibrated torque, mechanical work, servo heat or spring-energy objective currently exists.** Read-only measurement is the next prerequisite; only then consider shaping rewards.
+A true early fall incurs a separate negative penalty defined in `scoring.apply_early_fall_penalty` and triggered by `environment._step_impl`. **No calibrated torque, mechanical work, servo heat or spring-energy objective currently exists.** Read-only measurement is the next prerequisite; only then consider shaping rewards.
 
 ## Run one experiment (new in this branch)
 
