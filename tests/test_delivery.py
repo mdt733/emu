@@ -144,3 +144,22 @@ def test_exported_actor_matches_browser_inference():
         'control': {},
     }
     js = r"""
+import fs from 'node:fs';
+import { PolicyRunner, parsePolicy } from './emu/viewer_src/src/policy.js';
+const request = JSON.parse(fs.readFileSync(0, 'utf8'));
+const runner = new PolicyRunner(parsePolicy(JSON.stringify(request.bundle)));
+const actions = request.observations.map(
+    obs => Array.from(runner.infer(Float32Array.from(obs))));
+process.stdout.write(JSON.stringify(actions));
+"""
+    result = subprocess.run(
+        ['node', '--input-type=module', '--eval', js],
+        cwd=ROOT, input=json.dumps({
+            'bundle': bundle, 'observations': [o.tolist() for o in observations],
+        }), text=True, capture_output=True, check=True, timeout=25,
+    )
+    browser_actions = np.asarray(json.loads(result.stdout), dtype=np.float32)
+    assert browser_actions.shape == (len(observations), ACTION_DIM)
+    for observed, browser in zip(observations, browser_actions):
+        expected = reference_action(observed, layers, mean, std, mask)
+        np.testing.assert_allclose(browser, expected, rtol=1e-4, atol=2e-5)
