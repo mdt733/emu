@@ -35,3 +35,9 @@ def test_static_build_requires_real_policy_and_wasm(tmp_path):
     (tmp_path / 'assets').mkdir()
     (tmp_path / 'assets/mujoco-test.wasm').write_bytes(b'\x00asm')
     assert verify(tmp_path)['trained'] is False
+    with pytest.raises(ValueError, match='revision mismatch'):
+        verify(tmp_path, expected_source_commit='a' * 40)
+    manifest = json.loads((tmp_path / 'showcase.json').read_text())
+    manifest['source_commit'] = 'a' * 40
+    (tmp_path / 'showcase.json').write_text(json.dumps(manifest))
+    assert verify(tmp_path, expected_source_commit='a' * 40)['source_commit'] == 'a' * 40
