@@ -180,3 +180,28 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert len(measured)==2
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
+
+
+    # v5016: explicit mid-episode turn/stop schedule, noisy/delayed gyro.
+    # The *environment's* post-step command must match what PPO was told:
+    # changing only task/obs is insufficient because env.step advances its
+    # own command ramp after computing physics.
+    schedule=jnp.asarray([[.10,0.,0.],
+                          [.10,0.,.25],
+                          [.10,0.,-.25],
+                          [.10,0.,0.]],dtype=jnp.float32)
+    noisy=trainer['evaluate_trace'](
+        params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_yaw':0.}),
+        mean,std,jax.random.PRNGKey(199),4,.75,None,schedule,.015,.02,2)
+    noisy=jax.device_get(noisy)
+    np.testing.assert_allclose(noisy['command'][:,0,:],np.asarray(schedule),atol=1e-7)
+    assert noisy['gyro_sample_rad_s'].shape==(4,2)
+    assert noisy['gyro_delayed_rad_s'].shape==(4,2)
+    assert np.isfinite(noisy['issued_yaw_rate']).all()
+    # Ignore reset worlds; their new task is intentionally unrelated to
+    # the old episode's request and may have a different birth command.
+    valid=~noisy['done'].astype(bool)
+    np.testing.assert_allclose(
+        noisy['next_task_yaw_rate'][valid],
+        noisy['issued_yaw_rate'][valid],rtol=0,atol=2e-6)
+    np.testing.assert_array_equal(noisy['root_qvel'][0],off['root_qvel'][0])

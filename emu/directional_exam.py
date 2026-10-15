@@ -17,6 +17,7 @@ import numpy as np
 
 from .contracts import OBS_DIM
 from .gait_exam import evaluate_trace_arrays
+from .command_exams import SCENARIOS, make_schedule
 
 
 def exam_gravity(angle_deg, direction):
@@ -75,9 +76,17 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
 
 def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
                  horizon=350, speed=.10, lateral=0., yaw_rate=0.,
-                 seed=1701, device='cuda', settle_frames=25, heading_kp=0.0):
+                 seed=1701, device='cuda', settle_frames=25, heading_kp=0.0,
+                 scenario='steady', turn_rate=.25,
+                 gyro_bias=0., gyro_noise=0., gyro_delay_frames=0):
     if not math.isfinite(heading_kp) or not 0 <= heading_kp <= 2:
         raise ValueError('heading-kp must lie in [0,2] per second')
+    if not all(math.isfinite(v) for v in (gyro_bias,gyro_noise)) or (
+        abs(gyro_bias) > .12 or not 0 <= gyro_noise <= .20 or
+        not isinstance(gyro_delay_frames, int) or not 0 <= gyro_delay_frames <= 5):
+        raise ValueError('gyro realism parameters outside bounded test limits')
+    schedule=make_schedule(scenario,int(horizon),speed=speed,lateral=lateral,
+                           yaw_rate=yaw_rate,turn_rate=turn_rate)
     run_dir,output,g=validate_request(
         run_dir=run_dir,output=output,worlds=int(worlds),horizon=int(horizon),
         settle_frames=int(settle_frames),angle_deg=angle_deg,direction=direction,
@@ -132,8 +141,8 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
         params,env.params_array(task),
         jnp.asarray(norm['mean']),jnp.sqrt(jnp.asarray(norm['var'])),
         jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp),
-        jnp.asarray([float(speed),float(lateral),float(yaw_rate)],
-                    dtype=jnp.float32))
+        None,jnp.asarray(schedule),float(gyro_bias),float(gyro_noise),
+        int(gyro_delay_frames))
     frames=jax.device_get(trace)
     evaluated=evaluate_trace_arrays(
         frames,np.tile(g,(int(worlds),1)),dt=.02,
@@ -148,7 +157,11 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
                     speed=float(speed),lateral=float(lateral),
                     yaw_rate=float(yaw_rate),seed=int(seed),device=device,
                     heading_p_enabled=heading_kp>0,heading_kp=float(heading_kp),
-                    heading_sensor='ideal simulated body gyro-Z integrated'),
+                    heading_sensor='body gyro-Z integrated with optional bias/white noise/delay',
+                    scenario=scenario,turn_rate=float(turn_rate),
+                    gyro_bias_rad_s=float(gyro_bias),
+                    gyro_noise_std_rad_s=float(gyro_noise),
+                    gyro_delay_frames=int(gyro_delay_frames)),
         'worlds':evaluated,
     }
     output.mkdir(parents=True,exist_ok=True)
@@ -165,10 +178,14 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
         'Contact-pair stride candidate success: '+str(gait)+'/'+str(worlds),
         '',
         'The contact-pair gait count is an estimate, not measured ground-reaction force.',
+        'Scenario: '+scenario+'; turn rate: '+str(turn_rate)+' rad/s.',
+        'Gyro bias/noise/delay: '+str(gyro_bias)+' / '+
+          str(gyro_noise)+' rad/s / '+str(gyro_delay_frames)+' frames.',
         'Heading P gain: '+str(heading_kp)+' /s (0 means OFF).',
         'When ON, only the yaw-rate request delivered to PPO is corrected.',
         'Exam course is ALWAYS scored against original operator commands.',
-        'Yaw estimate integrates simulated body gyro, not perfect world yaw.',
+        'Yaw estimate integrates body gyro with configured sensor imperfections.',
+        'Original operator command schedule is not changed by heading P.',
         'No PPO retraining, reward or policy modification was performed.',
         'A rotated gravity field represents infinite uniform ground; not a physical ramp.',
         '',
@@ -206,6 +223,9 @@ def _summarize_worlds(worlds):
                 gait_candidate_pass=sum(bool(w.get('walking_pass')) for w in worlds)/count,
                 progress_m=mean_optional('signed_course_progress_m'),
                 heading_mae_deg=mean_optional('heading_mae_deg'),
+                yaw_rate_mae_rad_s=mean_optional('yaw_rate_mae_rad_s'),
+                yaw_abs_error_1s=mean_optional('yaw_abs_error_1s'),
+                yaw_abs_error_3s=mean_optional('yaw_abs_error_3s'),
                 gyro_heading_error_mae_deg=mean_optional('gyro_heading_error_mae_deg'),
                 mean_abs_controller_correction_rad_s=
                     mean_optional('mean_abs_controller_correction_rad_s'))
@@ -235,13 +255,15 @@ def evaluate_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
             off['checkpoint_training_step']!=on['checkpoint_training_step']):
         raise RuntimeError('paired evaluations did not use same checkpoint')
     for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
-                'angle_deg','direction','settle_frames'):
+                'angle_deg','direction','settle_frames','scenario','turn_rate',
+                'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames'):
         if off['exam'][key]!=on['exam'][key]:
             raise RuntimeError('paired examinations have unequal '+key)
     s_off=_summarize_worlds(off['worlds'])
     s_on=_summarize_worlds(on['worlds'])
     keys=('survived_full','course_pass','gait_candidate_pass','progress_m',
-          'heading_mae_deg','gyro_heading_error_mae_deg',
+          'heading_mae_deg','yaw_rate_mae_rad_s','yaw_abs_error_1s','yaw_abs_error_3s',
+          'gyro_heading_error_mae_deg',
           'mean_abs_controller_correction_rad_s')
     delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
            for k in keys}
@@ -287,6 +309,11 @@ def main(argv=None):
     p.add_argument('--lateral',type=float,default=0.)
     p.add_argument('--yaw-rate',type=float,default=0.)
     p.add_argument('--settle-frames',type=int,default=25)
+    p.add_argument('--scenario',choices=SCENARIOS,default='steady')
+    p.add_argument('--turn-rate',type=float,default=.25)
+    p.add_argument('--gyro-bias',type=float,default=0.)
+    p.add_argument('--gyro-noise',type=float,default=0.)
+    p.add_argument('--gyro-delay-frames',type=int,default=0)
     p.add_argument('--seed',type=int,default=1701)
     p.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cuda')
     p.add_argument('--heading-kp',type=float,default=0.75,
@@ -297,7 +324,9 @@ def main(argv=None):
     kw=dict(angle_deg=a.angle,direction=a.direction,worlds=a.worlds,
             horizon=a.horizon,speed=a.speed,lateral=a.lateral,
             yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
-            settle_frames=a.settle_frames)
+            settle_frames=a.settle_frames,scenario=a.scenario,
+            turn_rate=a.turn_rate,gyro_bias=a.gyro_bias,
+            gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames)
     if a.compare_heading:
         outputs=evaluate_pair(a.run_dir,output=a.output,
                               heading_kp=a.heading_kp,**kw)
