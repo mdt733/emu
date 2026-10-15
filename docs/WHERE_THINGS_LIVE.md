@@ -28,6 +28,24 @@ This is a map of **current branch code**, not a claim that the Pass 9 runtime wa
 
 A true early fall incurs a separate negative penalty defined in `scoring.apply_early_fall_penalty` and triggered by `environment._step_impl`. **No calibrated torque, mechanical work, servo heat or spring-energy objective currently exists.** Read-only measurement is the next prerequisite; only then consider shaping rewards.
 
+## Read-only actuator and spring diagnostics (new)
+
+`environment.py::_metrics` also reads *actual modeled* MJX actuator forces and joint velocities. Its `servo_effort_metrics` helper gives five **non-reward, non-actor, non-curriculum** indicators, averaged across rollout frames in `rollout_metrics.py`:
+
+| Logged column | Definition | What it does NOT mean |
+|---|---|---|
+| `servo_shaft_abs_power_w` | Sum of `abs(actuator_force × joint_qvel)` over six joints | Not DC battery wattage or total motor losses |
+| `servo_shaft_drive_power_w` | Sum of positive shaft power | Not an electrical power estimate |
+| `servo_shaft_brake_power_w` | Sum of magnitude of negative shaft power | **Not** recovered regenerative energy |
+| `servo_over_rated_frac` | Fraction of the six modeled torque magnitudes over 0.638 N·m | Not an overheating diagnosis; continuous rating is a rough reference |
+| `servo_peak_torque_limit_frac` | Maximum torque demand relative to **each world's actual model** force ceiling | Not a thermal limit or cycle duty rating |
+
+Note the stationary-stall counterexample: `torque × speed == 0` even when the motor is heavily loaded and consuming electrical power. **Do not use this mechanical-power proxy alone as an efficiency reward.** Damping, Coulomb friction and electrical drive losses are not captured by `actuator_force × joint_qvel`.
+
+The same `_metrics` path computes `spring_potential_energy_j` from the six driven hinge springs and two passive shin-flex springs as `½ × stiffness × (q − qpos_spring)²`; `shin_spring_energy_j` isolates the latter two. The reference positions and stiffnesses come from the *loaded MuJoCo model*, not hand-copied tuning constants. This is stored **potential energy**, not delivered spring work or guaranteed assistance.
+
+Both quantities use model truth for evaluation and diagnostics, not deployable sensor inputs. `tests/test_servo_effort.py` covers known numerical cases, reference offsets, high-torque stationary joints, JAX compilation and CSV reduction. Full real-MJX runtime, domain-variation and WSL GPU acceptance are still required.
+
 ## Run one experiment (new in this branch)
 
 `emu train --run-dir ~/robot_lab/emu_runs/tiny_trial --steps 256 --envs 8 --profile foundation --plan` prints the exact configuration **without creating files or starting PPO**. Remove `--plan` only on a clean committed source checkout with a unique run directory and an available GPU. Training itself still occurs in `emu/training.py` using the existing `run_support.run_training`; this wrapper is **not** a second trainer.
