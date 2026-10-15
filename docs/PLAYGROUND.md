@@ -20,13 +20,21 @@ python scripts/prepare_showcase.py --require-champion
 npm ci --prefix emu/viewer_src --no-audit --no-fund
 npm test --prefix emu/viewer_src
 npm run build --prefix emu/viewer_src
-cd viewer
+cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
 Open the displayed local Vite URL (normally `http://127.0.0.1:4173/`). The preview should load the **trained champion**, not the `demo_zero` fixture, and expose no unexpected JS/WASM errors. Test joystick directions, settings, display modes, manual policy load and the physical ramp in a real browser.
 
 The zero-weight fixture is a separate *local rendering* check: `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
+
+## Why the public appearance can look older
+
+The public site is a **static build from the commit selected when the manual Pages action ran**. Neither local `emu viewer` changes nor a passing PR build update the published site's appearance. The actor's 60M checkpoint is a **separate artifact** and may stay unchanged while the frontend improves.
+
+Each newly published site now includes its build commit in `showcase.json` as `source_commit`. The public viewer displays its first eight characters beneath the showcase note. To diagnose a stale appearance, compare that revision with the source selected for the latest successful Pages deployment. Older deployments won't have this field. A release run fails if its manifest does not match its checked-out Git SHA.
+
+The source of the frontend is **only** `emu/viewer_src/`: no second editable or generated copy. The static site must be built again and manually published from an approved `main` commit. **Do not deploy this draft refactor branch to fix appearance** before its WSL/MJX acceptance is complete.
 
 ## Controlled GitHub Pages publishing
 
