@@ -41,6 +41,11 @@ def test_pair_writes_provenance_checked_comparison_without_selecting_winner(
             'exam':dict(seed=args['seed'],worlds=2,horizon=args['horizon'],
                 speed=args['speed'],lateral=0.,yaw_rate=0.,
                 angle_deg=.5,direction='uphill',settle_frames=0,
+                scenario=args.get('scenario','steady'),
+                turn_rate=args.get('turn_rate',.25),
+                gyro_bias_rad_s=args.get('gyro_bias',0.),
+                gyro_noise_std_rad_s=args.get('gyro_noise',0.),
+                gyro_delay_frames=args.get('gyro_delay_frames',0),
                 heading_kp=heading_kp,heading_p_enabled=heading_kp>0),
             'worlds':[
                 dict(full_horizon_survival=True,course_pass=bool(heading_kp),

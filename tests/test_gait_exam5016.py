@@ -204,4 +204,9 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     np.testing.assert_allclose(
         noisy['next_task_yaw_rate'][valid],
         noisy['issued_yaw_rate'][valid],rtol=0,atol=2e-6)
-    np.testing.assert_array_equal(noisy['root_qvel'][0],off['root_qvel'][0])
+    # The schedules intentionally begin with different yaw requests (zero
+    # versus .2 rad/s), but otherwise have identical reset physical noise.
+    np.testing.assert_allclose(noisy['root_qvel'][0,:,:5],
+                               off['root_qvel'][0,:,:5],rtol=0,atol=1e-6)
+    np.testing.assert_allclose(noisy['root_qvel'][0,:,5],
+                               off['root_qvel'][0,:,5]-.2,rtol=0,atol=2e-6)
