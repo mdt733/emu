@@ -48,5 +48,9 @@ jobs:
         run: python3 scripts/prepare_showcase.py --require-champion
       - name: Build the browser without publishing
         run: npm run build --prefix emu/viewer_src
+      - name: Reject viewer builds that modify tracked source
+        run: |
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
       - name: Verify packaged policy and WASM assets
         run: python3 scripts/verify_showcase_dist.py
