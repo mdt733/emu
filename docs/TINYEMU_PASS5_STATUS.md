@@ -13,7 +13,7 @@
 | `scripts/verify_showcase_dist.py` | Check expected build Git SHA before any Pages upload/deploy. |
 | `emu/viewer_src/src/showcase.js`, `src/main.js`, `tests/showcase.test.mjs` | Safe manifest parsing and visible short frontend source revision on static showcase (no policy mutation). |
 | `.github/workflows/emu-playground.yml` | Stamp/verify `GITHUB_SHA` in manual deployment. Workflow remains manual, with existing champion protection. |
-| `tests/test_showcase_product.py`, `tests/test_showcase_build_assets.py` | Metadata generation and mismatch regression tests. |
+| `tests/test_showcase_product.py` | Metadata generation and mismatch regression tests. |
 | `docs/WHERE_THINGS_LIVE.md`, `docs/PLAYGROUND.md` | Document units/limitations, how build revisions differ from policy checkpoints, fix an obsolete `cd viewer` command. |
 
 ## Measurements introduced (each averaged across observed rollout frames)

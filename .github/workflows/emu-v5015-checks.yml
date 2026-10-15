@@ -27,8 +27,10 @@ jobs:
           node-version-file: .nvmrc
       - name: Compile Python source
         run: python -m compileall -q emu tests
+      - name: Verify the 15-test everyday quick check
+        run: bash scripts/check.sh quick
       - name: Run full contract suite (no GPU)
-        run: python -m pytest -q
+        run: bash scripts/check.sh full
 
   browser-contracts:
     runs-on: ubuntu-latest
