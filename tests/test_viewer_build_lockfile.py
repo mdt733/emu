@@ -33,4 +33,4 @@ def test_viewer_build_uses_npm_ci_not_install(monkeypatch, tmp_path):
     assert viewer_server.build() == 0
     assert [c[0][:2] for c in commands] == [['npm', 'ci'], ['npm', 'run']]
     assert (fake_pkg / 'webviewer_dist' / 'index.html').is_file()
-    assert (fake_pkg / 'viewer_src' / 'package-lock.json').is_file()
+    assert not (fake_pkg / 'viewer_src').exists()  # build never mirrors source trees
