@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_DOCS = (
-    'README.md', 'CONTRIBUTING.md', 'viewer/README.md',
+    'README.md', 'CONTRIBUTING.md', 'emu/viewer_src/README.md',
     'docs/README.md', 'docs/STATUS.md', 'docs/INSTALL.md',
     'docs/validation.md', 'docs/training.md',
     'docs/evaluation.md', 'docs/PLAYGROUND.md', 'docs/architecture.md',
