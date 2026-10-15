@@ -12,12 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # All step targets are ABSOLUTE environment steps in a single policy lineage.
-# E.g. round1 adds only 6M to the 20M foundation; it does not train 26M anew.
+# Round1 adds 60M to the common 20M foundation: each fork reaches 80M total.
 FOUNDATION = 20_000_000
 ROUNDS = {
-    'round1': 26_000_000,  # try all four directions (+6M each)
-    'round2': 34_000_000,  # develop the two strongest eligible (+8M each)
-    'round3': 46_000_000,  # continue the one strongest eligible (+12M)
+    'round1': 80_000_000,  # four comparable +60M continuations from 20M
+    'round2': 100_000_000, # optional: +20M to two eligible finalists
+    'round3': 120_000_000, # optional: +20M to best eligible finalist
 }
 SCREEN_PITCH_DEG = 15.0  # common evaluation task, not a training command
 
