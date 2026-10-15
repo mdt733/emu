@@ -16,13 +16,9 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .paths import source_repo_root
 
 
 def viewer_source() -> Path:
-    repo = source_repo_root()
-    if repo is not None and (repo / 'viewer' / 'package.json').exists():
-        return repo / 'viewer'  # canonical checkout source
     packaged = Path(__file__).resolve().parent / 'viewer_src'
     if (packaged / 'package.json').exists():
         return packaged
@@ -45,19 +41,14 @@ def build() -> int:
     lock = src / 'package-lock.json'
     if not lock.is_file():
         raise RuntimeError(
-            f'Viewer lockfile missing: {lock}. In viewer/, run npm install '
+            f'Viewer lockfile missing: {lock}. In emu/viewer_src/, run npm install '
             'to generate package-lock.json, verify the build and commit the '
             'lockfile before distributing this Git checkout.'
         )
     subprocess.check_call(['npm', 'ci', '--no-audit', '--no-fund'], cwd=src)
     subprocess.check_call(['npm', 'run', 'build'], cwd=src)
     dist = src / 'dist'
-    # A wheel installed without a checkout needs its own copy of source assets.
-    # Keep the package-side mirror generated from the canonical viewer directory.
-    mirror = Path(__file__).resolve().parent / 'viewer_src'
-    if src.resolve() != mirror.resolve():
-        if mirror.exists(): shutil.rmtree(mirror)
-        shutil.copytree(src, mirror, ignore=shutil.ignore_patterns('node_modules', 'dist', '*.log', '.git'))
+    # This single package-owned source is never regenerated from a mirror.
     packaged = Path(__file__).resolve().parent / 'webviewer_dist'
     if packaged.exists():
         shutil.rmtree(packaged)
