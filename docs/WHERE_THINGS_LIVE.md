@@ -11,7 +11,7 @@ This is a map of **current branch code**, not a claim that the Pass 9 runtime wa
 5. `emu/environment.py::_step_impl` exposes `reward_weighted_*` telemetry; `emu/rollout_metrics.py::summarize_rollout` reduces per-frame values, including a negative `reward_weighted_fall_penalty`; `emu/training.py::make_metrics_row` writes the rollout columns. The columns use **mean reward contributions per observed frame**, not individual episode totals.
 6. `emu/curriculum.py::RegimeGovernor.update` uses survival/tracking and posture signals to move task difficulty. **There is no thermal-efficiency curriculum dial.**
 7. `emu/evaluation.py` owns fixed held-out panels and a survival-weighted broad checkpoint score. `emu/screening.py` runs common held-out screening; `emu/branch_lab.py::score_row` and `promotion_choices` decide branch eligibility/ranking. Current stepping/support are reported but are **not hard promotion requirements**, and motor energy is not a promotion input.
-8. `tests/test_reward_ledger.py` checks original payment arithmetic, fall-penalty equivalence, both posture profiles, JAX compilation and the reducer. The actual environment `_reward` method has been removed. Whole-MJX training equivalence is still a separate GPU acceptance gate.
+8. `tests/test_learning.py` checks original payment arithmetic, fall-penalty equivalence, both posture profiles, JAX compilation and the reducer. The actual environment `_reward` method has been removed. Whole-MJX training equivalence is still a separate GPU acceptance gate.
 
 ## What the current objective actually says
 
@@ -44,7 +44,7 @@ Note the stationary-stall counterexample: `torque × speed == 0` even when the m
 
 The same `_metrics` path computes `spring_potential_energy_j` from the six driven hinge springs and two passive shin-flex springs as `½ × stiffness × (q − qpos_spring)²`; `shin_spring_energy_j` isolates the latter two. The reference positions and stiffnesses come from the *loaded MuJoCo model*, not hand-copied tuning constants. This is stored **potential energy**, not delivered spring work or guaranteed assistance.
 
-Both quantities use model truth for evaluation and diagnostics, not deployable sensor inputs. `tests/test_servo_effort.py` covers known numerical cases, reference offsets, high-torque stationary joints, JAX compilation and CSV reduction. Full real-MJX runtime, domain-variation and WSL GPU acceptance are still required.
+Both quantities use model truth for evaluation and diagnostics, not deployable sensor inputs. `tests/test_physics.py` covers known numerical cases, reference offsets, high-torque stationary joints, JAX compilation and CSV reduction. Full real-MJX runtime, domain-variation and WSL GPU acceptance are still required.
 
 ## Run one experiment (new in this branch)
 
@@ -83,4 +83,4 @@ measured shaft power should be mistaken for electrical battery draw.
 
 The new independent **course examiner** is in `emu/directional.py`; `emu/gait_exam.py` uses physical trajectory/contact evidence without changing learning rewards. `emu/command_exams.py` declares external operator-command schedules, `emu/directional_exam.py` runs read-only saved-policy exams, and `emu/v5016_batch.py` assembles matched OFF/ON comparisons and results bundles. `emu/ground_plane.py` is a read-only candidate for 3-range/IMU slope estimation; `emu/observation_versions.py` declares the **untrained** 244-input candidate. Keep these draft pieces distinct from the production 220-input actor.
 
-For developers: **`bash scripts/check.sh quick`** covers 15 representative contracts; **`bash scripts/check.sh all`** checks the entire Python suite and browser. The complete list is intentionally kept for CI; it is not the normal editing workflow. See [the testing guide](TESTING.md).
+For developers: **`bash scripts/check.sh`** covers 15 representative contracts; **`bash scripts/check.sh all`** checks the entire Python suite and browser. The complete list is intentionally kept for CI; it is not the normal editing workflow. See [the testing guide](TESTING.md).

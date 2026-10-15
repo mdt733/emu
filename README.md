@@ -33,7 +33,7 @@ bash scripts/setup_wsl.sh --install-node
 source .venv/bin/activate
 emu doctor --no-require-gpu --no-mjx-smoke
 emu ladder --stage plan
-bash scripts/check.sh quick   # everyday edits: selected behavioural checks
+bash scripts/check.sh         # all 20 essential checks
 ```
 
 To train on a configured GPU, finish the CUDA installation and run the real MJX/PPO smoke test first:
@@ -77,9 +77,6 @@ For precise acceptance criteria and limitations, read [Project status](docs/STAT
 
 ## Contributing
 
-Run `bash scripts/check.sh all` before proposing changes. [Test guide](docs/TESTING.md) explains quick vs full vs actual GPU experiments.
-
-
-Run Python contracts, browser tests, and the [cross-runtime inference parity test](tests/test_policy_inference_parity.py) before proposing changes. Changes to PPO, robot physics, actor observation ordering or checkpoint format require additional GPU checks. See [CONTRIBUTING.md](CONTRIBUTING.md) for review expectations and [docs/README.md](docs/README.md) for the document index.
+Run `bash scripts/check.sh` before proposing changes. [The 20-check guide](docs/TESTING.md) explains what these checks prove and why actual GPU walking evaluations remain separate. Changes to PPO, robot physics, actor observation ordering or checkpoint format require additional GPU checks. See [CONTRIBUTING.md](CONTRIBUTING.md) for review expectations and [docs/README.md](docs/README.md) for the document index.
 
 EMU is a research project, not a verified hardware controller. Its aim is measurable *dynamic walking*, not a robot that discovers standing still is the easiest way to survive.

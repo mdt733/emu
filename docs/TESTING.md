@@ -1,36 +1,30 @@
-# Testing EMU without drowning in tests
+# EMU's 20 essential checks
 
-Most old one-test modules have been folded into their owning test files. This is intentional: one obvious place per subsystem is easier to review than a collection of single-purpose filenames. Test assertions stay intact.
+Exactly **20 automated tests** are kept: **16 Python** and **4 browser**.
+There is no hidden “full” suite, quick-test manifest or pass-numbered test collection.
 
-There are two separate questions: **did my code change break a contract?** and **can the trained robot genuinely walk?** Python assertions alone cannot answer the second.
+Run them with one command:
 
-## Three useful levels
+```bash
+bash scripts/check.sh
+```
 
-| When | Command | What it means |
-|---|---|---|
-| During ordinary editing | `bash scripts/check.sh` | **15 selected contracts** covering course anti-cheats, checkpoint safety, reward arithmetic, sensor estimation, tournament selection and result export. No new GPU training. |
-| When changing a physics evaluator | `bash scripts/check.sh physics` | Small real MJX CPU compilation/rollout of command transitions and simulated gyro measurements. Not proof of walking. |
-| Before merging or trusting a release | `bash scripts/check.sh all` | Every Python regression plus JavaScript viewer tests. CI additionally builds browser assets, validates champion/WASM and checks generated-file cleanliness. |
+The files answer five practical questions:
 
-`bash scripts/check.sh full` runs only the complete Python suite, and `bash scripts/check.sh browser` only JavaScript. The [quick selection](../tests/quick_cases.txt) is intentionally short and explicit—**not an attempt to turn the full test suite into another clever framework**.
+| Question | Checks | Location |
+|---|---:|---|
+| Are rewards, configuration and training state handled correctly? | 5 | `tests/test_learning.py` |
+| Are servo physics and the real MJX evaluation path sane? | 3 | `tests/test_physics.py` |
+| Does the directional examiner reject cheating, and does slope sensing distinguish chassis lean from terrain? | 5 | `tests/test_direction.py` |
+| Are the branch ranking, results ZIP and exported browser actor reliable? | 3 | `tests/test_delivery.py` |
+| Does the browser obey joystick commands, reject unsafe policy paths, report missing assets and create real ramp geometry? | 4 | `emu/viewer_src/tests/essential.test.mjs` |
 
-The complete suite currently reports about 226 Python cases and 18 browser cases; the top-level Python test files have been reduced from 34 to **25**. Many are inexpensive parameter variations; the important quantity isn't the number, but whether they uniquely protect actual behaviour. Keep the full suite in CI while simplifying duplicates case-by-case with evidence. **Do not delete valuable checks merely to reach an arbitrary numeric target.**
+The selected tests are actual behavioural checks retained from the earlier suite—not placeholder tests that only check imports. We deliberately **deleted the other assertions**, rather than hiding them behind a different command. Python integration includes a small real MJX/JAX rollout, and the browser parity test executes Node inference on the same actor input as a NumPy reference.
 
-## Where to look for tests
+**20 passing tests do not prove EMU can walk.** The separate practical gates are:
 
-| Area | Most relevant tests |
-|---|---|
-| Reward, locomotion and servo diagnostics | `test_reward_ledger.py`, `test_motion_tracking.py`, `test_servo_effort.py` |
-| PPO, checkpoints, resume and source identity | `test_checkpoint_resume.py`, `test_single_run.py`, `test_smoke_training_lifecycle.py`, `test_training_contracts.py` |
-| Experiment ladders, results and promotion | `test_ladder.py`, `test_results.py`, `test_capability_field.py` |
-| v5016 directional commands and heading controller | `test_v5016_control.py` |
-| v5016 downward ranging and true ground slope | `test_v5016_ground.py` |
-| v5016 physical traces, stride evidence and paired GPU campaign | `test_v5016_exam.py` |
-| Viewer compatibility and protected public champion | `test_policy_inference_parity.py`, `test_showcase_product.py`, `test_live_viewer.py` |
+- **GPU lifecycle:** short new-root PPO update, checkpoint save, resume and re-evaluation using `scripts/smoke_training_lifecycle.py`; do not run against an active training directory.
+- **Real walking:** `emu directional-batch --profile smoke` then `pilot` on saved policies, checking actual course progress, yaw tracking, survival, and contact-based stride candidates.
+- **Release:** build the browser and validate policy/WASM packaging; CI does this independently of the four browser behaviour tests.
 
-### Important limitations
-
-- `quick` is for developer feedback, **not** a release gate.
-- CPU MJX proves integration and deterministic invariants, **not trained gait quality**.
-- Real policy comparisons require `emu directional-batch` on your GPU, with completed saved policies and untouched training roots; see [v5016 Pass 4 instructions](V5016_PASS4_STATUS.md).
-- Never run a GPU/training acceptance exercise against `main` just because a refactor branch's unit tests passed.
+If one of the 20 no longer protects a real failure, replace or delete it—don't grow a second test taxonomy. The objective is understandable production code and honest physical evidence, not an assertion count.

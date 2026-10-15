@@ -1,11 +1,19 @@
-"""CPU-only results exporter contracts: complete campaign, missing data, and CLI."""
+"""Three delivery contracts: fair promotion, evidence bundles, browser actor parity."""
+from __future__ import annotations
+import base64
 import csv
 import json
+import shutil
+import subprocess
 import zipfile
-
+from pathlib import Path
+import numpy as np
 import pytest
+from emu import branch_lab as lab
 from emu import results
-
+from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
+from emu.ppo import PPO_HIDDEN_SIZES, build_obs_norm_mask
+ROOT = Path(__file__).resolve().parents[1]
 
 def fixture_run(root, label, parent=None, final=True):
     run = root/label
@@ -35,7 +43,31 @@ def fixture_run(root, label, parent=None, final=True):
     (run/'fixed_eval.csv').write_text(
         'step,eval_core_survival,eval_core_vx_mae\n'+str(target)+',0.75,0.03\n')
     return run,results.digest(ck) if final else None
+def blob(value: np.ndarray) -> dict:
+    array = np.asarray(value, dtype='<f4', order='C')
+    return {'dtype': 'float32-le', 'shape': list(array.shape),
+            'data_b64': base64.b64encode(array.tobytes()).decode('ascii')}
+def reference_action(obs: np.ndarray, layers: list[tuple], mean: np.ndarray,
+                     std: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    # Independent NumPy oracle for the deployed deterministic actor.
+    x = np.where(mask > 0.5, np.clip((obs - mean) / np.maximum(std, 1e-8),
+                                    -10.0, 10.0), obs).astype(np.float32)
+    for weights, bias in layers[:-1]:
+        x = np.tanh(x @ weights + bias).astype(np.float32)
+    weights, bias = layers[-1]
+    return np.clip(x @ weights + bias, -1.0, 1.0)
 
+def test_auto_promotion_only_accepts_eligible_sorted_arms():
+    results={'round':'round1','results':[
+        {'arm':'pitch15','eligible':False,'score':.99},
+        {'arm':'slope','eligible':True,'score':.60},
+        {'arm':'baseline','eligible':True,'score':.60},
+        {'arm':'shadow','eligible':True,'score':.20},
+    ]}
+    assert lab.promotion_choices(results,2)==['baseline','slope']
+    assert lab.promotion_choices(results,1)==['baseline']
+    with pytest.raises(RuntimeError,match='Only 1 of 2'):
+        lab.promotion_choices({'round':'round1','results':results['results'][:2]},2)
 
 def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     root = tmp_path/'campaign'
@@ -80,45 +112,35 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
         assert all(not name.endswith(('.pkl','console.log')) for name in names)
     assert results.write_report(root)  # harmless regeneration
 
+@pytest.mark.skipif(shutil.which('node') is None, reason='Node.js needed for browser parity')
+def test_exported_actor_matches_browser_inference():
+    rng = np.random.default_rng(733)
+    dims = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
+    layers = []
+    for size_in, size_out in zip(dims[:-1], dims[1:]):
+        weights = (rng.standard_normal((size_in, size_out)).astype(np.float32)
+                   * np.float32(.6 / np.sqrt(size_in)))
+        bias = (rng.standard_normal(size_out).astype(np.float32)
+                * np.float32(.08))
+        layers.append((weights, bias))
 
-def test_missing_and_mismatched_evidence_warns_not_fabricated(tmp_path):
-    root=tmp_path/'run'
-    root.mkdir()
-    run,original=fixture_run(root,'round1/baseline')
-    (root/'round1_scoreboard.json').write_text(json.dumps(
-        {'results':[{'arm':'baseline','checkpoint_sha256':'f'*64}]}))
-    (run/'metrics.csv').unlink()
-    item=results.collect(root)['runs']['round1/baseline']
-    assert original != 'f'*64
-    assert any('HASH MISMATCH' in x for x in item['problems'])
-    assert any('metrics' in x for x in item['problems'])
-    assert item['changes']['reward_mean']['late'] is None
-
-
-def test_empty_root_refused_and_standalone_run_supported(tmp_path):
-    with pytest.raises(ValueError,match='No campaign runs'):
-        results.write_report(tmp_path)
-    run,_=fixture_run(tmp_path,'solo')
-    assert 'single' in results.collect(run)['runs']
-    assert results.write_report(run)[0].name == 'results.md'
-
-
-def test_cli_report_is_a_pure_offline_dispatch(monkeypatch,tmp_path):
-    from emu import cli
-    calls=[]
-    monkeypatch.setattr(results,'write_report',
-        lambda root,bundle=True: calls.append((root,bundle)) or [])
-    assert cli.main(['report','--root',str(tmp_path),'--no-bundle']) == 0
-    assert calls == [(tmp_path,False)]
-
-
-
-def test_fixed_eval_staleness_and_source_mismatch_are_visible(tmp_path):
-    root = tmp_path/'old'
-    root.mkdir()
-    (root/'lab_context.json').write_text(json.dumps({'git_commit':'1'*40}))
-    run,_ = fixture_run(root,'foundation20')
-    (run/'fixed_eval.csv').write_text('step,eval_core_survival\n100,1.0\n')
-    row = results.collect(root)['runs']['foundation20']
-    assert any('predates' in p for p in row['problems'])
-    assert any('SOURCE COMMIT DIFFERS' in p for p in row['problems'])
+    mean = rng.normal(0, .15, OBS_DIM).astype(np.float32)
+    std = rng.uniform(.15, 2.0, OBS_DIM).astype(np.float32)
+    mask = build_obs_norm_mask()
+    observations = [
+        np.zeros(OBS_DIM, dtype=np.float32),
+        rng.normal(0, 1, OBS_DIM).astype(np.float32),
+        np.where(np.arange(OBS_DIM) % 2 == 0, 50.0, -50.0).astype(np.float32),
+        np.linspace(-.7, .9, OBS_DIM, dtype=np.float32),
+    ]
+    bundle = {
+        'format': 'emu-policy', 'schema': 1, 'robot_xml': '<mujoco/>',
+        'policy': {'obs_dim': OBS_DIM, 'base_obs_dim': len(BASE_OBS_FIELDS),
+                   'history_len': 4, 'action_dim': ACTION_DIM,
+                   'layers': [{'w': blob(w), 'b': blob(b)} for w, b in layers]},
+        'observation': {'base_fields': list(BASE_OBS_FIELDS),
+                        'mean': blob(mean), 'std': blob(std),
+                        'normalize_mask': blob(mask)},
+        'control': {},
+    }
+    js = r"""

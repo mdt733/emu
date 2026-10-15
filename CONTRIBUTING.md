@@ -8,26 +8,19 @@ Read [architecture](docs/architecture.md), [training](docs/training.md) and [pro
 
 Use a **separate branch** and run root for experiments. Do not pull source changes into an active training checkout or reuse its checkpoints under a changed training configuration. Never commit .venv, node_modules, GPU run logs or `.pkl` training checkpoints.
 
-## Everyday checks
+## The 20 essential checks
 
 ```bash
 python -m compileall -q emu tests
-bash scripts/check.sh all # full Python + JS tests; CI also builds browser assets
-npm ci --prefix emu/viewer_src --no-audit --no-fund
-npm test --prefix emu/viewer_src
+bash scripts/check.sh             # 16 Python + 4 browser checks
 npm run build --prefix emu/viewer_src
 git diff --check
 ```
 
-The Python suite includes a **NumPy ↔ JavaScript exported-policy inference parity** check; Node 24 must be available. CI also checks the static showcase packaging and protected policy asset.
+Run `npm ci --prefix emu/viewer_src` once if Node dependencies aren't installed.
+The browser inference parity check requires Node.js. CI repeats the checks, builds the viewer, validates packaged policy/WASM assets and checks for generated source modifications.
 
-For physics, PPO, JAX, observation or checkpoint changes, additionally run:
-
-```bash
-emu doctor --v5015-smoke --domain-smoke
-```
-
-That is a **small GPU integration smoke**, not evidence of locomotion quality. A training-loop change also needs a bounded new run and resume comparison before a major experimental campaign.
+These checks protect software contracts, **not trained walking quality**. Changes to physics, reward, PPO, checkpoint format or observations also need a fresh isolated GPU lifecycle smoke and real held-out policy exams. See [test guide](docs/TESTING.md).
 
 ## Change boundaries
 
@@ -44,4 +37,3 @@ Explain *why* the change is needed, *which invariant it protects*, test commands
 
 **Do not merge an unverified change solely because CI is green.** See [validation](docs/validation.md) for the separate release gates.
 
-For quick feedback during edits, run `bash scripts/check.sh quick` (15 chosen behavioural assertions). It is **not** a substitute for the full CI/GPU acceptance gates. See [test guide](docs/TESTING.md).

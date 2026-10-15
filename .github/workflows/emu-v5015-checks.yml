@@ -1,4 +1,4 @@
-name: EMU v5015 checks
+name: EMU software checks
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  python-contracts:
+  python:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -20,19 +20,17 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-      - name: Install project and tests
+      - name: Install
         run: python -m pip install -e ".[dev]"
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Compile Python source
+      - name: Compile
         run: python -m compileall -q emu tests
-      - name: Verify the 15-test everyday quick check
-        run: bash scripts/check.sh quick
-      - name: Run full contract suite (no GPU)
-        run: bash scripts/check.sh full
+      - name: Run 16 Python checks
+        run: python -m pytest -q tests
 
-  browser-contracts:
+  browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,15 +42,15 @@ jobs:
           cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run viewer tests
+      - name: Run 4 browser checks
         run: npm test --prefix emu/viewer_src
-      - name: Prepare the protected champion for a static preview
+      - name: Prepare protected champion
         run: python3 scripts/prepare_showcase.py --require-champion
-      - name: Build the browser without publishing
+      - name: Build browser
         run: npm run build --prefix emu/viewer_src
-      - name: Reject viewer builds that modify tracked source
+      - name: Reject modifications to tracked source
         run: |
           git diff --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
-      - name: Verify packaged policy and WASM assets
+      - name: Verify policy and WASM assets
         run: python3 scripts/verify_showcase_dist.py
