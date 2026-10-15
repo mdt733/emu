@@ -14,7 +14,7 @@
 - **15 October 2026 GPU lifecycle acceptance (fresh WSL):** an isolated v5015 test trained 8 environments for one 32-frame PPO rollout (256 aggregate steps), wrote a validated `final.pkl` and held-out `fixed_eval.csv`, then warm-resumed in a new process to step 512, preserved the ancestor checkpoint, restored and advanced observation-normaliser count **256 → 512**, verified an already-complete resume did **no PPO update**, and exported `tiny_smoke_actor.emupolicy`. All three documented stages (`first`, `continue`, `verify`) **PASS**. Both near-untrained policies fell 100% in the tiny check; this does **not** demonstrate a newly learned gait. The fixed examination took about 219 and 215 seconds in the two stages.
 - The first v5015 foundation reached **20,054,016 environment steps** and reported completion. The subsequent ladder handoff failed because the trainer wrote to `00_foundation/` while the runner looked in `foundation20/`. This was an output-directory bug, **not** a demonstrated PPO convergence failure.
 - The draft repair aligns run destinations and checks them before training; it has CPU regression coverage. **The original GPU run has not been confirmed recovered or rerun to completion.**
-- Earlier long-horizon behaviour reportedly deteriorated in height around **100–200M steps per lineage**. The current 72M-aggregate-step ladder only follows one candidate to ~46M, so it cannot test that failure mode.
+- Earlier long-horizon behaviour reportedly deteriorated in height around **100–200M steps per lineage**. The earlier accepted-main ladder only reached ~46M per survivor; the **draft tinyEmu recipe** extends four separate continuations to 80M and optional finalists to 100/120M, but still cannot establish robustness to 200M without later tests.
 
 ## What is currently validated
 
@@ -22,7 +22,7 @@ GitHub pull-request CI runs Python compilation and tests; Node/JavaScript tests;
 
 ## Known limitations and open acceptance gates
 
-1. **Full small GPU lifecycle passed:** the documented 256 → 512 step warm-resume experiment completed on the target GPU and exported a policy. The **full 20M foundation handoff and the 72M aggregate ladder have not yet run** in the merged architecture; treat their runtime outcomes as unverified.
+1. **Full small GPU lifecycle passed:** the documented 256 → 512 step warm-resume experiment completed on the target GPU and exported a policy. The **new draft branch's 20M foundation and proposed 260M aggregate four-way comparison have not run** on the user's GPU; its own bounded MJX/PPO acceptance is also pending. Do not transfer the earlier `main` GPU PASS label to this source commit.
 2. **Gait quality:** current scores emphasise survival; promotion gates do not yet require a calibrated minimum for genuine commanded stepping. Do not claim that winning an early screen proves walking ability.
 3. **Physical robustness:** the `robust40` fixed panel stresses *commands*, not independent physical-domain variation. Slope-equivalent domain screening exists; actual ramp and morphology transfer remain unproven.
 4. **Cross-runtime physics:** Python/JavaScript deterministic actor inference can be checked numerically, but equivalent contact dynamics, sensor construction and observations in MJX versus WASM remain a separate unverified contract.
