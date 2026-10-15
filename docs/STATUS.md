@@ -1,6 +1,6 @@
 # Project status
 
-*Last reviewed: 14 October 2026. This page records evidence, limitations and next verification gates—not plans represented as completed results.*
+*Last reviewed: 15 October 2026. This page records evidence, limitations and next verification gates—not plans represented as completed results.*
 
 ## Public demonstration
 
@@ -11,6 +11,7 @@
 ## Training and source status
 
 - **15 October 2026 fresh-Windows/WSL validation:** Ubuntu 24.04.5, Python 3.13.16, JAX 0.11.2 on the RTX 4060 Ti (CUDA GPU backend), MuJoCo 3.16.0, 8-world MJX reset/step, four-world real PPO optimiser update and 11-field evaluation, and domain randomisation all passed. The local static Playground successfully ran the protected 60M policy. Optional Warp imports were absent, but MJX worked. Browser ramp walking appeared poor to the operator; this is qualitative feedback, not a matched physics exam.
+- **15 October 2026 GPU lifecycle acceptance (fresh WSL):** an isolated v5015 test trained 8 environments for one 32-frame PPO rollout (256 aggregate steps), wrote a validated `final.pkl` and held-out `fixed_eval.csv`, then warm-resumed in a new process to step 512, preserved the ancestor checkpoint, restored and advanced observation-normaliser count **256 → 512**, verified an already-complete resume did **no PPO update**, and exported `tiny_smoke_actor.emupolicy`. All three documented stages (`first`, `continue`, `verify`) **PASS**. Both near-untrained policies fell 100% in the tiny check; this does **not** demonstrate a newly learned gait. The fixed examination took about 219 and 215 seconds in the two stages.
 - The first v5015 foundation reached **20,054,016 environment steps** and reported completion. The subsequent ladder handoff failed because the trainer wrote to `00_foundation/` while the runner looked in `foundation20/`. This was an output-directory bug, **not** a demonstrated PPO convergence failure.
 - The draft repair aligns run destinations and checks them before training; it has CPU regression coverage. **The original GPU run has not been confirmed recovered or rerun to completion.**
 - Earlier long-horizon behaviour reportedly deteriorated in height around **100–200M steps per lineage**. The current 72M-aggregate-step ladder only follows one candidate to ~46M, so it cannot test that failure mode.
@@ -21,7 +22,7 @@ GitHub pull-request CI runs Python compilation and tests; Node/JavaScript tests;
 
 ## Known limitations and open acceptance gates
 
-1. **Full small GPU lifecycle:** one update, checkpoint, warm resume, matched held-out evaluation and checkpoint export in the refactored checkout have not been run end to end on the target GPU.
+1. **Full small GPU lifecycle passed:** the documented 256 → 512 step warm-resume experiment completed on the target GPU and exported a policy. The **full 20M foundation handoff and the 72M aggregate ladder have not yet run** in the merged architecture; treat their runtime outcomes as unverified.
 2. **Gait quality:** current scores emphasise survival; promotion gates do not yet require a calibrated minimum for genuine commanded stepping. Do not claim that winning an early screen proves walking ability.
 3. **Physical robustness:** the `robust40` fixed panel stresses *commands*, not independent physical-domain variation. Slope-equivalent domain screening exists; actual ramp and morphology transfer remain unproven.
 4. **Cross-runtime physics:** Python/JavaScript deterministic actor inference can be checked numerically, but equivalent contact dynamics, sensor construction and observations in MJX versus WASM remain a separate unverified contract.
