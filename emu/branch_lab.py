@@ -266,6 +266,15 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
     temp = report.with_name(report.name + '.tmp')
     temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
     temp.replace(report)
+    # Package the existing held-out score and all run histories for human review.
+    # This reads checkpoints ONLY to hash their identity; no policy load or PPO.
+    try:
+        from .results import write_report
+        for path in write_report(root):
+            print(f'Campaign report: {path}')
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(f'WARNING: offline results export failed ({exc}). '
+              f'Retry safely with: emu report --root {root}')
     print(f'Saved {report}. Auto mode promotes eligible contenders; manual review is also supported.')
 
 
@@ -444,6 +453,8 @@ def main(argv=None):
     if args.stage == 'foundation':
         ensure_run(root/'foundation20',arm=None,parent=None,target=FOUNDATION,
                    seed=args.seed,envs=args.envs,device=args.device,provenance=provenance)
+        from .results import write_report
+        write_report(root)
         return 0
     if args.stage == 'round1':
         names = args.arm or list(BY_NAME)

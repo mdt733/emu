@@ -67,3 +67,14 @@ The deployable actor has 55 ordered measurements × four frames = **220 inputs**
 - Earlier main acceptance on real WSL/GPU is historical evidence for **the parent commit only**.
 - This branch changes reward assembly/telemetry, so **new main-branch GPU smoke, fresh-root train/resume, and viewer checks are required** before merge.
 - Numerical equivalence of eight *positive payments* does not alone establish full physics/reward equivalence; exercise falls/timeouts and held-out scoring too.
+
+## Shareable experiment reporting
+
+`emu report --root "$RUNROOT"` writes `results.md`,
+`results_data.json` and `results_bundle.zip`. The single ZIP contains
+all branch metrics, complete held-out CSVs/JSON, configuration, provenance and
+rankings. No raw checkpoint binaries are bundled. Reports can be regenerated
+offline from a new reporting-only checkout using `python3 emu/results.py --root ...`.
+Do not change an in-progress trainer's pinned source revision just to run
+the reporter. Scores and motor telemetry are labelled by evidence type; no
+measured shaft power should be mistaken for electrical battery draw.

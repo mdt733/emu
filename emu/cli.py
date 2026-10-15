@@ -152,6 +152,9 @@ def main(argv=None) -> int:
         q.add_argument('--screen-horizon',type=int,default=350)
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
+    q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
+    q.add_argument('--root',required=True)
+    q.add_argument('--no-bundle',action='store_true')
     q=sub.add_parser('train',help='train one protected experiment (no ladder)')
     q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
     q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
@@ -190,6 +193,11 @@ def main(argv=None) -> int:
         for arm in args.arm: av += ['--arm',arm]
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
+    if args.cmd=='report':
+        from .results import write_report
+        for output in write_report(Path(args.root),bundle=not args.no_bundle):
+            print(output)
+        return 0
     if args.cmd=='train':
         from .single_run import train_one
         return train_one(args)

@@ -84,12 +84,35 @@ emu ladder --stage auto --stop-after round1 \
 This runs four branches **sequentially**, not four simultaneous GPU processes. It reuses the completed foundation, resolves/checks each branch's parent and saved config, runs 20M→80M independently for `baseline`, `shadow`, `slope` and `pitch15`, then scores *all four* on common fixed held-out panels. If interrupted, re-run the **identical command from the identical clean source commit**; valid partial checkpoints resume, completed branches are not retrained, and scored checkpoint hashes prevent stale comparisons.
 
 Results:
+- **`$RUNROOT/results.md`** — full campaign-level report, auto-generated when a round is scored
+- **`$RUNROOT/results_bundle.zip`** — one shareable ZIP with underlying branch CSV/JSON evidence, without checkpoints
+- `$RUNROOT/results_data.json` — complete machine-readable summary
 - `$RUNROOT/round1_scorecard.md` (human view)
 - `$RUNROOT/round1_scoreboard.json` (machine-readable common exam, eligibility and checkpoint hashes)
 - `$RUNROOT/round1/<arm>/metrics.csv` (physical effort and PPO training behaviour)
 - `$RUNROOT/round1/<arm>/checkpoints/final.pkl` (untouched separate checkpoint lineages)
 
 **Do not treat the highest survival-weighted score as proof of the best gait.** Current foot-lift `step_evidence` and height-based `support` are proxies, not verified completed strides, true ground contact force, motor electrical energy or calibrated thermal risk. Also compare command tracking and robustness; evaluate locomotion visually only as supporting evidence. If no arm is eligible, stop rather than bypassing the gate.
+
+## Share your entire experiment
+
+To regenerate a complete report, including any completed 80M arms, run:
+
+```bash
+emu report --root "$RUNROOT"
+```
+
+Upload **results_bundle.zip** to ChatGPT instead of collecting individual CSV
+files. It includes the foundation and every branch, full training logs, common
+screens, reward contributions, servo/spring data and checkpoint SHA-256 IDs.
+It excludes checkpoint binaries and console.log files.
+
+**Important for experiments already in progress:** do NOT update the training
+worktree's Git commit merely to get this exporter. A fresh report-only worktree
+can run the standard-library-only command
+`python3 /path/to/new-worktree/emu/results.py --root "$RUNROOT"`
+without installing EMU, CUDA or JAX. It reads completed older runs without
+changing provenance, policies, scoreboards or the original training checkout.
 
 ## 5. Optional finalists (not automatic by default)
 
