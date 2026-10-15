@@ -15,9 +15,9 @@ Run from the repository root with the editable Python environment active:
 ```bash
 python -m compileall -q emu tests scripts
 python -m pytest -q
-npm ci --prefix viewer --no-audit --no-fund
-npm test --prefix viewer
-npm run build --prefix viewer
+npm ci --prefix emu/viewer_src --no-audit --no-fund
+npm test --prefix emu/viewer_src
+npm run build --prefix emu/viewer_src
 git diff --check
 ```
 
@@ -65,9 +65,9 @@ python scripts/smoke_training_lifecycle.py verify --root ~/robot_lab/emu_runs/pr
 ```
 
 A successful viewer build should not change tracked files. In an earlier draft,
-the canonical viewer README and its tracked Python packaging mirror disagreed.
+a generated viewer copy and the canonical README disagreed, causing the checkout to become dirty on build.
 The build regenerated the mirror and made Git dirty, correctly blocking training.
-CI now checks that every tracked file in viewer/ matches emu/viewer_src/.
+The refactor removes the duplicate tree entirely; CI checks the sole canonical source and verifies that building does not modify tracked files.
 If the provenance gate fails, run git status --short and git diff -- <path>.
 Restore only generated files you have inspected; never discard personal edits.
 
