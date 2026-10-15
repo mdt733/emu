@@ -69,7 +69,7 @@ def test_gpu_smoke_requires_physical_telemetry_not_silent_zero_fallback(tmp_path
         writer.writeheader()
         writer.writerow(values)
     smoke.physical_telemetry_exists(run)
-    path.write_text('servo_shaft_abs_power_w\\n0\\n')
+    path.write_text('servo_shaft_abs_power_w' + chr(10) + '0' + chr(10))
     with pytest.raises(RuntimeError, match='missing/invalid'):
         smoke.physical_telemetry_exists(run)
     values['servo_shaft_abs_power_w'] = float('nan')
