@@ -49,3 +49,12 @@ test('Missing static .emupolicy SPA fallback yields actionable error', () => {
   });
   assert.throws(() => assertShowcasePolicyResponse(html), /Bundled \.emupolicy file is missing/);
 });
+
+
+test('published source revision is visible and cannot contain arbitrary text', () => {
+  const sha = 'a'.repeat(40);
+  assert.equal(parseShowcaseManifest({...base, source_commit:sha}).source_commit, sha);
+  assert.equal(parseShowcaseManifest({...base, source_commit:'123'}).source_commit, '');
+  assert.equal(parseShowcaseManifest({...base, source_commit:'<script>'}).source_commit, '');
+  assert.equal(parseShowcaseManifest(base).source_commit, '');
+});
