@@ -165,6 +165,12 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert np.isfinite(on['issued_yaw_rate']).all()
     # Grade original requests: exact same operator command in both conditions.
     np.testing.assert_array_equal(on['command'],off['command'])
+    # Matching commands are not enough if the reset bakes in different
+    # initial yaw velocities. The physical starting states must also match.
+    np.testing.assert_array_equal(on['position_xy'][0],off['position_xy'][0])
+    np.testing.assert_allclose(on['root_qvel'][0],off['root_qvel'][0],
+                               rtol=0,atol=1e-7)
+    np.testing.assert_allclose(off['root_qvel'][0,:,5],.2,rtol=0,atol=.02)
     np.testing.assert_allclose(on['command'][:,:,2],.2,rtol=0,atol=1e-7)
     np.testing.assert_allclose(off['issued_yaw_rate'],
                                off['command'][:,:,2],rtol=1e-6,atol=1e-6)

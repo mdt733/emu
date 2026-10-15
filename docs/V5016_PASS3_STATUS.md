@@ -28,7 +28,10 @@ The controller may request a different yaw rate from the trained PPO actor, but
 it cannot rewrite what the user asked or the world-frame course oracle.
 The **explicit operator triplet** `(vx,vy,yaw_rate)` is supplied separately
 to the JAX evaluator for each matched exam (not inferred from potentially stale
-sampled task values). At every control step the environment task and the last
+sampled task values). The same explicit commands also populate the task packet
+used for the **initial physics reset**, preventing unequal starting yaw velocity.
+The regression suite compares both the operator commands and the initial root
+velocity vectors across ON/OFF. At every control step the environment task and the last
 observation history frame receive the same operator vx/vy and either the operator
 yaw-rate (OFF) or controller-corrected yaw-rate (ON), *before* the policy forward
 pass. Previous frames remain real history. This first evaluator intentionally uses **constant STEADY commands**,

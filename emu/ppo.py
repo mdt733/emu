@@ -14,7 +14,7 @@ from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NO
 from .environment import T
 from .gait_exam import contact_pair_mask
 from .directional import heading_rate_request
-from .contracts import CONTROL_DT
+from .contracts import CONTROL_DT, P
 from .tracking_contract import (
     VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
     UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
@@ -606,7 +606,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         This first integration supports fixed STEADY commands, not transitions.
         """
         keys = jax.random.split(eval_key, env.num_envs)
-        initial = env._reset_with_keys(keys, curriculum_params)
+        # Explicit operator commands are also the *spawn* commands. This
+        # guarantees matched initial root velocities for ON/OFF JIT kernels.
+        # Without this, two separately compiled kernels could evaluate
+        # different sampled probe commands before the controller even acts.
+        reset_params = curriculum_params
+        if operator_command is not None:
+            command = jnp.asarray(operator_command, dtype=jnp.float32)
+            reset_params = (curriculum_params
+                .at[P.probe_cmd_vx].set(command[0])
+                .at[P.probe_cmd_vy].set(command[1])
+                .at[P.probe_cmd_yaw].set(command[2]))
+        initial = env._reset_with_keys(keys, reset_params)
         obs = env.obs(initial)
         # Fixed requested commands must survive any controller correction.
         # The examination contract can supply explicit fixed commands; this
@@ -671,6 +682,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                           estimated_heading_rad=next_estimated,
                           requested_heading_rad=next_target,
                           controller_heading_error_rad=error,
+                          root_qvel=es.data.qvel[:, :6],
                           done=out.done, fell=out.metrics['episode_fell'])
             return (out.state, out.obs, next_target, next_estimated), sample
 
