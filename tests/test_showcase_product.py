@@ -19,10 +19,10 @@ def _module():
 
 
 def _tree(tmp_path):
-    (tmp_path / 'viewer').mkdir()
+    (tmp_path / 'emu' / 'viewer_src').mkdir(parents=True)
     (tmp_path / 'showcase').mkdir()
-    shutil.copyfile(ROOT / 'viewer' / 'demo_zero.emupolicy', tmp_path / 'viewer' / 'demo_zero.emupolicy')
-    return tmp_path / 'viewer' / 'public'
+    shutil.copyfile(ROOT / 'emu' / 'viewer_src' / 'demo_zero.emupolicy', tmp_path / 'emu' / 'viewer_src' / 'demo_zero.emupolicy')
+    return tmp_path / 'emu' / 'viewer_src' / 'public'
 
 
 def test_preview_build_is_explicitly_untrained(tmp_path):
@@ -40,7 +40,7 @@ def test_champion_must_be_export_and_nonzero(tmp_path):
     out = _tree(tmp_path)
     mod = _module(); mod.ROOT = tmp_path
     champion = tmp_path / 'showcase' / 'champion.emupolicy'
-    shutil.copyfile(tmp_path / 'viewer' / 'demo_zero.emupolicy', champion)
+    shutil.copyfile(tmp_path / 'emu' / 'viewer_src' / 'demo_zero.emupolicy', champion)
     with pytest.raises(ValueError, match='zero-step'):
         mod.prepare(output_dir=out)
     policy = json.loads(champion.read_text())
@@ -49,16 +49,15 @@ def test_champion_must_be_export_and_nonzero(tmp_path):
     assert mod.prepare(output_dir=out)['trained'] is True
 
 
-def test_viewer_and_package_source_copies_are_identical():
-    paths = ['index.html', 'package.json', 'src/main.js', 'src/style.css',
-             'src/showcase.js', 'tests/showcase.test.mjs']
-    for rel in paths:
-        assert (ROOT / 'viewer' / rel).read_bytes() == (ROOT / 'emu' / 'viewer_src' / rel).read_bytes()
+def test_viewer_uses_one_package_owned_source():
+    from emu.viewer_server import viewer_source
+    assert viewer_source().resolve() == (ROOT / 'emu' / 'viewer_src').resolve()
+    assert not (ROOT / 'viewer').exists(), 'duplicate viewer source must not return'
 
 
 def test_viewer_required_ui_elements_and_drop_overlay_exit():
-    html = (ROOT / 'viewer' / 'index.html').read_text()
-    main = (ROOT / 'viewer' / 'src' / 'main.js').read_text()
+    html = (ROOT / 'emu' / 'viewer_src' / 'index.html').read_text()
+    main = (ROOT / 'emu' / 'viewer_src' / 'src' / 'main.js').read_text()
     for element in ('settingsDrawer', 'settingsOpen', 'settingsClose', 'drawerBackdrop'):
         assert f'id="{element}"' in html
     assert 'dropOverlay.hidden = true;' in main
