@@ -28,10 +28,10 @@ else
   echo 'EMU requires Python >= 3.13. Install Python 3.13+ with venv for your distribution before retrying.' >&2
   exit 1
 fi
-if [[ ! -f viewer/package-lock.json ]]; then
-  echo 'STOP: viewer/package-lock.json is missing from this checkout.' >&2
+if [[ ! -f emu/viewer_src/package-lock.json ]]; then
+  echo 'STOP: emu/viewer_src/package-lock.json is missing from this checkout.' >&2
   echo 'The lockfile from the tested npm build MUST be added and committed before a portable setup.' >&2
-  echo 'On the already-working development PC: cd viewer && npm install; git add viewer/package-lock.json' >&2
+  echo 'On the already-working development PC: cd emu/viewer_src && npm install; git add emu/viewer_src/package-lock.json' >&2
   exit 1
 fi
 
@@ -84,6 +84,6 @@ python -m pytest -q
 if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
 emu viewer-build
 emu ladder --stage plan
-printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer viewer/demo_zero.emupolicy --no-open\n'
+printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
 printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke && bash scripts/run_ladder.sh\n'
