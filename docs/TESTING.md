@@ -1,5 +1,7 @@
 # Testing EMU without drowning in tests
 
+Most old one-test modules have been folded into their owning test files. This is intentional: one obvious place per subsystem is easier to review than a collection of single-purpose filenames. Test assertions stay intact.
+
 There are two separate questions: **did my code change break a contract?** and **can the trained robot genuinely walk?** Python assertions alone cannot answer the second.
 
 ## Three useful levels
@@ -12,7 +14,7 @@ There are two separate questions: **did my code change break a contract?** and *
 
 `bash scripts/check.sh full` runs only the complete Python suite, and `bash scripts/check.sh browser` only JavaScript. The [quick selection](../tests/quick_cases.txt) is intentionally short and explicit—**not an attempt to turn the full test suite into another clever framework**.
 
-The complete suite currently reports about 226 Python cases and 18 browser cases. Many are inexpensive parameter variations; the important quantity isn't the number, but whether they uniquely protect actual behaviour. Keep the full suite in CI while simplifying duplicates case-by-case with evidence. **Do not delete valuable checks merely to reach an arbitrary numeric target.**
+The complete suite currently reports about 226 Python cases and 18 browser cases; the top-level Python test files have been reduced from 34 to **25**. Many are inexpensive parameter variations; the important quantity isn't the number, but whether they uniquely protect actual behaviour. Keep the full suite in CI while simplifying duplicates case-by-case with evidence. **Do not delete valuable checks merely to reach an arbitrary numeric target.**
 
 ## Where to look for tests
 

@@ -133,3 +133,63 @@ def test_legacy_rolling_best_score_is_not_used_as_the_current_policy_score():
     assert outranks_best(0.42, checkpoint_eval_score(historical_best))
     assert checkpoint_eval_score({'best_eval_score': 0.27}) == 0.27
     assert checkpoint_eval_score({'instant_eval_score': float('nan')}) == -1e9
+
+
+# --- phase cadence contract ---
+import pytest
+
+
+def test_command_cadence_is_finite_and_bounded_with_real_jax():
+    jax = pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import command_phase_rate
+    f = jax.jit(command_phase_rate)
+    for vx,vy in ((0.0,0.0), (0.2,0.0), (0.6,0.4), (-0.3,0.2)):
+        got = float(f(jnp.float32(vx),jnp.float32(vy),0.6,1.25,1.025))
+        assert 1.02499 <= got <= 2.60001
+    assert float(f(0.6,0.0,0.6,1.25,1.025)) > float(f(0.1,0.0,0.6,1.25,1.025))
+
+
+def test_cadence_not_capped_at_pitch_command_limit():
+    from emu.environment import command_phase_rate
+    from emu.contracts import PITCH_CMD_MAX_RAD
+    got = float(command_phase_rate(0.0,0.0,0.6,1.25,1.025))
+    assert got > 0.8 > PITCH_CMD_MAX_RAD
+
+
+# --- phase resume safety ---
+from dataclasses import replace
+from pathlib import Path
+import pytest
+
+from emu.phase_config import _phase_config, verify_existing_phase_config
+
+
+def test_rejects_changed_seed_env_count_and_domain(tmp_path):
+    root=tmp_path/'run'
+    phase='10_adapt'
+    c=_phase_config(phase,60_000_000,.10,.08,.12,root=root,seed=733,device='cuda',envs=2048,resume=None)
+    run_dir=root/phase
+    c.save(run_dir/'training_config.json')
+    ck=run_dir/'checkpoints'; ck.mkdir()
+    (ck/'latest.pkl').write_bytes(b'checkpoint placeholder')
+    verify_existing_phase_config(run_dir,c)
+    # Changing location/device/resume is allowed; not learning-contract changes.
+    verify_existing_phase_config(run_dir,replace(c,device='cpu',resume='/different/path'))
+    for bad in (replace(c,seed=1742),replace(c,envs=512),
+                replace(c,domain_hardware_radius=.5),replace(c,field_max_influence=.65)):
+        with pytest.raises(RuntimeError,match='different training configuration'):
+            verify_existing_phase_config(run_dir,bad)
+
+def test_missing_config_prevents_checkpoint_reuse(tmp_path):
+    phase=tmp_path/'10_adapt'; (phase/'checkpoints').mkdir(parents=True)
+    (phase/'checkpoints'/'latest.pkl').write_bytes(b'bad')
+    c=_phase_config('10_adapt',60_000_000,.10,.08,.12,root=tmp_path,seed=733,device='cuda',envs=2048,resume=None)
+    with pytest.raises(RuntimeError,match='without training_config'):
+        verify_existing_phase_config(phase,c)
+
+
+def test_ladder_uses_shared_phase_compatibility():
+    from emu import phase_config, branch_lab
+    assert branch_lab._phase_config is phase_config._phase_config
+    assert branch_lab.verify_existing_phase_config is phase_config.verify_existing_phase_config
