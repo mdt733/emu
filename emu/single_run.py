@@ -62,11 +62,21 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         if previous != wanted:
             raise RuntimeError('Existing training configuration differs; choose a fresh --run-dir')
         if not meta_path.is_file():
-            raise RuntimeError('Saved training config exists without run_meta.json; refusing ambiguous lineage')
-        metadata = json.loads(meta_path.read_text(encoding='utf-8'))
-        ancestor = metadata.get('source_provenance', {}).get('git_commit')
-        if ancestor != provenance['commit']:
-            raise RuntimeError('Source commit differs from prior run; use the matching source or a new --run-dir')
+            # run_support writes config and console.log *before* the trainer
+            # checks CUDA. A driver/setup failure leaves these two harmless
+            # files but no policy state. Allow retry only in that precise case.
+            unexpected = {p.name for p in root.iterdir()} - {
+                'training_config.json', 'console.log',
+            }
+            if unexpected:
+                raise RuntimeError(
+                    'Saved config has no run_meta.json but other run contents exist: '
+                    f'{sorted(unexpected)}; refusing ambiguous lineage')
+        else:
+            metadata = json.loads(meta_path.read_text(encoding='utf-8'))
+            ancestor = metadata.get('source_provenance', {}).get('git_commit')
+            if ancestor != provenance['commit']:
+                raise RuntimeError('Source commit differs from prior run; use the matching source or a new --run-dir')
         verify_existing_phase_config(root, config)
 
     finished, partial, expected = resolve_target_checkpoint(
