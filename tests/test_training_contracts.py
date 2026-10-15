@@ -11,7 +11,7 @@ from emu.tracking_contract import node_window_success_numpy
 
 
 def test_v5015_ladder_recipe_and_phase_config(tmp_path):
-    assert tuple(ROUNDS.values()) == (26_000_000, 34_000_000, 46_000_000)
+    assert tuple(ROUNDS.values()) == (80_000_000, 100_000_000, 120_000_000)
     assert len(ARMS) == 4
     cfg = _phase_config('20_breadth', 140_000_000, .3, .25, .35,
                         root=tmp_path, seed=733, device='cpu', envs=8, resume=None,
