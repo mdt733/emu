@@ -11,6 +11,8 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
+from .environment import T
+from .gait_exam import contact_pair_mask
 from .tracking_contract import (
     VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
     UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
@@ -591,6 +593,52 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
+    def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key, horizon):
+        """Read-only, bounded physical timeline for the v5016 directional examiner.
+
+        Samples PRE-STEP world XY, ground heading, raw task commands, foot
+        positions, real floor-foot contact PAIRS and step termination flags.
+        PPO training/evaluate_summary remain unchanged. An episode's first
+        `done` terminates its usable prefix; the host never interprets the
+        automatically reset world position as travel.
+        """
+        keys = jax.random.split(eval_key, env.num_envs)
+        initial = env._reset_with_keys(keys, curriculum_params)
+        obs = env.obs(initial)
+
+        def record_state(es):
+            data = es.data
+            rotation = env._rotation_body_to_world(data)
+            yaw = jnp.arctan2(rotation[:, 1, 0], rotation[:, 0, 0])
+            contacts = contact_pair_mask(
+                jnp, data.contact.geom1, data.contact.geom2,
+                data.contact.dist, int(env.ids['floor_geom']),
+                tuple(int(x) for x in env.ids['foot_geoms']))
+            return (data.qpos[:, :2], yaw,
+                    data.xpos[:, env.foot_bodies, :], contacts)
+
+        def step(carry, _):
+            es, ob = carry
+            xy, yaw, foot_xyz, contacts = record_state(es)
+            commands = jnp.stack((es.task[:, T.vx], es.task[:, T.vy],
+                                  es.task[:, T.yaw]), axis=-1)
+            mean, _ = apply(params, normalize_obs(ob, obs_mean, obs_std, obs_norm_mask))
+            out = env.step(es, jnp.clip(mean, -1.0, 1.0), curriculum_params)
+            sample = dict(position_xy=xy, heading_rad=yaw,
+                          foot_xyz=foot_xyz, floor_contact=contacts,
+                          command=commands, done=out.done,
+                          fell=out.metrics['episode_fell'])
+            return (out.state, out.obs), sample
+
+        (end_state, _), frames = jax.lax.scan(
+            step, (initial, obs), xs=None, length=horizon)
+        last_xy, last_yaw, last_feet, last_contact = record_state(end_state)
+        return dict(**frames, last_position_xy=last_xy,
+                    last_heading_rad=last_yaw, last_foot_xyz=last_feet,
+                    last_floor_contact=last_contact)
+
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,))
+
     def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
                           stable_steps=10, recovery_not_before=0):
         """Return fall/recovery times for capability probes.
@@ -679,6 +727,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
         'evaluate_node_window': evaluate_node_window,
         'obs_dim': obs_dim,
