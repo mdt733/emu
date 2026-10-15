@@ -115,6 +115,7 @@ Do not manually edit generated `viewer/dist/` or publish the local live checkpoi
 |---|---|
 | Unexpected EMU version or missing `ladder` command | `git branch --show-current`, `git rev-parse HEAD`, `python -c "import emu.cli; print(emu.cli.__file__)"` |
 | `PYTHONPATH` loads an old checkout | `unset PYTHONPATH`; verify the `emu.cli` source path |
+| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The tracked browser packaging mirror should match `viewer/`; update the branch and restore only verified build-generated differences. |
 | New WSL setup exited 3 immediately after nvm installed | The original script auto-selected the uninstalled Node 24 from `.nvmrc`. Update the draft branch and rerun setup; the fixed script sources nvm with `--no-use`. Leave the fresh Ubuntu, Python and nvm installation intact. |
 | CUDA smoke fails | Verify `nvidia-smi`, installed JAX wheel and GPU backend; do not begin training |
 | Optional Warp import warning | MJX may still work; trust the actual reset/step and PPO smoke results |

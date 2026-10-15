@@ -38,3 +38,17 @@ def test_acceptance_root_cannot_write_inside_checkout():
     smoke = _module()
     with pytest.raises(ValueError, match="OUTSIDE"):
         smoke.protected_root(str(source_repo_root() / "acceptance"))
+
+
+
+def test_dirty_source_gate_explains_exact_changed_files(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    smoke = _module()
+    monkeypatch.setattr(smoke, "git_provenance", lambda: {
+        "available": True, "commit": "abc123", "dirty": True,
+    })
+    monkeypatch.setattr(smoke.subprocess, "run", lambda *a, **kw: SimpleNamespace(
+        stdout=" M emu/viewer_src/README.md\n"))
+    with pytest.raises(RuntimeError, match="emu/viewer_src/README.md"):
+        smoke.current_source()

@@ -51,8 +51,19 @@ def protected_root(value: str) -> Path:
 
 def current_source() -> dict:
     result = git_provenance()
-    if not result.get("available") or not result.get("commit") or result.get("dirty"):
-        raise RuntimeError("source checkout must be an identified, clean Git commit")
+    if not result.get("available") or not result.get("commit"):
+        raise RuntimeError("Cannot identify this source checkout's Git commit.")
+    if result.get("dirty"):
+        status = subprocess.run(
+            ["git", "status", "--short", "--untracked-files=normal"],
+            cwd=source_repo_root(), text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        raise RuntimeError(
+            "Refusing to train from a modified Git checkout. Current changes:\n"
+            + (status or "(Git reported changes; unable to list them)")
+            + "\nInspect the paths with git diff / git status before continuing. "
+              "Do not bypass the source-provenance gate or delete unreviewed files."
+        )
     return result
 
 

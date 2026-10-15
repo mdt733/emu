@@ -64,6 +64,13 @@ python scripts/smoke_training_lifecycle.py continue --root ~/robot_lab/emu_runs/
 python scripts/smoke_training_lifecycle.py verify --root ~/robot_lab/emu_runs/pr2_acceptance_01
 ```
 
+A successful viewer build should not change tracked files. In an earlier draft,
+the canonical viewer README and its tracked Python packaging mirror disagreed.
+The build regenerated the mirror and made Git dirty, correctly blocking training.
+CI now checks that every tracked file in viewer/ matches emu/viewer_src/.
+If the provenance gate fails, run git status --short and git diff -- <path>.
+Restore only generated files you have inspected; never discard personal edits.
+
 **Run these commands one at a time and inspect errors before advancing.** The
 helper refuses a non-empty/old root at stage 1 or an existing continuation at
 stage 2. It never deletes files, changes the public champion or edits a source
