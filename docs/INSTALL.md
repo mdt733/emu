@@ -90,9 +90,9 @@ For a GPU trainer, run `emu doctor --v5015-smoke --domain-smoke` before committi
 | Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh` |
 | Stop after the first scored round | `bash scripts/run_ladder.sh --stop-after round1` |
 | Watch completed validated checkpoints locally | `emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open` |
-| Run the zero-weight *local* rendering fixture | `emu viewer viewer/demo_zero.emupolicy --no-open` |
+| Run the zero-weight *local* rendering fixture | `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open` |
 | Run Python tests | `python -m pytest -q` |
-| Run browser tests | `npm test --prefix viewer` |
+| Run browser tests | `npm test --prefix emu/viewer_src` |
 | Build canonical browser assets | `emu viewer-build` |
 
 The local viewer listens on `127.0.0.1:8765`. The standalone demo fixture should **not** walk; it checks rendering. For public/static preview and the protected 60M champion see [PLAYGROUND.md](PLAYGROUND.md).
@@ -101,13 +101,13 @@ The local viewer listens on `127.0.0.1:8765`. The standalone demo fixture should
 
 Training source commits, environment counts and configurations are part of the experiment contract. Keep run roots outside the checkout (normally `~/robot_lab/emu_runs/`). Do not change source or ladder parameters mid-run. Do not reuse a checkpoint/run root under a different source commit; prepare a new run root instead.
 
-The normal repository must **not** include `.venv/`, `node_modules/`, `viewer/dist/`, raw metrics dumps or schema-7 `.pkl` checkpoints. The public `.emupolicy` actor is a separate, intentionally tracked artifact.
+The normal repository must **not** include `.venv/`, `node_modules/`, `emu/viewer_src/dist/`, raw metrics dumps or schema-7 `.pkl` checkpoints. The public `.emupolicy` actor is a separate, intentionally tracked artifact.
 
 ## Browser dependencies and packaging
 
-Use `npm ci --prefix viewer` to install the committed lockfile. The canonical browser source is `viewer/`; `emu/viewer_src/` is its generated Python-package mirror. When intentionally changing browser source or dependencies, run `emu viewer-build`, `npm test --prefix viewer`, and `npm run build --prefix viewer`; review the changed mirror and lockfile before committing.
+Use `npm ci --prefix emu/viewer_src` to install the committed lockfile. The canonical browser source is `emu/viewer_src/`, included in the Python package; no tracked mirror is regenerated. When intentionally changing browser source or dependencies, run `emu viewer-build`, `npm test --prefix emu/viewer_src`, and `npm run build --prefix emu/viewer_src`; review the source changes and committed lockfile before committing.
 
-Do not manually edit generated `viewer/dist/` or publish the local live checkpoint server.
+Do not manually edit generated `emu/viewer_src/dist/` or publish the local live checkpoint server.
 
 ## Troubleshooting
 
@@ -115,7 +115,7 @@ Do not manually edit generated `viewer/dist/` or publish the local live checkpoi
 |---|---|
 | Unexpected EMU version or missing `ladder` command | `git branch --show-current`, `git rev-parse HEAD`, `python -c "import emu.cli; print(emu.cli.__file__)"` |
 | `PYTHONPATH` loads an old checkout | `unset PYTHONPATH`; verify the `emu.cli` source path |
-| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The tracked browser packaging mirror should match `viewer/`; update the branch and restore only verified build-generated differences. |
+| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The viewer is package-owned and build output is ignored; investigate any tracked source changes instead of regenerating a mirror. |
 | New WSL setup exited 3 immediately after nvm installed | The original script auto-selected the uninstalled Node 24 from `.nvmrc`. Update the draft branch and rerun setup; the fixed script sources nvm with `--no-use`. Leave the fresh Ubuntu, Python and nvm installation intact. |
 | CUDA smoke fails | Verify `nvidia-smi`, installed JAX wheel and GPU backend; do not begin training |
 | Optional Warp import warning | MJX may still work; trust the actual reset/step and PPO smoke results |
