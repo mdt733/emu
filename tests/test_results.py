@@ -64,7 +64,7 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     assert '0.682' in doc
     assert 'round1/shadow' in doc
     assert 'common held-out ranking' in doc
-    assert 'shaft' in doc and 'Spring potential' not in doc
+    assert 'servo_shaft_abs_power_w' in doc and 'spring_potential_energy_j' in doc
     assert 'not proof of walking' in doc
     data=json.loads((root/'results_data.json').read_text())
     assert len(data['runs']) == 5
@@ -110,3 +110,15 @@ def test_cli_report_is_a_pure_offline_dispatch(monkeypatch,tmp_path):
         lambda root,bundle=True: calls.append((root,bundle)) or [])
     assert cli.main(['report','--root',str(tmp_path),'--no-bundle']) == 0
     assert calls == [(tmp_path,False)]
+
+
+
+def test_fixed_eval_staleness_and_source_mismatch_are_visible(tmp_path):
+    root = tmp_path/'old'
+    root.mkdir()
+    (root/'lab_context.json').write_text(json.dumps({'git_commit':'1'*40}))
+    run,_ = fixture_run(root,'foundation20')
+    (run/'fixed_eval.csv').write_text('step,eval_core_survival\n100,1.0\n')
+    row = results.collect(root)['runs']['foundation20']
+    assert any('predates' in p for p in row['problems'])
+    assert any('SOURCE COMMIT DIFFERS' in p for p in row['problems'])

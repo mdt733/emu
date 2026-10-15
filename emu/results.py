@@ -22,7 +22,7 @@ FIELDS = ('reward_mean', 'fall_rate', 'ep_len_mean', 'height_error_m', 'step_evi
           'servo_shaft_drive_power_w', 'servo_shaft_brake_power_w',
           'servo_over_rated_frac', 'servo_peak_torque_limit_frac',
           'spring_potential_energy_j', 'shin_spring_energy_j',
-          'ppo_approx_kl', 'nan_grad_skips_total')
+          'steps_per_sec', 'ppo_approx_kl', 'nan_grad_skips_total')
 PAYMENTS = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
             'clearance', 'smoothness', 'joint_safety', 'fall_penalty')
 SCREENS = ('resilience100', 'robust70', 'growth140', 'growthcombo140', 'gentle_slope')
@@ -101,6 +101,10 @@ def summarize(run, expected=None):
         problems.append('training metrics missing/empty')
     if not fixed:
         problems.append('fixed evaluation missing/empty')
+    if fixed and step is not None:
+        fixed_step = number(fixed[-1], 'step')
+        if fixed_step is not None and fixed_step < step:
+            problems.append('fixed evaluation predates latest logged policy')
     if not screen and run.name != 'foundation20':
         problems.append('independent screening details missing')
     if not sha:
