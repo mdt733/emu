@@ -137,7 +137,7 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     trainer=make_trainer(env,seed=1701,lr=.0002,rollout=2,
                          epochs=1,minibatches=1)
     assert trainer['obs_dim']==OBS_DIM
-    state=trainer['make_initial_state'](env.params_array({'probe_cmd_vx':.1}))
+    state=trainer['make_initial_state']({'probe_cmd_vx':.1})
     params=state.params
     mean=jnp.zeros(OBS_DIM)
     std=jnp.ones(OBS_DIM)
