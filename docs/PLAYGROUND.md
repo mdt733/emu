@@ -17,16 +17,16 @@ From a clean checkout with Node 24:
 
 ```bash
 python scripts/prepare_showcase.py --require-champion
-npm ci --prefix viewer --no-audit --no-fund
-npm test --prefix viewer
-npm run build --prefix viewer
+npm ci --prefix emu/viewer_src --no-audit --no-fund
+npm test --prefix emu/viewer_src
+npm run build --prefix emu/viewer_src
 cd viewer
 npm run preview -- --host 127.0.0.1
 ```
 
 Open the displayed local Vite URL (normally `http://127.0.0.1:4173/`). The preview should load the **trained champion**, not the `demo_zero` fixture, and expose no unexpected JS/WASM errors. Test joystick directions, settings, display modes, manual policy load and the physical ramp in a real browser.
 
-The zero-weight fixture is a separate *local rendering* check: `emu viewer viewer/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
+The zero-weight fixture is a separate *local rendering* check: `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
 
 ## Controlled GitHub Pages publishing
 
@@ -53,4 +53,4 @@ This serves read-only validated checkpoint updates on `127.0.0.1:8765`. It uses 
 
 A browser rendering that looks stable does not establish PPO training success, command tracking or physical robustness. Browser/WASM contact physics and sensors are not yet numerically validated to be identical to MJX, even though deterministic actor inference is covered by a cross-runtime test.
 
-[Viewer details](../viewer/README.md) · [Policy format](../viewer/POLICY_FORMAT.md) · [Evaluation](evaluation.md) · [Project status](STATUS.md)
+[Viewer details](../emu/viewer_src/README.md) · [Policy format](../emu/viewer_src/POLICY_FORMAT.md) · [Evaluation](evaluation.md) · [Project status](STATUS.md)
