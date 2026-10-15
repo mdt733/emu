@@ -1,6 +1,6 @@
 # EMU v5016 — Directional locomotion and small-slope competence
 
-**Status: design specification only, NOT implemented/trained or GPU-validated.**
+**Status: first CPU-only implementation underway. Not yet integrated with PPO or GPU/MJX.** See [Pass 1 status](V5016_PASS1_STATUS.md); listed future tests are not all implemented.
 **Source reviewed:** `refactor/tiny-emu` at `c8654181aa3b9fd455f750a7f422408e90f029e0` and accepted `main` at `40c5d0ce543ebbbc3690591695afddc18def8232`.
 **Existing runs:** preserve the champion, 20M shared foundation, four independent 80M runs and original training commit; DO NOT edit their lineage.
 **User field observation:** the old 60M champion could not manage a 1° slope. Treat this as a historical user observation, not a reproducible measured result until retested.
@@ -15,7 +15,7 @@ Actual v5015 behaviour discovered from source:
 - The fast MJX model simulates an **infinite planar incline equivalence** by tilting gravity over a flat contact plane; this is suitable for isolated constant-tilt physics but NOT ramp approaches, changing normals, bumps or steps. It also means `data.qpos[:,2]` is **not** uphill altitude; measure signed planar progress along the uphill basis and convert it to equivalent physical elevation via `progress * sin(slope_angle)`.
 - v5015 `horizontal_tracking_motion` measures commanded velocity in the robot's **current heading**. Current `cmd_yaw` specifies **angular velocity**, not absolute heading. A robot can rotate downhill and later meet `cmd_yaw=0` while travelling forward in its new (incorrect) direction.
 - `step_evidence` is foot lift, not completed strides. `support` is a foot-height proxy, not ground reaction force. Current survivor-weighted promotion cannot certify directed walking.
-- The deployable actor contract is still **55 × 4 = 220 inputs, six outputs**. No implicit observation remapping or unversioned policy/checkpoint migration.
+- The **existing v5015** deployable actor uses **55 × 4 = 220 inputs, six outputs**. The **v5016-candidate** contract is explicitly **61 × 4 = 244 inputs, six outputs**, in `emu/observation_versions.py`. These extra inputs are purposeful (ground grade forward/lateral, ground validity, heading error sin/cos, heading estimate validity), not a prohibition against improving perception. v5016-candidate is **not wired into PPO/export/viewer yet**. The existing 220-input weights cannot be loaded as a 244-input actor by renaming/padding a file; training and policy export require explicit versioning.
 
 ## 2. What counts as a successful test episode
 
@@ -99,7 +99,7 @@ These are specific tests to implement; names indicate *proposals*, not tests cur
 | H08 | gyro bias + sample delay + noisy yaw estimate | bounded correction; log estimate bias and authority/saturation |
 | H09 | clamp/actuator authority and low speed | yaw command within actor's trained envelope; controller cannot demand impossible instantaneous turns |
 | H10 | controller on/off on identical evaluation seeds | compare improvement **and** damage to tracking/turn responsiveness; keep off-mode to inspect underlying policy |
-| H11 | policy input causality | PPO sees only actually issued corrected yaw-rate command, not future desired heading; input remains 220/6 |
+| H11 | policy input causality | PPO sees issued command and, in the new versioned contract, causal heading/terrain state; never future target information. Existing v5015 policies remain 220/6, future v5016 policies may be 244/6 |
 | H12 | deployment parity | same heading calculation in simulator and physical interface; yaw is relative/gyro-integrated unless an absolute heading sensor is added |
 
 **Important:** A gyro+accelerometer does not give drift-free absolute compass yaw. Heading hold from integrated gyro is a **relative-heading** stabiliser over bounded windows, not a guaranteed lifelong north-hold. Reset references and assess synthetic gyro bias/latency; don't use sim-truth orientation for the deployed controller. The sim oracle may use true orientation only to **score** the policy independently.
@@ -118,7 +118,7 @@ Proposed `tests/test_v5016_ground_plane.py`:
 - G05 one biased/noisy sensor: detect unreasonable plane estimates; with only three hits redundancy is limited, optional fourth sensor allows robust fitting;
 - G06 ToF delay and IMU accel dynamics: time alignment and filtering bounded; accelerometer alone is unreliable during fast acceleration;
 - G07 actual geometric ramp transition versus gravity-tilt infinite plane: record expected disagreement and use physical ramp tests before hardware-readiness claims;
-- G08 v5015 checkpoints/actor obs schema: sensor data remains **read-only**; any new actor inputs require an explicitly **versioned** 55-field map (or a new separately versioned dimension), updated exporter/viewer/hardware and fresh training. Never repurpose `cmd_pitch`/`cmd_roll` to smuggle in terrain data.
+- G08 v5015 versus v5016-candidate obs schema: the declared 244-input contract may include slope and heading measurements only once **the complete environment→normaliser→PPO→export→viewer→hardware chain** is wired and tested. Keep the 220-input v5015 policy intact; no smuggling terrain data into old command slots.
 
 **Do not make hardware installation a prerequisite for v5016's first heading tests.** We can start with read-only simulation oracles, then compare observability of IMU-only versus IMU+ground-plane once sensor dynamics are validated.
 
@@ -126,7 +126,7 @@ Proposed `tests/test_v5016_ground_plane.py`:
 
 - P01 real 0° and ±0.5°/±1° gravity-vector worlds match expected sign of forces and intended climb; test both forward/uphill and yaw-reversed/downhill controls.
 - P02 full-state rollouts 350 then 700 control frames with true first-fall/timeout separation; no reset contamination.
-- P03 commanded turn and stop, pure sidestep, reverse and transition maintain **unchanged actor shape 220→6** and preserved command semantics.
+- P03 commanded turn/stop, sidestep, reverse and transitions preserve command semantics with explicit **v5015 220→6 versus v5016 244→6** schema selection; verify both paths independently.
 - P04 counterfactual stress cases: aggressive heading P saturates, steep slope 2° causes fall, poor velocity tracking, large lateral drift, crouched policy; fail honest task-specific gates.
 - P05 current v5015 fixed-panel baseline regression: hold `core`, `dynamic50`, `robust40`, recovery against untouched policy with and without P; no silent performance regression.
 - P06 measure computational/compile overhead of batched heading state + separate exam telemetry, no training-process slowdowns beyond an explicit reviewed threshold.
@@ -139,7 +139,7 @@ Proposed `tests/test_v5016_ground_plane.py`:
 1. **Pass A — examiner truth:** one slope/direction task specification and pure CPU numeric oracles (D01–D14), no PPO edits. World-relative requested course, real first-fall horizon, anti-cheat controls. Gate: synthetic bad controllers demonstrably fail, good controls pass.
 2. **Pass B — observation/heading loop:** heading P as a tiny well-scoped pure controller within existing command ownership, plus H01–H12. Initially **evaluation-only on/off**; no reward changes. Gate: yaw/velocity commands remain correct for turn, reverse, sidestep, transition and level ground.
 3. **Pass C — bounded real physics:** P01–P08 MJX/GPU tests at 0°, 0.25°, 0.5°, 1°, 1.5°, 2° (3°/5° stretch). Benchmark 60M champion + four 80M candidates, report actual competence boundary and failure modes. No 10° claims.
-4. **Pass D — sensor estimator:** G01–G08, three-ray/IMU ground plane read-only; four-ray comparison if hardware viable; no actor-interface change until reviewed. Gate: tilted robot on level ground cannot be misdiagnosed as inclined ground.
+4. **Pass D — sensor estimator and actor v2:** G01–G08, three-ray/IMU ground plane first as read-only; then wire the declared 244-input v5016 actor with explicit policy schema, observation normalisation, exporter, viewer and real-hardware parity. Gate: tilted robot on level ground cannot be misdiagnosed as inclined ground; old policies remain loadable in their original runtime.
 5. **Pass E — curriculum experiment:** if exams show need, compare four ways to learn **the same directional slope tasks**: mixed inclines, progressive incline ladder, competence-adaptive frontier, interleaved level+incline rehearsal. Fix reward, actor, commands, terrain envelope, physics, parent, seeds, budget and held-out exam; vary only training schedule. Isolate P on/off as a **separate ablation**, not an arm confound.
 6. **Pass F — staged GPU budget:** shared source-compatible foundation, short pilot forks at a few million steps, checkpoint review, then longer equal-budget forks only if learning is real. An example later 20M shared + four 60M continuations costs 260M total, not a default automatic commitment. Run multiple seeds for finalists and keep old checkpoints untouched; source-commit/optimizer lineage must be preserved. No pretending a new-source optimizer can transparently resume a schema-mismatched v5015 checkpoint.
 7. **Pass G — release:** eliminate superseded components rather than wrapping them; report ownership in `WHERE_THINGS_LIVE.md`; tests and real WSL GPU acceptance; trained viewer and physical-controller parity; optional policy schema migration only if independently proven.
@@ -151,6 +151,6 @@ Proposed `tests/test_v5016_ground_plane.py`:
 - **First real terrain milestone (engineering target, not guaranteed outcome):** meaningful directed progress and survival at **1°**, with no downhill-turn trick, across both slope signs and at least several reset seeds; preserve level-ground quality.
 - **Later:** 2°, 3°, 5° progression, actual geometric ramp transitions and sensor-equipped deployment. Ten degrees is NOT an initial benchmark.
 - **One useful artifact:** `results.md` plus bundle with per-angle/direction matrices, raw traces, per-policy hashes, source commit, real gait/progress/fall metrics and known measurement limitations.
-- **Protected:** `main`, deployed 60M champion, current four 80M run roots, checkpoint schema contract, current 220×6 deployable actor and Pages manual publishing.
+- **Protected:** `main`, deployed 60M champion, current four 80M run roots, legacy 220×6 v5015 policy contract and Pages manual publishing. **Future** v5016 trained policies may use 244×6 with explicit schema/compatibility tests.
 
 No existing policy reward, simulator, actuator XML, command semantics, curriculum or running checkpoint is changed by this plan.
