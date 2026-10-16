@@ -993,7 +993,7 @@ def _mid(rows, field):
     valid = [v for v in numbers if v is not None]
     return median(valid) if valid else None
 
-def summarize(path: Path) -> dict | None:
+def summarize_posture(path: Path) -> dict | None:
     with path.open(newline='', encoding='utf-8-sig') as f:
         rows = [r for r in csv.DictReader(f) if _number(r, 'height') is not None]
     if not rows:
@@ -1023,7 +1023,7 @@ def posture_report(root: Path) -> int:
     found = 0
     for file in files:
         try:
-            item = summarize(file)
+            item = summarize_posture(file)
         except (OSError, UnicodeError, csv.Error) as exc:
             print(f'Could not read {file}: {exc}')
             continue
@@ -1052,7 +1052,7 @@ def posture_report(root: Path) -> int:
 def posture_main(argv=None):
     p = argparse.ArgumentParser(description='Read-only posture-height review for old EMU training runs')
     p.add_argument('--root', type=Path, default=Path.home() / 'robot_lab' / 'emu_runs')
-    return report(p.parse_args(argv).root)
+    return posture_report(p.parse_args(argv).root)
 
 
 if __name__ == '__main__':
