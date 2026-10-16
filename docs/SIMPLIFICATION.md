@@ -70,9 +70,9 @@ The current 20 software checks only show contract compatibility.
   [training timeline](https://github.com/mdt733/emu/actions/runs/38848806810).
   Measured early/late trends, field coverage and possible reward setbacks now
   have a cautious narrative in both `results.md` and `results_data.json`.
-  **G2 source committed:** eligible leaders, comparison margin and disqualifying
+  **G2 software CI passed:** eligible leaders, comparison margin and disqualifying
   reasons use previously saved common-screen evidence, never training rewards;
-  [Python CI underway](https://github.com/mdt733/emu/actions/runs/38849179351).
+  [CI 38849179351](https://github.com/mdt733/emu/actions/runs/38849179351).
   **G3 next:** check policy exporter/viewer/CLI for actual obsolete adapters.
   Distinct read-only capability-map, MuJoCo viewer and live-policy watcher roles
   should not be merged just to cut files. **Gate:** packaged actor parity,
@@ -110,7 +110,7 @@ Answer in this order:
 | `f6679de` | F1: experiment recipe defines budgets/advancement | [CI passed](https://github.com/mdt733/emu/actions/runs/38848204683): 16 Python + 4 browser; no CUDA |
 | `54c8cf0` | F2: scorecard markdown owned by offline reporter | [CI passed](https://github.com/mdt733/emu/actions/runs/38848378302): 16 Python + 4 browser; no CUDA |
 | `24957ac` | G1: honest narrative of on-policy measured trends | [CI passed](https://github.com/mdt733/emu/actions/runs/38848806810): 16 Python + 4 browser; no CUDA |
-| `6194eea` | G2: common-screen comparison story, no promotion changes | [CI in progress](https://github.com/mdt733/emu/actions/runs/38849179351) |
+| `6194eea` | G2: common-screen comparison story, no promotion changes | [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351): 16 Python + 4 browser; no CUDA |
 | `18b566d` | Baseline v5016 experimental branch, 20 retained checks | CI: 16 Python + 4 browser passed |
 | `d2abc8b` | Pass A: seven-layer framework, reward rename, readable entry points and single worklist | [GitHub CI 38834067868](https://github.com/mdt733/emu/actions/runs/38834067868): **16 Python + 4 browser passed**, build passed; no GPU run |
 | `3102062` | Pass B1: separate lesson sampler into `tasks.py`, keep same RNG and physics; add root `HANDOVER.md` | [GitHub CI 38835597285](https://github.com/mdt733/emu/actions/runs/38835597285): 16 Python + 4 browser passed; viewer build passed; GPU run still required |

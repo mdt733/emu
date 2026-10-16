@@ -75,7 +75,7 @@ E2 should audit whether the capabilities and teacher controls *earn their comple
 
 - **Pass G1 (software CI verified: [38848806810](https://github.com/mdt733/emu/actions/runs/38848806810)), commit `24957ac`:** the offline `results.py` report now includes a cautious per-run training story, based on already recorded early/late reward and fall medians, field-map coverage, allowed forward-command frontier and post-peak reward setbacks. `results_data.json` carries the same story. All claims are explicitly on-policy descriptions: changing lesson difficulty can change rewards, and allowed command frontiers are NOT achieved walking speeds. Independent fixed and common-screen exams, policy hashes, eligibility and ranking remain separate. Strengthened existing report test for both increasing reward and a mid-run setback; still 20 tests. No PPO, reward, simulation, checkpoint, JAX, export or viewer changes. Next G2: viewer/export paths and report comparison audit.
 
-- **Pass G2 (commit `6194eea`, Python CI underway; browser checks passed):** `results.comparison_story` provides a read-only interpretation of the common held-out scoreboard: leading eligible arm, score margin, excluded arms and failure reasons. `branch_lab` continues to own every eligibility decision, score formula, checkpoint hash check, source pin and safe promotion. Existing report contract expanded without adding tests. Viewer audit confirms distinct read-only capability-map, browser MuJoCo policy and validated latest-policy roles, so do not fuse them for cosmetic file-count savings. Next G3: export and viewer CLI audit.
+- **Pass G2 (software CI verified: [38849179351](https://github.com/mdt733/emu/actions/runs/38849179351)), commit `6194eea`:** `results.comparison_story` provides a read-only interpretation of the common held-out scoreboard: leading eligible arm, score margin, excluded arms and failure reasons. `branch_lab` continues to own every eligibility decision, score formula, checkpoint hash check, source pin and safe promotion. Existing report contract expanded without adding tests. Viewer audit confirms distinct read-only capability-map, browser MuJoCo policy and validated latest-policy roles, so do not fuse them for cosmetic file-count savings. Next G3: export and viewer CLI audit.
 
 ## Physical path and invariants
 
@@ -96,7 +96,7 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **F1** `f6679de`: [CI passed](https://github.com/mdt733/emu/actions/runs/38848204683) — experiment recipe owns budgets/promotions.
 - **F2** `54c8cf0`: [CI passed](https://github.com/mdt733/emu/actions/runs/38848378302) — results owns scorecard presentation.
 - **G1** `24957ac`: [CI passed](https://github.com/mdt733/emu/actions/runs/38848806810) — descriptive training narrative, with caveats.
-- **G2** `6194eea`: [CI status](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; do not declare Python verified until run completes.
+- **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
 ## What to do next (the next 'keep going')
