@@ -254,7 +254,7 @@ def main(argv=None) -> int:
         from .single_run import train_one
         return train_one(args)
     if args.cmd=='export-policy':
-        from .policy_export import build_bundle, write_bundle
+        from .viewer_server import build_bundle, write_bundle
         bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0
     if args.cmd=='viewer-build':
         from .viewer_server import build
