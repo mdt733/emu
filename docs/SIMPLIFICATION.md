@@ -31,7 +31,7 @@ The current 20 software checks only show contract compatibility.
   verification requirements. Rename the misleading `scoring.py` training
   reward module to `rewards.py` without altering numbers. Simplify the
   main documentation entry point. **Status: complete; 16 Python + 4 browser checks and viewer build passed on `d2abc8b`.**
-- [ ] **B. Make the universe legible.** **B1 implemented:** moved task generation and its constants into `emu/tasks.py`, preserving the original JAX method bodies and random keys. **B2 pending:** make the physical step/reset flow easier to read. Trace one `reset → task → step →
+- [ ] **B. Make the universe legible.** **B1 verified:** task generator and schema moved to `emu/tasks.py` with original JAX methods and RNG split order. [CI](https://github.com/mdt733/emu/actions/runs/38835597285) passed 16 Python + four browser tests. **B2 pending:** make the physical step/reset flow easier to read. Trace one `reset → task → step →
   physical observation` path; group `environment.py` by actual
   responsibilities. Separate task sampling from physics where it reduces
   coupling; keep batched model leaves and JIT behaviour efficient. Clearly
@@ -98,3 +98,4 @@ checkbox and architecture gap list only when code and CI agree.
 |---|---|---|
 | `18b566d` | Baseline v5016 experimental branch, 20 retained checks | CI: 16 Python + 4 browser passed |
 | `d2abc8b` | Pass A: seven-layer framework, reward rename, readable entry points and single worklist | [GitHub CI 38834067868](https://github.com/mdt733/emu/actions/runs/38834067868): **16 Python + 4 browser passed**, build passed; no GPU run |
+| `3102062` | Pass B1: separate lesson sampler into `tasks.py`, keep same RNG and physics; add root `HANDOVER.md` | [GitHub CI 38835597285](https://github.com/mdt733/emu/actions/runs/38835597285): 16 Python + 4 browser passed; viewer build passed; GPU run still required |

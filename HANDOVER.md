@@ -33,7 +33,7 @@ Turn EMU into a robot-learning system that reads like a book. The scientific goa
 - **Before Pass A:** trimmed 226+ checks down to exactly **16 Python + 4 JavaScript** in five files; baseline CI passed at 18b566d.
 - **Pass A:** canonical seven-layer architecture and a single checklist; renamed training reward module scoring.py to rewards.py without adjusting reward calculations. Source commit d2abc8b passed [CI](https://github.com/mdt733/emu/actions/runs/38834067868) (16 Python, four JS, viewer build). Docs-only ledger updated at a173582.
 - **Pass B1 (CURRENT):** moved lesson generation out of environment.py into **emu/tasks.py**. The unchanged sampling methods live in a stateless TaskSampler inherited by EmuMJXEnv; TASK_FIELDS/T and related task constants also moved. Environment remains owner of resets, physical stepping, observations and measured events. The sampler uses precisely the same JAX context and RNG streams; no second copy of lesson state.
-- **Pass B1 CI:** pending on the new code commit. Update this line when the exact commit passes; do not infer from older CI.
+- **Pass B1 CI:** [passed](https://github.com/mdt733/emu/actions/runs/38835597285) at commit **3102062**: 16 Python and four browser tests, production viewer build and showcase packaging verified. Python logged 24 existing nonfatal MuJoCo deprecation warnings. This is CPU CI, NOT a fresh CUDA learning acceptance.
 
 ## Physical path and invariants
 
