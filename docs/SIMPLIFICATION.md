@@ -48,10 +48,13 @@ The current 20 software checks only show contract compatibility.
   [metrics and field artifacts](https://github.com/mdt733/emu/actions/runs/38843252714).
   `training.py` is ~750 lines (down from 993); 20 tests retained, with stronger
   resume and delivery assertions. D4 still needs to clarify recovery and PPO
-  lifecycle without wrapper mazes or altered rollback semantics. **D4 source staged:**
-  full rollback is now owned by `run_support.py`, with the same complete
-  temporal rewind, fresh RNG-derived world reset and existing behavioural
-  test strengthened; D5 remains.
+  lifecycle without wrapper mazes or altered rollback semantics. **D4 CI verified:** 
+  [38844333684](https://github.com/mdt733/emu/actions/runs/38844333684)
+  passed 16 Python + 4 browser and build. Complete policy/teacher/normalizer/LR
+  rewind plus fresh world reset lives in `run_support.py`, and its existing
+  checkpoint test exercises the restored state. **D5 source submitted:**
+  KL-adaptive LR moved to `health.py`, preserving deadband and clamp;
+  no new test files or training payment changes. **GPU acceptance remains due.**
   **Gate:** fresh isolated GPU update/save/resume, identical step/seed
   semantics, and atomic checkpoint validation; no changed reward.
 - [ ] **E. Curriculum and teaching capability.** Draw one path from rollout
@@ -92,7 +95,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass D5:** full rollback and world restart now have one named checkpoint handoff owner. Simplify the remaining PPO-update/normalizer lifecycle and repeated checkpoint writes while preserving exact step, RNG and actor contracts. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
+**Pass E:** examine `curriculum.py` and capability-field teaching. Trace rollout evidence to the sampled task envelope, identify unused or overlapping controls by real call sites, then simplify only where behaviour and matched-policy comparisons justify it. D5 code CI and independent GPU acceptance remain open. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
 
 ## Evidence ledger
 
@@ -105,4 +108,5 @@ Answer in this order:
 | `974d857` | Pass D2: fixed/cloud exam implementation moved to their evidence owners | [GitHub CI 38842871586](https://github.com/mdt733/emu/actions/runs/38842871586): 16 Python + 4 browser, build passed; CUDA unverified |
 | `22e8edb` | Pass D1: resume ownership and rollout provenance | [CI 38842290106](https://github.com/mdt733/emu/actions/runs/38842290106): 16 Python + 4 browser passed; no GPU run |
 | `ebd1153` | Pass D3: canonical training metrics and field artifact writers, strengthened delivery check | [CI 38843252714](https://github.com/mdt733/emu/actions/runs/38843252714): 16 Python + 4 browser passed; no GPU run |
+| `a1b43f9` | Pass D4: complete recovery rewind and step-seeded physical restart; existing checkpoint test enlarged | [CI 38844333684](https://github.com/mdt733/emu/actions/runs/38844333684): 16 Python + 4 browser passed; no GPU run |
 | `39651e4` | Pass C: readable reward computation, single source for payment names/reward-only fields, clear host diagnostics, strengthened existing servo-power invariant test | [GitHub CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): 16 Python + 4 browser passed, viewer built; 24 MuJoCo warnings; GPU gate open |

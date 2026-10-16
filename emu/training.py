@@ -463,7 +463,7 @@ def train(args: TrainingConfig) -> int:
         # world. If recovery fails, retain the collapse streak and retry later.
         if args.allow_rollback and report['needs_recovery']:
             restored = try_restore_recovery(
-                recovery_path, state=state, field=field, governor=governor,
+                recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,
                 obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
                 task_params_for_field=lambda new_field: params_with_field(
@@ -590,17 +590,13 @@ def train(args: TrainingConfig) -> int:
         # pytree once instead of issuing dozens of tiny np.asarray device gets.
         rollout_metrics, aux = jax.device_get((rollout_metrics, aux))
         perf.add('host_metric_transfer', time.perf_counter() - metric_transfer_t0)
-        # Controller step. `approx_kl_final` is the last minibatch of the
-        # last epoch, i.e. total divergence from the policy this rollout
-        # was collected under -- the quantity a trust region is about. The
-        # dead band (0.5x-2x of target) stops the lr oscillating on noise.
-        kl_final = float(np.asarray(aux.get('approx_kl_final', 0.0)))
-        if np.isfinite(kl_final):
-            if kl_final > 2.0 * LR_TARGET_UPDATE_KL:
-                lr_scale /= PPO_LR_ADJUST
-            elif kl_final < 0.5 * LR_TARGET_UPDATE_KL:
-                lr_scale *= PPO_LR_ADJUST
-            lr_scale = float(min(LR_SCALE_MAX, max(LR_SCALE_MIN, lr_scale)))
+        # Only training-derived KL adjusts the NEXT update's LR; frozen
+        # examination results are never consulted by this controller.
+        lr_scale = health.adjust_learning_rate(
+            lr_scale,
+            approx_kl=float(np.asarray(aux.get('approx_kl_final', 0.0))),
+            target_kl=LR_TARGET_UPDATE_KL, factor=PPO_LR_ADJUST,
+            min_scale=LR_SCALE_MIN, max_scale=LR_SCALE_MAX)
         # Observation-normalizer experiment. A curriculum can change the
         # meaning of normalised coordinates even with frozen policy weights;
         # branches may freeze this transformation after a chosen step.

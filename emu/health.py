@@ -9,6 +9,7 @@ curriculum.
 from __future__ import annotations
 
 from typing import Any
+import math
 
 
 class TrainingHealth:
@@ -86,6 +87,26 @@ class TrainingHealth:
         if competence >= cls.RECOVERY_SEEN_FLOOR:
             return (0, competence), 'high-water-mark'
         return (-1, -1.0), 'none'
+
+    @staticmethod
+    def adjust_learning_rate(
+        scale: float, *, approx_kl: float, target_kl: float,
+        factor: float, min_scale: float, max_scale: float,
+    ) -> float:
+        """Soft PPO KL controller, distinct from the hard minibatch KL stop.
+
+        Use only the KL of the collected TRAINING rollout, never held-out
+        exam scores. Non-finite KL preserves the prior scale; an in-band
+        update also leaves it alone. The clamp applies only to finite KL,
+        matching the established controller's timing and arithmetic.
+        """
+        if math.isfinite(approx_kl):
+            if approx_kl > 2.0 * target_kl:
+                scale /= factor
+            elif approx_kl < 0.5 * target_kl:
+                scale *= factor
+            scale = float(min(max_scale, max(min_scale, scale)))
+        return scale
 
     def note_recovery_performed(self) -> None:
         self.stepping_collapse_streak = 0

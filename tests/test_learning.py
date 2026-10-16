@@ -14,6 +14,7 @@ from emu.checkpoint_io import save_checkpoint, validate_resume_payload
 from emu.contracts import OBS_DIM
 from emu.ppo import expected_param_shapes
 from emu.run_support import resume_training_lineage
+from emu.health import TrainingHealth
 
 def fake_policy_params(fill: float = 0.0):
     def build(spec):
@@ -106,7 +107,7 @@ class CheckpointResumeTests(unittest.TestCase):
                 seen_fields.append(restored_field.fingerprint())
                 return {'teacher': 'restored'}
             restored_state = try_restore_recovery(
-                path, state=collapsed, field=CapabilityField(),
+                path, state=collapsed,
                 governor=teacher, health=health_tracker, env=worlds,
                 step=130000, report={'stepping_collapse_streak': 101},
                 obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM), obs_count=1.0,
@@ -128,7 +129,7 @@ class CheckpointResumeTests(unittest.TestCase):
                 np.asarray(jax.random.fold_in(worlds.key0, 130000)))
             assert worlds.reset_params == {'teacher': 'restored'}
             assert try_restore_recovery(
-                Path(td) / 'missing.pkl', state=collapsed, field=field,
+                Path(td) / 'missing.pkl', state=collapsed,
                 governor=teacher, health=health_tracker, env=worlds,
                 step=130001, report={'stepping_collapse_streak': 101},
                 obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM), obs_count=1.0,
@@ -219,6 +220,16 @@ def test_training_config_roundtrip():
         )
         original.save(path)
         assert TrainingConfig.load(path) == original
+    # D5: the KL controller is owned by training health; no change to the
+    # finite upper/lower dead band, clamping, or nonfinite hold behaviour.
+    adapt = TrainingHealth.adjust_learning_rate
+    knobs = dict(target_kl=0.02, factor=1.5, min_scale=0.1, max_scale=2.0)
+    assert adapt(0.25, approx_kl=0.02, **knobs) == 0.25
+    assert adapt(0.25, approx_kl=0.001, **knobs) == 0.375
+    assert adapt(0.25, approx_kl=0.1, **knobs) == 0.25 / 1.5
+    assert adapt(2.0, approx_kl=0.001, **knobs) == 2.0
+    assert adapt(0.1, approx_kl=0.1, **knobs) == 0.1
+    assert adapt(0.25, approx_kl=float('nan'), **knobs) == 0.25
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
     from emu.run_support import promote_checkpoint

@@ -137,7 +137,7 @@ class RecoveredLearner:
 
 
 def try_restore_recovery(
-    recovery_path: Path, *, state: Any, field: Any, governor: Any,
+    recovery_path: Path, *, state: Any, governor: Any,
     health: Any, env: Any, step: int, report: dict[str, Any],
     obs_mean: Any, obs_var: Any, obs_count: float,
     task_params_for_field: Callable[[Any], dict[str, Any]],
