@@ -231,6 +231,32 @@ def _panel_table(lines, values, panels, prefix):
         lines.extend(['No panel-level evaluation data available.', ''])
 
 
+def comparison_story(board):
+    """Read-only interpretation of a matched screen; never promote policies."""
+    rows = board.get('results', [])
+    eligible = sorted((row for row in rows if row.get('eligible') is True
+                       and number(row, 'score') is not None),
+                      key=lambda row: (-number(row, 'score'), str(row.get('arm', ''))))
+    if not eligible:
+        return ['No eligible policy with a finite common-screen score; do not infer a winner.']
+    leader = eligible[0]
+    if len(eligible) > 1:
+        other = eligible[1]
+        margin = number(leader, 'score') - number(other, 'score')
+        story = [f"Under the common held-out screen, {leader['arm']} leads {other['arm']} by {margin:.3f} score points among {len(eligible)} eligible policies."]
+    else:
+        story = [f"Only {leader['arm']} has an eligible common-screen score; there is no eligible runner-up."]
+    excluded = [row for row in rows if row.get('eligible') is not True
+                or number(row, 'score') is None]
+    if excluded:
+        detail = '; '.join(
+            f"{row.get('arm', '?')}: {', '.join(row.get('reasons', [])) or 'missing eligible score'}"
+            for row in excluded)
+        story.append(f'Not eligible for automatic promotion: {detail}.')
+    story.append('Scores are from matched frozen-policy screens, not training rewards; one seed is not proof of walking.')
+    return story
+
+
 def markdown(info):
     ctx = info['context']
     lines = ['# EMU campaign results — ' + text(info['campaign']), '',
@@ -253,6 +279,8 @@ def markdown(info):
                  pretty(number(r, 'height_shortfall_m'),1000))
                 for r in board.get('results', [])])
         lines.extend(['Rank is an existing eligibility-weighted score, not proof of walking.', ''])
+        lines.extend('- ' + text(line) for line in comparison_story(board))
+        lines.append('')
         for r in board.get('results', []):
             name = stage + '/' + str(r.get('arm', ''))
             if name in info['runs']:

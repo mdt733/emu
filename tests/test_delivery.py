@@ -123,6 +123,12 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     assert '0.682' in doc
     assert 'round1/shadow' in doc
     assert 'common held-out ranking' in doc
+    assert 'Under the common held-out screen, baseline leads shadow' in doc
+    assert 'Scores are from matched frozen-policy screens' in doc
+    assert 'No eligible policy' in results.comparison_story({
+        'results': [{'arm': 'shadow', 'eligible': False,
+                     'score': None, 'reasons': ['missing evidence']}]
+    })[0]
     assert 'servo_shaft_abs_power_w' in doc and 'spring_potential_energy_j' in doc
     assert 'not proof of walking' in doc
     assert 'Training narrative (on-policy, not a walking grade)' in doc
