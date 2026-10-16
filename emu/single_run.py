@@ -9,7 +9,7 @@ import json
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from .phase_config import verify_existing_phase_config
+from .training_config import verify_existing_phase_config
 from .paths import source_repo_root
 from .run_support import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
