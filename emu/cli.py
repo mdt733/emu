@@ -163,7 +163,7 @@ def main(argv=None) -> int:
     q.add_argument('--lateral',type=float,default=0.)
     q.add_argument('--yaw-rate',type=float,default=0.)
     q.add_argument('--settle-frames',type=int,default=25)
-    from .directional_exam import SCENARIOS
+    from .evaluation import SCENARIOS
     q.add_argument('--scenario',choices=SCENARIOS,default='steady')
     q.add_argument('--turn-rate',type=float,default=.25)
     q.add_argument('--gyro-bias',type=float,default=0.)
@@ -228,7 +228,8 @@ def main(argv=None) -> int:
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
-        return _run('directional_exam','--run-dir',args.run_dir,'--output',args.output,
+        from .evaluation import directional_main
+        return directional_main('--run-dir',args.run_dir,'--output',args.output,
                     '--angle',str(args.angle),'--direction',args.direction,
                     '--worlds',str(args.worlds),'--horizon',str(args.horizon),
                     '--speed',str(args.speed),'--lateral',str(args.lateral),
@@ -240,8 +241,8 @@ def main(argv=None) -> int:
                     '--gyro-delay-frames',str(args.gyro_delay_frames),
                     *(['--compare-heading'] if args.compare_heading else []))
     if args.cmd=='directional-batch':
-        from .directional_exam import plan,execute
-        from .directional_exam import source_commit
+        from .evaluation import plan,execute
+        from .evaluation import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
                   seed=args.seed,kp=args.heading_kp,device=args.device)
         execute(jobs,source_commit(),actually_run=args.run)
