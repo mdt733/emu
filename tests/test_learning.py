@@ -12,7 +12,7 @@ from emu.training_config import TrainingConfig, mature_config
 from emu.capability_field import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
 from emu.contracts import ACTION_DIM, OBS_DIM
-from emu.rollout_metrics import augment_rollout_row
+from emu.results import augment_rollout_row
 from emu.ppo import expected_param_shapes
 from emu.run_support import resume_training_lineage
 from emu.curriculum import TrainingHealth
