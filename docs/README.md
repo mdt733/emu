@@ -6,6 +6,7 @@ Start with the [project introduction](../README.md), then choose the guide for t
 |---|---|
 | What has actually been demonstrated? | [Status and limitations](STATUS.md) |
 | Set up Python, GPU and browser dependencies | [Installation](INSTALL.md) |
+| Resume work after a chat limit | **[Living handover](../HANDOVER.md)** |
 | **Understand EMU in five minutes** | **[Architecture](architecture.md)** |
 | Follow the simplification plan between chats | **[Living checklist](SIMPLIFICATION.md)** |
 | Understand the PPO/curriculum/evaluation lifecycle | [Training](training.md) |

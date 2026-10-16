@@ -31,7 +31,7 @@ The current 20 software checks only show contract compatibility.
   verification requirements. Rename the misleading `scoring.py` training
   reward module to `rewards.py` without altering numbers. Simplify the
   main documentation entry point. **Status: complete; 16 Python + 4 browser checks and viewer build passed on `d2abc8b`.**
-- [ ] **B. Make the universe legible.** Trace one `reset → task → step →
+- [ ] **B. Make the universe legible.** **B1 implemented:** moved task generation and its constants into `emu/tasks.py`, preserving the original JAX method bodies and random keys. **B2 pending:** make the physical step/reset flow easier to read. Trace one `reset → task → step →
   physical observation` path; group `environment.py` by actual
   responsibilities. Separate task sampling from physics where it reduces
   coupling; keep batched model leaves and JIT behaviour efficient. Clearly
@@ -86,7 +86,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass B**: read `emu/environment.py` from `_reset_with_keys` through
+**Pass B2**: read `emu/environment.py` from `_reset_with_keys` through
 `_step_impl` and `_base_obs`. Produce a small causal map of task packets,
 batched model variation and physical sensors. Refactor one full path, rather
 than renaming functions or manufacturing helper layers. Update the pass

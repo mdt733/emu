@@ -49,7 +49,7 @@ the experiment runner compares *complete learning histories*, not just final rew
 | **2. Rewards** | Pure function: measured event + command → one teaching signal and component payments | Physics, curriculum policy or winning a tournament | `rewards.py` |
 | **3. PPO** | Actor/critic, rollout collection, optimisation, observation normalisation | Curriculum selection, reporting, run promotion | `ppo.py` |
 | **4. Training loop** | Compose thousands of independent robot/world samples, manage PPO timing and durable training state | Embed reward maths or change winning criteria | `training.py` |
-| **5. Curriculum** | Choose allowed tasks and difficulty from accumulated *training* competence, then sample commands/disturbances | Change actor weights or read held-out tests to teach | `curriculum.py`; capability-field logic is supplementary |
+| **5. Curriculum** | Choose allowed tasks and difficulty from accumulated *training* competence, then sample commands/disturbances | Change actor weights or read held-out tests to teach | `curriculum.py` chooses difficulty; `tasks.py` samples each world's lesson |
 | **6. Experiment design** | Shared foundation, independent branches, controlled teaching strategies, equal-budget comparisons, ancestry and promotion | Reimplement the trainer or change old checkpoints | `ladder_recipe.py`, `branch_lab.py` |
 | **7. Understanding** | Diagnostic history, held-out examinations, comparisons, shareable report and optional frozen-policy viewer | Quietly influence learning or declare reward equal to walking | `rollout_metrics.py`, `evaluation.py`, `results.py`, `policy_export.py`, `viewer_src/` |
 
@@ -133,8 +133,7 @@ to add Python wrappers around JIT kernels or undo efficient fused MJX scans.
 
 ## Current gaps (not hidden)
 
-- `environment.py` still mixes task sampling, physics, sensory packets and
-  reward invocation; the ownership boundary is not yet clean.
+- `tasks.py` now owns command/lesson sampling and transition timing; `environment.py` owns physical reset, steps and sensor construction. The sampler uses a stateless mixin and shares the same JAX/model/config state. Command ramp *application* still happens inside the physics step and remains future cleanup work.
 - `training.py` is still a long function combining loop control, curriculum,
   learning health, snapshot recovery, fixed exams, logging and finalisation.
 - `ppo.py` still houses **read-only** exam kernels alongside training maths.
