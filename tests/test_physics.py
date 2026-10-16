@@ -46,7 +46,7 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
                   sensor_noise_scale=0.,attitude_profile='v5015')
     # E2: shared birth/transition envelope preserves exact seed/frontier
     # arithmetic and field-taught birth provenance in the REAL JAX sampler.
-    from emu.tasks import T
+    from emu.environment import T
     from emu.contracts import P, SEED_VX_HI, SEED_VX_LO, FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE
     for adaptive in (False, True):
         # No additional MuJoCo world needed for this deterministic JAX
