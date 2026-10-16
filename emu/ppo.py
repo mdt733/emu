@@ -15,7 +15,7 @@ import numpy as np
 
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
 from .environment import T
-from .gait_exam import contact_pair_mask
+from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 from .tracking_contract import (

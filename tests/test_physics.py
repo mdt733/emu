@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 from emu.environment import servo_effort_metrics
-from emu.gait_exam import evaluate_trace_arrays
+from emu.directional import evaluate_trace_arrays
 
 def test_stall_can_require_torque_without_mechanical_shaft_power():
     tau = np.full((2, 6), 1.913, dtype=np.float32)

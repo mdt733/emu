@@ -16,7 +16,7 @@ import subprocess
 import numpy as np
 
 from .contracts import OBS_DIM
-from .gait_exam import evaluate_trace_arrays
+from .directional import evaluate_trace_arrays
 from .command_exams import SCENARIOS, make_schedule
 
 
