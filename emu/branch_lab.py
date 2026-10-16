@@ -235,7 +235,7 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
         run_dirs.append(root / round_name / name)
     # All candidates are judged in the SAME deterministic v5015 environment:
     # independent of their own teacher, domain severity or training pitch limit.
-    from .screening import evaluate_runs
+    from .evaluation import evaluate_runs
     raw = evaluate_runs(run_dirs, envs=screen_envs, horizon=screen_horizon,
                         device=device, eval_pitch_deg=SCREEN_PITCH_DEG)
     rows = [score_row(name, raw[name]) for name in names]
