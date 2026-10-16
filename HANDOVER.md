@@ -41,6 +41,8 @@ Turn EMU into a robot-learning system that reads like a book. The scientific goa
 
 - **Pass D2 (code staged, CI pending):** extracted the fixed-policy exam/write logic into `evaluation.record_fixed_exam` and capability-cloud panel/calibration logic into `capability_cloud.record_capability_cloud_exam`. `training.py` keeps the original exam timing and snapshot selection, while exam owners write held-out evidence and guard teaching-field immutability. The checkpoint metadata and 20-test limit are unchanged. Main training file is now 787 lines. D3 next: logging and periodic checkpoint publication.
 
+- **Pass D3 (code staged, CI pending):** metric row construction, field-influence annotations and periodic/final report/field-artifact writing are now owned by `artifacts.py`; report schemas and the final checkpoint-before-field-publication order stay unchanged. The delivery contract test was strengthened, with 20 tests retained. `training.py` is now 750 lines. D4: recovery and remaining PPO orchestration; fresh isolated CUDA still outstanding.
+
 ## Physical path and invariants
 
 1. EmuMJXEnv loads robot.xml and builds batched JAX/MJX model variations once per run.
@@ -55,7 +57,7 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 
 ## What to do next (the next 'keep going')
 
-**Pass D3:** Continue making `training.py` read top-to-bottom; consolidate periodic log/checkpoint duplication without hiding the training loop. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
+**Pass D4:** Review recovery and PPO/update lifecycle without weakening exact rollback, logging or source provenance. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
 
 After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rewards and honest telemetry, readable training lifecycle, curriculum/capability, meta-experiments, reports/viewer, then isolated GPU acceptance.
 
@@ -69,4 +71,4 @@ After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rew
 
 ## Paste into a new chat
 
-> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently D3), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
+> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently D4), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.

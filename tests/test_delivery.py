@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from emu import branch_lab as lab
 from emu import results
+from emu.artifacts import append_training_observation, write_capability_field_artifacts
 from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
 from emu.ppo import PPO_HIDDEN_SIZES, build_obs_norm_mask
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +112,35 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
         assert 'round1_scoreboard.json' in names
         assert all(not name.endswith(('.pkl','console.log')) for name in names)
     assert results.write_report(root)  # harmless regeneration
+
+    # The periodic/final metrics and field exports use one owner and schema.
+    class FakeField:
+        def save_npz(self, path):
+            path.write_bytes(b'field')
+        def write_summary(self, path, **values):
+            path.write_text(json.dumps(values), encoding='utf-8')
+
+    output = tmp_path / 'training_artifacts'
+    output.mkdir()
+    envelope = {'field_node_frac': 0.25, 'field_edge_frac': 0.1,
+                'field_large_internal': 123}
+    append_training_observation(
+        output, step=40, params=envelope, report={'competence': 0.7},
+        metrics_row={'step': 40, 'reward_mean': 0.5})
+    append_training_observation(
+        output, step=80, params=envelope, report={'competence': 0.8},
+        metrics_row={'step': 80, 'reward_mean': 0.6})
+    with (output / 'metrics.csv').open(newline='') as stream:
+        assert [int(row['step']) for row in csv.DictReader(stream)] == [40, 80]
+    assert json.loads((output / 'envelope_summary.json').read_text())['params'] == {
+        'field_node_frac': 0.25, 'field_edge_frac': 0.1}
+    for label in ('latest', 'final'):
+        write_capability_field_artifacts(
+            output, FakeField(), step=80, mode='shadow',
+            params=envelope, label=label)
+        assert (output / f'capability_field_{label}.npz').read_bytes() == b'field'
+    assert json.loads((output / 'capability_field_summary.json').read_text())['node_frac'] == 0.25
+
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js needed for browser parity')
 def test_exported_actor_matches_browser_inference():

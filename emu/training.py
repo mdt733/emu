@@ -48,7 +48,11 @@ from .health import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend
-from .artifacts import ensure_run_dir, write_json, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
+from .artifacts import (
+    ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
+    attach_field_influence, make_metrics_row, append_training_observation,
+    write_capability_field_artifacts,
+)
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
     EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
@@ -100,43 +104,6 @@ def env_kwargs_from_args(args) -> dict:
         ),
     )
 
-
-def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> None:
-    """Attach the teaching influence that generated the next task packet.
-
-    Periodic and final metrics rows must share one schema. Keeping this in one
-    helper prevents the final-row path from silently omitting these fields.
-    """
-    report['field_node_influence'] = float(params.get('field_node_frac', 0.0))
-    report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
-
-
-def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
-                     reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
-                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
-                     base_lr: float = PPO_LR) -> dict[str, Any]:
-    """Canonical metrics.csv schema for periodic and final rows."""
-    return {
-        'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
-        'reward_mean': reward, **row, **report,
-        'backend': 'mjx', 'jax_backend': jax_backend, 'num_envs': num_envs, 'rollout': ROLLOUT_STEPS,
-        'ppo_policy_loss': float(np.asarray(aux.get('policy_loss', 0.0))),
-        'ppo_value_loss': float(np.asarray(aux.get('value_loss', 0.0))),
-        'ppo_entropy': float(np.asarray(aux.get('entropy', 0.0))),
-        'ppo_approx_kl': float(np.asarray(aux.get('approx_kl', 0.0))),
-        'ppo_policy_loss_finite_frac': float(np.asarray(aux.get('policy_loss_finite', 1.0))),
-        'ppo_value_loss_finite_frac': float(np.asarray(aux.get('value_loss_finite', 1.0))),
-        'ppo_kl_stopped_frac': float(np.asarray(aux.get('kl_stopped', 0.0))),
-        'ppo_approx_kl_final': float(np.asarray(aux.get('approx_kl_final', 0.0))),
-        'ppo_lr_scale': float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_effective_lr': base_lr * float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_action_clip_frac': float(np.asarray(aux.get('action_clip_frac', 0.0))),
-        'ppo_adv_tail_frac': float(np.asarray(aux.get('adv_tail_frac', 0.0))),
-        'explained_variance': float(np.asarray(aux.get('explained_variance', 0.0))),
-        'exploration_std_mean': float(np.asarray(aux.get('exploration_std_mean', 0.0))),
-        'nan_grad_skips_total': nan_grad_skips,
-        **perf_row,
-    }
 
 # ---------------------------------------------------------------------------
 # Run modes.
@@ -613,13 +580,11 @@ def train(args: TrainingConfig) -> int:
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
                 jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
-            append_metrics_csv(run_dir / 'metrics.csv', log_row)
-            write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': log_row})
-            field.save_npz(run_dir / 'capability_field_latest.npz')
-            field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
-                                mode=args.capability_field_mode,
-                                node_frac=float(params.get('field_node_frac',0.0)),
-                                edge_frac=float(params.get('field_edge_frac',0.0)))
+            append_training_observation(
+                run_dir, step=total_steps, params=params, report=report, metrics_row=log_row)
+            write_capability_field_artifacts(
+                run_dir, field, step=total_steps, mode=args.capability_field_mode,
+                params=params, label='latest')
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
@@ -748,8 +713,8 @@ def train(args: TrainingConfig) -> int:
         reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
-    append_metrics_csv(run_dir / 'metrics.csv', final_row)
-    write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': final_row})
+    append_training_observation(
+        run_dir, step=total_steps, params=params, report=report, metrics_row=final_row)
     final_ck_timing = save_checkpoint(
         run_dir / 'checkpoints' / 'latest.pkl', state,
         {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale},
@@ -763,11 +728,9 @@ def train(args: TrainingConfig) -> int:
     perf.add('checkpoint_final_total', final_ck_timing['total_s'])
     promote_checkpoint(run_dir / 'checkpoints' / 'latest.pkl',
                        run_dir / 'checkpoints' / 'final.pkl')
-    field.save_npz(run_dir / 'capability_field_final.npz')
-    field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
-                        mode=args.capability_field_mode,
-                        node_frac=float(params.get('field_node_frac',0.0)),
-                        edge_frac=float(params.get('field_edge_frac',0.0)))
+    write_capability_field_artifacts(
+        run_dir, field, step=total_steps, mode=args.capability_field_mode,
+        params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
     print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)

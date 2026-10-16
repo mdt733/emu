@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from .training_config import PPO_LR, ROLLOUT_STEPS
+
 
 def ensure_run_dir(path: Path) -> None:
     (path / 'checkpoints').mkdir(parents=True, exist_ok=True)
@@ -108,3 +111,71 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
              f"teach(node/edge)={report.get('field_node_influence',0.0):.2f}/{report.get('field_edge_influence',0.0):.2f}")
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
+
+
+def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> None:
+    """Attach the teaching influence that generated the next task packet.
+
+    Periodic and final metrics rows must share one schema. Keeping this in one
+    helper prevents the final-row path from silently omitting these fields.
+    """
+    report['field_node_influence'] = float(params.get('field_node_frac', 0.0))
+    report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
+
+
+def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
+                     reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
+                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
+                     base_lr: float = PPO_LR) -> dict[str, Any]:
+    """Canonical metrics.csv schema for periodic and final rows."""
+    return {
+        'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
+        'reward_mean': reward, **row, **report,
+        'backend': 'mjx', 'jax_backend': jax_backend, 'num_envs': num_envs, 'rollout': ROLLOUT_STEPS,
+        'ppo_policy_loss': float(np.asarray(aux.get('policy_loss', 0.0))),
+        'ppo_value_loss': float(np.asarray(aux.get('value_loss', 0.0))),
+        'ppo_entropy': float(np.asarray(aux.get('entropy', 0.0))),
+        'ppo_approx_kl': float(np.asarray(aux.get('approx_kl', 0.0))),
+        'ppo_policy_loss_finite_frac': float(np.asarray(aux.get('policy_loss_finite', 1.0))),
+        'ppo_value_loss_finite_frac': float(np.asarray(aux.get('value_loss_finite', 1.0))),
+        'ppo_kl_stopped_frac': float(np.asarray(aux.get('kl_stopped', 0.0))),
+        'ppo_approx_kl_final': float(np.asarray(aux.get('approx_kl_final', 0.0))),
+        'ppo_lr_scale': float(np.asarray(aux.get('lr_scale', 1.0))),
+        'ppo_effective_lr': base_lr * float(np.asarray(aux.get('lr_scale', 1.0))),
+        'ppo_action_clip_frac': float(np.asarray(aux.get('action_clip_frac', 0.0))),
+        'ppo_adv_tail_frac': float(np.asarray(aux.get('adv_tail_frac', 0.0))),
+        'explained_variance': float(np.asarray(aux.get('explained_variance', 0.0))),
+        'exploration_std_mean': float(np.asarray(aux.get('exploration_std_mean', 0.0))),
+        'nan_grad_skips_total': nan_grad_skips,
+        **perf_row,
+    }
+
+
+def append_training_observation(
+    run_dir: Path, *, step: int, params: dict[str, Any],
+    report: dict[str, Any], metrics_row: dict[str, Any],
+) -> None:
+    """Identical metrics/envelope output for intermediate and final records."""
+    append_metrics_csv(run_dir / 'metrics.csv', metrics_row)
+    write_json(run_dir / 'envelope_summary.json', {
+        'step': step,
+        'params': {k: v for k, v in params.items()
+                   if not k.startswith('field_') or k.endswith('_frac')},
+        'report': report,
+        'last_row': metrics_row,
+    })
+
+
+def write_capability_field_artifacts(
+    run_dir: Path, field: Any, *, step: int, mode: str,
+    params: dict[str, Any], label: str,
+) -> None:
+    """Write latest/final field snapshot with one canonical summary."""
+    if label not in ('latest', 'final'):
+        raise ValueError(f"unknown field artifact label: {label}")
+    field.save_npz(run_dir / f'capability_field_{label}.npz')
+    field.write_summary(
+        run_dir / 'capability_field_summary.json', step=step, mode=mode,
+        node_frac=float(params.get('field_node_frac', 0.0)),
+        edge_frac=float(params.get('field_edge_frac', 0.0)),
+    )
