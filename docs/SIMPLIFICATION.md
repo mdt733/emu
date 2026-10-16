@@ -73,12 +73,12 @@ The current 20 software checks only show contract compatibility.
   **G2 software CI passed:** eligible leaders, comparison margin and disqualifying
   reasons use previously saved common-screen evidence, never training rewards;
   [CI 38849179351](https://github.com/mdt733/emu/actions/runs/38849179351).
-  **G3 code committed; CI pending:** manual browser policy is now frozen per
+  **G3 software CI passed:** [38851431010](https://github.com/mdt733/emu/actions/runs/38851431010), after correcting the browser HTTP test to treat header names case-insensitively. manual browser policy is now frozen per
   viewer session. Extended the browser parity test to probe loopback HTTP,
   no-store policy bytes, wasm MIME and disabled live refresh. The separate
   capability-map, MuJoCo viewer and live watcher remain distinct. **Gate:** packaged actor parity,
   validated policy source and independent physical examiner.
-- [ ] **H. Release-level confidence.** **H1 source committed; CI pending:**
+- [ ] **H. Release-level confidence.** **H1 software CI passed:** [38851523301](https://github.com/mdt733/emu/actions/runs/38851523301).
   the existing three-stage `scripts/smoke_training_lifecycle.py` is the
   authoritative GPU gate, NOT a new wrapper. The 256-step first PPO update,
   512-step external continuation, fixed exams, telemetry, no-op completion and
@@ -121,6 +121,8 @@ Answer in this order:
 | `54c8cf0` | F2: scorecard markdown owned by offline reporter | [CI passed](https://github.com/mdt733/emu/actions/runs/38848378302): 16 Python + 4 browser; no CUDA |
 | `24957ac` | G1: honest narrative of on-policy measured trends | [CI passed](https://github.com/mdt733/emu/actions/runs/38848806810): 16 Python + 4 browser; no CUDA |
 | `6194eea` | G2: common-screen comparison story, no promotion changes | [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351): 16 Python + 4 browser; no CUDA |
+| `8ddf73b` | Pass G3: fixed manual-policy viewer snapshot; actual HTTP/WASM/no-store contract | [Corrected CI passed](https://github.com/mdt733/emu/actions/runs/38851431010): 16 Python + 4 browser, viewer build |
+| `36fd554` | Pass H1: pin both existing GPU smoke stages to source SHA before verify/export | [CI passed](https://github.com/mdt733/emu/actions/runs/38851523301): 16 Python + 4 browser; **CUDA lifecycle not executed** |
 | `18b566d` | Baseline v5016 experimental branch, 20 retained checks | CI: 16 Python + 4 browser passed |
 | `d2abc8b` | Pass A: seven-layer framework, reward rename, readable entry points and single worklist | [GitHub CI 38834067868](https://github.com/mdt733/emu/actions/runs/38834067868): **16 Python + 4 browser passed**, build passed; no GPU run |
 | `3102062` | Pass B1: separate lesson sampler into `tasks.py`, keep same RNG and physics; add root `HANDOVER.md` | [GitHub CI 38835597285](https://github.com/mdt733/emu/actions/runs/38835597285): 16 Python + 4 browser passed; viewer build passed; GPU run still required |
