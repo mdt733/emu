@@ -31,7 +31,7 @@ The current 20 software checks only show contract compatibility.
   verification requirements. Rename the misleading `scoring.py` training
   reward module to `rewards.py` without altering numbers. Simplify the
   main documentation entry point. **Status: complete; 16 Python + 4 browser checks and viewer build passed on `d2abc8b`.**
-- [ ] **B. Make the universe legible.** **B1 verified:** task generator and schema moved to `emu/tasks.py` with original JAX methods and RNG split order. [CI](https://github.com/mdt733/emu/actions/runs/38835597285) passed 16 Python + four browser tests. **B2 pending:** make the physical step/reset flow easier to read. Trace one `reset → task → step →
+- [ ] **B. Make the universe legible.** **B1 verified:** task generator and schema moved to `emu/tasks.py` with original JAX methods and RNG split order. [CI](https://github.com/mdt733/emu/actions/runs/38835597285) passed 16 Python + four browser tests. **B2 code prepared, CI pending:** `_step_impl` is a readable five-stage control frame, `_reset_with_keys` composes task → birth physics → initial observation, and `tasks.py` advances transition commands. Same RNG, reward timing, 220-input actor and auto-reset rules; independent CUDA smoke still outstanding. Trace one `reset → task → step →
   physical observation` path; group `environment.py` by actual
   responsibilities. Separate task sampling from physics where it reduces
   coupling; keep batched model leaves and JIT behaviour efficient. Clearly
@@ -86,11 +86,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass B2**: read `emu/environment.py` from `_reset_with_keys` through
-`_step_impl` and `_base_obs`. Produce a small causal map of task packets,
-batched model variation and physical sensors. Refactor one full path, rather
-than renaming functions or manufacturing helper layers. Update the pass
-checkbox and architecture gap list only when code and CI agree.
+**Pass C**: examine the reward/telemetry seam. `rewards.py` owns the scalar teaching payment; `environment._metrics` owns physical measurements and `rollout_metrics.py` owns independent reductions. Remove duplication and improve the reward ledger's readability **without changing its eight payments, fall penalty, NaN protection or actor observation contract**. Finish B's CUDA gate separately on a fresh run root before release.
 
 ## Evidence ledger
 

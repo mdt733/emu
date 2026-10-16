@@ -156,6 +156,20 @@ class EnvState(NamedTuple):
     push_steps_left: Any
 
 
+class PhysicalFrame(NamedTuple):
+    """One applied servo frame; teacher commands are advanced separately."""
+    data: Any
+    action: Any
+    raw_target: Any
+    delivered_ctrl: Any
+    push_force: Any
+    push_steps_left: Any
+    diverged: Any
+    next_keys: Any
+    reset_keys: Any
+    resample_keys: Any
+
+
 class StepOut(NamedTuple):
     state: EnvState
     obs: Any
@@ -463,6 +477,137 @@ class EmuMJXEnv(TaskSampler):
         return state._replace(step_i=step_i)
 
     def _step_impl(self, state: EnvState, action, params) -> StepOut:
+        """Advance a control frame and publish a truthful PPO transition.
+
+        Physics first; lesson timing second; then score the command visible
+        when the actor chose this action, record the next observation, and
+        reset only worlds whose episodes ended.
+        """
+        jnp = self.jnp
+
+        # 1. The robot moves in the physical world.
+        physics = self._simulate_physics(state, action, params)
+        data = physics.data
+        action = physics.action
+        ctrl = physics.delivered_ctrl
+        raw_target = physics.raw_target
+
+        step_i = state.step_i + 1
+        phase = (state.phase + CONTROL_DT * state.task[:, T.phase_rate] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
+
+        # 2. The teacher advances the NEXT request; it cannot rewrite the
+        # instruction the actor already saw when choosing this action.
+        lesson = self._advance_commands(state, params, physics.resample_keys)
+        task = lesson.task
+        task_for_state = lesson.stored_task
+        ramp_frac = lesson.ramp_frac
+        transition_active = lesson.transition_active
+        cmd_resampled = lesson.cmd_resampled
+        physics_diverged = physics.diverged
+
+        # 3. Measure the physical result, then reward the PREVIOUS command.
+        # The ramped command is for the next observation, never this payment.
+        reward_task = state.task
+        metrics = self._metrics(data, reward_task, action, state.prev_action, phase, state.prev_foot_pos)
+        # Gate freezing against previous activity, not this one stance frame.
+        stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
+        # ramp_frac tracks command-change difficulty. Real episode age is
+        # ep_len; step_i is deliberately staggered for timeout diversity.
+        metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
+                  'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
+        reward, terms = training_reward(
+            metrics, reward_task[:, T.regime],
+            attitude_profile=self.attitude_profile, xp=jnp)
+        timeout = step_i >= self.max_episode_steps
+        # Even after rollback, a diverged world must terminate and respawn.
+        terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
+        done = jnp.logical_or(terminal_fail, timeout)
+        # Penalise premature falls, not successful timeouts. Use true age
+        # (ep_len), never the intentionally staggered timeout clock (step_i).
+        episode_age_steps = state.ep_len + 1.0
+        reward, fall_payment = apply_early_fall_penalty(
+            reward, terminal_fail, episode_age_steps, self.max_episode_steps, xp=jnp)
+
+        ep_return = state.ep_return + reward
+        ep_len = state.ep_len + 1.0
+        ep_vx_sum = state.ep_vx_sum + metrics['vx']
+        ep_cmd_vx_sum = state.ep_cmd_vx_sum + metrics['cmd_vx']
+        ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
+        ep_support_sum = state.ep_support_sum + metrics['support']
+        ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+
+        # 4. Publish the NEXT actor observation; preserve the pre-reset
+        # observation separately for PPO bootstrap.
+        base = self._base_obs(data, task, action, phase, ctrl)
+        hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
+        bootstrap_obs = hist.reshape((self.num_envs, OBS_DIM))
+        # carryover_qvel is this step's own (already divergence-safe)
+        # qvel -- see the docstring on _reset_with_keys.
+        reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
+
+        def choose(reset_val, step_val):
+            if hasattr(step_val, 'shape') and len(step_val.shape) > 0 and step_val.shape[0] == self.num_envs:
+                mask = done.reshape((self.num_envs,) + (1,) * (len(step_val.shape) - 1))
+                return jnp.where(mask, reset_val, step_val)
+            return step_val
+
+        stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
+                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
+                           lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
+                           physics.push_force, physics.push_steps_left)
+        new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
+        obs = self.obs(new_state)
+        denom = jnp.maximum(ep_len, 1.0)
+        # 5. Report independent facts, splitting ramping from steady holding.
+        ramping = transition_active.astype(jnp.float32)
+        resampled = cmd_resampled.astype(jnp.float32)
+        steady = 1.0 - ramping
+        vx_err = jnp.abs(metrics['vx'] - metrics['cmd_vx'])
+        vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
+        yaw_err = jnp.abs(metrics['yaw_rate'] - metrics['cmd_yaw'])
+        out_metrics = {
+            **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
+            'transition_frac': ramping,
+            'cmd_resampled': resampled,
+            # One maneuver verdict per source-to-target transition. These
+            # diagnostics never enter actor observations or reward.
+            'target_cmd_vx': state.cmd_target[:, 0],
+            'target_cmd_vy': state.cmd_target[:, 1],
+            'target_cmd_yaw': state.cmd_target[:, 2],
+            'transition_ramp_speed': state.cmd_ramp_speed,
+            'transition_vx_err': vx_err * ramping, 'transition_vy_err': vy_err * ramping,
+            'transition_yaw_err': yaw_err * ramping,
+            'steady_vx_err': vx_err * steady, 'steady_vy_err': vy_err * steady,
+            'steady_yaw_err': yaw_err * steady,
+            **{f'reward_{k}': v for k, v in terms.items()},
+            'reward_weighted_fall_penalty': fall_payment,
+            'episode_done': done.astype(jnp.float32),
+            'episode_length': ep_len,
+            'episode_return': ep_return,
+            'episode_fell': terminal_fail.astype(jnp.float32),
+            'episode_timeout': timeout.astype(jnp.float32),
+            'episode_vx_mean': ep_vx_sum / denom,
+            'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
+            'episode_bad_contact': ep_bad_sum / denom,
+            'episode_support': ep_support_sum / denom,
+        }
+        return StepOut(
+            new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
+            # Defense in depth: the rollback above is the real fix for
+            # physics divergence specifically, this is just insurance in
+            # case some other numeric path ever goes non-finite -- cheap,
+            # and guarantees NaN can never reach a PPO batch/gradient from
+            # this function.
+            {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
+        )
+
+    def _simulate_physics(self, state: EnvState, action, params) -> PhysicalFrame:
+        """Deliver the last servo target, apply pushes, and advance MJX.
+
+        Returns post-step finite physics, event-specific RNG keys and the next
+        raw servo command. Diverged worlds are rolled back *before* metrics
+        read them, then marked for a real reset by _step_impl.
+        """
         jax, jnp, mjx = self.jax, self.jnp, self.mjx
         action = jnp.clip(action, -1.0, 1.0)
         raw_target = self.home_target + action * self.target_span
@@ -527,25 +672,10 @@ class EmuMJXEnv(TaskSampler):
             return self.step_batched(self.mjx_model, d)
         data = jax.lax.fori_loop(0, CONTROL_SUBSTEPS, substep, data)
 
-        # Physics occasionally goes non-finite (NaN/Inf in qpos/qvel) on a
-        # long run -- rare, exact trigger not pinned down, but worth
-        # guarding against unconditionally rather than assuming it can't
-        # happen. Every fall/termination check below (fall_height,
-        # fall_tilt, fall_roll_rate, fall_pitch_rate) is a plain threshold
-        # comparison, and IEEE-754 defines ANY comparison against NaN as
-        # False. That makes a diverged env UNKILLABLE without this guard:
-        # it can never be flagged as fallen, so it would silently time out
-        # every episode forever, poisoning every batch-wide statistic --
-        # and once such a transition enters a PPO update, the shared
-        # network's gradient (a batch-wide reduction) goes NaN and the
-        # optimizer writes that into every weight, permanently.
-        #
-        # Fix: detect non-finite qpos/qvel immediately, from the raw
-        # physics state, before anything else touches it. Roll the affected
-        # envs' `data` back to their pre-step (still-finite) state -- so
-        # every metric/reward/observation computed below for them is clean
-        # -- and force those envs into `terminal_fail` below, so they get a
-        # real reset (like any other fall) instead of running broken.
+        # Non-finite MJX qpos/qvel can bypass every fall comparison (NaN
+        # compares false), poison the shared PPO gradient and survive forever.
+        # Restore that world's last finite state *before* measuring anything;
+        # _step_impl will then terminate it and perform a normal reset.
         physics_diverged = jnp.logical_or(
             jnp.any(~jnp.isfinite(data.qpos), axis=1),
             jnp.any(~jnp.isfinite(data.qvel), axis=1),
@@ -556,194 +686,12 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, pre, post)
             return post
         data = jax.tree_util.tree_map(_rollback_diverged, state.data, data)
-        step_i = state.step_i + 1
-        phase = (state.phase + CONTROL_DT * state.task[:, T.phase_rate] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
-
-        # Command-transition dynamics: ramps the *tracked* command
-        # (task[:, VX/VY/YAW], which every other function below reads)
-        # smoothly toward an occasionally-resampled target instead of
-        # Command hold/ramp timing tightens with transition difficulty. The
-        # A transition is defined by the PRE-advance ramp state.  This is
-        # crucial at the digital limit: when ramp_speed==1 a newly-resampled
-        # command advances 0->1 in one control frame, so testing ramp_frac<1
-        # only *after* the advance made the sharpest maneuver invisible.
-        transition_active = state.cmd_ramp_frac < 1.0
-        cmd_resampled = transition_active & (state.cmd_ramp_frac <= 1e-6) & (state.cmd_ramp_speed > 0.0)
-        ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
-        cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
-        task = state.task.at[:, T.vx].set(cmd_now[:, 0]).at[:, T.vy].set(cmd_now[:, 1]).at[:, T.yaw].set(cmd_now[:, 2])
-        if self.attitude_profile == 'v5015':
-            task = task.at[:, T.pitch].set(cmd_now[:, 3])
-
-        hold_left = state.cmd_hold_left - 1
-        should_resample = hold_left <= 0
-        rk_target, rk_hold, rk_ramp = self._split_batch(resample_keys, 3)
-        # Only TRANSITION-regime envs ever have a finite cmd_hold_left (see
-        # _init_transition_state) -- STEADY/RESILIENCE's INFINITE_HOLD_STEPS
-        # means should_resample is always False for them, so new_target/
-        # new_hold below are computed for every env (vmap has no branch)
-        # but only ever actually USED where should_resample is True, i.e.
-        # only ever for TRANSITION envs.
-        new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now[:, :3])
-        if self.attitude_profile == 'v5015':
-            pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
-            pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
-            pitch_draws = jax.vmap(lambda k: jax.random.uniform(k, (), minval=-1.0, maxval=1.0))(pitch_keys)
-            new_target = jnp.concatenate((new_target, (pitch_draws * pitch_range)[:, None]), axis=1)
-        hold_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_hold)
-        ramp_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_ramp)
-        min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
-        if self.open_frontier:
-            min_hold_s = jnp.maximum(CONTROL_DT, params[P.frontier_transition_hold_s])
-        hold_min = min_hold_s / CONTROL_DT  # steps
-        new_hold = jnp.maximum(1.0, jnp.round(hold_min * (0.6 + 0.4 * hold_draw))).astype(jnp.int32)
-        if self.open_frontier:
-            # Explicit acceleration frontier: ramp duration is a real count of
-            # 20ms control frames and may shrink toward one frame, the natural
-            # digital limit. No arbitrary locomotion-speed ceiling is involved.
-            ramp_min = jnp.maximum(1.0, params[P.frontier_ramp_steps])
-            new_ramp_steps = jnp.maximum(1.0, jnp.round(ramp_min * (0.75 + 0.50 * ramp_draw)))
-        else:
-            trans_frac = (TRANSITION_HOLD_MAX_S - min_hold_s) / (TRANSITION_HOLD_MAX_S - TRANSITION_HOLD_MIN_S)
-            ramp_min = TRANSITION_RAMP_MIN_STEPS + (1.0 - trans_frac) * (TRANSITION_RAMP_MAX_STEPS - TRANSITION_RAMP_MIN_STEPS)
-            new_ramp_steps = jnp.maximum(1.0, jnp.round(ramp_min * (0.5 + 0.5 * ramp_draw)))
-        new_ramp_speed = 1.0 / new_ramp_steps
-
-        cmd_target_next = jnp.where(should_resample[:, None], new_target, state.cmd_target)
-        cmd_ramp_from_next = jnp.where(should_resample[:, None], cmd_now, state.cmd_ramp_from)
-        cmd_ramp_frac_next = jnp.where(should_resample, 0.0, ramp_frac)
-        cmd_ramp_speed_next = jnp.where(should_resample, new_ramp_speed, state.cmd_ramp_speed)
-        cmd_hold_left_next = jnp.where(should_resample, new_hold, hold_left).astype(jnp.int32)
-        # Provenance follows the newly-selected transition target from the next
-        # state onward.  It never enters actor observation or reward.
-        task_for_state = task.at[:, T.field_taught].set(
-            jnp.where(should_resample, new_field_taught, task[:, T.field_taught]))
-
-        # Score this action against the command it actually OBSERVED. `task`
-        # above is the next-step command after advancing the transition ramp;
-        # using it here punishes an action for information not present in its
-        # input. The next observation still receives `task`, below.
-        reward_task = state.task
-        metrics = self._metrics(data, reward_task, action, state.prev_action, phase, state.prev_foot_pos)
-        # Stepping-activity-so-far, injected into metrics before _reward
-        # runs so the reward's anti-freezing gate can see it. Uses the
-        # PRE-this-step accumulator (how the episode has looked up to but
-        # not including now) -- correct, not an off-by-one: a step
-        # currently in a normal stance phase shouldn't be judged on its own
-        # instantaneous zero-lift, only on the episode's broader pattern.
-        stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
-        # ramp_frac (computed above, moving cmd_now toward cmd_target) is
-        # also injected into metrics here, alongside age_s/
-        # stepping_activity_so_far, so _reward can weight TRANSITION's
-        # tracking term differently while a command change is actually in
-        # flight -- training directly on "how well and how quickly it
-        # transitions", not just measuring it after the fact.
-        # Episode AGE comes from ep_len, not step_i: step_i is the timeout clock
-        # and is staggered on full resets (see _reset_impl); ep_len always
-        # starts at 0, so settle/stepping-gate grace stay honest either way.
-        metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
-                  'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
-        reward, terms = training_reward(
-            metrics, reward_task[:, T.regime],
-            attitude_profile=self.attitude_profile, xp=jnp)
-        timeout = step_i >= self.max_episode_steps
-        # physics_diverged forces a real termination even though the
-        # rollback above already made this step's own metrics/reward clean --
-        # without this, a once-diverged env would just keep silently
-        # rolling back to the same pre-divergence state forever, never
-        # resetting, never producing a usable episode again.
-        terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
-        done = jnp.logical_or(terminal_fail, timeout)
-        # A fall must make the whole short episode unprofitable, especially
-        # near reset, or a policy can learn to launch forward, get paid for
-        # short-lived velocity tracking, then die. Timeouts are not
-        # punished; they mean the agent survived the full episode.
-        # Episode AGE is ep_len, not the deliberately staggered timeout
-        # clock step_i. Using step_i made otherwise-identical early falls pay
-        # different penalties depending on the random timeout offset.
-        episode_age_steps = state.ep_len + 1.0
-        reward, fall_payment = apply_early_fall_penalty(
-            reward, terminal_fail, episode_age_steps, self.max_episode_steps, xp=jnp)
-
-        ep_return = state.ep_return + reward
-        ep_len = state.ep_len + 1.0
-        ep_vx_sum = state.ep_vx_sum + metrics['vx']
-        ep_cmd_vx_sum = state.ep_cmd_vx_sum + metrics['cmd_vx']
-        ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
-        ep_support_sum = state.ep_support_sum + metrics['support']
-        ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
-
-        base = self._base_obs(data, task, action, phase, ctrl)
-        hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
-        bootstrap_obs = hist.reshape((self.num_envs, OBS_DIM))
-        # carryover_qvel is this step's own (already divergence-safe)
-        # qvel -- see the docstring on _reset_with_keys.
-        reset_state = self._reset_with_keys(reset_keys, params, carryover_qvel=data.qvel)
-
-        def choose(reset_val, step_val):
-            if hasattr(step_val, 'shape') and len(step_val.shape) > 0 and step_val.shape[0] == self.num_envs:
-                mask = done.reshape((self.num_envs,) + (1,) * (len(step_val.shape) - 1))
-                return jnp.where(mask, reset_val, step_val)
-            return step_val
-
-        stepped = EnvState(data, hist, next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
-                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
-                           cmd_target_next, cmd_ramp_from_next, cmd_ramp_frac_next, cmd_ramp_speed_next, cmd_hold_left_next,
-                           push_force, push_steps_left)
-        new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
-        obs = self.obs(new_state)
-        denom = jnp.maximum(ep_len, 1.0)
-        # Command-TRANSITION tracking metrics. Whole-rollout summaries
-        # cannot distinguish steady holding from following a changing command.
-        # `ramping` marks the steps
-        # where the tracked command is mid-ramp toward a freshly resampled
-        # target (ramp_frac < 1, computed above); errors are split by that
-        # mask so summarize_rollout can report tracking error DURING
-        # transitions vs. during steady holds separately.
-        ramping = transition_active.astype(jnp.float32)
-        resampled = cmd_resampled.astype(jnp.float32)
-        steady = 1.0 - ramping
-        vx_err = jnp.abs(metrics['vx'] - metrics['cmd_vx'])
-        vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
-        yaw_err = jnp.abs(metrics['yaw_rate'] - metrics['cmd_yaw'])
-        out_metrics = {
-            **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
-            'transition_frac': ramping,
-            'cmd_resampled': resampled,
-            # Maneuver-event instrumentation describes the target
-            # and commanded ramp rate associated with the command the actor is
-            # currently observing.  They are training diagnostics only; they do
-            # not enter the actor observation or reward.  The capability field
-            # uses them to issue ONE verdict per complete source->target
-            # maneuver rather than frame-by-frame pseudo trials.
-            'target_cmd_vx': state.cmd_target[:, 0],
-            'target_cmd_vy': state.cmd_target[:, 1],
-            'target_cmd_yaw': state.cmd_target[:, 2],
-            'transition_ramp_speed': state.cmd_ramp_speed,
-            'transition_vx_err': vx_err * ramping, 'transition_vy_err': vy_err * ramping,
-            'transition_yaw_err': yaw_err * ramping,
-            'steady_vx_err': vx_err * steady, 'steady_vy_err': vy_err * steady,
-            'steady_yaw_err': yaw_err * steady,
-            **{f'reward_{k}': v for k, v in terms.items()},
-            'reward_weighted_fall_penalty': fall_payment,
-            'episode_done': done.astype(jnp.float32),
-            'episode_length': ep_len,
-            'episode_return': ep_return,
-            'episode_fell': terminal_fail.astype(jnp.float32),
-            'episode_timeout': timeout.astype(jnp.float32),
-            'episode_vx_mean': ep_vx_sum / denom,
-            'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
-            'episode_bad_contact': ep_bad_sum / denom,
-            'episode_support': ep_support_sum / denom,
-        }
-        return StepOut(
-            new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
-            # Defense in depth: the rollback above is the real fix for
-            # physics divergence specifically, this is just insurance in
-            # case some other numeric path ever goes non-finite -- cheap,
-            # and guarantees NaN can never reach a PPO batch/gradient from
-            # this function.
-            {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
+        return PhysicalFrame(
+            data=data, action=action, raw_target=raw_target,
+            delivered_ctrl=ctrl, push_force=push_force,
+            push_steps_left=push_steps_left, diverged=physics_diverged,
+            next_keys=next_keys, reset_keys=reset_keys,
+            resample_keys=resample_keys,
         )
 
     def _quat_mul(self, q1, q2):
@@ -761,26 +709,18 @@ class EmuMJXEnv(TaskSampler):
         z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
         return jnp.stack([w, x, y, z], axis=-1)
 
-    def _reset_with_keys(self, keys, params, carryover_qvel=None):
-        # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
-        # carryover_qvel, when given, is the just-ended episode's actual
-        # final qvel (already rolled back to finite by _step_impl's
-        # physics-divergence guard before this is ever called) --
-        # episode-boundary state carryover blends it in with probability
-        # scaled by how close transition_difficulty is to its hardest end,
-        # so training practices "already moving, now asked for something
-        # new" instead of only ever "starting from a fresh birth state".
-        jax, jnp, mjx = self.jax, self.jnp, self.mjx
-        # Ten single-purpose keys. Keep the persisted next RNG separate from
-        # every draw made during this reset, and give resilience pose/position/
-        # angular-velocity perturbations independent draws.
-        (next_keys, noise_keys, vnoise_keys, phase_keys, task_keys, hold_keys,
-         carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
-        data = self._make_batched_data()
-        task = self._sample_task(task_keys, params)
-        qpos = data.qpos
-        qvel = data.qvel
-        ctrl = data.ctrl
+    def _birth_physics(self, data, task, params, keys, carryover_qvel):
+        """Create the physical initial pose/velocity for one sampled lesson.
+
+        RESILIENCE samples a larger disturbance than ordinary practice;
+        held-out probes use explicit magnitudes and stratified directions.
+        All key streams and the free-joint velocity birth remain unchanged.
+        This method does not sample the task or construct actor observations.
+        """
+        jax, jnp = self.jax, self.jnp
+        (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
+         linvel_keys, joint_keys, carry_keys) = keys
+        qpos, qvel = data.qpos, data.qvel
 
         regime = task[:, T.regime]
         is_resilience = regime > 1.5
@@ -880,8 +820,34 @@ class EmuMJXEnv(TaskSampler):
             carry_prob = trans_frac * CARRYOVER_MAX_PROB
             do_carry = jax.vmap(lambda k: jax.random.uniform(k, ()))(carry_keys) < carry_prob
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
+        return data.replace(qpos=qpos, qvel=qvel)
+
+    def _reset_with_keys(self, keys, params, carryover_qvel=None):
+        # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
+        # carryover_qvel, when given, is the just-ended episode's actual
+        # final qvel (already rolled back to finite by _step_impl's
+        # physics-divergence guard before this is ever called) --
+        # episode-boundary state carryover blends it in with probability
+        # scaled by how close transition_difficulty is to its hardest end,
+        # so training practices "already moving, now asked for something
+        # new" instead of only ever "starting from a fresh birth state".
+        jax, jnp, mjx = self.jax, self.jnp, self.mjx
+        # Ten single-purpose keys. Keep the persisted next RNG separate from
+        # every draw made during this reset, and give resilience pose/position/
+        # angular-velocity perturbations independent draws.
+        (next_keys, noise_keys, vnoise_keys, phase_keys, task_keys, hold_keys,
+         carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
+        data = self._make_batched_data()
+        task = self._sample_task(task_keys, params)
+        data = self._birth_physics(
+            data, task, params,
+            (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
+             linvel_keys, joint_keys, carry_keys),
+            carryover_qvel,
+        )
+        ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
-        data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
+        data = data.replace(ctrl=ctrl)
         data = self.forward_batched(self.mjx_model, data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)

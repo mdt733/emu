@@ -22,6 +22,7 @@ measured physics and must not be inferred from the requested command.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, NamedTuple
 from .contracts import (
     CONTROL_DT, COMBO_P, PHASE_RATE_MAX_HZ, SEED_VX_HI, SEED_VX_LO,
     FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE,
@@ -92,6 +93,20 @@ def command_phase_rate(vx, vy, vx_hi_max, phase_speed_gain, base_phase_rate):
     speed_fraction = jnp.clip(jnp.sqrt(vx * vx + vy * vy) / jnp.maximum(0.05, vx_hi_max), 0.0, 1.5)
     return jnp.minimum(PHASE_RATE_MAX_HZ, base_phase_rate + phase_speed_gain * speed_fraction)
 
+
+
+class CommandFrame(NamedTuple):
+    """The next command request, its ramp state, and transition diagnostics."""
+    task: Any                 # advanced command for the next observation
+    stored_task: Any          # next state, including teacher-only provenance
+    ramp_frac: Any
+    transition_active: Any
+    cmd_resampled: Any
+    target_next: Any
+    ramp_from_next: Any
+    ramp_frac_next: Any
+    ramp_speed_next: Any
+    hold_left_next: Any
 
 
 class TaskSampler:
@@ -446,4 +461,81 @@ class TaskSampler:
             transition_hold = jnp.round(hold_min * (0.6 + 0.4 * hold_draw)).astype(jnp.int32)
         cmd_hold_left = jnp.where(is_transition, transition_hold, INFINITE_HOLD_STEPS)
         return cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left
+
+    def _advance_commands(self, state, params, resample_keys) -> CommandFrame:
+        """Advance the lesson and prepare the command for the NEXT actor step.
+
+        The caller must score this frame against state.task, not the result
+        returned here; the actor cannot react to information it hasn't seen.
+        """
+        jax, jnp = self.jax, self.jnp
+        # Command-transition dynamics: ramps the *tracked* command
+        # (task[:, VX/VY/YAW], which every other function below reads)
+        # smoothly toward an occasionally-resampled target instead of
+        # Command hold/ramp timing tightens with transition difficulty. The
+        # A transition is defined by the PRE-advance ramp state.  This is
+        # crucial at the digital limit: when ramp_speed==1 a newly-resampled
+        # command advances 0->1 in one control frame, so testing ramp_frac<1
+        # only *after* the advance made the sharpest maneuver invisible.
+        transition_active = state.cmd_ramp_frac < 1.0
+        cmd_resampled = transition_active & (state.cmd_ramp_frac <= 1e-6) & (state.cmd_ramp_speed > 0.0)
+        ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
+        cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
+        task = state.task.at[:, T.vx].set(cmd_now[:, 0]).at[:, T.vy].set(cmd_now[:, 1]).at[:, T.yaw].set(cmd_now[:, 2])
+        if self.attitude_profile == 'v5015':
+            task = task.at[:, T.pitch].set(cmd_now[:, 3])
+
+        hold_left = state.cmd_hold_left - 1
+        should_resample = hold_left <= 0
+        rk_target, rk_hold, rk_ramp = self._split_batch(resample_keys, 3)
+        # Only TRANSITION-regime envs ever have a finite cmd_hold_left (see
+        # _init_transition_state) -- STEADY/RESILIENCE's INFINITE_HOLD_STEPS
+        # means should_resample is always False for them, so new_target/
+        # new_hold below are computed for every env (vmap has no branch)
+        # but only ever actually USED where should_resample is True, i.e.
+        # only ever for TRANSITION envs.
+        new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now[:, :3])
+        if self.attitude_profile == 'v5015':
+            pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
+            pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
+            pitch_draws = jax.vmap(lambda k: jax.random.uniform(k, (), minval=-1.0, maxval=1.0))(pitch_keys)
+            new_target = jnp.concatenate((new_target, (pitch_draws * pitch_range)[:, None]), axis=1)
+        hold_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_hold)
+        ramp_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_ramp)
+        min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
+        if self.open_frontier:
+            min_hold_s = jnp.maximum(CONTROL_DT, params[P.frontier_transition_hold_s])
+        hold_min = min_hold_s / CONTROL_DT  # steps
+        new_hold = jnp.maximum(1.0, jnp.round(hold_min * (0.6 + 0.4 * hold_draw))).astype(jnp.int32)
+        if self.open_frontier:
+            # Explicit acceleration frontier: ramp duration is a real count of
+            # 20ms control frames and may shrink toward one frame, the natural
+            # digital limit. No arbitrary locomotion-speed ceiling is involved.
+            ramp_min = jnp.maximum(1.0, params[P.frontier_ramp_steps])
+            new_ramp_steps = jnp.maximum(1.0, jnp.round(ramp_min * (0.75 + 0.50 * ramp_draw)))
+        else:
+            trans_frac = (TRANSITION_HOLD_MAX_S - min_hold_s) / (TRANSITION_HOLD_MAX_S - TRANSITION_HOLD_MIN_S)
+            ramp_min = TRANSITION_RAMP_MIN_STEPS + (1.0 - trans_frac) * (TRANSITION_RAMP_MAX_STEPS - TRANSITION_RAMP_MIN_STEPS)
+            new_ramp_steps = jnp.maximum(1.0, jnp.round(ramp_min * (0.5 + 0.5 * ramp_draw)))
+        new_ramp_speed = 1.0 / new_ramp_steps
+
+        cmd_target_next = jnp.where(should_resample[:, None], new_target, state.cmd_target)
+        cmd_ramp_from_next = jnp.where(should_resample[:, None], cmd_now, state.cmd_ramp_from)
+        cmd_ramp_frac_next = jnp.where(should_resample, 0.0, ramp_frac)
+        cmd_ramp_speed_next = jnp.where(should_resample, new_ramp_speed, state.cmd_ramp_speed)
+        cmd_hold_left_next = jnp.where(should_resample, new_hold, hold_left).astype(jnp.int32)
+        # Provenance follows the newly-selected transition target from the next
+        # state onward.  It never enters actor observation or reward.
+        task_for_state = task.at[:, T.field_taught].set(
+            jnp.where(should_resample, new_field_taught, task[:, T.field_taught]))
+
+        return CommandFrame(
+            task=task, stored_task=task_for_state,
+            ramp_frac=ramp_frac, transition_active=transition_active,
+            cmd_resampled=cmd_resampled, target_next=cmd_target_next,
+            ramp_from_next=cmd_ramp_from_next,
+            ramp_frac_next=cmd_ramp_frac_next,
+            ramp_speed_next=cmd_ramp_speed_next,
+            hold_left_next=cmd_hold_left_next,
+        )
 

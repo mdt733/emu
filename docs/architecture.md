@@ -57,6 +57,40 @@ The **viewer sits beside the process**, not in the learning loop. It loads a
 frozen actor, converts/export it as `.emupolicy`, and provides a browser
 demonstration. A nice-looking demo is not a calibrated held-out test.
 
+## Follow one robot world through its lifecycle
+
+```text
+reset()
+  └─ _reset_impl → _reset_with_keys
+                       ├─ tasks._sample_task         request a lesson
+                       ├─ _birth_physics             initial physical pose/velocity
+                       ├─ MuJoCo forward             compute initial physical state
+                       └─ _base_obs + history        prepare the 220-input actor
+
+step(action)
+  └─ _step_impl
+       ├─ _simulate_physics                         actuate → push → MJX
+       │      └─ rollback nonfinite worlds          always reset them
+       ├─ tasks._advance_commands                   NEXT lesson only
+       ├─ _metrics + rewards.training_reward        score PREVIOUS command
+       ├─ _base_obs                                 observe NEXT command
+       ├─ _reset_with_keys                           replace failed/timeouts
+       └─ StepOut                                   reward + pre-reset evidence
+```
+
+**Critical timing:** PPO's action came from the *previous* observation.
+The teacher may advance its requested command while physics is stepping, but
+the current reward is always measured against `state.task`, not the new
+request. The *next* 55-channel observation includes the advanced command.
+Episode bootstrap uses the observation **before** reset, while ordinary
+next-state observation may be from a freshly reset world. Timeout episodes
+do not receive the early-fall penalty.
+
+All simulation methods remain JAX-traceable and share the same random key
+splits, world variations and six-servo motor model. `PhysicalFrame` and
+`CommandFrame` are lightweight named returns **within the same JIT trace**,
+not independent simulators, controllers, or new learning state.
+
 ## The data going between layers
 
 1. **Experiment recipe** fixes source version, shared parent, random seeds,
@@ -133,7 +167,7 @@ to add Python wrappers around JIT kernels or undo efficient fused MJX scans.
 
 ## Current gaps (not hidden)
 
-- `tasks.py` now owns command/lesson sampling and transition timing; `environment.py` owns physical reset, steps and sensor construction. The sampler uses a stateless mixin and shares the same JAX/model/config state. Command ramp *application* still happens inside the physics step and remains future cleanup work.
+- `tasks.py` owns lesson sampling **and command-ramp advancement**, while `environment.py` owns servo delivery, disturbances, MJX stepping, physical birth, observations and reward integration. The stateless sampler shares the environment's JAX context, physical limits and keys; it adds no duplicate mutable teacher. The remaining `_metrics`/`_base_obs` block is large and still merits a focused readability pass.
 - `training.py` is still a long function combining loop control, curriculum,
   learning health, snapshot recovery, fixed exams, logging and finalisation.
 - `ppo.py` still houses **read-only** exam kernels alongside training maths.

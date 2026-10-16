@@ -32,8 +32,9 @@ Turn EMU into a robot-learning system that reads like a book. The scientific goa
 
 - **Before Pass A:** trimmed 226+ checks down to exactly **16 Python + 4 JavaScript** in five files; baseline CI passed at 18b566d.
 - **Pass A:** canonical seven-layer architecture and a single checklist; renamed training reward module scoring.py to rewards.py without adjusting reward calculations. Source commit d2abc8b passed [CI](https://github.com/mdt733/emu/actions/runs/38834067868) (16 Python, four JS, viewer build). Docs-only ledger updated at a173582.
-- **Pass B1 (CURRENT):** moved lesson generation out of environment.py into **emu/tasks.py**. The unchanged sampling methods live in a stateless TaskSampler inherited by EmuMJXEnv; TASK_FIELDS/T and related task constants also moved. Environment remains owner of resets, physical stepping, observations and measured events. The sampler uses precisely the same JAX context and RNG streams; no second copy of lesson state.
+- **Pass B1 (verified):** moved lesson generation out of environment.py into **emu/tasks.py**. The unchanged sampling methods live in a stateless TaskSampler inherited by EmuMJXEnv; TASK_FIELDS/T and related task constants also moved. Environment remains owner of resets, physical stepping, observations and measured events. The sampler uses precisely the same JAX context and RNG streams; no second copy of lesson state.
 - **Pass B1 CI:** [passed](https://github.com/mdt733/emu/actions/runs/38835597285) at commit **3102062**: 16 Python and four browser tests, production viewer build and showcase packaging verified. Python logged 24 existing nonfatal MuJoCo deprecation warnings. This is CPU CI, NOT a fresh CUDA learning acceptance.
+- **Pass B2 (source prepared, CI pending):** `_step_impl` now composes physical frame → next lesson → previous-command reward → next observation/reset, instead of mixing all stages in one ~284-line method; `_simulate_physics` retains actual motor/push/substep/nonfinite handling. `tasks._advance_commands` owns command-ramp timing and samples. `_reset_with_keys` is now a ~40-line reset orchestrator using `_birth_physics` for initial pose/velocity. Two named JAX-compatible return records clarify data without introducing duplicate mutable state. **20-test limit unchanged.**
 
 ## Physical path and invariants
 
@@ -49,7 +50,7 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 
 ## What to do next (the next 'keep going')
 
-**Pass B2:** Inspect environment.py's physical _reset_with_keys, _step_impl and _base_obs. Make servo delivery → disturbances → physics → command ramp → measured facts → reward → next observation → auto-reset readable without introducing a maze of wrappers or altering JAX semantics.
+**Pass C:** Improve the rewards/diagnostics boundary. Trace `environment._metrics` → `rewards.training_reward` → `rollout_metrics` and the report pipeline. Do not add new reward terms or actor channels, and do not confuse training rewards with independent locomotion evidence. **Before any merge**, B2 still requires fresh isolated GPU PPO update/save/resume evaluation.
 
 After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rewards and honest telemetry, readable training lifecycle, curriculum/capability, meta-experiments, reports/viewer, then isolated GPU acceptance.
 
@@ -63,4 +64,4 @@ After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rew
 
 ## Paste into a new chat
 
-> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently B2), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
+> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently C, unless B2 CI is failing), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
