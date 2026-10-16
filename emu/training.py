@@ -44,7 +44,7 @@ from .training_config import (
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
 from .curriculum import RegimeGovernor
-from .health import TrainingHealth
+from .curriculum import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend

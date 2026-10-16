@@ -15,7 +15,7 @@ from emu.contracts import ACTION_DIM, OBS_DIM
 from emu.rollout_metrics import augment_rollout_row
 from emu.ppo import expected_param_shapes
 from emu.run_support import resume_training_lineage
-from emu.health import TrainingHealth
+from emu.curriculum import TrainingHealth
 from emu.curriculum import RegimeGovernor
 
 def fake_policy_params(fill: float = 0.0):
