@@ -266,14 +266,14 @@ process.stdout.write(JSON.stringify(actions));
         try:
             connection.request('GET', path)
             response = connection.getresponse()
-            return response.status, dict(response.getheaders()), response.read()
+            return response.status, {key.lower(): value for key, value in response.getheaders()}, response.read()
         finally:
             connection.close()
 
     try:
         status, headers, data = get_local('/api/initial-policy')
         assert status == 200 and data == first_bytes
-        assert headers['Cache-Control'] == 'no-store'
+        assert headers['cache-control'] == 'no-store'
         manual.write_text('changed on disk', encoding='utf-8')
         status, _, data = get_local('/api/initial-policy')
         assert status == 200 and data == first_bytes
@@ -281,7 +281,7 @@ process.stdout.write(JSON.stringify(actions));
         assert status == 200 and json.loads(data) == {
             'live': False, 'initial_policy': True}
         status, headers, data = get_local('/engine.wasm')
-        assert status == 200 and headers['Content-Type'] == 'application/wasm'
+        assert status == 200 and headers['content-type'] == 'application/wasm'
         assert data == b'wasm'
         status, _, _ = get_local('/api/live/status')
         assert status == 404
