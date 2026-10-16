@@ -51,29 +51,32 @@ The current 20 software checks only show contract compatibility.
   both passed 16 Python + 4 browser checks and viewer build.
   **Not marked complete until fresh isolated CUDA PPO update/save/resume** and
   source-pinned parity checks. Preserve atomic checkpoint publication.
-- [ ] **E. Curriculum and teaching capability.** **E1–E3 software CI passed.**
-  [E1 physical frontiers](https://github.com/mdt733/emu/actions/runs/38844844745),
-  [E2 shared command envelope](https://github.com/mdt733/emu/actions/runs/38845714642),
-  [E3 field event window reset](https://github.com/mdt733/emu/actions/runs/38845909394).
-  Every pass retains **16 Python + 4 browser checks**, built viewer,
-  the exact 220-input actor and checkpoint state schema. 
-  E2 replaced duplicate birth/transition command bounds with one deterministic
-  calculation; adaptive-on/off and field-taught birth behaviour are checked in
-  the existing real-MJX test. E3 replaced duplicate transient event-tracker
-  initialization; learned node/edge/recovery evidence is NOT reset on cohort
-  resize or resume. **E4 source pending CI:** the two training-evidence boundaries now share one `_cancel_event_windows` owner; the existing test checks a clean sustained event, one exact evidence half-life, both isolation modes and interruption of a partly completed window. Node-only command-cell changes deliberately do NOT clear independent recovery or edge events. No teacher ranking changes. Continue to F once CI passes.
-  **Gate:** visible physical command envelopes, safe retreat, no examiner
-  leakage, and a fresh isolated GPU lifecycle before merge.
-- [ ] **F. Meta-learning/experiment recipe.** **F1 source pending CI:** absolute targets, hypothesis arms, promotion slot counts and nominal total-study budget now live together in `ladder_recipe.py`; `branch_lab.py` reads them to execute the same frozen-checkpoint lineage and scored promotions. Existing delivery test checks the 320M total and 260M through round1; 20-test count unchanged. F2 source pending CI: scorecard Markdown generation now belongs to `results.py`; `branch_lab` alone still decides eligibility and promotion. Existing report test expanded; F3: examine manual/auto stage execution for actual repetition. Make shared foundation,
-  independent teaching strategies, branch budgets and common exams readable
-  in one recipe. Consolidate planning/promotions and avoid duplicating
-  trainer/config logic. **Gate:** validated ancestry and equal-budget
-  apples-to-apples results.
-- [ ] **G. Reports and viewer, then prune.** **G1 code committed / CI pending:** offline reports now describe observed improvement, fall-rate movement, capability-map coverage, allowed command-frontier expansion and possible training setbacks, always separating on-policy measurements from proof of walking. The existing report test is stronger; 20 tests remain. G2 source pending CI: source-pinned matched-screen comparisons now explain eligible leaders/margins and exclusion reasons without influencing promotion. Viewer responsibilities remain distinct. G3 next: export/CLI audit. One narrative `results.md`
-  + bundle that shows learning curves, setbacks, commands, falls, measured
-  load and policy ancestry; separate frozen-policy export/viewer. Retire
-  stale wrappers, redundant historical pass docs and dead commands. **Gate:**
-  policy inference parity, viewer build and realistic held-out exam.
+- [ ] **E. Curriculum and teaching capability.** **E1–E4 software CI passed**, including
+  [E4's clean-evidence/half-life behavioural check](https://github.com/mdt733/emu/actions/runs/38848012814).
+  Physical frontiers, birth/transition command envelopes, runtime event trackers
+  and clean-evidence boundaries have clear owners. The node/edge/recovery learning
+  mechanisms are genuinely executed and deliberately retained. **Remaining gate:**
+  fresh isolated CUDA learner parity, safe retreat and no held-out feedback.
+- [ ] **F. Meta-learning and experiments.** **F1/F2 software CI passed:**
+  [recipe](https://github.com/mdt733/emu/actions/runs/38848204683),
+  [scorecard ownership](https://github.com/mdt733/emu/actions/runs/38848378302).
+  `ladder_recipe.py` defines arms, absolute steps, promotion slots and the
+  current 320M aggregate campaign budget; `branch_lab.py` launches, validates
+  ancestor hashes, compares matched screens and alone controls eligible promotion.
+  `results.py` renders scorecards. The short manual/auto execution loops stay
+  explicit, not hidden behind an extra orchestration framework.
+  **Remaining gate:** source-pinned equal-budget branch CUDA/exam acceptance.
+- [ ] **G. Reports and viewer, then prune.** **G1 software CI passed:**
+  [training timeline](https://github.com/mdt733/emu/actions/runs/38848806810).
+  Measured early/late trends, field coverage and possible reward setbacks now
+  have a cautious narrative in both `results.md` and `results_data.json`.
+  **G2 source committed:** eligible leaders, comparison margin and disqualifying
+  reasons use previously saved common-screen evidence, never training rewards;
+  [Python CI underway](https://github.com/mdt733/emu/actions/runs/38849179351).
+  **G3 next:** check policy exporter/viewer/CLI for actual obsolete adapters.
+  Distinct read-only capability-map, MuJoCo viewer and live-policy watcher roles
+  should not be merged just to cut files. **Gate:** packaged actor parity,
+  validated policy source and independent physical examiner.
 - [ ] **H. Release-level confidence.** Run the 20 retained code checks and
   fresh-root real CUDA training/checkpoint/resume. Run 0°, 0.25°, 0.5° and
   carefully approached 1° directional exams against frozen policies.
@@ -103,6 +106,11 @@ Answer in this order:
 
 | Revision | Actual change | Verification |
 |---|---|---|
+| `7a0777b` | E4: clean-evidence event boundaries and half-life invariant | [CI passed](https://github.com/mdt733/emu/actions/runs/38848012814): 16 Python + 4 browser; no CUDA |
+| `f6679de` | F1: experiment recipe defines budgets/advancement | [CI passed](https://github.com/mdt733/emu/actions/runs/38848204683): 16 Python + 4 browser; no CUDA |
+| `54c8cf0` | F2: scorecard markdown owned by offline reporter | [CI passed](https://github.com/mdt733/emu/actions/runs/38848378302): 16 Python + 4 browser; no CUDA |
+| `24957ac` | G1: honest narrative of on-policy measured trends | [CI passed](https://github.com/mdt733/emu/actions/runs/38848806810): 16 Python + 4 browser; no CUDA |
+| `6194eea` | G2: common-screen comparison story, no promotion changes | [CI in progress](https://github.com/mdt733/emu/actions/runs/38849179351) |
 | `18b566d` | Baseline v5016 experimental branch, 20 retained checks | CI: 16 Python + 4 browser passed |
 | `d2abc8b` | Pass A: seven-layer framework, reward rename, readable entry points and single worklist | [GitHub CI 38834067868](https://github.com/mdt733/emu/actions/runs/38834067868): **16 Python + 4 browser passed**, build passed; no GPU run |
 | `3102062` | Pass B1: separate lesson sampler into `tasks.py`, keep same RNG and physics; add root `HANDOVER.md` | [GitHub CI 38835597285](https://github.com/mdt733/emu/actions/runs/38835597285): 16 Python + 4 browser passed; viewer build passed; GPU run still required |
