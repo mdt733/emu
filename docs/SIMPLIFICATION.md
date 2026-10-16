@@ -64,7 +64,7 @@ The current 20 software checks only show contract compatibility.
   resize or resume. **E4 source pending CI:** the two training-evidence boundaries now share one `_cancel_event_windows` owner; the existing test checks a clean sustained event, one exact evidence half-life, both isolation modes and interruption of a partly completed window. Node-only command-cell changes deliberately do NOT clear independent recovery or edge events. No teacher ranking changes. Continue to F once CI passes.
   **Gate:** visible physical command envelopes, safe retreat, no examiner
   leakage, and a fresh isolated GPU lifecycle before merge.
-- [ ] **F. Meta-learning/experiment recipe.** Make shared foundation,
+- [ ] **F. Meta-learning/experiment recipe.** **F1 source pending CI:** absolute targets, hypothesis arms, promotion slot counts and nominal total-study budget now live together in `ladder_recipe.py`; `branch_lab.py` reads them to execute the same frozen-checkpoint lineage and scored promotions. Existing delivery test checks the 320M total and 260M through round1; 20-test count unchanged. F2: unify repeated stage/resume/promotion flows only where ownership is duplicated. Make shared foundation,
   independent teaching strategies, branch budgets and common exams readable
   in one recipe. Consolidate planning/promotions and avoid duplicating
   trainer/config logic. **Gate:** validated ancestry and equal-budget
@@ -97,7 +97,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass F1:** E evidence boundaries are now readable and explicitly tested. Study the real shared foundation / branch plan in `ladder_recipe.py` and `branch_lab.py`, distinguish hypothesis choices from execution and promotion, then simplify only genuine duplication without losing source-pinned ancestry, matched budgets or held-out test independence. CUDA/physical acceptance outstanding.
+**Pass F2:** the immutable study recipe now owns hypotheses, absolute step targets, advancement counts and plan budgets. Check repetitive launcher/manual/auto transitions, scoring ownership and report writing. Preserve source-pinned checkpoint ancestry, independent evaluation, score eligibility and accepted command targets. GPU/physical acceptance still outstanding.
 
 ## Evidence ledger
 

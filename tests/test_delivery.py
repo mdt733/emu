@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from emu import branch_lab as lab
+from emu import ladder_recipe as recipe
 from emu import results
 from emu.artifacts import append_training_observation, write_capability_field_artifacts, make_metrics_row
 from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
@@ -67,6 +68,16 @@ def test_auto_promotion_only_accepts_eligible_sorted_arms():
     ]}
     assert lab.promotion_choices(results,2)==['baseline','slope']
     assert lab.promotion_choices(results,1)==['baseline']
+    # The study designer (not the runner) owns round budgets and advancement.
+    # For this recipe: 20M + 4*60M + 2*20M + 1*20M = 320M.
+    study = lab.plan_dict(seed=733, envs=2048)
+    assert study == recipe.plan_dict(seed=733, envs=2048)
+    assert study['nominal_steps'] == 320_000_000
+    assert study['round1_incremental_steps'] == 240_000_000
+    assert study['through_round1_total_steps'] == 260_000_000
+    assert list(recipe.PROMOTION_SLOTS.items()) == [('round2', 2), ('round3', 1)]
+    assert study['rounds'] == recipe.ROUNDS
+    assert [a['name'] for a in study['arms']] == list(recipe.BY_NAME)
     with pytest.raises(RuntimeError,match='Only 1 of 2'):
         lab.promotion_choices({'round':'round1','results':results['results'][:2]},2)
 

@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
-from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
+from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG, PROMOTION_SLOTS, plan_dict
 from .paths import source_repo_root
 from .phase_config import _phase_config, verify_existing_phase_config
 from .training_config import apply_experiment_knobs
@@ -75,6 +75,9 @@ def validate_recipe(*, seed: int, envs: int, device: str, root: Path) -> None:
         raise ValueError('Experiment envs must be positive')
     if list(ROUNDS) != ['round1', 'round2', 'round3']:
         raise ValueError('Ladder requires ordered round1/round2/round3 stages')
+    if list(PROMOTION_SLOTS) != ['round2', 'round3'] or not (
+            len(ARMS) >= PROMOTION_SLOTS['round2'] > PROMOTION_SLOTS['round3'] > 0):
+        raise ValueError('Ladder promotion sizes must form a strict smaller finalist pool')
     targets = [FOUNDATION, *ROUNDS.values()]
     if any(type(v) is not int or v <= 0 for v in targets) or targets != sorted(set(targets)):
         raise ValueError('Ladder targets must be strictly increasing integer environment steps')
@@ -143,7 +146,7 @@ def ensure_run(run, *, arm, parent, target, seed, envs, device, provenance):
 
 
 def _selection(root, stage, selected, previous, envs):
-    amount = 2 if stage == 'round2' else 1
+    amount = PROMOTION_SLOTS[stage]
     if len(selected) != amount or len(set(selected)) != amount or any(x not in BY_NAME for x in selected):
         raise ValueError(f'{stage} requires exactly {amount} different valid --select names')
     file = root / f'{previous}_scoreboard.json'
@@ -284,7 +287,7 @@ def promotion_choices(board: dict, slots: int) -> list[str]:
     No eligibility bypass. With insufficient qualified contenders the autopilot
     stops, preserving every checkpoint for inspection/manual intervention.
     """
-    if slots not in (1, 2):
+    if slots not in set(PROMOTION_SLOTS.values()):
         raise ValueError('Promotion supports 1 or 2 places only')
     ordered = sorted((row for row in board['results']
                       if row.get('arm') in BY_NAME and row.get('eligible') is True
@@ -356,7 +359,7 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
                       f'selection: {", ".join(names)}', flush=True)
             else:
                 scored = _read(root / f'{prior}_scoreboard.json')
-                slots = 2 if round_name == 'round2' else 1
+                slots = PROMOTION_SLOTS[round_name]
                 names = promotion_choices(scored, slots)
                 print(f'[EMU lab5015] Auto-selected from {prior}: '
                       f'{", ".join(names)}', flush=True)
@@ -381,23 +384,6 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
         if stop_after == round_name:
             print(f'[EMU lab5015] Finished at requested {stop_after} boundary.', flush=True)
             break
-
-
-def plan_dict(seed=733, envs=2048):
-    return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
-            'foundation': FOUNDATION, 'rounds': ROUNDS,
-            'arms': [asdict(a) for a in ARMS],
-            'nominal_steps': (
-                FOUNDATION + len(ARMS)*(ROUNDS['round1']-FOUNDATION)
-                + 2*(ROUNDS['round2']-ROUNDS['round1'])
-                + (ROUNDS['round3']-ROUNDS['round2'])),
-            'review_points': ['after common 20M foundation', 'after four 80M branches (+60M each)',
-                              'optional: two 100M finalists', 'optional: one 120M finalist'],
-            'recommended': 'emu ladder --stage foundation, inspect, then emu ladder --stage auto --stop-after round1',
-            'round1_incremental_steps': len(ARMS) * (ROUNDS['round1'] - FOUNDATION),
-            'through_round1_total_steps': FOUNDATION + len(ARMS) * (ROUNDS['round1'] - FOUNDATION),
-            'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
-            'auto_stop_if_ineligible': True}
 
 
 def main(argv=None):

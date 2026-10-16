@@ -41,6 +41,16 @@ Training runs many parallel worlds         training.py
 The curriculum also learns from the rollout's **independently measured diagnostics**;
 the experiment runner compares *complete learning histories*, not just final rewards.
 
+## The experiment layer
+
+`ladder_recipe.py` owns **what** to compare: the shared 20M foundation,
+four independently trained hypotheses, target step counts, promotion sizes,
+and derived whole-study budget (currently 320M total environment steps across
+the study). `branch_lab.py` owns **how** to execute and trust it:
+validated ancestor hashes, source-pinned resumption, identical held-out
+examination criteria and eligible-only promotion. `training.py` is not an
+experiment planner; it runs one learner lineage with a supplied configuration.
+
 ## The seven responsibilities
 
 | Layer | Should own | Should **not** own | Current code |
