@@ -148,6 +148,28 @@ class CheckpointResumeTests(unittest.TestCase):
         self.assertEqual(loaded['health_state'], health)
         restored = CapabilityField.from_state_dict(loaded['field_state'])
         self.assertEqual(restored.fingerprint(), field.fingerprint())
+        # E3: runtime event windows are ephemeral. Keeping a world count
+        # preserves an in-flight window; changing count resets ALL node,
+        # recovery and edge trackers without touching learned field state.
+        original_fingerprint = field.fingerprint()
+        field._ensure_runtime(3)
+        field._node_active[0] = True
+        field._rec_active[1] = True
+        field._edge_phase[2] = 2
+        field._ensure_runtime(3)
+        assert field._node_active[0] and field._rec_active[1]
+        assert field._edge_phase[2] == 2
+        field._ensure_runtime(5)
+        assert field._runtime_n == 5
+        assert field._node_active.shape == field._rec_active.shape == (5,)
+        assert field._edge_source.shape == (5, 3)
+        assert not field._node_active.any() and not field._rec_active.any()
+        assert not field._edge_phase.any()
+        assert field.fingerprint() == original_fingerprint
+        clean_resume = CapabilityField.from_state_dict(field.state_dict())
+        assert clean_resume._runtime_n == 0
+        assert clean_resume._node_active.size == 0
+        assert clean_resume.fingerprint() == field.fingerprint()
 
 def test_weighted_reward_is_bitwise_equivalent_to_original_float32_expression():
     rng = np.random.default_rng(733)

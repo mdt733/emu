@@ -124,8 +124,7 @@ class CapabilityField:
         # Runtime event trackers are intentionally NOT serialized.  Environment
         # physics/episode buffers also restart fresh on process resume, so a
         # half-finished one-second window cannot be continued honestly anyway.
-        self._runtime_n = 0
-        self._clear_runtime()
+        self._reset_runtime(0)
 
     # ------------------------------------------------------------------
     # Geometry
@@ -148,35 +147,14 @@ class CapabilityField:
     # ------------------------------------------------------------------
     # Runtime event trackers
     # ------------------------------------------------------------------
-    def _clear_runtime(self) -> None:
-        self._node_active = np.zeros((0,), bool)
-        self._node_flat = np.zeros((0,), np.int64)
-        self._node_frames = np.zeros((0,), np.int32)
-        self._node_structural_good_frames = np.zeros((0,), np.int32)
-        self._node_err_sum_rt = np.zeros((0, 3), np.float32)
-        self._node_tol_sum_rt = np.zeros((0, 3), np.float32)
-        self._node_quality_sum_rt = np.zeros((0,), np.float32)
+    def _reset_runtime(self, n_envs: int) -> None:
+        """One birth/reset layout for all in-progress semantic event windows.
 
-        self._rec_active = np.zeros((0,), bool)
-        self._rec_flat = np.zeros((0,), np.int64)
-        self._rec_bin = np.zeros((0,), np.int32)
-        self._rec_streak = np.zeros((0,), np.int32)
-
-        # 0=idle, 1=ramping, 2=settling target.
-        self._edge_phase = np.zeros((0,), np.int8)
-        self._edge_source = np.zeros((0, 3), np.float32)
-        self._edge_target = np.zeros((0, 3), np.float32)
-        self._edge_source_flat = np.zeros((0,), np.int64)
-        self._edge_rate_cmd = np.zeros((0,), np.float32)
-        self._edge_success_streak = np.zeros((0,), np.int32)
-
-        self._prev_cmd = np.zeros((0, 3), np.float32)
-        self._have_prev = np.zeros((0,), bool)
-
-    def _ensure_runtime(self, n_envs: int) -> None:
+        Runtime windows follow MJX world's live env count, never checkpoint
+        state. Restart or changed batch size intentionally discards unfinished
+        node/recovery/maneuver episodes, not the accumulated capability map.
+        """
         n_envs = int(n_envs)
-        if self._runtime_n == n_envs:
-            return
         self._runtime_n = n_envs
         self._node_active = np.zeros(n_envs, bool)
         self._node_flat = np.zeros(n_envs, np.int64)
@@ -200,6 +178,10 @@ class CapabilityField:
 
         self._prev_cmd = np.zeros((n_envs, 3), np.float32)
         self._have_prev = np.zeros(n_envs, bool)
+
+    def _ensure_runtime(self, n_envs: int) -> None:
+        if self._runtime_n != int(n_envs):
+            self._reset_runtime(int(n_envs))
 
     # ------------------------------------------------------------------
     # Exponential forgetting

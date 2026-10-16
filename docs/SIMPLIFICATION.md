@@ -57,7 +57,7 @@ The current 20 software checks only show contract compatibility.
   one named method *inside the existing governor*, with unchanged coefficients
   and one strengthened adaptive-on/off test. **E2 next:** trace live training
   evidence → decaying capability field → scheduled node/edge teaching packet →
-  `tasks.py` birth/transition sampling → `field_taught` provenance. **E2 code submitted:** one deterministic full/reduced physical envelope feeds both births and transition targets, with original JAX RNG split schedule; real MJX contract test strengthened. Keep
+  `tasks.py` birth/transition sampling → `field_taught` provenance. **E2 code submitted:** one deterministic full/reduced physical envelope feeds both births and transition targets, with original JAX RNG split schedule; real MJX contract test strengthened. **E3 code submitted:** one capability-field runtime-window initializer replaces two nearly identical blocks, with serialized learned evidence and 20 tests unchanged. Keep
   governor safety envelopes, clean-evidence isolation and held-out examiner
   quarantine. Remove governor/field/health mechanisms only after executable
   call-path checks and controlled comparison. **Gate:** visible physical
@@ -95,7 +95,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass E3:** after sharing command-envelope calculation between birth and transition sampling, audit capability-field evidence weights, decay, clean-evidence and recovery-severity gates. Keep node/edge sampling, scheduling, JAX keys and actor contract. Do not remove live behaviour on the basis of off/shadow modes or missing held-out observations. CUDA lifecycle and independent frozen-policy exams remain outstanding.
+**Pass E4:** E2 now shares birth/transition envelope calculations, and E3 removes duplicated capability-field runtime trackers. Verify capability evidence/decay and clean-evidence constraints before touching core event logic; no change to node/edge sampling or JAX keys. CUDA lifecycle and frozen-policy exams remain outstanding.
 
 ## Evidence ledger
 
