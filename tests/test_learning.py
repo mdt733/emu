@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from emu.rewards import weighted_training_terms, PAYMENT_NAMES
 from emu.training_config import TrainingConfig, mature_config
-from emu.capability_field import CapabilityField
+from emu.curriculum import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
 from emu.contracts import ACTION_DIM, OBS_DIM
 from emu.results import augment_rollout_row

@@ -28,7 +28,7 @@ import numpy as np
 from .run_support import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
-from .capability_field import CapabilityField
+from .curriculum import CapabilityField
 from .capability_cloud import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (

@@ -171,7 +171,7 @@ def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) ->
     Filtering requires at least three effective event samples plus a decent
     posterior success estimate. No training state enters the browser actor.
     """
-    from .capability_field import CapabilityField, MIN_EFFECTIVE_EVIDENCE
+    from .curriculum import CapabilityField, MIN_EFFECTIVE_EVIDENCE
     f = CapabilityField.from_state_dict(field_state)
     n, p = f.node_evidence(), f.node_competence()
     good = (n >= MIN_EFFECTIVE_EVIDENCE) & (p >= 0.70)
