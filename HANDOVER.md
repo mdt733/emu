@@ -103,6 +103,12 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
+## Verified CUDA-exposed diagnostics fix
+
+- **Commit `30026a5`**: [GitHub CI 38900316472 passed](https://github.com/mdt733/emu/actions/runs/38900316472): 16 Python + four browser checks. The exact per-joint diagnostic augmentation which previously raised `NameError: ACTION_DIM` is now exercised in the existing test suite.
+- **Next local action:** in `~/emu-readable-20261016_224338`, confirm `git status --short` is empty, then `git pull --ff-only` and rerun the 256→512 acceptance workflow under a **new** `$HOME/robot_lab/emu_runs/` root. Preserve the failed `acceptance/first` with its `best.pkl` for evidence.
+- JAX allocation retry messages indicate possible VRAM pressure, but the observed termination was Python's missing name. Check real VRAM use and sustained FPS before committing to 2,048 worlds; the 20M run still has not begun.
+
 ## First real local CUDA run: failure and source fix (16 October 2026)
 
 - User's clean `emu-readable-20261016_224338` WSL install ran `emu doctor --v5015-smoke --domain-smoke` on JAX GPU successfully; 16 Python tests passed.

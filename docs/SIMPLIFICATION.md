@@ -12,6 +12,11 @@ should continue on their original pinned source; do not update their checkout.
 lineage using its modified source** until the independent GPU acceptance gate.
 The current 20 software checks only show contract compatibility.
 
+## First local CUDA failure fix verified
+
+- [Commit `30026a5`, CI passed](https://github.com/mdt733/emu/actions/runs/38900316472): 16 Python + four browser checks. Existing learning/config test now executes `augment_rollout_row` with all six action-clip keys and frozen-exam diagnostics.
+- **Local acceptance remains outstanding:** pull the clean commit and rerun **first → continue → verify** in a *new* scratch root, then proceed to a measured foundation after evidence of adequate memory. Neither CUDA training success nor walking should be inferred from this software CI.
+
 ## First local GPU smoke failure and fix
 
 - **Observed in real WSL CUDA run:** first eight-world PPO update and 256-step fixed exam completed; training crashed at final `augment_rollout_row` due to missing `ACTION_DIM` import in `rollout_metrics.py`. The original scratch root retains `best.pkl`, but did not publish `final.pkl` or launch the 20M foundation.
