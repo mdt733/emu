@@ -94,7 +94,7 @@ def evaluate_run(run_dir, *, angle_deg, direction, output, worlds=8,
     from .environment import EmuMJXEnv
     from .paths import ROBOT_XML
     from .ppo import make_trainer
-    from .runtime import configure_jax, require_backend
+    from .ppo import configure_jax, require_backend
     from .training_config import (
         TrainingConfig,PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST,ROLLOUT_STEPS)
 

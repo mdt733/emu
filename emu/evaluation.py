@@ -277,7 +277,7 @@ from .contracts import task_param_defaults
 from .environment import EmuMJXEnv
 from .contracts import ROBOT_XML
 from .ppo import make_trainer
-from .runtime import configure_jax, require_backend
+from .ppo import configure_jax, require_backend
 from .training_config import (
     TrainingConfig, MAX_EPISODE_STEPS, PPO_LR, ROLLOUT_STEPS,
     PPO_ENTROPY_COST, PPO_VALUE_COST, EVAL_SEED,

@@ -19,7 +19,7 @@ from .contracts import CONTROL_DT
 from .contracts import recovery_outcome_numpy
 
 from .environment import EmuMJXEnv
-from .runtime import configure_jax, require_backend
+from .ppo import configure_jax, require_backend
 from .ppo import make_trainer
 from .checkpoint_io import load_checkpoint
 from .results import write_rows_csv
