@@ -69,7 +69,7 @@ The current 20 software checks only show contract compatibility.
   in one recipe. Consolidate planning/promotions and avoid duplicating
   trainer/config logic. **Gate:** validated ancestry and equal-budget
   apples-to-apples results.
-- [ ] **G. Reports and viewer, then prune.** One narrative `results.md`
+- [ ] **G. Reports and viewer, then prune.** **G1 code committed / CI pending:** offline reports now describe observed improvement, fall-rate movement, capability-map coverage, allowed command-frontier expansion and possible training setbacks, always separating on-policy measurements from proof of walking. The existing report test is stronger; 20 tests remain. G2 next: viewer/export and report comparison audit. One narrative `results.md`
   + bundle that shows learning curves, setbacks, commands, falls, measured
   load and policy ancestry; separate frozen-policy export/viewer. Retire
   stale wrappers, redundant historical pass docs and dead commands. **Gate:**
@@ -97,7 +97,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass F3:** after centralising the study recipe and scorecard rendering, examine repeated manual/auto round launch sequences and scorecard freshness while preserving source-pinned parent hashes, verified completions, common screens and eligible-only promotion. No experimental science changes. Isolated CUDA and frozen-policy walking gates remain outstanding.
+**Pass G2:** the F3 audit found manual and automatic branch loops short and meaningfully distinct; a wrapper would not improve clarity. Inspect viewer/export and source-pinned common-exam reporting for genuine stale adapters. Fresh CUDA training and physical walking exams remain outstanding.
 
 ## Evidence ledger
 

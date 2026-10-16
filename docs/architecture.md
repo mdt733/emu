@@ -51,6 +51,10 @@ validated ancestor hashes, source-pinned resumption, identical held-out
 examination criteria and eligible-only promotion. `training.py` is not an
 experiment planner; it runs one learner lineage with a supplied configuration.
 
+The offline report also narrates measured *on-policy* training trends,
+including possible setbacks. The narrative never asserts walking mastery:
+only source-matched frozen-policy exams can support that comparison.
+
 ## The seven responsibilities
 
 | Layer | Should own | Should **not** own | Current code |

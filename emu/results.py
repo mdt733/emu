@@ -28,6 +28,7 @@ PAYMENTS = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
 SCREENS = ('resilience100', 'robust70', 'growth140', 'growthcombo140', 'gentle_slope')
 FIXED = ('core', 'stress30', 'dynamic50', 'robust40', 'combo70',
          'resilience50', 'resilience75', 'dynamic80', 'growth110', 'growthcombo110')
+STORY_FIELDS = ('field_known_nodes', 'field_known_edges', 'frontier_vx_hi')
 MARK = chr(96)
 
 
@@ -72,6 +73,48 @@ def digest(path):
     return h.hexdigest()
 
 
+def training_story(logged, changes):
+    """Describe changing-task training metrics, NOT independent walking ability."""
+    if len(logged) < 3:
+        return ['Too few logged observations to describe an early-to-late trend.']
+
+    def pair(key):
+        values = changes.get(key, {})
+        return values.get('early'), values.get('late')
+
+    notes = []
+    before, after = pair('reward_mean')
+    if before is not None and after is not None:
+        trend = 'rose' if after > before + .02 else ('fell' if after < before - .02 else 'changed little')
+        notes.append(f'On-policy teaching reward {trend}: early {before:.3f}, late {after:.3f}.')
+    before, after = pair('fall_rate')
+    if before is not None and after is not None:
+        trend = 'fell' if after < before - .02 else ('rose' if after > before + .02 else 'changed little')
+        notes.append(f'Training-episode fall fraction {trend}: early {before:.1%}, late {after:.1%}.')
+    for key, label in (('field_known_nodes', 'mapped command nodes'),
+                       ('field_known_edges', 'mapped transition edges')):
+        before, after = pair(key)
+        if before is not None and after is not None and after > before + .5:
+            notes.append(f'Capability evidence covered more {label}: {before:.0f} to {after:.0f}; this is coverage, not mastery.')
+    before, after = pair('frontier_vx_hi')
+    if before is not None and after is not None and after > before + .005:
+        notes.append(f'Allowed forward-command frontier expanded from {before:.3f} to {after:.3f} m/s; allowed is not achieved speed.')
+    if len(logged) >= 8:
+        width = max(2, min(12, len(logged)//5))
+        windows = []
+        for start in range(len(logged)-width+1):
+            rows = logged[start:start+width]
+            vals = [number(row, 'reward_mean') for row in rows]
+            if all(v is not None for v in vals):
+                windows.append((statistics.median(vals), int(number(rows[-1], 'step') or 0)))
+        if windows:
+            peak, peak_step = max(windows)
+            late_reward = pair('reward_mean')[1]
+            if late_reward is not None and peak-late_reward > max(.15, abs(peak)*.20):
+                notes.append(f'Possible training setback: best {width}-row reward median {peak:.3f} near step {peak_step:,}, versus late {late_reward:.3f}. Harder lessons may explain this.')
+    return notes or ['Comparable training trends unavailable; inspect the frozen-policy exam.']
+
+
 def summarize(run, expected=None):
     logged = [r for r in read_csv(run / 'metrics.csv') if number(r, 'step') is not None]
     unique = {int(number(r, 'step')): r for r in logged}
@@ -85,7 +128,7 @@ def summarize(run, expected=None):
         return statistics.median(values) if values else None
 
     early, late = logged[:window], logged[-window:] if window else []
-    changes = {k: {'early': median(early, k), 'late': median(late, k)} for k in FIELDS}
+    changes = {k: {'early': median(early, k), 'late': median(late, k)} for k in (*FIELDS, *STORY_FIELDS)}
     rewards = {k: median(late, 'reward_weighted_' + k) for k in PAYMENTS}
     config = read_json(run / 'training_config.json')
     meta = read_json(run / 'run_meta.json')
@@ -119,7 +162,8 @@ def summarize(run, expected=None):
         problems.append('reward payment columns are incomplete')
     return dict(path=str(run), step=int(step) if step is not None else None,
                 target=int(target) if target is not None else None, log_rows=count,
-                changes=changes, rewards=rewards, config=config,
+                changes=changes, story=training_story(logged, changes),
+                rewards=rewards, config=config,
                 source=meta.get('source_provenance', {}), parent=spec.get('parent', {}),
                 checkpoint_sha256=sha, screen=screen,
                 fixed=fixed[-1] if fixed else {}, problems=problems)
@@ -234,7 +278,10 @@ def markdown(info):
                       '- Training profile: teacher '+text(run['config'].get('capability_field_mode', '?'))+
                       ', terrain radius '+text(run['config'].get('domain_terrain_radius', '?'))+
                       ', pitch '+text(run['config'].get('pitch_command_max_deg', '?'))+' degrees.', '',
-                      '### Reward payments (late on-policy samples)', ''])
+                      '### Training narrative (on-policy, not a walking grade)', ''])
+        lines.extend('- '+text(item) for item in run['story'])
+        lines.append('')
+        lines.extend(['### Reward payments (late on-policy samples)', ''])
         _table(lines, ('Payment','Contribution'),
                [(key, pretty(value)) for key,value in run['rewards'].items()])
         lines.extend(['### Measurement trends', ''])

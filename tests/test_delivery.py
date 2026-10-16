@@ -125,6 +125,14 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     assert 'common held-out ranking' in doc
     assert 'servo_shaft_abs_power_w' in doc and 'spring_potential_energy_j' in doc
     assert 'not proof of walking' in doc
+    assert 'Training narrative (on-policy, not a walking grade)' in doc
+    assert 'On-policy teaching reward rose' in doc
+    fictional = [{'step': str((i+1)*100), 'reward_mean': str(v)} for i,v in enumerate(
+        [0.2, 0.3, 0.4, 0.9, 1.2, 1.3, 1.1, 0.8, 0.4, 0.25])]
+    text_story = results.training_story(fictional, {
+        'reward_mean': {'early': .2, 'late': .25}})
+    assert any('Possible training setback' in x for x in text_story)
+    assert not any('learned to walk' in x for x in text_story)
     data=json.loads((root/'results_data.json').read_text())
     assert len(data['runs']) == 5
     assert not any('PARENT HASH DIFFERS' in p
