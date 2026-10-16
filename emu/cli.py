@@ -216,7 +216,7 @@ def main(argv=None) -> int:
         out=Path(args.out_dir).expanduser() if args.out_dir else root/'atlas'
         return _run('atlas','--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed))
     if args.cmd=='posture-report':
-        from .posture_report import report
+        from .results import posture_report
         return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
     if args.cmd in ('ladder','lab5015'):
         av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
