@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
-"""EMU training orchestrator.
+"""The *one* training run: coordinate worlds, teacher, PPO and checkpoints.
 
-PPO, curriculum, health, rollout reduction, checkpoint I/O and artifacts live in
-their owning modules; this file composes them into the learning loop and held-out
-evaluation schedule. EMU trains dynamic stepping/catching locomotion, not static
-standing.
+Read this file in order:
+
+1. `train(config)` restores (or starts) the learner and creates MJX worlds.
+2. PPO collects batches of real physics experience across `config.envs` worlds.
+3. Rollout metrics and independent exam snapshots describe what happened.
+4. Curriculum/health adjust the *next* task distribution and recovery policy.
+5. Durable logs and checkpoints preserve the policy and its learning state.
+6. The final checkpoint and report are published only after validation.
+
+Training DOES NOT define the reward mathematics (see rewards.py) or choose the
+winning training strategy (see ladder_recipe.py / branch_lab.py).
+
+KNOWN DEBT: most of these stages still inhabit a long `train` body.
+See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
 """
 from __future__ import annotations
 
@@ -135,6 +145,14 @@ def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: f
 # ---------------------------------------------------------------------------
 
 def train(args: TrainingConfig) -> int:
+    """Run one checkpoint lineage; no branch-selection logic lives here.
+
+    The main loop is organised in evidence time:
+    1. examine the policy that produced the last rollout;
+    2. reduce facts, revise next curriculum, and checkpoint if needed;
+    3. collect the next rollout and update PPO.
+    The first rollout is collected before entering the loop.
+    """
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax

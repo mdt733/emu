@@ -1,8 +1,14 @@
-"""One auditable ledger for the eight existing PPO reward payments.
+"""Reward policy: how EMU judges one physics control step during learning.
 
-These values are *training* reward contributions, not held-out promotion
-scores or measured electrical energy. Keep order/associativity equivalent to
-the original environment._reward expression when updating this function.
+The environment measures the world and calls :func:`training_reward`.
+This module turns those measurements into eight weighted learning payments
+plus an early-fall cost; PPO receives only their total.
+
+Raw sensors/physical metrics belong to environment.py. Long-term capability
+and held-out exams are independent of this teaching reward. None of the
+numbers here are calibrated electrical power or proof of walking.
+
+Numerical order is deliberately unchanged from the accepted v5015 reward.
 """
 
 

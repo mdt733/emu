@@ -1,8 +1,11 @@
-"""EMU PPO implementation and observation normalisation.
+"""The learner: policy, value network, rollout, advantages and PPO updates.
 
-This is the learning engine only. It owns network/optimizer state, rollout and
-PPO updates, and policy evaluation kernels. It does not own curriculum,
-checkpoint policy, experiment orchestration, or training-health decisions.
+Input: world observations and rewards *already* computed by the environment.
+Output: a trained policy and its optimizer state. PPO does not set reward
+weights or decide which experiment branch wins.
+
+Evaluation kernels stay here for now to reuse the identical JAX policy
+inference path; their scoring and experiment selection live elsewhere.
 """
 from __future__ import annotations
 

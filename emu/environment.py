@@ -1,28 +1,13 @@
-"""EMU MJX environment: physics state, task sampling, reward and termination.
+"""The simulated universe: robot physics, task packets and sensors.
 
-The environment deliberately trains a dynamically unstable biped. There is no
-static-standing prerequisite: episodes begin near a commanded moving state and
-the policy learns to keep itself upright by stepping.
+`EmuMJXEnv` advances many simultaneous MuJoCo worlds and supplies physical
+observations to PPO. The robot's joints, springs and motor limits are defined
+in robot.xml; domain_randomization.py supplies per-world model variations.
 
-Training mixes three regimes in the same vectorised rollout:
-
-- STEADY: hold a commanded vx/vy/yaw.
-- TRANSITION: change commands during the episode.
-- RESILIENCE: cope with rough starts and horizontal pushes while moving.
-
-POSTURE is a global background difficulty dial rather than a fourth regime.
-Each regime owns one 0..1 difficulty scalar; the scalar expands a coherent set
-of physical task parameters. The training-side RegimeGovernor coordinates
-simultaneous expansions with a shared push budget so several individually safe
-changes cannot accidentally create one oversized task-distribution jump.
-Retreats are intentionally unrestricted.
-
-The fast path keeps one fixed MJX topology, but selected JAX-valued model leaves
-can carry a leading environment dimension. v5014 uses that intended MJX domain-
-randomisation path for slope-equivalent gravity, contact friction, mass and
-actuator/joint spread. Geometry/topology changes are kept out of the JIT and are
-owned by the host-side morphology-bank path so MuJoCo can recompute derived
-physics coherently before compilation.
+KNOWN DEBT: this module currently also samples curriculum tasks and calls
+the pure training reward in rewards.py. Those are *integration boundaries*,
+not reasons to hide the physical state or create a second trainer. Future
+simplification will make the physics/reset/sensor path readable first.
 """
 from __future__ import annotations
 
@@ -31,7 +16,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from .domain_randomization import DomainRandomizationConfig, build_batched_model
-from .scoring import training_reward, apply_early_fall_penalty
+from .rewards import training_reward, apply_early_fall_penalty
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)

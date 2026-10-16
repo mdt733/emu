@@ -2,9 +2,19 @@
 
 **Six actuators, two feet, and no scripted walking animation.** EMU is an experimental biped trained with reinforcement learning to step, steer, and recover balance in MuJoCo physics.
 
-**[Try the public EMU Playground](https://mdt733.github.io/emu/)** · [Architecture](docs/architecture.md) · [Install](docs/INSTALL.md) · [Project status](docs/STATUS.md)
+**[Try the public EMU Playground](https://mdt733.github.io/emu/)** · [Start here: how EMU works](docs/architecture.md) · [Simplification roadmap](docs/SIMPLIFICATION.md) · [Install](docs/INSTALL.md) · [Project status](docs/STATUS.md)
 
 The public Playground runs a previously trained **60-million-step policy** in your browser using MuJoCo WebAssembly and a JavaScript neural-network interpreter. It does not train a robot, and looking good in the viewer is not proof of held-out performance.
+
+## The idea in one paragraph
+
+EMU has **a robot and a universe**, **a reward** that judges each control step,
+**PPO** that learns, **a curriculum** that decides what to practise next, and
+**an experiment recipe** that compares entire teaching strategies. Independent
+**reports** explain what worked; the **viewer** lets you inspect a frozen
+brain. The [architecture](docs/architecture.md) is our primary explanation,
+including gaps in the current code. The [living checklist](docs/SIMPLIFICATION.md)
+prevents the next refactor passes from drifting off course.
 
 ## The project in one picture
 

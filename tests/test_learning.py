@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import NamedTuple, Any
 import numpy as np
 import pytest
-from emu.scoring import weighted_training_terms
+from emu.rewards import weighted_training_terms
 from emu.training_config import TrainingConfig, mature_config
 from emu.capability_field import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
@@ -83,7 +83,7 @@ def test_weighted_reward_is_bitwise_equivalent_to_original_float32_expression():
 def test_training_reward_and_terminal_payment_jit_compile_in_jax():
     import jax
     import jax.numpy as jnp
-    from emu.scoring import training_reward, apply_early_fall_penalty
+    from emu.rewards import training_reward, apply_early_fall_penalty
 
     m = dict(
         terminal=jnp.array([0., 1.]), vx=jnp.array([.2, .4]),
