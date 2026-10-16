@@ -98,14 +98,18 @@ class CheckpointResumeTests(unittest.TestCase):
 
             class Teacher:
                 def __init__(self):
-                    self.restored = None
+                    self.restored = {'original': 'teacher'}
+                def state_dict(self):
+                    return dict(self.restored)
                 def load_state_dict(self, value):
                     self.restored = value
 
             class Health:
                 def __init__(self):
-                    self.restored = None
+                    self.restored = {'original': 'health'}
                     self.recovered = False
+                def state_dict(self):
+                    return dict(self.restored)
                 def load_state_dict(self, value):
                     self.restored = value
                 def note_recovery_performed(self):
@@ -161,6 +165,25 @@ class CheckpointResumeTests(unittest.TestCase):
                 step=130001, report={'stepping_collapse_streak': 101},
                 obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM), obs_count=1.0,
                 task_params_for_field=selected_task, log_prefix='[test]') is None
+
+            # Failure AFTER loading recovery state must not leave a partially
+            # rewound teacher when PPO's policy remains unchanged.
+            fail_teacher, fail_health = Teacher(), Health()
+            original_teacher = fail_teacher.state_dict()
+            original_health = fail_health.state_dict()
+            def rejected_task(_):
+                raise RuntimeError('simulated world reset failure')
+            failed = try_restore_recovery(
+                path, state=collapsed, governor=fail_teacher,
+                health=fail_health, env=worlds, step=130002,
+                report={'stepping_collapse_streak': 101},
+                obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM),
+                obs_count=1.0, task_params_for_field=rejected_task,
+                log_prefix='[test]')
+            assert failed is None
+            assert fail_teacher.state_dict() == original_teacher
+            assert fail_health.state_dict() == original_health
+            assert not fail_health.recovered
 
         np.testing.assert_array_equal(loaded['state']['params']['pi'][0]['w'], state.params['pi'][0]['w'])
         np.testing.assert_array_equal(loaded['state']['params']['vf'][-1]['b'], state.params['vf'][-1]['b'])

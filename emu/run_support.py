@@ -159,6 +159,9 @@ def try_restore_recovery(
               "collapsed updates, but recovery.pkl does not exist yet -- curriculum retreat continues.", flush=True)
         return None
 
+    # Restoring physical worlds can fail after the teacher was rewound.
+    # Keep snapshots so a failed recovery cannot leave a mixed learner.
+    old_governor = old_health = None
     try:
         import jax
         import jax.numpy as jnp
@@ -174,9 +177,10 @@ def try_restore_recovery(
         restored_state = state._replace(
             params=jax.device_put(saved['params']),
             opt_state=jax.device_put(saved['opt_state']))
+        restored_field = CapabilityField.from_state_dict(payload['field_state'])
+        old_governor, old_health = governor.state_dict(), health.state_dict()
         governor.load_state_dict(payload['curriculum_state'])
         health.load_state_dict(payload['health_state'])
-        restored_field = CapabilityField.from_state_dict(payload['field_state'])
         if payload.get('obs_norm') is not None:
             obs_mean = jnp.asarray(payload['obs_norm']['mean'], dtype=jnp.float32)
             obs_var = jnp.asarray(payload['obs_norm']['var'], dtype=jnp.float32)
@@ -204,6 +208,15 @@ def try_restore_recovery(
             restored_state, restored_field, obs_mean, obs_var,
             obs_count, lr_scale)
     except Exception as exc:
+        if old_governor is not None:
+            try:
+                governor.load_state_dict(old_governor)
+                health.load_state_dict(old_health)
+            except Exception as undo_exc:
+                # Continuing would mix the new teacher with old PPO weights.
+                raise RuntimeError(
+                    'AUTO-RECOVERY failed and could not undo curriculum/health rewind; '
+                    'stopping to prevent inconsistent learning state') from undo_exc
         print(f"{log_prefix} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
               "-- continuing with ordinary retreat only.", flush=True)
         return None

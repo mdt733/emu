@@ -120,6 +120,10 @@ promotion, reports and policy export → local viewer and manual Pages workflow.
 No review can substitute for actual fresh GPU memory/throughput and walking evidence.
 
 **Concrete issues:**
+- A failed automatic rollback could previously leave curriculum/health
+  partially rewound if fresh-world reset raised, while PPO kept the old
+  policy. Recovery now restores both controllers on failure, or stops
+  training if the undo itself is impossible.
 - Direct `--resume auto` previously only tried `latest.pkl`. It could
   refuse a valid `final.pkl` or rotating snapshot after interruption even
   though the higher-level resolver knew about them. The candidate search
