@@ -239,7 +239,7 @@ def main(argv=None) -> int:
                     '--gyro-delay-frames',str(args.gyro_delay_frames),
                     *(['--compare-heading'] if args.compare_heading else []))
     if args.cmd=='directional-batch':
-        from .v5016_batch import plan,execute
+        from .directional_exam import plan,execute
         from .directional_exam import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
                   seed=args.seed,kp=args.heading_kp,device=args.device)
