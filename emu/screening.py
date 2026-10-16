@@ -56,7 +56,7 @@ def _world(config: TrainingConfig, *, envs: int, seed_offset: int,
            sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
-    from .domain_randomization import DomainRandomizationConfig
+    from .environment import DomainRandomizationConfig
     domain = DomainRandomizationConfig(enabled=terrain_radius > 0, terrain_radius=terrain_radius)
     env = EmuMJXEnv(
         str(ROBOT_XML), num_envs=int(envs), seed=seed,
