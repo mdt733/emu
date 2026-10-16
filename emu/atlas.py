@@ -16,7 +16,7 @@ from pathlib import Path
 from .paths import VERSION, ROBOT_XML
 import numpy as np
 from .contracts import CONTROL_DT
-from .tracking_contract import recovery_outcome_numpy
+from .contracts import recovery_outcome_numpy
 
 from .environment import EmuMJXEnv
 from .runtime import configure_jax, require_backend

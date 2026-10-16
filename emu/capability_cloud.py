@@ -21,7 +21,7 @@ from typing import Iterable
 import numpy as np
 from .contracts import (CONTROL_DT, COMBO_P, RECOVERY_TILT_MAX_DEG, RECOVERY_LINVEL_MAX_MPS,
                         RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG, task_param_defaults)
-from .tracking_contract import recovery_outcome_numpy
+from .contracts import recovery_outcome_numpy
 
 
 FAMILIES = ('none', 'pose', 'momentum', 'impact', 'chaos')

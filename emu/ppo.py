@@ -18,7 +18,7 @@ from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
-from .tracking_contract import (
+from .contracts import (
     VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
     UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
 )
