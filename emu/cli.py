@@ -163,7 +163,7 @@ def main(argv=None) -> int:
     q.add_argument('--lateral',type=float,default=0.)
     q.add_argument('--yaw-rate',type=float,default=0.)
     q.add_argument('--settle-frames',type=int,default=25)
-    from .command_exams import SCENARIOS
+    from .directional_exam import SCENARIOS
     q.add_argument('--scenario',choices=SCENARIOS,default='steady')
     q.add_argument('--turn-rate',type=float,default=.25)
     q.add_argument('--gyro-bias',type=float,default=0.)
