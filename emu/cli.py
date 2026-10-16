@@ -251,7 +251,7 @@ def main(argv=None) -> int:
             print(output)
         return 0
     if args.cmd=='train':
-        from .single_run import train_one
+        from .branch_lab import train_one
         return train_one(args)
     if args.cmd=='export-policy':
         from .viewer_server import build_bundle, write_bundle
