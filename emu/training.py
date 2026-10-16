@@ -29,6 +29,7 @@ from .run_support import resume_training_lineage, promote_checkpoint
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
+from .capability_cloud import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict,
@@ -47,10 +48,10 @@ from .health import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend
-from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
+from .artifacts import ensure_run_dir, write_json, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
-    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best, checkpoint_eval_score,
+    EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
@@ -188,10 +189,6 @@ def train(args: TrainingConfig) -> int:
     cloud_eval_env = cloud_eval_trainer = None
     cloud_rows: list[dict] = []
     if cloud_enabled:
-        from .capability_cloud import (make_panel as cloud_make_panel,
-                                      make_calibration_panel as cloud_make_calibration_panel,
-                                      make_common_recovery_panel as cloud_make_common_recovery_panel,
-                                      evaluate_specs_batch as cloud_evaluate_specs_batch, summarize_rows as cloud_summarize_rows)
         cloud_eval_env = EmuMJXEnv(str(ROBOT_XML), num_envs=int(CLOUD_ENVS),
                     seed=EVAL_SEED + 44000, max_episode_steps=max(MAX_EPISODE_STEPS, int(CLOUD_HORIZON)+50),
                     push_max_force_n=max(4.0, float(args.push_max_force_n or 0.35)),
@@ -388,55 +385,23 @@ def train(args: TrainingConfig) -> int:
             pass
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
-        nonlocal last_eval_step, latest_eval, best_eval_score
+        nonlocal last_eval_step, best_eval_score
         if not force and step - last_eval_step < EVAL_EVERY_STEPS:
             return
-        cohorts = FINAL_EVAL_COHORTS if force else EVAL_COHORTS
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
-        out = evaluate_fixed(
-            fixed_eval_worlds, snapshot.params, snapshot.norm(),
-            step=snapshot.step, cohorts=cohorts, perf=perf)
-        broad_eval_history.append(float(out['eval_broad_score']))
-        out['eval_broad_tail3'] = float(sum(broad_eval_history[-3:]) / len(broad_eval_history[-3:]))
+        out, best_eval_score = record_fixed_exam(
+            snapshot, worlds=fixed_eval_worlds,
+            cohorts=FINAL_EVAL_COHORTS if force else EVAL_COHORTS,
+            run_dir=run_dir, broad_history=broad_eval_history,
+            best_score=best_eval_score, best_path=best_eval_path,
+            curriculum_state=governor.state_dict, health_state=health.state_dict,
+            field_state=field.state_dict, lr_scale=lr_scale, version=version,
+            perf=perf, log_prefix=LOG_PREFIX)
         last_eval_step = step
-
-        best_ckpt_timing = {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
-        if outranks_best(float(out['eval_broad_score']), best_eval_score):
-            best_eval_score = float(out['eval_broad_score'])
-            best_ckpt_timing = save_checkpoint(
-                best_eval_path, snapshot.state,
-                {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
-                 'best_eval_score': best_eval_score,
-                 'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
-                 'lr_scale': lr_scale},
-                snapshot.norm(),
-                curriculum_state=governor.state_dict(),
-                health_state=health.state_dict(),
-                field_state=field.state_dict(), require_finite_state=True)
-            if not best_ckpt_timing.get('saved', 0.0):
-                raise RuntimeError('Best-policy publication refused: non-finite actor or optimizer state')
-            perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
-            perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
-            perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
-
-        perf.add('fixed_eval_total', out['perf_fixed_eval_total_s'])
-        out['perf_best_checkpoint_total_s'] = float(best_ckpt_timing['total_s'])
-        out['perf_best_checkpoint_device_get_s'] = float(best_ckpt_timing['device_get_s'])
-        out['perf_best_checkpoint_pickle_s'] = float(best_ckpt_timing['pickle_write_s'])
         latest_eval.update(out)
-        append_metrics_csv(run_dir / 'fixed_eval.csv', {'step': step, **out})
-        if perf.enabled:
-            write_json(run_dir / 'performance.json', {'step': step, 'cumulative': perf.row(prefix='')})
-
-        print(f"{LOG_PREFIX} fixed-eval step={step:,} score={out['eval_broad_score']:.3f} tail3={out['eval_broad_tail3']:.3f} "
-              f"core={out['eval_core_survival']:.3f} dyn80={out['eval_dynamic80_survival']:.3f} "
-              f"combo70={out['eval_combo70_survival']:.3f}/{out['eval_combo70_yaw_mae']:.3f}yaw "
-              f"res75={out['eval_resilience75_survival']:.3f} robust40={out['eval_robust40_survival']:.3f} "
-              f"growth={out['eval_growth110_survival']:.3f}/{out['eval_growthcombo110_survival']:.3f} "
-              f"eval_wall={out.get('perf_fixed_eval_total_s',0.0):.1f}s", flush=True)
 
     def maybe_cloud_eval(step: int, force: bool = False) -> None:
-        nonlocal last_cloud_step, cloud_rows
+        nonlocal last_cloud_step
         if not cloud_enabled or cloud_eval_env is None or cloud_eval_trainer is None:
             return
         every = max(0, int(CLOUD_EVAL_EVERY_STEPS))
@@ -445,94 +410,13 @@ def train(args: TrainingConfig) -> int:
         count = int(args.cloud_final_probes if force else args.cloud_probes_per_eval)
         if count <= 0:
             return
-        t0_cloud = time.perf_counter()
-        field_before_exam = field.fingerprint()
-
-        # Screen no-disturbance controls first; only spend expensive disturbed
-        # rollouts on command anchors that are already demonstrably competent.
-        panel_id = 0 if force else max(0, int(step // max(1, every)) - 1)
-        # Let the training-derived field choose
-        # *questions* spanning its predicted competence bands, but never let
-        # held-out answers update the field. If the map is still too young,
-        # fall back to the deterministic paired panel.
-        bundles=max(1,int(np.ceil(count/5)))
-        if force:
-            # Final comparison is a COMMON deterministic panel across every
-            # trainer branch.  Field-selected calibration commands are useful
-            # longitudinally, but ranking policies on different questions would
-            # be scientifically invalid.  We still annotate the common controls
-            # with the live field's prediction, so the same final exam also
-            # measures self-map calibration.
-            requested = cloud_make_common_recovery_panel(count, source='final_common_recovery')
-            for spec in requested:
-                pred,ev = field.predict_command(float(spec['cmd_vx']),float(spec['cmd_vy']),float(spec['cmd_yaw']))
-                spec['field_predicted_competence']=pred
-                spec['field_effective_evidence']=ev
-        else:
-            calibration_cmds = field.calibration_commands(bundles)
-            if calibration_cmds:
-                requested = cloud_make_calibration_panel(calibration_cmds, panel_id=panel_id,
-                                                          source='field_calibration')
-            else:
-                requested = cloud_make_panel(count, panel_id=panel_id, source='routine_panel')
-        controls = [x for x in requested if x.get('family') == 'none']
-        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
-        base_key = jax.random.PRNGKey(int(EVAL_SEED) + 44000)
-        control_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)))
-                        for i, x in enumerate(controls)]
-        control_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, snapshot.params,
-            snapshot.obs_mean, snapshot.obs_var ** 0.5,
-            control_keys, int(CLOUD_HORIZON), controls, chunk_size=int(CLOUD_BATCH_POINTS))
-        for r in control_rows:
-            r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
-
-        competent_bundles = {int(r.get('bundle_id', -1)) for r in control_rows
-                             if float(r.get('recovery_rate', 0.0)) >= 0.80
-                             and float(r.get('survival', 0.0)) >= 0.95}
-        disturbed = [x for x in requested if x.get('family') != 'none'
-                     and int(x.get('bundle_id', -1)) in competent_bundles]
-        disturb_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)) + 1000003)
-                        for i, x in enumerate(disturbed)]
-        disturbed_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, snapshot.params,
-            snapshot.obs_mean, snapshot.obs_var ** 0.5,
-            disturb_keys, int(CLOUD_HORIZON), disturbed, chunk_size=int(CLOUD_BATCH_POINTS)) if disturbed else []
-        for r in disturbed_rows:
-            r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
-
-        new_rows = control_rows + disturbed_rows
-        cloud_rows.extend(new_rows)
-        summary = cloud_summarize_rows(cloud_rows)  # also annotates matched controls in-place
-        write_rows_csv(run_dir / 'heldout_capability_cloud.csv', cloud_rows)
-        cal_pairs=[(float(r.get('field_predicted_competence',np.nan)),float(r.get('node_window_rate',np.nan)))
-                   for r in control_rows if np.isfinite(float(r.get('field_predicted_competence',np.nan)))
-                   and np.isfinite(float(r.get('node_window_rate',np.nan)))]
-        cal_mae=float(np.mean([abs(a-b) for a,b in cal_pairs])) if cal_pairs else -1.0
-        cal_brier=float(np.mean([(a-b)**2 for a,b in cal_pairs])) if cal_pairs else -1.0
-        summary.update({'policy_step': int(step), 'points': len(cloud_rows),
-                        'requested_panel_points': len(requested), 'executed_panel_points': len(new_rows),
-                        'envs_per_point': int(CLOUD_ENVS), 'horizon_steps': int(CLOUD_HORIZON),
-                        'field_calibration_points':len(cal_pairs),'field_calibration_mae':cal_mae,
-                        'field_calibration_brier':cal_brier,'field_calibration_target':'node_window_rate'})
-        latest_eval['field_calibration_mae']=cal_mae
-        latest_eval['field_calibration_brier']=cal_brier
-        latest_eval['field_calibration_points']=float(len(cal_pairs))
-        write_json(run_dir / 'heldout_capability_cloud.json', summary)
+        record_capability_cloud_exam(
+            PolicySnapshot(step, state, obs_mean, obs_var, obs_count),
+            field=field, cloud_eval_env=cloud_eval_env,
+            cloud_eval_trainer=cloud_eval_trainer, cloud_rows=cloud_rows,
+            latest_eval=latest_eval, run_dir=run_dir, perf=perf,
+            log_prefix=LOG_PREFIX, force=force, count=count, every=every)
         last_cloud_step = int(step)
-        elapsed = time.perf_counter() - t0_cloud
-        perf.add('capability_cloud', elapsed)
-        field_after_exam = field.fingerprint()
-        if field_after_exam != field_before_exam:
-            raise RuntimeError('held-out capability exam mutated the live capability field; quarantine invariant violated')
-
-        valid=[r for r in new_rows if int(float(r.get('resilience_valid',0) or 0)) == 1]
-        baseline_ok=float(len(competent_bundles) / max(1, len(control_rows)))
-        mean_rec=float(np.mean([float(r['recovery_rate']) for r in valid])) if valid else 0.0
-        worst=float(np.mean([float(r.get('recovery_worst_direction',0)) for r in valid])) if valid else 0.0
-        print(f"{LOG_PREFIX} capability-cloud step={step:,}: controls={len(control_rows)} "
-              f"disturbed={len(disturbed_rows)}/{len(requested)-len(controls)} baseline_ok={baseline_ok:.3f} "
-              f"valid_recovery={mean_rec:.3f} worst_dir={worst:.3f} calibration_mae={cal_mae:.3f} wall={elapsed:.1f}s", flush=True)
 
     while total_steps < args.steps:
         maybe_fixed_eval(total_steps)
