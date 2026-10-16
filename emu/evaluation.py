@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Callable
 from pathlib import Path
 from .checkpoint_io import save_checkpoint
-from .artifacts import append_metrics_csv, write_json
+from .results import append_metrics_csv, write_json
 from dataclasses import dataclass
 import time
 import math

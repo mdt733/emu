@@ -48,7 +48,7 @@ from .curriculum import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend
-from .artifacts import (
+from .results import (
     ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
     write_capability_field_artifacts,

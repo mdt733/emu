@@ -22,7 +22,7 @@ from .environment import EmuMJXEnv
 from .runtime import configure_jax, require_backend
 from .ppo import make_trainer
 from .checkpoint_io import load_checkpoint
-from .artifacts import write_rows_csv
+from .results import write_rows_csv
 from .contracts import task_param_defaults
 
 

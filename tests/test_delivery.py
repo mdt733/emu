@@ -12,7 +12,7 @@ import pytest
 from emu import branch_lab as lab
 from emu import branch_lab as recipe
 from emu import results
-from emu.artifacts import append_training_observation, write_capability_field_artifacts, make_metrics_row
+from emu.results import append_training_observation, write_capability_field_artifacts, make_metrics_row
 from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
 from emu.ppo import PPO_HIDDEN_SIZES, build_obs_norm_mask
 ROOT = Path(__file__).resolve().parents[1]
