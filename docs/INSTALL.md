@@ -9,7 +9,7 @@ EMU has two independent environments: a **Python JAX/MJX trainer** and a **Node.
 - For GPU training, an NVIDIA GPU/driver exposed to WSL, and a JAX CUDA wheel compatible with the machine. Verify `nvidia-smi` before assuming a GPU is available.
 - Internet access for the initial `pip` and `npm` installs.
 
-Python dependencies are owned by `pyproject.toml`; browser dependencies by `viewer/package.json` and its committed lockfile.
+Python dependencies are owned by `pyproject.toml`; browser dependencies by `emu/viewer_src/package.json` and its committed lockfile.
 
 ## From blank Windows 11 to a ready Ubuntu shell
 
@@ -48,28 +48,35 @@ curl --version
 
 For a CUDA-capable Windows host, install/update the **Windows** NVIDIA driver first. Inside WSL check `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` if it isn't in `PATH`). NVIDIA's [CUDA on WSL guide](https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html) warns **not to install the Linux display driver inside WSL**; WSL uses the host Windows driver. If no compatible GPU is visible, take the CPU install path below rather than claiming CUDA support.
 
-### Pre-merge release-candidate check
+### Pre-merge release-candidate setup (separate from old training)
 
-Until the cleanup is merged, GitHub's default `main` does **not** contain its new `emu ladder` CLI. To verify the exact proposed source before merge, checkout the draft branch **before running setup**:
+The unmerged work is on `refactor/emu-readable`, **not** `main`.
+Do **not** switch the branch in a checkout serving a running experiment.
+Make a new Linux-side WSL clone (not under `/mnt/c`):
 
 ```bash
-git clone https://github.com/mdt733/emu.git
-cd emu
-git switch --track origin/refactor/ladder-human-first
+git clone --branch refactor/emu-readable --single-branch https://github.com/mdt733/emu.git "$HOME/emu-readable-audit"
+cd "$HOME/emu-readable-audit"
 git rev-parse HEAD
+git status --short
+nvidia-smi
+bash scripts/setup_wsl.sh --cuda13 --install-node
+source .venv/bin/activate
+emu doctor --v5015-smoke --domain-smoke
+emu ladder --stage plan
 ```
 
-This is a temporary release-candidate testing step. After the merge a normal `main` clone should work without switching branches. Avoid reusing any training data from an older checkout.
+This assumes the CUDA 13 driver and Python 3.13 prerequisites above
+are already installed. If CUDA is unavailable, omit `--cuda13` and
+do viewer/CPU checks only. Setup does not start training, and the new
+checkout is independent of any earlier running source/venv.
 
 ## Clone and configure
 
-```bash
-git clone https://github.com/mdt733/emu.git
-cd emu
-# For unmerged PR #2 validation only:
-git switch --track origin/refactor/ladder-human-first
-bash scripts/setup_wsl.sh --install-node
-```
+On a machine with no GPU, use the exact clone commands above but invoke
+`bash scripts/setup_wsl.sh --install-node` and
+`emu doctor --no-require-gpu --no-mjx-smoke`. For a GPU installation,
+the commands in the release-candidate section are the recommended route.
 
 The example is the **CPU-only** install; it works without an NVIDIA card and is the safest first boot test. For a confirmed CUDA 13-compatible machine use `bash scripts/setup_wsl.sh --cuda13 --install-node`. Don't pass `--cuda13` unless your actual driver supports it; the setup script does not install NVIDIA drivers. It creates `.venv`, installs the editable package, runs contract checks and builds the packaged viewer. No long training run starts.
 
@@ -87,7 +94,7 @@ For a GPU trainer, run `emu doctor --v5015-smoke --domain-smoke` before committi
 | Task | Command |
 |---|---|
 | See planned experiment steps and arms | `emu ladder --stage plan` |
-| Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh` |
+| Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh --root "$HOME/robot_lab/emu_runs/readable_campaign_NEW" --stop-after round1` (first inspect the 20M foundation and use a unique root) |
 | Stop after the first scored round | `bash scripts/run_ladder.sh --stop-after round1` |
 | Watch completed validated checkpoints locally | `emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open` |
 | Run the zero-weight *local* rendering fixture | `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open` |

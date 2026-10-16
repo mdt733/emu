@@ -103,6 +103,40 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
+## Source-level audit and local release readiness (16 October 2026)
+
+Read-through scope: `cli.py` and WSL bootstrap → launcher/provenance →
+`training.py` → MJX `environment.py`/`tasks.py` → `rewards.py` and
+`ppo.py` (raw actions, GAE, optax, normaliser) → governor/health/field
+→ checkpoint publication and auto-resume → held-out evaluator, experiment
+promotion, reports and policy export → local viewer and manual Pages workflow.
+No review can substitute for actual fresh GPU memory/throughput and walking evidence.
+
+**Concrete issues:**
+- Direct `--resume auto` previously only tried `latest.pkl`. It could
+  refuse a valid `final.pkl` or rotating snapshot after interruption even
+  though the higher-level resolver knew about them. The candidate search
+  has been unified, with missing/corrupt-latest and bad-explicit-path
+  checks added inside an existing checkpoint test (no extra tests).
+- `docs/INSTALL.md` still selected retired `refactor/ladder-human-first`
+  and could encourage branch-switching in a live checkout. It now describes
+  a fresh independent WSL clone of `refactor/emu-readable`, installed with
+  the existing CUDA13 setup script and external run directory.
+- Ladder score eligibility measures survival/posture/motion but does **not**
+  demand calibrated signed course progress and completed contact strides.
+  Do not equate a top-ranked policy with proven walking.
+- GitHub Pages deliberately requires a manual dispatch and pins the SHA
+  of today's 60M champion. A future *combined* viewer+new actor release
+  requires updating that pinned hash together with the approved candidate.
+  Do not change or publish those files yet.
+
+**Remaining independent gates:** fresh isolated RTX CUDA 256→512 step
+lifecycle and export; then 20M foundation monitoring and candidate
+branch comparisons at matched budgets; independent signed-direction,
+course contact/strides and gentle slope assessments. These gates remain
+unexecuted by this remote audit. Keep PR #5 draft; do not touch main,
+existing run roots or showcase.
+
 ## Latest verified status
 
 - **G3** `0b35a23` + `8ddf73b`: [corrected CI passed](https://github.com/mdt733/emu/actions/runs/38851431010), 16 Python + four browser checks, local HTTP immutable manual-policy snapshot and WASM MIME.

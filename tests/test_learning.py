@@ -60,6 +60,32 @@ class CheckpointResumeTests(unittest.TestCase):
             np.testing.assert_array_equal(
                 resumed['state']['params']['pi'][0]['w'],
                 state.params['pi'][0]['w'])
+            # Source audit: auto-resume survives missing/corrupt latest.pkl
+            # when an independent rotating snapshot passes the full contract.
+            import shutil
+            fallback_run = Path(td) / 'auto-run'
+            checkpoints = fallback_run / 'checkpoints'
+            checkpoints.mkdir(parents=True)
+            snapshot = checkpoints / 'snapshot_step_000000123456.pkl'
+            shutil.copyfile(path, snapshot)
+            resumed_auto, step_auto, finished_auto = resume_training_lineage(
+                fallback_run, resume='auto', target_steps=223456, envs=1)
+            assert step_auto == 123456 and not finished_auto
+            np.testing.assert_array_equal(
+                resumed_auto['state']['params']['pi'][0]['w'], state.params['pi'][0]['w'])
+            broken_latest = checkpoints / 'latest.pkl'
+            broken_latest.write_bytes(b'invalid checkpoint')
+            resumed_auto, step_auto, finished_auto = resume_training_lineage(
+                fallback_run, resume='auto', target_steps=223456, envs=1)
+            assert step_auto == 123456 and not finished_auto
+            with pytest.raises(RuntimeError, match='resume failed'):
+                resume_training_lineage(
+                    fallback_run, resume=str(broken_latest), target_steps=223456, envs=1)
+            snapshot.unlink()
+            with pytest.raises(RuntimeError, match='no valid current-schema'):
+                resume_training_lineage(
+                    fallback_run, resume='auto', target_steps=223456, envs=1)
+
             # D4: a real checkpoint also rewinds the policy, optimiser,
             # teacher/health, field, normaliser, LR and physical episode RNG.
             import jax

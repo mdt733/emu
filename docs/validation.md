@@ -2,6 +2,29 @@
 
 EMU has **three different questions**: does the code run, does the learning loop behave correctly, and can the resulting policy actually walk? Passing one does not answer the others.
 
+## Source audit findings before first local acceptance (16 October 2026)
+
+The actual CLI, `single_run`, ladder executor, PPO rollout/GAE, environment
+task sampler, complete schema-7 checkpoint writer/reader, recovery, frozen
+evaluation, export and viewer were traced, not merely their tests. The direct
+trainer auto-resume now uses the same validated candidate order as the run
+resolver, including final and rotating snapshots when latest is absent/bad.
+Explicit checkpoint paths still fail closed when invalid.
+
+The 20 tests and browser build are **software evidence**; they cannot verify
+large CUDA memory behaviour, wall-time throughput, long-training stability,
+motor efficiency or actual walking. The experiment screen has survival,
+posture and slope eligibility gates, but no calibrated minimum for contact-
+verified gait or signed command progress. Treat automatic ladder promotion
+as a shortlist, not permission to publish a champion.
+
+A *future* coordinated release should update viewer source, the selected
+`showcase/champion.emupolicy`, the deliberate pinned champion hash in
+`.github/workflows/emu-playground.yml`, associated verification and status
+documentation in ONE reviewed release PR. Publishing is a separate,
+intentional manual Pages workflow dispatch after merge and browser checks.
+Never change the protected 60M public champion before acceptance.
+
 ## 0. Clean WSL bootstrap and branch identity
 
 Follow the [Windows → Ubuntu → Python 3.13 installation sequence](INSTALL.md#from-blank-windows-11-to-a-ready-ubuntu-shell). During pre-merge acceptance explicitly switch to `refactor/emu-readable` **before** installation; `main` is not yet the test candidate. Record `wsl --list --verbose` in PowerShell and `python3.13 --version`, `node --version`, `git rev-parse HEAD` in the Ubuntu checkout.

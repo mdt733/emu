@@ -12,6 +12,26 @@ should continue on their original pinned source; do not update their checkout.
 lineage using its modified source** until the independent GPU acceptance gate.
 The current 20 software checks only show contract compatibility.
 
+## Code-level audit result (not just green tests)
+
+- **Confirmed by source review:** the intended directed layers exist;
+  PPO samples physical-world transitions and uses pre-reset next-state
+  bootstrap; the curriculum reads rollout evidence; fixed exams cannot
+  teach; branch selection is source- and checkpoint-hash-gated; viewer
+  playback uses actor-only exports.
+- **Fixed:** direct trainer `--resume auto` now finds a valid final or
+  rotating snapshot even if `latest.pkl` is missing/corrupted, without
+  weakening explicitly supplied checkpoint paths. Existing checkpoint
+  test expanded.
+- **Local setup corrected:** install docs now use a fresh standalone clone
+  of this exact refactor branch, avoiding any original training checkout.
+- **Still to prove on GPU:** update/save/resume/export and actual duration,
+  memory, learning stability. Scores in the ladder are not yet gait-grade
+  competence proofs. The public Pages champion remains deliberately pinned.
+- **Release strategy:** after trained-policy course acceptance, combine
+  viewer, selected actor, pinned hash, browser/tests and documentation in
+  one reviewed PR. Trigger Pages manually *after* merge. No early deploy.
+
 ## Definition of simple
 
 - The first screen of `training.py` explains the whole loop.
