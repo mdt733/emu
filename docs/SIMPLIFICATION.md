@@ -61,9 +61,7 @@ The current 20 software checks only show contract compatibility.
   calculation; adaptive-on/off and field-taught birth behaviour are checked in
   the existing real-MJX test. E3 replaced duplicate transient event-tracker
   initialization; learned node/edge/recovery evidence is NOT reset on cohort
-  resize or resume. **E4 next:** prove decay and `field_taught` evidence
-  exclusion and inspect field selection weights, rather than deleting valid
-  teacher paths because they're temporarily dormant in off/shadow mode.
+  resize or resume. **E4 source pending CI:** the two training-evidence boundaries now share one `_cancel_event_windows` owner; the existing test checks a clean sustained event, one exact evidence half-life, both isolation modes and interruption of a partly completed window. Node-only command-cell changes deliberately do NOT clear independent recovery or edge events. No teacher ranking changes. Continue to F once CI passes.
   **Gate:** visible physical command envelopes, safe retreat, no examiner
   leakage, and a fresh isolated GPU lifecycle before merge.
 - [ ] **F. Meta-learning/experiment recipe.** Make shared foundation,
@@ -99,7 +97,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass E4:** E2 now shares birth/transition envelope calculations, and E3 removes duplicated capability-field runtime trackers. Verify capability evidence/decay and clean-evidence constraints before touching core event logic; no change to node/edge sampling or JAX keys. CUDA lifecycle and frozen-policy exams remain outstanding.
+**Pass F1:** E evidence boundaries are now readable and explicitly tested. Study the real shared foundation / branch plan in `ladder_recipe.py` and `branch_lab.py`, distinguish hypothesis choices from execution and promotion, then simplify only genuine duplication without losing source-pinned ancestry, matched budgets or held-out test independence. CUDA/physical acceptance outstanding.
 
 ## Evidence ledger
 

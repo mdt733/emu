@@ -170,6 +170,57 @@ class CheckpointResumeTests(unittest.TestCase):
         assert clean_resume._runtime_n == 0
         assert clean_resume._node_active.size == 0
         assert clean_resume.fingerprint() == field.fingerprint()
+        # E4: teaching feedback must remain separately measurable. An
+        # uninterrupted *unbiased* gait window counts as node evidence.
+        # A field-selected frame breaks a window even if the robot tracks
+        # perfectly, preventing self-selected practice reinforcing itself.
+        frames = 80
+        nshape = (frames, 1)
+        zeros = np.zeros(nshape, np.float32)
+        ones = np.ones(nshape, np.float32)
+        cmd = np.full(nshape, 0.04, np.float32)
+        ages = np.full(nshape, 2.0, np.float32)
+        experience = {
+            'cmd_vx': cmd, 'cmd_vy': zeros, 'cmd_yaw': zeros,
+            'vx': cmd, 'vy': zeros, 'yaw_rate': zeros,
+            'gravity_z': ones, 'support': ones, 'bad_contact': zeros,
+            'episode_fell': zeros, 'episode_done': zeros, 'age_s': ages,
+            'transition_frac': zeros, 'cmd_resampled': zeros,
+            'regime_resilience': zeros, 'birth_resilience_d': zeros,
+            'target_cmd_vx': cmd, 'target_cmd_vy': zeros, 'target_cmd_yaw': zeros,
+            'transition_ramp_speed': zeros, 'field_taught': zeros,
+        }
+        clean_field = CapabilityField(half_life_steps=1000.0)
+        clean_field.update_from_rollout(experience, step=100,
+                                        exclude_field_taught=True)
+        assert clean_field.total_node_events > 0
+        clean_samples = clean_field.node_evidence().copy()
+        assert float(np.sum(clean_samples)) > 0
+        # At exactly one half-life, both counts and effective evidence halve.
+        clean_field.decay_to(1100)
+        np.testing.assert_allclose(clean_field.node_evidence(),
+                                   clean_samples * 0.5, rtol=1e-6, atol=1e-7)
+        # Field-taught experience can still be seen in a non-isolated arm.
+        selected_experience = {**experience, 'field_taught': ones}
+        nonisolated = CapabilityField()
+        nonisolated.update_from_rollout(selected_experience, step=100,
+                                        exclude_field_taught=False)
+        assert nonisolated.total_node_events > 0
+        isolated = CapabilityField()
+        isolated.update_from_rollout(selected_experience, step=100,
+                                     exclude_field_taught=True)
+        assert isolated.total_node_events == 0
+        assert isolated.total_recovery_events == 0
+        assert isolated.total_edge_events == 0
+        assert float(np.sum(isolated.node_evidence())) == 0.0
+        # A tagged frame must BREAK an active window, not just be skipped.
+        split_tags = zeros.copy()
+        split_tags[frames // 2] = 1.0
+        interrupted = CapabilityField()
+        interrupted.update_from_rollout({**experience, 'field_taught': split_tags},
+                                        step=100, exclude_field_taught=True)
+        assert interrupted.total_node_events == 0
+
 
 def test_weighted_reward_is_bitwise_equivalent_to_original_float32_expression():
     rng = np.random.default_rng(733)

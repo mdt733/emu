@@ -316,6 +316,27 @@ class CapabilityField:
     # ------------------------------------------------------------------
     # Main rollout ingestion
     # ------------------------------------------------------------------
+    def _cancel_event_windows(self, ids: np.ndarray) -> None:
+        """Discard unfinished node/recovery/edge evidence at a boundary.
+
+        Called when a new episode starts or a field-taught frame begins.
+        Neither event can complete an unbiased window from the previous
+        frames. This never removes accumulated capability evidence.
+        """
+        if not len(ids):
+            return
+        self._node_active[ids] = False
+        self._node_frames[ids] = 0
+        self._node_structural_good_frames[ids] = 0
+        self._node_err_sum_rt[ids] = 0.0
+        self._node_tol_sum_rt[ids] = 0.0
+        self._node_quality_sum_rt[ids] = 0.0
+        self._rec_active[ids] = False
+        self._rec_streak[ids] = 0
+        self._edge_phase[ids] = 0
+        self._edge_success_streak[ids] = 0
+        self._have_prev[ids] = False
+
     def update_from_rollout(self, metrics: dict[str, Any], *, step: int, control_dt: float = CONTROL_DT,
                             exclude_field_taught: bool = False) -> dict[str, float]:
         """Convert one PPO rollout into semantic node/recovery/maneuver events.
@@ -372,11 +393,6 @@ class CapabilityField:
         rec_target=max(1,int(round(float(RECOVERY_STABLE_S)/max(control_dt,1e-6))))
         edge_target=max(1,int(round(float(EDGE_STABLE_S)/max(control_dt,1e-6))))
 
-        def reset_node(ids):
-            if len(ids)==0: return
-            self._node_active[ids]=False; self._node_frames[ids]=0; self._node_structural_good_frames[ids]=0
-            self._node_err_sum_rt[ids]=0.0; self._node_tol_sum_rt[ids]=0.0; self._node_quality_sum_rt[ids]=0.0
-
         def emit_edge(mask,success):
             ids=np.flatnonzero(mask)
             if not ids.size: return
@@ -391,10 +407,7 @@ class CapabilityField:
                 # Break every semantic event machine at the boundary of
                 # field-selected practice.  Otherwise an event could begin on
                 # unbiased experience and finish inside the self-selected region.
-                ids=np.flatnonzero(blocked); reset_node(ids)
-                self._rec_active[ids]=False; self._rec_streak[ids]=0
-                self._edge_phase[ids]=0; self._edge_success_streak[ids]=0
-                self._have_prev[ids]=False
+                self._cancel_event_windows(np.flatnonzero(blocked))
             new_ep=age[t] <= (1.5*float(control_dt)+1e-6)
             node_fall=(fell[t]>.5)&(~resilience[t])&(~ramp[t])&(~blocked)&(age[t]>=float(NODE_SETTLE_DELAY_S))
             ids=np.flatnonzero(node_fall)
@@ -402,8 +415,8 @@ class CapabilityField:
                 ff=np.where(self._node_active[ids],self._node_flat[ids],flat_all[t,ids]); node_flats.append(ff.copy()); node_succ.append(np.zeros(ids.size,np.float32))
                 q=np.where(self._node_active[ids],np.divide(self._node_quality_sum_rt[ids],np.maximum(self._node_frames[ids],1)),quality[t,ids]); node_qual.append(np.asarray(q,np.float32))
             if np.any(new_ep):
-                ids=np.flatnonzero(new_ep); reset_node(ids); self._edge_phase[ids]=0; self._edge_success_streak[ids]=0
-                self._rec_active[ids]=False; self._rec_streak[ids]=0; self._have_prev[ids]=False
+                ids=np.flatnonzero(new_ep)
+                self._cancel_event_windows(ids)
                 rids=ids[resilience[t,ids]&(~blocked[ids])]
                 if rids.size:
                     self._rec_active[rids]=True; self._rec_flat[rids]=flat_all[t,rids]; self._rec_bin[rids]=np.clip(np.floor(sev[t,rids]*RECOVERY_BINS),0,RECOVERY_BINS-1).astype(np.int32)
@@ -429,7 +442,10 @@ class CapabilityField:
             settling=self._edge_phase==2; cont=settling&(~finish); self._edge_success_streak[cont&core_ok[t]]+=1; self._edge_success_streak[cont&(~core_ok[t])]=0; emit_edge((self._edge_phase==2)&(self._edge_success_streak>=edge_target),1.0)
 
             clean=(age[t]>=float(NODE_SETTLE_DELAY_S))&(~resilience[t])&(~ramp[t])&(~blocked)&(done[t]<.5); current_flat=flat_all[t]
-            ids=np.flatnonzero(self._node_active&((self._node_flat!=current_flat)|(~clean))); reset_node(ids)
+            ids=np.flatnonzero(self._node_active&((self._node_flat!=current_flat)|(~clean)))
+            if ids.size:
+                self._node_active[ids]=False; self._node_frames[ids]=0; self._node_structural_good_frames[ids]=0
+                self._node_err_sum_rt[ids]=0.0; self._node_tol_sum_rt[ids]=0.0; self._node_quality_sum_rt[ids]=0.0
             ids=np.flatnonzero(clean&(~self._node_active))
             if ids.size: self._node_active[ids]=True; self._node_flat[ids]=current_flat[ids]
             active=self._node_active&clean; self._node_frames[active]+=1; self._node_structural_good_frames[active]+=structural_ok[t,active].astype(np.int32)
