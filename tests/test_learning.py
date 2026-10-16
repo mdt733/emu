@@ -305,6 +305,27 @@ def test_training_config_roundtrip():
     assert adapt(0.1, approx_kl=0.1, **knobs) == 0.1
     assert adapt(0.25, approx_kl=float('nan'), **knobs) == 0.25
 
+    # H1: a two-stage CUDA smoke must reject different or missing source SHA
+    # before evaluating or exporting saved checkpoint objects.
+    from scripts.smoke_training_lifecycle import require_pinned_source
+    with tempfile.TemporaryDirectory() as scratch:
+        folder = Path(scratch)
+        for name in ('first', 'continued'):
+            run = folder / name
+            run.mkdir()
+            (run / 'run_meta.json').write_text(
+                '{"source_provenance":{"git_commit":"' + 'a'*40 + '"}}',
+                encoding='utf-8')
+            require_pinned_source(run, 'a'*40)
+        (folder / 'continued/run_meta.json').write_text(
+            '{"source_provenance":{"git_commit":"' + 'b'*40 + '"}}',
+            encoding='utf-8')
+        with pytest.raises(RuntimeError, match='source commit differs'):
+            require_pinned_source(folder / 'continued', 'a'*40)
+        (folder / 'first/run_meta.json').unlink()
+        with pytest.raises(RuntimeError, match='source metadata'):
+            require_pinned_source(folder / 'first', 'a'*40)
+
     # E1: settled real rollout evidence still expands physical limits, while
     # the non-adaptive curriculum leaves those limits unchanged.
     training_row = {

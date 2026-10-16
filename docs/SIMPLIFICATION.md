@@ -78,7 +78,16 @@ The current 20 software checks only show contract compatibility.
   no-store policy bytes, wasm MIME and disabled live refresh. The separate
   capability-map, MuJoCo viewer and live watcher remain distinct. **Gate:** packaged actor parity,
   validated policy source and independent physical examiner.
-- [ ] **H. Release-level confidence.** Run the 20 retained code checks and
+- [ ] **H. Release-level confidence.** **H1 source committed; CI pending:**
+  the existing three-stage `scripts/smoke_training_lifecycle.py` is the
+  authoritative GPU gate, NOT a new wrapper. The 256-step first PPO update,
+  512-step external continuation, fixed exams, telemetry, no-op completion and
+  `.emupolicy` export are already present. Final verification now rejects
+  source-mismatched first/continued checkpoints before loading them. Existing
+  test strengthened, test count still 20. **No GPU run performed here.**
+  **H2 next:** run it on the RTX-equipped WSL machine, then independently test
+  signed directional and gentle-slope actual walking of a trained frozen actor.
+  Run the 20 retained code checks and
   fresh-root real CUDA training/checkpoint/resume. Run 0°, 0.25°, 0.5° and
   carefully approached 1° directional exams against frozen policies.
   Compare source SHA, policy hashes, course progress and actual footfalls.
@@ -101,7 +110,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass H1:** G3 viewer immutability is submitted for CI. Next build a reproducible, safe, separate-root CUDA learning-update/save/resume/export acceptance recipe and run it in the user's GPU WSL checkout. Do not confuse a short smoke with actual walking or use any active checkpoint root.
+**Pass H2:** use the existing, now source-pinned, GPU smoke runner (first → continue → verify) on a NEVER-USED scratch root in a clean WSL checkout; then perform independent signed-direction / gentle-slope frozen-policy walking exams. Do not re-use or migrate active training lineages. This chat has not executed CUDA acceptance.
 
 ## Evidence ledger
 

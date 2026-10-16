@@ -4,7 +4,7 @@ EMU has **three different questions**: does the code run, does the learning loop
 
 ## 0. Clean WSL bootstrap and branch identity
 
-Follow the [Windows → Ubuntu → Python 3.13 installation sequence](INSTALL.md#from-blank-windows-11-to-a-ready-ubuntu-shell). During pre-merge acceptance explicitly switch to `refactor/ladder-human-first` **before** installation; `main` is not yet the test candidate. Record `wsl --list --verbose` in PowerShell and `python3.13 --version`, `node --version`, `git rev-parse HEAD` in the Ubuntu checkout.
+Follow the [Windows → Ubuntu → Python 3.13 installation sequence](INSTALL.md#from-blank-windows-11-to-a-ready-ubuntu-shell). During pre-merge acceptance explicitly switch to `refactor/emu-readable` **before** installation; `main` is not yet the test candidate. Record `wsl --list --verbose` in PowerShell and `python3.13 --version`, `node --version`, `git rev-parse HEAD` in the Ubuntu checkout.
 
 The first user-visible milestone is the **existing trained 60M Playground running locally**, not a zero-weight fixture. Follow [the exact static-preview steps](PLAYGROUND.md#preview-the-exact-static-site-locally), then test a joystick command in the real browser. Only after that verify the GPU learning pipeline.
 
@@ -14,14 +14,14 @@ Run from the repository root with the editable Python environment active:
 
 ```bash
 python -m compileall -q emu tests scripts
-python -m pytest -q
+python -m pytest -q tests
 npm ci --prefix emu/viewer_src --no-audit --no-fund
 npm test --prefix emu/viewer_src
 npm run build --prefix emu/viewer_src
 git diff --check
 ```
 
-Python tests check checkpoint schema and publication, learning-state resume contracts, the 220-input/six-action interface, ladder ancestry, matched screening and experiment validation. The `test_policy_inference_parity.py` suite uses a deterministic NumPy actor oracle and the **actual Node.js/browser PolicyRunner**, checking float32 packing, masked normalisation, layer orientation and output values.
+Python tests check checkpoint schema and publication, learning-state resume contracts, the 220-input/six-action interface, ladder ancestry, matched screening and experiment validation. The `test_exported_actor_matches_browser_inference` in `tests/test_delivery.py` uses a deterministic NumPy actor oracle and the **actual Node.js/browser PolicyRunner**, checking float32 packing, masked normalisation, layer orientation and output values.
 
 The browser CI job additionally packages and verifies the pinned 60M public policy and MuJoCo WASM. A successful web build does **not** establish visual correctness.
 
@@ -38,6 +38,11 @@ Confirm the backend is `gpu`, MJX can reset/step, domain variation stays finite,
 A new checkpoint/run-loop change also needs a bounded fresh-root experiment: validate the saved checkpoint, deliberately stop, warm-resume it, perform a new update and compare the saved meta, normaliser, optimiser and evaluator artifacts. Warm resume restores *learning state* but starts new simulator episodes; it is **not** byte-for-byte trajectory replay.
 
 ### Documented two-update checkpoint/resume acceptance (GPU only)
+
+The `verify` stage now **checks both stage directories' source Git commit**
+against the CURRENT clean checkout before loading any checkpoint. A different
+commit is an error even if the policy shapes still match. Return to the exact
+original source; never rewrite the checkpoint identity or reuse an active root.
 
 The basic doctor checks only one in-memory PPO update. The **separate training-lifecycle
 smoke** below checks on-disk checkpoint creation, a new process restoring a prior
@@ -59,9 +64,9 @@ cd ~/emu
 source .venv/bin/activate
 git status --short
 git rev-parse HEAD
-python scripts/smoke_training_lifecycle.py first --root ~/robot_lab/emu_runs/pr2_acceptance_01
-python scripts/smoke_training_lifecycle.py continue --root ~/robot_lab/emu_runs/pr2_acceptance_01
-python scripts/smoke_training_lifecycle.py verify --root ~/robot_lab/emu_runs/pr2_acceptance_01
+python scripts/smoke_training_lifecycle.py first --root ~/robot_lab/emu_runs/readable_H1_new_01
+python scripts/smoke_training_lifecycle.py continue --root ~/robot_lab/emu_runs/readable_H1_new_01
+python scripts/smoke_training_lifecycle.py verify --root ~/robot_lab/emu_runs/readable_H1_new_01
 ```
 
 A successful viewer build should not change tracked files. In an earlier draft,

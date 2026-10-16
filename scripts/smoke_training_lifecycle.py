@@ -68,6 +68,20 @@ def current_source() -> dict:
     return result
 
 
+def require_pinned_source(run_dir: Path, git_commit: str) -> None:
+    """Refuse acceptance/checkpoint export from a different source checkout."""
+    metadata = run_dir / 'run_meta.json'
+    try:
+        source = json.loads(metadata.read_text(encoding='utf-8'))['source_provenance']['git_commit']
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise RuntimeError(f'Invalid/missing acceptance source metadata: {metadata}') from exc
+    if source != git_commit:
+        raise RuntimeError(
+            f'Acceptance source commit differs for {run_dir.name}: '
+            f'checkpoint={source} checkout={git_commit}; '
+            'return to the original pinned source or choose a NEW run root.')
+
+
 def checkpoint(path: Path, expected_step: int) -> dict:
     if not path.is_file():
         raise RuntimeError(f"expected checkpoint not found: {path}")
@@ -145,9 +159,7 @@ def continue_stage(root: Path) -> None:
     first_config = TrainingConfig.load(root / "first/training_config.json")
     if asdict(first_config) != asdict(first):
         raise RuntimeError("stage-1 saved config does not match this smoke recipe")
-    meta = json.loads((root / "first/run_meta.json").read_text(encoding="utf-8"))
-    if meta.get("source_provenance", {}).get("git_commit") != provenance["commit"]:
-        raise RuntimeError("Git commit differs from the first training stage")
+    require_pinned_source(root / 'first', provenance['commit'])
     if (root / "continued").exists():
         raise RuntimeError("continued/ already exists: inspect it; never overwrite")
     parent_hash = digest(parent)
@@ -162,6 +174,10 @@ def continue_stage(root: Path) -> None:
 
 
 def verify_stage(root: Path) -> None:
+    # Verify both original commit identities before opening pickle checkpoints.
+    provenance = current_source()
+    for name in ('first', 'continued'):
+        require_pinned_source(root / name, provenance['commit'])
     first, second = configs(root)
     p1 = checkpoint(root / "first/checkpoints/final.pkl", UPDATE_STEPS)
     p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * UPDATE_STEPS)
