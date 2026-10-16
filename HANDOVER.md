@@ -28,12 +28,36 @@ Preserve exact 220-input/six-action contract and checkpoint schema 7.
 - The static browser uses `emu/viewer_src/`; local live watcher uses validated read-only checkpoints. The GitHub Pages champion is a frozen exported brain, never the original `.pkl`.
 - Pages deployment is intentionally manual and pins the exact champion Git blob SHA.
 
-## Current minimalisation work
+## Minimalisation status and honest scope (17 October 2026)
 
-- Prune retired docs and checked-in historical result copies (preserved in Git history).
-- Merge related helper modules into the *existing owner* rather than retain alias shims. Run all Python/JS tests and a source-import audit after each useful cluster.
-- Target ~7 conceptual source layers; a few additional files for configuration, checkpoint contracts and browser boundary are acceptable when they avoid giant circular modules.
-- Finish with one readable front page, this handover, `docs/INSTALL.md`, and `docs/PLAYGROUND.md`; the mandatory third-party notice is not optional.
+**PR #6:** [refactor/emu-minimal](https://github.com/mdt733/emu/pull/6), branched from the working 120M `main` release. **Do not merge yet.** The independent GitHub Pages champion Git blob remains `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`, byte-for-byte the same as `main`.
+
+Tracked inventory: **132 → 57 files** (after empty media removal), `emu/` **42 → 15 Python files** (including `__init__.py`), `docs/` **30 → 2 Markdown files**, six maintained setup/check/showcase scripts, four test files, 20 browser source/dependency assets, one protected champion. All previous pass notes and tracked legacy result bundles can be found in Git history.
+
+**Crucial honesty:** Python source volume only changed **609,546 → about 599,518 bytes**. Most gains are fewer module boundaries and discoverability, **NOT** a 70% reduction in logic. To shrink further, audit live usage and eliminate or simplify real training/exam features after careful CUDA acceptance, rather than coalescing into unreadable multi-thousand-line modules.
+
+### Current code ownership (no import-only alias files)
+
+- `robot.xml` + `environment.py`: physical universe, task commands, per-world domain variation, 220-dim actor observation.
+- `rewards.py`: eight training payments, with servo power diagnostic rather than a hidden PPO penalty.
+- `ppo.py`: PPO actor/value optimisation, JAX backend and performance timing.
+- `training.py`: one learning loop, rolling measurements, explicit checkpoint calls.
+- `curriculum.py`: regime governor, field teacher/evidence, held-out cloud probes, training health.
+- `branch_lab.py`: readable 20/80/100/120M hypothesis recipe, single-run and tournament/expt executor.
+- `evaluation.py`: frozen evaluation, fair matched branch screens, capability atlas, signed course/contact/gait and multi-branch batch plans.
+- `results.py`: rollout scoring metrics, CSV/log artefacts, training stories and optional posture drift diagnostics.
+- `viewer_server.py` + `viewer_src/`: actor export, local snapshot watching, field visualizer, browser physics/UI.
+- `directional.py`: independent pure geometry/heading/contact oracles imported by PPO; kept separate to avoid circular evaluation dependencies.
+- `contracts.py`, `training_config.py`, `checkpoint_io.py`, `cli.py`: explicit small boundaries for shared shapes/constants, user-controlled knobs, complete rewind/run lineage, public commands.
+
+### Failures caught while truly moving source
+
+- Removed-field import in `try_restore_recovery`: corrected after checkpoint round-trip CI failed. **Reason:** changing a class module does not automatically update every lazy import.
+- Duplicate `summarize()` in moved posture/report logic silently overrode the campaign summary. Corrected by naming the optional function `summarize_posture()`; existing matched-scorecard roundtrip passed again.
+- Source audit found old `capability_field` and `domain_randomization` doctor imports, stale atlas `paths.py` import, and a stale policy-export import in the real CUDA acceptance verification path. Corrected; added explicit CPU doctor, CLI planning and import-path smoke to GitHub Actions.
+- Never declare the branch ready based on green tests alone. Exercise real WSL CUDA: 256→512 steps save/resume/verify, 20M cold start only if desired, export a tested actor and inspect the browser locally, including independent signed course/footfalls.
+
+**No change to PPO reward weights, physical motor parameters, trained actor source files or schema-7 checkpoint payload is intended.** Source relocation still changes training source provenance; use a fresh run root, do not resume a historical lineage with this revision.
 
 ## Continuing in another chat
 

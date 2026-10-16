@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Try the 120M Pitch15 robot](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)**
+**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)**
 
 ## How it works
 
@@ -51,12 +51,28 @@ See [INSTALL.md](docs/INSTALL.md) for fresh Windows/WSL setup, GPU checkpoint ac
 
 ## What the research found
 
-A shared **20M-step foundation** fed four matched 80M-step teaching experiments, then two 100M-step finalists and a 120M-step winner (320M aggregate training steps). **Pitch15** (a 15° chassis-pitch command teaching ceiling) ranked first on the common frozen-policy screen: 0.684 at 80M → 0.712 at 100M → **0.723 at 120M**. The public [Playground](https://mdt733.github.io/emu/) contains the 120,061,952-step frozen Pitch15 export.
+A shared **20M-step foundation** fed four matched 80M-step teaching experiments, then two 100M-step finalists and a 120M-step winner (320M aggregate training steps). **Pitch15** (a 15° chassis-pitch command teaching ceiling) ranked first on the common frozen-policy screen: 0.684 at 80M → 0.712 at 100M → **0.723 at 120M**. The repository's `showcase/champion.emupolicy` is the genuine 120,061,952-step Pitch15 export. Public GitHub Pages may serve an older deployment until its manual workflow is run.
 
 **Important limitation:** final training telemetry reported **74.1% of servo samples over the configured rated-torque threshold**. The model is a *simulation demonstration*, not a hardware-safe controller; signed distance, complete strides, real motor currents and contact transfer still require further study.
 
 ## Where things live
 
-Start with `robot.xml`, `environment.py`, `rewards.py`, `ppo.py`, `training.py`, `curriculum.py`, then the experiment/report files. The browser has exactly one authoritative source: `emu/viewer_src/`. Its JavaScript/WASM dependencies are separate from training on purpose.
+Everything is under `emu/`. Read these files in this order:
+
+| Responsibility | Code |
+|---|---|
+| Physical robot, worlds, tasks, terrain | `robot.xml`, `environment.py` |
+| Eight transparent training payments | `rewards.py` |
+| Neural actor, PPO, JAX runtime | `ppo.py` |
+| One run's update loop and saving | `training.py` |
+| Curriculum, capability evidence and health | `curriculum.py` |
+| Shared foundation, experimental arms and promotions | `branch_lab.py` |
+| Fixed screens, gait, recovery and course examinations | `evaluation.py`, `directional.py` |
+| Rollout facts, learning narratives and comparison reports | `results.py` |
+| Local viewer, live watcher and policy export | `viewer_server.py`, `viewer_src/` |
+
+Four support boundaries remain deliberately separate: `contracts.py` (actor/physics constants), `training_config.py` (all run knobs), `checkpoint_io.py` (complete validated learning state and recovery), and `cli.py` (one public command interface). `__init__.py` is Python packaging. The JavaScript/WASM viewer has its own locked dependencies.
+
+This reduces the package from 42 Python files to 15 **without pretending the learning maths got smaller**. Further true size reduction means analysing and cutting unnecessary behaviour, not merely moving functions.
 
 The only maintained long-form documentation is this front page, **[INSTALL](docs/INSTALL.md)**, **[HANDOVER](HANDOVER.md)** and **[PLAYGROUND](docs/PLAYGROUND.md)**. Old design attempts and one-off runs live in Git history, not in the working tree. Run `bash scripts/check.sh` before committing. Software tests don't replace a fresh CUDA acceptance and independent walking exams.
