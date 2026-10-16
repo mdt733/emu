@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .paths import VERSION, ROBOT_XML, seed_root
+from .contracts import VERSION, ROBOT_XML, seed_root
 from .checkpoint_io import find_evaluation
 
 

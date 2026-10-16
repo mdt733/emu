@@ -15,7 +15,7 @@ def test_stall_can_require_torque_without_mechanical_shaft_power():
 def test_loaded_robot_xml_owns_actuator_limits_and_spring_reference():
     import mujoco
     from emu.contracts import ACTUATED_JOINTS
-    from emu.paths import ROBOT_XML
+    from emu.contracts import ROBOT_XML
     model = mujoco.MjModel.from_xml_path(str(ROBOT_XML))
     assert model.nu == 6
     assert [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
@@ -39,7 +39,7 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     jax=pytest.importorskip('jax')
     import jax.numpy as jnp
     from emu.environment import EmuMJXEnv
-    from emu.paths import ROBOT_XML
+    from emu.contracts import ROBOT_XML
     from emu.ppo import make_trainer
     from emu.contracts import OBS_DIM
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,

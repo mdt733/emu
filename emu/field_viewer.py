@@ -21,10 +21,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import numpy as np
-from .paths import seed_root
+from .contracts import seed_root
 
 from .capability_field import FIELD_VERSION
-from .paths import VERSION
+from .contracts import VERSION
 
 HTML = r'''<!doctype html><meta charset="utf-8"><title>EMU capability field</title>
 <style>

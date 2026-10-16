@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from .paths import VERSION
+from .contracts import VERSION
 
 LOG_PREFIX = f'[emu_{VERSION}]'
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse, json, math, time
 from pathlib import Path
 
-from .paths import VERSION, ROBOT_XML
+from .contracts import VERSION, ROBOT_XML
 import numpy as np
 from .contracts import CONTROL_DT
 from .contracts import recovery_outcome_numpy

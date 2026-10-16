@@ -18,7 +18,7 @@ import numpy as np
 
 from .environment import EmuMJXEnv
 from .contracts import task_param_defaults
-from .paths import ROBOT_XML
+from .contracts import ROBOT_XML
 from .ppo import make_trainer
 from .training_config import (
     TrainingConfig, MAX_EPISODE_STEPS,

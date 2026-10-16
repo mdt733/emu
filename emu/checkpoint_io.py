@@ -19,7 +19,7 @@ import numpy as np
 
 from .capability_field import FIELD_VERSION
 from .contracts import ACTION_DIM, OBS_DIM
-from .paths import ROBOT_XML, VERSION
+from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
 CHECKPOINT_SCHEMA = 7

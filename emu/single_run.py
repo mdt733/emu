@@ -10,7 +10,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 from .training_config import verify_existing_phase_config
-from .paths import source_repo_root
+from .contracts import source_repo_root
 from .run_support import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
 from .training_config import TrainingConfig, foundation_config, mature_config

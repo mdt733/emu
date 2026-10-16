@@ -11,7 +11,7 @@ fi
 ./.venv/bin/python - "$ROOT" <<'PY'
 import pathlib, sys
 import emu.cli
-from emu.paths import VERSION
+from emu.contracts import VERSION
 expected = pathlib.Path(sys.argv[1], 'emu', 'cli.py').resolve()
 actual = pathlib.Path(emu.cli.__file__).resolve()
 if VERSION != 'v5015' or actual != expected:

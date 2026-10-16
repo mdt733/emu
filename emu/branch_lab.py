@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
-from .paths import source_repo_root
+from .contracts import source_repo_root
 from .training_config import _phase_config, verify_existing_phase_config
 from .training_config import apply_experiment_knobs
 

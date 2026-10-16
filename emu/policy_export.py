@@ -34,7 +34,7 @@ from .contracts import (
     SIM_DT,
 )
 from .environment import TARGET_SPAN
-from .paths import ROBOT_XML, VERSION
+from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, PPO_STD_MAX, PPO_STD_MIN, build_obs_norm_mask
 
 FORMAT = "emu-policy"

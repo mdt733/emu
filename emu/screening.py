@@ -17,7 +17,7 @@ import numpy as np
 from .checkpoint_io import load_checkpoint
 from .contracts import task_param_defaults
 from .environment import EmuMJXEnv
-from .paths import ROBOT_XML
+from .contracts import ROBOT_XML
 from .ppo import make_trainer
 from .runtime import configure_jax, require_backend
 from .training_config import (
