@@ -30,7 +30,7 @@ The current 20 software checks only show contract compatibility.
   their actual current owners, data boundaries, missing separations and
   verification requirements. Rename the misleading `scoring.py` training
   reward module to `rewards.py` without altering numbers. Simplify the
-  main documentation entry point. **Status: code/CI pending this first commit.**
+  main documentation entry point. **Status: complete; 16 Python + 4 browser checks and viewer build passed on `d2abc8b`.**
 - [ ] **B. Make the universe legible.** Trace one `reset → task → step →
   physical observation` path; group `environment.py` by actual
   responsibilities. Separate task sampling from physics where it reduces
@@ -97,4 +97,4 @@ checkbox and architecture gap list only when code and CI agree.
 | Revision | Actual change | Verification |
 |---|---|---|
 | `18b566d` | Baseline v5016 experimental branch, 20 retained checks | CI: 16 Python + 4 browser passed |
-| **Pass A** | Architectural contract, reward owner name and main docs | Await commit-specific CI |
+| `d2abc8b` | Pass A: seven-layer framework, reward rename, readable entry points and single worklist | [GitHub CI 38834067868](https://github.com/mdt733/emu/actions/runs/38834067868): **16 Python + 4 browser passed**, build passed; no GPU run |
