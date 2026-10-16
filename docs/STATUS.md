@@ -20,9 +20,11 @@ The completed v5015-lab1 campaign was run from source commit
 **Provisional champion:** `round3/pitch15/checkpoints/final.pkl`,
 120,061,952 steps. Expected raw-checkpoint SHA-256:
 `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
-The trained checkpoint remains on the user's local WSL disk; **it is not
-contained in the report uploads and has not yet been committed/exported to
-the public showcase.** Do not replace the current 60M actor with a fixture.
+The actual exported 120M actor is now **staged in source control** as
+`showcase/champion.emupolicy`, validated against the expected source,
+step and 220×6 contract. It is not a raw training checkpoint and is not
+approved for physical hardware. The public site remains on its old
+deployment until the coordinated merge and explicit Pages dispatch.
 
 The results support pursuing the 15° pitch-command teaching hypothesis,
 but not an assertion that graph teaching or gravity-slope training is
@@ -39,8 +41,10 @@ still need their own evaluations.
 
 ## Public demonstration
 
-The [Playground](https://mdt733.github.io/emu/) still uses the protected
-**60M** `showcase/champion.emupolicy` as of this report. Browser playback
+The [Playground](https://mdt733.github.io/emu/) may still serve the older
+**60M** deployment until the new reviewed `main` build is explicitly
+published. The branch's `showcase/champion.emupolicy` now contains
+the verified 120M export. Browser playback
 is not an independent examiner; the user's qualitative report that the new
 models look excellent is encouraging but does not substitute for measured
 gait/contact and signed-direction results.
@@ -50,7 +54,7 @@ latest reviewed viewer, and independently validated Pitch15 120M actor,
 together with an updated pinned Git blob ID in
 `.github/workflows/emu-playground.yml`. GitHub Pages deployment remains
 **manual after merge**. Draft [PR #5](https://github.com/mdt733/emu/pull/5)
-is not to be merged before the new policy is staged and the bundle checked.
+contains the trained export; code and static viewer CI must pass before merge.
 
 ## Implementation and validation
 

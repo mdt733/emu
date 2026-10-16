@@ -1,9 +1,11 @@
 # Public policy slot and upcoming coordinated release
 
-**Current public champion:** a trained 60M policy in
-`showcase/champion.emupolicy`, deliberately protected by its Git blob SHA
-in `.github/workflows/emu-playground.yml`. It is not a zero-action test
-fixture, and replacing only the viewer must not silently replace its brain.
+**Current staged policy:** the genuine 120,061,952-step Pitch15 export
+in `showcase/champion.emupolicy`. Git blob SHA (used by the manual Pages
+workflow): `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`. Its exported file SHA-256 is
+`64b01101628137739215f5826cef3bcb301d7681c364000ca14e1ac1a7120220`.
+The previously published public site may still contain the 60M champion
+until the new `main` merge and manual Pages dispatch.
 
 **Selected next candidate:** `round3/pitch15/checkpoints/final.pkl`,
 step 120,061,952, from Git source
@@ -17,11 +19,12 @@ and did not establish.
 `emu export-policy <final.pkl> <candidate.emupolicy>` from the original
 source-pinned checkout. Before publication, verify the candidate's
 source commit, step, 220×6 actor, trained robot XML, and all browser
-controls. Once the actual candidate file is available, replace this
-single slot and the manually pinned Git blob hash **in the same reviewed
-code+viewer+policy merge**. Manually deploy Pages only afterward.
+controls. Both the exact exported policy and pinned Git blob hash are now staged
+**together** with viewer and refactored code. Run CI, merge the approved
+combined PR and manually deploy Pages afterward.
 
-The uploaded campaign report does **not** contain the actor weights;
-no 120M policy has been staged here yet.
+The campaign report alone did not contain network weights, but the genuine
+`.emupolicy` was subsequently uploaded and staged. This is a browser-only
+simulation demonstration, not a hardware-ready servo controller.
 
 See [docs/PLAYGROUND.md](../docs/PLAYGROUND.md) for checks and release steps.

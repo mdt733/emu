@@ -39,19 +39,20 @@ The source of the frontend is **only** `emu/viewer_src/`: no second editable or 
 ## Planned coordinated Pitch15 120M release — not published
 
 The 17 October 2026 source-pinned campaign chose `round3/pitch15` at
-**120,061,952 steps** as the best within-campaign checkpoint. The candidate
-checkpoint lives in the user's local WSL campaign, not GitHub, and the
-uploaded report alone cannot recreate the policy weights.
+**120,061,952 steps** as the best within-campaign checkpoint. The real
+browser-native actor was subsequently uploaded and staged at
+`showcase/champion.emupolicy` with Git blob `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`.
+The full raw training checkpoint remains local, not committed to Git.
 
-Once the actual trained `.emupolicy` has been exported and inspected:
+Release checks for the staged, inspected `.emupolicy`:
 1. Validate the original `final.pkl` SHA-256 as
    `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
    Confirm the export's source commit `a5996b8cda2c394c7c65e3e938282a3808ded121`,
    step 120061952 and 220×6 actor contract.
-2. Stage `showcase/champion.emupolicy` **together with** the refactored
-   viewer and release notes; set `EXPECTED` in the manually dispatched
-   Pages workflow to the *new Git blob SHA* of this exact exported file.
-   A training PKL SHA-256 is **not** the Git blob hash.
+2. The approved export, refactored viewer and release notes are staged together.
+   The manually dispatched Pages workflow pins `EXPECTED=067d6156f0f9de629eabb1a69cf1b0ceb86db24c`,
+   the *Git blob SHA*, which is different from both the exported file
+   SHA-256 and the raw checkpoint SHA-256.
 3. Run Node tests and policy/WASM static preparation, build and verification,
    then review local actual WASM joystick, controls, terrain and visual
    behaviour with the proposed actor. The source report gives a promising
@@ -61,7 +62,7 @@ Once the actual trained `.emupolicy` has been exported and inspected:
    source commit. The old 60M public actor remains unchanged until then.
 
 This is one deliberate code+model+viewer rollout, not separate code-first
-or auto-deployed changes.
+or auto-deployed changes. The Pages site changes only after manual dispatch.
 
 ## Controlled GitHub Pages publishing
 

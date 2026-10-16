@@ -79,9 +79,12 @@ gravity-equivalent-slope survival 100%.
   hash** in `.github/workflows/emu-playground.yml`, in ONE PR/merge.
   Verify static bundle/JS/WASM and browser model behaviour before merge;
   deliberate manual Pages workflow dispatch on `main` afterward.
-- **Not done yet:** the new champion weight file was not attached or
-  available on GitHub; this branch is a release *candidate*, not published
-  and not merged. Existing draft PR #5 remains open.
+- **Staged in this release branch:** the real `EMU_Pitch15_120M.emupolicy`
+  uploaded by the user, committed as `showcase/champion.emupolicy`,
+  source step 120061952, actor sha256 `c836f0f179445c309aea3b9c87eb6b63c75a7cd2666801e262087b7663d5849c`.
+  File SHA-256 `64b01101628137739215f5826cef3bcb301d7681c364000ca14e1ac1a7120220`,
+  Git blob SHA `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`. The manually deployed site remains older until
+  the merge and dispatch. No physical-hardware approval is implied.
 
 ## Branches, safety and provenance
 

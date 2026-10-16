@@ -41,11 +41,13 @@ The current 20 software checks only show contract compatibility.
 - **Release selection:** the source-pinned candidate is
   `round3/pitch15/checkpoints/final.pkl`, PKL SHA-256
   `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
-  The provided reports do NOT include a deployable policy. Block merging
-  PR #5 and replacing the 60M public demo until this real model is exported,
-  validated, uploaded, bundled with viewer and new workflow Git blob hash.
-- **One merge, one manual deploy:** keep code+viewer+model in the same
-  reviewed PR, then trigger GitHub Pages from merged `main`.
+  The original reports did not include deployable network weights; the
+  genuine 120M actor has now been uploaded and staged, with provenance
+  verified and exact Git blob pin `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`. The GitHub Pages site
+  still needs reviewed CI, merge and manual deployment.
+- **One merge, one manual deploy:** code+viewer+real 120M model are now
+  staged together, along with the updated pinned Git blob. Confirm CI and
+  then merge this PR; publish Pages manually from merged `main`.
 
 ## Final audit software result
 
