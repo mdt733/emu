@@ -19,7 +19,7 @@ from pathlib import Path
 
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
 from emu.contracts import source_repo_root
-from emu.run_support import git_provenance, run_training
+from emu.checkpoint_io import git_provenance, run_training
 from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config
 
 SEED = 733

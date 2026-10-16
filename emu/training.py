@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from .run_support import resume_training_lineage, promote_checkpoint, try_restore_recovery
+from .checkpoint_io import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
 from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .curriculum import CapabilityField
