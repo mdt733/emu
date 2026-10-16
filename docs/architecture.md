@@ -217,6 +217,7 @@ in the other owners. True locomotion quality still needs held-out exams.
   learning health, snapshot recovery, fixed exams, logging and finalisation.
 - `ppo.py` still houses **read-only** exam kernels alongside training maths.
   This may be practical for shared JAX compilation but should be explained.
+- The physical-frontier decision in `curriculum.py` is now a named method of the same governor; it is driven only by settled training-rollout tracking evidence and preserves the pre-existing hysteresis, retreat and safety ceilings.
 - Capability-field teachers and periodic evaluation add complexity whose
   actual value should be demonstrated before they become permanent doctrine.
 - v5016 direction/heading/ground-plane modules are experimental examination

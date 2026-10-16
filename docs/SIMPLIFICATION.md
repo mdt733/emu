@@ -57,7 +57,7 @@ The current 20 software checks only show contract compatibility.
   no new test files or training payment changes. **GPU acceptance remains due.**
   **Gate:** fresh isolated GPU update/save/resume, identical step/seed
   semantics, and atomic checkpoint validation; no changed reward.
-- [ ] **E. Curriculum and teaching capability.** Draw one path from rollout
+- [ ] **E. Curriculum and teaching capability.** **E1 source pending CI:** separated the established physical-frontier update into a named method in the same `curriculum.py` file, preserving every coefficient, EMA, hysteresis and safety limit; strengthened one of the existing 20 checks for adaptive-on/off behaviour. Next E2: trace capability-field evidence to real task sampling before removing anything. Draw one path from rollout
   evidence to allowed task distribution. Decide which governor, field,
   recovery and health complexity *earns its keep*; remove overlapping or
   unproven machinery only after comparison. **Gate:** visible physics
@@ -95,7 +95,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass E:** examine `curriculum.py` and capability-field teaching. Trace rollout evidence to the sampled task envelope, identify unused or overlapping controls by real call sites, then simplify only where behaviour and matched-policy comparisons justify it. D5 code CI and independent GPU acceptance remain open. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
+**Pass E2:** physical frontier update is now a single readable subdecision. Examine `capability_field.py`'s evidence, decay, teaching-packet and task-sampler call paths for actual overlap or unused complexity, then cut only what can be proven safe. Trace rollout evidence to the sampled task envelope, identify unused or overlapping controls by real call sites, then simplify only where behaviour and matched-policy comparisons justify it. D5 code CI and independent GPU acceptance remain open. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
 
 ## Evidence ledger
 
@@ -109,4 +109,5 @@ Answer in this order:
 | `22e8edb` | Pass D1: resume ownership and rollout provenance | [CI 38842290106](https://github.com/mdt733/emu/actions/runs/38842290106): 16 Python + 4 browser passed; no GPU run |
 | `ebd1153` | Pass D3: canonical training metrics and field artifact writers, strengthened delivery check | [CI 38843252714](https://github.com/mdt733/emu/actions/runs/38843252714): 16 Python + 4 browser passed; no GPU run |
 | `a1b43f9` | Pass D4: complete recovery rewind and step-seeded physical restart; existing checkpoint test enlarged | [CI 38844333684](https://github.com/mdt733/emu/actions/runs/38844333684): 16 Python + 4 browser passed; no GPU run |
+| `12d47b2` | Pass D5: soft PPO KL controller owned by health; existing assertions strengthened | [CI 38844623465](https://github.com/mdt733/emu/actions/runs/38844623465): 16 Python + 4 browser passed; no CUDA training |
 | `39651e4` | Pass C: readable reward computation, single source for payment names/reward-only fields, clear host diagnostics, strengthened existing servo-power invariant test | [GitHub CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): 16 Python + 4 browser passed, viewer built; 24 MuJoCo warnings; GPU gate open |

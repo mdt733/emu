@@ -15,6 +15,7 @@ from emu.contracts import OBS_DIM
 from emu.ppo import expected_param_shapes
 from emu.run_support import resume_training_lineage
 from emu.health import TrainingHealth
+from emu.curriculum import RegimeGovernor
 
 def fake_policy_params(fill: float = 0.0):
     def build(spec):
@@ -230,6 +231,27 @@ def test_training_config_roundtrip():
     assert adapt(2.0, approx_kl=0.001, **knobs) == 2.0
     assert adapt(0.1, approx_kl=0.1, **knobs) == 0.1
     assert adapt(0.25, approx_kl=float('nan'), **knobs) == 0.25
+
+    # E1: settled real rollout evidence still expands physical limits, while
+    # the non-adaptive curriculum leaves those limits unchanged.
+    training_row = {
+        'episodes': 100.0, 'fall_rate': 0.10, 'ep_len_mean': 350.0,
+        'core_fall_rate': 0.10, 'core_ep_len_mean': 350.0,
+        'fall_rate_steady': 0.10, 'episodes_steady': 100.0,
+        'falls_steady': 10.0, 'ep_len_mean_steady': 350.0,
+        'foot_mid_cone_steady': 1.0,
+        'vx_mean_steady': 0.25, 'cmd_vx_mean_steady': 0.25,
+        'precision_vx': 0.9, 'precision_vy': 0.9,
+        'precision_yaw': 0.9, 'frontier_precision_vx_forward': 0.9,
+    }
+    active = RegimeGovernor(open_frontier=True, frontier_vx_hi_safety=1.2)
+    tracked = active.update(training_row)
+    assert tracked['frontier_event_vx_hi'] == 'expand_edge_proven'
+    assert active.params.frontier_vx_hi > 0.60
+    inactive = RegimeGovernor(open_frontier=False)
+    untracked = inactive.update(training_row)
+    assert untracked['frontier_event_vx_hi'] == 'off'
+    assert inactive.params.frontier_vx_hi == 0.60
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
     from emu.run_support import promote_checkpoint
