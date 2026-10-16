@@ -698,7 +698,7 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
         speed=speed,lateral=lateral,yaw_rate=yaw_rate)
     from .checkpoint_io import load_checkpoint
     from .environment import EmuMJXEnv
-    from .paths import ROBOT_XML
+    from .contracts import ROBOT_XML
     from .ppo import make_trainer
     from .ppo import configure_jax, require_backend
     from .training_config import (
