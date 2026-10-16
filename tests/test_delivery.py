@@ -101,6 +101,21 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     (root/'round1_scoreboard.json').write_text(json.dumps({
         'round':'round1','screen_envs':256,'screen_horizon':350,
         'screen_pitch_deg':15.0,'target':80_000_000,'results':scored}))
+    # Report presentation has one owner; it cannot change eligibility or
+    # select a finalist, and must write the same scorecard schema.
+    scorecard = results.write_scorecard(root, {
+        'round': 'round1', 'target': 80_000_000, 'screen_pitch_deg': 15.0,
+        'results': [
+            {'arm': 'baseline', 'eligible': True, 'score': .681621, 'reasons': []},
+            {'arm': 'shadow', 'eligible': False, 'score': None,
+             'reasons': ['insufficient evidence']},
+        ],
+    })
+    scorecard_text = scorecard.read_text()
+    assert '80,000,000 absolute steps' in scorecard_text
+    assert '15 degree testing envelope' in scorecard_text
+    assert '| baseline | True | 0.681621 |' in scorecard_text
+    assert 'insufficient evidence' in scorecard_text
     outputs = results.write_report(root)
     assert {p.name for p in outputs} == {
         'results.md','results_data.json','results_bundle.zip'}

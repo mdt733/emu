@@ -257,6 +257,36 @@ def markdown(info):
     return '\n'.join(lines)
 
 
+def write_scorecard(root: Path, board: dict) -> Path:
+    """Render one held-out study round; ranking/eligibility remain with lab.
+
+    This reporter does not load policy checkpoints or influence promotion.
+    The generated Markdown is intentionally independent of GPU or PPO.
+    """
+    round_name = board['round']
+    rows = board['results']
+    target = int(board['target'])
+    pitch = float(board['screen_pitch_deg'])
+    lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
+             f'Every policy at {target:,} absolute steps in the same {pitch:g} degree testing envelope.',
+             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
+             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
+             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
+    for row in rows:
+        lines.append(f"| {row['arm']} | {row['eligible']} | {row['score']} | "
+                     f"{row.get('hard_survival','—')} | {row.get('growth_survival','—')} | "
+                     f"{row.get('gentle_slope_survival','—')} | "
+                     f"{row.get('motion_mae','—')} | {row.get('step_evidence','—')} | "
+                     f"{row.get('support','—')} | {row.get('pitch_mae_rad','—')} rad | "
+                     f"{row.get('height_shortfall_m','—')} m | "
+                     f"{', '.join(row['reasons'])} |")
+    report = Path(root) / f'{round_name}_scorecard.md'
+    temp = report.with_name(report.name + '.tmp')
+    temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
+    temp.replace(report)
+    return report
+
+
 def write_report(root, *, bundle=True):
     root = Path(root).expanduser().resolve()
     data = collect(root)

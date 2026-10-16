@@ -251,28 +251,14 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
               'screen_pitch_deg': SCREEN_PITCH_DEG, 'screen_envs': screen_envs,
               'screen_horizon': screen_horizon, 'results': rows}
     _save(root / f'{round_name}_scoreboard.json', result)
-    lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
-             f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
-             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
-             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
-    for r in rows:
-        lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
-                     f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
-                     f"{r.get('gentle_slope_survival','—')} | "
-                     f"{r.get('motion_mae','—')} | {r.get('step_evidence','—')} | "
-                     f"{r.get('support','—')} | {r.get('pitch_mae_rad','—')} rad | "
-                     f"{r.get('height_shortfall_m','—')} m | "
-                     f"{', '.join(r['reasons'])} |")
-        print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")
-    report = root / f'{round_name}_scorecard.md'
-    temp = report.with_name(report.name + '.tmp')
-    temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
-    temp.replace(report)
+    # Reporting formats the examined evidence; ranking stays above.
+    from .results import write_scorecard, write_report
+    report = write_scorecard(root, result)
+    for row in rows:
+        print(f"{row['arm']:<10} eligible={row['eligible']} score={row['score']}, {row['reasons']}")
     # Package the existing held-out score and all run histories for human review.
     # This reads checkpoints ONLY to hash their identity; no policy load or PPO.
     try:
-        from .results import write_report
         for path in write_report(root):
             print(f'Campaign report: {path}')
     except (OSError, ValueError, TypeError, KeyError) as exc:

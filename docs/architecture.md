@@ -46,7 +46,7 @@ the experiment runner compares *complete learning histories*, not just final rew
 `ladder_recipe.py` owns **what** to compare: the shared 20M foundation,
 four independently trained hypotheses, target step counts, promotion sizes,
 and derived whole-study budget (currently 320M total environment steps across
-the study). `branch_lab.py` owns **how** to execute and trust it:
+the study). `results.py` renders the scorecard and offline reports from already computed exam evidence; it cannot decide eligibility or promotion. `branch_lab.py` owns **how** to execute and trust it:
 validated ancestor hashes, source-pinned resumption, identical held-out
 examination criteria and eligible-only promotion. `training.py` is not an
 experiment planner; it runs one learner lineage with a supplied configuration.
