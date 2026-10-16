@@ -109,6 +109,14 @@ class CommandFrame(NamedTuple):
     hold_left_next: Any
 
 
+class CommandEnvelope(NamedTuple):
+    """Velocity/yaw command limits; full and reduced share the same units."""
+    vx_hi: Any
+    vx_lo: Any
+    vy: Any
+    yaw: Any
+
+
 class TaskSampler:
     """Stateless lesson-generation methods consumed by EmuMJXEnv.
 
@@ -139,6 +147,35 @@ class TaskSampler:
         idx = jnp.sum(u > jnp.cumsum(w)).astype(jnp.int32)
         return jnp.clip(idx, 0, w.shape[0]-1), total
 
+    def _command_envelopes(self, params) -> tuple[CommandEnvelope, CommandEnvelope]:
+        """One source for birth and transition target bounds.
+
+        A physical frontier, when enabled, wins over the 0–1 steady
+        difficulty interpolation. The reduced envelope keeps the original
+        regime_command_frac lerp back toward the two seed velocity bounds.
+        This is deterministic JAX maths: NO extra random key is consumed.
+        """
+        jnp = self.jnp
+        steady_d = params[P.steady_difficulty]
+        command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
+        if self.open_frontier:
+            vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
+            vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
+            yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
+            vy_max = jnp.maximum(0.0, params[P.frontier_vy])
+        else:
+            vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
+            vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
+            yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
+            vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
+        full = CommandEnvelope(vx_hi, vx_lo, vy_max, yaw_max)
+        reduced = CommandEnvelope(
+            SEED_VX_HI + command_frac * (vx_hi - SEED_VX_HI),
+            SEED_VX_LO + command_frac * (vx_lo - SEED_VX_LO),
+            command_frac * vy_max, command_frac * yaw_max,
+        )
+        return full, reduced
+
     def _sample_task(self, keys, params):
         """Draws each env's regime (STEADY/TRANSITION/RESILIENCE) and that
         regime's command envelope, built from one difficulty scalar via
@@ -156,32 +193,10 @@ class TaskSampler:
         steady_d = params[P.steady_difficulty]
         posture_d = params[P.posture_difficulty]
         resilience_d = params[P.resilience_difficulty]
-        command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
-
-        # STEADY's full current envelope -- every regime's command draw is
-        # some fraction of THIS, never a separately-scheduled range of its
-        # own (see module doctrine: isolate which axis is under test from
-        # the aggregate difficulty of everything else).
-        if self.open_frontier:
-            # Physical frontier values are live curriculum state, not
-            # percentages of a programmer-declared final ceiling.
-            vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
-            vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
-            yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
-            vy_max = jnp.maximum(0.0, params[P.frontier_vy])
-        else:
-            vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
-            vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
-            yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
-            vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
-        # TRANSITION/RESILIENCE's own envelope: the same shape, anchored at
-        # each axis's own seed point (0 for yaw/vy, SEED_VX_* for vx) and
-        # scaled toward the current full envelope by command_frac. frac=0
-        # is "right at seed", frac=1 is "exactly steady's own envelope".
-        vx_hi_reduced = SEED_VX_HI + command_frac * (vx_hi - SEED_VX_HI)
-        vx_lo_reduced = SEED_VX_LO + command_frac * (vx_lo - SEED_VX_LO)
-        yaw_max_reduced = command_frac * yaw_max
-        vy_max_reduced = command_frac * vy_max
+        # The SAME physical limits now govern birth and later transitions.
+        full, reduced = self._command_envelopes(params)
+        vx_hi, vx_lo, vy_max, yaw_max = full
+        vx_hi_reduced, vx_lo_reduced, vy_max_reduced, yaw_max_reduced = reduced
 
         # POSTURE (global, every regime): height/pitch/roll/step-height are
         # a coupled bundle, all driven by the one posture_difficulty
@@ -349,25 +364,11 @@ class TaskSampler:
         moving both at once.
         """
         jax, jnp = self.jax, self.jnp
-        steady_d = params[P.steady_difficulty]
-        command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
         _, jump_frac = self._transition_hold_and_jump(params[P.transition_difficulty])
         if self.open_frontier:
             jump_frac = jnp.asarray(1.0, dtype=jnp.float32)
-        if self.open_frontier:
-            vx_hi_full = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
-            vx_lo_full = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
-            yaw_full = jnp.maximum(0.0, params[P.frontier_yaw])
-            vy_full = jnp.maximum(0.0, params[P.frontier_vy])
-            vx_hi = SEED_VX_HI + command_frac * (vx_hi_full - SEED_VX_HI)
-            vx_lo = SEED_VX_LO + command_frac * (vx_lo_full - SEED_VX_LO)
-            yaw_max = command_frac * yaw_full
-            vy_max = command_frac * vy_full
-        else:
-            vx_hi = SEED_VX_HI + command_frac * (self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d) - SEED_VX_HI)
-            vx_lo = SEED_VX_LO + command_frac * (self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d) - SEED_VX_LO)
-            yaw_max = command_frac * self._lerp(0.0, self.yaw_max_rad_s, steady_d)
-            vy_max = command_frac * self._lerp(0.0, self.vy_max_mps, steady_d)
+        _, reduced = self._command_envelopes(params)
+        vx_hi, vx_lo, vy_max, yaw_max = reduced
         vx_hi_j = SEED_VX_HI + jump_frac * (vx_hi - SEED_VX_HI)
         vx_lo_j = SEED_VX_LO + jump_frac * (vx_lo - SEED_VX_LO)
         yaw_max_j = jump_frac * yaw_max

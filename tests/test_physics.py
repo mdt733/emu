@@ -44,6 +44,51 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     from emu.contracts import OBS_DIM
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
                   sensor_noise_scale=0.,attitude_profile='v5015')
+    # E2: shared birth/transition envelope preserves exact seed/frontier
+    # arithmetic and field-taught birth provenance in the REAL JAX sampler.
+    from emu.tasks import T
+    from emu.contracts import P, SEED_VX_HI, SEED_VX_LO, FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE
+    for adaptive in (False, True):
+        # No additional MuJoCo world needed for this deterministic JAX
+        # contract: the sampler uses the environment's JAX configuration.
+        env.open_frontier = adaptive
+        packet = env.params_array({
+            'steady_difficulty': .35, 'regime_command_frac': .6,
+            'frontier_vx_hi': .8, 'frontier_vx_lo': -.25,
+            'frontier_vy': .3, 'frontier_yaw': 1.6})
+        full, reduced = env._command_envelopes(packet)
+        full = np.asarray(full, dtype=np.float32)
+        reduced = np.asarray(reduced, dtype=np.float32)
+        base_hi = (max(SEED_VX_HI, .8) if adaptive
+                   else float(np.asarray(env._lerp(SEED_VX_HI, env.vx_hi_max, .35))))
+        base_lo = (min(SEED_VX_LO, -.25) if adaptive
+                   else float(np.asarray(env._lerp(SEED_VX_LO, env.vx_lo_min, .35))))
+        expected_full = np.asarray([
+            base_hi, base_lo,
+            (.3 if adaptive else .35 * env.vy_max_mps),
+            (1.6 if adaptive else .35 * env.yaw_max_rad_s)], np.float32)
+        np.testing.assert_allclose(full, expected_full, rtol=1e-6, atol=1e-7)
+        expected_reduced = np.asarray([
+            SEED_VX_HI + .6 * (expected_full[0] - SEED_VX_HI),
+            SEED_VX_LO + .6 * (expected_full[1] - SEED_VX_LO),
+            .6 * expected_full[2], .6 * expected_full[3]], np.float32)
+        np.testing.assert_allclose(reduced, expected_reduced, rtol=1e-6, atol=1e-7)
+    env.open_frontier = False
+    anchors = np.zeros((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE), np.float32)
+    anchors[0] = [0.055, 0.0, 0.0, 10.0, 0.0]
+    choices = dict(steady_difficulty=.35, regime_command_frac=.6,
+                   field_node_anchors=anchors)
+    seed_keys = jax.random.split(jax.random.PRNGKey(774), 64)
+    free = np.asarray(env._sample_task(seed_keys, env.params_array({
+        **choices, 'field_node_frac': 0.0})))
+    taught = np.asarray(env._sample_task(seed_keys, env.params_array({
+        **choices, 'field_node_frac': 0.95})))
+    selected = taught[:, T.field_taught] > 0.5
+    assert selected.any()
+    assert np.all(free[:, T.field_taught] == 0.0)
+    np.testing.assert_allclose(taught[selected, T.vx], 0.055, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(taught[selected, T.vy], 0.0, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(taught[selected, T.yaw], 0.0, rtol=0, atol=1e-6)
     trainer=make_trainer(env,seed=1701,lr=.0002,rollout=2,
                          epochs=1,minibatches=1)
     assert trainer['obs_dim']==OBS_DIM
