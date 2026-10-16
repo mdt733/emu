@@ -205,7 +205,7 @@ def verify_stage(root: Path) -> None:
         raise RuntimeError("completed resume modified final checkpoint")
 
     # An actual deployable actor export is part of the acceptance contract.
-    from emu.policy_export import build_bundle, write_bundle
+    from emu.viewer_server import build_bundle, write_bundle
     exported = root / "tiny_smoke_actor.emupolicy"
     bundle = build_bundle(root / "continued/checkpoints/final.pkl",
                           label="Two-update smoke (not trained to walk)")
