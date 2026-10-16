@@ -35,7 +35,7 @@ def doctor(args) -> int:
     except Exception as exc: failures.append(f'MuJoCo/XML: {exc}')
     try:
         import numpy as np
-        from .capability_field import CapabilityField, FIELD_VERSION
+        from .curriculum import CapabilityField, FIELD_VERSION
         f=CapabilityField(); T,N=96,8; z=np.zeros((T,N),np.float32); o=np.ones((T,N),np.float32)
         age=(np.arange(T,dtype=np.float32)[:,None]+1)*.02+z
         m={'cmd_vx':z+.1,'cmd_vy':z,'cmd_yaw':z,'target_cmd_vx':z+.1,'target_cmd_vy':z,'target_cmd_yaw':z,
@@ -111,7 +111,7 @@ def doctor(args) -> int:
         try:
             import jax
             import jax.numpy as jnp
-            from .domain_randomization import DomainRandomizationConfig
+            from .environment import DomainRandomizationConfig
             from .environment import EmuMJXEnv
             from .curriculum import RegimeGovernor
             cfg=DomainRandomizationConfig(enabled=True,robot_radius=.6,terrain_radius=.6,hardware_radius=.6)

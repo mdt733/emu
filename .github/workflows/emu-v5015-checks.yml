@@ -29,6 +29,8 @@ jobs:
         run: python -m compileall -q emu tests
       - name: Run 16 Python checks
         run: python -m pytest -q tests
+      - name: Smoke public doctor CLI (CPU-only)
+        run: emu doctor --no-require-gpu --no-mjx-smoke
 
   browser:
     runs-on: ubuntu-latest
