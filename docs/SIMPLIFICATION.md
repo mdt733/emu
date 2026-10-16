@@ -73,9 +73,10 @@ The current 20 software checks only show contract compatibility.
   **G2 software CI passed:** eligible leaders, comparison margin and disqualifying
   reasons use previously saved common-screen evidence, never training rewards;
   [CI 38849179351](https://github.com/mdt733/emu/actions/runs/38849179351).
-  **G3 next:** check policy exporter/viewer/CLI for actual obsolete adapters.
-  Distinct read-only capability-map, MuJoCo viewer and live-policy watcher roles
-  should not be merged just to cut files. **Gate:** packaged actor parity,
+  **G3 code committed; CI pending:** manual browser policy is now frozen per
+  viewer session. Extended the browser parity test to probe loopback HTTP,
+  no-store policy bytes, wasm MIME and disabled live refresh. The separate
+  capability-map, MuJoCo viewer and live watcher remain distinct. **Gate:** packaged actor parity,
   validated policy source and independent physical examiner.
 - [ ] **H. Release-level confidence.** Run the 20 retained code checks and
   fresh-root real CUDA training/checkpoint/resume. Run 0°, 0.25°, 0.5° and
@@ -100,7 +101,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass G3:** audit viewer/export/CLI compatibility and proven obsolete wrappers. Keep read-only validated snapshots and browser actor parity; isolated CUDA and physical walking acceptance remain outstanding.
+**Pass H1:** G3 viewer immutability is submitted for CI. Next build a reproducible, safe, separate-root CUDA learning-update/save/resume/export acceptance recipe and run it in the user's GPU WSL checkout. Do not confuse a short smoke with actual walking or use any active checkpoint root.
 
 ## Evidence ledger
 

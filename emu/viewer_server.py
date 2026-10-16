@@ -60,6 +60,9 @@ def build() -> int:
 def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
+    # A manually selected brain stays fixed for this entire viewer session.
+    # Only the separate live watcher selects new validated policy snapshots.
+    initial_policy = policy.read_bytes() if policy is not None else None
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -84,7 +87,7 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
             route = urlsplit(self.path).path
             if route == '/api/viewer-config':
                 return self._json({'live': watcher is not None,
-                                   'initial_policy': policy is not None})
+                                   'initial_policy': initial_policy is not None})
             if route == '/api/live/status':
                 if watcher is None:
                     return self._json({'enabled': False}, status=404)
@@ -97,13 +100,9 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
                     return self._json({'error': 'no complete policy yet'}, status=404)
                 return self._send(body.encode('utf-8'), 'application/json; charset=utf-8')
             if route == '/api/initial-policy':
-                if policy is None:
+                if initial_policy is None:
                     return self._json({'error': 'no initial policy'}, status=404)
-                try:
-                    body = policy.read_bytes()
-                except OSError:
-                    return self._json({'error': 'policy no longer readable'}, status=404)
-                return self._send(body, 'application/json; charset=utf-8')
+                return self._send(initial_policy, 'application/json; charset=utf-8')
             return super().do_GET()
 
         def list_directory(self, path):

@@ -191,7 +191,7 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js needed for browser parity')
-def test_exported_actor_matches_browser_inference():
+def test_exported_actor_matches_browser_inference(tmp_path):
     rng = np.random.default_rng(733)
     dims = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
     layers = []
@@ -241,3 +241,52 @@ process.stdout.write(JSON.stringify(actions));
     for observed, browser in zip(observations, browser_actions):
         expected = reference_action(observed, layers, mean, std, mask)
         np.testing.assert_allclose(browser, expected, rtol=1e-4, atol=2e-5)
+
+    # The real local HTTP server serves ONE immutable manual-policy snapshot,
+    # with explicit wasm MIME and no live feed unless requested.
+    from http.client import HTTPConnection
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+    from emu.viewer_server import make_handler
+
+    viewer_dir = tmp_path / 'viewer_dist'
+    viewer_dir.mkdir()
+    (viewer_dir / 'index.html').write_text('viewer', encoding='utf-8')
+    (viewer_dir / 'engine.wasm').write_bytes(b'wasm')
+    manual = tmp_path / 'manual.emupolicy'
+    first_bytes = json.dumps(bundle).encode('utf-8')
+    manual.write_bytes(first_bytes)
+    server = ThreadingHTTPServer(
+        ('127.0.0.1', 0), make_handler(viewer_dir, policy=manual))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def get_local(path):
+        connection = HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+        try:
+            connection.request('GET', path)
+            response = connection.getresponse()
+            return response.status, dict(response.getheaders()), response.read()
+        finally:
+            connection.close()
+
+    try:
+        status, headers, data = get_local('/api/initial-policy')
+        assert status == 200 and data == first_bytes
+        assert headers['Cache-Control'] == 'no-store'
+        manual.write_text('changed on disk', encoding='utf-8')
+        status, _, data = get_local('/api/initial-policy')
+        assert status == 200 and data == first_bytes
+        status, _, data = get_local('/api/viewer-config')
+        assert status == 200 and json.loads(data) == {
+            'live': False, 'initial_policy': True}
+        status, headers, data = get_local('/engine.wasm')
+        assert status == 200 and headers['Content-Type'] == 'application/wasm'
+        assert data == b'wasm'
+        status, _, _ = get_local('/api/live/status')
+        assert status == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+

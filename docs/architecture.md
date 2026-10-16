@@ -55,6 +55,11 @@ The offline report also narrates measured *on-policy* training trends,
 including possible setbacks. The narrative never asserts walking mastery:
 only source-matched frozen-policy exams can support that comparison.
 
+A manually supplied browser policy is held as immutable bytes for the
+entire local viewer session; only the validated live watcher may refresh
+policies. The loopback HTTP server also tests the correct WebAssembly MIME
+and no-store response, with no communication to training.
+
 ## The seven responsibilities
 
 | Layer | Should own | Should **not** own | Current code |

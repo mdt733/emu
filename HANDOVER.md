@@ -77,7 +77,7 @@ E2 should audit whether the capabilities and teacher controls *earn their comple
 
 - **Pass G2 (software CI verified: [38849179351](https://github.com/mdt733/emu/actions/runs/38849179351)), commit `6194eea`:** `results.comparison_story` provides a read-only interpretation of the common held-out scoreboard: leading eligible arm, score margin, excluded arms and failure reasons. `branch_lab` continues to own every eligibility decision, score formula, checkpoint hash check, source pin and safe promotion. Existing report contract expanded without adding tests. Viewer audit confirms distinct read-only capability-map, browser MuJoCo policy and validated latest-policy roles, so do not fuse them for cosmetic file-count savings. Next G3: export and viewer CLI audit.
 
-## Physical path and invariants
+- **Pass G3 (code committed; CI pending):** manual viewer policy bytes are now captured just once in `viewer_server.make_handler`. Replacing/removing the source file during the same session cannot silently swap its frozen actor. The separate `LivePolicyWatcher` remains the only explicit validated hot-swap route. Extended the existing browser actor parity test with real local HTTP assertions: static policy immutability, no-store response, wasm MIME and disabled live API. No new test count, schema, learner, exporter, champion or active training change. Next H1: isolated CUDA save/resume/export acceptance, then real matched directional walking exams.\n\n## Physical path and invariants
 
 1. EmuMJXEnv loads robot.xml and builds batched JAX/MJX model variations once per run.
 2. Reset samples an independent birth task (tasks.py), then places each robot in a dynamic initial pose/velocity, initialises target-ramp state and history observations.
@@ -101,7 +101,7 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 
 ## What to do next (the next 'keep going')
 
-**Pass G3:** Audit policy export and viewer CLI paths; remove only proven-unused adapters and keep all read-only viewer responsibilities separate. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
+**Pass H1:** Prepare isolated CUDA PPO-update/save/checkpoint resume/export verification on a clean pinned source outside the repository. Keep the short training smoke separate from the real frozen-policy directional/slope course exams. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
 
 Passes A–G2 are recorded above. Continue from **G3** (viewer/export CLI audit), then **H** (fresh isolated CUDA PPO/save/resume/export and honest frozen-policy directional/slope exams) before considering any merge.
 
@@ -115,4 +115,4 @@ Passes A–G2 are recorded above. Continue from **G3** (viewer/export CLI audit)
 
 ## Paste into a new chat
 
-> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently G3), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
+> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently H1), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
