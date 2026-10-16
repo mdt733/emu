@@ -86,4 +86,4 @@ emu viewer-build
 emu ladder --stage plan
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke && bash scripts/run_ladder.sh\n'
+printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
