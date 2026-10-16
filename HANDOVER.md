@@ -103,6 +103,16 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
+## First real local CUDA run: failure and source fix (16 October 2026)
+
+- User's clean `emu-readable-20261016_224338` WSL install ran `emu doctor --v5015-smoke --domain-smoke` on JAX GPU successfully; 16 Python tests passed.
+- First CUDA lifecycle stage successfully compiled and performed **one 8-world/256-step PPO update**, then ran a fixed-policy examination (broad score -0.554, no walking expected) and wrote `acceptance/first/checkpoints/best.pkl`.
+- Training then stopped in the final-report path: `emu/rollout_metrics.py:276` iterated over undefined `ACTION_DIM`. This was an import missing during D1 metrics-ownership extraction; existing 20 tests did not execute the post-final-evaluation augmentation with per-joint diagnostics.
+- **Fix:** import `ACTION_DIM` directly from the canonical `contracts.py`; strengthen the existing learning/config test to invoke `augment_rollout_row` with six per-joint action-clip diagnostics and a nonempty fixed-exam result. Keep the total number of tests unchanged.
+- The early `CUDA_ERROR_OUT_OF_MEMORY` messages were logged during XLA allocation retries but **did not terminate this run**; the subsequent Python exception did. However, 8 GB VRAM is a real risk at 2,048 MJX worlds, so separately assess peak allocations and sustained throughput.
+- **Do NOT repair this by an uncommitted local edit followed by a pinned-source resume.** Pull the verified code into the clean checkout and run the 256→512 lifecycle under a NEW scratch acceptance root; the original half-finished acceptance directory is retained for forensic evidence. Only after acceptance should the 20M foundation begin in a new run root.
+- Actual GPU acceptance on the fixed commit remains **unverified** until the fresh local retry. `main`, public champion and active historical runs remain untouched.
+
 ## Final source-audit fix verified
 
 - `65914ab`: [CI 38853384625 passed](https://github.com/mdt733/emu/actions/runs/38853384625), 16 Python + 4 browser. If automatic recovery cannot reset physical worlds, it now restores the original governor/health or halts rather than training with partial rewind. The existing checkpoint test deliberately triggers this failure.

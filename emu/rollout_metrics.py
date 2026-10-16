@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .contracts import COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
+from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
 from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME
 from .tracking_contract import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,

@@ -12,6 +12,13 @@ should continue on their original pinned source; do not update their checkout.
 lineage using its modified source** until the independent GPU acceptance gate.
 The current 20 software checks only show contract compatibility.
 
+## First local GPU smoke failure and fix
+
+- **Observed in real WSL CUDA run:** first eight-world PPO update and 256-step fixed exam completed; training crashed at final `augment_rollout_row` due to missing `ACTION_DIM` import in `rollout_metrics.py`. The original scratch root retains `best.pkl`, but did not publish `final.pkl` or launch the 20M foundation.
+- **Targeted fix:** import `ACTION_DIM` from `contracts.py` and test post-exam per-joint action clipping in the **existing** test suite; no algorithm, checkpoint or actor shape changes.
+- **Next:** verify corrected CI, `git pull --ff-only` into the clean WSL checkout, and rerun **first → continue → verify** under a never-used scratch acceptance root. Do not use the old failed root across source commits. Then begin the original 20M foundation only after a successful complete lifecycle.
+- XLA's attempted 6GiB allocation is an additional capacity signal, not the traceback responsible for this crash; measure memory and sustainable FPS during the real campaign.
+
 ## Final audit software result
 
 - [Transactional rollback failure protection](https://github.com/mdt733/emu/actions/runs/38853384625): **16 Python + 4 browser passed**. The actual original teacher and health state is restored after simulated world-reset failure; otherwise training halts. Same 20 checks retained.

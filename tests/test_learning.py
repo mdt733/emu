@@ -11,7 +11,8 @@ from emu.rewards import weighted_training_terms, PAYMENT_NAMES
 from emu.training_config import TrainingConfig, mature_config
 from emu.capability_field import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
-from emu.contracts import OBS_DIM
+from emu.contracts import ACTION_DIM, OBS_DIM
+from emu.rollout_metrics import augment_rollout_row
 from emu.ppo import expected_param_shapes
 from emu.run_support import resume_training_lineage
 from emu.health import TrainingHealth
@@ -343,6 +344,24 @@ def test_training_config_roundtrip():
         )
         original.save(path)
         assert TrainingConfig.load(path) == original
+    # Real CUDA smoke exposed a post-examination NameError: the per-joint
+    # clip diagnostics refer to ACTION_DIM, previously not imported into
+    # rollout_metrics.py. Exercise the SAME final-rollout augmentation used
+    # after a forced fixed evaluation, without needing an eight-world GPU.
+    evidence = {}
+    clips = {f'action_clip_j{j}': np.asarray(0.1 * (j + 1), np.float32)
+             for j in range(ACTION_DIM)}
+    augment_rollout_row(
+        evidence, clips, rollout_params_for_metrics={},
+        rollout_lr_scale_for_metrics=1.0, norm_diag={},
+        latest_eval={'eval_broad_score': -0.554},
+        obs_norm_mode='running')
+    assert evidence['eval_broad_score'] == -0.554
+    assert evidence['rollout_lr_scale'] == 1.0
+    for j in range(ACTION_DIM):
+        assert np.isclose(evidence[f'ppo_action_clip_j{j}'], 0.1 * (j + 1))
+    assert 'ppo_action_clip_j6' not in evidence
+
     # D5: the KL controller is owned by training health; no change to the
     # finite upper/lower dead band, clamping, or nonfinite hold behaviour.
     adapt = TrainingHealth.adjust_learning_rate
