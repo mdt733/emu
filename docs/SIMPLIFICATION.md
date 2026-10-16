@@ -12,6 +12,12 @@ should continue on their original pinned source; do not update their checkout.
 lineage using its modified source** until the independent GPU acceptance gate.
 The current 20 software checks only show contract compatibility.
 
+## Source-audit software verification
+
+- [Auto-resume correction and fresh WSL setup](https://github.com/mdt733/emu/actions/runs/38852621596): **16 Python + four browser passed**.
+- [Fail-closed ladder source identity](https://github.com/mdt733/emu/actions/runs/38852816221): **16 Python + four browser passed**.
+- Local CUDA, sustained 20M foundation, matched branch screens, signed-course and contact-footfall walking are **not yet validated**. No merge or showcase swap until independently examined.
+
 ## Code-level audit result (not just green tests)
 
 - **Confirmed by source review:** the intended directed layers exist;

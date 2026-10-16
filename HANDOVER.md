@@ -103,6 +103,13 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
+## Source-audit verification
+
+- `02a5b6e`: [CI passed](https://github.com/mdt733/emu/actions/runs/38852621596), 16 Python + four browser checks; canonical auto-resume fallback and corrected WSL setup.
+- `35e75ff`: [CI passed](https://github.com/mdt733/emu/actions/runs/38852816221), 16 Python + four browser checks; ladder now refuses absent Git identity before writing campaign metadata.
+- **Source review complete; local CUDA H2 NOT performed.** The branch can be installed in a NEW WSL clone, subject to local doctor/PPO/save/resume and independently measured locomotion gates.
+- A future single reviewed release should include both the independently examined policy and viewer, plus its deliberately pinned champion hash. Publishing remains a MANUAL Pages action after merge.
+
 ## Source-level audit and local release readiness (16 October 2026)
 
 Read-through scope: `cli.py` and WSL bootstrap → launcher/provenance →
