@@ -15,9 +15,9 @@ ppo.py + training.py             Many MJX worlds, experience, gradients, checkpo
         ↕
 curriculum.py                    What should this robot practise next?
         ↕
-experiments                      Shared foundation → competing teaching strategies
+branch_lab.py                     Shared foundation → competing teaching strategies
         ↓
-reports                          How did it learn? Which branches really improved?
+results.py                       How did it learn? Which branches really improved?
 
              viewer_src/         Frozen .emupolicy, interactive MuJoCo/WASM;
                  ↑               NEVER changes the trainer
