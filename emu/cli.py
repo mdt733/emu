@@ -204,7 +204,7 @@ def main(argv=None) -> int:
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
     if args.cmd=='view':
-        from .field_viewer import main as view
+        from .viewer_server import field_main as view
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
         else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed))]
