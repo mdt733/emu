@@ -24,35 +24,54 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: viewer/package-lock.json
-      - name: Require the protected 60M showcase champion
+          cache-dependency-path: emu/viewer_src/package-lock.json
+      - name: Require the approved Pitch15 120M showcase champion
         shell: bash
         run: |
           test -f showcase/champion.emupolicy
           ACTUAL="$(git hash-object showcase/champion.emupolicy)"
-          EXPECTED="4743d8d3cd4706edce04809fe1b61df014e57d5e"
+          EXPECTED="067d6156f0f9de629eabb1a69cf1b0ceb86db24c"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "Champion has changed. Update release process deliberately; refusing accidental deployment." >&2
             exit 1
           fi
+      - name: Validate approved 120M policy provenance
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('showcase/champion.emupolicy').read_text())
+          source, policy = p['source'], p['policy']
+          assert p['format'] == 'emu-policy' and p['schema'] == 1
+          assert source['git_commit'] == 'a5996b8cda2c394c7c65e3e938282a3808ded121'
+          assert source['step'] == 120061952 and source['checkpoint_schema'] == 7
+          assert policy['obs_dim'] == 220 and policy['action_dim'] == 6
+          assert p['training']['pitch_command_max_deg'] == 15.0
+          print('Approved browser-only Pitch15 120M champion verified')
+          PY
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO"
+        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
       - name: Install locked viewer dependencies
-        run: npm ci --prefix viewer --no-audit --no-fund
+        run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run JavaScript contract tests
-        run: npm run test --prefix viewer
+        run: npm run test --prefix emu/viewer_src
       - name: Build static MuJoCo viewer
-        run: npm run build --prefix viewer
+        run: npm run build --prefix emu/viewer_src
       - name: Verify bundled policy and WASM assets
-        run: python3 scripts/verify_showcase_dist.py
+        run: python3 scripts/verify_showcase_dist.py --expect-source-commit "$GITHUB_SHA"
+      - name: Reject viewer builds that modify tracked source
+        run: |
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: viewer/dist
+          path: emu/viewer_src/dist
 
   deploy:
     runs-on: ubuntu-latest

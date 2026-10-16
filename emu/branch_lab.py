@@ -1,6 +1,6 @@
 """Checkpoint-safe v5015 successive-halving experiments: manual or autopilot.
 
-One 20M foundation, four 26M forks, two 34M finalists, one 46M follow-up.
+One 20M foundation, four 80M forks (+60M each), optional two 100M finalists, one 120M follow-up.
 All raw checkpoints remain outside Git; never touches the public 60M brain.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
-from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG
+from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG, PROMOTION_SLOTS, plan_dict
 from .paths import source_repo_root
 from .phase_config import _phase_config, verify_existing_phase_config
 from .training_config import apply_experiment_knobs
@@ -42,7 +42,11 @@ def _context(root, seed, envs, provenance):
     repo = source_repo_root()
     if repo is not None and (root == repo or repo in root.parents):
         raise RuntimeError('Raw experiment runs must live outside the Git checkout')
-    if provenance.get('available') and provenance.get('dirty'):
+    # An unknown Git identity is not a valid reproducible campaign source.
+    # The single-run launcher already fails closed here; the ladder must too.
+    if not provenance.get('available') or not provenance.get('commit'):
+        raise RuntimeError('Ladder requires an identifiable clean Git source commit')
+    if provenance.get('dirty'):
         raise RuntimeError('Git checkout has uncommitted changes; freeze a clean source commit before training')
     wanted = {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
               'git_commit': provenance.get('commit', '')}
@@ -75,6 +79,9 @@ def validate_recipe(*, seed: int, envs: int, device: str, root: Path) -> None:
         raise ValueError('Experiment envs must be positive')
     if list(ROUNDS) != ['round1', 'round2', 'round3']:
         raise ValueError('Ladder requires ordered round1/round2/round3 stages')
+    if list(PROMOTION_SLOTS) != ['round2', 'round3'] or not (
+            len(ARMS) >= PROMOTION_SLOTS['round2'] > PROMOTION_SLOTS['round3'] > 0):
+        raise ValueError('Ladder promotion sizes must form a strict smaller finalist pool')
     targets = [FOUNDATION, *ROUNDS.values()]
     if any(type(v) is not int or v <= 0 for v in targets) or targets != sorted(set(targets)):
         raise ValueError('Ladder targets must be strictly increasing integer environment steps')
@@ -143,7 +150,7 @@ def ensure_run(run, *, arm, parent, target, seed, envs, device, provenance):
 
 
 def _selection(root, stage, selected, previous, envs):
-    amount = 2 if stage == 'round2' else 1
+    amount = PROMOTION_SLOTS[stage]
     if len(selected) != amount or len(set(selected)) != amount or any(x not in BY_NAME for x in selected):
         raise ValueError(f'{stage} requires exactly {amount} different valid --select names')
     file = root / f'{previous}_scoreboard.json'
@@ -248,24 +255,19 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
               'screen_pitch_deg': SCREEN_PITCH_DEG, 'screen_envs': screen_envs,
               'screen_horizon': screen_horizon, 'results': rows}
     _save(root / f'{round_name}_scoreboard.json', result)
-    lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
-             f'Every policy at {ROUNDS[round_name]:,} absolute steps in the same 15 degree testing envelope.',
-             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
-             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
-    for r in rows:
-        lines.append(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
-                     f"{r.get('hard_survival','—')} | {r.get('growth_survival','—')} | "
-                     f"{r.get('gentle_slope_survival','—')} | "
-                     f"{r.get('motion_mae','—')} | {r.get('step_evidence','—')} | "
-                     f"{r.get('support','—')} | {r.get('pitch_mae_rad','—')} rad | "
-                     f"{r.get('height_shortfall_m','—')} m | "
-                     f"{', '.join(r['reasons'])} |")
-        print(f"{r['arm']:<10} eligible={r['eligible']} score={r['score']}, {r['reasons']}")
-    report = root / f'{round_name}_scorecard.md'
-    temp = report.with_name(report.name + '.tmp')
-    temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
-    temp.replace(report)
+    # Reporting formats the examined evidence; ranking stays above.
+    from .results import write_scorecard, write_report
+    report = write_scorecard(root, result)
+    for row in rows:
+        print(f"{row['arm']:<10} eligible={row['eligible']} score={row['score']}, {row['reasons']}")
+    # Package the existing held-out score and all run histories for human review.
+    # This reads checkpoints ONLY to hash their identity; no policy load or PPO.
+    try:
+        for path in write_report(root):
+            print(f'Campaign report: {path}')
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(f'WARNING: offline results export failed ({exc}). '
+              f'Retry safely with: emu report --root {root}')
     print(f'Saved {report}. Auto mode promotes eligible contenders; manual review is also supported.')
 
 
@@ -275,7 +277,7 @@ def promotion_choices(board: dict, slots: int) -> list[str]:
     No eligibility bypass. With insufficient qualified contenders the autopilot
     stops, preserving every checkpoint for inspection/manual intervention.
     """
-    if slots not in (1, 2):
+    if slots not in set(PROMOTION_SLOTS.values()):
         raise ValueError('Promotion supports 1 or 2 places only')
     ordered = sorted((row for row in board['results']
                       if row.get('arm') in BY_NAME and row.get('eligible') is True
@@ -330,8 +332,8 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
     Pause on failed training or a failed/ambiguous evaluation. Never promote an
     ineligible policy and never alter the published champion.
     """
-    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x26M forks, '
-          'screen and promote 2x34M then 1x46M', flush=True)
+    print(f'[EMU ladder] Auto mode: 20M foundation, {len(ARMS)}x80M forks '
+          '(+60M each); optional 2x100M then 1x120M.', flush=True)
     ensure_run(root/'foundation20', arm=None, parent=None, target=FOUNDATION,
                seed=seed, envs=envs, device=device, provenance=provenance)
     for round_name in ROUNDS:
@@ -347,7 +349,7 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
                       f'selection: {", ".join(names)}', flush=True)
             else:
                 scored = _read(root / f'{prior}_scoreboard.json')
-                slots = 2 if round_name == 'round2' else 1
+                slots = PROMOTION_SLOTS[round_name]
                 names = promotion_choices(scored, slots)
                 print(f'[EMU lab5015] Auto-selected from {prior}: '
                       f'{", ".join(names)}', flush=True)
@@ -372,21 +374,6 @@ def autopilot(root: Path, *, seed: int, envs: int, device: str,
         if stop_after == round_name:
             print(f'[EMU lab5015] Finished at requested {stop_after} boundary.', flush=True)
             break
-
-
-def plan_dict(seed=733, envs=2048):
-    return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
-            'foundation': FOUNDATION, 'rounds': ROUNDS,
-            'arms': [asdict(a) for a in ARMS],
-            'nominal_steps': (
-                FOUNDATION + len(ARMS)*(ROUNDS['round1']-FOUNDATION)
-                + 2*(ROUNDS['round2']-ROUNDS['round1'])
-                + (ROUNDS['round3']-ROUNDS['round2'])),
-            'review_points': ['after 20M foundation', 'after 4x26M screen',
-                              'after 2x34M screen', 'after 1x46M follow-up'],
-            'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
-            'recommended': 'emu lab5015 --stage auto',
-            'auto_stop_if_ineligible': True}
 
 
 def main(argv=None):
@@ -442,6 +429,8 @@ def main(argv=None):
     if args.stage == 'foundation':
         ensure_run(root/'foundation20',arm=None,parent=None,target=FOUNDATION,
                    seed=args.seed,envs=args.envs,device=args.device,provenance=provenance)
+        from .results import write_report
+        write_report(root)
         return 0
     if args.stage == 'round1':
         names = args.arm or list(BY_NAME)

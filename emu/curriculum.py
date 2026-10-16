@@ -274,6 +274,124 @@ class RegimeGovernor:
             self.fall_ema[key] = self._falls_ema[key] / self._episodes_ema[key]
         return self.fall_ema[key]
 
+    def _advance_physical_frontiers(
+        self, row: dict[str, float], *,
+        global_fall: float, global_retreat: bool,
+    ) -> dict[str, str]:
+        """Use REAL settled tracking evidence to revise physical command limits.
+
+        Maintain the original axis EMAs, hysteresis and safety bounds. No
+        fixed-policy exam or PPO reward feeds these training decisions.
+        """
+        # Growth is judged on settled tracking near the current boundary, not
+        # on all rollout steps. This prevents
+        # command transitions, low-amplitude centre samples and estimator noise
+        # from voting a proven axis downward. A slow EMA + bad-streak hysteresis
+        # keeps a single ugly rollout from eating the envelope.
+        frontier_events = {}
+        if self.open_frontier and not global_retreat:
+            axis_specs = (
+                ('vx_hi', 'frontier_precision_vx_forward', +1.0, self.FRONTIER_FLOOR_VX_HI, self.frontier_vx_hi_safety),
+                ('vx_lo', 'frontier_precision_vx_reverse', -1.0, abs(self.FRONTIER_FLOOR_VX_LO), self.frontier_vx_lo_safety),
+                ('vy', 'frontier_precision_vy', +1.0, self.FRONTIER_FLOOR_VY, self.frontier_vy_safety),
+                ('yaw', 'frontier_precision_yaw', +1.0, self.FRONTIER_FLOOR_YAW, self.frontier_yaw_safety),
+            )
+            easy_enough = self.fall_ema['steady'] <= 0.25 and self.competence['steady'] >= 0.60
+            for axis, pkey, sign, floor_mag, safety_mag in axis_specs:
+                field = f'frontier_{axis}'
+                cur = float(getattr(self.params, field))
+                precision = float(row.get(pkey, -1.0))
+                if precision < 0.0:
+                    frontier_events[axis] = 'no_edge_data'
+                    continue
+                prev = float(self.frontier_precision_ema.get(axis, -1.0))
+                ema = precision if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*precision)
+                self.frontier_precision_ema[axis] = ema
+                if ema < self.FRONTIER_RETREAT_PRECISION and precision < 0.35:
+                    self.frontier_bad_streak[axis] = int(self.frontier_bad_streak.get(axis, 0)) + 1
+                else:
+                    self.frontier_bad_streak[axis] = max(0, int(self.frontier_bad_streak.get(axis, 0)) - 1)
+                good = ema >= self.FRONTIER_EXPAND_PRECISION and precision >= 0.55
+                sustained_bad = self.frontier_bad_streak[axis] >= self.FRONTIER_BAD_STREAK_LIMIT
+                if easy_enough and good:
+                    mag = min(safety_mag, max(abs(cur), floor_mag) * (1.0 + FRONTIER_GROWTH_FRAC))
+                    setattr(self.params, field, sign * mag)
+                    frontier_events[axis] = 'expand_edge_proven'
+                elif sustained_bad:
+                    mag = max(floor_mag, abs(cur) * (1.0 - FRONTIER_RETREAT_FRAC))
+                    setattr(self.params, field, sign * mag)
+                    frontier_events[axis] = 'retreat_sustained_tracking'
+                else:
+                    frontier_events[axis] = 'hold'
+
+            cur = float(self.params.frontier_push_n)
+            if self.fall_ema['resilience'] <= 0.22 and self.competence['resilience'] >= 0.60:
+                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+                frontier_events['push_n'] = 'expand'
+            elif self.fall_ema['resilience'] >= 0.45:
+                self.params.frontier_push_n = max(0.70, cur * (1.0 - FRONTIER_RETREAT_FRAC))
+                frontier_events['push_n'] = 'retreat'
+            else:
+                frontier_events['push_n'] = 'hold'
+
+            cur = float(self.params.frontier_sensor_scale)
+            settled = min(float(row.get('precision_vx', 0.0)),
+                          float(row.get('precision_vy', 0.0)),
+                          float(row.get('precision_yaw', 0.0)))
+            if global_fall <= 0.25 and settled >= 0.55:
+                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + 0.5*FRONTIER_GROWTH_FRAC))
+                frontier_events['sensor'] = 'expand'
+            elif global_fall >= 0.50:
+                self.params.frontier_sensor_scale = max(1.50, cur * (1.0 - 0.5*FRONTIER_RETREAT_FRAC))
+                frontier_events['sensor'] = 'retreat'
+            else:
+                frontier_events['sensor'] = 'hold'
+
+            cp = float(row.get('frontier_precision_combo', -1.0))
+            cur = float(self.params.frontier_combo_radius)
+            if cp >= 0.0:
+                prev = float(self.frontier_precision_ema.get('combo', -1.0))
+                ema = cp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*cp)
+                self.frontier_precision_ema['combo'] = ema
+                if ema < self.FRONTIER_RETREAT_PRECISION and cp < 0.35:
+                    self.frontier_bad_streak['combo'] = int(self.frontier_bad_streak.get('combo', 0)) + 1
+                else:
+                    self.frontier_bad_streak['combo'] = max(0, int(self.frontier_bad_streak.get('combo', 0)) - 1)
+                if easy_enough and ema >= 0.60 and cp >= 0.55:
+                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+                    frontier_events['combo'] = 'expand_edge_proven'
+                elif self.frontier_bad_streak['combo'] >= self.FRONTIER_BAD_STREAK_LIMIT:
+                    self.params.frontier_combo_radius = max(self.FRONTIER_FLOOR_COMBO, cur * (1.0 - FRONTIER_RETREAT_FRAC))
+                    frontier_events['combo'] = 'retreat_sustained_tracking'
+                else:
+                    frontier_events['combo'] = 'hold'
+            else:
+                frontier_events['combo'] = 'no_edge_data'
+
+            tp = float(row.get('transition_precision', -1.0))
+            if tp >= 0.0:
+                prev = float(self.frontier_precision_ema.get('accel', -1.0))
+                ema = tp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*tp)
+                self.frontier_precision_ema['accel'] = ema
+                if ema < 0.25 and tp < 0.32:
+                    self.frontier_bad_streak['accel'] = int(self.frontier_bad_streak.get('accel', 0)) + 1
+                else:
+                    self.frontier_bad_streak['accel'] = max(0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
+                if self.fall_ema['transition'] <= 0.25 and self.competence['transition'] >= 0.60 and ema >= 0.55:
+                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - FRONTIER_GROWTH_FRAC))
+                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - 2.0*FRONTIER_GROWTH_FRAC))
+                    frontier_events['accel'] = 'expand_transition_proven'
+                elif self.fall_ema['transition'] >= 0.50 or self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT:
+                    self.params.frontier_transition_hold_s = min(0.90, self.params.frontier_transition_hold_s * (1.0 + FRONTIER_RETREAT_FRAC))
+                    self.params.frontier_ramp_steps = min(4.0, self.params.frontier_ramp_steps * (1.0 + 2.0*FRONTIER_RETREAT_FRAC))
+                    frontier_events['accel'] = 'retreat'
+                else:
+                    frontier_events['accel'] = 'hold'
+            else:
+                frontier_events['accel'] = 'no_transition_data'
+
+        return frontier_events
+
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
@@ -396,112 +514,10 @@ class RegimeGovernor:
             for name, _ in push_candidates:
                 events[name] = shared_note
 
-        # Growth is judged on settled tracking near the current boundary, not
-        # on all rollout steps. This prevents
-        # command transitions, low-amplitude centre samples and estimator noise
-        # from voting a proven axis downward. A slow EMA + bad-streak hysteresis
-        # keeps a single ugly rollout from eating the envelope.
-        frontier_events = {}
-        if self.open_frontier and not global_retreat:
-            axis_specs = (
-                ('vx_hi', 'frontier_precision_vx_forward', +1.0, self.FRONTIER_FLOOR_VX_HI, self.frontier_vx_hi_safety),
-                ('vx_lo', 'frontier_precision_vx_reverse', -1.0, abs(self.FRONTIER_FLOOR_VX_LO), self.frontier_vx_lo_safety),
-                ('vy', 'frontier_precision_vy', +1.0, self.FRONTIER_FLOOR_VY, self.frontier_vy_safety),
-                ('yaw', 'frontier_precision_yaw', +1.0, self.FRONTIER_FLOOR_YAW, self.frontier_yaw_safety),
-            )
-            easy_enough = self.fall_ema['steady'] <= 0.25 and self.competence['steady'] >= 0.60
-            for axis, pkey, sign, floor_mag, safety_mag in axis_specs:
-                field = f'frontier_{axis}'
-                cur = float(getattr(self.params, field))
-                precision = float(row.get(pkey, -1.0))
-                if precision < 0.0:
-                    frontier_events[axis] = 'no_edge_data'
-                    continue
-                prev = float(self.frontier_precision_ema.get(axis, -1.0))
-                ema = precision if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*precision)
-                self.frontier_precision_ema[axis] = ema
-                if ema < self.FRONTIER_RETREAT_PRECISION and precision < 0.35:
-                    self.frontier_bad_streak[axis] = int(self.frontier_bad_streak.get(axis, 0)) + 1
-                else:
-                    self.frontier_bad_streak[axis] = max(0, int(self.frontier_bad_streak.get(axis, 0)) - 1)
-                good = ema >= self.FRONTIER_EXPAND_PRECISION and precision >= 0.55
-                sustained_bad = self.frontier_bad_streak[axis] >= self.FRONTIER_BAD_STREAK_LIMIT
-                if easy_enough and good:
-                    mag = min(safety_mag, max(abs(cur), floor_mag) * (1.0 + FRONTIER_GROWTH_FRAC))
-                    setattr(self.params, field, sign * mag)
-                    frontier_events[axis] = 'expand_edge_proven'
-                elif sustained_bad:
-                    mag = max(floor_mag, abs(cur) * (1.0 - FRONTIER_RETREAT_FRAC))
-                    setattr(self.params, field, sign * mag)
-                    frontier_events[axis] = 'retreat_sustained_tracking'
-                else:
-                    frontier_events[axis] = 'hold'
-
-            cur = float(self.params.frontier_push_n)
-            if self.fall_ema['resilience'] <= 0.22 and self.competence['resilience'] >= 0.60:
-                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + FRONTIER_GROWTH_FRAC))
-                frontier_events['push_n'] = 'expand'
-            elif self.fall_ema['resilience'] >= 0.45:
-                self.params.frontier_push_n = max(0.70, cur * (1.0 - FRONTIER_RETREAT_FRAC))
-                frontier_events['push_n'] = 'retreat'
-            else:
-                frontier_events['push_n'] = 'hold'
-
-            cur = float(self.params.frontier_sensor_scale)
-            settled = min(float(row.get('precision_vx', 0.0)),
-                          float(row.get('precision_vy', 0.0)),
-                          float(row.get('precision_yaw', 0.0)))
-            if global_fall <= 0.25 and settled >= 0.55:
-                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + 0.5*FRONTIER_GROWTH_FRAC))
-                frontier_events['sensor'] = 'expand'
-            elif global_fall >= 0.50:
-                self.params.frontier_sensor_scale = max(1.50, cur * (1.0 - 0.5*FRONTIER_RETREAT_FRAC))
-                frontier_events['sensor'] = 'retreat'
-            else:
-                frontier_events['sensor'] = 'hold'
-
-            cp = float(row.get('frontier_precision_combo', -1.0))
-            cur = float(self.params.frontier_combo_radius)
-            if cp >= 0.0:
-                prev = float(self.frontier_precision_ema.get('combo', -1.0))
-                ema = cp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*cp)
-                self.frontier_precision_ema['combo'] = ema
-                if ema < self.FRONTIER_RETREAT_PRECISION and cp < 0.35:
-                    self.frontier_bad_streak['combo'] = int(self.frontier_bad_streak.get('combo', 0)) + 1
-                else:
-                    self.frontier_bad_streak['combo'] = max(0, int(self.frontier_bad_streak.get('combo', 0)) - 1)
-                if easy_enough and ema >= 0.60 and cp >= 0.55:
-                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + FRONTIER_GROWTH_FRAC))
-                    frontier_events['combo'] = 'expand_edge_proven'
-                elif self.frontier_bad_streak['combo'] >= self.FRONTIER_BAD_STREAK_LIMIT:
-                    self.params.frontier_combo_radius = max(self.FRONTIER_FLOOR_COMBO, cur * (1.0 - FRONTIER_RETREAT_FRAC))
-                    frontier_events['combo'] = 'retreat_sustained_tracking'
-                else:
-                    frontier_events['combo'] = 'hold'
-            else:
-                frontier_events['combo'] = 'no_edge_data'
-
-            tp = float(row.get('transition_precision', -1.0))
-            if tp >= 0.0:
-                prev = float(self.frontier_precision_ema.get('accel', -1.0))
-                ema = tp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*tp)
-                self.frontier_precision_ema['accel'] = ema
-                if ema < 0.25 and tp < 0.32:
-                    self.frontier_bad_streak['accel'] = int(self.frontier_bad_streak.get('accel', 0)) + 1
-                else:
-                    self.frontier_bad_streak['accel'] = max(0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
-                if self.fall_ema['transition'] <= 0.25 and self.competence['transition'] >= 0.60 and ema >= 0.55:
-                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - FRONTIER_GROWTH_FRAC))
-                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - 2.0*FRONTIER_GROWTH_FRAC))
-                    frontier_events['accel'] = 'expand_transition_proven'
-                elif self.fall_ema['transition'] >= 0.50 or self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT:
-                    self.params.frontier_transition_hold_s = min(0.90, self.params.frontier_transition_hold_s * (1.0 + FRONTIER_RETREAT_FRAC))
-                    self.params.frontier_ramp_steps = min(4.0, self.params.frontier_ramp_steps * (1.0 + 2.0*FRONTIER_RETREAT_FRAC))
-                    frontier_events['accel'] = 'retreat'
-                else:
-                    frontier_events['accel'] = 'hold'
-            else:
-                frontier_events['accel'] = 'no_transition_data'
+        # Only demonstrated training-rollout tracking may move the physical
+        # limits; the fixed-policy examiner cannot teach this controller.
+        frontier_events = self._advance_physical_frontiers(
+            row, global_fall=global_fall, global_retreat=global_retreat)
 
         # Regime ALLOCATION -- what fraction of envs each regime gets
         # NEXT update. Draw weight = FLOOR + fall_ema[x], so a regime

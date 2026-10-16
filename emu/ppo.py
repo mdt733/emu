@@ -1,8 +1,11 @@
-"""EMU PPO implementation and observation normalisation.
+"""The learner: policy, value network, rollout, advantages and PPO updates.
 
-This is the learning engine only. It owns network/optimizer state, rollout and
-PPO updates, and policy evaluation kernels. It does not own curriculum,
-checkpoint policy, experiment orchestration, or training-health decisions.
+Input: world observations and rewards *already* computed by the environment.
+Output: a trained policy and its optimizer state. PPO does not set reward
+weights or decide which experiment branch wins.
+
+Evaluation kernels stay here for now to reuse the identical JAX policy
+inference path; their scoring and experiment selection live elsewhere.
 """
 from __future__ import annotations
 
@@ -11,6 +14,10 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
+from .environment import T
+from .gait_exam import contact_pair_mask
+from .directional import heading_rate_request
+from .contracts import CONTROL_DT, P
 from .tracking_contract import (
     VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
     UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
@@ -591,6 +598,130 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
+    def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
+                       horizon, heading_kp=0.0, operator_command=None,
+                       command_schedule=None, gyro_bias=0., gyro_noise=0.,
+                       gyro_delay_frames=0):
+        """Read-only matched course exam with explicit time-varying commands.
+
+        The operator schedule drives reset, policy observation and the
+        environment's own command ramp state. A controller may correct only
+        yaw requests, and the independent examiner sees ORIGINAL requests.
+        Controller yaw uses integrated noisy/delayed body gyro, never true
+        simulator world yaw. Reset aftermath is truncated by gait_exam.py.
+        """
+        kp = float(heading_kp)
+        delay = int(gyro_delay_frames)
+        if not 0. <= kp <= 2. or not 0 <= delay <= 5:
+            raise ValueError('invalid heading gain or sensor delay')
+        if command_schedule is not None:
+            schedule = jnp.asarray(command_schedule, dtype=jnp.float32)
+            if schedule.shape != (horizon, 3):
+                raise ValueError('command schedule must have shape (horizon,3)')
+        elif operator_command is not None:
+            schedule = jnp.broadcast_to(
+                jnp.asarray(operator_command, dtype=jnp.float32), (horizon, 3))
+        else:
+            schedule = None
+        keys = jax.random.split(eval_key, env.num_envs)
+        reset_params = curriculum_params
+        if schedule is not None:
+            reset_params = (curriculum_params
+                .at[P.probe_cmd_vx].set(schedule[0,0])
+                .at[P.probe_cmd_vy].set(schedule[0,1])
+                .at[P.probe_cmd_yaw].set(schedule[0,2]))
+        initial = env._reset_with_keys(keys, reset_params)
+        obs = env.obs(initial)
+        if schedule is None:
+            first = jnp.stack((initial.task[:, T.vx], initial.task[:, T.vy],
+                               initial.task[:, T.yaw]),axis=-1)
+            schedule = jnp.broadcast_to(first[None,:,:], (horizon, env.num_envs, 3))
+        else:
+            schedule = jnp.broadcast_to(schedule[:,None,:], (horizon,env.num_envs,3))
+        command_idx = [BASE_OBS_FIELDS.index('cmd_vx'),
+                       BASE_OBS_FIELDS.index('cmd_vy'),
+                       BASE_OBS_FIELDS.index('cmd_yaw')]
+        sensor_key = jax.random.fold_in(eval_key, 5016)
+        noise = jax.random.normal(sensor_key,(horizon,env.num_envs))*jnp.asarray(gyro_noise)
+        bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
+        limit = env.yaw_max_rad_s
+
+        def record_state(es):
+            data=es.data
+            rotation=env._rotation_body_to_world(data)
+            yaw=jnp.arctan2(rotation[:,1,0],rotation[:,0,0])
+            contacts=contact_pair_mask(
+                jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
+                int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
+            return data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],contacts
+
+        def step(carry, inputs):
+            es, ob, target, estimate, history_gyro = carry
+            cmd, sensor_noise = inputs
+            xy,yaw,foot_xyz,contacts=record_state(es)
+            raw_gyro=env._body_packets(es.data)[2][:,2]
+            sampled_gyro=raw_gyro+bias+sensor_noise
+            # Preserve an initial sample across the sensor's latency window.
+            if delay:
+                delayed_gyro=history_gyro[0]
+                next_history=jnp.concatenate((history_gyro[1:],sampled_gyro[None,:]),axis=0)
+            else:
+                delayed_gyro=sampled_gyro
+                next_history=history_gyro
+            next_target=target+cmd[:,2]*CONTROL_DT
+            next_estimate=estimate+delayed_gyro*CONTROL_DT
+            corrected,error=heading_rate_request(
+                jnp,cmd[:,2],next_target,next_estimate,kp=kp,max_rate=limit)
+            actual_cmd=jnp.stack((cmd[:,0],cmd[:,1],corrected),axis=-1)
+            # CRITICAL: env.step computes cmd_now from cmd_ramp_from/target.
+            # Update BOTH this internal ramp and what the policy observed;
+            # changing only the task vector is silently undone in env.step.
+            target_cmd=es.cmd_target.at[:,:3].set(actual_cmd)
+            from_cmd=es.cmd_ramp_from.at[:,:3].set(actual_cmd)
+            task=(es.task.at[:,T.vx].set(cmd[:,0])
+                         .at[:,T.vy].set(cmd[:,1])
+                         .at[:,T.yaw].set(corrected))
+            hist=(es.hist.at[:,-1,command_idx[0]].set(cmd[:,0])
+                         .at[:,-1,command_idx[1]].set(cmd[:,1])
+                         .at[:,-1,command_idx[2]].set(corrected))
+            staged=es._replace(
+                task=task, hist=hist, cmd_target=target_cmd,
+                cmd_ramp_from=from_cmd,
+                cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
+                cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
+                cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
+            policy_obs=hist.reshape((env.num_envs, OBS_DIM))
+            mean,_=apply(params,normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
+            out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
+            sample=dict(
+                position_xy=xy,heading_rad=yaw,
+                foot_xyz=foot_xyz,floor_contact=contacts,
+                command=cmd,issued_yaw_rate=corrected,
+                delivered_task_yaw_rate=staged.task[:,T.yaw],
+                next_task_yaw_rate=out.state.task[:,T.yaw],
+                estimated_heading_rad=next_estimate,
+                requested_heading_rad=next_target,
+                controller_heading_error_rad=error,
+                gyro_sample_rad_s=sampled_gyro,
+                gyro_delayed_rad_s=delayed_gyro,
+                root_qvel=es.data.qvel[:,:6],
+                done=out.done,fell=out.metrics['episode_fell'])
+            return (out.state,out.obs,next_target,next_estimate,next_history),sample
+
+        zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
+        gyro0=env._body_packets(initial.data)[2][:,2]+bias
+        queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
+        (last,_,_,_,_),frames=jax.lax.scan(
+            step,(initial,obs,zeros,zeros,queue),(schedule,noise))
+        last_xy,last_yaw,last_foot,last_contacts=record_state(last)
+        return dict(**frames,last_position_xy=last_xy,
+                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                    last_floor_contact=last_contacts)
+
+    # Trace length, heading gain and sensor-delay queue have fixed JAX
+    # specializations. Bias/noise are dynamic data and cannot stale-cache.
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
+
     def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
                           stable_steps=10, recovery_not_before=0):
         """Return fall/recovery times for capability probes.
@@ -679,6 +810,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
         'evaluate_node_window': evaluate_node_window,
         'obs_dim': obs_dim,

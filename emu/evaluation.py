@@ -6,7 +6,10 @@ mutate PPO, curriculum, health or the capability field.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
+from pathlib import Path
+from .checkpoint_io import save_checkpoint
+from .artifacts import append_metrics_csv, write_json
 from dataclasses import dataclass
 import time
 import math
@@ -203,3 +206,59 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
     out['perf_eval_env_steps_per_s'] = float(env_steps / max(elapsed, 1e-9))
     out.update({f'perf_eval_{name}_s': float(seconds) for name, seconds in timings.items()})
     return out
+
+
+def record_fixed_exam(
+    snapshot: PolicySnapshot, *, worlds: dict, cohorts: int, run_dir: Path,
+    broad_history: list[float], best_score: float, best_path: Path,
+    curriculum_state: Callable[[], dict], health_state: Callable[[], dict],
+    field_state: Callable[[], dict], lr_scale: float, version: str,
+    perf: Any, log_prefix: str,
+) -> tuple[dict[str, float], float]:
+    """Evaluate one frozen policy and retain the strongest exact checkpoint.
+
+    State getters are called only if the policy earns a new best checkpoint.
+    Evidence never flows into PPO or the training curriculum.
+    """
+    step = snapshot.step
+    out = evaluate_fixed(
+        worlds, snapshot.params, snapshot.norm(),
+        step=snapshot.step, cohorts=cohorts, perf=perf)
+    broad_history.append(float(out['eval_broad_score']))
+    out['eval_broad_tail3'] = float(sum(broad_history[-3:]) / len(broad_history[-3:]))
+
+    best_ckpt_timing = {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
+    if outranks_best(float(out['eval_broad_score']), best_score):
+        best_score = float(out['eval_broad_score'])
+        best_ckpt_timing = save_checkpoint(
+            best_path, snapshot.state,
+            {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
+             'best_eval_score': best_score,
+             'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
+             'lr_scale': lr_scale},
+            snapshot.norm(),
+            curriculum_state=curriculum_state(),
+            health_state=health_state(),
+            field_state=field_state(), require_finite_state=True)
+        if not best_ckpt_timing.get('saved', 0.0):
+            raise RuntimeError('Best-policy publication refused: non-finite actor or optimizer state')
+        perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
+        perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
+        perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
+
+    perf.add('fixed_eval_total', out['perf_fixed_eval_total_s'])
+    out['perf_best_checkpoint_total_s'] = float(best_ckpt_timing['total_s'])
+    out['perf_best_checkpoint_device_get_s'] = float(best_ckpt_timing['device_get_s'])
+    out['perf_best_checkpoint_pickle_s'] = float(best_ckpt_timing['pickle_write_s'])
+    append_metrics_csv(run_dir / 'fixed_eval.csv', {'step': step, **out})
+    if perf.enabled:
+        write_json(run_dir / 'performance.json', {'step': step, 'cumulative': perf.row(prefix='')})
+
+    print(f"{log_prefix} fixed-eval step={step:,} score={out['eval_broad_score']:.3f} tail3={out['eval_broad_tail3']:.3f} "
+          f"core={out['eval_core_survival']:.3f} dyn80={out['eval_dynamic80_survival']:.3f} "
+          f"combo70={out['eval_combo70_survival']:.3f}/{out['eval_combo70_yaw_mae']:.3f}yaw "
+          f"res75={out['eval_resilience75_survival']:.3f} robust40={out['eval_robust40_survival']:.3f} "
+          f"growth={out['eval_growth110_survival']:.3f}/{out['eval_growthcombo110_survival']:.3f} "
+          f"eval_wall={out.get('perf_fixed_eval_total_s',0.0):.1f}s", flush=True)
+    return out, best_score
+

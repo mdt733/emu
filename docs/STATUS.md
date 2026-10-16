@@ -1,31 +1,74 @@
 # Project status
 
-*Last reviewed: 15 October 2026. This page records evidence, limitations and next verification gates—not plans represented as completed results.*
+*Last reviewed: 17 October 2026. This records observed evidence and
+remaining gates, not a guarantee of physical locomotion.*
+
+## Current experimental result: 20M foundation → 120M Pitch15 finalist
+
+The completed v5015-lab1 campaign was run from source commit
+`a5996b8cda2c394c7c65e3e938282a3808ded121` (seed 733,
+2,048 worlds), and its output was supplied as `results.md` and
+`results_data.json`. All four 80M arms were eligible under the same
+256-world/350-step held-out screen, with a 15° commanded pitch envelope.
+
+| Stage | Pitch15 held-out score | Comparison |
+|---|---:|---|
+| 80M | 0.683903 | ahead of shadow 0.645141, baseline 0.642302, slope 0.638627 |
+| 100M | 0.712062 | ahead of shadow 0.692671 |
+| 120M | **0.723497** | only continued finalist; hard survival 91.992%, growth survival 86.328% |
+
+**Provisional champion:** `round3/pitch15/checkpoints/final.pkl`,
+120,061,952 steps. Expected raw-checkpoint SHA-256:
+`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
+The actual exported 120M actor is now **staged in source control** as
+`showcase/champion.emupolicy`, validated against the expected source,
+step and 220×6 contract. It is not a raw training checkpoint and is not
+approved for physical hardware. The public site remains on its old
+deployment until the coordinated merge and explicit Pages dispatch.
+
+The results support pursuing the 15° pitch-command teaching hypothesis,
+but not an assertion that graph teaching or gravity-slope training is
+universally inferior: this is one seed and one matched-screen protocol.
+All 80M arms achieved 100% *gentle gravity-equivalent slope* screen survival,
+which is distinct from walking a collision ramp. The current screen does
+not have a calibrated signed-progress plus completed-footfall gate.
+
+**Hardware warning:** final Pitch15 on-policy training telemetry gives
+about 12.81 W aggregate shaft absolute power and **74.12% of samples
+above the configured servo rated-torque threshold**. These are simulation
+diagnostics, not measured real motor power. Servo safety and actual walking
+still need their own evaluations.
 
 ## Public demonstration
 
-- The [Playground](https://mdt733.github.io/emu/) is a static MuJoCo/WebAssembly demonstration of an exported **60M-step actor**, not an ongoing learner.
-- The trained policy is tracked as `showcase/champion.emupolicy`. The Pages workflow requires a manual dispatch and checks the pinned Git identity of that policy.
-- Browser controls, appearance and physical ramp settings are for inspection. Demonstration on a ramp is **not** established locomotion competence under varied physical conditions.
+The [Playground](https://mdt733.github.io/emu/) may still serve the older
+**60M** deployment until the new reviewed `main` build is explicitly
+published. The branch's `showcase/champion.emupolicy` now contains
+the verified 120M export. Browser playback
+is not an independent examiner; the user's qualitative report that the new
+models look excellent is encouraging but does not substitute for measured
+gait/contact and signed-direction results.
 
-## Training and source status
+The plan is **one reviewed merge** with the completed simplified code,
+latest reviewed viewer, and independently validated Pitch15 120M actor,
+together with an updated pinned Git blob ID in
+`.github/workflows/emu-playground.yml`. GitHub Pages deployment remains
+**manual after merge**. Draft [PR #5](https://github.com/mdt733/emu/pull/5)
+contains the trained export; code and static viewer CI must pass before merge.
 
-- **15 October 2026 fresh-Windows/WSL validation:** Ubuntu 24.04.5, Python 3.13.16, JAX 0.11.2 on the RTX 4060 Ti (CUDA GPU backend), MuJoCo 3.16.0, 8-world MJX reset/step, four-world real PPO optimiser update and 11-field evaluation, and domain randomisation all passed. The local static Playground successfully ran the protected 60M policy. Optional Warp imports were absent, but MJX worked. Browser ramp walking appeared poor to the operator; this is qualitative feedback, not a matched physics exam.
-- **15 October 2026 GPU lifecycle acceptance (fresh WSL):** an isolated v5015 test trained 8 environments for one 32-frame PPO rollout (256 aggregate steps), wrote a validated `final.pkl` and held-out `fixed_eval.csv`, then warm-resumed in a new process to step 512, preserved the ancestor checkpoint, restored and advanced observation-normaliser count **256 → 512**, verified an already-complete resume did **no PPO update**, and exported `tiny_smoke_actor.emupolicy`. All three documented stages (`first`, `continue`, `verify`) **PASS**. Both near-untrained policies fell 100% in the tiny check; this does **not** demonstrate a newly learned gait. The fixed examination took about 219 and 215 seconds in the two stages.
-- The first v5015 foundation reached **20,054,016 environment steps** and reported completion. The subsequent ladder handoff failed because the trainer wrote to `00_foundation/` while the runner looked in `foundation20/`. This was an output-directory bug, **not** a demonstrated PPO convergence failure.
-- The draft repair aligns run destinations and checks them before training; it has CPU regression coverage. **The original GPU run has not been confirmed recovered or rerun to completion.**
-- Earlier long-horizon behaviour reportedly deteriorated in height around **100–200M steps per lineage**. The current 72M-aggregate-step ladder only follows one candidate to ~46M, so it cannot test that failure mode.
+## Implementation and validation
 
-## What is currently validated
+The refactored code passed 16 Python and four browser checks. The real WSL
+CUDA lifecycle revealed a missing `ACTION_DIM` import in post-evaluation
+diagnostics; that was fixed and tested. The full campaign then completed
+and produced source/parent checkpoint hashes and held-out scoreboards.
+Legacy 220-observation/six-action schema-7 policy contracts are preserved.
 
-GitHub pull-request CI runs Python compilation and tests; Node/JavaScript tests; browser build; and a static policy/WASM packaging verification. The training suite also tests a deterministic exported actor against the real browser inference implementation with a NumPy reference. Those tests are necessary **code checks**, not proof of healthy gait or unchanged GPU learning dynamics.
+Remaining important checks are independent real-MJX signed progression and
+footfall pairs on representative commands, multiple-seed reliability,
+servo torque and spring energy feasibility, and Python/MJX versus
+JavaScript/WASM full-observation/contact parity. Neither the current
+held-out ranking nor a good viewer run proves hardware readiness.
 
-## Known limitations and open acceptance gates
-
-1. **Full small GPU lifecycle passed:** the documented 256 → 512 step warm-resume experiment completed on the target GPU and exported a policy. The **full 20M foundation handoff and the 72M aggregate ladder have not yet run** in the merged architecture; treat their runtime outcomes as unverified.
-2. **Gait quality:** current scores emphasise survival; promotion gates do not yet require a calibrated minimum for genuine commanded stepping. Do not claim that winning an early screen proves walking ability.
-3. **Physical robustness:** the `robust40` fixed panel stresses *commands*, not independent physical-domain variation. Slope-equivalent domain screening exists; actual ramp and morphology transfer remain unproven.
-4. **Cross-runtime physics:** Python/JavaScript deterministic actor inference can be checked numerically, but equivalent contact dynamics, sensor construction and observations in MJX versus WASM remain a separate unverified contract.
-5. **Resume semantics:** schema-7 checkpoints restore learnable, optimiser, normaliser, governor and capability state; MuJoCo episodes and rollout RNG restart. This is a **warm learning-state resume**, not a deterministic continuation of the same physical simulation episode.
-
-The [validation checklist](validation.md) specifies how to establish each gate. Historic results and retired recipe code remain available in [history](history.md) and Git history.
+The [handover](../HANDOVER.md) records the experimental lessons, provenance
+and next release steps. See [PLAYGROUND.md](PLAYGROUND.md) for publication.

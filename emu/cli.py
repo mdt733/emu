@@ -152,6 +152,51 @@ def main(argv=None) -> int:
         q.add_argument('--screen-horizon',type=int,default=350)
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
+    q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
+    q.add_argument('--run-dir',required=True)
+    q.add_argument('--output',required=True,help='unique examination directory, outside training root')
+    q.add_argument('--angle',type=float,default=0.)
+    q.add_argument('--direction',choices=['uphill','downhill','cross_left','cross_right'],default='uphill')
+    q.add_argument('--worlds',type=int,default=8)
+    q.add_argument('--horizon',type=int,default=350)
+    q.add_argument('--speed',type=float,default=.10)
+    q.add_argument('--lateral',type=float,default=0.)
+    q.add_argument('--yaw-rate',type=float,default=0.)
+    q.add_argument('--settle-frames',type=int,default=25)
+    from .command_exams import SCENARIOS
+    q.add_argument('--scenario',choices=SCENARIOS,default='steady')
+    q.add_argument('--turn-rate',type=float,default=.25)
+    q.add_argument('--gyro-bias',type=float,default=0.)
+    q.add_argument('--gyro-noise',type=float,default=0.)
+    q.add_argument('--gyro-delay-frames',type=int,default=0)
+    q.add_argument('--compare-heading',action='store_true',
+                   help='matched read-only controller OFF/ON comparison')
+    q.add_argument('--heading-kp',type=float,default=0.75)
+    q.add_argument('--seed',type=int,default=1701)
+    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
+    q=sub.add_parser('directional-batch',
+        help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
+    q.add_argument('--root',required=True,help='original read-only four-way run root')
+    q.add_argument('--output',required=True,help='new separate exam root')
+    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch'],
+                   default='smoke')
+    q.add_argument('--worlds',type=int)
+    q.add_argument('--seed',type=int,default=1701)
+    q.add_argument('--heading-kp',type=float,default=.75)
+    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
+    q.add_argument('--run',action='store_true',help='execute rather than plan only')
+    q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
+    q.add_argument('--root',required=True)
+    q.add_argument('--no-bundle',action='store_true')
+    q=sub.add_parser('train',help='train one protected experiment (no ladder)')
+    q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
+    q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
+    q.add_argument('--envs',type=int,default=2048)
+    q.add_argument('--seed',type=int,default=733)
+    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
+    q.add_argument('--profile',choices=['foundation','mature'],default='foundation')
+    q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
+    q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
     q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
@@ -181,6 +226,33 @@ def main(argv=None) -> int:
         for arm in args.arm: av += ['--arm',arm]
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
+    if args.cmd=='directional-exam':
+        return _run('directional_exam','--run-dir',args.run_dir,'--output',args.output,
+                    '--angle',str(args.angle),'--direction',args.direction,
+                    '--worlds',str(args.worlds),'--horizon',str(args.horizon),
+                    '--speed',str(args.speed),'--lateral',str(args.lateral),
+                    '--yaw-rate',str(args.yaw_rate),'--settle-frames',str(args.settle_frames),
+                    '--seed',str(args.seed),'--device',args.device,
+                    '--heading-kp',str(args.heading_kp),
+                    '--scenario',args.scenario,'--turn-rate',str(args.turn_rate),
+                    '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
+                    '--gyro-delay-frames',str(args.gyro_delay_frames),
+                    *(['--compare-heading'] if args.compare_heading else []))
+    if args.cmd=='directional-batch':
+        from .v5016_batch import plan,execute
+        from .directional_exam import source_commit
+        jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
+                  seed=args.seed,kp=args.heading_kp,device=args.device)
+        execute(jobs,source_commit(),actually_run=args.run)
+        return 0
+    if args.cmd=='report':
+        from .results import write_report
+        for output in write_report(Path(args.root),bundle=not args.no_bundle):
+            print(output)
+        return 0
+    if args.cmd=='train':
+        from .single_run import train_one
+        return train_one(args)
     if args.cmd=='export-policy':
         from .policy_export import build_bundle, write_bundle
         bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0

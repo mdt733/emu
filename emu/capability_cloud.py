@@ -488,3 +488,107 @@ def summarize_rows(rows: list[dict]) -> dict:
     out['direction_sectors']=sector_rows
     out['worst_points']=sorted(rows,key=lambda r:(float(r.get('recovery_rate',0)),float(r.get('survival',0))))[:12]
     return out
+
+
+def record_capability_cloud_exam(
+    snapshot, *, field, cloud_eval_env, cloud_eval_trainer,
+    cloud_rows: list[dict], latest_eval: dict, run_dir, perf,
+    log_prefix: str, force: bool, count: int, every: int,
+) -> None:
+    """Held-out competence/calibration exam; never a teaching observation.
+
+    The field suggests *questions* and predicts their results. A fingerprint
+    check forbids held-out answers from modifying the teaching field.
+    """
+    import jax
+    import time
+    from .training_config import EVAL_SEED, CLOUD_HORIZON, CLOUD_BATCH_POINTS, CLOUD_ENVS
+    from .artifacts import write_rows_csv, write_json
+    step = snapshot.step
+    t0_cloud = time.perf_counter()
+    field_before_exam = field.fingerprint()
+
+    # Screen no-disturbance controls first; only spend expensive disturbed
+    # rollouts on command anchors that are already demonstrably competent.
+    panel_id = 0 if force else max(0, int(step // max(1, every)) - 1)
+    # Let the training-derived field choose
+    # *questions* spanning its predicted competence bands, but never let
+    # held-out answers update the field. If the map is still too young,
+    # fall back to the deterministic paired panel.
+    bundles=max(1,int(np.ceil(count/5)))
+    if force:
+        # Final comparison is a COMMON deterministic panel across every
+        # trainer branch.  Field-selected calibration commands are useful
+        # longitudinally, but ranking policies on different questions would
+        # be scientifically invalid.  We still annotate the common controls
+        # with the live field's prediction, so the same final exam also
+        # measures self-map calibration.
+        requested = make_common_recovery_panel(count, source='final_common_recovery')
+        for spec in requested:
+            pred,ev = field.predict_command(float(spec['cmd_vx']),float(spec['cmd_vy']),float(spec['cmd_yaw']))
+            spec['field_predicted_competence']=pred
+            spec['field_effective_evidence']=ev
+    else:
+        calibration_cmds = field.calibration_commands(bundles)
+        if calibration_cmds:
+            requested = make_calibration_panel(calibration_cmds, panel_id=panel_id,
+                                                      source='field_calibration')
+        else:
+            requested = make_panel(count, panel_id=panel_id, source='routine_panel')
+    controls = [x for x in requested if x.get('family') == 'none']
+    base_key = jax.random.PRNGKey(int(EVAL_SEED) + 44000)
+    control_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)))
+                    for i, x in enumerate(controls)]
+    control_rows = evaluate_specs_batch(
+        cloud_eval_trainer, cloud_eval_env, snapshot.params,
+        snapshot.obs_mean, snapshot.obs_var ** 0.5,
+        control_keys, int(CLOUD_HORIZON), controls, chunk_size=int(CLOUD_BATCH_POINTS))
+    for r in control_rows:
+        r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
+
+    competent_bundles = {int(r.get('bundle_id', -1)) for r in control_rows
+                         if float(r.get('recovery_rate', 0.0)) >= 0.80
+                         and float(r.get('survival', 0.0)) >= 0.95}
+    disturbed = [x for x in requested if x.get('family') != 'none'
+                 and int(x.get('bundle_id', -1)) in competent_bundles]
+    disturb_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)) + 1000003)
+                    for i, x in enumerate(disturbed)]
+    disturbed_rows = evaluate_specs_batch(
+        cloud_eval_trainer, cloud_eval_env, snapshot.params,
+        snapshot.obs_mean, snapshot.obs_var ** 0.5,
+        disturb_keys, int(CLOUD_HORIZON), disturbed, chunk_size=int(CLOUD_BATCH_POINTS)) if disturbed else []
+    for r in disturbed_rows:
+        r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
+
+    new_rows = control_rows + disturbed_rows
+    cloud_rows.extend(new_rows)
+    summary = summarize_rows(cloud_rows)  # also annotates matched controls in-place
+    write_rows_csv(run_dir / 'heldout_capability_cloud.csv', cloud_rows)
+    cal_pairs=[(float(r.get('field_predicted_competence',np.nan)),float(r.get('node_window_rate',np.nan)))
+               for r in control_rows if np.isfinite(float(r.get('field_predicted_competence',np.nan)))
+               and np.isfinite(float(r.get('node_window_rate',np.nan)))]
+    cal_mae=float(np.mean([abs(a-b) for a,b in cal_pairs])) if cal_pairs else -1.0
+    cal_brier=float(np.mean([(a-b)**2 for a,b in cal_pairs])) if cal_pairs else -1.0
+    summary.update({'policy_step': int(step), 'points': len(cloud_rows),
+                    'requested_panel_points': len(requested), 'executed_panel_points': len(new_rows),
+                    'envs_per_point': int(CLOUD_ENVS), 'horizon_steps': int(CLOUD_HORIZON),
+                    'field_calibration_points':len(cal_pairs),'field_calibration_mae':cal_mae,
+                    'field_calibration_brier':cal_brier,'field_calibration_target':'node_window_rate'})
+    latest_eval['field_calibration_mae']=cal_mae
+    latest_eval['field_calibration_brier']=cal_brier
+    latest_eval['field_calibration_points']=float(len(cal_pairs))
+    write_json(run_dir / 'heldout_capability_cloud.json', summary)
+    elapsed = time.perf_counter() - t0_cloud
+    perf.add('capability_cloud', elapsed)
+    field_after_exam = field.fingerprint()
+    if field_after_exam != field_before_exam:
+        raise RuntimeError('held-out capability exam mutated the live capability field; quarantine invariant violated')
+
+    valid=[r for r in new_rows if int(float(r.get('resilience_valid',0) or 0)) == 1]
+    baseline_ok=float(len(competent_bundles) / max(1, len(control_rows)))
+    mean_rec=float(np.mean([float(r['recovery_rate']) for r in valid])) if valid else 0.0
+    worst=float(np.mean([float(r.get('recovery_worst_direction',0)) for r in valid])) if valid else 0.0
+    print(f"{log_prefix} capability-cloud step={step:,}: controls={len(control_rows)} "
+          f"disturbed={len(disturbed_rows)}/{len(requested)-len(controls)} baseline_ok={baseline_ok:.3f} "
+          f"valid_recovery={mean_rec:.3f} worst_dir={worst:.3f} calibration_mae={cal_mae:.3f} wall={elapsed:.1f}s", flush=True)
+

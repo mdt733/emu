@@ -33,6 +33,6 @@ The public browser viewer is *not* any of these examiners. It runs a nominal MuJ
 - Survival must be accompanied by **actual commanded stepping and movement**. Calibrate motion/step eligibility thresholds from real matched-screen distributions, rather than selecting arbitrary values that could reject all early learners.
 - Physical robustness requires changed-physics, contact-geometry and multi-seed tests. Gravity-equivalent slope perturbations do not prove walking on physical ramps.
 - The actor's Python↔browser deterministic inference has a numerical parity test, but MJX versus WASM **observation and physics parity** is a separate open task.
-- Long-horizon crouching requires evaluations beyond 100M *per policy*, not just a 72M aggregate experiment budget.
+- Long-horizon crouching requires evaluations beyond 100M *per policy*, not merely aggregate budget, since the four-way draft reaches only 80M per policy.
 
 [Training lifecycle](training.md) · [Experiment ladder](tournament.md) · [Validation gates](validation.md)

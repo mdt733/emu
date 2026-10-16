@@ -385,9 +385,10 @@ async function startShowcaseFeed() {
     ? 'Browser-local physics and inference · no account needed'
     : 'Viewer preview only. This is not a trained walking policy.';
   $('showcaseNote').hidden = false;
-  $('showcaseNote').textContent = manifest.trained
+  const buildLabel = manifest.source_commit ? ` · Viewer build ${manifest.source_commit.slice(0, 8)}` : '';
+  $('showcaseNote').textContent = (manifest.trained
     ? 'Autonomous commands are demonstrations, not held-out evaluation.'
-    : 'Preview weights are untrained. A trained champion has not been published yet.';
+    : 'Preview weights are untrained. A trained champion has not been published yet.') + buildLabel;
   if (manifest.source_url) {
     $('sourceLink').href = manifest.source_url;
     $('sourceLink').hidden = false;

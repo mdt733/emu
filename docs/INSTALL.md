@@ -9,7 +9,7 @@ EMU has two independent environments: a **Python JAX/MJX trainer** and a **Node.
 - For GPU training, an NVIDIA GPU/driver exposed to WSL, and a JAX CUDA wheel compatible with the machine. Verify `nvidia-smi` before assuming a GPU is available.
 - Internet access for the initial `pip` and `npm` installs.
 
-Python dependencies are owned by `pyproject.toml`; browser dependencies by `viewer/package.json` and its committed lockfile.
+Python dependencies are owned by `pyproject.toml`; browser dependencies by `emu/viewer_src/package.json` and its committed lockfile.
 
 ## From blank Windows 11 to a ready Ubuntu shell
 
@@ -48,28 +48,35 @@ curl --version
 
 For a CUDA-capable Windows host, install/update the **Windows** NVIDIA driver first. Inside WSL check `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` if it isn't in `PATH`). NVIDIA's [CUDA on WSL guide](https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html) warns **not to install the Linux display driver inside WSL**; WSL uses the host Windows driver. If no compatible GPU is visible, take the CPU install path below rather than claiming CUDA support.
 
-### Pre-merge release-candidate check
+### Pre-merge release-candidate setup (separate from old training)
 
-Until the cleanup is merged, GitHub's default `main` does **not** contain its new `emu ladder` CLI. To verify the exact proposed source before merge, checkout the draft branch **before running setup**:
+The unmerged work is on `refactor/emu-readable`, **not** `main`.
+Do **not** switch the branch in a checkout serving a running experiment.
+Make a new Linux-side WSL clone (not under `/mnt/c`):
 
 ```bash
-git clone https://github.com/mdt733/emu.git
-cd emu
-git switch --track origin/refactor/ladder-human-first
+git clone --branch refactor/emu-readable --single-branch https://github.com/mdt733/emu.git "$HOME/emu-readable-audit"
+cd "$HOME/emu-readable-audit"
 git rev-parse HEAD
+git status --short
+nvidia-smi
+bash scripts/setup_wsl.sh --cuda13 --install-node
+source .venv/bin/activate
+emu doctor --v5015-smoke --domain-smoke
+emu ladder --stage plan
 ```
 
-This is a temporary release-candidate testing step. After the merge a normal `main` clone should work without switching branches. Avoid reusing any training data from an older checkout.
+This assumes the CUDA 13 driver and Python 3.13 prerequisites above
+are already installed. If CUDA is unavailable, omit `--cuda13` and
+do viewer/CPU checks only. Setup does not start training, and the new
+checkout is independent of any earlier running source/venv.
 
 ## Clone and configure
 
-```bash
-git clone https://github.com/mdt733/emu.git
-cd emu
-# For unmerged PR #2 validation only:
-git switch --track origin/refactor/ladder-human-first
-bash scripts/setup_wsl.sh --install-node
-```
+On a machine with no GPU, use the exact clone commands above but invoke
+`bash scripts/setup_wsl.sh --install-node` and
+`emu doctor --no-require-gpu --no-mjx-smoke`. For a GPU installation,
+the commands in the release-candidate section are the recommended route.
 
 The example is the **CPU-only** install; it works without an NVIDIA card and is the safest first boot test. For a confirmed CUDA 13-compatible machine use `bash scripts/setup_wsl.sh --cuda13 --install-node`. Don't pass `--cuda13` unless your actual driver supports it; the setup script does not install NVIDIA drivers. It creates `.venv`, installs the editable package, runs contract checks and builds the packaged viewer. No long training run starts.
 
@@ -87,12 +94,12 @@ For a GPU trainer, run `emu doctor --v5015-smoke --domain-smoke` before committi
 | Task | Command |
 |---|---|
 | See planned experiment steps and arms | `emu ladder --stage plan` |
-| Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh` |
+| Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh --root "$HOME/robot_lab/emu_runs/readable_campaign_NEW" --stop-after round1` (first inspect the 20M foundation and use a unique root) |
 | Stop after the first scored round | `bash scripts/run_ladder.sh --stop-after round1` |
 | Watch completed validated checkpoints locally | `emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open` |
-| Run the zero-weight *local* rendering fixture | `emu viewer viewer/demo_zero.emupolicy --no-open` |
+| Run the zero-weight *local* rendering fixture | `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open` |
 | Run Python tests | `python -m pytest -q` |
-| Run browser tests | `npm test --prefix viewer` |
+| Run browser tests | `npm test --prefix emu/viewer_src` |
 | Build canonical browser assets | `emu viewer-build` |
 
 The local viewer listens on `127.0.0.1:8765`. The standalone demo fixture should **not** walk; it checks rendering. For public/static preview and the protected 60M champion see [PLAYGROUND.md](PLAYGROUND.md).
@@ -101,13 +108,13 @@ The local viewer listens on `127.0.0.1:8765`. The standalone demo fixture should
 
 Training source commits, environment counts and configurations are part of the experiment contract. Keep run roots outside the checkout (normally `~/robot_lab/emu_runs/`). Do not change source or ladder parameters mid-run. Do not reuse a checkpoint/run root under a different source commit; prepare a new run root instead.
 
-The normal repository must **not** include `.venv/`, `node_modules/`, `viewer/dist/`, raw metrics dumps or schema-7 `.pkl` checkpoints. The public `.emupolicy` actor is a separate, intentionally tracked artifact.
+The normal repository must **not** include `.venv/`, `node_modules/`, `emu/viewer_src/dist/`, raw metrics dumps or schema-7 `.pkl` checkpoints. The public `.emupolicy` actor is a separate, intentionally tracked artifact.
 
 ## Browser dependencies and packaging
 
-Use `npm ci --prefix viewer` to install the committed lockfile. The canonical browser source is `viewer/`; `emu/viewer_src/` is its generated Python-package mirror. When intentionally changing browser source or dependencies, run `emu viewer-build`, `npm test --prefix viewer`, and `npm run build --prefix viewer`; review the changed mirror and lockfile before committing.
+Use `npm ci --prefix emu/viewer_src` to install the committed lockfile. The canonical browser source is `emu/viewer_src/`, included in the Python package; no tracked mirror is regenerated. When intentionally changing browser source or dependencies, run `emu viewer-build`, `npm test --prefix emu/viewer_src`, and `npm run build --prefix emu/viewer_src`; review the source changes and committed lockfile before committing.
 
-Do not manually edit generated `viewer/dist/` or publish the local live checkpoint server.
+Do not manually edit generated `emu/viewer_src/dist/` or publish the local live checkpoint server.
 
 ## Troubleshooting
 
@@ -115,7 +122,7 @@ Do not manually edit generated `viewer/dist/` or publish the local live checkpoi
 |---|---|
 | Unexpected EMU version or missing `ladder` command | `git branch --show-current`, `git rev-parse HEAD`, `python -c "import emu.cli; print(emu.cli.__file__)"` |
 | `PYTHONPATH` loads an old checkout | `unset PYTHONPATH`; verify the `emu.cli` source path |
-| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The tracked browser packaging mirror should match `viewer/`; update the branch and restore only verified build-generated differences. |
+| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The viewer is package-owned and build output is ignored; investigate any tracked source changes instead of regenerating a mirror. |
 | New WSL setup exited 3 immediately after nvm installed | The original script auto-selected the uninstalled Node 24 from `.nvmrc`. Update the draft branch and rerun setup; the fixed script sources nvm with `--no-use`. Leave the fresh Ubuntu, Python and nvm installation intact. |
 | CUDA smoke fails | Verify `nvidia-smi`, installed JAX wheel and GPU backend; do not begin training |
 | Optional Warp import warning | MJX may still work; trust the actual reset/step and PPO smoke results |

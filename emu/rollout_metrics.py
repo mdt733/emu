@@ -1,7 +1,13 @@
-"""Host-side rollout reduction and fixed-evaluation summaries.
+"""Summarise what the robot actually did; do NOT calculate its reward.
 
-These functions translate raw vectorised JAX metrics into the compact semantic
-measurements consumed by curriculum, logging and held-out evaluation.
+The universe provides physical measurements and the reward ledger's component
+payments. This module reduces the JAX arrays on the host into per-rollout
+facts: survival, command obedience, step proxies, fall causes, servo mechanics
+and curriculum frontiers.
+
+`summarize_rollout` does not alter the robot, PPO or the curriculum. It
+produces evidence *for* their respective consumers. True signed uphill
+progress and load-bearing walking require separate controlled exams.
 """
 from __future__ import annotations
 
@@ -9,7 +15,8 @@ from typing import Any
 
 import numpy as np
 
-from .contracts import COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
+from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
+from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME
 from .tracking_contract import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
@@ -222,7 +229,64 @@ def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str
     return out
 
 
+# Rollout provenance belongs with measured diagnostics, not training policy.
+# Values refer to the exact task distribution and policy that made the rollout.
+def augment_rollout_row(
+    row: dict[str, Any], aux_now: dict[str, Any], *,
+    rollout_params_for_metrics: dict[str, Any],
+    rollout_lr_scale_for_metrics: float,
+    norm_diag: dict[str, Any], latest_eval: dict[str, Any],
+    obs_norm_mode: str,
+) -> None:
+    """Attach diagnostics with the exact rollout provenance.
+
+    `row` describes the rollout collected by rollout_policy_state, under
+    rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
+    curriculum that exist after the gradient/governor update. Keeping
+    these aligned is what makes collapse forensics trustworthy.
+    """
+    for axis in ('steady', 'transition', 'resilience', 'posture'):
+        cur = float(rollout_params_for_metrics.get(f'{axis}_difficulty', 0.0))
+        born = float(row.get(f'birth_{axis}_d', -1.0))
+        row[f'rollout_{axis}_d'] = cur
+        row[f'birth_lag_{axis}'] = (cur - born) if born >= 0.0 else -1.0
+    # What allocation generated the samples, distinct from the governor's
+    # allocation for NEXT update and from measured per-step occupancy.
+    for rn in ('steady', 'transition', 'resilience'):
+        row[f'rollout_regime_frac_{rn}'] = float(rollout_params_for_metrics.get(f'regime_frac_{rn}', 0.0))
+    row['rollout_athletic_rehearsal_frac'] = float(rollout_params_for_metrics.get('athletic_rehearsal_frac', 0.0))
+    row['rollout_lr_scale'] = float(rollout_lr_scale_for_metrics)
+    row['obs_norm_mode'] = obs_norm_mode
+    row.update(norm_diag)
+    row.update(latest_eval)
+    scalar_aux = {
+        'ppo_kl_stopped_frac': 'kl_stopped',
+        'explained_variance': 'explained_variance',
+        'exploration_std_mean': 'exploration_std_mean',
+        'ppo_approx_kl_final': 'approx_kl_final',
+        'ppo_action_clip_frac': 'action_clip_frac',
+        'ppo_adv_tail_frac': 'adv_tail_frac',
+        'ppo_grad_norm_policy_preclip': 'grad_norm_policy_preclip',
+        'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
+        'ppo_update_norm_policy': 'update_norm_policy',
+        'ppo_update_norm_value': 'update_norm_value',
+    }
+    for dst, src in scalar_aux.items():
+        row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
+    for ji in range(ACTION_DIM):
+        row[f'ppo_action_clip_j{ji}'] = float(np.asarray(aux_now.get(f'action_clip_j{ji}', 0.0)))
+    for rn in ('steady', 'transition', 'resilience'):
+        for key in ('adv_mean', 'adv_std', 'value_ev'):
+            row[f'ppo_{key}_{rn}'] = float(np.asarray(aux_now.get(f'{key}_{rn}', 0.0)))
+
+
 def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float] | None = None, combo_p: float = COMBO_P) -> dict[str, float]:
+    """Report episode outcomes and physical evidence, separate from payment.
+
+    Episodes are measured at their end, while gait, motion, power and
+    occupancy are step-averaged. Missing episodes use explicit sentinels
+    where zero would misleadingly imply perfect or catastrophic behaviour.
+    """
     done = np.asarray(metrics.get('episode_done', 0.0)) > 0.5
     episodes = int(done.sum())
     row = {
@@ -252,6 +316,18 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'reward_upright_height': mean_metric(metrics, 'reward_upright_height'),
         'reward_feet_only_contact': mean_metric(metrics, 'reward_feet_only_contact'),
         'reward_swing_clearance': mean_metric(metrics, 'reward_swing_clearance'),
+        # Read-only nominal servo mechanics: no effect on PPO or governance.
+        'servo_shaft_abs_power_w': mean_metric(metrics, 'servo_shaft_abs_power_w'),
+        'servo_shaft_drive_power_w': mean_metric(metrics, 'servo_shaft_drive_power_w'),
+        'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
+        'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
+        'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
+        'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
+        'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
+        # The reward ledger owns payment names. These remain teaching
+        # payments; unlike measured progress or torque they are NOT exams.
+        **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
+           for name in (*PAYMENT_NAMES, FALL_PAYMENT_NAME)},
         # Fall-conditioned vs. timeout-conditioned episode length.
         # default=-1.0 (not 0.0) means "no episodes of this kind ended this
         # rollout" so it's never confused with a real, alarming zero.

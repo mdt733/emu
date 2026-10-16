@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-"""EMU training orchestrator.
+"""The *one* training run: coordinate worlds, teacher, PPO and checkpoints.
 
-PPO, curriculum, health, rollout reduction, checkpoint I/O and artifacts live in
-their owning modules; this file composes them into the learning loop and held-out
-evaluation schedule. EMU trains dynamic stepping/catching locomotion, not static
-standing.
+Read this file in order:
+
+1. `train(config)` restores (or starts) the learner and creates MJX worlds.
+2. PPO collects batches of real physics experience across `config.envs` worlds.
+3. Rollout metrics and independent exam snapshots describe what happened.
+4. Curriculum/health adjust the *next* task distribution and recovery policy.
+5. Durable logs and checkpoints preserve the policy and its learning state.
+6. The final checkpoint and report are published only after validation.
+
+Training DOES NOT define the reward mathematics (see rewards.py) or choose the
+winning training strategy (see ladder_recipe.py / branch_lab.py).
+
+KNOWN DEBT: most of these stages still inhabit a long `train` body.
+See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
 """
 from __future__ import annotations
 
 import argparse
-import os
-import shutil
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from .run_support import finish_if_target_reached, promote_checkpoint
+from .run_support import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
+from .capability_cloud import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict,
@@ -37,17 +46,20 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .health import TrainingHealth
 from .ppo import make_trainer, update_running_stats
-from .rollout_metrics import summarize_rollout
+from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend
-from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
+from .artifacts import (
+    ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
+    attach_field_influence, make_metrics_row, append_training_observation,
+    write_capability_field_artifacts,
+)
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
-    EVAL_PERF_TIMER_NAMES, PolicySnapshot, outranks_best, checkpoint_eval_score,
+    EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
-                            validate_resume_payload, find_newest_valid_snapshot,
-                            payload_train_state_is_finite, source_provenance_from_env)
+                            source_provenance_from_env)
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
@@ -93,48 +105,19 @@ def env_kwargs_from_args(args) -> dict:
     )
 
 
-def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> None:
-    """Attach the teaching influence that generated the next task packet.
-
-    Periodic and final metrics rows must share one schema. Keeping this in one
-    helper prevents the final-row path from silently omitting these fields.
-    """
-    report['field_node_influence'] = float(params.get('field_node_frac', 0.0))
-    report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
-
-
-def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
-                     reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
-                     nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
-                     base_lr: float = PPO_LR) -> dict[str, Any]:
-    """Canonical metrics.csv schema for periodic and final rows."""
-    return {
-        'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
-        'reward_mean': reward, **row, **report,
-        'backend': 'mjx', 'jax_backend': jax_backend, 'num_envs': num_envs, 'rollout': ROLLOUT_STEPS,
-        'ppo_policy_loss': float(np.asarray(aux.get('policy_loss', 0.0))),
-        'ppo_value_loss': float(np.asarray(aux.get('value_loss', 0.0))),
-        'ppo_entropy': float(np.asarray(aux.get('entropy', 0.0))),
-        'ppo_approx_kl': float(np.asarray(aux.get('approx_kl', 0.0))),
-        'ppo_policy_loss_finite_frac': float(np.asarray(aux.get('policy_loss_finite', 1.0))),
-        'ppo_value_loss_finite_frac': float(np.asarray(aux.get('value_loss_finite', 1.0))),
-        'ppo_kl_stopped_frac': float(np.asarray(aux.get('kl_stopped', 0.0))),
-        'ppo_approx_kl_final': float(np.asarray(aux.get('approx_kl_final', 0.0))),
-        'ppo_lr_scale': float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_effective_lr': base_lr * float(np.asarray(aux.get('lr_scale', 1.0))),
-        'ppo_action_clip_frac': float(np.asarray(aux.get('action_clip_frac', 0.0))),
-        'ppo_adv_tail_frac': float(np.asarray(aux.get('adv_tail_frac', 0.0))),
-        'explained_variance': float(np.asarray(aux.get('explained_variance', 0.0))),
-        'exploration_std_mean': float(np.asarray(aux.get('exploration_std_mean', 0.0))),
-        'nan_grad_skips_total': nan_grad_skips,
-        **perf_row,
-    }
-
 # ---------------------------------------------------------------------------
 # Run modes.
 # ---------------------------------------------------------------------------
 
 def train(args: TrainingConfig) -> int:
+    """Run one checkpoint lineage; no branch-selection logic lives here.
+
+    The main loop is organised in evidence time:
+    1. examine the policy that produced the last rollout;
+    2. reduce facts, revise next curriculum, and checkpoint if needed;
+    3. collect the next rollout and update PPO.
+    The first rollout is collected before entering the loop.
+    """
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -146,62 +129,11 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # --resume: 'auto' looks for this run's own latest checkpoint; anything
-    # else is a literal path. Schema 7 restores every state that can change
-    # future learning: policy/optimizer, observation normalizer, curriculum,
-    # training health/LR state and capability field. The MJX physics buffer is
-    # deliberately not rewind state; episodes restart fresh after a process
-    # restart because device-specific mjx.Data is large and brittle to pickle.
-    resumed_payload = None
-    resumed_step = 0
-    if getattr(args, 'resume', ''):
-        is_auto = args.resume.lower() == 'auto'
-        resume_path = (run_dir / 'checkpoints' / 'latest.pkl') if is_auto else Path(args.resume)
-        if not resume_path.exists():
-            raise RuntimeError(f"--resume requested but checkpoint does not exist: {resume_path}")
-        try:
-            resumed_payload = load_checkpoint(resume_path, validate=False)
-            try:
-                validate_resume_payload(resumed_payload, resume_path)
-            except Exception as primary_exc:
-                if not is_auto:
-                    raise
-                fallback = find_newest_valid_snapshot(run_dir / 'checkpoints')
-                if fallback is None:
-                    raise RuntimeError(f"primary resume checkpoint invalid ({primary_exc}); no rotating snapshot is available") from primary_exc
-                resumed_payload = load_checkpoint(fallback)
-                resume_path = fallback
-                print(f"{LOG_PREFIX} --resume: primary checkpoint invalid; falling back to validated rotating snapshot {fallback}", flush=True)
-            resumed_step = int(resumed_payload['meta']['step'])
-            print(f"{LOG_PREFIX} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})", flush=True)
-            if finish_if_target_reached(
-                run_dir, resume_path, resumed_step, args.steps, args.envs,
-            ):
-                print(f"{LOG_PREFIX} already complete at step={resumed_step:,}; "
-                      "published final.pkl without any new PPO update", flush=True)
-                return 0
-        except Exception as exc:
-            raise RuntimeError(f"--resume failed for {resume_path}: {exc}") from exc
-
-        # Seed THIS run's own best-tier snapshots from wherever we resumed
-        # from, if it has any and we don't already. Auto-recovery (below,
-        # "needs_recovery") only ever looks in run_dir/checkpoints/ -- a
-        # resumed run starts with NONE
-        # of that, so if it degraded early there would be nothing to roll
-        # back to until it re-earned a tier from zero. Skipped when
-        # resuming from THIS run's own directory (--resume auto after a
-        # restart): source and destination are the same folder, nothing to
-        # seed.
-        if resumed_payload is not None:
-            src_ckpt_dir = resume_path.parent
-            dst_ckpt_dir = run_dir / 'checkpoints'
-            if src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
-                src_recovery = src_ckpt_dir / 'recovery.pkl'
-                dst_recovery = dst_ckpt_dir / 'recovery.pkl'
-                if src_recovery.exists() and not dst_recovery.exists():
-                    dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_recovery, dst_recovery)
-                    print(f"{LOG_PREFIX} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
+    # Restore schema-7 learning state; never update an already-complete run.
+    resumed_payload, resumed_step, already_complete = resume_training_lineage(
+        run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs)
+    if already_complete:
+        return 0
 
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
@@ -224,10 +156,6 @@ def train(args: TrainingConfig) -> int:
     cloud_eval_env = cloud_eval_trainer = None
     cloud_rows: list[dict] = []
     if cloud_enabled:
-        from .capability_cloud import (make_panel as cloud_make_panel,
-                                      make_calibration_panel as cloud_make_calibration_panel,
-                                      make_common_recovery_panel as cloud_make_common_recovery_panel,
-                                      evaluate_specs_batch as cloud_evaluate_specs_batch, summarize_rows as cloud_summarize_rows)
         cloud_eval_env = EmuMJXEnv(str(ROBOT_XML), num_envs=int(CLOUD_ENVS),
                     seed=EVAL_SEED + 44000, max_episode_steps=max(MAX_EPISODE_STEPS, int(CLOUD_HORIZON)+50),
                     push_max_force_n=max(4.0, float(args.push_max_force_n or 0.35)),
@@ -282,9 +210,13 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
-    def params_with_field(step: int) -> dict[str, Any]:
+    def params_with_field(
+        step: int, *, teaching_field: CapabilityField | None = None,
+    ) -> dict[str, Any]:
+        """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        packet = field.teaching_packet(
+        source_field = field if teaching_field is None else teaching_field
+        packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),
             start=int(args.field_influence_start_steps), full=int(args.field_influence_full_steps),
             fade_start=int(args.field_influence_fade_start_steps), zero=int(args.field_influence_zero_steps),
@@ -424,55 +356,23 @@ def train(args: TrainingConfig) -> int:
             pass
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
-        nonlocal last_eval_step, latest_eval, best_eval_score
+        nonlocal last_eval_step, best_eval_score
         if not force and step - last_eval_step < EVAL_EVERY_STEPS:
             return
-        cohorts = FINAL_EVAL_COHORTS if force else EVAL_COHORTS
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
-        out = evaluate_fixed(
-            fixed_eval_worlds, snapshot.params, snapshot.norm(),
-            step=snapshot.step, cohorts=cohorts, perf=perf)
-        broad_eval_history.append(float(out['eval_broad_score']))
-        out['eval_broad_tail3'] = float(sum(broad_eval_history[-3:]) / len(broad_eval_history[-3:]))
+        out, best_eval_score = record_fixed_exam(
+            snapshot, worlds=fixed_eval_worlds,
+            cohorts=FINAL_EVAL_COHORTS if force else EVAL_COHORTS,
+            run_dir=run_dir, broad_history=broad_eval_history,
+            best_score=best_eval_score, best_path=best_eval_path,
+            curriculum_state=governor.state_dict, health_state=health.state_dict,
+            field_state=field.state_dict, lr_scale=lr_scale, version=version,
+            perf=perf, log_prefix=LOG_PREFIX)
         last_eval_step = step
-
-        best_ckpt_timing = {'device_get_s': 0.0, 'pickle_write_s': 0.0, 'total_s': 0.0, 'bytes': 0.0, 'saved': 0.0}
-        if outranks_best(float(out['eval_broad_score']), best_eval_score):
-            best_eval_score = float(out['eval_broad_score'])
-            best_ckpt_timing = save_checkpoint(
-                best_eval_path, snapshot.state,
-                {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
-                 'best_eval_score': best_eval_score,
-                 'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
-                 'lr_scale': lr_scale},
-                snapshot.norm(),
-                curriculum_state=governor.state_dict(),
-                health_state=health.state_dict(),
-                field_state=field.state_dict(), require_finite_state=True)
-            if not best_ckpt_timing.get('saved', 0.0):
-                raise RuntimeError('Best-policy publication refused: non-finite actor or optimizer state')
-            perf.add('checkpoint_best_device_get', best_ckpt_timing['device_get_s'])
-            perf.add('checkpoint_best_pickle_write', best_ckpt_timing['pickle_write_s'])
-            perf.add('checkpoint_best_total', best_ckpt_timing['total_s'])
-
-        perf.add('fixed_eval_total', out['perf_fixed_eval_total_s'])
-        out['perf_best_checkpoint_total_s'] = float(best_ckpt_timing['total_s'])
-        out['perf_best_checkpoint_device_get_s'] = float(best_ckpt_timing['device_get_s'])
-        out['perf_best_checkpoint_pickle_s'] = float(best_ckpt_timing['pickle_write_s'])
         latest_eval.update(out)
-        append_metrics_csv(run_dir / 'fixed_eval.csv', {'step': step, **out})
-        if perf.enabled:
-            write_json(run_dir / 'performance.json', {'step': step, 'cumulative': perf.row(prefix='')})
-
-        print(f"{LOG_PREFIX} fixed-eval step={step:,} score={out['eval_broad_score']:.3f} tail3={out['eval_broad_tail3']:.3f} "
-              f"core={out['eval_core_survival']:.3f} dyn80={out['eval_dynamic80_survival']:.3f} "
-              f"combo70={out['eval_combo70_survival']:.3f}/{out['eval_combo70_yaw_mae']:.3f}yaw "
-              f"res75={out['eval_resilience75_survival']:.3f} robust40={out['eval_robust40_survival']:.3f} "
-              f"growth={out['eval_growth110_survival']:.3f}/{out['eval_growthcombo110_survival']:.3f} "
-              f"eval_wall={out.get('perf_fixed_eval_total_s',0.0):.1f}s", flush=True)
 
     def maybe_cloud_eval(step: int, force: bool = False) -> None:
-        nonlocal last_cloud_step, cloud_rows
+        nonlocal last_cloud_step
         if not cloud_enabled or cloud_eval_env is None or cloud_eval_trainer is None:
             return
         every = max(0, int(CLOUD_EVAL_EVERY_STEPS))
@@ -481,136 +381,13 @@ def train(args: TrainingConfig) -> int:
         count = int(args.cloud_final_probes if force else args.cloud_probes_per_eval)
         if count <= 0:
             return
-        t0_cloud = time.perf_counter()
-        field_before_exam = field.fingerprint()
-
-        # Screen no-disturbance controls first; only spend expensive disturbed
-        # rollouts on command anchors that are already demonstrably competent.
-        panel_id = 0 if force else max(0, int(step // max(1, every)) - 1)
-        # Let the training-derived field choose
-        # *questions* spanning its predicted competence bands, but never let
-        # held-out answers update the field. If the map is still too young,
-        # fall back to the deterministic paired panel.
-        bundles=max(1,int(np.ceil(count/5)))
-        if force:
-            # Final comparison is a COMMON deterministic panel across every
-            # trainer branch.  Field-selected calibration commands are useful
-            # longitudinally, but ranking policies on different questions would
-            # be scientifically invalid.  We still annotate the common controls
-            # with the live field's prediction, so the same final exam also
-            # measures self-map calibration.
-            requested = cloud_make_common_recovery_panel(count, source='final_common_recovery')
-            for spec in requested:
-                pred,ev = field.predict_command(float(spec['cmd_vx']),float(spec['cmd_vy']),float(spec['cmd_yaw']))
-                spec['field_predicted_competence']=pred
-                spec['field_effective_evidence']=ev
-        else:
-            calibration_cmds = field.calibration_commands(bundles)
-            if calibration_cmds:
-                requested = cloud_make_calibration_panel(calibration_cmds, panel_id=panel_id,
-                                                          source='field_calibration')
-            else:
-                requested = cloud_make_panel(count, panel_id=panel_id, source='routine_panel')
-        controls = [x for x in requested if x.get('family') == 'none']
-        snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
-        base_key = jax.random.PRNGKey(int(EVAL_SEED) + 44000)
-        control_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)))
-                        for i, x in enumerate(controls)]
-        control_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, snapshot.params,
-            snapshot.obs_mean, snapshot.obs_var ** 0.5,
-            control_keys, int(CLOUD_HORIZON), controls, chunk_size=int(CLOUD_BATCH_POINTS))
-        for r in control_rows:
-            r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
-
-        competent_bundles = {int(r.get('bundle_id', -1)) for r in control_rows
-                             if float(r.get('recovery_rate', 0.0)) >= 0.80
-                             and float(r.get('survival', 0.0)) >= 0.95}
-        disturbed = [x for x in requested if x.get('family') != 'none'
-                     and int(x.get('bundle_id', -1)) in competent_bundles]
-        disturb_keys = [jax.random.fold_in(base_key, int(x.get('probe_index', i)) + 1000003)
-                        for i, x in enumerate(disturbed)]
-        disturbed_rows = cloud_evaluate_specs_batch(
-            cloud_eval_trainer, cloud_eval_env, snapshot.params,
-            snapshot.obs_mean, snapshot.obs_var ** 0.5,
-            disturb_keys, int(CLOUD_HORIZON), disturbed, chunk_size=int(CLOUD_BATCH_POINTS)) if disturbed else []
-        for r in disturbed_rows:
-            r['policy_step'] = int(step); r['forced_final'] = int(bool(force))
-
-        new_rows = control_rows + disturbed_rows
-        cloud_rows.extend(new_rows)
-        summary = cloud_summarize_rows(cloud_rows)  # also annotates matched controls in-place
-        write_rows_csv(run_dir / 'heldout_capability_cloud.csv', cloud_rows)
-        cal_pairs=[(float(r.get('field_predicted_competence',np.nan)),float(r.get('node_window_rate',np.nan)))
-                   for r in control_rows if np.isfinite(float(r.get('field_predicted_competence',np.nan)))
-                   and np.isfinite(float(r.get('node_window_rate',np.nan)))]
-        cal_mae=float(np.mean([abs(a-b) for a,b in cal_pairs])) if cal_pairs else -1.0
-        cal_brier=float(np.mean([(a-b)**2 for a,b in cal_pairs])) if cal_pairs else -1.0
-        summary.update({'policy_step': int(step), 'points': len(cloud_rows),
-                        'requested_panel_points': len(requested), 'executed_panel_points': len(new_rows),
-                        'envs_per_point': int(CLOUD_ENVS), 'horizon_steps': int(CLOUD_HORIZON),
-                        'field_calibration_points':len(cal_pairs),'field_calibration_mae':cal_mae,
-                        'field_calibration_brier':cal_brier,'field_calibration_target':'node_window_rate'})
-        latest_eval['field_calibration_mae']=cal_mae
-        latest_eval['field_calibration_brier']=cal_brier
-        latest_eval['field_calibration_points']=float(len(cal_pairs))
-        write_json(run_dir / 'heldout_capability_cloud.json', summary)
+        record_capability_cloud_exam(
+            PolicySnapshot(step, state, obs_mean, obs_var, obs_count),
+            field=field, cloud_eval_env=cloud_eval_env,
+            cloud_eval_trainer=cloud_eval_trainer, cloud_rows=cloud_rows,
+            latest_eval=latest_eval, run_dir=run_dir, perf=perf,
+            log_prefix=LOG_PREFIX, force=force, count=count, every=every)
         last_cloud_step = int(step)
-        elapsed = time.perf_counter() - t0_cloud
-        perf.add('capability_cloud', elapsed)
-        field_after_exam = field.fingerprint()
-        if field_after_exam != field_before_exam:
-            raise RuntimeError('held-out capability exam mutated the live capability field; quarantine invariant violated')
-
-        valid=[r for r in new_rows if int(float(r.get('resilience_valid',0) or 0)) == 1]
-        baseline_ok=float(len(competent_bundles) / max(1, len(control_rows)))
-        mean_rec=float(np.mean([float(r['recovery_rate']) for r in valid])) if valid else 0.0
-        worst=float(np.mean([float(r.get('recovery_worst_direction',0)) for r in valid])) if valid else 0.0
-        print(f"{LOG_PREFIX} capability-cloud step={step:,}: controls={len(control_rows)} "
-              f"disturbed={len(disturbed_rows)}/{len(requested)-len(controls)} baseline_ok={baseline_ok:.3f} "
-              f"valid_recovery={mean_rec:.3f} worst_dir={worst:.3f} calibration_mae={cal_mae:.3f} wall={elapsed:.1f}s", flush=True)
-
-    def augment_rollout_row(row: dict[str, Any], aux_now: dict[str, Any]) -> None:
-        """Attach diagnostics with the exact rollout provenance.
-
-        `row` describes the rollout collected by rollout_policy_state, under
-        rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
-        curriculum that exist after the gradient/governor update. Keeping
-        these aligned is what makes collapse forensics trustworthy.
-        """
-        for axis in ('steady', 'transition', 'resilience', 'posture'):
-            cur = float(rollout_params_for_metrics.get(f'{axis}_difficulty', 0.0))
-            born = float(row.get(f'birth_{axis}_d', -1.0))
-            row[f'rollout_{axis}_d'] = cur
-            row[f'birth_lag_{axis}'] = (cur - born) if born >= 0.0 else -1.0
-        # What allocation generated the samples, distinct from the governor's
-        # allocation for NEXT update and from measured per-step occupancy.
-        for rn in ('steady', 'transition', 'resilience'):
-            row[f'rollout_regime_frac_{rn}'] = float(rollout_params_for_metrics.get(f'regime_frac_{rn}', 0.0))
-        row['rollout_athletic_rehearsal_frac'] = float(rollout_params_for_metrics.get('athletic_rehearsal_frac', 0.0))
-        row['rollout_lr_scale'] = float(rollout_lr_scale_for_metrics)
-        row['obs_norm_mode'] = OBS_NORM_MODE
-        row.update(norm_diag)
-        row.update(latest_eval)
-        scalar_aux = {
-            'ppo_kl_stopped_frac': 'kl_stopped',
-            'explained_variance': 'explained_variance',
-            'exploration_std_mean': 'exploration_std_mean',
-            'ppo_approx_kl_final': 'approx_kl_final',
-            'ppo_action_clip_frac': 'action_clip_frac',
-            'ppo_adv_tail_frac': 'adv_tail_frac',
-            'ppo_grad_norm_policy_preclip': 'grad_norm_policy_preclip',
-            'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
-            'ppo_update_norm_policy': 'update_norm_policy',
-            'ppo_update_norm_value': 'update_norm_value',
-        }
-        for dst, src in scalar_aux.items():
-            row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
-        for ji in range(ACTION_DIM):
-            row[f'ppo_action_clip_j{ji}'] = float(np.asarray(aux_now.get(f'action_clip_j{ji}', 0.0)))
-        for rn in ('steady', 'transition', 'resilience'):
-            for key in ('adv_mean', 'adv_std', 'value_ev'):
-                row[f'ppo_{key}_{rn}'] = float(np.asarray(aux_now.get(f'{key}_{rn}', 0.0)))
 
     while total_steps < args.steps:
         maybe_fixed_eval(total_steps)
@@ -632,7 +409,10 @@ def train(args: TrainingConfig) -> int:
         # Add PPO, normalisation, evaluator and birth-cohort diagnostics
         # before the governor sees the row. Everything here describes the
         # SAME rollout/policy/task distribution.
-        augment_rollout_row(row, aux)
+        augment_rollout_row(
+            row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
+            rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
+            norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
@@ -678,87 +458,25 @@ def train(args: TrainingConfig) -> int:
             print(f"{LOG_PREFIX} recovery snapshot <- {recovery_tier} at step={total_steps:,} "
                   f"(median-of-{health.RECOVERY_WINDOW} competence={comp_med:.2f}, core={core_med:.2f})", flush=True)
 
-        # Auto-recovery. The governor can only see the symptom (stepping-
-        # collapse sustained past ordinary retreat's ability to fix it); it
-        # has no access to network weights, so the actual rollback happens
-        # here. This guards against a real failure mode: a policy getting
-        # stuck for tens of millions of steps after apparently learning to
-        # balance-and-avoid-stepping rather than walk, with ordinary
-        # per-regime retreat unable to pull it back out on its own.
+        # One explicit temporal rewind: policy/optimiser + teacher + health +
+        # field + observation coordinates + LR, then fresh physics for EVERY
+        # world. If recovery fails, retain the collapse streak and retry later.
         if args.allow_rollback and report['needs_recovery']:
-            recovered = False
-            if recovery_path.exists():
-                try:
-                    best_payload = load_checkpoint(recovery_path)
-                    if payload_train_state_is_finite(best_payload):
-                        loaded_state = best_payload['state']
-                        state = state._replace(params=jax.device_put(loaded_state['params']),
-                                                opt_state=jax.device_put(loaded_state['opt_state']))
-                        # Full temporal rewind: network, optimiser, curriculum,
-                        # governor histories/EMAs, capability field, observation
-                        # normaliser and LR controller. Current-schema recovery
-                        # points are complete or rejected; partial rewind is
-                        # not a supported state.
-                        governor.load_state_dict(best_payload['curriculum_state'])
-                        health.load_state_dict(best_payload['health_state'])
-                        field = CapabilityField.from_state_dict(best_payload['field_state'])
-                        if best_payload.get('obs_norm') is not None:
-                            obs_mean = jnp.asarray(best_payload['obs_norm']['mean'], dtype=jnp.float32)
-                            obs_var = jnp.asarray(best_payload['obs_norm']['var'], dtype=jnp.float32)
-                            obs_count = float(best_payload['obs_norm']['count'])
-                        lr_scale = float(best_payload['meta']['lr_scale'])
-                        # Revert to the previous good state AND shift the RNG --
-                        # rolling back only params/opt_state/curriculum would
-                        # leave every env's live physical state exactly as the
-                        # COLLAPSED policy left it (mid-fall, tangled, whatever
-                        # it was), for the just-reverted policy to inherit.
-                        # env.reset() alone wouldn't fix this either: it always
-                        # resets from the same fixed self.key0, so calling it
-                        # naively here would replay IDENTICAL initial conditions
-                        # every time recovery fires, not shift anything.
-                        # jax.random.fold_in with total_steps (monotonically
-                        # increasing, so never coincidentally repeats) derives a
-                        # genuinely different key each time, deterministically.
-                        fresh_key = jax.random.fold_in(env.key0, total_steps)
-                        fresh_params_array = env.params_array(params_with_field(total_steps))
-                        fresh_env_state = env.reset_jit(fresh_key, fresh_params_array)
-                        state = state._replace(env_state=fresh_env_state, obs=env.obs(fresh_env_state))
-                        best_step = best_payload.get('meta', {}).get('step', '?')
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY: stepping-collapse sustained for "
-                              f"{int(report['stepping_collapse_streak'])} updates despite repeated retreats -- "
-                              f"rolled back network + curriculum to the {best_payload.get('meta', {}).get('recovery_tier', 'recovery')} snapshot from "
-                              f"step={best_step} (competence={best_payload.get('meta', {}).get('competence', '?')}). "
-                              f"Every env RESET with a fresh RNG derived from step={total_steps:,} (not the run's "
-                              f"original seed) -- a genuinely different attempt, not a replay of the same luck "
-                              f"that led here, and no env inherits whatever physical state the collapsed policy "
-                              f"left it in.", flush=True)
-                        recovered = True
-                    else:
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
-                              f"params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
-                except Exception as exc:
-                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
-                          f"-- continuing with ordinary retreat only.", flush=True)
-            else:
-                print(f"{LOG_PREFIX} AUTO-RECOVERY triggered after {int(report['stepping_collapse_streak'])} "
-                      f"collapsed updates, but recovery.pkl does not exist yet -- curriculum retreat continues.", flush=True)
-            # Only clear the streak when a rollback actually happened.
-            # Clearing it unconditionally would mean a FAILED attempt (e.g.
-            # no snapshot to load, the case just above) forces a blind wait
-            # for a whole new streak before trying again, even though
-            # nothing about the situation changed. Leaving the streak alone
-            # lets update()'s own normal per-update bookkeeping (+1 if
-            # still collapsed, reset to 0 the moment a rollout genuinely
-            # isn't) decide when to stop retrying.
-            if recovered:
-                health.note_recovery_performed()
+            restored = try_restore_recovery(
+                recovery_path, state=state, governor=governor,
+                health=health, env=env, step=total_steps, report=report,
+                obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
+                task_params_for_field=lambda new_field: params_with_field(
+                    total_steps, teaching_field=new_field),
+                log_prefix=LOG_PREFIX)
+            if restored is not None:
+                state, field = restored.state, restored.field
+                obs_mean, obs_var = restored.obs_mean, restored.obs_var
+                obs_count, lr_scale = restored.obs_count, restored.lr_scale
+                # A rollback must earn a fresh complete recovery window.
+                comp_window = []
             params = params_with_field(total_steps)
             p = env.params_array(params)
-            if recovered:
-                # don't immediately re-save a "best" from the state we just
-                # loaded: drop the trailing window so the next save has to be
-                # earned from health.RECOVERY_WINDOW fresh post-recovery rollouts.
-                comp_window = []
 
         if total_steps - last_log >= log_every_steps:
             last_log = total_steps
@@ -802,15 +520,13 @@ def train(args: TrainingConfig) -> int:
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
                 reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-                jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
+                jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
-            append_metrics_csv(run_dir / 'metrics.csv', log_row)
-            write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': log_row})
-            field.save_npz(run_dir / 'capability_field_latest.npz')
-            field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
-                                mode=args.capability_field_mode,
-                                node_frac=float(params.get('field_node_frac',0.0)),
-                                edge_frac=float(params.get('field_edge_frac',0.0)))
+            append_training_observation(
+                run_dir, step=total_steps, params=params, report=report, metrics_row=log_row)
+            write_capability_field_artifacts(
+                run_dir, field, step=total_steps, mode=args.capability_field_mode,
+                params=params, label='latest')
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
@@ -874,17 +590,13 @@ def train(args: TrainingConfig) -> int:
         # pytree once instead of issuing dozens of tiny np.asarray device gets.
         rollout_metrics, aux = jax.device_get((rollout_metrics, aux))
         perf.add('host_metric_transfer', time.perf_counter() - metric_transfer_t0)
-        # Controller step. `approx_kl_final` is the last minibatch of the
-        # last epoch, i.e. total divergence from the policy this rollout
-        # was collected under -- the quantity a trust region is about. The
-        # dead band (0.5x-2x of target) stops the lr oscillating on noise.
-        kl_final = float(np.asarray(aux.get('approx_kl_final', 0.0)))
-        if np.isfinite(kl_final):
-            if kl_final > 2.0 * LR_TARGET_UPDATE_KL:
-                lr_scale /= PPO_LR_ADJUST
-            elif kl_final < 0.5 * LR_TARGET_UPDATE_KL:
-                lr_scale *= PPO_LR_ADJUST
-            lr_scale = float(min(LR_SCALE_MAX, max(LR_SCALE_MIN, lr_scale)))
+        # Only training-derived KL adjusts the NEXT update's LR; frozen
+        # examination results are never consulted by this controller.
+        lr_scale = health.adjust_learning_rate(
+            lr_scale,
+            approx_kl=float(np.asarray(aux.get('approx_kl_final', 0.0))),
+            target_kl=LR_TARGET_UPDATE_KL, factor=PPO_LR_ADJUST,
+            min_scale=LR_SCALE_MIN, max_scale=LR_SCALE_MAX)
         # Observation-normalizer experiment. A curriculum can change the
         # meaning of normalised coordinates even with frozen policy weights;
         # branches may freeze this transformation after a chosen step.
@@ -919,7 +631,10 @@ def train(args: TrainingConfig) -> int:
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
         exclude_field_taught=not bool(args.field_evidence_from_taught)))
-    augment_rollout_row(row, aux)
+    augment_rollout_row(
+            row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
+            rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
+            norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -935,9 +650,9 @@ def train(args: TrainingConfig) -> int:
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
         reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-        jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
-    append_metrics_csv(run_dir / 'metrics.csv', final_row)
-    write_json(run_dir / 'envelope_summary.json', {'step': total_steps, 'params': {k:v for k,v in params.items() if not k.startswith('field_') or k.endswith('_frac')}, 'report': report, 'last_row': final_row})
+        jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
+    append_training_observation(
+        run_dir, step=total_steps, params=params, report=report, metrics_row=final_row)
     final_ck_timing = save_checkpoint(
         run_dir / 'checkpoints' / 'latest.pkl', state,
         {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale},
@@ -951,11 +666,9 @@ def train(args: TrainingConfig) -> int:
     perf.add('checkpoint_final_total', final_ck_timing['total_s'])
     promote_checkpoint(run_dir / 'checkpoints' / 'latest.pkl',
                        run_dir / 'checkpoints' / 'final.pkl')
-    field.save_npz(run_dir / 'capability_field_final.npz')
-    field.write_summary(run_dir / 'capability_field_summary.json', step=total_steps,
-                        mode=args.capability_field_mode,
-                        node_frac=float(params.get('field_node_frac',0.0)),
-                        edge_frac=float(params.get('field_edge_frac',0.0)))
+    write_capability_field_artifacts(
+        run_dir, field, step=total_steps, mode=args.capability_field_mode,
+        params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
     print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)

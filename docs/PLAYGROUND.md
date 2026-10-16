@@ -17,16 +17,52 @@ From a clean checkout with Node 24:
 
 ```bash
 python scripts/prepare_showcase.py --require-champion
-npm ci --prefix viewer --no-audit --no-fund
-npm test --prefix viewer
-npm run build --prefix viewer
-cd viewer
+npm ci --prefix emu/viewer_src --no-audit --no-fund
+npm test --prefix emu/viewer_src
+npm run build --prefix emu/viewer_src
+cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
 Open the displayed local Vite URL (normally `http://127.0.0.1:4173/`). The preview should load the **trained champion**, not the `demo_zero` fixture, and expose no unexpected JS/WASM errors. Test joystick directions, settings, display modes, manual policy load and the physical ramp in a real browser.
 
-The zero-weight fixture is a separate *local rendering* check: `emu viewer viewer/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
+The zero-weight fixture is a separate *local rendering* check: `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
+
+## Why the public appearance can look older
+
+The public site is a **static build from the commit selected when the manual Pages action ran**. Neither local `emu viewer` changes nor a passing PR build update the published site's appearance. The actor's 60M checkpoint is a **separate artifact** and may stay unchanged while the frontend improves.
+
+Each newly published site now includes its build commit in `showcase.json` as `source_commit`. The public viewer displays its first eight characters beneath the showcase note. To diagnose a stale appearance, compare that revision with the source selected for the latest successful Pages deployment. Older deployments won't have this field. A release run fails if its manifest does not match its checked-out Git SHA.
+
+The source of the frontend is **only** `emu/viewer_src/`: no second editable or generated copy. The static site must be built again and manually published from an approved `main` commit. **Do not deploy this draft refactor branch to fix appearance** before its WSL/MJX acceptance is complete.
+
+## Planned coordinated Pitch15 120M release — not published
+
+The 17 October 2026 source-pinned campaign chose `round3/pitch15` at
+**120,061,952 steps** as the best within-campaign checkpoint. The real
+browser-native actor was subsequently uploaded and staged at
+`showcase/champion.emupolicy` with Git blob `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`.
+The full raw training checkpoint remains local, not committed to Git.
+
+Release checks for the staged, inspected `.emupolicy`:
+1. Validate the original `final.pkl` SHA-256 as
+   `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
+   Confirm the export's source commit `a5996b8cda2c394c7c65e3e938282a3808ded121`,
+   step 120061952 and 220×6 actor contract.
+2. The approved export, refactored viewer and release notes are staged together.
+   The manually dispatched Pages workflow pins `EXPECTED=067d6156f0f9de629eabb1a69cf1b0ceb86db24c`,
+   the *Git blob SHA*, which is different from both the exported file
+   SHA-256 and the raw checkpoint SHA-256.
+3. Run Node tests and policy/WASM static preparation, build and verification,
+   then review local actual WASM joystick, controls, terrain and visual
+   behaviour with the proposed actor. The source report gives a promising
+   common-screen score, not guaranteed real-world servo safety.
+4. Merge the *combined* PR after checks; explicitly dispatch the Pages
+   workflow from `main` and verify the public page's policy step and build
+   source commit. The old 60M public actor remains unchanged until then.
+
+This is one deliberate code+model+viewer rollout, not separate code-first
+or auto-deployed changes. The Pages site changes only after manual dispatch.
 
 ## Controlled GitHub Pages publishing
 
@@ -53,4 +89,4 @@ This serves read-only validated checkpoint updates on `127.0.0.1:8765`. It uses 
 
 A browser rendering that looks stable does not establish PPO training success, command tracking or physical robustness. Browser/WASM contact physics and sensors are not yet numerically validated to be identical to MJX, even though deterministic actor inference is covered by a cross-runtime test.
 
-[Viewer details](../viewer/README.md) · [Policy format](../viewer/POLICY_FORMAT.md) · [Evaluation](evaluation.md) · [Project status](STATUS.md)
+[Viewer details](../emu/viewer_src/README.md) · [Policy format](../emu/viewer_src/POLICY_FORMAT.md) · [Evaluation](evaluation.md) · [Project status](STATUS.md)

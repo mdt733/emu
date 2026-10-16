@@ -16,13 +16,9 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .paths import source_repo_root
 
 
 def viewer_source() -> Path:
-    repo = source_repo_root()
-    if repo is not None and (repo / 'viewer' / 'package.json').exists():
-        return repo / 'viewer'  # canonical checkout source
     packaged = Path(__file__).resolve().parent / 'viewer_src'
     if (packaged / 'package.json').exists():
         return packaged
@@ -45,19 +41,14 @@ def build() -> int:
     lock = src / 'package-lock.json'
     if not lock.is_file():
         raise RuntimeError(
-            f'Viewer lockfile missing: {lock}. In viewer/, run npm install '
+            f'Viewer lockfile missing: {lock}. In emu/viewer_src/, run npm install '
             'to generate package-lock.json, verify the build and commit the '
             'lockfile before distributing this Git checkout.'
         )
     subprocess.check_call(['npm', 'ci', '--no-audit', '--no-fund'], cwd=src)
     subprocess.check_call(['npm', 'run', 'build'], cwd=src)
     dist = src / 'dist'
-    # A wheel installed without a checkout needs its own copy of source assets.
-    # Keep the package-side mirror generated from the canonical viewer directory.
-    mirror = Path(__file__).resolve().parent / 'viewer_src'
-    if src.resolve() != mirror.resolve():
-        if mirror.exists(): shutil.rmtree(mirror)
-        shutil.copytree(src, mirror, ignore=shutil.ignore_patterns('node_modules', 'dist', '*.log', '.git'))
+    # This single package-owned source is never regenerated from a mirror.
     packaged = Path(__file__).resolve().parent / 'webviewer_dist'
     if packaged.exists():
         shutil.rmtree(packaged)
@@ -69,6 +60,9 @@ def build() -> int:
 def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
+    # A manually selected brain stays fixed for this entire viewer session.
+    # Only the separate live watcher selects new validated policy snapshots.
+    initial_policy = policy.read_bytes() if policy is not None else None
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -93,7 +87,7 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
             route = urlsplit(self.path).path
             if route == '/api/viewer-config':
                 return self._json({'live': watcher is not None,
-                                   'initial_policy': policy is not None})
+                                   'initial_policy': initial_policy is not None})
             if route == '/api/live/status':
                 if watcher is None:
                     return self._json({'enabled': False}, status=404)
@@ -106,13 +100,9 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
                     return self._json({'error': 'no complete policy yet'}, status=404)
                 return self._send(body.encode('utf-8'), 'application/json; charset=utf-8')
             if route == '/api/initial-policy':
-                if policy is None:
+                if initial_policy is None:
                     return self._json({'error': 'no initial policy'}, status=404)
-                try:
-                    body = policy.read_bytes()
-                except OSError:
-                    return self._json({'error': 'policy no longer readable'}, status=404)
-                return self._send(body, 'application/json; charset=utf-8')
+                return self._send(initial_policy, 'application/json; charset=utf-8')
             return super().do_GET()
 
         def list_directory(self, path):

@@ -8,26 +8,19 @@ Read [architecture](docs/architecture.md), [training](docs/training.md) and [pro
 
 Use a **separate branch** and run root for experiments. Do not pull source changes into an active training checkout or reuse its checkpoints under a changed training configuration. Never commit .venv, node_modules, GPU run logs or `.pkl` training checkpoints.
 
-## Everyday checks
+## The 20 essential checks
 
 ```bash
 python -m compileall -q emu tests
-python -m pytest -q
-npm ci --prefix viewer --no-audit --no-fund
-npm test --prefix viewer
-npm run build --prefix viewer
+bash scripts/check.sh             # 16 Python + 4 browser checks
+npm run build --prefix emu/viewer_src
 git diff --check
 ```
 
-The Python suite includes a **NumPy ↔ JavaScript exported-policy inference parity** check; Node 24 must be available. CI also checks the static showcase packaging and protected policy asset.
+Run `npm ci --prefix emu/viewer_src` once if Node dependencies aren't installed.
+The browser inference parity check requires Node.js. CI repeats the checks, builds the viewer, validates packaged policy/WASM assets and checks for generated source modifications.
 
-For physics, PPO, JAX, observation or checkpoint changes, additionally run:
-
-```bash
-emu doctor --v5015-smoke --domain-smoke
-```
-
-That is a **small GPU integration smoke**, not evidence of locomotion quality. A training-loop change also needs a bounded new run and resume comparison before a major experimental campaign.
+These checks protect software contracts, **not trained walking quality**. Changes to physics, reward, PPO, checkpoint format or observations also need a fresh isolated GPU lifecycle smoke and real held-out policy exams. See [test guide](docs/TESTING.md).
 
 ## Change boundaries
 
@@ -35,7 +28,7 @@ That is a **small GPU integration smoke**, not evidence of locomotion quality. A
 - **Training algorithm:** keep updates inside `emu/ppo.py`; `training.py` orchestrates state transitions, evaluations and checkpoint publication.
 - **Evaluation:** score the *same actor and observation normaliser* that you checkpoint. Rollout telemetry describes a different (rollout-generating) actor and must remain distinguishable.
 - **Persistence:** publish checkpoints atomically; never unlink the only validated resume point before a replacement is ready. A resume restores learning state but not simulator episodes.
-- **Browser:** edit `viewer/` and build the package mirror with `emu viewer-build`; never edit the mirror as the source of truth.
+- **Browser:** edit `emu/viewer_src/` directly and build with `emu viewer-build`; the package owns the only viewer source.
 - **Research claims:** cite the run source commit, seed, checkpoint step, evaluator cohorts and results. Do not infer robustness from training reward or the browser alone.
 
 ## Pull-request checklist
@@ -43,3 +36,4 @@ That is a **small GPU integration smoke**, not evidence of locomotion quality. A
 Explain *why* the change is needed, *which invariant it protects*, test commands/results, and whether it affects learned weights, checkpoint compatibility, viewer assets or the public champion. Add a regression test for a demonstrated failure, and remove obsolete duplicate assertions when appropriate. Distinguish CPU-only contract checks from actual GPU validation.
 
 **Do not merge an unverified change solely because CI is green.** See [validation](docs/validation.md) for the separate release gates.
+
