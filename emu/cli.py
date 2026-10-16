@@ -214,10 +214,11 @@ def main(argv=None) -> int:
         ck=Path(args.checkpoint).expanduser() if args.checkpoint else find_evaluation(root)
         if ck is None or not ck.exists(): raise SystemExit(f'no checkpoint found under {root}')
         out=Path(args.out_dir).expanduser() if args.out_dir else root/'atlas'
-        return _run('atlas','--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed))
+        from .evaluation import atlas_main
+        return atlas_main(['--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed)])
     if args.cmd=='posture-report':
         from .results import posture_report
-        return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
+        return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
     if args.cmd in ('ladder','lab5015'):
         av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
             '--envs',str(args.envs),'--device',args.device,
