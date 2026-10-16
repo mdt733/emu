@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from .run_support import resume_training_lineage, promote_checkpoint
+from .run_support import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
@@ -59,7 +59,7 @@ from .evaluation import (
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
-                            payload_train_state_is_finite, source_provenance_from_env)
+                            source_provenance_from_env)
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
@@ -210,9 +210,13 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
-    def params_with_field(step: int) -> dict[str, Any]:
+    def params_with_field(
+        step: int, *, teaching_field: CapabilityField | None = None,
+    ) -> dict[str, Any]:
+        """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        packet = field.teaching_packet(
+        source_field = field if teaching_field is None else teaching_field
+        packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),
             start=int(args.field_influence_start_steps), full=int(args.field_influence_full_steps),
             fade_start=int(args.field_influence_fade_start_steps), zero=int(args.field_influence_zero_steps),
@@ -454,87 +458,25 @@ def train(args: TrainingConfig) -> int:
             print(f"{LOG_PREFIX} recovery snapshot <- {recovery_tier} at step={total_steps:,} "
                   f"(median-of-{health.RECOVERY_WINDOW} competence={comp_med:.2f}, core={core_med:.2f})", flush=True)
 
-        # Auto-recovery. The governor can only see the symptom (stepping-
-        # collapse sustained past ordinary retreat's ability to fix it); it
-        # has no access to network weights, so the actual rollback happens
-        # here. This guards against a real failure mode: a policy getting
-        # stuck for tens of millions of steps after apparently learning to
-        # balance-and-avoid-stepping rather than walk, with ordinary
-        # per-regime retreat unable to pull it back out on its own.
+        # One explicit temporal rewind: policy/optimiser + teacher + health +
+        # field + observation coordinates + LR, then fresh physics for EVERY
+        # world. If recovery fails, retain the collapse streak and retry later.
         if args.allow_rollback and report['needs_recovery']:
-            recovered = False
-            if recovery_path.exists():
-                try:
-                    best_payload = load_checkpoint(recovery_path)
-                    if payload_train_state_is_finite(best_payload):
-                        loaded_state = best_payload['state']
-                        state = state._replace(params=jax.device_put(loaded_state['params']),
-                                                opt_state=jax.device_put(loaded_state['opt_state']))
-                        # Full temporal rewind: network, optimiser, curriculum,
-                        # governor histories/EMAs, capability field, observation
-                        # normaliser and LR controller. Current-schema recovery
-                        # points are complete or rejected; partial rewind is
-                        # not a supported state.
-                        governor.load_state_dict(best_payload['curriculum_state'])
-                        health.load_state_dict(best_payload['health_state'])
-                        field = CapabilityField.from_state_dict(best_payload['field_state'])
-                        if best_payload.get('obs_norm') is not None:
-                            obs_mean = jnp.asarray(best_payload['obs_norm']['mean'], dtype=jnp.float32)
-                            obs_var = jnp.asarray(best_payload['obs_norm']['var'], dtype=jnp.float32)
-                            obs_count = float(best_payload['obs_norm']['count'])
-                        lr_scale = float(best_payload['meta']['lr_scale'])
-                        # Revert to the previous good state AND shift the RNG --
-                        # rolling back only params/opt_state/curriculum would
-                        # leave every env's live physical state exactly as the
-                        # COLLAPSED policy left it (mid-fall, tangled, whatever
-                        # it was), for the just-reverted policy to inherit.
-                        # env.reset() alone wouldn't fix this either: it always
-                        # resets from the same fixed self.key0, so calling it
-                        # naively here would replay IDENTICAL initial conditions
-                        # every time recovery fires, not shift anything.
-                        # jax.random.fold_in with total_steps (monotonically
-                        # increasing, so never coincidentally repeats) derives a
-                        # genuinely different key each time, deterministically.
-                        fresh_key = jax.random.fold_in(env.key0, total_steps)
-                        fresh_params_array = env.params_array(params_with_field(total_steps))
-                        fresh_env_state = env.reset_jit(fresh_key, fresh_params_array)
-                        state = state._replace(env_state=fresh_env_state, obs=env.obs(fresh_env_state))
-                        best_step = best_payload.get('meta', {}).get('step', '?')
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY: stepping-collapse sustained for "
-                              f"{int(report['stepping_collapse_streak'])} updates despite repeated retreats -- "
-                              f"rolled back network + curriculum to the {best_payload.get('meta', {}).get('recovery_tier', 'recovery')} snapshot from "
-                              f"step={best_step} (competence={best_payload.get('meta', {}).get('competence', '?')}). "
-                              f"Every env RESET with a fresh RNG derived from step={total_steps:,} (not the run's "
-                              f"original seed) -- a genuinely different attempt, not a replay of the same luck "
-                              f"that led here, and no env inherits whatever physical state the collapsed policy "
-                              f"left it in.", flush=True)
-                        recovered = True
-                    else:
-                        print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
-                              f"params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
-                except Exception as exc:
-                    print(f"{LOG_PREFIX} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
-                          f"-- continuing with ordinary retreat only.", flush=True)
-            else:
-                print(f"{LOG_PREFIX} AUTO-RECOVERY triggered after {int(report['stepping_collapse_streak'])} "
-                      f"collapsed updates, but recovery.pkl does not exist yet -- curriculum retreat continues.", flush=True)
-            # Only clear the streak when a rollback actually happened.
-            # Clearing it unconditionally would mean a FAILED attempt (e.g.
-            # no snapshot to load, the case just above) forces a blind wait
-            # for a whole new streak before trying again, even though
-            # nothing about the situation changed. Leaving the streak alone
-            # lets update()'s own normal per-update bookkeeping (+1 if
-            # still collapsed, reset to 0 the moment a rollout genuinely
-            # isn't) decide when to stop retrying.
-            if recovered:
-                health.note_recovery_performed()
+            restored = try_restore_recovery(
+                recovery_path, state=state, field=field, governor=governor,
+                health=health, env=env, step=total_steps, report=report,
+                obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
+                task_params_for_field=lambda new_field: params_with_field(
+                    total_steps, teaching_field=new_field),
+                log_prefix=LOG_PREFIX)
+            if restored is not None:
+                state, field = restored.state, restored.field
+                obs_mean, obs_var = restored.obs_mean, restored.obs_var
+                obs_count, lr_scale = restored.obs_count, restored.lr_scale
+                # A rollback must earn a fresh complete recovery window.
+                comp_window = []
             params = params_with_field(total_steps)
             p = env.params_array(params)
-            if recovered:
-                # don't immediately re-save a "best" from the state we just
-                # loaded: drop the trailing window so the next save has to be
-                # earned from health.RECOVERY_WINDOW fresh post-recovery rollouts.
-                comp_window = []
 
         if total_steps - last_log >= log_every_steps:
             last_log = total_steps

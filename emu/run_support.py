@@ -13,12 +13,14 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from dataclasses import dataclass
 
 from .paths import VERSION, source_repo_root
 from .training_config import FOUNDATION_STEPS, ROLLOUT_STEPS, TrainingConfig
 from .checkpoints import find_resume, find_valid_resume
-from .checkpoint_io import (load_checkpoint, validate_resume_payload, find_newest_valid_snapshot)
+from .checkpoint_io import (load_checkpoint, validate_resume_payload, find_newest_valid_snapshot,
+                            payload_train_state_is_finite)
 
 LOG = f"[emu_{VERSION}]"
 
@@ -121,6 +123,86 @@ def resume_training_lineage(
             shutil.copy2(src_recovery, dst_recovery)
             print(f"{LOG} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
     return resumed_payload, resumed_step, False
+
+
+@dataclass(frozen=True)
+class RecoveredLearner:
+    """One successful temporal rewind; no partial result escapes to training."""
+    state: Any
+    field: Any
+    obs_mean: Any
+    obs_var: Any
+    obs_count: float
+    lr_scale: float
+
+
+def try_restore_recovery(
+    recovery_path: Path, *, state: Any, field: Any, governor: Any,
+    health: Any, env: Any, step: int, report: dict[str, Any],
+    obs_mean: Any, obs_var: Any, obs_count: float,
+    task_params_for_field: Callable[[Any], dict[str, Any]],
+    log_prefix: str,
+) -> RecoveredLearner | None:
+    """Restore EVERY learning coordinate and reset the physical worlds.
+
+    Failed/missing/nonfinite candidates leave the collapse streak intact.
+    A successful restore uses fold_in(env.key0, absolute_step), deliberately
+    avoiding both the collapsed episode buffers and the original reset luck.
+    Only the 6 explicit values returned here are rebound by training.py.
+    """
+    if not recovery_path.exists():
+        print(f"{log_prefix} AUTO-RECOVERY triggered after {int(report['stepping_collapse_streak'])} "
+              "collapsed updates, but recovery.pkl does not exist yet -- curriculum retreat continues.", flush=True)
+        return None
+
+    try:
+        import jax
+        import jax.numpy as jnp
+        from .capability_field import CapabilityField
+
+        payload = load_checkpoint(recovery_path)
+        if not payload_train_state_is_finite(payload):
+            print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
+                  "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
+            return None
+
+        saved = payload['state']
+        restored_state = state._replace(
+            params=jax.device_put(saved['params']),
+            opt_state=jax.device_put(saved['opt_state']))
+        governor.load_state_dict(payload['curriculum_state'])
+        health.load_state_dict(payload['health_state'])
+        restored_field = CapabilityField.from_state_dict(payload['field_state'])
+        if payload.get('obs_norm') is not None:
+            obs_mean = jnp.asarray(payload['obs_norm']['mean'], dtype=jnp.float32)
+            obs_var = jnp.asarray(payload['obs_norm']['var'], dtype=jnp.float32)
+            obs_count = float(payload['obs_norm']['count'])
+        lr_scale = float(payload['meta']['lr_scale'])
+
+        # The restored field, not the stale collapsed field, must choose the
+        # reset task. Keep JAX RNG derivation and reset order unchanged.
+        fresh_key = jax.random.fold_in(env.key0, step)
+        fresh_params = env.params_array(task_params_for_field(restored_field))
+        fresh_env_state = env.reset_jit(fresh_key, fresh_params)
+        restored_state = restored_state._replace(
+            env_state=fresh_env_state, obs=env.obs(fresh_env_state))
+        best_step = payload.get('meta', {}).get('step', '?')
+        print(f"{log_prefix} AUTO-RECOVERY: stepping-collapse sustained for "
+              f"{int(report['stepping_collapse_streak'])} updates despite repeated retreats -- "
+              f"rolled back network + curriculum to the {payload.get('meta', {}).get('recovery_tier', 'recovery')} snapshot from "
+              f"step={best_step} (competence={payload.get('meta', {}).get('competence', '?')}). "
+              f"Every env RESET with a fresh RNG derived from step={step:,} (not the run's "
+              "original seed) -- a genuinely different attempt, not a replay of the same luck "
+              "that led here, and no env inherits whatever physical state the collapsed policy "
+              "left it in.", flush=True)
+        health.note_recovery_performed()
+        return RecoveredLearner(
+            restored_state, restored_field, obs_mean, obs_var,
+            obs_count, lr_scale)
+    except Exception as exc:
+        print(f"{log_prefix} AUTO-RECOVERY triggered but failed to load {recovery_path.name} ({exc!r}) "
+              "-- continuing with ordinary retreat only.", flush=True)
+        return None
 
 
 def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str) -> tuple[Path | None, Path | None, int]:

@@ -58,6 +58,81 @@ class CheckpointResumeTests(unittest.TestCase):
             np.testing.assert_array_equal(
                 resumed['state']['params']['pi'][0]['w'],
                 state.params['pi'][0]['w'])
+            # D4: a real checkpoint also rewinds the policy, optimiser,
+            # teacher/health, field, normaliser, LR and physical episode RNG.
+            import jax
+
+            class LiveState(NamedTuple):
+                params: Any
+                opt_state: Any
+                env_state: Any
+                obs: Any
+
+            class Teacher:
+                def __init__(self):
+                    self.restored = None
+                def load_state_dict(self, value):
+                    self.restored = value
+
+            class Health:
+                def __init__(self):
+                    self.restored = None
+                    self.recovered = False
+                def load_state_dict(self, value):
+                    self.restored = value
+                def note_recovery_performed(self):
+                    self.recovered = True
+
+            class Worlds:
+                def __init__(self):
+                    self.key0 = jax.random.PRNGKey(733)
+                    self.reset_key = None
+                    self.reset_params = None
+                def params_array(self, params):
+                    return params
+                def reset_jit(self, key, params):
+                    self.reset_key = key
+                    self.reset_params = params
+                    return 'fresh-worlds'
+                def obs(self, env_state):
+                    return 'fresh-observations'
+
+            from emu.run_support import try_restore_recovery
+            teacher, health_tracker, worlds = Teacher(), Health(), Worlds()
+            collapsed = LiveState(fake_policy_params(fill=-2.0), state.opt_state,
+                                  'collapsed-worlds', 'collapsed-observations')
+            seen_fields = []
+            def selected_task(restored_field):
+                seen_fields.append(restored_field.fingerprint())
+                return {'teacher': 'restored'}
+            restored_state = try_restore_recovery(
+                path, state=collapsed, field=CapabilityField(),
+                governor=teacher, health=health_tracker, env=worlds,
+                step=130000, report={'stepping_collapse_streak': 101},
+                obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM), obs_count=1.0,
+                task_params_for_field=selected_task, log_prefix='[test]')
+            assert restored_state is not None
+            assert restored_state.state.env_state == 'fresh-worlds'
+            assert restored_state.state.obs == 'fresh-observations'
+            np.testing.assert_array_equal(restored_state.state.params['pi'][0]['w'],
+                                          state.params['pi'][0]['w'])
+            np.testing.assert_array_equal(restored_state.obs_mean, norm['mean'])
+            np.testing.assert_array_equal(restored_state.obs_var, norm['var'])
+            assert restored_state.obs_count == norm['count']
+            assert restored_state.lr_scale == 0.5
+            assert teacher.restored == curriculum and health_tracker.restored == health
+            assert health_tracker.recovered
+            assert seen_fields == [field.fingerprint()]
+            np.testing.assert_array_equal(
+                np.asarray(worlds.reset_key),
+                np.asarray(jax.random.fold_in(worlds.key0, 130000)))
+            assert worlds.reset_params == {'teacher': 'restored'}
+            assert try_restore_recovery(
+                Path(td) / 'missing.pkl', state=collapsed, field=field,
+                governor=teacher, health=health_tracker, env=worlds,
+                step=130001, report={'stepping_collapse_streak': 101},
+                obs_mean=np.zeros(OBS_DIM), obs_var=np.ones(OBS_DIM), obs_count=1.0,
+                task_params_for_field=selected_task, log_prefix='[test]') is None
 
         np.testing.assert_array_equal(loaded['state']['params']['pi'][0]['w'], state.params['pi'][0]['w'])
         np.testing.assert_array_equal(loaded['state']['params']['vf'][-1]['b'], state.params['vf'][-1]['b'])

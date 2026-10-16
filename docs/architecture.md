@@ -211,6 +211,7 @@ in the other owners. True locomotion quality still needs held-out exams.
   against independent real gait evidence. Torque/power remain diagnostic-only.
 - `training.py` still owns fixed/cloud **exam cadence and policy snapshot selection**; `evaluation.py` and `capability_cloud.py` now execute and record the exams. These examine frozen policies without feeding evidence back into PPO or curriculum.
 - `artifacts.py` now owns the exact metrics.csv row, envelope report and latest/final field exports; training passes PPO run settings explicitly, so reporting does not import the learner's configuration. Training retains scheduling and checkpoint publication order.
+- `run_support.py` now owns complete collapse recovery: validate rewind candidate, restore all learner/teacher state, and reset physics using a step-derived JAX key; training rebinds the successful result and chooses its subsequent lesson.
 - `training.py` is still a long function combining loop control, curriculum,
   learning health, snapshot recovery, fixed exams, logging and finalisation.
 - `ppo.py` still houses **read-only** exam kernels alongside training maths.
