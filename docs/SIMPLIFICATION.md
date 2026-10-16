@@ -42,12 +42,15 @@ The current 20 software checks only show contract compatibility.
   fall cost. Keep `rollout_metrics.py` responsible for independent
   measurable facts. Remove duplicate logging conversions. **Gate:** reward
   arithmetic equivalence (including falls) and honest telemetry.
-- [ ] **D. Training reads top to bottom.** **D3 awaiting CI:** metrics-row schema and periodic/final envelope + field snapshot writers consolidated in `artifacts.py`; existing delivery test strengthened, 20 tests unchanged. **D2 software CI passed:** [38842871586](https://github.com/mdt733/emu/actions/runs/38842871586), 16 Python and 4 browser with viewer build. D4 recovery/lifecycle is next.  **D2 source awaiting CI:** fixed policy exams and capability-cloud exams now execute in their existing `evaluation.py` and `capability_cloud.py` owners; training retains due-time and policy-snapshot selection. Original fixed best-checkpoint keys, calibration quarantine and test count preserved. D3 follows: reporting/checkpoint duplication.  **D1 source awaiting CI:** resume, fallback and recovery seeding now belong to `run_support.py`; rollout diagnostics and exact learning-state provenance belong to `rollout_metrics.py`. An existing resume test checks the fork handoff; total tests remain 20. Next: untangle held-out exams and periodic writing.  Expose a short visible lifecycle:
-  prepare or resume → create many worlds/learner → collect/update →
-  observe/revise curriculum → log/save → finish. Move coherent responsibilities
-  out of the 975-line orchestration without creating wrapper mazes.
-  **Gate:** fresh isolated GPU update/save/resume and identical step/seed
-  semantics; keep atomic checkpoints.
+- [ ] **D. Training reads top to bottom.** **D1–D3 code checks verified:**
+  [resume and rollout ownership](https://github.com/mdt733/emu/actions/runs/38842290106),
+  [frozen exams](https://github.com/mdt733/emu/actions/runs/38842871586),
+  [metrics and field artifacts](https://github.com/mdt733/emu/actions/runs/38843252714).
+  `training.py` is ~750 lines (down from 993); 20 tests retained, with stronger
+  resume and delivery assertions. D4 still needs to clarify recovery and PPO
+  lifecycle without wrapper mazes or altered rollback semantics.
+  **Gate:** fresh isolated GPU update/save/resume, identical step/seed
+  semantics, and atomic checkpoint validation; no changed reward.
 - [ ] **E. Curriculum and teaching capability.** Draw one path from rollout
   evidence to allowed task distribution. Decide which governor, field,
   recovery and health complexity *earns its keep*; remove overlapping or
@@ -97,4 +100,6 @@ Answer in this order:
 | `3102062` | Pass B1: separate lesson sampler into `tasks.py`, keep same RNG and physics; add root `HANDOVER.md` | [GitHub CI 38835597285](https://github.com/mdt733/emu/actions/runs/38835597285): 16 Python + 4 browser passed; viewer build passed; GPU run still required |
 | `df82901` | Pass B2: explicit physical/lesson/reward stages; small reset/step orchestrators | [GitHub CI 38836739692](https://github.com/mdt733/emu/actions/runs/38836739692): 16 Python + 4 browser passed, viewer built; no GPU run yet |
 | `974d857` | Pass D2: fixed/cloud exam implementation moved to their evidence owners | [GitHub CI 38842871586](https://github.com/mdt733/emu/actions/runs/38842871586): 16 Python + 4 browser, build passed; CUDA unverified |
+| `22e8edb` | Pass D1: resume ownership and rollout provenance | [CI 38842290106](https://github.com/mdt733/emu/actions/runs/38842290106): 16 Python + 4 browser passed; no GPU run |
+| `ebd1153` | Pass D3: canonical training metrics and field artifact writers, strengthened delivery check | [CI 38843252714](https://github.com/mdt733/emu/actions/runs/38843252714): 16 Python + 4 browser passed; no GPU run |
 | `39651e4` | Pass C: readable reward computation, single source for payment names/reward-only fields, clear host diagnostics, strengthened existing servo-power invariant test | [GitHub CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): 16 Python + 4 browser passed, viewer built; 24 MuJoCo warnings; GPU gate open |

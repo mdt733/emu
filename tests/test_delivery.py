@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from emu import branch_lab as lab
 from emu import results
-from emu.artifacts import append_training_observation, write_capability_field_artifacts
+from emu.artifacts import append_training_observation, write_capability_field_artifacts, make_metrics_row
 from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
 from emu.ppo import PPO_HIDDEN_SIZES, build_obs_norm_mask
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,6 +140,14 @@ def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
             params=envelope, label=label)
         assert (output / f'capability_field_{label}.npz').read_bytes() == b'field'
     assert json.loads((output / 'capability_field_summary.json').read_text())['node_frac'] == 0.25
+    # Reporting consumes explicit learning metadata rather than importing PPO.
+    metric = make_metrics_row(
+        step=80, elapsed=2.0, wall_fps=400, train_fps=500,
+        reward=0.6, row={}, report={}, aux={'lr_scale': 0.5},
+        nan_grad_skips=0, num_envs=8, jax_backend='cpu',
+        perf_row={}, rollout_steps=32, base_lr=0.001)
+    assert metric['rollout'] == 32
+    assert metric['ppo_effective_lr'] == 0.0005
 
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js needed for browser parity')

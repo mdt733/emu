@@ -578,7 +578,7 @@ def train(args: TrainingConfig) -> int:
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
                 reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-                jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
+                jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
             append_training_observation(
                 run_dir, step=total_steps, params=params, report=report, metrics_row=log_row)
@@ -712,7 +712,7 @@ def train(args: TrainingConfig) -> int:
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
         reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
-        jax_backend=jax.default_backend(), perf_row=perf.row(), base_lr=args.ppo_lr)
+        jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(
         run_dir, step=total_steps, params=params, report=report, metrics_row=final_row)
     final_ck_timing = save_checkpoint(

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from .training_config import PPO_LR, ROLLOUT_STEPS
 
 
 def ensure_run_dir(path: Path) -> None:
@@ -126,12 +125,12 @@ def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> No
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
                      nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
-                     base_lr: float = PPO_LR) -> dict[str, Any]:
+                     rollout_steps: int, base_lr: float) -> dict[str, Any]:
     """Canonical metrics.csv schema for periodic and final rows."""
     return {
         'step': step, 'elapsed_s': elapsed, 'steps_per_sec': wall_fps, 'train_steps_per_sec': train_fps,
         'reward_mean': reward, **row, **report,
-        'backend': 'mjx', 'jax_backend': jax_backend, 'num_envs': num_envs, 'rollout': ROLLOUT_STEPS,
+        'backend': 'mjx', 'jax_backend': jax_backend, 'num_envs': num_envs, 'rollout': rollout_steps,
         'ppo_policy_loss': float(np.asarray(aux.get('policy_loss', 0.0))),
         'ppo_value_loss': float(np.asarray(aux.get('value_loss', 0.0))),
         'ppo_entropy': float(np.asarray(aux.get('entropy', 0.0))),
