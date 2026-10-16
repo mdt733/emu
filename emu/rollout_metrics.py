@@ -1,7 +1,13 @@
-"""Host-side rollout reduction and fixed-evaluation summaries.
+"""Summarise what the robot actually did; do NOT calculate its reward.
 
-These functions translate raw vectorised JAX metrics into the compact semantic
-measurements consumed by curriculum, logging and held-out evaluation.
+The universe provides physical measurements and the reward ledger's component
+payments. This module reduces the JAX arrays on the host into per-rollout
+facts: survival, command obedience, step proxies, fall causes, servo mechanics
+and curriculum frontiers.
+
+`summarize_rollout` does not alter the robot, PPO or the curriculum. It
+produces evidence *for* their respective consumers. True signed uphill
+progress and load-bearing walking require separate controlled exams.
 """
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from .contracts import COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
+from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME
 from .tracking_contract import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
@@ -223,6 +230,12 @@ def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str
 
 
 def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float] | None = None, combo_p: float = COMBO_P) -> dict[str, float]:
+    """Report episode outcomes and physical evidence, separate from payment.
+
+    Episodes are measured at their end, while gait, motion, power and
+    occupancy are step-averaged. Missing episodes use explicit sentinels
+    where zero would misleadingly imply perfect or catastrophic behaviour.
+    """
     done = np.asarray(metrics.get('episode_done', 0.0)) > 0.5
     episodes = int(done.sum())
     row = {
@@ -260,9 +273,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
         'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
+        # The reward ledger owns payment names. These remain teaching
+        # payments; unlike measured progress or torque they are NOT exams.
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
-           for name in ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
-                        'clearance', 'smoothness', 'joint_safety', 'fall_penalty')},
+           for name in (*PAYMENT_NAMES, FALL_PAYMENT_NAME)},
         # Fall-conditioned vs. timeout-conditioned episode length.
         # default=-1.0 (not 0.0) means "no episodes of this kind ended this
         # rollout" so it's never confused with a real, alarming zero.

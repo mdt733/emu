@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import NamedTuple, Any
 import numpy as np
 import pytest
-from emu.rewards import weighted_training_terms
+from emu.rewards import weighted_training_terms, PAYMENT_NAMES
 from emu.training_config import TrainingConfig, mature_config
 from emu.capability_field import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
@@ -77,6 +77,7 @@ def test_weighted_reward_is_bitwise_equivalent_to_original_float32_expression():
         joint_safety=safety, stepping_gate=gate)
     assert set(parts) == {'alive', 'locomotion', 'posture', 'contact',
                           'anti_slip', 'clearance', 'smoothness', 'joint_safety'}
+    assert tuple(parts) == PAYMENT_NAMES
     np.testing.assert_array_equal(actual, original)
     np.testing.assert_array_equal(actual, sum(parts.values()))
 
@@ -111,6 +112,20 @@ def test_training_reward_and_terminal_payment_jit_compile_in_jax():
     reward, locomotion, fall = jax.device_get(one_step(m))
     assert np.isfinite(reward).all() and np.isfinite(locomotion).all()
     assert fall[0] == 0.0 and fall[1] < 0.0
+
+    # Mechanical power is currently an EXAM DIAGNOSTIC, not a secret
+    # training penalty. Adding large simulated power/torque telemetry
+    # must not change PPO's reward or early-fall payment.
+    with_load = {
+        **m,
+        'servo_shaft_abs_power_w': jnp.array([0., 10000.]),
+        'servo_over_rated_frac': jnp.array([0., 1.]),
+        'spring_potential_energy_j': jnp.array([0., 500.]),
+    }
+    loaded_reward, loaded_locomotion, loaded_fall = jax.device_get(one_step(with_load))
+    np.testing.assert_array_equal(loaded_reward, reward)
+    np.testing.assert_array_equal(loaded_locomotion, locomotion)
+    np.testing.assert_array_equal(loaded_fall, fall)
 
 def test_training_config_roundtrip():
     with tempfile.TemporaryDirectory() as td:

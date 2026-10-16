@@ -37,7 +37,7 @@ The current 20 software checks only show contract compatibility.
   coupling; keep batched model leaves and JIT behaviour efficient. Clearly
   distinguish *physical truth* and a sensor available to the real robot.
   **Gate:** small real MJX CPU smoke + isolated CUDA step; no changed reward.
-- [ ] **C. Rewards and diagnostics.** Make `rewards.py` accept documented
+- [ ] **C. Rewards and diagnostics.** **Source refactor prepared; CI pending.** The teaching formula is now a short top-level narrative with three coherent ingredients, physical metrics are explicitly grouped, and weighted payment names/reward-only fields have one owner. This does not enable an electrical power reward. Make `rewards.py` accept documented
   physical measurements and expose the eight component payments plus
   fall cost. Keep `rollout_metrics.py` responsible for independent
   measurable facts. Remove duplicate logging conversions. **Gate:** reward
@@ -86,7 +86,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass C**: examine the reward/telemetry seam. `rewards.py` owns the scalar teaching payment; `environment._metrics` owns physical measurements and `rollout_metrics.py` owns independent reductions. Remove duplication and improve the reward ledger's readability **without changing its eight payments, fall penalty, NaN protection or actor observation contract**. Finish B's CUDA gate separately on a fresh run root before release.
+**Pass D**: make the ~1000-line `training.py` read top-to-bottom. Start by mapping preparation/resume → batched rollouts/PPO → curriculum and health → held-out exams → reporting/checkpoint/finalisation. Extract only coherent ownership boundaries; no wrapper maze and no checkpoint schema changes. **The outstanding B/C CUDA acceptance gate still applies** to this new source.
 
 ## Evidence ledger
 

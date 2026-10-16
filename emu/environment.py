@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .domain_randomization import DomainRandomizationConfig, build_batched_model
-from .rewards import training_reward, apply_early_fall_penalty
+from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
 from .tasks import (
     TaskSampler, T, TASK_FIELDS, TASK_DIM, command_phase_rate,
     TRANSITION_HOLD_MIN_STEPS, TRANSITION_HOLD_MAX_STEPS,
@@ -55,17 +55,6 @@ NEUTRAL_ROOT_Z = 0.2584
 # than merely imperfect contact.
 SOFT_BODY_LOW_Z = 0.035
 BODY_LOW_REWARD_WEIGHT = 0.25
-# Anti-freezing gate: reward should not favour a motionless balance solution.
-# The threshold only requires evidence that feet are actually lifting; it does
-# not prescribe a cadence. A short grace period avoids judging the first few
-# frames of an episode.
-# These quantities exist only long enough to compute reward. Keeping them out of
-# StepOut.metrics avoids carrying/transferring eight per-env arrays that no
-# curriculum, evaluator, capability map or logger consumes.
-REWARD_ONLY_METRICS = frozenset({
-    'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
-    'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far', 'ramp_frac',
-})
 # Seed gait used as the project's basic capability reference. It is a slow
 # moving gait, not a near-zero/static-standing task.
 # RESILIENCE push parameters. External force is per-environment data, so it can
@@ -875,7 +864,15 @@ class EmuMJXEnv(TaskSampler):
         return projected_gravity, body_vel, body_ang
 
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
+        """Measure physical facts (not a score or the deployable actor packet).
+
+        This dictionary holds the body/foot truth needed to calculate the
+        teaching reward and independently inspect locomotion. Short-lived
+        reward-only inputs are stripped before host-side rollout reporting.
+        No curriculum decisions or learning updates occur here.
+        """
         jnp = self.jnp
+        # 1. Body motion and posture relative to the physical world.
         projected_gravity, body_vel, body_ang = self._body_packets(data)
         gravity_z = -projected_gravity[:, 2]
         # Gravity-relative chassis pitch: this remains meaningful on a slope and
@@ -922,6 +919,8 @@ class EmuMJXEnv(TaskSampler):
         posture_ok = (posture_ok_5015 if self.attitude_profile == 'v5015'
                       else (-projected_gravity[:, 2] > 0.93969262))
         attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
+        # 2. Contact, gait and fall proxies. Foot height indicates nearby
+        # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_z < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
         bad_z = data.xpos[:, self.bad_bodies, 2]
@@ -938,6 +937,9 @@ class EmuMJXEnv(TaskSampler):
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
         action_delta = jnp.linalg.norm(action - prev_action, axis=1)
+        # 3. Servo/spring diagnostics: measured mechanical proxies, NOT
+        # payments. PPO currently penalises action changes and joint-limit
+        # pressure instead of direct torque, shaft power or electrical usage.
         # Passive telemetry only. It never enters the deployable 220-input
         # observation or the scalar PPO reward.
         servo_effort = servo_effort_metrics(
@@ -953,6 +955,7 @@ class EmuMJXEnv(TaskSampler):
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
         stance_w = jnp.clip((0.040 - foot_z) / 0.020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
+        # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
         fall_tilt = gravity_z < 0.35
         fall_roll_rate = jnp.abs(body_ang[:, 0]) > 9.0
@@ -970,6 +973,9 @@ class EmuMJXEnv(TaskSampler):
         step_evidence = jnp.clip((jnp.maximum(r_lift, l_lift) - 0.10) / 0.55, 0.0, 1.0)
         alternating_lift = jnp.abs(r_lift - l_lift)
         organic_step_shape = jnp.clip(0.50 * jnp.maximum(r_lift, l_lift) + 0.30 * phase_sync * step_evidence + 0.20 * alternating_lift, 0.0, 1.0)
+        # 5. Publish measurements in the existing stable field names.
+        # rewards.py owns the list of short-lived fields to omit from the
+        # post-step telemetry dictionary; diagnostics keep the others.
         return {
             'terminal': terminal.astype(jnp.float32),
             'fall_height': fall_height.astype(jnp.float32),

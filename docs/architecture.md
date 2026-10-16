@@ -141,6 +141,44 @@ happen after observing rollouts; an experiment compares *many updates* across
 millions of world-steps. This diagram is the explanatory order, not a demand
 to add Python wrappers around JIT kernels or undo efficient fused MJX scans.
 
+## Where teaching ends and evidence begins
+
+The reward function is deliberately near the top of **`emu/rewards.py`**.
+Reading it shows exactly what PPO learns from:
+
+| Teaching payment | Coefficient | Physical proxy used |
+|---|---:|---|
+| Survival | 0.58 | Not terminated |
+| Locomotion | 1.55 | Velocity/yaw/pitch obedience, sustained motion, posture and foot support |
+| Posture | 0.68 | Body height/orientation and chassis-to-feet geometry |
+| Contact | 0.50 | Feet near the floor and low body-contact proxies |
+| Anti-slip | 0.18 | Estimated horizontal speed of feet near the floor |
+| Clearance | 0.16 | Foot lift and emerging gait shape |
+| Smoothness | 0.12 | **Change in PPO action**, not motor current or power |
+| Joint safety | 0.17 | Proximity to joint limits and leg scissoring |
+
+Posture and contact payments are reduced by the **episode-long stepping
+activity gate**. A separate age-dependent **early-fall penalty** applies to
+genuine failure, not episode timeouts. The environment scores an action
+against the command the actor knew *before* command transition sampling.
+
+**Servo power is not currently rewarded.** `environment._metrics` measures
+torque, nominal shaft mechanical power, spring energy and rated-torque
+pressure; `rollout_metrics.summarize_rollout` reports them as independent
+diagnostics. Electrical draw, servo temperature, actual joint contact forces
+and verified footfalls require further modelling or physical data. Adding
+energy efficiency belongs in a controlled future experiment, not a hidden
+change during refactoring.
+
+The **stable data boundary** is:
+`environment._metrics` (world facts)
+→ `rewards.training_reward` (teaching scalar and payments)
+→ `ppo.py` (learning), while
+`rollout_metrics.summarize_rollout` independently reduces the world facts
+and labelled payments for reports/curriculum. The lists of reward-only
+transient fields and weighted payment names live in `rewards.py`, not
+in the other owners. True locomotion quality still needs held-out exams.
+
 ## Design rules for future passes
 
 - **One obvious owner per concept.** To change slope sampling, go to the
@@ -168,6 +206,9 @@ to add Python wrappers around JIT kernels or undo efficient fused MJX scans.
 ## Current gaps (not hidden)
 
 - `tasks.py` owns lesson sampling **and command-ramp advancement**, while `environment.py` owns servo delivery, disturbances, MJX stepping, physical birth, observations and reward integration. The stateless sampler shares the environment's JAX context, physical limits and keys; it adds no duplicate mutable teacher. The remaining `_metrics`/`_base_obs` block is large and still merits a focused readability pass.
+- Reward owner and physical telemetry boundary have been clarified; posture,
+  support, step shape and slip are still **proxies** and should be compared
+  against independent real gait evidence. Torque/power remain diagnostic-only.
 - `training.py` is still a long function combining loop control, curriculum,
   learning health, snapshot recovery, fixed exams, logging and finalisation.
 - `ppo.py` still houses **read-only** exam kernels alongside training maths.
