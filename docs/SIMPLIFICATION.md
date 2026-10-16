@@ -51,17 +51,21 @@ The current 20 software checks only show contract compatibility.
   both passed 16 Python + 4 browser checks and viewer build.
   **Not marked complete until fresh isolated CUDA PPO update/save/resume** and
   source-pinned parity checks. Preserve atomic checkpoint publication.
-- [ ] **E. Curriculum and teaching capability.** **E1 software CI passed:**
-  [38844844745](https://github.com/mdt733/emu/actions/runs/38844844745).
-  The original 106-line physical-frontier/EMA/hysteresis controller is now
-  one named method *inside the existing governor*, with unchanged coefficients
-  and one strengthened adaptive-on/off test. **E2 next:** trace live training
-  evidence → decaying capability field → scheduled node/edge teaching packet →
-  `tasks.py` birth/transition sampling → `field_taught` provenance. **E2 code submitted:** one deterministic full/reduced physical envelope feeds both births and transition targets, with original JAX RNG split schedule; real MJX contract test strengthened. **E3 code submitted:** one capability-field runtime-window initializer replaces two nearly identical blocks, with serialized learned evidence and 20 tests unchanged. Keep
-  governor safety envelopes, clean-evidence isolation and held-out examiner
-  quarantine. Remove governor/field/health mechanisms only after executable
-  call-path checks and controlled comparison. **Gate:** visible physical
-  command envelopes, safe retreat, and no hidden exam-to-teacher feedback.
+- [ ] **E. Curriculum and teaching capability.** **E1–E3 software CI passed.**
+  [E1 physical frontiers](https://github.com/mdt733/emu/actions/runs/38844844745),
+  [E2 shared command envelope](https://github.com/mdt733/emu/actions/runs/38845714642),
+  [E3 field event window reset](https://github.com/mdt733/emu/actions/runs/38845909394).
+  Every pass retains **16 Python + 4 browser checks**, built viewer,
+  the exact 220-input actor and checkpoint state schema. 
+  E2 replaced duplicate birth/transition command bounds with one deterministic
+  calculation; adaptive-on/off and field-taught birth behaviour are checked in
+  the existing real-MJX test. E3 replaced duplicate transient event-tracker
+  initialization; learned node/edge/recovery evidence is NOT reset on cohort
+  resize or resume. **E4 next:** prove decay and `field_taught` evidence
+  exclusion and inspect field selection weights, rather than deleting valid
+  teacher paths because they're temporarily dormant in off/shadow mode.
+  **Gate:** visible physical command envelopes, safe retreat, no examiner
+  leakage, and a fresh isolated GPU lifecycle before merge.
 - [ ] **F. Meta-learning/experiment recipe.** Make shared foundation,
   independent teaching strategies, branch budgets and common exams readable
   in one recipe. Consolidate planning/promotions and avoid duplicating
@@ -110,5 +114,7 @@ Answer in this order:
 | `ebd1153` | Pass D3: canonical training metrics and field artifact writers, strengthened delivery check | [CI 38843252714](https://github.com/mdt733/emu/actions/runs/38843252714): 16 Python + 4 browser passed; no GPU run |
 | `a1b43f9` | Pass D4: complete recovery rewind and step-seeded physical restart; existing checkpoint test enlarged | [CI 38844333684](https://github.com/mdt733/emu/actions/runs/38844333684): 16 Python + 4 browser passed; no GPU run |
 | `12d47b2` | Pass D5: soft PPO KL controller owned by health; existing assertions strengthened | [CI 38844623465](https://github.com/mdt733/emu/actions/runs/38844623465): 16 Python + 4 browser passed; no CUDA training |
+| `d2f349c` | Pass E2: shared JAX command bounds for birth and transition; existing real MJX test strengthened | [CI 38845714642](https://github.com/mdt733/emu/actions/runs/38845714642): 16 Python + 4 browser, viewer build passed; no CUDA run |
+| `3391ba6` | Pass E3: one transient field tracker allocator, with checkpoint/runtime reset assertions | [CI 38845909394](https://github.com/mdt733/emu/actions/runs/38845909394): 16 Python + 4 browser, viewer build passed; no CUDA run |
 | `c270366` | Pass E1: settle-tracking frontier update extracted within governor; existing adaptive frontier test strengthened | [CI 38844844745](https://github.com/mdt733/emu/actions/runs/38844844745): 16 Python + 4 browser passed, viewer built; no CUDA training |
 | `39651e4` | Pass C: readable reward computation, single source for payment names/reward-only fields, clear host diagnostics, strengthened existing servo-power invariant test | [GitHub CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): 16 Python + 4 browser passed, viewer built; 24 MuJoCo warnings; GPU gate open |
