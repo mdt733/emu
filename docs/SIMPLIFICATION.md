@@ -12,6 +12,11 @@ should continue on their original pinned source; do not update their checkout.
 lineage using its modified source** until the independent GPU acceptance gate.
 The current 20 software checks only show contract compatibility.
 
+## Final audit software result
+
+- [Transactional rollback failure protection](https://github.com/mdt733/emu/actions/runs/38853384625): **16 Python + 4 browser passed**. The actual original teacher and health state is restored after simulated world-reset failure; otherwise training halts. Same 20 checks retained.
+- The remaining gate is an *actual* local GPU lifecycle and a longer run with matched physical exams. This software result is not a walking or CUDA-performance guarantee.
+
 ## Source-audit software verification
 
 - [Auto-resume correction and fresh WSL setup](https://github.com/mdt733/emu/actions/runs/38852621596): **16 Python + four browser passed**.

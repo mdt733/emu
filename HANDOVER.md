@@ -103,6 +103,11 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 - **G2** `6194eea`: [CI passed](https://github.com/mdt733/emu/actions/runs/38849179351) — matched frozen-policy scorecard story; 16 Python + four browser checks passed.
 - Same **16 Python + 4 browser checks** throughout. Software CI does **not** establish valid CUDA training or genuine physical walking.
 
+## Final source-audit fix verified
+
+- `65914ab`: [CI 38853384625 passed](https://github.com/mdt733/emu/actions/runs/38853384625), 16 Python + 4 browser. If automatic recovery cannot reset physical worlds, it now restores the original governor/health or halts rather than training with partial rewind. The existing checkpoint test deliberately triggers this failure.
+- **Code-level audit corrections all software-verified**, but **H2 CUDA lifecycle and locomotion on this source revision have NOT been performed**. Pin the exact clean SHA before any local run.
+
 ## Source-audit verification
 
 - `02a5b6e`: [CI passed](https://github.com/mdt733/emu/actions/runs/38852621596), 16 Python + four browser checks; canonical auto-resume fallback and corrected WSL setup.
