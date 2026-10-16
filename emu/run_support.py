@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from .paths import VERSION, source_repo_root
 from .training_config import FOUNDATION_STEPS, ROLLOUT_STEPS, TrainingConfig
-from .checkpoints import find_resume, find_valid_resume
+from .checkpoint_io import find_resume, find_valid_resume
 from .checkpoint_io import load_checkpoint, payload_train_state_is_finite
 
 LOG = f"[emu_{VERSION}]"
