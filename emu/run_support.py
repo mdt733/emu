@@ -165,7 +165,7 @@ def try_restore_recovery(
     try:
         import jax
         import jax.numpy as jnp
-        from .capability_field import CapabilityField
+        from .curriculum import CapabilityField
 
         payload = load_checkpoint(recovery_path)
         if not payload_train_state_is_finite(payload):
