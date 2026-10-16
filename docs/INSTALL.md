@@ -1,37 +1,18 @@
-# Install EMU (Linux / WSL2)
+# Install & operate EMU
 
-EMU has two independent environments: a **Python JAX/MJX trainer** and a **Node.js browser viewer**. The browser demo does not require CUDA; long GPU training does.
+EMU has a Python JAX/MJX learning environment and a separate JavaScript MuJoCo/WebAssembly viewer. **GPU training requires a working NVIDIA driver exposed to WSL**; browser viewing does not.
 
-## Requirements
+## Fresh Windows / WSL2
 
-- Linux or WSL2, Python **3.13+** (including `venv`), Git and `curl`.
-- Node.js **24** for Vite and JavaScript tests; the setup script can install the requested nvm/Node version.
-- For GPU training, an NVIDIA GPU/driver exposed to WSL, and a JAX CUDA wheel compatible with the machine. Verify `nvidia-smi` before assuming a GPU is available.
-- Internet access for the initial `pip` and `npm` installs.
-
-Python dependencies are owned by `pyproject.toml`; browser dependencies by `emu/viewer_src/package.json` and its committed lockfile.
-
-## From blank Windows 11 to a ready Ubuntu shell
-
-This section is the **Windows-side prerequisite** for a completely new machine. If WSL already exists, inspect it first; do not delete or unregister any distribution to follow this guide.
-
-Open **PowerShell as Administrator**:
+From an administrator PowerShell on Windows 11:
 
 ```powershell
 wsl --list --verbose
 wsl --install -d Ubuntu-24.04
-```
-
-Install Ubuntu **only if you do not already have the intended clean distro**. Reboot if Windows requests it, open the Ubuntu terminal and create its Linux username/password at first launch. Then from PowerShell confirm WSL 2:
-
-```powershell
 wsl --update
-wsl --list --verbose
 ```
 
-If you already have a suitable Ubuntu WSL instance, use it rather than installing a duplicate. Microsoft documents these controls in [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands).
-
-**Ubuntu 24.04 ships Python 3.12 by default; EMU needs 3.13+.** The repository's setup script deliberately refuses to install under 3.12. In the new **Ubuntu terminal**, install prerequisites and versioned Python 3.13:
+Do not reinstall or unregister an existing suitable Ubuntu environment. In Ubuntu, check Python 3.13+; Ubuntu 24.04's stock Python may be 3.12. One choice is the third-party deadsnakes PPA (evaluate its security/update policy before using it):
 
 ```bash
 sudo apt update
@@ -40,94 +21,63 @@ sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt update
 sudo apt install -y python3.13 python3.13-venv
 python3.13 --version
-git --version
-curl --version
 ```
 
-[deadsnakes](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) is a third-party Ubuntu package repository, **not Canonical's default Python packaging**. Review its security/update policy before opting in. It installs a versioned interpreter alongside Ubuntu's Python; **do not change** `/usr/bin/python3` or use `update-alternatives` to replace Ubuntu's system Python. Other Ubuntu releases may already supply Python 3.13+ without the PPA; check their package availability instead of blindly adding it.
+Do not replace `/usr/bin/python3`. Install the Windows NVIDIA driver, **not the Linux graphics driver inside WSL**. Check `nvidia-smi`. See [NVIDIA CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
 
-For a CUDA-capable Windows host, install/update the **Windows** NVIDIA driver first. Inside WSL check `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` if it isn't in `PATH`). NVIDIA's [CUDA on WSL guide](https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html) warns **not to install the Linux display driver inside WSL**; WSL uses the host Windows driver. If no compatible GPU is visible, take the CPU install path below rather than claiming CUDA support.
-
-### Pre-merge release-candidate setup (separate from old training)
-
-The unmerged work is on `refactor/emu-readable`, **not** `main`.
-Do **not** switch the branch in a checkout serving a running experiment.
-Make a new Linux-side WSL clone (not under `/mnt/c`):
+## Clone, install and verify
 
 ```bash
-git clone --branch refactor/emu-readable --single-branch https://github.com/mdt733/emu.git "$HOME/emu-readable-audit"
-cd "$HOME/emu-readable-audit"
-git rev-parse HEAD
-git status --short
-nvidia-smi
+git clone https://github.com/mdt733/emu.git "$HOME/emu"
+cd "$HOME/emu"
 bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
 emu doctor --v5015-smoke --domain-smoke
+bash scripts/check.sh
 emu ladder --stage plan
 ```
 
-This assumes the CUDA 13 driver and Python 3.13 prerequisites above
-are already installed. If CUDA is unavailable, omit `--cuda13` and
-do viewer/CPU checks only. Setup does not start training, and the new
-checkout is independent of any earlier running source/venv.
+For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu doctor --no-require-gpu --no-mjx-smoke`. The installer builds the viewer, not a long run.
 
-## Clone and configure
+**The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
 
-On a machine with no GPU, use the exact clone commands above but invoke
-`bash scripts/setup_wsl.sh --install-node` and
-`emu doctor --no-require-gpu --no-mjx-smoke`. For a GPU installation,
-the commands in the release-candidate section are the recommended route.
+## GPU acceptance before a large campaign
 
-The example is the **CPU-only** install; it works without an NVIDIA card and is the safest first boot test. For a confirmed CUDA 13-compatible machine use `bash scripts/setup_wsl.sh --cuda13 --install-node`. Don't pass `--cuda13` unless your actual driver supports it; the setup script does not install NVIDIA drivers. It creates `.venv`, installs the editable package, runs contract checks and builds the packaged viewer. No long training run starts.
+The following is a deliberately small but complete **two-update** fresh-checkpoint test. Use a never-used root outside Git:
 
 ```bash
-source .venv/bin/activate
-emu --version
-emu doctor --no-require-gpu --no-mjx-smoke
-emu ladder --stage plan
+ROOT="$HOME/robot_lab/emu_runs/acceptance_$(date +%Y%m%d_%H%M%S)"
+python scripts/smoke_training_lifecycle.py first --root "$ROOT"
+python scripts/smoke_training_lifecycle.py continue --root "$ROOT"
+python scripts/smoke_training_lifecycle.py verify --root "$ROOT"
 ```
 
-For a GPU trainer, run `emu doctor --v5015-smoke --domain-smoke` before committing compute to a long campaign.
+This proves update, save, warm resume, independent fixed evaluation and actor export, **not walking ability**. Use `nvidia-smi` to watch VRAM. Earlier 8GB RTX 4060 Ti runs succeeded at 2048 worlds, but this is not a promise for other machines.
 
-## Current workflows
+## Train and inspect
 
-| Task | Command |
-|---|---|
-| See planned experiment steps and arms | `emu ladder --stage plan` |
-| Start/resume the automatic ladder on a tested GPU | `bash scripts/run_ladder.sh --root "$HOME/robot_lab/emu_runs/readable_campaign_NEW" --stop-after round1` (first inspect the 20M foundation and use a unique root) |
-| Stop after the first scored round | `bash scripts/run_ladder.sh --stop-after round1` |
-| Watch completed validated checkpoints locally | `emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open` |
-| Run the zero-weight *local* rendering fixture | `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open` |
-| Run Python tests | `python -m pytest -q` |
-| Run browser tests | `npm test --prefix emu/viewer_src` |
-| Build canonical browser assets | `emu viewer-build` |
+```bash
+RUN="$HOME/robot_lab/emu_runs/study_$(date +%Y%m%d_%H%M%S)"
+emu ladder --stage foundation --root "$RUN" --seed 733 --envs 2048 --device cuda
+emu ladder --stage auto --root "$RUN" --seed 733 --envs 2048 --device cuda --stop-after round1
+emu report --root "$RUN"
+emu viewer --live --root "$RUN" --no-open
+```
 
-The local viewer listens on `127.0.0.1:8765`. The standalone demo fixture should **not** walk; it checks rendering. For public/static preview and the protected 60M champion see [PLAYGROUND.md](PLAYGROUND.md).
+The 20M foundation is shared; four arms reach approximately 80M each. Two eligible finalists can reach 100M; a winner can reach 120M. See `emu ladder --stage plan` for the live recipe. Only completed validated checkpoints feed the viewer. Open `http://127.0.0.1:8765/`. The read-only viewer server is **unauthenticated and local-only**; never forward its port publicly.
 
-## Run directories and Git
+For one-off deterministic browser policy export:
 
-Training source commits, environment counts and configurations are part of the experiment contract. Keep run roots outside the checkout (normally `~/robot_lab/emu_runs/`). Do not change source or ladder parameters mid-run. Do not reuse a checkpoint/run root under a different source commit; prepare a new run root instead.
+```bash
+emu export-policy /path/to/checkpoints/final.pkl /tmp/my_robot.emupolicy
+```
 
-The normal repository must **not** include `.venv/`, `node_modules/`, `emu/viewer_src/dist/`, raw metrics dumps or schema-7 `.pkl` checkpoints. The public `.emupolicy` actor is a separate, intentionally tracked artifact.
+## Tests and troubleshooting
 
-## Browser dependencies and packaging
+`bash scripts/check.sh` runs the intentionally small contract suite (16 Python and four browser checks), builds the static frontend and checks the browser policy/WASM package. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
 
-Use `npm ci --prefix emu/viewer_src` to install the committed lockfile. The canonical browser source is `emu/viewer_src/`, included in the Python package; no tracked mirror is regenerated. When intentionally changing browser source or dependencies, run `emu viewer-build`, `npm test --prefix emu/viewer_src`, and `npm run build --prefix emu/viewer_src`; review the source changes and committed lockfile before committing.
+If an install fails, do not delete old experiments. Verify `git status --short`, `git rev-parse HEAD`, `python -c "import emu; print(emu.__file__)"`, `nvidia-smi`, and the failing run's `console.log`. Optional `warp` import warnings don't necessarily mean MJX failed. If a checkpoint is corrupt, preserve the original and use the validated automatic recovery paths. Any source change requires a new campaign identity.
 
-Do not manually edit generated `emu/viewer_src/dist/` or publish the local live checkpoint server.
+## Public release
 
-## Troubleshooting
-
-| Symptom | Check |
-|---|---|
-| Unexpected EMU version or missing `ladder` command | `git branch --show-current`, `git rev-parse HEAD`, `python -c "import emu.cli; print(emu.cli.__file__)"` |
-| `PYTHONPATH` loads an old checkout | `unset PYTHONPATH`; verify the `emu.cli` source path |
-| GPU acceptance rejects a dirty checkout immediately after viewer build | Check `git status --short` and `git diff`. The viewer is package-owned and build output is ignored; investigate any tracked source changes instead of regenerating a mirror. |
-| New WSL setup exited 3 immediately after nvm installed | The original script auto-selected the uninstalled Node 24 from `.nvmrc`. Update the draft branch and rerun setup; the fixed script sources nvm with `--no-use`. Leave the fresh Ubuntu, Python and nvm installation intact. |
-| CUDA smoke fails | Verify `nvidia-smi`, installed JAX wheel and GPU backend; do not begin training |
-| Optional Warp import warning | MJX may still work; trust the actual reset/step and PPO smoke results |
-| Viewer reports an HTML response instead of JSON | Check whether you're running static Vite preview or the real local Python API and whether the manifest exists |
-| `final.pkl` missing or corrupt | Do not delete checkpoints. Validate `latest.pkl` and rotating snapshots before attempting recovery |
-| Workspace has obsolete migration backups | Preview `bash scripts/workspace_tidy.sh` first; its optional quarantine mode moves files, never blindly deletes runs |
-
-The [validation guide](validation.md) describes the difference between fast tests, GPU integration and genuine evidence of walking.
+The only deployable policy in Git is `showcase/champion.emupolicy`. The manual GitHub Pages workflow checks its pinned Git blob hash; training `.pkl` files stay local. [PLAYGROUND.md](PLAYGROUND.md) describes build and publishing.
