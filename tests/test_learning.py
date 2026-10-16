@@ -13,6 +13,7 @@ from emu.capability_field import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
 from emu.contracts import OBS_DIM
 from emu.ppo import expected_param_shapes
+from emu.run_support import resume_training_lineage
 
 def fake_policy_params(fill: float = 0.0):
     def build(spec):
@@ -50,6 +51,13 @@ class CheckpointResumeTests(unittest.TestCase):
             with path.open('rb') as f:
                 loaded = pickle.load(f)
             validate_resume_payload(loaded, path)
+            # The extracted resume owner must restore a fork's exact policy.
+            resumed, step, done = resume_training_lineage(
+                Path(td) / 'fork', resume=str(path), target_steps=223456, envs=1)
+            assert step == 123456 and not done
+            np.testing.assert_array_equal(
+                resumed['state']['params']['pi'][0]['w'],
+                state.params['pi'][0]['w'])
 
         np.testing.assert_array_equal(loaded['state']['params']['pi'][0]['w'], state.params['pi'][0]['w'])
         np.testing.assert_array_equal(loaded['state']['params']['vf'][-1]['b'], state.params['vf'][-1]['b'])

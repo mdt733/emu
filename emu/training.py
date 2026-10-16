@@ -19,15 +19,13 @@ See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
 from __future__ import annotations
 
 import argparse
-import os
-import shutil
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from .run_support import finish_if_target_reached, promote_checkpoint
+from .run_support import resume_training_lineage, promote_checkpoint
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
@@ -47,7 +45,7 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .health import TrainingHealth
 from .ppo import make_trainer, update_running_stats
-from .rollout_metrics import summarize_rollout
+from .rollout_metrics import summarize_rollout, augment_rollout_row
 from .runtime import PerfBook, configure_jax, require_backend
 from .artifacts import ensure_run_dir, write_json, write_rows_csv, read_csv_rows, append_metrics_csv, read_metrics_csv, format_line
 from .evaluation import (
@@ -56,7 +54,6 @@ from .evaluation import (
 )
 from .paths import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
-                            validate_resume_payload, find_newest_valid_snapshot,
                             payload_train_state_is_finite, source_provenance_from_env)
 
 RUN_VERSION = f'emu_{VERSION}'
@@ -164,62 +161,11 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # --resume: 'auto' looks for this run's own latest checkpoint; anything
-    # else is a literal path. Schema 7 restores every state that can change
-    # future learning: policy/optimizer, observation normalizer, curriculum,
-    # training health/LR state and capability field. The MJX physics buffer is
-    # deliberately not rewind state; episodes restart fresh after a process
-    # restart because device-specific mjx.Data is large and brittle to pickle.
-    resumed_payload = None
-    resumed_step = 0
-    if getattr(args, 'resume', ''):
-        is_auto = args.resume.lower() == 'auto'
-        resume_path = (run_dir / 'checkpoints' / 'latest.pkl') if is_auto else Path(args.resume)
-        if not resume_path.exists():
-            raise RuntimeError(f"--resume requested but checkpoint does not exist: {resume_path}")
-        try:
-            resumed_payload = load_checkpoint(resume_path, validate=False)
-            try:
-                validate_resume_payload(resumed_payload, resume_path)
-            except Exception as primary_exc:
-                if not is_auto:
-                    raise
-                fallback = find_newest_valid_snapshot(run_dir / 'checkpoints')
-                if fallback is None:
-                    raise RuntimeError(f"primary resume checkpoint invalid ({primary_exc}); no rotating snapshot is available") from primary_exc
-                resumed_payload = load_checkpoint(fallback)
-                resume_path = fallback
-                print(f"{LOG_PREFIX} --resume: primary checkpoint invalid; falling back to validated rotating snapshot {fallback}", flush=True)
-            resumed_step = int(resumed_payload['meta']['step'])
-            print(f"{LOG_PREFIX} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})", flush=True)
-            if finish_if_target_reached(
-                run_dir, resume_path, resumed_step, args.steps, args.envs,
-            ):
-                print(f"{LOG_PREFIX} already complete at step={resumed_step:,}; "
-                      "published final.pkl without any new PPO update", flush=True)
-                return 0
-        except Exception as exc:
-            raise RuntimeError(f"--resume failed for {resume_path}: {exc}") from exc
-
-        # Seed THIS run's own best-tier snapshots from wherever we resumed
-        # from, if it has any and we don't already. Auto-recovery (below,
-        # "needs_recovery") only ever looks in run_dir/checkpoints/ -- a
-        # resumed run starts with NONE
-        # of that, so if it degraded early there would be nothing to roll
-        # back to until it re-earned a tier from zero. Skipped when
-        # resuming from THIS run's own directory (--resume auto after a
-        # restart): source and destination are the same folder, nothing to
-        # seed.
-        if resumed_payload is not None:
-            src_ckpt_dir = resume_path.parent
-            dst_ckpt_dir = run_dir / 'checkpoints'
-            if src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
-                src_recovery = src_ckpt_dir / 'recovery.pkl'
-                dst_recovery = dst_ckpt_dir / 'recovery.pkl'
-                if src_recovery.exists() and not dst_recovery.exists():
-                    dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_recovery, dst_recovery)
-                    print(f"{LOG_PREFIX} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
+    # Restore schema-7 learning state; never update an already-complete run.
+    resumed_payload, resumed_step, already_complete = resume_training_lineage(
+        run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs)
+    if already_complete:
+        return 0
 
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
@@ -588,48 +534,6 @@ def train(args: TrainingConfig) -> int:
               f"disturbed={len(disturbed_rows)}/{len(requested)-len(controls)} baseline_ok={baseline_ok:.3f} "
               f"valid_recovery={mean_rec:.3f} worst_dir={worst:.3f} calibration_mae={cal_mae:.3f} wall={elapsed:.1f}s", flush=True)
 
-    def augment_rollout_row(row: dict[str, Any], aux_now: dict[str, Any]) -> None:
-        """Attach diagnostics with the exact rollout provenance.
-
-        `row` describes the rollout collected by rollout_policy_state, under
-        rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
-        curriculum that exist after the gradient/governor update. Keeping
-        these aligned is what makes collapse forensics trustworthy.
-        """
-        for axis in ('steady', 'transition', 'resilience', 'posture'):
-            cur = float(rollout_params_for_metrics.get(f'{axis}_difficulty', 0.0))
-            born = float(row.get(f'birth_{axis}_d', -1.0))
-            row[f'rollout_{axis}_d'] = cur
-            row[f'birth_lag_{axis}'] = (cur - born) if born >= 0.0 else -1.0
-        # What allocation generated the samples, distinct from the governor's
-        # allocation for NEXT update and from measured per-step occupancy.
-        for rn in ('steady', 'transition', 'resilience'):
-            row[f'rollout_regime_frac_{rn}'] = float(rollout_params_for_metrics.get(f'regime_frac_{rn}', 0.0))
-        row['rollout_athletic_rehearsal_frac'] = float(rollout_params_for_metrics.get('athletic_rehearsal_frac', 0.0))
-        row['rollout_lr_scale'] = float(rollout_lr_scale_for_metrics)
-        row['obs_norm_mode'] = OBS_NORM_MODE
-        row.update(norm_diag)
-        row.update(latest_eval)
-        scalar_aux = {
-            'ppo_kl_stopped_frac': 'kl_stopped',
-            'explained_variance': 'explained_variance',
-            'exploration_std_mean': 'exploration_std_mean',
-            'ppo_approx_kl_final': 'approx_kl_final',
-            'ppo_action_clip_frac': 'action_clip_frac',
-            'ppo_adv_tail_frac': 'adv_tail_frac',
-            'ppo_grad_norm_policy_preclip': 'grad_norm_policy_preclip',
-            'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
-            'ppo_update_norm_policy': 'update_norm_policy',
-            'ppo_update_norm_value': 'update_norm_value',
-        }
-        for dst, src in scalar_aux.items():
-            row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
-        for ji in range(ACTION_DIM):
-            row[f'ppo_action_clip_j{ji}'] = float(np.asarray(aux_now.get(f'action_clip_j{ji}', 0.0)))
-        for rn in ('steady', 'transition', 'resilience'):
-            for key in ('adv_mean', 'adv_std', 'value_ev'):
-                row[f'ppo_{key}_{rn}'] = float(np.asarray(aux_now.get(f'{key}_{rn}', 0.0)))
-
     while total_steps < args.steps:
         maybe_fixed_eval(total_steps)
         maybe_cloud_eval(total_steps)
@@ -650,7 +554,10 @@ def train(args: TrainingConfig) -> int:
         # Add PPO, normalisation, evaluator and birth-cohort diagnostics
         # before the governor sees the row. Everything here describes the
         # SAME rollout/policy/task distribution.
-        augment_rollout_row(row, aux)
+        augment_rollout_row(
+            row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
+            rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
+            norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
@@ -937,7 +844,10 @@ def train(args: TrainingConfig) -> int:
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
         exclude_field_taught=not bool(args.field_evidence_from_taught)))
-    augment_rollout_row(row, aux)
+    augment_rollout_row(
+            row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
+            rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
+            norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})

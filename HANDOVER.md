@@ -37,6 +37,8 @@ Turn EMU into a robot-learning system that reads like a book. The scientific goa
 - **Pass C (CI verified, commit `39651e4`):** Reward owner now puts the overall `training_reward` calculation first, followed by three coherent ingredients and the unchanged weighted ledger. `REWARD_ONLY_METRICS` and `PAYMENT_NAMES` belong to `rewards.py`, consumed by the environment and host-side summaries. `environment._metrics` explicitly distinguishes physical facts, servo/spring telemetry and reward-only proxies. Existing `test_training_reward_and_terminal_payment_jit_compile_in_jax` was strengthened (without increasing test count) to prove that adding nominal servo power/spring energy telemetry does not change PPO payment. **Actual servo power remains diagnostic-only; smoothness and joint safety are the energy-adjacent teaching terms.** [CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): **16 Python, 4 browser passed; viewer built**; 24 existing nonfatal MuJoCo warnings. Fresh CUDA learning/exam not yet run.
 - **Pass B2 (software CI verified at `df82901`):** `_step_impl` now composes physical frame → next lesson → previous-command reward → next observation/reset, instead of mixing all stages in one ~284-line method; `_simulate_physics` retains actual motor/push/substep/nonfinite handling. `tasks._advance_commands` owns command-ramp timing and samples. `_reset_with_keys` is now a ~40-line reset orchestrator using `_birth_physics` for initial pose/velocity. Two named JAX-compatible return records clarify data without introducing duplicate mutable state. **20-test limit unchanged.** [CI run 38836739692](https://github.com/mdt733/emu/actions/runs/38836739692): **16 Python + 4 browser passed**, viewer built; 24 existing nonfatal MuJoCo warnings. **Fresh CUDA lifecycle still not run.**
 
+- **Pass D1 (committed source, CI pending):** Moved resume/fallback/early-completion/recovery seeding into the existing `run_support.py` and rollout provenance labelling into `rollout_metrics.py`. Original training.py went from 993 to ~905 lines without changing physical loops, exam timing, rewards or checkpoint schemas. Extended an existing resume test rather than adding new tests. Next is D2 held-out exam and checkpoint/log orchestration.
+
 ## Physical path and invariants
 
 1. EmuMJXEnv loads robot.xml and builds batched JAX/MJX model variations once per run.
@@ -51,7 +53,7 @@ Task columns (regime, difficulty, capability-field provenance) are teacher-only 
 
 ## What to do next (the next 'keep going')
 
-**Pass D:** Make `training.py` read top-to-bottom without adding new control layers. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
+**Pass D2:** Continue making `training.py` read top-to-bottom without adding new control layers. Follow resume/setup → learner rollout/update → teacher and health feedback → periodic held-out examinations → durable reporting and final checkpoint. Do not change the saved checkpoint contract. **Before merging**, the B/C changes still require fresh isolated CUDA PPO update/save/resume and a frozen-policy exam.
 
 After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rewards and honest telemetry, readable training lifecycle, curriculum/capability, meta-experiments, reports/viewer, then isolated GPU acceptance.
 
@@ -65,4 +67,4 @@ After B2 follow Passes C–H in [SIMPLIFICATION.md](docs/SIMPLIFICATION.md): rew
 
 ## Paste into a new chat
 
-> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently D), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.
+> Continue from branch refactor/emu-readable, draft PR #5. First read root HANDOVER.md, docs/architecture.md and docs/SIMPLIFICATION.md from branch HEAD, then check CI. Preserve main, champion, active training runs, 220-input legacy actor and only 20 automated tests. Implement the next meaningful pass (currently D2), simplify real code rather than only docs, run checks, update the SAME handover and checklist, commit a small batch, and report exactly what changed and what remains unverified.

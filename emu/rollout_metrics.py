@@ -229,6 +229,57 @@ def frontier_tracking_metrics(metrics: dict[str, Any], frontier_params: dict[str
     return out
 
 
+# Rollout provenance belongs with measured diagnostics, not training policy.
+# Values refer to the exact task distribution and policy that made the rollout.
+def augment_rollout_row(
+    row: dict[str, Any], aux_now: dict[str, Any], *,
+    rollout_params_for_metrics: dict[str, Any],
+    rollout_lr_scale_for_metrics: float,
+    norm_diag: dict[str, Any], latest_eval: dict[str, Any],
+    obs_norm_mode: str,
+) -> None:
+    """Attach diagnostics with the exact rollout provenance.
+
+    `row` describes the rollout collected by rollout_policy_state, under
+    rollout_params_for_metrics/evaluated_obs_norm -- not the policy and
+    curriculum that exist after the gradient/governor update. Keeping
+    these aligned is what makes collapse forensics trustworthy.
+    """
+    for axis in ('steady', 'transition', 'resilience', 'posture'):
+        cur = float(rollout_params_for_metrics.get(f'{axis}_difficulty', 0.0))
+        born = float(row.get(f'birth_{axis}_d', -1.0))
+        row[f'rollout_{axis}_d'] = cur
+        row[f'birth_lag_{axis}'] = (cur - born) if born >= 0.0 else -1.0
+    # What allocation generated the samples, distinct from the governor's
+    # allocation for NEXT update and from measured per-step occupancy.
+    for rn in ('steady', 'transition', 'resilience'):
+        row[f'rollout_regime_frac_{rn}'] = float(rollout_params_for_metrics.get(f'regime_frac_{rn}', 0.0))
+    row['rollout_athletic_rehearsal_frac'] = float(rollout_params_for_metrics.get('athletic_rehearsal_frac', 0.0))
+    row['rollout_lr_scale'] = float(rollout_lr_scale_for_metrics)
+    row['obs_norm_mode'] = obs_norm_mode
+    row.update(norm_diag)
+    row.update(latest_eval)
+    scalar_aux = {
+        'ppo_kl_stopped_frac': 'kl_stopped',
+        'explained_variance': 'explained_variance',
+        'exploration_std_mean': 'exploration_std_mean',
+        'ppo_approx_kl_final': 'approx_kl_final',
+        'ppo_action_clip_frac': 'action_clip_frac',
+        'ppo_adv_tail_frac': 'adv_tail_frac',
+        'ppo_grad_norm_policy_preclip': 'grad_norm_policy_preclip',
+        'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
+        'ppo_update_norm_policy': 'update_norm_policy',
+        'ppo_update_norm_value': 'update_norm_value',
+    }
+    for dst, src in scalar_aux.items():
+        row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
+    for ji in range(ACTION_DIM):
+        row[f'ppo_action_clip_j{ji}'] = float(np.asarray(aux_now.get(f'action_clip_j{ji}', 0.0)))
+    for rn in ('steady', 'transition', 'resilience'):
+        for key in ('adv_mean', 'adv_std', 'value_ev'):
+            row[f'ppo_{key}_{rn}'] = float(np.asarray(aux_now.get(f'{key}_{rn}', 0.0)))
+
+
 def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float] | None = None, combo_p: float = COMBO_P) -> dict[str, float]:
     """Report episode outcomes and physical evidence, separate from payment.
 
