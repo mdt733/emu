@@ -122,6 +122,10 @@ No review can substitute for actual fresh GPU memory/throughput and walking evid
   and could encourage branch-switching in a live checkout. It now describes
   a fresh independent WSL clone of `refactor/emu-readable`, installed with
   the existing CUDA13 setup script and external run directory.
+- Ladder startup previously wrote `lab_context.json` even when Git
+  identity was unavailable, unlike the strict single-run launcher. The
+  ladder now requires a clean identifiable source before creating campaign
+  identity; the existing promotion contract checks fail-closed behaviour.
 - Ladder score eligibility measures survival/posture/motion but does **not**
   demand calibrated signed course progress and completed contact strides.
   Do not equate a top-ranked policy with proven walking.

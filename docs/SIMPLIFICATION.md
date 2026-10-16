@@ -19,6 +19,8 @@ The current 20 software checks only show contract compatibility.
   bootstrap; the curriculum reads rollout evidence; fixed exams cannot
   teach; branch selection is source- and checkpoint-hash-gated; viewer
   playback uses actor-only exports.
+- **Fixed:** ladder startup now requires a clean identifiable Git SHA before
+  recording campaign identity; missing/unavailable Git fails closed.
 - **Fixed:** direct trainer `--resume auto` now finds a valid final or
   rotating snapshot even if `latest.pkl` is missing/corrupted, without
   weakening explicitly supplied checkpoint paths. Existing checkpoint

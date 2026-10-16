@@ -42,7 +42,11 @@ def _context(root, seed, envs, provenance):
     repo = source_repo_root()
     if repo is not None and (root == repo or repo in root.parents):
         raise RuntimeError('Raw experiment runs must live outside the Git checkout')
-    if provenance.get('available') and provenance.get('dirty'):
+    # An unknown Git identity is not a valid reproducible campaign source.
+    # The single-run launcher already fails closed here; the ladder must too.
+    if not provenance.get('available') or not provenance.get('commit'):
+        raise RuntimeError('Ladder requires an identifiable clean Git source commit')
+    if provenance.get('dirty'):
         raise RuntimeError('Git checkout has uncommitted changes; freeze a clean source commit before training')
     wanted = {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
               'git_commit': provenance.get('commit', '')}

@@ -59,7 +59,7 @@ def reference_action(obs: np.ndarray, layers: list[tuple], mean: np.ndarray,
     weights, bias = layers[-1]
     return np.clip(x @ weights + bias, -1.0, 1.0)
 
-def test_auto_promotion_only_accepts_eligible_sorted_arms():
+def test_auto_promotion_only_accepts_eligible_sorted_arms(tmp_path):
     results={'round':'round1','results':[
         {'arm':'pitch15','eligible':False,'score':.99},
         {'arm':'slope','eligible':True,'score':.60},
@@ -80,6 +80,18 @@ def test_auto_promotion_only_accepts_eligible_sorted_arms():
     assert [a['name'] for a in study['arms']] == list(recipe.BY_NAME)
     with pytest.raises(RuntimeError,match='Only 1 of 2'):
         lab.promotion_choices({'round':'round1','results':results['results'][:2]},2)
+    # Source audit: the ladder must not create any campaign files with a
+    # missing Git identity (single-run already enforces this invariant).
+    campaign = tmp_path / 'isolated-campaign'
+    for bad in ({'available': False, 'commit': '', 'dirty': False},
+                {'available': True, 'commit': '', 'dirty': False}):
+        with pytest.raises(RuntimeError, match='identifiable clean Git'):
+            lab._context(campaign, 733, 2048, bad)
+        assert not (campaign / 'lab_context.json').exists()
+    with pytest.raises(RuntimeError, match='uncommitted changes'):
+        lab._context(campaign, 733, 2048,
+                     {'available': True, 'commit': 'a'*40, 'dirty': True})
+    assert not (campaign / 'lab_context.json').exists()
 
 def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     root = tmp_path/'campaign'
