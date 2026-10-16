@@ -18,6 +18,71 @@ Turn EMU into a robot-learning system that reads like a book. The scientific goa
 6. **Meta-experiments**: emu/ladder_recipe.py + emu/branch_lab.py compare a shared ~20M foundation and matched teaching branches.
 7. **Understanding**: emu/rollout_metrics.py, emu/evaluation.py, emu/results.py produce independent evidence; emu/policy_export.py and emu/viewer_src/ inspect a frozen brain.
 
+## Completed 320M aggregate campaign and prospective new showcase (17 October 2026)
+
+**The actual user-supplied `results.md` and `results_data.json` now establish the completed
+v5015-lab1 study**, run on RTX 4060 Ti from the source-pinned
+`a5996b8cda2c394c7c65e3e938282a3808ded121` checkout, seed 733,
+2,048 MJX worlds. Aggregate scheduled steps: 20M shared foundation + four
+independent 60M continuations + two 20M finalists + one 20M winner.
+All eight completed run records have `problems: []`; actual
+final champion step: **120,061,952**. Raw artifacts remain on the user's WSL disk,
+NOT in Git or the attachments.
+
+**Chosen within-campaign candidate: `round3/pitch15/checkpoints/final.pkl`.**
+Expected **SHA-256 of the raw checkpoint file**:
+`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
+This is a checksum for the **PKL**, NOT the SHA-256 of an exported policy
+and NOT Git's blob SHA. Verify before export.
+Common frozen screen: 256 worlds × 350 frames, same commanded 15° pitch
+screen. All arms eligible in round1. Ranked scores:
+pitch15 .683903, shadow .645141, baseline .642302, slope .638627.
+At 100M pitch15 .712062 beat shadow .692671; at 120M pitch15 .723497.
+Pitch15's last common-screen hard survival: 91.992%, growth survival:
+86.328%, pitch MAE .0417 rad, height shortfall 4.87 mm, gentle
+gravity-equivalent-slope survival 100%.
+
+**Experiment lessons (do not inflate claims):**
+1. A broader **15° chassis-pitch command ceiling** was a useful teaching
+   perturbation in this seed/recipe, outperforming otherwise comparable
+   graph-teaching, shadow and gravity-slope arms under the common screen.
+   This does not prove 15° is universally best or isolate all causal factors.
+2. Training reward was not the selection metric. Comparable independent
+   screens and source/parent hashes were used to rank four arms and then
+   two finalists. The 120M continuation outperformed 100M under the
+   ladder score, though growthcombo performance does not improve in every
+   individual panel.
+3. `shadow` was second at 80M and 100M. A single seed and close
+   comparison cannot establish a universal benefit for graph teaching.
+   The `slope` arm trained on gravity-equivalent terrain but did not
+   dominate the common gentle-slope screen (all four 80M arms scored 100%
+   gentle-slope survival). This is NOT physical collision-ramp proof.
+4. **Hardware transfer is a major outstanding blocker:** the 120M
+   Pitch15 late training reported shaft |power| ≈ 12.81 W and a
+   **74.12% over-rated-torque sample fraction** versus 69.32% at 80M.
+   These diagnostic proportions are NOT an electrical motor model or
+   an efficiency penalty in PPO. Investigate actual servo torque/current
+   margins, saturation, timing and spring contribution before hardware.
+5. The user's browser impression is encouraging but is not a matched
+   signed-command, footfall-pair or MJX↔WASM parity examination. In
+   particular, source-aligned 60M public-policy comparison is missing.
+
+**ONE coordinated release, not two partial ones:**
+- Preserve public `main` and its 60M champion until the real 120M
+  `.emupolicy` bytes are available and validated. The uploaded report
+  is not sufficient to reconstruct actor tensors/normaliser.
+- Export only from the **source-pinned WSL campaign checkpoint**; validate
+  checkpoint SHA-256 (above), bundle `source.git_commit`, `source.step`,
+  220-input/six-output actor and 15° pitch limit.
+- Stage the exported browser actor in `showcase/champion.emupolicy`
+  alongside the refactored viewer, docs and the **updated exact Git blob
+  hash** in `.github/workflows/emu-playground.yml`, in ONE PR/merge.
+  Verify static bundle/JS/WASM and browser model behaviour before merge;
+  deliberate manual Pages workflow dispatch on `main` afterward.
+- **Not done yet:** the new champion weight file was not attached or
+  available on GitHub; this branch is a release *candidate*, not published
+  and not merged. Existing draft PR #5 remains open.
+
 ## Branches, safety and provenance
 
 - Active cleanup: **refactor/emu-readable**; [draft PR #5](https://github.com/mdt733/emu/pull/5). Started from v5016 experimental commit 18b566d.

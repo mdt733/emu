@@ -36,6 +36,33 @@ Each newly published site now includes its build commit in `showcase.json` as `s
 
 The source of the frontend is **only** `emu/viewer_src/`: no second editable or generated copy. The static site must be built again and manually published from an approved `main` commit. **Do not deploy this draft refactor branch to fix appearance** before its WSL/MJX acceptance is complete.
 
+## Planned coordinated Pitch15 120M release — not published
+
+The 17 October 2026 source-pinned campaign chose `round3/pitch15` at
+**120,061,952 steps** as the best within-campaign checkpoint. The candidate
+checkpoint lives in the user's local WSL campaign, not GitHub, and the
+uploaded report alone cannot recreate the policy weights.
+
+Once the actual trained `.emupolicy` has been exported and inspected:
+1. Validate the original `final.pkl` SHA-256 as
+   `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
+   Confirm the export's source commit `a5996b8cda2c394c7c65e3e938282a3808ded121`,
+   step 120061952 and 220×6 actor contract.
+2. Stage `showcase/champion.emupolicy` **together with** the refactored
+   viewer and release notes; set `EXPECTED` in the manually dispatched
+   Pages workflow to the *new Git blob SHA* of this exact exported file.
+   A training PKL SHA-256 is **not** the Git blob hash.
+3. Run Node tests and policy/WASM static preparation, build and verification,
+   then review local actual WASM joystick, controls, terrain and visual
+   behaviour with the proposed actor. The source report gives a promising
+   common-screen score, not guaranteed real-world servo safety.
+4. Merge the *combined* PR after checks; explicitly dispatch the Pages
+   workflow from `main` and verify the public page's policy step and build
+   source commit. The old 60M public actor remains unchanged until then.
+
+This is one deliberate code+model+viewer rollout, not separate code-first
+or auto-deployed changes.
+
 ## Controlled GitHub Pages publishing
 
 `.github/workflows/emu-playground.yml` uses **manual `workflow_dispatch`**, not auto-publishing on merges to `main`. It checks that `showcase/champion.emupolicy` still has the pinned Git blob ID, requires a trained-policy manifest, runs browser tests, builds the static bundle and validates the included MuJoCo WASM and policy.

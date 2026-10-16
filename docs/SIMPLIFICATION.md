@@ -24,6 +24,29 @@ The current 20 software checks only show contract compatibility.
 - **Next:** verify corrected CI, `git pull --ff-only` into the clean WSL checkout, and rerun **first → continue → verify** under a never-used scratch acceptance root. Do not use the old failed root across source commits. Then begin the original 20M foundation only after a successful complete lifecycle.
 - XLA's attempted 6GiB allocation is an additional capacity signal, not the traceback responsible for this crash; measure memory and sustainable FPS during the real campaign.
 
+## Completed 320M campaign — release candidate selected, public demo unchanged
+
+- Source-pinned 733-seed 2,048-world campaign: four 80M arms and two 100M
+  finalists, Pitch15 finished at 120,061,952 steps.
+- The common-screen winner was Pitch15 at each stage: **0.683903 (80M),
+  0.712062 (100M), 0.723497 (120M)**. Last hard/growth survival:
+  91.992% / 86.328% on the matched screens; 100% gentle
+  gravity-equivalent slope survival. These are simulated exam outcomes.
+- **Mechanism learned:** wider chassis-pitch teaching helped this seed.
+  Graph/field superiority over shadow is not established; slope practice
+  did not dominate this common screen.
+- **Big red flag:** final on-policy servo torque over-rating 74.12% and
+  shaft |power| ≈12.81 W; servo efficiency and hardware reality require
+  explicit work before physical deployment.
+- **Release selection:** the source-pinned candidate is
+  `round3/pitch15/checkpoints/final.pkl`, PKL SHA-256
+  `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
+  The provided reports do NOT include a deployable policy. Block merging
+  PR #5 and replacing the 60M public demo until this real model is exported,
+  validated, uploaded, bundled with viewer and new workflow Git blob hash.
+- **One merge, one manual deploy:** keep code+viewer+model in the same
+  reviewed PR, then trigger GitHub Pages from merged `main`.
+
 ## Final audit software result
 
 - [Transactional rollback failure protection](https://github.com/mdt733/emu/actions/runs/38853384625): **16 Python + 4 browser passed**. The actual original teacher and health state is restored after simulated world-reset failure; otherwise training halts. Same 20 checks retained.
