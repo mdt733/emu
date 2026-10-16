@@ -91,6 +91,35 @@ splits, world variations and six-servo motor model. `PhysicalFrame` and
 `CommandFrame` are lightweight named returns **within the same JIT trace**,
 not independent simulators, controllers, or new learning state.
 
+## The capability teacher, precisely
+
+```text
+TRAINING rollout metrics ──► CapabilityField.update_from_rollout
+                                  │  optional field_taught exclusion
+                                  ▼
+                          Decayed node/recovery/edge evidence
+                                  │
+                          teaching_packet(step, mode)
+                                  │
+             ┌────────────────────┴─────────────────────┐
+             ▼                                          ▼
+  tasks._sample_task (birth)                  tasks._sample_cmd_target
+  weighted node command                       node / local edge transition
+             └───────────────────┬──────────────────────┘
+                                 ▼
+                    governor-clipped safe lesson
+                                 ▼
+                    physics + PPO rollout (not held-out)
+```
+
+The capability field provides *where to practise*, not permission to exceed
+the physical frontier chosen by `RegimeGovernor`. Node anchors can bias birth
+commands, graph edge anchors can bias mid-episode TRANSITION targets, and the
+`field_taught` marker allows field-selected experience to be withheld from
+field self-evidence while still teaching PPO. Held-out cloud results may query
+the field for exam calibration, but cannot update its learned state. These are
+executed mechanisms: switching off influence does not mean they are dead code.
+
 ## The data going between layers
 
 1. **Experiment recipe** fixes source version, shared parent, random seeds,

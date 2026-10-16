@@ -42,26 +42,26 @@ The current 20 software checks only show contract compatibility.
   fall cost. Keep `rollout_metrics.py` responsible for independent
   measurable facts. Remove duplicate logging conversions. **Gate:** reward
   arithmetic equivalence (including falls) and honest telemetry.
-- [ ] **D. Training reads top to bottom.** **D1–D3 code checks verified:**
-  [resume and rollout ownership](https://github.com/mdt733/emu/actions/runs/38842290106),
-  [frozen exams](https://github.com/mdt733/emu/actions/runs/38842871586),
-  [metrics and field artifacts](https://github.com/mdt733/emu/actions/runs/38843252714).
-  `training.py` is ~750 lines (down from 993); 20 tests retained, with stronger
-  resume and delivery assertions. D4 still needs to clarify recovery and PPO
-  lifecycle without wrapper mazes or altered rollback semantics. **D4 CI verified:** 
-  [38844333684](https://github.com/mdt733/emu/actions/runs/38844333684)
-  passed 16 Python + 4 browser and build. Complete policy/teacher/normalizer/LR
-  rewind plus fresh world reset lives in `run_support.py`, and its existing
-  checkpoint test exercises the restored state. **D5 source submitted:**
-  KL-adaptive LR moved to `health.py`, preserving deadband and clamp;
-  no new test files or training payment changes. **GPU acceptance remains due.**
-  **Gate:** fresh isolated GPU update/save/resume, identical step/seed
-  semantics, and atomic checkpoint validation; no changed reward.
-- [ ] **E. Curriculum and teaching capability.** **E1 source pending CI:** separated the established physical-frontier update into a named method in the same `curriculum.py` file, preserving every coefficient, EMA, hysteresis and safety limit; strengthened one of the existing 20 checks for adaptive-on/off behaviour. Next E2: trace capability-field evidence to real task sampling before removing anything. Draw one path from rollout
-  evidence to allowed task distribution. Decide which governor, field,
-  recovery and health complexity *earns its keep*; remove overlapping or
-  unproven machinery only after comparison. **Gate:** visible physics
-  command envelopes, retreat and no hidden held-out leakage.
+- [ ] **D. Training reads top to bottom.** **Source/software gate passed D1–D5.**
+  `training.py` is now ~688 lines, down from 993; no changed rewards, legacy
+  actor observations, seed schedule, checkpoint schema, or 20-test count.
+  Resume/provenance, held-out exams, reporting, complete temporal rollback and
+  PPO KL-based LR now have explicit owners. [D4 CI](https://github.com/mdt733/emu/actions/runs/38844333684)
+  and [D5 CI](https://github.com/mdt733/emu/actions/runs/38844623465)
+  both passed 16 Python + 4 browser checks and viewer build.
+  **Not marked complete until fresh isolated CUDA PPO update/save/resume** and
+  source-pinned parity checks. Preserve atomic checkpoint publication.
+- [ ] **E. Curriculum and teaching capability.** **E1 software CI passed:**
+  [38844844745](https://github.com/mdt733/emu/actions/runs/38844844745).
+  The original 106-line physical-frontier/EMA/hysteresis controller is now
+  one named method *inside the existing governor*, with unchanged coefficients
+  and one strengthened adaptive-on/off test. **E2 next:** trace live training
+  evidence → decaying capability field → scheduled node/edge teaching packet →
+  `tasks.py` birth/transition sampling → `field_taught` provenance. Keep
+  governor safety envelopes, clean-evidence isolation and held-out examiner
+  quarantine. Remove governor/field/health mechanisms only after executable
+  call-path checks and controlled comparison. **Gate:** visible physical
+  command envelopes, safe retreat, and no hidden exam-to-teacher feedback.
 - [ ] **F. Meta-learning/experiment recipe.** Make shared foundation,
   independent teaching strategies, branch budgets and common exams readable
   in one recipe. Consolidate planning/promotions and avoid duplicating
@@ -95,7 +95,7 @@ Answer in this order:
 
 ## Next “keep going” starting point
 
-**Pass E2:** physical frontier update is now a single readable subdecision. Examine `capability_field.py`'s evidence, decay, teaching-packet and task-sampler call paths for actual overlap or unused complexity, then cut only what can be proven safe. Trace rollout evidence to the sampled task envelope, identify unused or overlapping controls by real call sites, then simplify only where behaviour and matched-policy comparisons justify it. D5 code CI and independent GPU acceptance remain open. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
+**Pass E2:** trace capability-field state and the four entries of its teaching packet through `tasks.py`, distinguishing node birth sampling, edge transition sampling, optional resilience severity, and the `field_taught` exclusion path. Prove execution and effect before deleting or combining any teaching mechanism. Use one retained real MJX contract check if a behavioural assertion is changed; no test-count growth. Keep source pinned; isolated CUDA acceptance still due. Trace rollout evidence to the sampled task envelope, identify unused or overlapping controls by real call sites, then simplify only where behaviour and matched-policy comparisons justify it. D5 code CI and independent GPU acceptance remain open. Keep exact rewind semantics; run isolated CUDA learning/resume/export and held-out physical exams before merging. The 220-input actor and schema-7 checkpoint are unchanged.
 
 ## Evidence ledger
 
@@ -110,4 +110,5 @@ Answer in this order:
 | `ebd1153` | Pass D3: canonical training metrics and field artifact writers, strengthened delivery check | [CI 38843252714](https://github.com/mdt733/emu/actions/runs/38843252714): 16 Python + 4 browser passed; no GPU run |
 | `a1b43f9` | Pass D4: complete recovery rewind and step-seeded physical restart; existing checkpoint test enlarged | [CI 38844333684](https://github.com/mdt733/emu/actions/runs/38844333684): 16 Python + 4 browser passed; no GPU run |
 | `12d47b2` | Pass D5: soft PPO KL controller owned by health; existing assertions strengthened | [CI 38844623465](https://github.com/mdt733/emu/actions/runs/38844623465): 16 Python + 4 browser passed; no CUDA training |
+| `c270366` | Pass E1: settle-tracking frontier update extracted within governor; existing adaptive frontier test strengthened | [CI 38844844745](https://github.com/mdt733/emu/actions/runs/38844844745): 16 Python + 4 browser passed, viewer built; no CUDA training |
 | `39651e4` | Pass C: readable reward computation, single source for payment names/reward-only fields, clear host diagnostics, strengthened existing servo-power invariant test | [GitHub CI 38837791165](https://github.com/mdt733/emu/actions/runs/38837791165): 16 Python + 4 browser passed, viewer built; 24 MuJoCo warnings; GPU gate open |
