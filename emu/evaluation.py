@@ -433,6 +433,26 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 jax.random.fold_in(key0,salt),int(horizon))
             vals=np.asarray(jax.device_get(compact),dtype=np.float64)
             out.update({f'screen_{name}_{k}':float(v) for k,v in zip(SCREEN_FIELDS,vals)})
+        if sensor_contact_exam:
+            # Common independent conditions for each arm, regardless of what
+            # terrain/motor distribution it saw while learning.
+            for world_name, salt, episode in (
+                ('robust', 1881, panels['robust70'][2]),
+                ('contact_slope', 1883, panels['contact_slope'][2]),
+            ):
+                env, trainer = worlds[world_name]
+                measure = trainer['evaluate_efficiency'](
+                    params, env.params_array(episode),
+                    norm['mean'], obs_std, jax.random.fold_in(key0, salt),
+                    int(horizon))
+                numbers = np.asarray(jax.device_get(measure), dtype=np.float64)
+                if not np.all(np.isfinite(numbers)):
+                    raise RuntimeError(f'nonfinite motor efficiency exam for {run_dir.name}')
+                for key, value in zip((
+                    'shaft_abs_power_w', 'shaft_drive_power_w',
+                    'over_rated_frac', 'peak_limit_frac',
+                    'action_delta_norm'), numbers):
+                    out[f'power_{world_name}_{key}'] = float(value)
         out['screen_hard_recovery']=float(np.mean([
             out['screen_resilience100_survival'],out['screen_robust70_survival']]))
         out['screen_growth_headroom']=float(np.mean([
