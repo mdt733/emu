@@ -261,3 +261,17 @@ tested by the frozen examiner. This is shared by all worlds, NOT true per-world
 randomized terrain, and no new training has been launched. Historical
 lineages and the Pitch15 showcase remain untouched. Existing fixed
 held-out panels retain flat ground as the common baseline.
+
+
+## Per-world contact terrain integration, v5016
+
+One opt-in per-world contact-geometry mode now fits inside the existing
+`environment.py` domain model batching and `TrainingConfig`: the public
+`--contact-terrain-radius` belongs only to new `sim2real` runs.
+Legacy `terrain_mode='gravity'` remains the saved-config default; all
+sampled real contact inclines share vertical gravity but have different
+fixed floor geom quaternions, with each world's spawn height derived from
+that same normal. No new core modules, rewards, observer channels,
+robot.xml changes or historical experiment overrides. CPU/MJX assertions
+and later a bounded CUDA acceptance must prove the actual contact
+normals before any sizeable training launch.

@@ -147,6 +147,7 @@ class TrainingConfig:
     domain_randomization: bool = False
     domain_robot_radius: float = 0.0
     domain_terrain_radius: float = 0.0
+    domain_terrain_mode: str = 'gravity'  # opt-in 'contact' for genuine varied floor normals
     domain_hardware_radius: float = 0.0
 
     # v5016 opt-in motor-effort teaching hypothesis (NOT hardware truth).
@@ -209,7 +210,8 @@ class TrainingConfig:
         # Historical v5014 configs may omit ONLY these new optional fields.
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
-                    'motor_guidance_weight', 'contact_slope_deg'}
+                    'motor_guidance_weight', 'contact_slope_deg',
+                    'domain_terrain_mode'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -268,6 +270,8 @@ def apply_experiment_knobs(
             raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
         if key == 'ppo_lr' and value <= 0:
             raise ValueError('ppo_lr must be positive')
+        if key == 'domain_terrain_mode' and value not in ('gravity','contact'):
+            raise ValueError('domain_terrain_mode must be gravity or contact')
         if key == 'contact_slope_deg' and not 0.0 <= value <= 5.0:
             raise ValueError('contact_slope_deg must be between 0 and 5 degrees')
         if key == 'motor_guidance_weight' and not 0.0 <= value <= 0.10:

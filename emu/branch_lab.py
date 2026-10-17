@@ -566,11 +566,18 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
     if grade > 0 and args.profile != 'sim2real':
         raise ValueError('real contact slope requires --profile sim2real')
-    if grade > 0 and cfg.domain_terrain_radius > 0:
-        raise ValueError('real contact slope cannot mix with tilted-gravity terrain radius')
+    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
+    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
+        raise ValueError('--contact-terrain-radius must be in [0, 1]')
+    if terrain_radius > 0 and args.profile != 'sim2real':
+        raise ValueError('per-world real contact terrain requires --profile sim2real')
+    if terrain_radius > 0 and grade > 0:
+        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   pitch_command_max_deg=pitch_deg,
-                   motor_guidance_weight=weight,contact_slope_deg=grade)
+                   pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
+                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
+                   domain_terrain_radius=terrain_radius,
+                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:

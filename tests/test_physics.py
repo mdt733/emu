@@ -492,3 +492,69 @@ def test_training_config_real_incline_is_real_mjx_geometry(tmp_path):
         EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,contact_slope_deg=2.,
                   domain_config=DomainRandomizationConfig(
                       enabled=True,terrain_radius=.1))
+
+
+def test_per_world_real_contact_planes_cpu_mjx_and_spawn_height():
+    """The floor is different IN each compiled MJX world, not just a label.
+
+    All other reset RNG draws are identical to a flat control. The only
+    qpos birth-position difference must be the sampled physical plane height.
+    """
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    nworld=4
+    kwargs=dict(robot_xml=str(ROBOT_XML),num_envs=nworld,seed=5016,
+                attitude_profile='v5015',sensor_noise_scale=0.)
+    flat=EmuMJXEnv(**kwargs)
+    varied=EmuMJXEnv(**kwargs,domain_config=DomainRandomizationConfig(
+        enabled=True,terrain_radius=.8,terrain_mode='contact'))
+    assert varied.model_in_axes.geom_quat == 0
+    floor_id=int(varied.ids['floor_geom'])
+    assert int(varied.mj_model.geom_sameframe[floor_id])==0
+    a,oa=flat.reset({'posture_difficulty':0.})
+    b,ob=varied.reset({'posture_difficulty':0.})
+    aa,bb=jax.device_get((a.data,b.data))
+    normals=np.asarray(bb.geom_xmat)[:,floor_id].reshape(nworld,3,3)[:,:,2]
+    expected=np.asarray(jax.device_get(varied.domain_info['contact_normal_world']))
+    np.testing.assert_allclose(normals,expected,atol=1e-5)
+    assert np.ptp(normals[:,:2],axis=0).max()>0.001
+    grade=np.rad2deg(np.arccos(np.clip(normals[:,2],-1,1)))
+    assert np.max(grade)<=5*.8+1e-3
+    gravity=np.asarray(jax.device_get(varied.mjx_model.opt.gravity))
+    np.testing.assert_allclose(gravity[:,:2],0.,atol=1e-7)
+    np.testing.assert_allclose(gravity[:,2],-9.81,atol=1e-4)
+    np.testing.assert_allclose(aa.qpos[:,:2],bb.qpos[:,:2],atol=1e-7)
+    surface_z=-(bb.qpos[:,:2]*normals[:,:2]).sum(axis=1)/normals[:,2]
+    np.testing.assert_allclose(
+        bb.qpos[:,2]-aa.qpos[:,2],surface_z,atol=2e-6)
+    assert oa.shape==ob.shape==(nworld,220)
+    out=varied.step(b,jnp.zeros((nworld,6),jnp.float32),
+                    {'posture_difficulty':0.})
+    assert bool(np.asarray(jax.device_get(jnp.all(jnp.isfinite(out.obs)))))
+    after=np.asarray(jax.device_get(out.state.data.geom_xmat))[
+        :,floor_id].reshape(nworld,3,3)[:,:,2]
+    np.testing.assert_allclose(after,normals,atol=1e-5)
+
+
+def test_legacy_terrain_still_randomizes_gravity_with_flat_contacts():
+    """Historic Pitch15 and gravity-slope experiments remain physically pinned."""
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=4,seed=5016,
+                 domain_config=DomainRandomizationConfig(
+                     enabled=True,terrain_radius=.8))
+    st,_=env.reset({})
+    dat=jax.device_get(st.data)
+    floor=int(env.ids['floor_geom'])
+    n=np.asarray(dat.geom_xmat)[:,floor].reshape(4,3,3)[:,:,2]
+    np.testing.assert_allclose(n,np.tile([0,0,1.],(4,1)),atol=1e-7)
+    gravity=np.asarray(jax.device_get(env.mjx_model.opt.gravity))
+    assert np.max(np.abs(gravity[:,:2]))>.01
+    assert env.domain_info['config']['terrain_mode']=='gravity'
+    with pytest.raises(ValueError,match='terrain_mode'):
+        DomainRandomizationConfig(terrain_mode='invented').normalized()

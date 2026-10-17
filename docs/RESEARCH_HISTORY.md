@@ -260,3 +260,30 @@ be proposed for main. Never resume an old training root from new source.
   them with sufficiently low latency or bias. Sensor fidelity is still gated.
 - Corrected the earlier reverse-course regression test's mismatched array
   dimensions; this was a test oracle error, not changed movement behaviour.
+
+
+### v5016 per-world *actual contact* terrain experiment (pending GPU acceptance)
+
+The existing `DomainRandomizationConfig` now exposes a strict
+`terrain_mode`: `gravity` (historical, unchanged) or `contact`.
+The opt-in `emu train --profile sim2real --contact-terrain-radius 0.4`
+records mode `contact`, enables its existing terrain dose and samples
+one independent real infinite-plane normal per MJX world at model creation.
+The contact angle is sampled in polar coordinates and capped at 5° total,
+not 5° roll PLUS 5° pitch; per-world gravity remains vertically downward.
+The single-floor geom has its compiled same-frame optimisation disabled
+before `mjx.put_model` so orientation isn't silently ignored. Each
+world's birth height uses its sampled physical normal. This is one
+immutable physical plane per world, not uneven terrain, moving ground, or
+episode-by-episode hill resampling. It shares the existing batch machinery
+for friction, masses and motor uncertainty.
+
+The historical gravity-based domain branch still uses exactly its
+earlier roll/pitch/gravity sample and unchanged flat collision plane.
+The opt-in per-world mode cannot be mixed with a shared static incline;
+initial validation checks physical floor normals, gravity, matching
+seeded flat/grade spawn positions, and one compiled MJX step. A
+successful CPU check is NOT a claim of 512/2048-world GPU throughput.
+Preserve old saved TrainingConfig by allowing the new mode field to
+default to `gravity`. All actor observations/reward coefficients remain
+unchanged; 30° pitch remains the common sim2real command envelope.

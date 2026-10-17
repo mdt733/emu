@@ -243,3 +243,26 @@ emu train --profile sim2real --run-dir "$OUT/grade2" --steps 12000000 \
 These commands do not launch training. Physical grading requires matched
 frozen-policy exams on both flat and real slopes and a separate GPU acceptance.
 Never combine this mode with the older tilted-gravity `domain_terrain_radius`.
+
+
+### v5016 per-world contact slope pilot — plan only
+
+The independently randomized physical terrain preview is now a single
+flag on the existing `sim2real` training command. **No training starts
+when `--plan` is present.** It is not the historical tilted-gravity
+domain study, and not a heightfield or loose/uneven ground.
+
+```bash
+RUN="$HOME/robot_lab/emu_runs/v5016_contact_pilot_$(date +%Y%m%d_%H%M%S)"
+emu train --run-dir "$RUN" --profile sim2real \
+  --contact-terrain-radius 0.4 --steps 2048 --envs 4 \
+  --device cpu --seed 733 --plan
+```
+
+Radius 1 corresponds to **up to 5° of actual inclination** in any azimuth,
+with world-specific friction variation and unchanged vertical gravity.
+Worlds have different fixed planes sampled once at environment creation.
+Do not combine `--contact-terrain-radius` with `--contact-slope-deg`.
+Separate CPU and bounded GPU memory/performance acceptance is needed before
+trying 512/2048 worlds or comparing teaching methods. This is a
+simulation capability, not validated servo or on-robot estimator fidelity.

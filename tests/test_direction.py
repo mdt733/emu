@@ -661,3 +661,51 @@ def test_shared_real_contact_slope_training_plan_is_explicit(tmp_path,capsys):
     config_plan=json.loads(data[data.index('{'):data.rfind('}')+1])
     assert config_plan['contact_slope_deg']==2.
     assert not out.exists()
+
+
+def test_contact_terrain_mode_is_explicit_in_public_training_plan(tmp_path,capsys):
+    import json
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from emu import cli
+    from emu.branch_lab import one_run_config
+    from emu.training_config import TrainingConfig
+    from emu.training import env_kwargs_from_args
+
+    def cfg(profile,radius,shared=0.):
+        return one_run_config(SimpleNamespace(
+            profile=profile,run_dir=str(tmp_path/profile),steps=2048,
+            envs=4,seed=733,device='cpu',pitch_deg=None,
+            motor_guidance_weight=0.,contact_slope_deg=shared,
+            contact_terrain_radius=radius))
+    varied=cfg('sim2real',.4)
+    assert varied.domain_randomization
+    assert varied.domain_terrain_mode=='contact'
+    assert varied.domain_terrain_radius==.4
+    assert varied.contact_slope_deg==0.
+    dc=env_kwargs_from_args(varied)['domain_config'].normalized()
+    assert dc.terrain_mode=='contact' and dc.terrain_radius==.4
+    assert varied.pitch_command_max_deg==30.
+    assert cfg('sim2real',0.).domain_terrain_mode=='gravity'
+    with pytest.raises(ValueError,match='mutually exclusive'):
+        cfg('sim2real',.4,2.)
+    with pytest.raises(ValueError,match='requires --profile'):
+        cfg('mature',.4)
+    with pytest.raises(ValueError,match='contact-terrain-radius'):
+        cfg('sim2real',1.1)
+    save=tmp_path/'config.json'
+    varied.save(save)
+    assert TrainingConfig.load(save).domain_terrain_mode=='contact'
+    historical=asdict(cfg('sim2real',0.))
+    historical.pop('domain_terrain_mode')
+    save.write_text(json.dumps(historical))
+    assert TrainingConfig.load(save).domain_terrain_mode=='gravity'
+    out=tmp_path/'dry_run'
+    assert cli.main(['train','--run-dir',str(out),'--profile','sim2real',
+                     '--steps','2048','--envs','4','--device','cpu',
+                     '--contact-terrain-radius','0.4','--plan'])==0
+    output=capsys.readouterr().out
+    plan=json.loads(output[output.index('{'):output.rfind('}')+1])
+    assert plan['domain_terrain_mode']=='contact'
+    assert plan['domain_terrain_radius']==.4
+    assert not out.exists()

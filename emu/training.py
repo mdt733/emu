@@ -102,6 +102,7 @@ def env_kwargs_from_args(args) -> dict:
             enabled=bool(args.domain_randomization),
             robot_radius=float(args.domain_robot_radius),
             terrain_radius=float(args.domain_terrain_radius),
+            terrain_mode=args.domain_terrain_mode,
             hardware_radius=float(args.domain_hardware_radius),
         ),
     )
