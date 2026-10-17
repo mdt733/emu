@@ -51,6 +51,6 @@ Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
 The park starts with a flat 2 m radius; the permitted incline grows
 approximately 1 degree per metre beyond that (1° at the 2 m boundary,
 2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
-Its deterministic gentle waves are approximate tiled MuJoCo boxes, so
+The default park extends about 11 metres each way so the outer region can\nreach the 10° *allowed* gradient; actual generated slopes may be gentler.\nIts deterministic gentle waves are approximate tiled MuJoCo boxes, so
 seams and browser performance are worth checking on actual hardware.
 This is a viewer playground, not training terrain or independent walking proof.
