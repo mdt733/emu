@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joystickToCommands } from '../src/controls.js';
+import { joystickToCommands, headingHoldRate } from '../src/controls.js';
 import { parseShowcaseManifest, assertShowcasePolicyResponse } from '../src/showcase.js';
-import { withGentleCourse, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
+import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
 const limits = {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
 const base = {schema:1,mode:'showcase',policy:'policies/champion.emupolicy',trained:true,autoplay:true,label:'EMU'};
 const xml = '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
@@ -40,4 +40,31 @@ test('gentle terrain is real additional MuJoCo contact geometry', () => {
   assert.match(out, /euler="0 1 0"/);
   assert.equal(xml.includes('viewer_ramp'), false);
   assert.throws(() => withGentleCourse(out), /already inserted/);
+});
+
+test('inverted pitch, blended diagonal steering, and side-only strafing',()=>{
+  assert.equal(joystickToCommands(0,0,0,1,limits).pitch,-limits.pitch_abs_rad);
+  const side=joystickToCommands(1,0,0,0,limits,'hybrid');
+  assert.equal(side.vy,-limits.vy_abs);assert.equal(side.yaw,0);
+  const diagonal=joystickToCommands(0.6,0.8,0,0,limits,'hybrid');
+  assert.ok(diagonal.vx>0 && diagonal.yaw<0 && diagonal.vy<0);
+  assert.ok(Math.abs(diagonal.vy)<Math.abs(side.vy));
+});
+test('heading-hold P responds to drift with saturating correction',()=>{
+  assert.ok(headingHoldRate(0,0,0.1,0.75,1.5)<0);
+  assert.ok(headingHoldRate(0,0,-0.1,0.75,1.5)>0);
+  assert.equal(headingHoldRate(1.5,1.0,0,0.75,1.5),1.5);
+});
+test('radial terrain is physically represented, flat at spawn, deterministic and locally grade-limited',()=>{
+  const park=generateTerrainPark({maxDegrees:10});
+  assert.ok(park.tiles.length>100);
+  assert.ok(park.tiles.every(t=>Math.hypot(t.x,t.y)>2));
+  assert.ok(park.tiles.every(t=>t.grade<=t.limit+1e-9));
+  assert.equal(localSlopeLimitDeg(2,10),1);
+  assert.equal(localSlopeLimitDeg(3,10),2);
+  const generated=withTerrain(xml,'park',{maxDegrees:10});
+  assert.match(generated,/viewer_park_0/);
+  assert.match(generated,/type="box"/);
+  assert.equal(generated,withTerrain(xml,'park',{maxDegrees:10}));
+  assert.throws(()=>withTerrain(generated,'park'),/already inserted/);
 });
