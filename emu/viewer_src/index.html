@@ -71,6 +71,7 @@
         <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
         <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park">Radial terrain park</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
+        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
         <label><input id="headingHoldToggle" type="checkbox" checked /> Heading hold (P control)</label>
         <label>Joysticks <select id="joystickMode"><option value="split">Split: move / turn</option><option value="hybrid">Hybrid: diagonal steering</option></select></label>
       </div>
@@ -83,7 +84,7 @@
           <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
         </div>
       </details>
-      <div class="drawer-tip">Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The ramp and radial terrain park are real browser MuJoCo contact geometry, not decorations. The radial park keeps a flat 2m centre and gradually allows steeper terrain. Heading hold modifies only the yaw command, never PPO weights. Settings never change PPO weights.</div>
+      <div class="drawer-tip">Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading hold modifies only the yaw command, never PPO weights. Settings never change PPO weights.</div>
       </section>
       <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
         <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
