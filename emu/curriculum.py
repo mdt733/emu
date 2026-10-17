@@ -2,7 +2,7 @@
 
 This module owns the task distribution only: regime difficulty/allocation, core
 retreat, and demonstrated physical frontiers. PPO/training health and rollback
-decisions live in health.py.
+decisions live in TrainingHealth below.
 """
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ class RegimeGovernor:
     CORE_RETREAT_STREAK_LIMIT = 20       # consecutive core-neglect updates before a hard retreat fires
 
     # Physical-frontier growth/retreat uses settled edge tracking with EMA
-    # hysteresis; rollout_metrics.py owns the actual tracking tolerances.
+    # hysteresis; results.py owns rollout metrics and contracts.py owns the tracking tolerances.
     FRONTIER_EXPAND_PRECISION = 0.62
     FRONTIER_RETREAT_PRECISION = 0.28
     FRONTIER_PRECISION_EMA_ALPHA = 0.15
