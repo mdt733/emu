@@ -153,7 +153,9 @@ def main(argv=None) -> int:
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
-    q.add_argument('--run-dir',required=True)
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--run-dir',help='read-only schema-7 training run')
+    source.add_argument('--policy',help='frozen exported .emupolicy actor')
     q.add_argument('--output',required=True,help='unique examination directory, outside training root')
     q.add_argument('--angle',type=float,default=0.)
     q.add_argument('--direction',choices=['uphill','downhill','cross_left','cross_right'],default='uphill')
@@ -176,9 +178,11 @@ def main(argv=None) -> int:
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q=sub.add_parser('directional-batch',
         help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
-    q.add_argument('--root',required=True,help='original read-only four-way run root')
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--root',help='original read-only four-way run root')
+    source.add_argument('--policy',help='frozen exported actor, requires physical profile')
     q.add_argument('--output',required=True,help='new separate exam root')
-    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch'],
+    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch','physical'],
                    default='smoke')
     q.add_argument('--worlds',type=int)
     q.add_argument('--seed',type=int,default=1701)
@@ -230,7 +234,8 @@ def main(argv=None) -> int:
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
         from .evaluation import directional_main
-        return directional_main('--run-dir',args.run_dir,'--output',args.output,
+        return directional_main('--policy' if args.policy else '--run-dir',
+                    args.policy or args.run_dir,'--output',args.output,
                     '--angle',str(args.angle),'--direction',args.direction,
                     '--worlds',str(args.worlds),'--horizon',str(args.horizon),
                     '--speed',str(args.speed),'--lateral',str(args.lateral),
@@ -245,7 +250,8 @@ def main(argv=None) -> int:
         from .evaluation import plan,execute
         from .evaluation import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
-                  seed=args.seed,kp=args.heading_kp,device=args.device)
+                  seed=args.seed,kp=args.heading_kp,device=args.device,
+                  policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
     if args.cmd=='report':
