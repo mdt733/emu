@@ -956,7 +956,8 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
         raise RuntimeError('paired evaluations did not use same checkpoint')
     for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
                 'angle_deg','direction','settle_frames','scenario','turn_rate',
-                'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames'):
+                'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames',
+                'ground_mode','actual_gravity_world'): 
         if off['exam'][key]!=on['exam'][key]:
             raise RuntimeError('paired examinations have unequal '+key)
     s_off=_summarize_worlds(off['worlds'])
@@ -1134,7 +1135,13 @@ def cases(profile):
                     ('turn_left',0.,'uphill','turn_stop_left'),
                     ('turn_right',0.,'uphill','turn_stop_right'),
                     ('sidestep_left',0.,'uphill','sidestep_left'),
-                    ('sidestep_right',0.,'uphill','sidestep_right'))]
+                    ('sidestep_right',0.,'uphill','sidestep_right'),
+                    # Unlike the legacy gravity-equivalent tests, these
+                    # rotate the actual static collision plane. Do not
+                    # mistake them for per-world terrain randomization.
+                    ('contact_up_2deg',2.,'uphill','steady'),
+                    ('contact_down_2deg',2.,'downhill','steady'),
+                    ('contact_cross_2deg',2.,'cross_left','steady'))]
     if profile=='smoke':
         return [('baseline','flat',0.,'uphill','steady',40),
                 ('baseline','turn_stop',0.,'uphill','turn_stop_left',160)]
@@ -1182,6 +1189,7 @@ def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda',
           gyro_delay_frames=delay,
           run_dir=str(source if policy_file is not None else source/'round1'/arm),
           is_exported_policy=policy_file is not None,
+          contact_slope=profile=='physical' and angle>0,
           output=str(dest/profile/arm/label))
           for arm,label,angle,direction,scenario,horizon in cases(profile)]
 
@@ -1197,6 +1205,7 @@ def verify_existing(path,job,revision,checkpoint_hash):
     exam=info.get('protocol',{})
     wanted=dict(angle_deg=job['angle'],direction=job['direction'],
         scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
+        ground_mode='inclined_contact_plane' if job.get('contact_slope') else 'tilted_gravity',
         seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
         gyro_noise_std_rad_s=job['gyro_noise'],
         gyro_delay_frames=job['gyro_delay_frames'])
@@ -1323,7 +1332,8 @@ def execute(jobs,revision,*,actually_run=False):
              '--heading-kp',str(job['heading_kp']),'--compare-heading',
              '--gyro-bias',str(job['gyro_bias']),
              '--gyro-noise',str(job['gyro_noise']),
-             '--gyro-delay-frames',str(job['gyro_delay_frames'])]
+             '--gyro-delay-frames',str(job['gyro_delay_frames']),
+             *(['--contact-slope'] if job.get('contact_slope') else [])]
         subprocess.run(cmd,check=True)
         if not verify_existing(report,job,revision,hashes[job['arm']]):
             raise RuntimeError('no completed exam at '+str(report))
