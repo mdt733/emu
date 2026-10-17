@@ -335,3 +335,57 @@ def test_motor_guidance_does_not_change_real_mjx_physics_or_actor_contract():
     expected=-.08*(.65*fraction+.35*shaft)
     np.testing.assert_allclose(b.metrics['reward_weighted_motor_cost'],expected,atol=1e-6)
     np.testing.assert_allclose(b.reward,a.reward+expected,rtol=1e-5,atol=1e-5)
+
+
+def test_real_contact_plane_normal_and_gravity_through_cpu_mjx():
+    """Tilt the actual contact surface, not gravity or camera coordinates."""
+    mujoco=pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv, contact_plane_quaternion
+    from emu.contracts import ROBOT_XML
+    theta=np.deg2rad(3.)
+    for direction in ((1.,0.),(-1.,0.),(0.,1.)):
+        env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=16,
+                      attitude_profile='v5015',contact_slope_deg=3.,
+                      contact_uphill_xy=direction,sensor_noise_scale=0.)
+        idx=int(env.ids['floor_geom'])
+        quat=contact_plane_quaternion(3.,direction)
+        np.testing.assert_allclose(env.mj_model.geom_quat[idx],quat,atol=1e-7)
+        expected=np.asarray([-np.sin(theta)*direction[0],
+                            -np.sin(theta)*direction[1],np.cos(theta)])
+        cpu=mujoco.MjData(env.mj_model)
+        mujoco.mj_forward(env.mj_model,cpu)
+        np.testing.assert_allclose(
+            np.asarray(cpu.geom_xmat[idx]).reshape(3,3)[:,2],expected,atol=1e-6)
+        state,obs=env.reset({'posture_difficulty':0.})
+        state=jax.device_get(state)
+        physical_normal=np.asarray(state.data.geom_xmat)[0,idx].reshape(3,3)[:,2]
+        np.testing.assert_allclose(physical_normal,expected,atol=1e-5)
+        np.testing.assert_allclose(env.mj_model.opt.gravity,[0.,0.,-9.81],atol=1e-6)
+        assert obs.shape==(2,220)
+    for bad in (-1.,6.,float('nan')):
+        with pytest.raises(ValueError,match='contact slope'):
+            contact_plane_quaternion(bad,(1.,0.))
+    with pytest.raises(ValueError,match='uphill'):
+        contact_plane_quaternion(2.,(0.,0.))
+
+
+def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
+    """Guard the full exported-actor route on a real incline (not tilted gravity)."""
+    from pathlib import Path
+    from emu.evaluation import evaluate_directional_run
+    import json
+    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    report_path,_=evaluate_directional_run(
+        policy_file=hero, output=tmp_path/'physical_incline',
+        angle_deg=2.,direction='uphill',worlds=2,horizon=35,
+        speed=.08,seed=1701,settle_frames=0,device='cpu',
+        contact_slope=True)
+    report=json.loads(report_path.read_text())
+    exam=report['exam']
+    assert exam['ground_mode']=='inclined_contact_plane'
+    np.testing.assert_allclose(exam['actual_gravity_world'],[0,0,-9.81],atol=1e-5)
+    assert exam['grade_reference_gravity_world'][0] < 0.
+    assert len(report['worlds'])==2
+    assert all('course_pass' in row for row in report['worlds'])
