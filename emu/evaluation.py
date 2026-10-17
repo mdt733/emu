@@ -1078,58 +1078,9 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
 
 
 def directional_main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__)
-    source=p.add_mutually_exclusive_group(required=True)
-    source.add_argument('--run-dir',help='full schema-7 run directory')
-    source.add_argument('--policy',help='exported read-only .emupolicy file')
-    p.add_argument('--output',required=True)
-    p.add_argument('--angle',type=float,default=0.)
-    p.add_argument('--direction',choices=('uphill','downhill','cross_left','cross_right'),default='uphill')
-    p.add_argument('--worlds',type=int,default=8)
-    p.add_argument('--horizon',type=int,default=350)
-    p.add_argument('--speed',type=float,default=.10)
-    p.add_argument('--lateral',type=float,default=0.)
-    p.add_argument('--yaw-rate',type=float,default=0.)
-    p.add_argument('--settle-frames',type=int,default=25)
-    p.add_argument('--scenario',choices=SCENARIOS,default='steady')
-    p.add_argument('--turn-rate',type=float,default=.25)
-    p.add_argument('--gyro-bias',type=float,default=0.)
-    p.add_argument('--gyro-noise',type=float,default=0.)
-    p.add_argument('--gyro-delay-frames',type=int,default=0)
-    p.add_argument('--contact-slope',action='store_true',
-                   help='rotate actual infinite floor plane; keep real gravity vertical')
-    p.add_argument('--seed',type=int,default=1701)
-    p.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cuda')
-    p.add_argument('--heading-kp',type=float,default=0.75,
-                   help='P gain per second, used for ON/compare; default OFF unless selected')
-    p.add_argument('--compare-heading',action='store_true',
-                   help='evaluate matched OFF and ON rollouts into one separate bundle')
-    p.add_argument('--reuse-completed',action='store_true',
-                   help='rebuild a missing pair report from saved OFF/ON JSON, with no MJX stepping')
-    a=p.parse_args(argv)
-    if a.reuse_completed and not a.compare_heading:
-        p.error('--reuse-completed requires --compare-heading')
-    kw=dict(angle_deg=a.angle,direction=a.direction,worlds=a.worlds,
-            horizon=a.horizon,speed=a.speed,lateral=a.lateral,
-            yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
-            settle_frames=a.settle_frames,scenario=a.scenario,
-            turn_rate=a.turn_rate,gyro_bias=a.gyro_bias,
-            gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames,
-            contact_slope=a.contact_slope)
-    if a.compare_heading:
-        outputs=evaluate_directional_pair(
-                              run_dir=a.run_dir,policy_file=a.policy,
-                              output=a.output,heading_kp=a.heading_kp,
-                              reuse_completed=a.reuse_completed,**kw)
-    else:
-        # Single-case invocation deliberately remains controller OFF by default.
-        outputs=evaluate_directional_run(
-                             run_dir=a.run_dir,policy_file=a.policy,
-                             output=a.output,heading_kp=0.0,**kw)
-    for path in outputs:
-        print(path)
-    return 0
-
+    """Compatibility entrypoint; the public `emu` parser owns arguments."""
+    from .cli import main
+    return main(['directional-exam', *(sys.argv[1:] if argv is None else argv)])
 
 
 # Operator-command courses: unmodified requests, never robot-derived.
@@ -1162,11 +1113,14 @@ def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
         if abs(lateral) < 1e-6:
             raise ValueError('sidestep exam requires a nonzero --lateral command')
         cmds[:,2] = 0.
+        cmds[:,1] = 0.
         cmds[a:b,0] = 0.
         cmds[a:b,1] = abs(lateral) * (1 if scenario.endswith('left') else -1)
     elif scenario == 'reverse':
+        if np.hypot(speed,lateral) < .02:
+            raise ValueError('reverse exam requires a nonzero horizontal command')
         cmds[:,2] = 0.
-        cmds[a:b,0] = -abs(speed)
+        cmds[a:b,:2] *= -1.
     elif scenario == 'stop_resume':
         cmds[:,2] = 0.
         cmds[a:b,:2] = 0.

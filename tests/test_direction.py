@@ -384,23 +384,31 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
     from emu import cli, evaluation
     policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     received=[]
-    def one(argv=None):
-        # Match directional_main's actual signature, not a permissive
-        # *args mock that lets broken public forwarding escape CI.
-        assert isinstance(argv, list)
-        received.append(('exam',argv))
-        return 0
-    monkeypatch.setattr(evaluation,'directional_main',one)
+    def pair(**kwargs):
+        received.append(('pair',kwargs))
+        return tmp_path/'paired.json',tmp_path/'paired.md'
+    def one(**kwargs):
+        received.append(('single',kwargs))
+        return tmp_path/'single.json',tmp_path/'single.md'
+    monkeypatch.setattr(evaluation,'evaluate_directional_pair',pair)
+    monkeypatch.setattr(evaluation,'evaluate_directional_run',one)
     assert cli.main(['directional-exam','--policy',str(policy),
                      '--output',str(tmp_path/'one'),'--device','cpu',
                      '--contact-slope','--compare-heading']) == 0
-    assert received[0][1][:2] == ['--policy',str(policy)]
-    assert '--contact-slope' in received[0][1]
-    assert '--compare-heading' in received[0][1]
-    # The original schema-7 run path must obey the same single-list contract.
+    assert received[0][0]=='pair'
+    assert received[0][1]['policy_file']==str(policy)
+    assert received[0][1]['contact_slope'] is True
+    assert received[0][1]['heading_kp']==pytest.approx(.75)
+    assert received[0][1]['reuse_completed'] is False
+    # The full checkpoint path is still direct, and defaults to heading OFF.
     assert cli.main(['directional-exam','--run-dir',str(tmp_path/'old_run'),
                      '--output',str(tmp_path/'old_exam'),'--device','cpu']) == 0
-    assert received[1][1][:2] == ['--run-dir',str(tmp_path/'old_run')]
+    assert received[1][0]=='single'
+    assert received[1][1]['run_dir']==str(tmp_path/'old_run')
+    assert received[1][1]['heading_kp']==0.
+    with pytest.raises(SystemExit):
+        cli.main(['directional-exam','--policy',str(policy),
+                  '--output',str(tmp_path/'invalid'),'--reuse-completed'])
     def plan_stub(*args,**kwargs):
         received.append(('plan',args,kwargs))
         return [{'sentinel':'read-only'}]
@@ -593,6 +601,8 @@ def test_physical_course_names_correspond_to_nonzero_real_motion():
             make_schedule(scenario,120,speed=.1,lateral=0.)
         cmd=make_schedule(scenario,120,speed=.1,lateral=.06)
         assert np.any(np.abs(cmd[:,1])>.05)
+        assert np.allclose(cmd[:30,1],0.)
+        assert np.allclose(cmd[80:,1],0.)
         assert np.allclose(cmd[30:80,0],0.)
         assert np.sign(cmd[31,1]) == (1 if direction=='left' else -1)
     for scenario,beg,end in (('rest_start',0,30),('stop_resume',30,80),
@@ -601,3 +611,13 @@ def test_physical_course_names_correspond_to_nonzero_real_motion():
         assert np.all(c[beg:end,:2]==0), scenario
     speed=make_schedule('speed_step',120,speed=.1,lateral=.05)
     np.testing.assert_allclose(speed[:30,1],.02,atol=1e-6)
+
+
+def test_reverse_course_flips_complete_horizontal_request():
+    from emu.evaluation import make_schedule
+    req=make_schedule('reverse',120,speed=.1,lateral=-.06)
+    np.testing.assert_allclose(req[:30,:2],(.1,-.06),atol=1e-6)
+    np.testing.assert_allclose(req[30:80,:2],(-.1,.06),atol=1e-6)
+    np.testing.assert_allclose(req[80:,:2],(.1,-.06),atol=1e-6)
+    with pytest.raises(ValueError,match='nonzero horizontal'):
+        make_schedule('reverse',120,speed=0.,lateral=0.)

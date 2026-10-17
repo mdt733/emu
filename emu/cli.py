@@ -238,21 +238,31 @@ def main(argv=None) -> int:
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
-        from .evaluation import directional_main
-        return directional_main(['--policy' if args.policy else '--run-dir',
-                    args.policy or args.run_dir,'--output',args.output,
-                    '--angle',str(args.angle),'--direction',args.direction,
-                    '--worlds',str(args.worlds),'--horizon',str(args.horizon),
-                    '--speed',str(args.speed),'--lateral',str(args.lateral),
-                    '--yaw-rate',str(args.yaw_rate),'--settle-frames',str(args.settle_frames),
-                    '--seed',str(args.seed),'--device',args.device,
-                    '--heading-kp',str(args.heading_kp),
-                    '--scenario',args.scenario,'--turn-rate',str(args.turn_rate),
-                    '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
-                    '--gyro-delay-frames',str(args.gyro_delay_frames),
-                    *(['--contact-slope'] if args.contact_slope else []),
-                    *(['--compare-heading'] if args.compare_heading else []),
-                    *(['--reuse-completed'] if args.reuse_completed else [])])
+        # Parse ONCE and call the examiner directly. Previously this rebuilt
+        # strings for a second parser: a fragile seam that caused real WSL
+        # crashes while lower-level tests remained green.
+        from .evaluation import evaluate_directional_pair, evaluate_directional_run
+        if args.reuse_completed and not args.compare_heading:
+            p.error('--reuse-completed requires --compare-heading')
+        request=dict(
+            run_dir=args.run_dir,policy_file=args.policy,output=args.output,
+            angle_deg=args.angle,direction=args.direction,
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            lateral=args.lateral,yaw_rate=args.yaw_rate,
+            settle_frames=args.settle_frames,seed=args.seed,device=args.device,
+            scenario=args.scenario,turn_rate=args.turn_rate,
+            gyro_bias=args.gyro_bias,gyro_noise=args.gyro_noise,
+            gyro_delay_frames=args.gyro_delay_frames,
+            contact_slope=args.contact_slope)
+        if args.compare_heading:
+            paths=evaluate_directional_pair(
+                heading_kp=args.heading_kp,
+                reuse_completed=args.reuse_completed,**request)
+        else:
+            paths=evaluate_directional_run(heading_kp=0.,**request)
+        for path in paths:
+            print(path)
+        return 0
     if args.cmd=='directional-batch':
         from .evaluation import plan,execute
         from .evaluation import source_commit

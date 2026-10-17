@@ -227,3 +227,17 @@ be proposed for main. Never resume an old training root from new source.
   complete protocol check. It never resumes or overwrites half-finished
   simulations. Summary rows retain source artifact SHA/type, preserving
   the exported actor's identity even without its original .pkl.
+
+### v5016 public CLI simplification — one parser owns the command
+
+- Removed the duplicate directional-exam argument parser from the internal
+  evaluation entrypoint. Public `emu` now calls the exam functions with
+  a validated keyword request instead of serializing arguments back into
+  a second command line. Legacy `directional_main(argv)` delegates to
+  the same public parser; no second interpretation layer remains.
+- Finalized the movement recipes: a sidestep begins with zero lateral
+  demand before switching to a nonzero sideways command; reversal inverts
+  the entire horizontal vector, not just forward velocity. Start/stop,
+  braking and pitch30 remain common tasks rather than new modules or arms.
+- The changes stay inside `cli.py`, `evaluation.py` and the existing test
+  and research-history files. No new core modules or Git architecture work.
