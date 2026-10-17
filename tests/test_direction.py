@@ -709,3 +709,56 @@ def test_contact_terrain_mode_is_explicit_in_public_training_plan(tmp_path,capsy
     assert plan['domain_terrain_mode']=='contact'
     assert plan['domain_terrain_radius']==.4
     assert not out.exists()
+
+
+def test_tripod_tof_estimate_separates_ground_grade_from_body_attitude():
+    """Three downward rays + measured IMU gravity, never privileged plane input.
+
+    Flat terrain while pitching the chassis is still zero ground grade.
+    Real forward AND lateral contact inclines survive yaw/pitch changes.
+    """
+    from emu.directional import (
+        simulate_tripod_ranges,fit_tripod_ground,
+        TOF_TRIPOD_MOUNTS_BODY_M,TOF_TRIPOD_BEAMS_BODY)
+    up=np.array([0.,0.,1.])
+    torso=np.array([[0.,0.,.25]])
+    flat_n=np.array([[0.,0.,1.]])
+    angle=math.radians(17.)
+    pitch=np.array([[math.cos(angle),0.,math.sin(angle)],
+                    [0.,1.,0.],
+                    [-math.sin(angle),0.,math.cos(angle)]])
+    ranges,seen=simulate_tripod_ranges(np,torso,pitch[None],
+                        np.zeros((1,3)),flat_n)
+    assert seen.all()
+    gravity_body=(pitch.T @ np.array([0,0,-1.]))[None,:]
+    flat=fit_tripod_ground(np,ranges,gravity_body)
+    assert bool(flat['valid'][0])
+    assert float(flat['forward_grade_rad'][0])==pytest.approx(0,abs=1e-6)
+    assert float(flat['sideways_grade_rad'][0])==pytest.approx(0,abs=1e-6)
+    forward_deg=2.5
+    side_deg=-1.3
+    normal=np.array([[-math.tan(math.radians(forward_deg)),
+                       -math.tan(math.radians(side_deg)),1.]])
+    normal/=np.linalg.norm(normal,axis=1,keepdims=True)
+    ranges,seen=simulate_tripod_ranges(np,torso,pitch[None],
+                        np.zeros((1,3)),normal)
+    assert seen.all()
+    grade=fit_tripod_ground(np,ranges,gravity_body)
+    assert bool(grade['valid'][0])
+    assert math.degrees(float(grade['forward_grade_rad'][0]))==pytest.approx(
+        forward_deg,abs=.1)
+    assert math.degrees(float(grade['sideways_grade_rad'][0]))==pytest.approx(
+        side_deg,abs=.1)
+    assert grade['visibility_confidence'][0]>0
+    # Deliberately lose the first return: NEVER label a miss as flat.
+    dropout=fit_tripod_ground(np,np.array([[0.,ranges[0,1],ranges[0,2]]]),
+                             gravity_body)
+    assert not bool(dropout['valid'][0])
+    assert dropout['visibility_confidence'][0]==0
+    # Optical ray noise is amplified by the small sensor triangle; accuracy
+    # must not be inferred from validity alone.
+    noisy=fit_tripod_ground(np,ranges+np.array([[.001,-.001,.001]]),
+                           gravity_body)
+    assert bool(noisy['valid'][0])
+    assert abs(float(noisy['forward_grade_rad'][0]-
+                     grade['forward_grade_rad'][0]))>0

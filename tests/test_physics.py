@@ -558,3 +558,43 @@ def test_legacy_terrain_still_randomizes_gravity_with_flat_contacts():
     assert env.domain_info['config']['terrain_mode']=='gravity'
     with pytest.raises(ValueError,match='terrain_mode'):
         DomainRandomizationConfig(terrain_mode='invented').normalized()
+
+
+def test_real_mjx_tripod_probe_agrees_with_individual_contact_planes():
+    """Sensor synthesis sees the floor; the inverse estimator sees only rays."""
+    pytest.importorskip('mujoco')
+    import jax
+    from emu.environment import EmuMJXEnv,DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=4,seed=5016,
+                  attitude_profile='v5015',
+                  domain_config=DomainRandomizationConfig(
+                      enabled=True,terrain_radius=.8,terrain_mode='contact'))
+    state,_=env.reset({'posture_difficulty':0.})
+    observed=jax.device_get(env.ground_sensor_probe(state.data))
+    assert observed['ranges_m'].shape==(4,3)
+    assert observed['beam_valid'].shape==(4,3)
+    assert observed['valid'].shape==(4,)
+    assert bool(np.all(observed['valid']))
+    # Compare measured slope from three downward beam returns against
+    # actual MuJoCo floor normal, NEVER passed to fit_tripod_ground().
+    dat=jax.device_get(state.data)
+    floor=int(env.ids['floor_geom'])
+    n=np.asarray(dat.geom_xmat)[:,floor].reshape((4,3,3))[:,:,2]
+    R=np.asarray(dat.xmat)[:,env.torso_id].reshape((4,3,3))
+    front=R[:,:,0].copy()
+    front[:,2]=0.
+    front/=np.linalg.norm(front,axis=1,keepdims=True)
+    side=np.column_stack((-front[:,1],front[:,0],np.zeros(4)))
+    actual_f=np.arctan2(-np.sum(n*front,axis=1),n[:,2])
+    actual_s=np.arctan2(-np.sum(n*side,axis=1),n[:,2])
+    np.testing.assert_allclose(observed['forward_grade_rad'],actual_f,atol=2e-4)
+    np.testing.assert_allclose(observed['sideways_grade_rad'],actual_s,atol=2e-4)
+    assert np.max(np.abs(actual_f))+np.max(np.abs(actual_s))>.01
+    # Out-of-range return cannot be substituted with a perfect floor normal.
+    missing=jax.device_get(env.ground_sensor_probe(
+        state.data,range_errors_m=np.tile([1.,0.,0.],(4,1))))
+    assert not np.any(missing['valid'])
+    np.testing.assert_allclose(missing['visibility_confidence'],0.,atol=0)
+    # No actor dimension or old policy schema changed by a diagnostic probe.
+    assert env.obs(state).shape==(4,220)

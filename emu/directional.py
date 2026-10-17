@@ -753,10 +753,91 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25,
     return findings
 
 
-# Optional three-ray ground-plane experiment (read-only geometry).
-from dataclasses import dataclass
-import math
-import numpy as np
+# Three ToF modules below the torso: front-right, front-left, rear.
+# Local coordinates are provisional mounting points, not a CAD claim.
+# Calibrate their actual measured extrinsics before any physical deployment.
+TOF_TRIPOD_MOUNTS_BODY_M = (
+    (.035, -.050, -.025),
+    (.035,  .050, -.025),
+    (-.040, .000, -.025),
+)
+TOF_TRIPOD_BEAMS_BODY = ((0.,0.,-1.),)*3
+TOF_MIN_RANGE_M = .035
+TOF_MAX_RANGE_M = .60
+
+
+def simulate_tripod_ranges(xp, torso_world, rotation_body_to_world,
+                           floor_origin_world, floor_normal_world,
+                           *, range_errors_m=None):
+    """Sensor *forward model*: true collision geometry may only be read here.
+
+    Three body-mounted, narrow downward rays intersect the fixed plane.
+    Results are measured ray lengths, not the floor normal. No body/shin
+    self-occlusion, reflectance, multipath or surface texture yet.
+    """
+    mounts=xp.asarray(TOF_TRIPOD_MOUNTS_BODY_M)
+    beams=xp.asarray(TOF_TRIPOD_BEAMS_BODY)
+    pos=torso_world[:,None,:]+xp.einsum('wij,kj->wki',rotation_body_to_world,mounts)
+    dirs=xp.einsum('wij,kj->wki',rotation_body_to_world,beams)
+    n=floor_normal_world
+    denominator=xp.sum(dirs*n[:,None,:],axis=-1)
+    numerator=xp.sum((floor_origin_world[:,None,:]-pos)*n[:,None,:],axis=-1)
+    # Floor normals point upward. Near-grazing beams are invalid.
+    safe=xp.where(xp.abs(denominator)>1e-6,denominator,-1.)
+    ranges=numerator/safe
+    if range_errors_m is not None:
+        ranges=ranges+xp.asarray(range_errors_m)
+    valid=(denominator<-.3)&xp.isfinite(ranges)&(ranges>=TOF_MIN_RANGE_M)&(ranges<=TOF_MAX_RANGE_M)
+    return xp.where(valid,ranges,0.),valid
+
+
+def fit_tripod_ground(xp, ranges_m, gravity_body, *,
+                      mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                      beams_body=TOF_TRIPOD_BEAMS_BODY,
+                      min_area_m2=.0001):
+    """Estimator shared by CPU and JAX; no simulator floor normal input.
+
+    Uses only the three measured beam lengths, calibrated mounts, and IMU
+    gravity estimate. Positive forward/side grades are uphill in the torso
+    heading's gravity-levelled X/Y directions, expressed in radians.
+
+    Three points ALWAYS define a plane: no residual-based quality claim is
+    possible. Confidence here means valid geometry/visibility only, not
+    probability of accurate terrain on broken, mixed or reflective ground.
+    """
+    ranges=xp.asarray(ranges_m)
+    g=xp.asarray(gravity_body)
+    origins=xp.asarray(mounts_body)
+    dirs=xp.asarray(beams_body)
+    length=xp.sqrt(xp.sum(dirs*dirs,axis=-1))
+    dirs=dirs/xp.maximum(length[:,None],1e-8)
+    points=origins[None,:,:]+ranges[:,:,None]*dirs[None,:,:]
+    v1=points[:,1,:]-points[:,0,:]
+    v2=points[:,2,:]-points[:,0,:]
+    raw=xp.cross(v1,v2)
+    area=.5*xp.sqrt(xp.sum(raw*raw,axis=-1))
+    n=raw/xp.maximum(2*area[:,None],1e-8)
+    up=-g/xp.maximum(xp.sqrt(xp.sum(g*g,axis=-1,keepdims=True)),1e-8)
+    n=xp.where(xp.sum(n*up,axis=-1,keepdims=True)<0,-n,n)
+    cosine=xp.sum(n*up,axis=-1)
+    fwd=xp.broadcast_to(xp.asarray((1.,0.,0.)),up.shape)
+    fwd=fwd-xp.sum(fwd*up,axis=-1,keepdims=True)*up
+    fwd=fwd/xp.maximum(xp.sqrt(xp.sum(fwd*fwd,axis=-1,keepdims=True)),1e-8)
+    side=xp.cross(up,fwd)
+    fgrade=xp.arctan2(-xp.sum(n*fwd,axis=-1),cosine)
+    sgrade=xp.arctan2(-xp.sum(n*side,axis=-1),cosine)
+    valid=(xp.all(xp.isfinite(ranges)&(ranges>=TOF_MIN_RANGE_M)&
+                  (ranges<=TOF_MAX_RANGE_M),axis=-1)
+           &(area>=min_area_m2)&(cosine>.1)
+           &(xp.sqrt(xp.sum(g*g,axis=-1))>.1)
+           &(xp.sqrt(xp.sum(fwd*fwd,axis=-1))>.5))
+    # A zero angle with valid=False MUST NOT be treated as flat ground.
+    confidence=xp.where(valid,
+        xp.clip(area/.00375,0.,1.)*xp.clip(cosine/.6,0.,1.),0.)
+    return dict(forward_grade_rad=xp.where(valid,fgrade,0.),
+                sideways_grade_rad=xp.where(valid,sgrade,0.),
+                ground_normal_body=xp.where(valid[:,None],n,up),
+                triangle_area_m2=area,valid=valid,visibility_confidence=confidence)
 
 
 @dataclass(frozen=True)
@@ -795,18 +876,19 @@ def estimate_ground_plane(
     g_norm = np.linalg.norm(gravity)
     if np.any(ray_norm < 1e-8) or g_norm < 1e-8:
         return GroundPlane(False, 'degenerate ray/gravity')
-    ray_direction = direction / ray_norm[:, None]
-    points = origin + ranges[:, None] * ray_direction
-    n = np.cross(points[1] - points[0], points[2] - points[0])
-    length = np.linalg.norm(n)
-    area = 0.5 * length
-    if length < 1e-10 or area < min_area_m2:
-        return GroundPlane(False, 'nearly collinear ground returns', triangle_area_m2=float(area))
-    n = n / length
-    g = gravity / g_norm
-    if np.dot(n, -g) < 0:
-        n = -n
-    cosine = float(np.dot(n, -g))
+    fitted = fit_tripod_ground(np,ranges[None,:],gravity[None,:],
+                               mounts_body=origin,beams_body=direction,
+                               min_area_m2=min_area_m2)
+    area=float(fitted['triangle_area_m2'][0])
+    if area<min_area_m2:
+        return GroundPlane(False,'nearly collinear ground returns',
+                           triangle_area_m2=area)
+    if not bool(fitted['valid'][0]):
+        return GroundPlane(False,'ground normal nearly perpendicular to gravity',
+                           triangle_area_m2=area)
+    n=np.asarray(fitted['ground_normal_body'][0])
+    g=gravity/g_norm
+    cosine=float(np.dot(n,-g))
     if cosine < 0.1:
         return GroundPlane(False, 'ground normal nearly perpendicular to gravity', triangle_area_m2=float(area))
     tangential_down = g - np.dot(g, n) * n

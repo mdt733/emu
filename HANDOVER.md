@@ -275,3 +275,21 @@ that same normal. No new core modules, rewards, observer channels,
 robot.xml changes or historical experiment overrides. CPU/MJX assertions
 and later a bounded CUDA acceptance must prove the actual contact
 normals before any sizeable training launch.
+
+
+## v5016 physical sensor tripod audit (before 20M foundation)
+
+An existing CPU three-ToF plane fitting primitive has been unified with
+a JAX-capable pure plane fit and a diagnostic MJX beam measurement source.
+Sensor mounts are provisional (three non-collinear down-looking rays under
+the torso). The simulation uses true ground *only to synthesize ranges*,
+then the estimator uses solely ranges and IMU gravity to reconstruct
+forward/lateral local slope and visibility. Missing beams explicitly yield
+invalid estimates. The optics, real TOF noise and occlusion are NOT yet
+validated. Optical flow vx/vy is planned but not implemented.
+
+**Do not commence v5016 neural training yet.** Decide the new versioned
+actor packet after validating these sensing assumptions, IMU angular-rate
+frame semantics and a realistic optical-flow + range velocity model.
+The protected 55x4 champion stays usable; no checkpoint interpretation
+or viewer export contracts were changed.

@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .directional import simulate_tripod_ranges, fit_tripod_ground
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
@@ -1696,6 +1697,26 @@ class EmuMJXEnv(TaskSampler):
         body_vel = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 0:3])
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
+
+    def ground_sensor_probe(self, data, range_errors_m=None):
+        """Provisional three-ToF + IMU surface observation, not actor truth.
+
+        Floor geometry is used ONLY to synthesize beam returns. The inverse
+        estimate sees measured ranges and projected IMU gravity, never the
+        MuJoCo ground normal. Intentionally diagnostic until versioned
+        v5016 actor input, latency and optical-flow models are accepted.
+        """
+        jnp=self.jnp
+        R=self._rotation_body_to_world(data)
+        torso=data.xpos[:,self.torso_id,:]
+        f=int(self.ids['floor_geom'])
+        floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
+        floor_o=data.geom_xpos[:,f,:]
+        ranges,beam_valid=simulate_tripod_ranges(
+            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        projected_gravity,_,_=self._body_packets(data)
+        estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
+        return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
 
     def _floor_signed_heights(self, data, positions):
         """Per-world signed distance to the *actual* collision plane.

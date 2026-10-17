@@ -287,3 +287,48 @@ successful CPU check is NOT a claim of 512/2048-world GPU throughput.
 Preserve old saved TrainingConfig by allowing the new mode field to
 default to `gravity`. All actor observations/reward coefficients remain
 unchanged; 30° pitch remains the common sim2real command envelope.
+
+
+### v5016 physical sensor observation audit — three-ToF prototype
+
+The existing `directional.py::estimate_ground_plane` CPU three-beam
+calculation predates this pass. Instead of creating another plane estimator,
+a common NumPy/JAX sensor fit now sits beside it and a diagnostic
+`EmuMJXEnv.ground_sensor_probe()` constructs measured lengths from three
+body-fixed downward rays intersecting the actual MJX floor. The fit itself
+receives ONLY calibrated body-relative ray geometry, ranges and projected
+IMU gravity, never the privileged floor normal. It reports separate signed
+forward and sideways grade, validity and **visibility confidence**.
+The CPU legacy plane helper uses the same central geometric fit.
+
+Provisional sensor positions relative to torso origin (metres):
+front-right (0.035,-0.050,-0.025), front-left
+(0.035,+0.050,-0.025), rear (-0.040,0,-0.025).
+All are downward along local -Z. Mounts and 0.035–0.6 m valid
+range are engineering assumptions, NOT sourced from a chosen ToF module.
+The existing torso is 100 x 180 mm; packaging/leg occlusion, beam field
+of view, surface reflectance, material, internal interference and sample
+rates have not been validated. The three rays intersect the ideal plane
+without raycasting robot parts or rough terrain.
+
+Three points can always define *some* plane, even across an obstacle
+edge; the fit has NO redundant measurement to reject non-planar returns.
+Confidence therefore refers to visibility/conditioning only—not
+statistical certainty about slope. Ranged beam loss must invalidate the
+measurement, not produce a confident 0-degree floor. At an ~75 mm fore/aft
+baseline a 1 mm relative range error is of order 0.76 degrees: a 3 degree
+hill is measurable in principle but precision/calibration matter.
+
+The body-frame IMU gravity packet allows removal of chassis attitude, so
+pitching the robot on flat ground does not create a fictitious slope.
+Down-facing optical flow, corrected by gyro rotation and scaled by the
+measured surface distance, is the planned source for (vx,vy), but **has
+not yet been implemented as a real estimator**; existing vel_x/vel_y
+are still simulator velocity surrogates. Dropouts, quantization, temporal
+noise, asynchronous sensor rates and joint-to-foot kinematics must be
+modelled before a new actor observation schema is frozen.
+
+Legacy 55x4=220 actor, the archived Pitch15 champion, schema-7
+checkpoints and browser observation paths remain unchanged. This pass is
+a diagnostically accessible sensor prototype and code-traced audit—not
+yet a policy that consumes measured terrain inclination.
