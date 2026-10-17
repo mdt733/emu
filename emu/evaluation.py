@@ -825,8 +825,26 @@ def _summarize_worlds(worlds):
     def mean_optional(key):
         values=[float(w[key]) for w in worlds if key in w]
         return sum(values)/len(values) if values else None
+    def physical_optional(key):
+        values=[float(w['physical_evidence'][key]) for w in worlds
+                if w.get('physical_evidence',{}).get(key) is not None]
+        return sum(values)/len(values) if values else None
     count=len(worlds)
+    physical=[w['physical_evidence'] for w in worlds if 'physical_evidence' in w]
+    peak=max((max(p['servo_peak_abs_torque_nm']) for p in physical),default=None)
     return dict(worlds=count,
+                physical_worlds=len(physical),
+                positive_progress_worlds=sum(
+                    w.get('positive_shaft_work_per_progress_m_j_m') is not None
+                    for w in worlds),
+                servo_over_continuous_frac=physical_optional('servo_all_sample_over_continuous_fraction'),
+                servo_peak_abs_torque_nm=peak,
+                drive_work_j=physical_optional('step_integrated_drive_shaft_work_j'),
+                abs_work_j=physical_optional('step_integrated_abs_shaft_work_j'),
+                spring_potential_range_j=physical_optional('spring_potential_range_j'),
+                contact_pair_slip_speed_m_s=physical_optional('contact_pair_slip_speed_mean_m_s'),
+                drive_work_per_progress_j_m=mean_optional('positive_shaft_work_per_progress_m_j_m'),
+                abs_work_per_progress_j_m=mean_optional('absolute_shaft_work_per_progress_m_j_m'),
                 survived_full=sum(bool(w['full_horizon_survival']) for w in worlds)/count,
                 course_pass=sum(bool(w.get('course_pass')) for w in worlds)/count,
                 gait_candidate_pass=sum(bool(w.get('walking_pass')) for w in worlds)/count,
@@ -873,7 +891,11 @@ def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
     keys=('survived_full','course_pass','gait_candidate_pass','progress_m',
           'heading_mae_deg','yaw_rate_mae_rad_s','yaw_abs_error_1s','yaw_abs_error_3s',
           'gyro_heading_error_mae_deg',
-          'mean_abs_controller_correction_rad_s')
+          'mean_abs_controller_correction_rad_s',
+          'servo_over_continuous_frac','servo_peak_abs_torque_nm',
+          'drive_work_j','abs_work_j','spring_potential_range_j',
+          'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
+          'abs_work_per_progress_j_m')
     delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
            for k in keys}
     result=dict(schema=1,checkpoint_sha256=off['checkpoint_sha256'],
@@ -898,6 +920,9 @@ def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
             '—' if x is None else f'{x:.4f}' for x in vals)+' |')
     lines+=['','Fractions are over all examined worlds. Other metrics are means',
             'of valid measured episodes, NOT conditionally matched survivor pairs.',
+            'Physical summaries are per-world averages when observed, not pooled duty-weighted samples.',
+            'Work per signed progress includes only worlds with >1 cm commanded-direction progress;',
+            'inspect the positive_progress_worlds and physical_worlds counts before comparisons.',
             'Review individual world outcomes in off/ and on/ before any decision.',
             'A better heading MAE does not compensate for worse survival or course progress.',
             'This comparison did not retrain or alter the checkpoint.']
@@ -1082,9 +1107,11 @@ def summarize(jobs,profile_root,revision):
         str(len(rows))+'/'+str(len(jobs))+' cases complete.',
         'Same saved checkpoint and operator request for each ON/OFF pair.',
         'No PPO training or promotion performed. Gait contact flags are estimates.',
+        'Servo duty is relative to nominal 0.638 Nm; shaft work is not electrical energy.',
+        'Work per metre is conditional on positive signed course progress; null is not zero.',
         '',
-        '| Policy | Case | OFF survival | ON survival | OFF course | ON course | OFF heading MAE | ON heading MAE |',
-        '|---|---|---:|---:|---:|---:|---:|---:|']
+        '| Policy | Case | OFF survival | ON survival | OFF course | ON course | OFF over-rated % | ON over-rated % | OFF J/m | ON J/m |',
+        '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
     def v(x,key,percent=False):
         value=x.get(key)
         if value is None:
@@ -1095,14 +1122,22 @@ def summarize(jobs,profile_root,revision):
         lines.append('| '+' | '.join((row['arm'],row['case'],
             v(a,'survived_full',True),v(b,'survived_full',True),
             v(a,'course_pass',True),v(b,'course_pass',True),
-            v(a,'heading_mae_deg'),v(b,'heading_mae_deg')))+' |')
+            v(a,'servo_over_continuous_frac',True),
+            v(b,'servo_over_continuous_frac',True),
+            v(a,'drive_work_per_progress_j_m'),
+            v(b,'drive_work_per_progress_j_m')))+' |')
     lines+=['','Higher survival and actual requested-course progress must accompany',
             'any claimed heading benefit. Inspect the raw paired episodes.']
     (profile_root/'results.md').write_text('\n'.join(lines)+'\n')
     with (profile_root/'results.csv').open('w',newline='') as file:
         fields=('arm','case','mode','survived_full','course_pass',
                 'gait_candidate_pass','progress_m','heading_mae_deg',
-                'yaw_abs_error_1s','gyro_heading_error_mae_deg')
+                'yaw_abs_error_1s','gyro_heading_error_mae_deg',
+                'physical_worlds','positive_progress_worlds',
+                'servo_over_continuous_frac','servo_peak_abs_torque_nm',
+                'drive_work_j','abs_work_j','spring_potential_range_j',
+                'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
+                'abs_work_per_progress_j_m')
         w=csv.DictWriter(file,fieldnames=fields)
         w.writeheader()
         for r in rows:
