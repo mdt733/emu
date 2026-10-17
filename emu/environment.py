@@ -1506,9 +1506,15 @@ class EmuMJXEnv(TaskSampler):
         pos_noise_full = self._lerp(0.0, self.recovery_position_max_m, resilience_d)
         pos_noise_mag = jnp.where(is_resilience, pos_noise_full, pos_noise_full * STEADY_RESILIENCE_BORROW_FRAC)
         pos_offset = jax.vmap(lambda k, m: jax.random.uniform(k, (3,), minval=-m, maxval=m))(pos_keys, pos_noise_mag)
+        root_xy=pos_offset[:,:2]
+        # A sloping infinite plane passes through the origin. Lift the birth
+        # position by its real surface height, before pose tilt/noise.
+        uphill=jnp.asarray(self.contact_uphill_xy,dtype=jnp.float32)
+        uphill=uphill/jnp.maximum(jnp.linalg.norm(uphill),1e-6)
+        floor_z=jnp.tan(jnp.deg2rad(self.contact_slope_deg))*jnp.sum(root_xy*uphill,axis=1)
         qpos = qpos.at[:, 0:3].set(jnp.stack([
-            pos_offset[:, 0], pos_offset[:, 1],
-            NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2],
+            root_xy[:,0],root_xy[:,1],
+            NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2] + floor_z,
         ], axis=1))
 
         # Initial pose tilt (roll/pitch away from upright). Same
@@ -1644,6 +1650,18 @@ class EmuMJXEnv(TaskSampler):
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
 
+    def _floor_signed_heights(self, data, positions):
+        """Per-world signed distance to the *actual* collision plane.
+
+        positions is [worlds,points,3]. Flat ground preserves exact world-Z
+        semantics; tilted-gravity trials still have a flat contact surface.
+        This is privileged simulator geometry, NEVER an actor observation.
+        """
+        floor = int(self.ids['floor_geom'])
+        normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
+        origin = data.geom_xpos[:,floor,:]
+        return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
+
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
 
@@ -1673,9 +1691,12 @@ class EmuMJXEnv(TaskSampler):
         body_roll = jnp.arctan2(-projected_gravity[:, 1], -projected_gravity[:, 2])
         pitch_err = body_pitch - task[:, T.pitch]
         roll_err = body_roll - task[:, T.roll]
-        height = data.xpos[:, self.torso_id, 2]
         foot_pos = data.xpos[:, self.foot_bodies, :]
-        foot_z = foot_pos[:, :, 2]
+        # Height means clearance above the actual contact plane, not world Z.
+        # Otherwise a robot walking uphill appears higher and its grounded
+        # uphill foot can be incorrectly rewarded as a swing foot.
+        height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
+        foot_ground_distance = self._floor_signed_heights(data,foot_pos)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -1702,9 +1723,9 @@ class EmuMJXEnv(TaskSampler):
         attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
         # 2. Contact, gait and fall proxies. Foot height indicates nearby
         # ground; it is NOT a verified load-bearing contact impulse.
-        foot_contacts = jnp.sum((foot_z < 0.036).astype(jnp.float32), axis=1)
+        foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = data.xpos[:, self.bad_bodies, 2]
+        bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
@@ -1713,7 +1734,7 @@ class EmuMJXEnv(TaskSampler):
         body_low_soft = jnp.any(bad_z[:, 1:] < SOFT_BODY_LOW_Z, axis=1).astype(jnp.float32)
         low_height_soft = (height < 0.130).astype(jnp.float32)
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
-        swing_clearance = jnp.maximum(0.0, jnp.max(foot_z, axis=1) - 0.018)
+        swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
@@ -1734,7 +1755,7 @@ class EmuMJXEnv(TaskSampler):
         # foot poses estimate tangential speed and only near-floor feet count.
         foot_vel_xy = (data.xpos[:, self.foot_bodies, :2] - prev_foot_pos[:, :, :2]) / CONTROL_DT
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
-        stance_w = jnp.clip((0.040 - foot_z) / 0.020, 0.0, 1.0)
+        stance_w = jnp.clip((0.040 - foot_ground_distance) / 0.020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
         # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
@@ -1748,8 +1769,8 @@ class EmuMJXEnv(TaskSampler):
         s_phase = jnp.sin(phase)
         r_expected = jnp.maximum(0.0, s_phase)
         l_expected = jnp.maximum(0.0, -s_phase)
-        r_lift = jnp.clip((foot_z[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
-        l_lift = jnp.clip((foot_z[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        r_lift = jnp.clip((foot_ground_distance[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        l_lift = jnp.clip((foot_ground_distance[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
         phase_sync = jnp.clip(1.0 - 0.5 * (jnp.abs(r_lift - r_expected) + jnp.abs(l_lift - l_expected)), 0.0, 1.0)
         step_evidence = jnp.clip((jnp.maximum(r_lift, l_lift) - 0.10) / 0.55, 0.0, 1.0)
         alternating_lift = jnp.abs(r_lift - l_lift)
@@ -1826,7 +1847,11 @@ class EmuMJXEnv(TaskSampler):
         # Simulator counterpart of a fused optical-flow + ToF + IMU/leg estimate.
         # Exact root vxy is never handed straight to the actor.
         vel_est = body_vel[:, :2] + ns[:, None] * 0.018 * jnp.stack([n0, n1], axis=1)
-        tof_height = torso[:, 2:3] + ns[:, None] * 0.0025 * n1[:, None]
+        # Approximate height-sensor reading over the physical ground plane.
+        # The sensor noise remains the legacy observer model; this is not
+        # evidence that hardware can recover true floor geometry perfectly.
+        ground_height = self._floor_signed_heights(data,torso[:,None,:])
+        tof_height = ground_height + ns[:, None] * 0.0025 * n1[:, None]
         vel_conf = jnp.clip(1.0 - 0.18*ns, 0.2, 1.0)[:, None].astype(jnp.float32)
         shin_flex_est = shin_flex + ns[:, None] * 0.0010 * jnp.stack([n0, n1], axis=1)
         shin_rate_est = shin_rate + ns[:, None] * 0.010 * jnp.stack([n1, n0], axis=1)

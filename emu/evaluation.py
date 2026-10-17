@@ -789,8 +789,9 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         int(gyro_delay_frames))
     frames=jax.device_get(trace)
     evaluated=evaluate_trace_arrays(
-        frames,np.tile(g,(int(worlds),1)),dt=.02,
-        settle_frames=int(settle_frames))
+        frames,np.tile(actual_gravity,(int(worlds),1)),dt=.02,
+        settle_frames=int(settle_frames),
+        ground_mode='inclined_contact_plane' if contact_slope else 'tilted_gravity')
     report={
         'schema':2,'source_commit':source_commit(),
         'source_artifact_type':source_type,
@@ -803,7 +804,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
                     ground_mode='inclined_contact_plane' if contact_slope else 'tilted_gravity',
                     actual_gravity_world=actual_gravity.tolist(),
                     grade_reference_gravity_world=g.tolist(),
-                    gravity_world=actual_gravity.tolist(),worlds=int(worlds),
+                    gravity_world=actual_gravity.tolist(),
+                    measured_floor_normal_world=np.asarray(
+                        frames['floor_normal_world'][0,0],dtype=float).tolist(),
+                    worlds=int(worlds),
                     horizon=int(horizon),settle_frames=int(settle_frames),
                     speed=float(speed),lateral=float(lateral),
                     yaw_rate=float(yaw_rate),seed=int(seed),device=device,
@@ -848,7 +852,9 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'Yaw estimate integrates body gyro with configured sensor imperfections.',
         'Original operator command schedule is not changed by heading P.',
         'No PPO retraining, reward or policy modification was performed.',
-        'A rotated gravity field represents infinite uniform ground; not a physical ramp.',
+        ('Real inclined collision plane with vertical gravity; not uneven ground.'
+         if contact_slope else
+         'Tilted gravity on a flat collision plane; not a physical ramp.'),
         '',
         '| World | Horizon | Course | Gait | Signed m | Stride pairs | Servo over % | Peak Nm | Drive J/m | Brake latency s |',
         '|---|---|---|---|---:|---:|---:|---:|---:|---:|',
@@ -1011,7 +1017,8 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
     for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
                 'angle_deg','direction','settle_frames','scenario','turn_rate',
                 'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames',
-                'ground_mode','actual_gravity_world'): 
+                'ground_mode','actual_gravity_world',
+                'measured_floor_normal_world'): 
         if off['exam'][key]!=on['exam'][key]:
             raise RuntimeError('paired examinations have unequal '+key)
     s_off=_summarize_worlds(off['worlds'])
@@ -1146,7 +1153,7 @@ def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
     if abs(speed) > .6 or abs(lateral) > .25 or abs(yaw_rate) > 1.5 or not 0 < turn_rate <= 1.5:
         raise ValueError('command outside safe test envelope')
     n = int(horizon)
-    cmds = np.tile(np.array([speed, 0., yaw_rate], dtype=np.float32), (n, 1))
+    cmds = np.tile(np.array([speed, lateral, yaw_rate], dtype=np.float32), (n, 1))
     a = n//4
     b = n*2//3
     if scenario in ('turn_stop_left','turn_stop_right'):

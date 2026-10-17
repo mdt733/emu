@@ -243,46 +243,77 @@ def examine_command_transitions(positions_xy, heading_rad, commands, *,
     observed=np.diff(pos,axis=0)/dt
     norm=np.linalg.norm(requested,axis=1)
     transitions=[]
-    boundary=np.flatnonzero(np.any(np.abs(np.diff(cmd[:,:2],axis=0)) > 1e-6,axis=1))+1
+    linear_change=np.any(np.abs(np.diff(cmd[:,:2],axis=0))>1e-6,axis=1)
+    angular_change=np.abs(np.diff(cmd[:,2]))>1e-6
+    boundary=np.flatnonzero(linear_change|angular_change)+1
+    actual_yaw=np.arctan2(np.sin(np.diff(head)),np.cos(np.diff(head)))/dt
     for idx in boundary:
         if idx < settle_frames:
             continue
-        prev,now=norm[idx-1],norm[idx]
-        if now < .008 and prev >= .025:
-            kind='brake_to_stop'
-        elif prev < .008 and now >= .025:
-            kind='rest_to_walk'
-        elif prev >= .025 and now >= .025 and np.dot(requested[idx-1],requested[idx]) < -.50*prev*now:
-            kind='reverse_or_redirect'
-        elif now > prev*1.25 and now >= .025:
-            kind='accelerate'
-        elif now < prev*.8:
-            kind='decelerate'
-        else:
-            kind='command_change'
-        later=boundary[boundary>idx]
-        end=int(later[0]) if len(later) else n
+        next_bound=boundary[boundary>idx]
+        end=int(next_bound[0]) if len(next_bound) else n
         end=min(end,idx+round(2/dt))
-        response=None
-        for j in range(idx,end-stable_frames+1):
-            interval=observed[j:j+stable_frames]
-            if now < .008:
-                reached=np.all(np.linalg.norm(interval,axis=1)<=max(.015,.2*prev))
+        # Multiple physical requests can change on one frame; measure the
+        # linear and angular response separately, rather than pretending a
+        # pure turn isn't a maneuver.
+        if linear_change[idx-1]:
+            prev,now=norm[idx-1],norm[idx]
+            if now < .008 and prev >= .025:
+                kind='brake_to_stop'
+            elif prev < .008 and now >= .025:
+                kind='rest_to_walk'
+            elif prev >= .025 and now >= .025 and np.dot(requested[idx-1],requested[idx]) < -.50*prev*now:
+                kind='reverse_or_redirect'
+            elif now > prev*1.25 and now >= .025:
+                kind='accelerate'
+            elif now < prev*.8:
+                kind='decelerate'
             else:
-                direction=requested[idx]/now
-                reached=np.all(interval @ direction >= .7*now)
-            if reached:
-                response=float((j-idx)*dt)
-                break
-        row=dict(start_step=int(idx),kind=kind,
-                 target_speed_mps=float(now),
-                 response_latency_s=response,
-                 response_observed=response is not None)
-        if now < .008:
-            last=min(n,idx+max(1,round(.5/dt)))
-            row['braking_path_first_0p5s_m']=float(
-                np.sum(np.linalg.norm(np.diff(pos[idx:last+1],axis=0),axis=1)))
-        transitions.append(row)
+                kind='command_change'
+            response=None
+            for j in range(idx,end-stable_frames+1):
+                interval=observed[j:j+stable_frames]
+                if now < .008:
+                    reached=np.all(np.linalg.norm(interval,axis=1)<=max(.015,.2*prev))
+                else:
+                    direction=requested[idx]/now
+                    reached=np.all(interval @ direction >= .7*now)
+                if reached:
+                    response=float((j-idx)*dt)
+                    break
+            row=dict(start_step=int(idx),kind=kind,response_axis='translation',
+                     target_speed_mps=float(now),response_latency_s=response,
+                     response_observed=response is not None)
+            if now < .008:
+                last=min(n,idx+max(1,round(.5/dt)))
+                row['braking_path_first_0p5s_m']=float(
+                    np.sum(np.linalg.norm(np.diff(pos[idx:last+1],axis=0),axis=1)))
+            transitions.append(row)
+        if angular_change[idx-1]:
+            previous=float(cmd[idx-1,2])
+            target=float(cmd[idx,2])
+            if abs(target)<.008 and abs(previous)>=.025:
+                kind='turn_stop'
+            elif abs(previous)<.008 and abs(target)>=.025:
+                kind='turn_start'
+            elif target*previous<0.:
+                kind='turn_reverse'
+            else:
+                kind='turn_rate_change'
+            response=None
+            for j in range(idx,end-stable_frames+1):
+                rates=actual_yaw[j:j+stable_frames]
+                if abs(target)<.008:
+                    reached=np.all(np.abs(rates)<=max(.04,.2*abs(previous)))
+                else:
+                    reached=np.all(rates*np.sign(target)>=.70*abs(target))
+                if reached:
+                    response=float((j-idx)*dt)
+                    break
+            transitions.append(dict(
+                start_step=int(idx),kind=kind,response_axis='yaw',
+                target_yaw_rate_rad_s=target,response_latency_s=response,
+                response_observed=response is not None))
     timings=[r['response_latency_s'] for r in transitions if r['response_observed']]
     braking=[r['braking_path_first_0p5s_m'] for r in transitions
              if 'braking_path_first_0p5s_m' in r]
@@ -316,6 +347,7 @@ def contact_pair_mask(xp, contact_geom1, contact_geom2, contact_distance,
 
 
 def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
+                          foot_clearance_m=None,
                           min_air_frames=3, min_swing_m=.012,
                           min_clearance_m=.004, min_body_progress_m=.025):
     """Conservative alternating touchdown pair count, NOT foot-lift count.
@@ -335,6 +367,12 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
         raise ValueError('nonfinite foot trajectory')
     if not 0 <= settle_frames < n:
         raise ValueError('invalid settle window')
+    # Signed ball-bottom clearance against the actual plane is supplied by
+    # the examiner; older flat-world calls retain their original semantics.
+    clearance = (np.asarray(foot_clearance_m,dtype=float)
+                 if foot_clearance_m is not None else feet[:,:,2]-.018)
+    if clearance.shape != (n,2) or not np.isfinite(clearance).all():
+        raise ValueError('invalid foot-ground clearance shape/values')
     swing_start = [None, None]
     max_clearance = [0.0, 0.0]
     air_frames = [0, 0]
@@ -346,11 +384,11 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
             if ct[k-1, foot] and not ct[k, foot]:
                 swing_start[foot] = k-1
                 air_frames[foot] = 1
-                max_clearance[foot] = max(0.0, feet[k, foot, 2] - .018)
+                max_clearance[foot] = max(0.0, clearance[k, foot])
             elif not ct[k, foot] and swing_start[foot] is not None:
                 air_frames[foot] += 1
                 max_clearance[foot] = max(max_clearance[foot],
-                                          float(feet[k, foot, 2] - .018))
+                                          float(clearance[k, foot]))
             elif not ct[k-1, foot] and ct[k, foot]:
                 start = swing_start[foot]
                 if start is not None and air_frames[foot] >= min_air_frames:
@@ -526,7 +564,8 @@ def examine_spring_cycle(trace, world, *, start, stop, terminal, contacts):
     return totals
 
 
-def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
+def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25,
+                          ground_mode='tilted_gravity'):
     """Reduce bounded, real-MJX pre-reset frame samples into per-world verdicts.
 
     trace contains [horizon, worlds, ...] pre-step poses/contacts/commands and
@@ -542,6 +581,20 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
     g = np.asarray(gravity_world, dtype=float)
     if g.shape != (worlds, 3):
         raise ValueError('gravity vector count must equal number of worlds')
+    if ground_mode not in ('tilted_gravity','inclined_contact_plane'):
+        raise ValueError('unknown ground scoring mode')
+    # Geometric ground must originate in the actual MJX Data, not from
+    # requested angle labels; never silently "prove" a slope from a flag.
+    floor_n = np.asarray(trace.get('floor_normal_world',
+                        np.broadcast_to([0.,0.,1.],(horizon,worlds,3))),dtype=float)
+    floor_o = np.asarray(trace.get('floor_origin_world',
+                        np.zeros((horizon,worlds,3))),dtype=float)
+    if (floor_n.shape!=(horizon,worlds,3) or floor_o.shape!=(horizon,worlds,3)
+        or not np.isfinite(floor_n).all() or not np.isfinite(floor_o).all()):
+        raise ValueError('invalid MJX floor geom transform trace')
+    if ground_mode=='inclined_contact_plane' and (
+        'floor_normal_world' not in trace or 'floor_origin_world' not in trace):
+        raise ValueError('inclined contact exam requires actual MJX floor geometry')
     findings = []
     for w in range(worlds):
         term = np.flatnonzero(arrays['done'][:, w] > .5)
@@ -575,8 +628,23 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
         contacts = np.concatenate((arrays['floor_contact'][:stop,w],
                                    final_contacts[None]),axis=0)
         commands = arrays['command'][:stop,w]
-        slope, uphill = incline_from_tilted_gravity(g[w])
-        strides = count_contact_strides(pos,feet,contacts,settle_frames=settle_frames)
+        ground_n=floor_n[0,w]
+        ground_o=floor_o[0,w]
+        if (np.linalg.norm(ground_n)<1e-8 or ground_n[2]<=0
+            or np.max(np.abs(floor_n[:stop,w]-ground_n))>1e-5
+            or np.max(np.abs(floor_o[:stop,w]-ground_o))>1e-5):
+            raise ValueError('physical floor normal/origin changed inside the scored episode')
+        ground_n=ground_n/np.linalg.norm(ground_n)
+        if ground_mode=='inclined_contact_plane':
+            horizontal=np.linalg.norm(ground_n[:2])
+            slope=math.degrees(math.atan2(horizontal,ground_n[2]))
+            uphill=(-ground_n[:2]/horizontal) if horizontal>1e-8 else None
+        else:
+            slope,uphill=incline_from_tilted_gravity(g[w])
+        foot_clearance=np.sum((feet-ground_o)*ground_n,axis=2)-.018
+        strides = count_contact_strides(
+            pos,feet,contacts,settle_frames=settle_frames,
+            foot_clearance_m=foot_clearance)
         # The grading function rejects early terminations. The stride count
         # stays reported but cannot override an invalid course or fall.
         course = examine_course(pos,head,commands,dt=dt,
@@ -649,7 +717,9 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             # proxy, not a force-plate measurement of sole friction.
             scored_feet = feet[settle_frames:]
             scored_contacts = contacts[settle_frames:]
-            foot_delta = np.linalg.norm(np.diff(scored_feet[:, :, :2], axis=0), axis=2)
+            delta_3d=np.diff(scored_feet,axis=0)
+            tangent_delta=delta_3d-np.sum(delta_3d*ground_n,axis=2)[:,:,None]*ground_n
+            foot_delta = np.linalg.norm(tangent_delta,axis=2)
             grounded = scored_contacts[:-1] & scored_contacts[1:]
             if np.any(grounded):
                 physical['contact_pair_slip_path_m'] = float(np.sum(foot_delta[grounded]))
@@ -677,6 +747,7 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
         # Grade is the requested course geometry, not a measured incline
         # recovered from a sensor or contact impulses.
         result.update(contact_stride_pairs=strides,configured_course_grade_deg=slope,
+                      measured_ground_normal_xyz=ground_n.tolist(),
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)
     return findings

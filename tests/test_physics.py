@@ -436,3 +436,32 @@ def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch
     (out/'heading_comparison.json').unlink()
     with pytest.raises(ValueError,match='reuse protocol mismatch'):
         cli.main([*argv,'--speed','.2','--reuse-completed'])
+
+
+def test_audit_ground_relative_environment_metrics_and_observation_cpu_mjx():
+    """On the actual tilted collision plane, a grounded foot is not airborne
+    just because world-Z increases. The actor still has 220 channels.
+    """
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML
+    for slope in (0.,3.):
+        env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=42,
+                      attitude_profile='v5015',contact_slope_deg=slope,
+                      sensor_noise_scale=0.)
+        state,obs=env.reset({'posture_difficulty':0.})
+        metrics=env._metrics(state.data,state.task,
+            np.zeros((2,6),np.float32),np.zeros((2,6),np.float32),
+            state.phase,state.prev_foot_pos)
+        m=jax.device_get(metrics)
+        dat=jax.device_get(state.data)
+        idx=int(env.ids['floor_geom'])
+        normal=np.asarray(dat.geom_xmat)[:,idx].reshape((2,3,3))[:,:,2]
+        origin=np.asarray(dat.geom_xpos)[:,idx]
+        torso=np.asarray(dat.xpos)[:,int(env.ids['torso'])]
+        expected=np.sum((torso-origin)*normal,axis=1)
+        np.testing.assert_allclose(m['height'],expected,atol=1e-5)
+        assert obs.shape==(2,220)
+        # This is a model-truth test, NOT permission to claim a real TOF
+        # sensor provides perfect arbitrary-terrain height on hardware.

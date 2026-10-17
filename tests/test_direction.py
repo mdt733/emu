@@ -525,3 +525,52 @@ def test_nullable_exam_summary_never_converts_unobserved_response_to_zero():
     assert b['maneuver_response_s']==pytest.approx(.24)
     assert b['braking_path_first_0p5s_m']==pytest.approx(.033)
     assert b['survived_full']==1.0
+
+
+def test_audit_command_scheduler_preserves_lateral_and_detects_yaw_only_turns():
+    from emu.evaluation import make_schedule
+    from emu.directional import examine_command_transitions
+    schedule=make_schedule('steady',80,speed=.08,lateral=-.06,yaw_rate=.0)
+    np.testing.assert_allclose(schedule[:,0],.08)
+    np.testing.assert_allclose(schedule[:,1],-.06)
+    turning=make_schedule('turn_stop_left',120,speed=.08,turn_rate=.3)
+    assert not np.any(np.abs(np.diff(turning[:,0]))>1e-8)
+    pos=np.zeros((121,2),dtype=float)
+    heading=np.concatenate(([0.],np.cumsum(turning[:,2]*.02)))
+    response=examine_command_transitions(pos,heading,turning,dt=.02)
+    assert response['maneuver_count']==2
+    assert [m['kind'] for m in response['maneuvers']]==['turn_start','turn_stop']
+    assert all(m['response_axis']=='yaw' for m in response['maneuvers'])
+    assert all(m['response_observed'] for m in response['maneuvers'])
+    # No turn events on a steady translational request.
+    assert examine_command_transitions(pos,np.zeros(121),
+        np.tile([.08,-.06,0.],(120,1)))['maneuver_count']==0
+
+
+def test_audit_slope_course_uses_actual_contact_normal_not_vertical_gravity():
+    from emu.directional import evaluate_trace_arrays
+    n=60
+    angle=math.radians(2)
+    normal=np.array([-math.sin(angle),0.,math.cos(angle)])
+    trace=fake_trace(n=n,worlds=2)
+    trace['position_xy'][:,0,0]=np.arange(n)*.002
+    trace['last_position_xy'][0]=[n*.002,0.]
+    trace['foot_xyz'][:,0,:,0]=trace['position_xy'][:,0,0,None]
+    trace['foot_xyz'][:,0,:,2]=(
+        np.tan(angle)*trace['foot_xyz'][:,0,:,0]+.018/math.cos(angle))
+    trace['last_foot_xyz'][0]=trace['foot_xyz'][-1,0]
+    trace['floor_normal_world']=np.broadcast_to(normal,(n,2,3)).copy()
+    trace['floor_origin_world']=np.zeros((n,2,3))
+    course=evaluate_trace_arrays(
+        trace,np.tile([0,0,-9.81],(2,1)),settle_frames=0,
+        ground_mode='inclined_contact_plane')[0]
+    assert course['configured_course_grade_deg']==pytest.approx(2.,abs=1e-4)
+    assert course['requested_uphill_progress_m']>0
+    assert course['uphill_progress_m']>0
+    assert course['measured_ground_normal_xyz']==pytest.approx(normal)
+    np.testing.assert_allclose(
+        (trace['foot_xyz'][:,0,:,:]*normal).sum(axis=2)-.018,
+        0.,atol=1e-6)
+    with pytest.raises(ValueError,match='requires actual MJX floor'):
+        evaluate_trace_arrays(fake_trace(),np.tile([0,0,-9.81],(2,1)),
+                              ground_mode='inclined_contact_plane')

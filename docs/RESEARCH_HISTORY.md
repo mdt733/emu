@@ -187,3 +187,26 @@ be proposed for main. Never resume an old training root from new source.
   the derived paired summaries, and reconstructs them with MJX evaluation
   monkeypatched to fail if any new rollout is attempted. CPU CI is required;
   real CUDA evaluation/feasibility remain separately verified by WSL.
+
+
+### v5016 code-first audit correction (17 Oct 2026)
+
+- Found by direct source walkthrough, not by trusting existing green tests:
+  steady schedules discarded their lateral request, yaw-only maneuvers were
+  never measured, and both gait and training proxies interpreted absolute
+  world-Z as ground clearance on the newly inclined contact plane.
+- The examiner now collects the real MuJoCo floor plane normal/origin from
+  the *scored MJX Data*, requires it for real-contact experiments, grades
+  real hills using their collision normal (not vertical gravity), and uses
+  signed ball-to-plane clearance and tangent-plane displacement for gait
+  evidence. The old tilted-gravity/flat-floor exam remains explicitly distinct.
+- The environment computes floor-relative height, foot clearance, low-body
+  pressure and height-sensor approximation from actual collision geometry.
+  Flat worlds retain old world-Z geometry; new inclined-plane births are
+  height-adjusted to the local floor. Neither makes the unfinished hardware
+  sensor estimator reliable, nor turns the original domain-randomized
+  tilted gravity into true per-world terrain.
+- Pure change-oracle tests cover lateral and yaw-only requests and real-slope
+  grading; an actual CPU MJX reset checks ground-relative geometry. No PPO
+  reward coefficients, robot.xml, actor layout, schema-7 checkpoint or
+  published Pitch15 policy were changed. GPU acceptance still required.

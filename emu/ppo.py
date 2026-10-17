@@ -653,12 +653,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             contacts=contact_pair_mask(
                 jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
                 int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
-            return data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],contacts
+            floor = int(env.ids['floor_geom'])
+            floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
+            floor_origin = data.geom_xpos[:,floor,:]
+            return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
+                    contacts,floor_normal,floor_origin)
 
         def step(carry, inputs):
             es, ob, target, estimate, history_gyro = carry
             cmd, sensor_noise = inputs
-            xy,yaw,foot_xyz,contacts=record_state(es)
+            xy,yaw,foot_xyz,contacts,floor_normal,floor_origin=record_state(es)
             raw_gyro=env._body_packets(es.data)[2][:,2]
             sampled_gyro=raw_gyro+bias+sensor_noise
             # Preserve an initial sample across the sensor's latency window.
@@ -699,6 +703,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
                 next_task_yaw_rate=out.state.task[:,T.yaw],
@@ -732,7 +737,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
-        last_xy,last_yaw,last_foot,last_contacts=record_state(last)
+        last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,
