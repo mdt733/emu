@@ -777,3 +777,31 @@ def test_flow_delay_and_gyro_use_same_raw_sensor_frame_cpu_mjx():
     truth = np.asarray(jax.device_get(env._body_packets(moved)[1][:, :2]))
     assert np.max(np.abs(read0['velocity_body_xy_mps'] - truth)) > .02
     np.testing.assert_allclose(read1['velocity_body_xy_mps'], truth, atol=1e-4)
+
+
+def test_flow_held_between_updates_keeps_matched_gyro_cpu_mjx():
+    """When flow is held for 3 frames, hold its compensation gyro too."""
+    pytest.importorskip('mujoco')
+    import jax
+    import jax.numpy as jnp
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.environment import EmuMJXEnv
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=2, seed=5016,
+                    observation_schema=OBS_SCHEMA_SENSOR,
+                    tof_period_frames=1, flow_period_frames=3,
+                    tof_delay_frames=0, flow_delay_frames=0,
+                    tof_dropout_prob=0., flow_dropout_prob=0.,
+                    gyro_bias_std_rad_s=0., sensor_noise_scale=0.)
+    state, _ = env.reset({'posture_difficulty': 0.})
+    sensors = state.sensor_state
+    old_flow_gyro = np.asarray(jax.device_get(sensors.samples.gyro_body_rad_s[:, -1, :]))
+    updated_qvel = state.data.qvel.at[:, 3:6].set(
+        jnp.tile(jnp.asarray([.5, -.4, .2]), (2, 1)))
+    data = env.forward_batched(env.mjx_model, state.data.replace(qvel=updated_qvel))
+    sensors = env._advance_sensor_state(
+        sensors, data, state.task, state.phase, state.rng,
+        jnp.ones((2,), dtype=jnp.int32))
+    held_gyro = np.asarray(jax.device_get(sensors.samples.gyro_body_rad_s[:, -1, :]))
+    np.testing.assert_allclose(held_gyro, old_flow_gyro, atol=0.)
+    read = jax.device_get(env._sensor_readout(sensors, env._body_packets(data)[0]))
+    assert np.max(np.abs(read['measured_gyro_body_rad_s'] - held_gyro)) > .05

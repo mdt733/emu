@@ -155,6 +155,7 @@ class SensorState(NamedTuple):
     """Four-frame acquisition ring (oldest first), plus episode gyro bias."""
     samples: SensorSample
     gyro_bias_rad_s: Any
+    current_gyro_body_rad_s: Any
 
 
 class PhysicalFrame(NamedTuple):
@@ -1857,7 +1858,7 @@ class EmuMJXEnv(TaskSampler):
         samples = jax.tree_util.tree_map(
             lambda a: jnp.repeat(a[:, None, ...], HISTORY_LEN, axis=1),
             sample)
-        return SensorState(samples, bias)
+        return SensorState(samples, bias, sample.gyro_body_rad_s)
 
     def _advance_sensor_state(self, state, data, task, phase, keys, age_frames):
         """Acquire at separate cadences, hold between updates, and queue delay.
@@ -1885,14 +1886,14 @@ class EmuMJXEnv(TaskSampler):
             jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
             jnp.where(flow_due, flow_valid, old.flow_valid),
-            raw.gyro_body_rad_s,
+            jnp.where(flow_due[:, None], raw.gyro_body_rad_s, old.gyro_body_rad_s),
             jnp.where(tof_due, 0, old.tof_age_frames + 1),
             jnp.where(flow_due, 0, old.flow_age_frames + 1))
         queued = jax.tree_util.tree_map(
             lambda history, value: jnp.concatenate(
                 (history[:, 1:, ...], value[:, None, ...]), axis=1),
             state.samples, latest)
-        return SensorState(queued, state.gyro_bias_rad_s)
+        return SensorState(queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s)
 
     def _sensor_readout(self, state, gravity_body):
         """Invert delayed measured signals, including their validity/age.
@@ -1927,7 +1928,7 @@ class EmuMJXEnv(TaskSampler):
             1. - 0.25 * tof_age.astype(jnp.float32) /
             self.tof_period_frames, .25, 1.)
         return dict(
-            measured_gyro_body_rad_s=s.gyro_body_rad_s[:, -1, :],
+            measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
             velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
             velocity_confidence=estimate['velocity_confidence'] * freshness,
             tof_estimated_depth_m=jnp.where(ground_valid,
