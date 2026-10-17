@@ -606,6 +606,41 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
+    def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
+                            eval_key, horizon):
+        """Common-condition efficiency telemetry, NEVER used as a PPO reward.
+
+        Three motor terms plus command smoothness are collected with the same
+        immutable exam seed. Interpret with survival/command performance;
+        a robot that falls early must not win merely by drawing less power.
+        This is simulated shaft power, not electrical battery consumption.
+        """
+        keys = jax.random.split(eval_key, env.num_envs)
+        state = env._reset_with_keys(keys, curriculum_params)
+        obs = env.obs(state)
+        totals = jnp.zeros((5,), dtype=jnp.float32)
+
+        def one(i, carry):
+            es, ob, sums = carry
+            mean, _ = apply(params, normalize_obs(
+                ob, obs_mean, obs_std, obs_norm_mask))
+            out = env.step(es, jnp.clip(mean, -1., 1.), curriculum_params)
+            m = out.metrics
+            sums = sums + jnp.stack((
+                jnp.sum(m['servo_shaft_abs_power_w']),
+                jnp.sum(m['servo_shaft_drive_power_w']),
+                jnp.sum(m['servo_over_rated_frac']),
+                jnp.sum(m['servo_peak_torque_limit_frac']),
+                jnp.sum(m['action_delta_norm']),
+            ))
+            return out.state, out.obs, sums
+
+        _, _, sums = jax.lax.fori_loop(
+            0, horizon, one, (state, obs, totals))
+        return sums / float(env.num_envs * horizon)
+
+    evaluate_efficiency = jax.jit(evaluate_efficiency, static_argnums=(5,))
+
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
@@ -848,6 +883,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
         'evaluate_node_window': evaluate_node_window,
