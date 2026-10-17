@@ -311,11 +311,14 @@ SCREEN_PANELS = {
 
 def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
-           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0):
+           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0,
+           terrain_mode: str = 'gravity'):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
     from .environment import DomainRandomizationConfig
-    domain = DomainRandomizationConfig(enabled=terrain_radius > 0, terrain_radius=terrain_radius)
+    domain = DomainRandomizationConfig(
+        enabled=terrain_radius > 0, terrain_radius=terrain_radius,
+        terrain_mode=terrain_mode)
     env = EmuMJXEnv(
         str(ROBOT_XML), num_envs=int(envs), seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
@@ -323,7 +326,8 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
         phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
-        sensor_noise_scale=sensor_scale, open_frontier=False,
+        sensor_noise_scale=sensor_scale, observation_schema=config.observation_schema,
+        open_frontier=False,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
         field_teach_recovery=False,
         domain_config=domain,
@@ -335,7 +339,9 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
 
 
 def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
-                  device: str | None = None, eval_pitch_deg: float | None = None) -> dict[str, dict[str, Any]]:
+                  device: str | None = None, eval_pitch_deg: float | None = None,
+                  eval_phase_speed_gain: float | None = None,
+                  sensor_contact_exam: bool = False) -> dict[str, dict[str, Any]]:
     """Evaluate multiple final checkpoints through one set of compiled worlds."""
     if not run_dirs:
         return {}
@@ -345,8 +351,19 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
     # The stress worlds depend on physical/evaluation doctrine, not teacher
     # settings. Guard the one config value they currently consume so batching
     # can never silently compare arms through different evaluation dynamics.
-    if any(c.phase_speed_gain != config.phase_speed_gain for c in configs[1:]):
-        raise ValueError('batched screening requires identical phase_speed_gain')
+    if any(c.observation_schema != config.observation_schema for c in configs[1:]):
+        raise ValueError('batched screening requires identical observation schemas')
+    from .training_config import training_sensor_contract
+    expected_sensor_contract = training_sensor_contract(config)
+    if any(training_sensor_contract(c) != expected_sensor_contract for c in configs[1:]):
+        raise ValueError('batched screening requires identical sensor contracts')
+    if eval_phase_speed_gain is None:
+        if any(c.phase_speed_gain != config.phase_speed_gain for c in configs[1:]):
+            raise ValueError('batched screening requires identical phase_speed_gain')
+    else:
+        if not np.isfinite(eval_phase_speed_gain) or not 0 <= eval_phase_speed_gain <= 5:
+            raise ValueError('invalid common screening phase speed gain')
+        config = replace(config, phase_speed_gain=float(eval_phase_speed_gain))
     if device is not None:
         config=replace(config,device=device)
     if eval_pitch_deg is not None:
@@ -379,16 +396,36 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             combo_mix=.20,terrain_radius=.20)
         panels['gentle_slope'] = ('gentle_slope',1555,
             _screen_episode(.70,.65,.35,.70,(.45,.40,.15),.80))
+    if sensor_contact_exam:
+        if config.observation_schema != 'sim2real_232':
+            raise ValueError('real contact sensor exam requires sim2real_232 actor')
+        worlds['contact_slope'] = _screen_world(
+            config,envs=envs,seed_offset=1667,
+            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
+            combo_mix=.35,terrain_radius=.32,terrain_mode='contact')
+        worlds['contact_harder'] = _screen_world(
+            config,envs=envs,seed_offset=1669,
+            limits=(.80,-.25,.27,1.85),push_n=1.0,sensor_scale=1.8,
+            combo_mix=.70,terrain_radius=.60,terrain_mode='contact')
+        panels['contact_slope'] = ('contact_slope',1667,
+            _screen_episode(.55,.55,.30,.55,(.45,.40,.15),.70))
+        panels['contact_harder'] = ('contact_harder',1669,
+            _screen_episode(.70,.70,.50,.65,(.25,.45,.30),.85))
     key0=jax.random.PRNGKey(EVAL_SEED)
     results: dict[str,dict[str,Any]]={}
     for run_dir in run_dirs:
         ck=run_dir/'checkpoints'/'final.pkl'
-        payload=load_checkpoint(ck,validate=True)
+        payload=load_checkpoint(
+            ck,validate=True,expected_observation_schema=config.observation_schema,
+            expected_sensor_contract=expected_sensor_contract)
         params=payload['state']['params']; norm=payload['obs_norm']
         obs_std=np.asarray(norm['var'])**.5
         out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
             'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
-            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None}
+            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None,
+            'eval_phase_speed_gain':config.phase_speed_gain,
+            'sensor_contact_exam':bool(sensor_contact_exam),
+            'checkpoint_sha256':sha256_file(ck)}
         for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
             compact=trainer['evaluate_summary'](

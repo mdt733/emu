@@ -524,8 +524,9 @@ def try_restore_recovery(
         from .curriculum import CapabilityField
 
         payload = load_checkpoint(
-            recovery_path, expected_observation_schema=env.observation_schema,
-            expected_sensor_contract=env.sensor_contract)
+            recovery_path,
+            expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY),
+            expected_sensor_contract=getattr(env, 'sensor_contract', None))
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
