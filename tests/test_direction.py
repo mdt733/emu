@@ -218,3 +218,33 @@ def test_report_energy_respects_settle_window_and_progress_direction():
     opposite=evaluate_trace_arrays(trace,np.array([[0,0,-9.81]]),
                                    settle_frames=5)[0]
     assert opposite['positive_shaft_work_per_progress_m_j_m'] is None
+
+
+def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
+    """A public browser export is a valid exam source, never a rewindable .pkl."""
+    import json
+    from pathlib import Path
+    from emu.viewer_server import load_exported_actor_for_exam
+    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    layers,norm,details=load_exported_actor_for_exam(champion)
+    assert details['source']['step']==120061952
+    assert details['source']['checkpoint_schema']==7
+    assert layers['pi'][0]['w'].shape==(220,256)
+    assert norm['std'].shape==(220,)
+    assert (norm['std']>0).all()
+    obj=json.loads(champion.read_text())
+    obj['source']['actor_sha256']='0'*64
+    target=tmp_path/'tampered_actor.emupolicy'
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='actor hash'):
+        load_exported_actor_for_exam(target)
+    obj=json.loads(champion.read_text())
+    obj['observation']['base_fields'][0]='wrong_channel'
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='channel names'):
+        load_exported_actor_for_exam(target)
+    obj=json.loads(champion.read_text())
+    obj['source']['robot_model_sha256']='0'*64
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='robot XML'):
+        load_exported_actor_for_exam(target)
