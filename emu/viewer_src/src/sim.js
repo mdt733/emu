@@ -6,8 +6,8 @@ import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, headingHoldRate, wrapRadians } from './controls.js';
 import { measuredAttitude } from './attitude.js';
-import { withTerrain } from './terrain.js';
-import { createGridTexture, createSkyTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { withTerrain, generateTerrainPark } from './terrain.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -62,7 +62,7 @@ export class EmuBrowserSim {
     this.scene = new THREE.Scene();
     this.skyTexture = createSkyTexture(THREE);
     this.scene.background = this.skyTexture;
-    this.scene.fog = new THREE.Fog(0x263944, 7, 24);
+    this.scene.fog = new THREE.Fog(0xbad7e2, 15, 49);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -70,6 +70,11 @@ export class EmuBrowserSim {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
+    this.grassTexture = createGrassTexture(THREE);
+    this.grassGridTexture = createGrassTexture(THREE, true);
+    this.parkSurface = null;
+    this.treeCrowns = null;
+    this.park = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
@@ -97,6 +102,7 @@ export class EmuBrowserSim {
     );
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
+    this.parkTreesEnabled = true;
     this.joystickMode = 'split';
     this.headingHold = true;
     this.headingKp = 0.75;
@@ -192,6 +198,10 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
+      if (this.parkSurface) {
+        this.parkSurface.material.map = grid ? this.grassGridTexture : this.grassTexture;
+        this.parkSurface.material.needsUpdate = true;
+      }
     }
     if (typeof trail === 'boolean') {
       this.showTrail = trail;
@@ -206,6 +216,19 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if (this.parkSurface) {
+      this.scene.remove(this.parkSurface);
+      this.parkSurface.geometry.dispose();
+      this.parkSurface.material.dispose();
+      this.parkSurface = null;
+    }
+    if (this.treeCrowns) {
+      this.scene.remove(this.treeCrowns);
+      this.treeCrowns.userData.sharedGeometry.dispose();
+      for (const material of this.treeCrowns.userData.sharedMaterials) material.dispose();
+      this.treeCrowns = null;
+    }
+    this.park = null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -222,6 +245,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
+    this.grassTexture.dispose();
+    this.grassGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -261,6 +286,12 @@ export class EmuBrowserSim {
     this.loadModel(); // rebuilds only browser MuJoCo contacts
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setTreesEnabled(enabled) {
+    const next=Boolean(enabled);
+    if (next===this.parkTreesEnabled) return;
+    this.parkTreesEnabled=next;
+    if(this.terrainMode==='park')this.loadModel();
+  }
   setJoystickMode(mode) {
     if (!['split','hybrid'].includes(mode)) throw new Error('Unknown joystick layout');
     this.joystickMode=mode;
@@ -277,12 +308,22 @@ export class EmuBrowserSim {
 
   loadModel() {
     this.disposeModel();
-    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{maxDegrees:this.terrainMaxDegrees});
+    this.park = this.terrainMode==='park'
+      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
+      : null;
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
+    if(this.park){
+      this.parkSurface=createParkSurface(THREE,this.park,
+        this.showGrid?this.grassGridTexture:this.grassTexture);
+      this.scene.add(this.parkSurface);
+      this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
+      this.scene.add(this.treeCrowns);
+    }
     const d = this.bundle.control.default_commands || {};
     this.commandTarget = {
       vx: Number(d.vx ?? 0.04), vy: Number(d.vy ?? 0), yaw: Number(d.yaw ?? 0),
@@ -598,18 +639,21 @@ export class EmuBrowserSim {
       let mesh = this.meshes[i];
       if (!mesh) {
         const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
+        const isParkHeightfield = Number(vg.type) === mj.mjtGeom.mjGEOM_HFIELD.value;
         const material = isFloor
           ? new THREE.MeshStandardMaterial({map: this.showGrid ? this.gridTexture : null, roughness: 0.98, metalness: 0, color: this.showGrid ? 0xffffff : 0x40515e})
           : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
         mesh.userData.floor = isFloor;
+        mesh.userData.parkHeightfield = isParkHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
         mesh.matrixAutoUpdate = false;
         this.meshes.push(mesh);
         this.scene.add(mesh);
       }
-      mesh.visible = true;
+      // Heightfield collision is rendered by the seamless grass mesh above.
+      mesh.visible = !mesh.userData.parkHeightfield;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
