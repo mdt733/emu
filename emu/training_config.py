@@ -149,6 +149,12 @@ class TrainingConfig:
     domain_terrain_radius: float = 0.0
     domain_hardware_radius: float = 0.0
 
+    # v5016 opt-in motor-effort teaching hypothesis (NOT hardware truth).
+    # Zero preserves the v5015 reward exactly. A small positive value pays
+    # less for repeated nominal overload and gross shaft-motion effort.
+    # Compare only against a matched no-guidance branch after physics exams.
+    motor_guidance_weight: float = 0.0
+
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
     pitch_command_max_deg: float = 8.0214
@@ -198,7 +204,8 @@ class TrainingConfig:
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
         optional = {'attitude_profile', 'pitch_command_max_deg',
-                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost'}
+                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
+                    'motor_guidance_weight'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -257,6 +264,8 @@ def apply_experiment_knobs(
             raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
         if key == 'ppo_lr' and value <= 0:
             raise ValueError('ppo_lr must be positive')
+        if key == 'motor_guidance_weight' and not 0.0 <= value <= 0.10:
+            raise ValueError('motor_guidance_weight must be between 0 and 0.10')
         if key in ('ppo_entropy_cost','ppo_value_cost') and value < 0:
             raise ValueError(f'{key} cannot be negative')
         values[key] = value
