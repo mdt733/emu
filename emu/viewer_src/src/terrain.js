@@ -32,7 +32,7 @@ export function parkHeight(x,y, maximum=PARK_MAX_DEGREES, seed=733) {
     + 0.5*Math.sin(x*0.65-y*0.7-phase);
   return fade * (0.12 + 0.075*waves) * clamp(localSlopeLimitDeg(r,maximum)/10,0,1);
 }
-export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES, seed=733, radius=5, cell=0.5}={}) {
+export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES, seed=733, radius=11, cell=0.8}={}) {
   if (!Number.isFinite(maxDegrees) || maxDegrees < 1 || maxDegrees > 20) throw new Error('Terrain maximum must be 1–20 degrees');
   const count = 2*Math.ceil(radius/cell)+1;
   if (count*count>900) throw new Error('Terrain would exceed browser geometry budget');
