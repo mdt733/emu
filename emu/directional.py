@@ -674,7 +674,9 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             result['absolute_shaft_work_per_progress_m_j_m'] = (
                 float(abs_j / progress)
                 if progress > 0.01 and abs_j is not None else None)
-        result.update(contact_stride_pairs=strides,measured_slope_deg=slope,
+        # Grade is the requested course geometry, not a measured incline
+        # recovered from a sensor or contact impulses.
+        result.update(contact_stride_pairs=strides,configured_course_grade_deg=slope,
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)
     return findings
