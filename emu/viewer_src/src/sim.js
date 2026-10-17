@@ -4,9 +4,9 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
-import { joystickToCommands } from './controls.js';
+import { joystickToCommands, headingHoldRate, wrapRadians } from './controls.js';
 import { measuredAttitude } from './attitude.js';
-import { withGentleCourse } from './terrain.js';
+import { withTerrain } from './terrain.js';
 import { createGridTexture, createSkyTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -95,7 +95,12 @@ export class EmuBrowserSim {
         new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
       ),
     );
-    this.terrainEnabled = false;
+    this.terrainMode = 'flat';
+    this.terrainMaxDegrees = 10;
+    this.joystickMode = 'split';
+    this.headingHold = true;
+    this.headingKp = 0.75;
+    this.headingTarget = 0;
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -246,16 +251,33 @@ export class EmuBrowserSim {
     }
   }
 
-  setTerrainEnabled(enabled) {
-    const next = Boolean(enabled);
-    if (next === this.terrainEnabled) return;
-    this.terrainEnabled = next;
-    this.loadModel(); // new MuJoCo collision world; training and policy stay untouched
+  setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
+    if (!['flat','ramp','park'].includes(mode)) throw new Error('Unknown terrain');
+    const degrees = Number(maximum);
+    if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
+    if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
+    this.terrainMode=mode;
+    this.terrainMaxDegrees=degrees;
+    this.loadModel(); // rebuilds only browser MuJoCo contacts
+  }
+  setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setJoystickMode(mode) {
+    if (!['split','hybrid'].includes(mode)) throw new Error('Unknown joystick layout');
+    this.joystickMode=mode;
+  }
+  setHeadingHold(enabled) {
+    this.headingHold=Boolean(enabled);
+    this.headingTarget=this.actualHeading();
+  }
+  actualHeading() {
+    if (!this.data || !this.model) return 0;
+    const r=this.bodyRotation();
+    return Math.atan2(r[3],r[0]); // torso +X projected into world XY
   }
 
   loadModel() {
     this.disposeModel();
-    const xml = this.terrainEnabled ? withGentleCourse(this.bundle.robot_xml) : this.bundle.robot_xml;
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{maxDegrees:this.terrainMaxDegrees});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
@@ -302,6 +324,7 @@ export class EmuBrowserSim {
     this.data.qvel[1] = this.command.vy;
     this.data.qvel[5] = this.command.yaw;
     mj.mj_forward(this.model, this.data);
+    this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
     this.phase = 0;
@@ -323,7 +346,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.bundle.control.command_limits,
+      leftX, leftY, rightX, rightY, this.bundle.control.command_limits, this.joystickMode,
     ));
   }
 
@@ -381,6 +404,12 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
+    const manualYaw=this.command.yaw;
+    if (this.headingHold) {
+      this.headingTarget=wrapRadians(this.headingTarget+manualYaw*cdt);
+      this.command.yaw=headingHoldRate(manualYaw,this.headingTarget,this.actualHeading(),
+        this.headingKp,Number(this.bundle.control.command_limits.yaw_abs));
+    } else this.headingTarget=this.actualHeading();
     const action = this.policy.infer(this.obs);
     const span = this.bundle.control.target_span_rad;
 
