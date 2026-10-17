@@ -713,6 +713,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # truncates at the first done, avoiding reset-contaminated data.
                 servo_torque_nm=es.data.actuator_force[:,:ACTION_DIM],
                 servo_joint_rate_rad_s=es.data.qvel[:,env.act_qvel],
+                # Eight explicit spring joints: six motor-supporting hinges,
+                # then right/left passive shin flex. Sample PRE-step poses
+                # so energy differences align with signed course displacement.
+                spring_joint_qpos_rad=es.data.qpos[:,env.spring_qpos],
                 # These scalar diagnostics come from this step's pre-reset
                 # physical result, not from the reset state in out.state.
                 servo_shaft_abs_power_w=out.metrics['servo_shaft_abs_power_w'],
@@ -734,6 +738,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     last_floor_contact=last_contacts,
                     last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
                     last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
                     servo_peak_limit_nm=env.servo_stall_torque_nm)
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
