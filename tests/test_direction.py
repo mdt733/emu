@@ -320,11 +320,12 @@ def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
     champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     root=tmp_path/'unique_exam_results'
     jobs=plan('physical',None,root,policy_file=champion,worlds=4,seed=1701)
-    assert len(jobs)==10
+    assert len(jobs)==13
     assert {x['arm'] for x in jobs}=={'champion'}
     assert all(x['is_exported_policy'] for x in jobs)
     assert all(x['run_dir']==str(champion.resolve()) for x in jobs)
     assert all(x['worlds']==4 and x['seed']==1701 for x in jobs)
+    assert sum(x['contact_slope'] for x in jobs)==3
     assert {x['scenario'] for x in jobs} >= {'rest_start','brake_stop','reverse',
                                                'turn_stop_left','sidestep_right'}
     execute(jobs,'synthetic_revision',actually_run=False)
@@ -349,6 +350,7 @@ def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path)
         (path.parent/mode/'directional_exam.json').write_text('{}')
     protocol=dict(angle_deg=job['angle'],direction=job['direction'],
         scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
+        ground_mode='inclined_contact_plane' if job.get('contact_slope') else 'tilted_gravity',
         seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
         gyro_noise_std_rad_s=job['gyro_noise'],
         gyro_delay_frames=job['gyro_delay_frames'])
