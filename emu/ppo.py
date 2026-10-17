@@ -691,7 +691,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
             policy_obs=hist.reshape((env.num_envs, OBS_DIM))
-            mean,_=apply(params,normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
+            # Frozen exams need only the actor, never a value network or
+            # optimiser. This permits identical evaluation of exported .emupolicy
+            # actors and full schema-7 checkpoints through ONE MJX trace path.
+            mean=mlp(params['pi'], normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
