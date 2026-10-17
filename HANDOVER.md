@@ -2,7 +2,7 @@
 
 **Current stable release:** `main` at merge commit `252f6102dd813a451daad29fecf2fbebd586da6b`, containing the refactored trainer, single browser viewer, and real **Pitch15 120,061,952-step** `showcase/champion.emupolicy`. The public GitHub Pages site deploys only after manually dispatching the Pages workflow; do not confuse a code merge with a published site.
 
-**Current refactor:** `refactor/emu-minimal`. The goal is *genuine reduction*, not making dozens of ownership-labelled files. Keep the working original available in Git history; do not rewrite `main` or active WSL run roots before CI and local acceptance.
+**Current refactor:** `refactor/emu-minimal`. Target is roughly fifteen cohesive Python modules with obvious ownership, not a fixed line-count reduction. Large files are acceptable when they tell a coherent story. All development occurs on this branch; never edit or merge `main` without explicit user approval. Keep the working original available in Git history; do not rewrite `main` or active WSL run roots before CI and local acceptance.
 
 ## The essential ideas
 
@@ -63,3 +63,17 @@ Tracked inventory: **132 → 56 files** (after empty media removal), `emu/` **42
 
 Inspect `git diff main...refactor/emu-minimal` and `git status`; don't trust the summary alone. Read `README.md`, `docs/INSTALL.md` and this file. Make actual, CI-verified reductions, not docs-only passes. Before any merge, check 16 Python + four browser tests, real WSL CUDA acceptance and browser model playback. Keep the 120M champion's file bytes unchanged.
 
+
+## Research record and viewer work
+
+A curated, evidence-aware experiment history lives in
+[docs/RESEARCH_HISTORY.md](docs/RESEARCH_HISTORY.md). Keep public-facing
+instructions in README / INSTALL / PLAYGROUND; keep internal observations and
+future research hypotheses in that history. Preserve old raw logs through Git
+history or external run roots rather than stuffing them into documentation.
+
+Branch-only viewer additions: inverted pitch, split/hybrid joystick option,
+browser yaw-heading P hold and physical radial terrain park. These change no
+policy weights, source training environments, saved checkpoints or protected
+showcase actor. Browser/MuJoCo physics playback needs hands-on verification
+after automated JS checks. **Do not merge this branch yet.**
