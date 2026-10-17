@@ -51,6 +51,17 @@ Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
 The park starts with a flat 2 m radius; the permitted incline grows
 approximately 1 degree per metre beyond that (1° at the 2 m boundary,
 2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
-The default park extends about 11 metres each way so the outer region can\nreach the 10° *allowed* gradient; actual generated slopes may be gentler.\nIts deterministic gentle waves are approximate tiled MuJoCo boxes, so
-seams and browser performance are worth checking on actual hardware.
+The default park extends about 11 metres each way so the outer region can\nreach the 10° *allowed* gradient; actual generated slopes may be gentler.\nThe park is now a **single triangulated heightfield**: actual MuJoCo
+contact triangles are rendered as a matching continuous grassy surface,
+with a procedurally generated grass texture and daylight sky. A sparse
+deterministic grove of trees can be enabled in Settings: trunks are static
+MuJoCo collision cylinders, while low-poly foliage is visual-only.
+Trees stay well outside the 2 m flat spawn zone, and the landscape is
+generated locally with no network image downloads.
+
+Changing terrain, tree collisions or maximum slope rebuilds the browser
+physics world and resets the on-screen robot. The training process and
+saved .pkl remain untouched. Rendering continuity is better than tiled
+boxes, but heightfield resolution and browser physics still need real
+walking inspection, especially near small ball-foot contacts.
 This is a viewer playground, not training terrain or independent walking proof.
