@@ -21,6 +21,7 @@ const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
+const treesToggle = $('treesToggle');
 const joystickMode = $('joystickMode');
 const headingHoldToggle = $('headingHoldToggle');
 const cameraBtn = $('cameraBtn');
@@ -156,6 +157,7 @@ async function activatePolicy(index) {
     sim.setCameraMode(cameraMode);
     sim.setJoystickMode(joystickMode.value);
     sim.setHeadingHold(headingHoldToggle.checked);
+    sim.setTreesEnabled(treesToggle.checked);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
@@ -238,12 +240,14 @@ cameraBtn.addEventListener('click', () => {
 });
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
+  treesToggle.disabled = terrainMode.value!=='park';
   if (!sim) return;
   try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); applyAdvanced(); updateStickLabels(); }
   catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
 }
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
+treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
 joystickMode.addEventListener('change',()=>{
   $('moveStickMode').textContent = joystickMode.value==='hybrid'?'vx / vy + turn':'vx / vy';
   sim?.setJoystickMode(joystickMode.value);
