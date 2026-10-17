@@ -561,9 +561,16 @@ def one_run_config(args) -> TrainingConfig:
     weight=float(getattr(args,'motor_guidance_weight',0.0))
     if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
         raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
+    grade=float(getattr(args,'contact_slope_deg',0.0))
+    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
+        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
+    if grade > 0 and args.profile != 'sim2real':
+        raise ValueError('real contact slope requires --profile sim2real')
+    if grade > 0 and cfg.domain_terrain_radius > 0:
+        raise ValueError('real contact slope cannot mix with tilted-gravity terrain radius')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    pitch_command_max_deg=pitch_deg,
-                   motor_guidance_weight=weight)
+                   motor_guidance_weight=weight,contact_slope_deg=grade)
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:

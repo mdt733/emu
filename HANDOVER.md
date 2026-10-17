@@ -251,3 +251,13 @@ contract defines recorded protocol, recovery and batch skip/resume decisions.
 A completed OFF/ON pair can be summarised offline after an interruption;
 an incomplete or stale run is deliberately untouched. All logic stays in
 existing `evaluation.py`; no new module architecture has been introduced.
+
+## Training contact geometry gate (v5016)
+
+An explicit shared real incline can now be set with `emu train --profile
+sim2real --contact-slope-deg 2 --plan`. The physical MuJoCo floor is rotated
+while gravity remains vertical, using the same contact implementation already
+tested by the frozen examiner. This is shared by all worlds, NOT true per-world
+randomized terrain, and no new training has been launched. Historical
+lineages and the Pitch15 showcase remain untouched. Existing fixed
+held-out panels retain flat ground as the common baseline.

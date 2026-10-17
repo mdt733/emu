@@ -465,3 +465,30 @@ def test_audit_ground_relative_environment_metrics_and_observation_cpu_mjx():
         assert obs.shape==(2,220)
         # This is a model-truth test, NOT permission to claim a real TOF
         # sensor provides perfect arbitrary-terrain height on hardware.
+
+
+def test_training_config_real_incline_is_real_mjx_geometry(tmp_path):
+    import jax
+    from types import SimpleNamespace
+    from emu.branch_lab import one_run_config
+    from emu.training import env_kwargs_from_args
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    cfg=one_run_config(SimpleNamespace(
+        profile='sim2real',run_dir=str(tmp_path/'run'),steps=2048,
+        envs=2,seed=733,device='cpu',pitch_deg=None,
+        motor_guidance_weight=0.,contact_slope_deg=2.))
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,**env_kwargs_from_args(cfg))
+    state,obs=env.reset({'posture_difficulty':0.})
+    idx=int(env.ids['floor_geom'])
+    dat=jax.device_get(state.data)
+    normals=np.asarray(dat.geom_xmat)[:,idx].reshape((2,3,3))[:,:,2]
+    theta=np.deg2rad(2.)
+    expected=np.array([-np.sin(theta),0.,np.cos(theta)])
+    np.testing.assert_allclose(normals,np.tile(expected,(2,1)),atol=1e-5)
+    np.testing.assert_allclose(env.mj_model.opt.gravity,[0.,0.,-9.81],atol=1e-6)
+    assert obs.shape==(2,220)
+    with pytest.raises(ValueError,match='cannot mix'):
+        EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,contact_slope_deg=2.,
+                  domain_config=DomainRandomizationConfig(
+                      enabled=True,terrain_radius=.1))

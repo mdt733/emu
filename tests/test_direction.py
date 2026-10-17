@@ -616,8 +616,48 @@ def test_physical_course_names_correspond_to_nonzero_real_motion():
 def test_reverse_course_flips_complete_horizontal_request():
     from emu.evaluation import make_schedule
     req=make_schedule('reverse',120,speed=.1,lateral=-.06)
-    np.testing.assert_allclose(req[:30,:2],(.1,-.06),atol=1e-6)
-    np.testing.assert_allclose(req[30:80,:2],(-.1,.06),atol=1e-6)
-    np.testing.assert_allclose(req[80:,:2],(.1,-.06),atol=1e-6)
+    np.testing.assert_allclose(req[:30,:2],np.tile([.1,-.06],(30,1)),atol=1e-6)
+    np.testing.assert_allclose(req[30:80,:2],np.tile([-.1,.06],(50,1)),atol=1e-6)
+    np.testing.assert_allclose(req[80:,:2],np.tile([.1,-.06],(40,1)),atol=1e-6)
     with pytest.raises(ValueError,match='nonzero horizontal'):
         make_schedule('reverse',120,speed=0.,lateral=0.)
+
+
+def test_shared_real_contact_slope_training_plan_is_explicit(tmp_path,capsys):
+    import json
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from emu.branch_lab import one_run_config
+    from emu.training_config import TrainingConfig
+    from emu.training import env_kwargs_from_args
+    from emu import cli
+    def config(profile,grade):
+        return one_run_config(SimpleNamespace(
+            profile=profile,run_dir=str(tmp_path/profile),steps=2048,
+            envs=2,seed=733,device='cpu',pitch_deg=None,
+            motor_guidance_weight=0.,contact_slope_deg=grade))
+    on=config('sim2real',2.)
+    off=config('sim2real',0.)
+    assert on.contact_slope_deg==2.
+    assert off.contact_slope_deg==0.
+    assert on.pitch_command_max_deg==off.pitch_command_max_deg==30.
+    assert env_kwargs_from_args(on)['contact_slope_deg']==2.
+    path=tmp_path/'config.json'
+    on.save(path)
+    assert TrainingConfig.load(path).contact_slope_deg==2.
+    old=asdict(off)
+    del old['contact_slope_deg']
+    path.write_text(json.dumps(old))
+    assert TrainingConfig.load(path).contact_slope_deg==0.
+    with pytest.raises(ValueError,match='requires --profile sim2real'):
+        config('mature',2.)
+    with pytest.raises(ValueError,match='contact-slope-deg'):
+        config('sim2real',6.)
+    out=tmp_path/'dry_run'
+    assert cli.main(['train','--profile','sim2real','--run-dir',str(out),
+                     '--steps','2048','--envs','2','--device','cpu',
+                     '--contact-slope-deg','2','--plan'])==0
+    data=capsys.readouterr().out
+    config_plan=json.loads(data[data.index('{'):data.rfind('}')+1])
+    assert config_plan['contact_slope_deg']==2.
+    assert not out.exists()

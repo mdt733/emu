@@ -766,7 +766,7 @@ class DomainRandomizationConfig:
     """Narrow experiment surface for the v5014 domain envelope.
 
     ``robot_radius`` controls inertial/manufacturing-style variation,
-    ``terrain_radius`` controls slope/contact variation and
+    ``terrain_radius`` controls rotated-gravity/contact-friction variation and
     ``hardware_radius`` controls actuator/joint variation.  The concrete
     parameter ranges above are doctrine, not dozens of new experiment knobs.
     """
@@ -1059,6 +1059,9 @@ class EmuMJXEnv(TaskSampler):
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
+        if (self.contact_slope_deg > 0 and self.domain_config.enabled
+                and self.domain_config.terrain_radius > 0):
+            raise ValueError('real contact plane cannot mix with tilted-gravity terrain domain')
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)

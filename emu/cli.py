@@ -205,6 +205,8 @@ def main(argv=None) -> int:
     q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
+    q.add_argument('--contact-slope-deg',type=float,default=0.0,
+                   help='opt-in shared real incline 0..5 degrees, sim2real only')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')

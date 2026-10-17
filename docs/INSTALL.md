@@ -225,3 +225,21 @@ If an install fails, do not delete old experiments. Verify `git status --short`,
 ## Public release
 
 The only deployable policy in Git is `showcase/champion.emupolicy`. The manual GitHub Pages workflow checks its pinned Git blob hash; training `.pkl` files stay local. [PLAYGROUND.md](PLAYGROUND.md) describes build and publishing.
+
+### v5016 optional real-contact slope training (planning only)
+
+The new sim2real training mode can use one shared, genuinely inclined contact
+floor per run, with vertical gravity. This is a conservative FIRST STEP,
+**not** per-world random terrain. Historical runs retain zero incline.
+
+```bash
+OUT="$HOME/robot_lab/emu_runs/v5016_grade_$(date +%Y%m%d_%H%M%S)"
+emu train --profile sim2real --run-dir "$OUT/flat" --steps 12000000 \
+    --envs 512 --device cuda --seed 733 --plan
+emu train --profile sim2real --run-dir "$OUT/grade2" --steps 12000000 \
+    --envs 512 --device cuda --seed 733 --contact-slope-deg 2 --plan
+```
+
+These commands do not launch training. Physical grading requires matched
+frozen-policy exams on both flat and real slopes and a separate GPU acceptance.
+Never combine this mode with the older tilted-gravity `domain_terrain_radius`.

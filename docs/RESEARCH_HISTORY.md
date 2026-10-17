@@ -241,3 +241,22 @@ be proposed for main. Never resume an old training root from new source.
   braking and pitch30 remain common tasks rather than new modules or arms.
 - The changes stay inside `cli.py`, `evaluation.py` and the existing test
   and research-history files. No new core modules or Git architecture work.
+
+### v5016 opt-in real contact incline for training
+
+- `TrainingConfig.contact_slope_deg` is an explicit run-lineage field,
+  default 0, bounded 0–5°. New `emu train --profile sim2real
+  --contact-slope-deg 2` uses the existing real inclined floor collision
+  plane, with vertical gravity and normal actor observations. Old training
+  configurations without this field load with default 0 and the accepted
+  Pitch15 actor remains untouched.
+- Every world has the SAME incline; this is not yet domain-randomised
+  per-world contact geometry. Mixing it with the legacy rotated-gravity
+  terrain randomizer is rejected. Existing held-out panels remain on flat
+  contact geometry for independent comparison.
+- The simulated actor's body velocity, ground-relative height and relative
+  foot pose are still estimator surrogates derived from privileged MJX state.
+  This implementation does NOT establish that a physical robot can reconstruct
+  them with sufficiently low latency or bias. Sensor fidelity is still gated.
+- Corrected the earlier reverse-course regression test's mismatched array
+  dimensions; this was a test oracle error, not changed movement behaviour.
