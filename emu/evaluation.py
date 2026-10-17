@@ -684,7 +684,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
                  horizon=350, speed=.10, lateral=0., yaw_rate=0.,
                  seed=1701, device='cuda', settle_frames=25, heading_kp=0.0,
                  scenario='steady', turn_rate=.25,
-                 gyro_bias=0., gyro_noise=0., gyro_delay_frames=0):
+                 gyro_bias=0., gyro_noise=0., gyro_delay_frames=0,
+                 contact_slope=False):
     if not math.isfinite(heading_kp) or not 0 <= heading_kp <= 2:
         raise ValueError('heading-kp must lie in [0,2] per second')
     if not all(math.isfinite(v) for v in (gyro_bias,gyro_noise)) or (
@@ -745,8 +746,12 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
     import jax
     import jax.numpy as jnp
     require_backend(device=='cpu')
+    uphill_axis=dict(uphill=(1.,0.),downhill=(-1.,0.),
+                     cross_left=(0.,1.),cross_right=(0.,-1.))[direction]
     env=EmuMJXEnv(
         str(ROBOT_XML),num_envs=int(worlds),seed=int(seed),
+        contact_slope_deg=float(angle_deg) if contact_slope else 0.,
+        contact_uphill_xy=uphill_axis,
         max_episode_steps=700,push_max_force_n=0.,
         vx_hi_max=.6,vx_lo_min=-.2,vy_max_mps=.25,yaw_max_rad_s=1.5,
         phase_speed_gain=cfg.phase_speed_gain,
@@ -756,9 +761,13 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
     )
     # Shared, nonrandom MJX gravity field. No robot XML modifications.
-    env.mjx_model=env.mjx_model.tree_replace({'opt.gravity': jnp.asarray(g)})
+    actual_gravity=(np.asarray((0.,0.,-9.81),dtype=np.float32)
+                    if contact_slope else g)
+    if not contact_slope:
+        env.mjx_model=env.mjx_model.tree_replace({'opt.gravity': jnp.asarray(g)})
     env.gravity_unit_world=jnp.tile(
-        jnp.asarray(g/np.linalg.norm(g))[None,:],(int(worlds),1))
+        jnp.asarray(actual_gravity/np.linalg.norm(actual_gravity))[None,:],
+        (int(worlds),1))
     trainer=make_trainer(
         env,seed=int(seed),lr=PPO_LR,rollout=ROLLOUT_STEPS,
         epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
@@ -791,7 +800,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'checkpoint_sha256':checkpoint_sha,
         'checkpoint_training_step':training_step,
         'exam':dict(angle_deg=float(angle_deg),direction=direction,
-                    gravity_world=g.tolist(),worlds=int(worlds),
+                    ground_mode='inclined_contact_plane' if contact_slope else 'tilted_gravity',
+                    actual_gravity_world=actual_gravity.tolist(),
+                    grade_reference_gravity_world=g.tolist(),
+                    gravity_world=actual_gravity.tolist(),worlds=int(worlds),
                     horizon=int(horizon),settle_frames=int(settle_frames),
                     speed=float(speed),lateral=float(lateral),
                     yaw_rate=float(yaw_rate),seed=int(seed),device=device,
@@ -815,6 +827,9 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'Original checkpoint SHA256: '+str(checkpoint_sha or 'not included in export'),
         'Exam source: '+report['source_commit'],
         'Incline: '+str(angle_deg)+' deg, '+direction,
+        'Ground mode: '+report['exam']['ground_mode']+
+            ' (real plane + vertical gravity)' if contact_slope else
+            'Ground mode: gravity-equivalent flat plane',
         'Course success: '+str(ok)+'/'+str(worlds),
         'Contact-pair stride candidate success: '+str(gait)+'/'+str(worlds),
         '',
@@ -1012,6 +1027,8 @@ def directional_main(argv=None):
     p.add_argument('--gyro-bias',type=float,default=0.)
     p.add_argument('--gyro-noise',type=float,default=0.)
     p.add_argument('--gyro-delay-frames',type=int,default=0)
+    p.add_argument('--contact-slope',action='store_true',
+                   help='rotate actual infinite floor plane; keep real gravity vertical')
     p.add_argument('--seed',type=int,default=1701)
     p.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cuda')
     p.add_argument('--heading-kp',type=float,default=0.75,
@@ -1024,7 +1041,8 @@ def directional_main(argv=None):
             yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
             settle_frames=a.settle_frames,scenario=a.scenario,
             turn_rate=a.turn_rate,gyro_bias=a.gyro_bias,
-            gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames)
+            gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames,
+            contact_slope=a.contact_slope)
     if a.compare_heading:
         outputs=evaluate_directional_pair(
                               run_dir=a.run_dir,policy_file=a.policy,
