@@ -129,7 +129,7 @@ def doctor(args) -> int:
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(
         prog='emu', description=f'EMU {VERSION} — dynamically unstable biped RL',
-        epilog='Current recipe: emu ladder --stage plan. To train safely: bash scripts/run_ladder.sh')
+        epilog='One continuous run: emu train --help. Matched studies: emu ladder --stage plan.')
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
