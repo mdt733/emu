@@ -32,12 +32,15 @@ Then add held-out sensor perturbations and gravity-equivalent slope trials.
 A true ramp geometry is a separate later exam. Repeat seeds 1701, 1702,
 1703 rather than promoting one lucky run. Preserve raw world-level results,
 report per-world missingness, and do not collapse into one composite score.
-The public `.emupolicy` does not satisfy the current PKL-only directional
-reader: locate an immutable full checkpoint with matching config/normalizer
-(the selected historical PKL SHA is
-`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`)
-or implement and separately verify exported-policy loading against the
-same checkpoint. Never silently substitute another actor.
+The approved `showcase/champion.emupolicy` can now enter the existing
+directional exam directly with `--policy`: the reader verifies its actor,
+normalizer, 55-channel order, delivery timing and exact `robot.xml` identity
+before running frozen JAX inference through the same MJX course trace.
+This is an actor-only baseline and cannot rewind PPO training. The selected
+historical full PKL checkpoint SHA remains
+`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`;
+if later available, compare exported actor against it, then retain the PKL
+outside Git. No run restarts or checkpoint changes are necessary.
 
 **Pass C — actuator model sensitivity.** Inspect the existing
 ±1.913 N m forcerange, damping-based torque-speed approximation, friction,
