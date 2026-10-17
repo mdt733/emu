@@ -689,3 +689,91 @@ def test_opt_in_232_actor_sees_noisy_tripod_and_optical_flow_mjx():
     assert result.obs.shape == (2, 232)
     assert result.bootstrap_obs.shape == (2, 232)
     assert bool(np.all(np.isfinite(jax.device_get(result.obs))))
+
+
+def test_sim2real_sensor_clock_validation():
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.environment import EmuMJXEnv
+    for overrides in ({'tof_period_frames': 0}, {'flow_period_frames': 1.5},
+                      {'tof_delay_frames': 4}, {'flow_delay_frames': -1},
+                      {'tof_dropout_prob': -0.01}, {'flow_dropout_prob': 1.1},
+                      {'gyro_bias_std_rad_s': -1.}):
+        with pytest.raises(ValueError):
+            EmuMJXEnv(str(ROBOT_XML), num_envs=2,
+                      observation_schema=OBS_SCHEMA_SENSOR, **overrides)
+
+
+def test_sensor_delayed_dropouts_are_invalid_not_stationary_cpu_mjx():
+    """A missing ToF or optical sample must suppress grade and speed confidence.
+
+    Tests the actual JAX per-episode acquisition ring without stepping the
+    robot, so stochastic falling/resets cannot mask missed sensor events.
+    """
+    pytest.importorskip('mujoco')
+    import jax
+    import jax.numpy as jnp
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.environment import EmuMJXEnv
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=2, seed=5016,
+                    observation_schema=OBS_SCHEMA_SENSOR,
+                    tof_period_frames=2, flow_period_frames=2,
+                    tof_delay_frames=1, flow_delay_frames=1,
+                    tof_dropout_prob=1., flow_dropout_prob=1.,
+                    gyro_bias_std_rad_s=0.)
+    state, _ = env.reset({'posture_difficulty': 0.})
+    sensors = state.sensor_state
+    g = env._body_packets(state.data)[0]
+    first = jax.device_get(env._sensor_readout(sensors, g))
+    assert bool(np.all(first['ground_valid']))
+    assert bool(np.all(first['flow_valid']))
+    # Frame 1: no new acquisitions; frame 2: both fail; one-frame
+    # delivery delay means frame-2 values still appear until frame 3.
+    for step in (1, 2):
+        sensors = env._advance_sensor_state(
+            sensors, state.data, state.task, state.phase, state.rng,
+            jnp.full((2,), step))
+    before = jax.device_get(env._sensor_readout(sensors, g))
+    assert bool(np.all(before['ground_valid']))
+    sensors = env._advance_sensor_state(
+        sensors, state.data, state.task, state.phase, state.rng,
+        jnp.full((2,), 3))
+    after = jax.device_get(env._sensor_readout(sensors, g))
+    assert not np.any(after['ground_valid'])
+    assert not np.any(after['flow_valid'])
+    np.testing.assert_array_equal(after['velocity_body_xy_mps'], np.zeros((2, 2)))
+    np.testing.assert_array_equal(after['velocity_confidence'], np.zeros(2))
+    np.testing.assert_array_equal(after['ground_visibility_confidence'], np.zeros(2))
+    np.testing.assert_array_equal(after['ground_forward_grade_rad'], np.zeros(2))
+    np.testing.assert_array_equal(after['ground_sideways_grade_rad'], np.zeros(2))
+
+
+def test_flow_delay_and_gyro_use_same_raw_sensor_frame_cpu_mjx():
+    """After a one-frame delay, flow must use matched historic IMU angular rate."""
+    pytest.importorskip('mujoco')
+    import jax
+    import jax.numpy as jnp
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.environment import EmuMJXEnv
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=2, seed=5016,
+                    observation_schema=OBS_SCHEMA_SENSOR,
+                    tof_period_frames=1, flow_period_frames=1,
+                    tof_delay_frames=1, flow_delay_frames=1,
+                    tof_dropout_prob=0., flow_dropout_prob=0.,
+                    gyro_bias_std_rad_s=0., sensor_noise_scale=0.)
+    state, _ = env.reset({'posture_difficulty': 0.})
+    qvel = state.data.qvel.at[:, :6].set(
+        jnp.tile(jnp.asarray([.13, -.07, 0., .31, -.19, .12]), (2, 1)))
+    moved = env.forward_batched(env.mjx_model, state.data.replace(qvel=qvel))
+    sensors = env._advance_sensor_state(
+        state.sensor_state, moved, state.task, state.phase, state.rng,
+        jnp.ones((2,), dtype=jnp.int32))
+    ground_grav = env._body_packets(moved)[0]
+    # A newly synthesized velocity cannot arrive in the prior frame.
+    read0 = jax.device_get(env._sensor_readout(sensors, ground_grav))
+    sensors = env._advance_sensor_state(
+        sensors, moved, state.task, state.phase, state.rng,
+        jnp.full((2,), 2))
+    read1 = jax.device_get(env._sensor_readout(sensors, ground_grav))
+    truth = np.asarray(jax.device_get(env._body_packets(moved)[1][:, :2]))
+    assert np.max(np.abs(read0['velocity_body_xy_mps'] - truth)) > .02
+    np.testing.assert_allclose(read1['velocity_body_xy_mps'], truth, atol=1e-4)

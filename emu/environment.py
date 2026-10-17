@@ -135,6 +135,26 @@ class EnvState(NamedTuple):
     # zero actual effect, so this ordering is deliberate, not incidental.
     push_force: Any
     push_steps_left: Any
+    # The v5016 opt-in sensor queue persists independent acquisition and
+    # delivery timing. Legacy policies leave this at None.
+    sensor_state: Any = None
+
+
+class SensorSample(NamedTuple):
+    """One raw sensor snapshot; no estimated grade or velocity stored."""
+    tof_ranges_m: Any
+    tof_beam_valid: Any
+    flow_rad_s: Any
+    flow_valid: Any
+    gyro_body_rad_s: Any
+    tof_age_frames: Any
+    flow_age_frames: Any
+
+
+class SensorState(NamedTuple):
+    """Four-frame acquisition ring (oldest first), plus episode gyro bias."""
+    samples: SensorSample
+    gyro_bias_rad_s: Any
 
 
 class PhysicalFrame(NamedTuple):
@@ -1043,7 +1063,14 @@ class EmuMJXEnv(TaskSampler):
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
                  contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
-                 observation_schema: str = OBS_SCHEMA_LEGACY):
+                 observation_schema: str = OBS_SCHEMA_LEGACY,
+                 tof_period_frames: int = 2,
+                 flow_period_frames: int = 1,
+                 tof_delay_frames: int = 1,
+                 flow_delay_frames: int = 1,
+                 tof_dropout_prob: float = 0.01,
+                 flow_dropout_prob: float = 0.02,
+                 gyro_bias_std_rad_s: float = 0.015):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1064,6 +1091,29 @@ class EmuMJXEnv(TaskSampler):
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
         self.obs_dim = self.base_obs_dim * HISTORY_LEN
+        # These quantities are in *control* frames (20 ms), not physics
+        # substeps. Check on construction rather than in an opaque JAX trace.
+        for name, value in (('tof_period_frames', tof_period_frames),
+                            ('flow_period_frames', flow_period_frames)):
+            if type(value) is not int or not 1 <= value <= 20:
+                raise ValueError(f'{name} must be an integer in [1,20]')
+        for name, value in (('tof_delay_frames', tof_delay_frames),
+                            ('flow_delay_frames', flow_delay_frames)):
+            if type(value) is not int or not 0 <= value < HISTORY_LEN:
+                raise ValueError(f'{name} must be an integer in [0,3]')
+        for name, value in (('tof_dropout_prob', tof_dropout_prob),
+                            ('flow_dropout_prob', flow_dropout_prob)):
+            if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f'{name} must be a probability in [0,1]')
+        if not np.isfinite(gyro_bias_std_rad_s) or gyro_bias_std_rad_s < 0.0:
+            raise ValueError('gyro_bias_std_rad_s must be nonnegative')
+        self.tof_period_frames = tof_period_frames
+        self.flow_period_frames = flow_period_frames
+        self.tof_delay_frames = tof_delay_frames
+        self.flow_delay_frames = flow_delay_frames
+        self.tof_dropout_prob = float(tof_dropout_prob)
+        self.flow_dropout_prob = float(flow_dropout_prob)
+        self.gyro_bias_std_rad_s = float(gyro_bias_std_rad_s)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1363,7 +1413,11 @@ class EmuMJXEnv(TaskSampler):
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
-        base = self._base_obs(data, task, action, phase, ctrl)
+        sensors = (self._advance_sensor_state(
+            state.sensor_state, data, task, phase, physics.next_keys,
+            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            else None)
+        base = self._base_obs(data, task, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1379,7 +1433,7 @@ class EmuMJXEnv(TaskSampler):
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left)
+                           physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1683,14 +1737,16 @@ class EmuMJXEnv(TaskSampler):
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
-        base = self._base_obs(data, task, prev_action, phase, prev_action)
+        sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
+                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
+        base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros)
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -1759,12 +1815,132 @@ class EmuMJXEnv(TaskSampler):
             flow_valid=flow_valid,tof_valid=ground['valid'])
         return dict(flow_rad_s=measured_flow,flow_return_valid=flow_valid,
                     measured_gyro_body_rad_s=measured_gyro,
+                    tof_ranges_m=ground['ranges_m'],
+                    tof_beam_valid=ground['beam_valid'],
                     tof_estimated_depth_m=ground['optical_depth_m'],
                     ground_measurement_valid=ground['valid'],
                     ground_forward_grade_rad=ground['forward_grade_rad'],
                     ground_sideways_grade_rad=ground['sideways_grade_rad'],
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
+
+    def _sensor_sample(self, data, task, keys, gyro_bias):
+        """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
+
+        Simulator truth is used only in forward measurement synthesis. The
+        later inverse estimator is deliberately fed this sample ring, never
+        the simulated ground normal or qvel. Fold-in does not perturb
+        physics/lesson RNG streams or the old 220-input behavior.
+        """
+        jax, jnp = self.jax, self.jnp
+        scale = jnp.where(task[:, T.sensor_scale] >= 0.,
+                          task[:, T.sensor_scale], self.sensor_noise_scale)
+        noise = jax.vmap(lambda k: jax.random.normal(
+            jax.random.fold_in(k, 5016), (8,), dtype=jnp.float32))(keys)
+        probe = self.optical_flow_probe(
+            data, range_errors_m=scale[:, None] * 0.0015 * noise[:, :3],
+            flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
+            gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
+        ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        return SensorSample(
+            probe['tof_ranges_m'], probe['tof_beam_valid'],
+            probe['flow_rad_s'], probe['flow_return_valid'],
+            probe['measured_gyro_body_rad_s'], ages, ages)
+
+    def _initial_sensor_state(self, data, task, phase, keys):
+        """Start an episode with a real first sample, not fabricated flat data."""
+        jax, jnp = self.jax, self.jnp
+        bias_noise = jax.vmap(lambda k: jax.random.normal(
+            jax.random.fold_in(k, 5017), (3,), dtype=jnp.float32))(keys)
+        bias = bias_noise * self.gyro_bias_std_rad_s
+        sample = self._sensor_sample(data, task, keys, bias)
+        samples = jax.tree_util.tree_map(
+            lambda a: jnp.repeat(a[:, None, ...], HISTORY_LEN, axis=1),
+            sample)
+        return SensorState(samples, bias)
+
+    def _advance_sensor_state(self, state, data, task, phase, keys, age_frames):
+        """Acquire at separate cadences, hold between updates, and queue delay.
+
+        Dropouts make the *new* sample invalid; an old value may still be
+        in transit, but an invalid one eventually reaches the policy with
+        zero confidence. Clock is episode age, not staggered timeout step_i.
+        """
+        jax, jnp = self.jax, self.jnp
+        raw = self._sensor_sample(data, task, keys, state.gyro_bias_rad_s)
+        old = jax.tree_util.tree_map(lambda a: a[:, -1, ...], state.samples)
+        step = jnp.asarray(age_frames, dtype=jnp.int32)
+        tof_due = (step % self.tof_period_frames) == 0
+        flow_due = (step % self.flow_period_frames) == 0
+        # Dedicated fold-ins prevent correlated failure events and never
+        # change how physical pushes and curriculum resampling are drawn.
+        tof_failed = jax.vmap(lambda k: jax.random.uniform(
+            jax.random.fold_in(k, 5018), ()))(keys) < self.tof_dropout_prob
+        flow_failed = jax.vmap(lambda k: jax.random.uniform(
+            jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
+        tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
+        flow_valid = raw.flow_valid & ~flow_failed
+        latest = SensorSample(
+            jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
+            jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
+            jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
+            jnp.where(flow_due, flow_valid, old.flow_valid),
+            raw.gyro_body_rad_s,
+            jnp.where(tof_due, 0, old.tof_age_frames + 1),
+            jnp.where(flow_due, 0, old.flow_age_frames + 1))
+        queued = jax.tree_util.tree_map(
+            lambda history, value: jnp.concatenate(
+                (history[:, 1:, ...], value[:, None, ...]), axis=1),
+            state.samples, latest)
+        return SensorState(queued, state.gyro_bias_rad_s)
+
+    def _sensor_readout(self, state, gravity_body):
+        """Invert delayed measured signals, including their validity/age.
+
+        Flow is gyro-compensated with the IMU sample from the SAME camera
+        acquisition frame. The current actor gyro remains current (50 Hz).
+        ToF is independently delayed and the gravity estimate is current.
+        """
+        jnp = self.jnp
+        s = state.samples
+        tf = HISTORY_LEN - 1 - self.tof_delay_frames
+        ff = HISTORY_LEN - 1 - self.flow_delay_frames
+        ranges = s.tof_ranges_m[:, tf, :]
+        beams_valid = jnp.all(s.tof_beam_valid[:, tf, :], axis=1)
+        ground = fit_tripod_ground(jnp, ranges, gravity_body)
+        ground_valid = ground['valid'] & beams_valid
+        flow_valid = s.flow_valid[:, ff]
+        estimate = estimate_flow_velocity(
+            jnp, s.flow_rad_s[:, ff, :], s.gyro_body_rad_s[:, ff, :],
+            ground['optical_depth_m'],
+            flow_valid=flow_valid, tof_valid=ground_valid)
+        # Confidence records age/staleness, not an invented probability of
+        # geometric accuracy. An outright invalid reading remains confidence 0.
+        tof_age = s.tof_age_frames[:, tf]
+        flow_age = s.flow_age_frames[:, ff]
+        freshness = jnp.clip(
+            1. - 0.25 * (tof_age.astype(jnp.float32) /
+                         self.tof_period_frames +
+                         flow_age.astype(jnp.float32) /
+                         self.flow_period_frames), .25, 1.)
+        grade_freshness = jnp.clip(
+            1. - 0.25 * tof_age.astype(jnp.float32) /
+            self.tof_period_frames, .25, 1.)
+        return dict(
+            measured_gyro_body_rad_s=s.gyro_body_rad_s[:, -1, :],
+            velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
+            velocity_confidence=estimate['velocity_confidence'] * freshness,
+            tof_estimated_depth_m=jnp.where(ground_valid,
+                                              ground['optical_depth_m'], 0.),
+            ground_forward_grade_rad=jnp.where(ground_valid,
+                                               ground['forward_grade_rad'], 0.),
+            ground_sideways_grade_rad=jnp.where(ground_valid,
+                                                ground['sideways_grade_rad'], 0.),
+            ground_visibility_confidence=jnp.where(
+                ground_valid, ground['visibility_confidence'] * grade_freshness, 0.),
+            ground_valid=ground_valid,
+            flow_valid=flow_valid,
+            tof_age_frames=tof_age, flow_age_frames=flow_age)
 
     def _floor_signed_heights(self, data, positions):
         """Per-world signed distance to the *actual* collision plane.
@@ -1940,7 +2116,7 @@ class EmuMJXEnv(TaskSampler):
             **spring_energy,
         }
 
-    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl):
+    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
@@ -1978,18 +2154,12 @@ class EmuMJXEnv(TaskSampler):
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
         if self.observation_schema == OBS_SCHEMA_SENSOR:
-            # Forward synthesis may use privileged MuJoCo physics; inversion
-            # uses only optical angular motion, three noisy ToF rays and the
-            # body-local IMU gyro. The legacy policy path above is untouched.
-            range_noise = ns[:, None] * 0.0015 * jnp.stack(
-                (n0, n1, -n0), axis=1)
-            flow_noise = ns[:, None] * 0.035 * jnp.stack(
-                (n1, n0), axis=1)
-            gyro_noise = ns[:, None] * 0.025 * jnp.stack(
-                (n1, n0, -n1), axis=1)
-            sensor = self.optical_flow_probe(
-                data, range_errors_m=range_noise,
-                flow_errors_rad_s=flow_noise, gyro_errors_rad_s=gyro_noise)
+            # No direct access to simulated true velocity, floor normal or
+            # even instantaneous raw ToF/flow readings: the persistent sensor
+            # ring owns acquisition cadence, delay, dropout and gyro bias.
+            if sensor_state is None:
+                raise ValueError('sim2real_232 requires a sensor state')
+            sensor = self._sensor_readout(sensor_state, grav_est)
             vel_i = BASE_OBS_FIELDS.index('vel_x')
             height_i = BASE_OBS_FIELDS.index('tof_height')
             conf_i = BASE_OBS_FIELDS.index('vel_confidence')
