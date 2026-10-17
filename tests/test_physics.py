@@ -821,3 +821,12 @@ def test_sim2real_environment_exposes_exact_sensor_checkpoint_contract():
         'tof_dropout_prob': .01, 'flow_dropout_prob': .02,
         'gyro_bias_std_rad_s': .015, 'sensor_noise_scale': 1.,
     })
+
+
+def test_v5016_doctor_acceptance_flag_exists():
+    """The GPU owner can smoke test policy gradients before spending steps."""
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, '-m', 'emu', 'doctor', '--help'],
+                            check=True, capture_output=True, text=True)
+    assert '--v5016-smoke' in result.stdout

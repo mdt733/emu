@@ -107,6 +107,47 @@ def doctor(args) -> int:
             print('v5015 MJX + PPO update + evaluation smoke: PASS (4 envs, one optimizer update, 11 evaluation fields)')
         except Exception as exc:
             failures.append(f'v5015 MJX + PPO smoke: {exc}')
+    if getattr(args, 'v5016_smoke', False):
+        # Explicit sensor-schema acceptance smoke, no writes or long run.
+        try:
+            import jax
+            import jax.numpy as jnp
+            from .contracts import OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
+            from .environment import EmuMJXEnv
+            from .curriculum import RegimeGovernor
+            from .ppo import make_trainer, build_obs_norm_mask
+            n = 2
+            env = EmuMJXEnv(str(ROBOT_XML), num_envs=n, seed=5016,
+                            max_episode_steps=30, attitude_profile='v5015',
+                            contact_slope_deg=2.,
+                            observation_schema=OBS_SCHEMA_SENSOR)
+            params = RegimeGovernor().params_dict()
+            state, obs = env.reset(params)
+            if obs.shape != (n, SENSOR_OBS_DIM) or state.hist.shape != (n, 4, 58):
+                raise RuntimeError(f'v5016 sensor observation shape mismatch: {obs.shape}')
+            if build_obs_norm_mask(OBS_SCHEMA_SENSOR).shape != (SENSOR_OBS_DIM,):
+                raise RuntimeError('v5016 observation normalizer mask mismatch')
+            out = env.step(state, jnp.zeros((n, 6), dtype=jnp.float32), params)
+            out.obs.block_until_ready()
+            if out.bootstrap_obs.shape != (n, SENSOR_OBS_DIM):
+                raise RuntimeError('v5016 bootstrap observation shape mismatch')
+            trainer = make_trainer(env, seed=5016, lr=2e-4, rollout=2,
+                                   epochs=1, minibatches=1)
+            init = trainer['make_initial_state'](params)
+            packed = env.params_array(params)
+            mean = jnp.zeros((SENSOR_OBS_DIM,), jnp.float32)
+            var = jnp.ones((SENSOR_OBS_DIM,), jnp.float32)
+            updated, _, diagnostics, _, _ = trainer['train_update'](
+                init, packed, mean, var, jnp.asarray(.25, dtype=jnp.float32))
+            if not all(bool(jax.device_get(jnp.all(jnp.isfinite(leaf))))
+                       for leaf in jax.tree_util.tree_leaves(updated.params)):
+                raise RuntimeError('v5016 PPO update produced nonfinite parameters')
+            if not bool(jax.device_get(jnp.isfinite(diagnostics['rollout_reward_mean']))):
+                raise RuntimeError('v5016 PPO update produced nonfinite rollout reward')
+            print('v5016 sensor MJX + 232-input PPO gradient smoke: PASS '
+                  '(2 worlds, 2-frame rollout, one optimizer update)')
+        except Exception as exc:
+            failures.append(f'v5016 sensor PPO smoke: {exc}')
     if args.domain_smoke:
         try:
             import jax
@@ -135,7 +176,7 @@ def main(argv=None) -> int:
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
-    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)')
+    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)'); q.add_argument('--v5016-smoke',action='store_true',help='compile the opt-in 232-input sensor MJX and one PPO update (no checkpoint/training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
     for ladder_command in ('ladder', 'lab5015'):
         q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'

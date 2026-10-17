@@ -90,3 +90,13 @@ sensor contract arguments; passing a merely shape-compatible policy is never
 enough. This is an interface-safety gate, **not permission to launch 232-input
 training**; trainer configs, held-out evaluators and the browser runtime
 must be updated together before that gate is enabled.
+
+## Standalone 232-input PPO acceptance (opt-in)
+
+`emu doctor --v5016-smoke` compiles two genuine MJX sensor worlds,
+steps them, builds the **232-input** PPO network, performs one 2-frame
+rollout/optimizer update, and rejects nonfinite parameters/rewards.
+This test neither starts a long training run nor writes checkpoints.
+For a CPU-only testing host, add `--no-require-gpu --no-mjx-smoke`.
+Passing this smoke does NOT establish that a new actor can walk or that
+the legacy browser viewer can reproduce its observations.
