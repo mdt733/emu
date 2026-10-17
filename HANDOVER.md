@@ -71,6 +71,29 @@ compare zero against e.g. 0.06 with identical pitch30, physics and evaluator.
 Do not teach spring *motion* as a goal: measure energy cycling and useful
 physical progress first. `--plan` verifies parameters without training.
 
+**Pass B2 — passive springs and actual contact geometry (IMPLEMENTED, CPU acceptance pending).**
+The frozen MJX trace now records eight separate spring angles with the XML's
+actual reference angles and stiffnesses. From consecutive pre-reset poses it
+measures elastic charging, releasing, right/left passive-shin release during
+sustained stance contact, and non-stance release. This establishes neither
+beneficial return nor physical damping/heat; reward currently has NO spring
+bonus. Keep signed travel, actuator work, gait and contact alongside the
+spring evidence before forming a hypothesis.
+
+Read-only `emu directional-exam --policy showcase/champion.emupolicy
+--angle 2 --contact-slope --direction uphill --device cuda ...` now rotates
+the actual floor collision plane once, BEFORE compiling the MJX model, while
+gravity stays (0,0,-9.81). The report records `ground_mode`,
+`actual_gravity_world`, and the grade reference used for course scoring.
+The 13-case protected-policy physical batch now includes three real-contact
+2° slope cases (up/down/cross) alongside the 10 flat cases. This is an
+**opt-in test world**, not per-world rough terrain randomization, and not a
+claim that the robot can ascend hills. MuJoCo vs MJX contact-plane normals
+and the actual frozen actor are exercised by new CPU integration tests.
+A follow-up may add per-world physical slopes/heightfields only if the
+CPU/GPU contact proof is sound and reset heights remain safe. A rotated
+infinite plane is a real slope but not uneven terrain.
+
 **Pass C — actuator model sensitivity.** Inspect the existing
 ±1.913 N m forcerange, damping-based torque-speed approximation, friction,
 spring terms and one-frame action delivery in the actual XML/MJX path.
