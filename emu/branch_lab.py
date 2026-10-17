@@ -544,15 +544,20 @@ def one_run_config(args) -> TrainingConfig:
     if args.profile == 'foundation':
         cfg = foundation_config(run_dir=run_dir, seed=args.seed,
                                 device=args.device, envs=args.envs)
-    elif args.profile == 'mature':
+    elif args.profile in ('mature', 'sim2real'):
+        # v5016 reuses the stable learning engine: pitch is a SHARED task
+        # distribution, not a pitch-only experiment arm. Future trials can
+        # vary acquisition, motor cost and terrain with this range fixed.
         cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
                             seed=args.seed, device=args.device, envs=args.envs,
                             resume=None)
     else:
         raise ValueError(f'unknown profile: {args.profile}')
-    pitch_deg=float(getattr(args, 'pitch_deg', 8.0))
-    if not math.isfinite(pitch_deg) or not 0.0 <= pitch_deg <= 30.0:
-        raise ValueError('--pitch-deg must be between 0 and 30 degrees')
+    requested_pitch=getattr(args, 'pitch_deg', None)
+    pitch_deg=float((30.0 if args.profile == 'sim2real' else 8.0)
+                    if requested_pitch is None else requested_pitch)
+    if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
+        raise ValueError('--pitch-deg must be within (0, 30] degrees')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    pitch_command_max_deg=pitch_deg)
 
