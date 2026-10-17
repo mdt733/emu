@@ -49,6 +49,28 @@ historical full PKL checkpoint SHA remains
 if later available, compare exported actor against it, then retain the PKL
 outside Git. No run restarts or checkpoint changes are necessary.
 
+**v5016 pitch doctrine (17 Oct 2026):** The Pitch15 tournament win did not isolate
+whether pitch was the useful improvement or simply a less stressful workload;
+no claim of trivial learning or confirmed physical headroom follows from that
+ranking. The new opt-in `emu train --profile sim2real` resolves a shared
+±30° chassis pitch-command envelope for future training (v5015 task
+sampler/transition reward and unchanged 220-input actor). This is a COMMON
+teaching setting, not a fifth arm or a repeat of Pitch15-vs-Pitch30. The
+historical `emu ladder` / `lab5015` recipe remains locked to its original
+four study arms for research reproducibility; it is **not** the v5016
+training tournament. Actual ±30° commanded motion still needs held-out
+posture/locomotion and servo-load examination before hardware assumptions.
+
+**v5016 motor-guidance experiment (opt-in, untrained):** A bounded
+`motor_guidance_weight` 0..0.10 is now a logged ninth teaching term.
+Its per-frame magnitude is `weight*(0.65*clip(over-continuous fraction,0,1)
++0.35*clip(absolute simulated actuator shaft watts/20,0,1))`, subtracted
+from PPO reward. Default weight zero retains the historical incentives and
+physics. It is not current/thermal data; a future matched experiment can
+compare zero against e.g. 0.06 with identical pitch30, physics and evaluator.
+Do not teach spring *motion* as a goal: measure energy cycling and useful
+physical progress first. `--plan` verifies parameters without training.
+
 **Pass C — actuator model sensitivity.** Inspect the existing
 ±1.913 N m forcerange, damping-based torque-speed approximation, friction,
 spring terms and one-frame action delivery in the actual XML/MJX path.
