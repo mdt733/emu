@@ -499,8 +499,14 @@ def examine_spring_cycle(trace, world, *, start, stop, terminal, contacts):
     grounded=contact[:-1] & contact[1:]
     stance=passive_release*grounded
     airborne=passive_release*(~grounded)
+    stance_j=float(np.sum(stance))
+    release_j=float(np.sum(passive_release))
     totals=dict(
         spring_interval_count=int(len(delta)),
+        passive_shin_release_total_j=release_j,
+        passive_shin_stance_release_total_j=stance_j,
+        passive_shin_stance_release_fraction=(
+            float(stance_j/release_j) if release_j > 1e-12 else None),
         spring_joint_charge_j=np.sum(charged,axis=0).tolist(),
         spring_joint_release_j=np.sum(released,axis=0).tolist(),
         spring_joint_net_storage_delta_j=np.sum(delta,axis=0).tolist(),
@@ -605,6 +611,11 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             physical.update(examine_spring_cycle(
                 trace,w,start=settle_frames,stop=stop,
                 terminal=bool(len(term)),contacts=contacts[settle_frames:]))
+            progress=course['signed_course_progress_m']
+            release=physical.get('passive_shin_stance_release_total_j')
+            physical['passive_shin_stance_release_per_progress_m_j_m'] = (
+                float(release/progress) if release is not None and progress>0.01
+                else None)
             # Use the already captured POST-step, PRE-reset simulator metrics
             # for the actual scored control intervals (including termination).
             first_step = int(settle_frames)
