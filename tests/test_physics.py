@@ -138,6 +138,17 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
         params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
         mean,std,jax.random.PRNGKey(199),4)
     data=jax.device_get(history)
+    # A frozen examiner must not depend on the PPO critic or optimiser.
+    # Same random key, six actor weights and world initialization must
+    # produce identical physics whether the full training params or only
+    # the exported actor's 'pi' subtree is supplied.
+    pi_only=trainer['evaluate_trace'](
+        {'pi':params['pi']},
+        env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+        mean,std,jax.random.PRNGKey(199),4)
+    pi_only=jax.device_get(pi_only)
+    np.testing.assert_array_equal(pi_only['position_xy'],data['position_xy'])
+    np.testing.assert_array_equal(pi_only['servo_torque_nm'],data['servo_torque_nm'])
     assert data['position_xy'].shape==(4,2,2)
     assert data['floor_contact'].shape==(4,2,2)
     assert data['command'].shape==(4,2,3)
