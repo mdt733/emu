@@ -13,7 +13,7 @@ export function joystickToCommands(leftX, leftY, rightX, rightY, limits, mode='s
   const yaw = -clamp(rightX + leftX * turnBlend, -1, 1) * limits.yaw_abs;
   // Pull back pitches the chassis back, push forward pitches it forward.
   const pitch = -rightY * limits.pitch_abs_rad;
-  return {vx, vy, yaw, pitch};
+  return {vx, vy, yaw: yaw || 0, pitch};
 }
 
 export const wrapRadians = radians => Math.atan2(Math.sin(radians), Math.cos(radians));
