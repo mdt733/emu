@@ -24,7 +24,7 @@ FIELDS = ('reward_mean', 'fall_rate', 'ep_len_mean', 'height_error_m', 'step_evi
           'spring_potential_energy_j', 'shin_spring_energy_j',
           'steps_per_sec', 'ppo_approx_kl', 'nan_grad_skips_total')
 PAYMENTS = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
-            'clearance', 'smoothness', 'joint_safety', 'fall_penalty')
+            'clearance', 'smoothness', 'joint_safety', 'fall_penalty', 'motor_cost')
 SCREENS = ('resilience100', 'robust70', 'growth140', 'growthcombo140', 'gentle_slope')
 FIXED = ('core', 'stress30', 'dynamic50', 'robust40', 'combo70',
          'resilience50', 'resilience75', 'dynamic80', 'growth110', 'growthcombo110')
@@ -593,7 +593,7 @@ from typing import Any
 import numpy as np
 
 from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
-from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME
+from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME, MOTOR_PAYMENT_NAME
 from .contracts import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
@@ -904,7 +904,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         # The reward ledger owns payment names. These remain teaching
         # payments; unlike measured progress or torque they are NOT exams.
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
-           for name in (*PAYMENT_NAMES, FALL_PAYMENT_NAME)},
+           for name in (*PAYMENT_NAMES, FALL_PAYMENT_NAME, MOTOR_PAYMENT_NAME)},
         # Fall-conditioned vs. timeout-conditioned episode length.
         # default=-1.0 (not 0.0) means "no episodes of this kind ended this
         # rollout" so it's never confused with a real, alarming zero.
