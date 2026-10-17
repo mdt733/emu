@@ -146,3 +146,24 @@ be proposed for main. Never resume an old training root from new source.
   `emu directional-batch --policy ... --profile physical` CLI handlers
   were repaired; previously only lower-level calls understood this mode.
   Tests exercise the public argument forwarding and no-write planning.
+
+### v5016 B2 real-contact and elastic-mechanism audit
+
+- Exam trace now samples eight actual MuJoCo spring hinge qpos values
+  and the model's stiffness/reference vector. The reducer computes
+  Δ(0.5 k(q-q_ref)^2) on the EXACT scored pose intervals, stopping before
+  episode reset. Right/left passive-shin release coincident with contiguous
+  stance flags is reported separately from non-stance release.
+- Neither stance timing nor elastic release proves that springs helped
+  forward progress. Spring charges/releases cannot be summed into a net
+  battery saving without energy-flows, damping losses and a motor model.
+  No extra training reward for spring cycling has been added.
+- A single static MJX world-contact plane may now incline by 0..5 degrees
+  via `contact_plane_quaternion` applied to the real floor geom before
+  `mjx.put_model`, without changing robot.xml. The old tilted-gravity
+  tests remain explicit and untouched. Future terrain sampling must
+  separately verify per-world contact orientation, geom collision behavior,
+  spawn clearance, and GPU VRAM impact.
+- The approved frozen actor physical batch includes 13 cases: ten flat
+  direction/maneuver cases, three separate REAL contact 2° grade cases.
+  These are a physics audit, not a completed demonstrated climb.
