@@ -236,3 +236,35 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
                                off['root_qvel'][0,:,:5],rtol=0,atol=1e-6)
     np.testing.assert_allclose(noisy['root_qvel'][0,:,5],
                                off['root_qvel'][0,:,5]-.2,rtol=0,atol=2e-6)
+
+
+def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
+    """Real end-to-end 120M export -> actor inference -> MJX -> report.
+
+    Bounded CPU CI checks software truth; it is not GPU or hardware proof.
+    """
+    pytest.importorskip('mujoco')
+    pytest.importorskip('optax')
+    pytest.importorskip('jax')
+    import json
+    from pathlib import Path
+    from emu.evaluation import evaluate_directional_run
+    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    out=tmp_path/'pitch15_physical_exam'
+    report_path, markdown_path=evaluate_directional_run(
+        policy_file=champion, output=out, angle_deg=0.,
+        direction='uphill', worlds=2, horizon=45,
+        speed=.06, seed=1701, settle_frames=0, device='cpu')
+    assert report_path.is_file() and markdown_path.is_file()
+    report=json.loads(report_path.read_text())
+    assert report['source_artifact_type']=='exported_actor'
+    assert report['checkpoint_sha256'] is None
+    assert len(report['source_artifact_sha256'])==64
+    assert report['checkpoint_training_step']==120061952
+    assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
+    assert len(report['worlds'])==2
+    assert all('course_pass' in world for world in report['worlds'])
+    assert all(world.get('invalid_reason') is not None or
+               ('physical_evidence' in world and
+                world['physical_evidence']['actuator_sample_frames'] > 0)
+               for world in report['worlds'])
