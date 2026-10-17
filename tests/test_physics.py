@@ -352,6 +352,8 @@ def test_real_contact_plane_normal_and_gravity_through_cpu_mjx():
         idx=int(env.ids['floor_geom'])
         quat=contact_plane_quaternion(3.,direction)
         np.testing.assert_allclose(env.mj_model.geom_quat[idx],quat,atol=1e-7)
+        assert int(env.mj_model.geom_sameframe[idx])==0, (
+            'compiled identity-frame shortcut must not ignore rotated floor')
         expected=np.asarray([-np.sin(theta)*direction[0],
                             -np.sin(theta)*direction[1],np.cos(theta)])
         cpu=mujoco.MjData(env.mj_model)
