@@ -72,6 +72,34 @@ For one-off deterministic browser policy export:
 emu export-policy /path/to/checkpoints/final.pkl /tmp/my_robot.emupolicy
 ```
 
+## One continuous run (no experimental branches)
+
+For one 120M-step trajectory, use `emu train` rather than `emu ladder`.
+The mature profile starts from scratch (so this does **not** reproduce the
+historical 20M-foundation/forked Pitch15 experiment). `--pitch-deg 15` uses
+that study's promising pitch command range; 1024 worlds is a more conservative
+starting point for an 8 GB GPU, though it still needs real GPU validation.
+Use a unique run directory *outside* Git and do not change its source revision
+or options during training.
+
+```bash
+RUN="$HOME/robot_lab/emu_runs/single120_pitch15"
+emu train --run-dir "$RUN" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15
+```
+
+In a second WSL terminal using the same checkout and environment:
+
+```bash
+emu viewer-build
+emu viewer --live --root "$HOME/robot_lab/emu_runs/single120_pitch15" --no-open
+```
+
+Open http://127.0.0.1:8765/ in Windows. Viewer is read-only,
+runs inference on the browser CPU and loads completed checkpoints as they
+arrive; initially it may say 'Waiting for first checkpoint'. If interrupted,
+repeat the identical training command with `--resume auto`. A source
+revision change requires a new run root, not reuse of the existing one.
+
 ## Tests and troubleshooting
 
 `bash scripts/check.sh` runs the intentionally small Python and browser contract suite plus CLI/CPU-doctor checks. The GitHub browser CI job separately builds the static frontend and verifies the bundled policy/WASM assets. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
