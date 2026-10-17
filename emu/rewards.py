@@ -86,21 +86,27 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # Simulated actuator output is not verified motor current or electrical
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
     # Zero cost weight exactly reproduces pre-v5016 scalar economics.
-    overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
-    shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
-    motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
+    motor_kwargs = {}
+    if motor_guidance_weight > 0.0:
+        overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
+        shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
+        motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
+        motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
         anti_slip=stance_anti_slip, clearance=swing_clearance,
         smoothness=servo_smoothness, joint_safety=joint_safety,
-        stepping_gate=stepping_gate,
-        motor_cost=motor_guidance_weight * motor_load_proxy)
-    return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()}}
+        stepping_gate=stepping_gate, **motor_kwargs)
+    # Always expose the new diagnostic to rollout CSV, even for controls;
+    # the old eight-payment reducer remains mathematically identical.
+    motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
+    return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
+                    'weighted_motor_cost': motor_payment}
 
 def weighted_training_terms(*, alive, locomotion, posture, contact,
                             anti_slip, clearance, smoothness, joint_safety,
-                            stepping_gate, motor_cost=0.0):
+                            stepping_gate, motor_cost=None):
     """Return (unpenalised PPO reward, individually weighted payments).
 
     Array inputs may be NumPy or JAX arrays; this function is pure and does
@@ -115,13 +121,16 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
         'clearance': 0.16 * clearance,
         'smoothness': 0.12 * smoothness,
         'joint_safety': 0.17 * joint_safety,
-        'motor_cost': -motor_cost,
     }
     # Explicit left-to-right addition matches the pre-extraction expression.
     reward = (terms['alive'] + terms['locomotion'] + terms['posture'] +
               terms['contact'] + terms['anti_slip'] + terms['clearance'] +
-              terms['smoothness'] + terms['joint_safety'] +
-              terms['motor_cost'])
+              terms['smoothness'] + terms['joint_safety'])
+    # This branch is absent when disabled. In particular do not even append
+    # "+ 0" in the old floating-point reduction or change the old term set.
+    if motor_cost is not None:
+        terms['motor_cost'] = -motor_cost
+        reward = reward + terms['motor_cost']
     return reward, terms
 
 
