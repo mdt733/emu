@@ -23,7 +23,14 @@ termination with real MJX CPU traces **before** asserting physical results.
 Synthetic unit tests alone are not acceptance. Nominal duty is not a
 validated safe current/heat envelope; spring storage is not recovered energy.
 
-**Pass B — frozen baseline exam.** First run CPU shape and determinism
+**Pass B — frozen baseline exam.**
+A 10-course protected-export plan is available through
+`emu directional-batch --policy showcase/champion.emupolicy --profile physical
+--device cuda --worlds 4 --seed 1701 --output "$NEW_EXAM_ROOT"`.
+It **prints only** unless `--run` is supplied; separate results roots are
+required for independent seeds 1702/1703 and new source revisions.
+The legacy four-arm tournament profiles retain `--root` instead of `--policy`.
+ First run CPU shape and determinism
 checks (2 worlds, short horizon). On WSL CUDA, expand to bounded
 4–8-world, 350-frame exams on flat ground with precisely fixed seeds;
 collect steady forward/backward, sidestep both directions, rest→walk,
