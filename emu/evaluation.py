@@ -341,7 +341,9 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
 def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                   device: str | None = None, eval_pitch_deg: float | None = None,
                   eval_phase_speed_gain: float | None = None,
-                  sensor_contact_exam: bool = False) -> dict[str, dict[str, Any]]:
+                  sensor_contact_exam: bool = False,
+                  key_by_path: bool = False, write_screen_files: bool = True
+                  ) -> dict[str, dict[str, Any]]:
     """Evaluate multiple final checkpoints through one set of compiled worlds."""
     if not run_dirs:
         return {}
@@ -399,6 +401,12 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
     if sensor_contact_exam:
         if config.observation_schema != 'sim2real_232':
             raise ValueError('real contact sensor exam requires sim2real_232 actor')
+        worlds['core'] = _screen_world(
+            config,envs=envs,seed_offset=1661,
+            limits=(.45,-.12,.14,.90),push_n=.70,
+            sensor_scale=1.5,combo_mix=.10)
+        panels['core'] = ('core',1661,
+            _screen_episode(.05,.05,.05,.05,(.50,.30,.20),.50))
         worlds['contact_slope'] = _screen_world(
             config,envs=envs,seed_offset=1667,
             limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
@@ -457,8 +465,13 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             out['screen_resilience100_survival'],out['screen_robust70_survival']]))
         out['screen_growth_headroom']=float(np.mean([
             out['screen_growth140_survival'],out['screen_growthcombo140_survival']]))
-        (run_dir/'screen_eval.json').write_text(json.dumps(out,indent=2,sort_keys=True),encoding='utf-8')
-        results[run_dir.name]=out
+        if write_screen_files:
+            (run_dir/'screen_eval.json').write_text(
+                json.dumps(out,indent=2,sort_keys=True),encoding='utf-8')
+        key=str(run_dir) if key_by_path else run_dir.name
+        if key in results:
+            raise ValueError('duplicate screen result key; enable key_by_path')
+        results[key]=out
     return results
 
 
