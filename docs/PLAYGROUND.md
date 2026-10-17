@@ -37,7 +37,7 @@ Do not commit a training `.pkl` or alter the protected `showcase/champion.emupol
 
 By default, the left stick commands forward/sideways motion, and the right
 stick commands yaw and chassis pitch. Pitch is inverted: pushing the right
-stick up requests negative model pitch (the nose-down direction in this
+stick up requests negative model pitch (the nose-up direction in this
 model's convention). Select **Hybrid** for diagonal steering: forward plus
 left/right diagonals mix turning and strafing, while purely sideways means
 strafe. The right stick always supports separate turning and pitch.
