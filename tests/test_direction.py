@@ -450,3 +450,48 @@ def test_motor_guidance_keeps_historical_config_compatible_and_rejects_bad_arm(t
         apply_experiment_knobs(restored,(('motor_guidance_weight',.25),))
     with pytest.raises(ValueError,match='motor_guidance_weight'):
         apply_experiment_knobs(restored,(('motor_guidance_weight',-0.01),))
+
+
+def test_passive_spring_accounting_at_stance_and_reset_boundary():
+    """Stored energy is conservative geometry, not credited propulsion."""
+    from emu.directional import examine_spring_cycle
+    q=np.zeros((7,1,8),dtype=float)
+    q[1,0,6]=.10   # right passive shin stores 0.02 J (k=4)
+    q[2,0,6]=0.     # right releases at a grounded stance interval
+    q[2,0,7]=.20   # left charges 0.08 J
+    q[3,0,7]=0.     # left releases in non-stance
+    q[4:,0,:]=999. # post-terminal episode contaminant
+    contact=np.asarray([[1,1],[1,1],[1,0],[1,0]],dtype=bool)
+    trace=dict(spring_joint_qpos_rad=q,
+               spring_reference_rad=np.zeros(8),
+               spring_stiffness_nm_rad=np.array([0.,0.,0.,0.,0.,0.,4.,4.]))
+    p=examine_spring_cycle(trace,0,start=0,stop=3,terminal=True,contacts=contact)
+    assert p['spring_interval_count']==3
+    assert p['passive_shin_charge_j']==pytest.approx([.02,.08])
+    assert p['passive_shin_release_j']==pytest.approx([.02,.08])
+    assert p['passive_shin_stance_release_j']==pytest.approx([.02,0.])
+    assert p['passive_shin_nonstance_release_j']==pytest.approx([0.,.08])
+    assert p['passive_shin_stance_interval_count']==[3,1]
+    assert p['spring_joint_net_storage_delta_j']==pytest.approx([0.]*8)
+    assert max(p['spring_joint_release_j'])<0.1  # excludes the 999rad reset
+
+
+def test_spring_accounting_survivor_uses_final_state_not_stale_last_frame():
+    from emu.directional import examine_spring_cycle
+    q=np.zeros((4,2,8))
+    q[1:,1,6]=.1
+    final=np.zeros((2,8))
+    final[1,6]=0
+    trace=dict(spring_joint_qpos_rad=q,
+               last_spring_joint_qpos_rad=final,
+               spring_reference_rad=np.zeros(8),
+               spring_stiffness_nm_rad=np.array([0,0,0,0,0,0,4,4]))
+    grounded=np.ones((5,2),dtype=bool)
+    p=examine_spring_cycle(trace,1,start=0,stop=4,terminal=False,contacts=grounded)
+    assert p['spring_interval_count']==4
+    assert p['passive_shin_charge_j'][0]==pytest.approx(.02)
+    assert p['passive_shin_release_j'][0]==pytest.approx(.02)
+    assert p['passive_shin_stance_release_j'][0]==pytest.approx(.02)
+    with pytest.raises(ValueError,match='misaligned'):
+        examine_spring_cycle(trace,1,start=0,stop=4,terminal=False,
+                             contacts=np.ones((4,2),dtype=bool))
