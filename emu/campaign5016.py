@@ -318,15 +318,15 @@ def report(root: Path, ledger: dict) -> None:
     boards = sorted((root / "scoreboards").glob("*.json")) if (
         root / "scoreboards").is_dir() else []
     lines = ["# EMU v5016 pinnacle campaign", "",
-             f"Source branch commit: \`{ledger['source_commit']}\`",
-             f"Observation contract: \`{ledger['sensor_sha256']}\`",
+             f"Source branch commit: `{ledger['source_commit']}`",
+             f"Observation contract: `{ledger['sensor_sha256']}`",
              f"GPU-wall budget: {ledger['budget_hours']} hours (soft, stage boundaries)",
              f"Accounted active training + screening: {ledger['gpu_seconds'] / 3600:.2f} h",
              "",
              "## Champion", ""]
     best = ledger.get("champion") or ledger["foundation"]
-    lines += [f"Checkpoint: \`{best['path']}\`",
-              f"SHA-256: \`{best['sha256']}\`",
+    lines += [f"Checkpoint: `{best['path']}`",
+              f"SHA-256: `{best['sha256']}`",
               f"Policy training steps: {best['step']:,}", "",
               "Scores come from fixed seeds, equal exam conditions, and a",
               "simulated servo shaft-power proxy—not measured electrical watts.",
@@ -408,7 +408,7 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
     path = root / "campaign.json"
     current = read_json(path)
     if current is None:
-        if root.exists() and any(root.iterdir()):
+        if root.exists() and any(p.name != ".campaign.lock" for p in root.iterdir()):
             raise RuntimeError(f"campaign root contains unrecognised data: {root}")
         ledger = {"schema": 1, "version": VERSION,
                   "source_commit": provenance["commit"],
@@ -555,6 +555,8 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=733)
     p.add_argument("--device", choices=("cuda", "cpu", "auto", "gpu"), default="cuda")
     p.add_argument("--plan", action="store_true")
+    p.add_argument("--run", action="store_true",
+                   help="execute full campaign; otherwise show read-only plan")
     p.add_argument("--status", action="store_true")
     args = p.parse_args(argv)
     root = args.root.expanduser().resolve()
@@ -568,7 +570,7 @@ def main(argv=None) -> int:
             "polish": list(data["polish"]), "finished": data["finished"]},
             indent=2))
         return 0
-    if args.plan:
+    if args.plan or not args.run:
         f = base_policy(args.foundation)
         print(f"Foundation {f['step']:,}: {f['path']} ({f['sha256'][:12]})")
         print("4 × 80M branches -> 2 × 200M finalists -> 300/400/500/600/700/800M guarded refinement")
