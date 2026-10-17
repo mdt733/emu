@@ -104,3 +104,45 @@ def test_pre_reset_trace_never_scores_world_reset_teleport():
     assert bad['first_done_step']==12
     assert bad['frames_recorded']==11
     assert 'uphill_progress_m' not in bad or abs(bad['signed_course_progress_m']) < 1
+
+def test_physical_trace_duty_work_and_terminal_truncation():
+    """No post-reset torque may contaminate a terminal world's evidence."""
+    from emu.directional import examine_actuator_trace
+    torque = np.zeros((8, 2, 6))
+    omega = np.zeros_like(torque)
+    torque[1:5, 0, 0] = 1.0
+    omega[1:5, 0, 0] = 2.0
+    torque[5:, 0, :] = 999.0  # teleport/reset contaminant
+    data = dict(
+        servo_torque_nm=torque,
+        servo_joint_rate_rad_s=omega,
+        servo_peak_limit_nm=np.full((2, 6), 1.913),
+        servo_shaft_abs_power_w=np.zeros((8, 2)),
+        servo_shaft_drive_power_w=np.zeros((8, 2)),
+        servo_shaft_brake_power_w=np.zeros((8, 2)),
+        spring_potential_energy_j=np.zeros((8, 2)),
+        shin_spring_energy_j=np.zeros((8, 2)),
+    )
+    result = examine_actuator_trace(data, 0, start=0, stop=4, dt=.02, terminal=True)
+    assert result['actuator_sample_frames'] == 4
+    assert result['servo_peak_abs_torque_nm'][0] == pytest.approx(1.0)
+    assert result['servo_over_continuous_seconds'][0] == pytest.approx(.08)
+    assert result['servo_positive_shaft_work_j'][0] == pytest.approx(.16)
+    assert result['servo_thermal_exposure_proxy_s'][0] == pytest.approx(.08 / .638**2)
+    assert result['servo_all_sample_over_continuous_fraction'] == pytest.approx(1 / 6)
+
+
+def test_physical_trace_stall_has_heat_exposure_but_no_shaft_work():
+    from emu.directional import examine_actuator_trace
+    torque = np.ones((4, 1, 6))
+    data = dict(servo_torque_nm=torque,
+                servo_joint_rate_rad_s=np.zeros_like(torque),
+                servo_peak_limit_nm=np.full((1,6),1.913),
+                servo_shaft_abs_power_w=np.zeros((4,1)),
+                servo_shaft_drive_power_w=np.zeros((4,1)),
+                servo_shaft_brake_power_w=np.zeros((4,1)),
+                spring_potential_energy_j=np.zeros((4,1)),
+                shin_spring_energy_j=np.zeros((4,1)))
+    result=examine_actuator_trace(data,0,start=0,stop=4,dt=.02,terminal=False)
+    assert result['servo_measured_interval_abs_shaft_work_j'] == 0
+    assert all(x > 0 for x in result['servo_thermal_exposure_proxy_s'])
