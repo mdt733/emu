@@ -186,6 +186,27 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
+    # Execute the *actual protected* Pitch15 120M actor through the very
+    # same CPU MJX stepping kernel. This needs neither the historical
+    # training .pkl nor a synthetic stand-in for the trained weights.
+    from emu.viewer_server import load_exported_actor_for_exam
+    from pathlib import Path
+    hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    actor, exported_norm, export = load_exported_actor_for_exam(hero)
+    assert export['source']['step'] == 120061952
+    assert len(actor['pi']) == 3
+    assert actor['pi'][0]['w'].shape == (OBS_DIM,256)
+    # Two-world, four-control-frame smoke; physical performance is NOT
+    # inferred from an unconditioned four-frame sanity check.
+    actual = trainer['evaluate_trace'](
+        actor,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+        jnp.asarray(exported_norm['mean']),jnp.asarray(exported_norm['std']),
+        jax.random.PRNGKey(199),4)
+    actual=jax.device_get(actual)
+    assert actual['servo_torque_nm'].shape == (4,2,6)
+    assert np.isfinite(actual['position_xy']).all()
+    assert np.isfinite(actual['servo_torque_nm']).all()
+
 
     # v5016: explicit mid-episode turn/stop schedule, noisy/delayed gyro.
     # The *environment's* post-step command must match what PPO was told:
