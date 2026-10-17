@@ -37,6 +37,7 @@ jobs:
           emu directional-exam --help > /dev/null
           emu directional-batch --help > /dev/null
           emu train --help > /dev/null
+          emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
           python - <<'PY'
@@ -59,7 +60,7 @@ jobs:
           cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run 4 browser checks
+      - name: Run browser controls and packaging checks
         run: npm test --prefix emu/viewer_src
       - name: Prepare protected champion
         run: python3 scripts/prepare_showcase.py --require-champion
