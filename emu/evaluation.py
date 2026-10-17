@@ -885,6 +885,10 @@ def _summarize_worlds(worlds):
                 course_pass=sum(bool(w.get('course_pass')) for w in worlds)/count,
                 gait_candidate_pass=sum(bool(w.get('walking_pass')) for w in worlds)/count,
                 progress_m=mean_optional('signed_course_progress_m'),
+                maneuver_response_s=mean_optional('maneuver_mean_response_s'),
+                maneuver_unobserved_count=sum(int(w.get('maneuver_unobserved_count', 0))
+                                            for w in worlds),
+                braking_path_first_0p5s_m=mean_optional('braking_path_first_0p5s_m'),
                 heading_mae_deg=mean_optional('heading_mae_deg'),
                 yaw_rate_mae_rad_s=mean_optional('yaw_rate_mae_rad_s'),
                 yaw_abs_error_1s=mean_optional('yaw_abs_error_1s'),
@@ -932,6 +936,7 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
           'heading_mae_deg','yaw_rate_mae_rad_s','yaw_abs_error_1s','yaw_abs_error_3s',
           'gyro_heading_error_mae_deg',
           'mean_abs_controller_correction_rad_s',
+          'maneuver_response_s','braking_path_first_0p5s_m',
           'servo_over_continuous_frac','servo_peak_abs_torque_nm',
           'drive_work_j','abs_work_j','spring_potential_range_j',
           'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
@@ -1026,7 +1031,8 @@ import math
 import numpy as np
 
 SCENARIOS = ('steady', 'turn_stop_left', 'turn_stop_right',
-             'sidestep_left', 'sidestep_right', 'reverse', 'stop_resume')
+             'sidestep_left', 'sidestep_right', 'reverse', 'stop_resume',
+             'rest_start', 'speed_step', 'brake_stop')
 
 
 def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
@@ -1056,6 +1062,15 @@ def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
     elif scenario == 'stop_resume':
         cmds[:,2] = 0.
         cmds[a:b,0] = 0.
+    elif scenario == 'rest_start':
+        cmds[:,2] = 0.
+        cmds[:a,0] = 0.
+    elif scenario == 'speed_step':
+        cmds[:,2] = 0.
+        cmds[:a,0] = .4 * speed
+    elif scenario == 'brake_stop':
+        cmds[:,2] = 0.
+        cmds[b:,0] = 0.
     return cmds
 
 
@@ -1180,6 +1195,8 @@ def summarize(jobs,profile_root,revision):
         fields=('arm','case','mode','survived_full','course_pass',
                 'gait_candidate_pass','progress_m','heading_mae_deg',
                 'yaw_abs_error_1s','gyro_heading_error_mae_deg',
+                'maneuver_response_s','maneuver_unobserved_count',
+                'braking_path_first_0p5s_m',
                 'physical_worlds','positive_progress_worlds',
                 'servo_over_continuous_frac','servo_peak_abs_torque_nm',
                 'drive_work_j','abs_work_j','spring_potential_range_j',
