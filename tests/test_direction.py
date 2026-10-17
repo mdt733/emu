@@ -323,3 +323,34 @@ def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
         plan('pilot',None,root,policy_file=champion)
     with pytest.raises(ValueError,match='specify training'):
         plan('physical',tmp_path/'old_run',root)
+
+
+def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path):
+    import json
+    from pathlib import Path
+    from emu.evaluation import plan, verify_existing
+    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    job=plan('physical',None,tmp_path/'out',policy_file=hero)[0]
+    path=Path(job['output'])/'heading_comparison.json'
+    path.parent.mkdir(parents=True)
+    for mode in ('off','on'):
+        (path.parent/mode).mkdir()
+        (path.parent/mode/'directional_exam.json').write_text('{}')
+    protocol=dict(angle_deg=job['angle'],direction=job['direction'],
+        scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
+        seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
+        gyro_noise_std_rad_s=job['gyro_noise'],
+        gyro_delay_frames=job['gyro_delay_frames'])
+    payload=dict(schema=2, source_artifact_sha256='expected',
+                 examined_at_revision='revision',protocol=protocol,
+                 heading_kp=job['heading_kp'])
+    path.write_text(json.dumps(payload))
+    assert verify_existing(path,job,'revision','expected')
+    with pytest.raises(ValueError,match='stale source'):
+        verify_existing(path,job,'revision','modified-export')
+    with pytest.raises(ValueError,match='stale source'):
+        verify_existing(path,job,'modified-revision','expected')
+    payload['protocol']['scenario']='wrong-way'
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError,match='changed exam parameters'):
+        verify_existing(path,job,'revision','expected')
