@@ -296,6 +296,64 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
     return pairs
 
 
+def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
+    """Read-only per-servo load and work evidence from the existing MJX trace.
+
+    Torque is actual MuJoCo actuator output, not motor current. A squared
+    relative-torque integral is an UNCALIBRATED heating-exposure proxy.
+    It is neither temperature nor a claimed safe duty limit.
+    """
+    required = ('servo_torque_nm', 'servo_joint_rate_rad_s',
+                'servo_peak_limit_nm', 'servo_shaft_abs_power_w',
+                'servo_shaft_drive_power_w', 'servo_shaft_brake_power_w',
+                'spring_potential_energy_j', 'shin_spring_energy_j')
+    if not all(k in trace for k in required):
+        return None
+    # Pre-step physics at index k reflects the preceding control interval.
+    # At the first terminal sample the state is still pre-reset; at later
+    # samples it belongs to a fresh episode and must never be included.
+    torque = np.asarray(trace['servo_torque_nm'], dtype=float)
+    speed = np.asarray(trace['servo_joint_rate_rad_s'], dtype=float)
+    final_index = stop if terminal else len(torque)
+    lo = max(1, start + 1)
+    tau = torque[lo:final_index, world, :]
+    omega = speed[lo:final_index, world, :]
+    if terminal:
+        # Terminal pre-step sample is valid, but the terminating step's
+        # post-step force cannot be recovered after auto-reset.
+        pass
+    if not len(tau):
+        return None
+    limit = np.asarray(trace['servo_peak_limit_nm'], dtype=float)
+    ceiling = limit[world] if limit.ndim == 2 else limit
+    if tau.shape[1] != 6 or omega.shape != tau.shape or np.asarray(ceiling).shape != (6,):
+        raise ValueError('physical exam expected six aligned servo channels')
+    if not np.isfinite(tau).all() or not np.isfinite(omega).all() or not np.isfinite(ceiling).all() or np.any(ceiling <= 0):
+        raise ValueError('nonfinite or invalid actuator measurements')
+    rating = 0.638  # nominal STS3215 rating; hardware confirmation outstanding
+    power = tau * omega
+    positive = np.maximum(power, 0)
+    negative = np.maximum(-power, 0)
+    over = np.abs(tau) > rating
+    duration = len(tau) * dt
+    return {
+        'actuator_sample_frames': int(len(tau)),
+        'actuator_sample_duration_s': float(duration),
+        'servo_peak_abs_torque_nm': np.max(np.abs(tau), axis=0).tolist(),
+        'servo_p95_abs_torque_nm': np.percentile(np.abs(tau), 95, axis=0).tolist(),
+        'servo_over_continuous_fraction': np.mean(over, axis=0).tolist(),
+        'servo_over_continuous_seconds': (np.sum(over, axis=0) * dt).tolist(),
+        'servo_peak_limit_utilization': np.max(np.abs(tau) / ceiling, axis=0).tolist(),
+        'servo_thermal_exposure_proxy_s': (np.sum((tau / rating) ** 2, axis=0) * dt).tolist(),
+        'servo_positive_shaft_work_j': (np.sum(positive, axis=0) * dt).tolist(),
+        'servo_braking_shaft_work_j': (np.sum(negative, axis=0) * dt).tolist(),
+        'servo_measured_interval_abs_shaft_work_j': float(np.sum(np.abs(power)) * dt),
+        'servo_all_sample_over_continuous_fraction': float(np.mean(over)),
+        'thermal_proxy_definition': 'integral (shaft torque / 0.638 Nm)^2 dt, uncalibrated; no cooling or temperature model',
+        'sampling_caveat': 'pre-step state force and velocity aligned from preceding interval; terminal post-step force unavailable',
+    }
+
+
 def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
     """Reduce bounded, real-MJX pre-reset frame samples into per-world verdicts.
 
@@ -372,6 +430,17 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             result['gyro_heading_error_mae_deg'] = float(np.degrees(
                 np.mean(np.abs(estimated[settle_frames:] -
                                true_relative[settle_frames:]))))
+        physical = examine_actuator_trace(
+            trace, w, start=settle_frames, stop=stop, dt=dt,
+            terminal=bool(len(term)))
+        if physical is not None:
+            result['physical_evidence'] = physical
+            # Mechanical positive work normalized by observed signed forward
+            # progress is meaningful only for a genuinely progressing course.
+            progress = course['signed_course_progress_m']
+            result['positive_shaft_work_per_progress_m_j_m'] = (
+                float(sum(physical['servo_positive_shaft_work_j']) / progress)
+                if progress > 0.01 else None)
         result.update(contact_stride_pairs=strides,measured_slope_deg=slope,
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)
