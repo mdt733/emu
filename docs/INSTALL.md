@@ -43,6 +43,36 @@ For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu 
 
 
 
+### v5016 spring and real-contact slope checks
+
+The independent physical exam now accepts a genuinely inclined infinite
+MuJoCo collision plane (the original XML stays unchanged, and gravity stays
+vertical). This is **not** the earlier tilted-gravity approximation, and
+the printed report explicitly identifies which kind of slope was examined.
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+OUT="$HOME/robot_lab/emu_exams/v5016_real_slope_$(date +%Y%m%d_%H%M%S)"
+emu directional-exam --policy showcase/champion.emupolicy \
+  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+  --seed 1701 --scenario steady --speed .10 \
+  --angle 2 --direction uphill --contact-slope --compare-heading
+```
+
+For a full planned protected-policy course campaign, the
+`--profile physical` batch now has **13 scenarios**, including real 2°
+uphill/downhill/cross slope cases. Run the planned command without `--run`
+first. These experiments never alter the protected actor or train PPO.
+
+The physical JSON records each passive shin's spring-energy charging/release
+and whether its release coincided with uninterrupted stance contact. Stance
+release is only an energy-timing observation—not energy delivered to the
+ground, an efficiency percentage, or proof of spring-assisted propulsion.
+`robot.xml` still lacks shin/torso sentinel contacts, and the actual
+incline is a single infinite plane rather than rocks, steps or varying
+per-world terrain.
+
 ### v5016 read-only physical reality exam (do this BEFORE expensive training)
 
 The protected Pitch15 public policy is a legitimate **frozen actor** and now
