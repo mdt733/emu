@@ -11,11 +11,12 @@ simulator facts. These are used to TEACH and must not leak into the deployable
 actor's 220 observation inputs. Held-out exams independently judge actual
 course progress and walking, not the numerical teaching score.
 
-IMPORTANT: servo torque, shaft power and spring energy are *diagnostic
-measurements only*. The current reward pays a small smoothness term for
-smaller ACTION CHANGES, and a joint-limit/leg-scissoring safety term. Neither
-is measured electrical efficiency or servo power. Changing this doctrine
-requires a separately justified experiment, not a readability refactor.
+IMPORTANT: servo torque, shaft power and spring energy are *not* measured
+electrical consumption. The historical eight rewards are unchanged by default.
+A ninth, separately logged motor-cost payment is an OPT-IN v5016 hypothesis,
+enabled by motor_guidance_weight > 0. It uses bounded nominal-duty and
+simulated shaft-effort proxies only; it never assumes that mere spring cycling
+is beneficial. Change and evaluate this knob only in a matched experiment.
 
 Keep the existing reward arithmetic and left-to-right weighted addition
 unchanged so older training comparisons remain interpretable.
