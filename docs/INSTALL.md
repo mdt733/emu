@@ -41,6 +41,41 @@ For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu 
 
 **The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
 
+
+
+### v5016 read-only physical reality exam (do this BEFORE expensive training)
+
+The protected Pitch15 public policy is a legitimate **frozen actor** and now
+works as an examiner input without the historical training PKL. Use a new,
+isolated output directory outside Git; this creates reports only:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+
+OUT="$HOME/robot_lab/emu_exams/pitch15_steady_$(date +%Y%m%d_%H%M%S)"
+emu directional-exam --policy showcase/champion.emupolicy \
+  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+  --seed 1701 --scenario steady --speed 0.10 --angle 0
+
+# Bounded independent stop/resume and turning checks, different output roots.
+for SCENE in rest_start speed_step brake_stop stop_resume reverse turn_stop_left turn_stop_right; do
+  OUT="$HOME/robot_lab/emu_exams/pitch15_${SCENE}_$(date +%Y%m%d_%H%M%S)"
+  emu directional-exam --policy showcase/champion.emupolicy \
+    --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+    --seed 1701 --scenario "$SCENE" --speed 0.10 --angle 0
+done
+```
+
+If the CUDA examiner fails due to VRAM, collect the error and consider
+`--worlds 2`; do not silently substitute a CPU pass for GPU acceptance.
+Exam markdown reports signed progress, alternating touchdown candidates,
+per-servo torque-duty evidence, shaft work per signed metre and maneuver
+latency. Inspect the corresponding raw JSON before judging any policy.
+These tests never update the 120M trained policy, the showcase or a
+running WSL experiment. They do **not** establish electrical consumption,
+winding temperature, calibrated ground reaction forces or safe hardware use.
+
 ## GPU acceptance before a large campaign
 
 The following is a deliberately small but complete **two-update** fresh-checkpoint test. Use a never-used root outside Git:
