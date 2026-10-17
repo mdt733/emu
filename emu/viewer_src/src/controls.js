@@ -8,7 +8,7 @@ export const JOYSTICK_MODES = ['split', 'hybrid'];
 export function joystickToCommands(leftX, leftY, rightX, rightY, limits, mode='split') {
   if (!JOYSTICK_MODES.includes(mode)) throw new Error('Unknown joystick mode');
   const vx = leftY >= 0 ? leftY * limits.vx_max : (-leftY) * limits.vx_min;
-  const turnBlend = mode === 'hybrid' ? clamp((Math.abs(leftY) - 0.12) / 0.60, 0, 1) : 0;
+  const turnBlend = mode === 'hybrid' ? 0.8 * clamp((Math.abs(leftY) - 0.12) / 0.60, 0, 1) : 0;
   const vy = -leftX * (1 - turnBlend) * limits.vy_abs;
   const yaw = -clamp(rightX + leftX * turnBlend, -1, 1) * limits.yaw_abs;
   // Pull back pitches the chassis back, push forward pitches it forward.
