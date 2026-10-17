@@ -418,6 +418,16 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
     negative = np.maximum(-power, 0)
     over = np.abs(tau) > rating
     duration = len(tau) * dt
+    # Consecutive overload is more informative than isolated spikes.
+    # Break each boolean channel into contiguous runs in actual frame time.
+    def max_true_run(mask):
+        padded = np.concatenate(([False], np.asarray(mask,dtype=bool), [False]))
+        changes = np.diff(padded.astype(np.int8))
+        starts = np.flatnonzero(changes == 1)
+        ends = np.flatnonzero(changes == -1)
+        return float(np.max(ends-starts) * dt) if len(starts) else 0.
+    longest = [max_true_run(over[:,k]) for k in range(6)]
+    near_peak = np.abs(tau) >= .90*ceiling
     return {
         'actuator_sample_frames': int(len(tau)),
         'actuator_sample_duration_s': float(duration),
@@ -425,6 +435,10 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
         'servo_p95_abs_torque_nm': np.percentile(np.abs(tau), 95, axis=0).tolist(),
         'servo_over_continuous_fraction': np.mean(over, axis=0).tolist(),
         'servo_over_continuous_seconds': (np.sum(over, axis=0) * dt).tolist(),
+        'servo_longest_continuous_overload_s': longest,
+        'servo_near_peak_fraction': np.mean(near_peak, axis=0).tolist(),
+        'servo_p95_abs_joint_speed_rad_s': np.percentile(np.abs(omega),95,axis=0).tolist(),
+        'servo_peak_abs_joint_speed_rad_s': np.max(np.abs(omega),axis=0).tolist(),
         'servo_peak_limit_utilization': np.max(np.abs(tau) / ceiling, axis=0).tolist(),
         'servo_thermal_exposure_proxy_s': (np.sum((tau / rating) ** 2, axis=0) * dt).tolist(),
         'servo_positive_shaft_work_j': (np.sum(positive, axis=0) * dt).tolist(),
@@ -542,6 +556,12 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
                     physical['spring_potential_mean_j'] = float(np.mean(stored))
                     physical['spring_potential_range_j'] = float(np.ptp(stored))
                     physical['shin_spring_potential_mean_j'] = float(np.mean(shin))
+                    # Positive storage/release changes are energy-state
+                    # movements, NOT calibrated useful work at the feet.
+                    for prefix, energy in (('all_springs',stored),('passive_shins',shin)):
+                        delta=np.diff(energy)
+                        physical[prefix+'_charging_proxy_j'] = float(np.sum(np.maximum(delta,0.)))
+                        physical[prefix+'_release_proxy_j'] = float(np.sum(np.maximum(-delta,0.)))
                     physical['spring_return_not_inferred'] = True
             # The scored foot path is a contact-conditioned geometric slip
             # proxy, not a force-plate measurement of sole friction.
