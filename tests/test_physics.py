@@ -170,6 +170,10 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert data['servo_torque_nm'].shape==(4,2,6)
     assert data['servo_joint_rate_rad_s'].shape==(4,2,6)
     assert data['last_servo_torque_nm'].shape==(2,6)
+    assert data['spring_joint_qpos_rad'].shape==(4,2,8)
+    assert data['last_spring_joint_qpos_rad'].shape==(2,8)
+    assert data['spring_reference_rad'].shape==(8,)
+    assert data['spring_stiffness_nm_rad'].shape==(8,)
     # Nominal MJX shares limits across worlds; domain-randomized worlds
     # may instead expose one six-actuator array per world.
     assert data['servo_peak_limit_nm'].shape in ((6,), (2,6))
@@ -288,6 +292,13 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
     assert len(report['worlds'])==2
     assert all('course_pass' in world for world in report['worlds'])
+    for world in report['worlds']:
+        if world.get('physical_evidence'):
+            p=world['physical_evidence']
+            assert p['spring_interval_count']==p['frames_recorded'] if 'frames_recorded' in p else p['spring_interval_count']>0
+            assert len(p['passive_shin_stance_release_j'])==2
+            assert len(p['passive_shin_release_j'])==2
+            assert all(x>=0 for x in p['passive_shin_stance_release_j'])
     assert all(world.get('invalid_reason') is not None or
                ('physical_evidence' in world and
                 world['physical_evidence']['actuator_sample_frames'] > 0)
