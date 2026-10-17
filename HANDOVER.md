@@ -1,4 +1,113 @@
-# EMU — living handover
+# EMU — v5016 sim-to-real living handover
+
+**Authoritative baseline:** GitHub `main` at `77c468c5bd78eedfaedaa755937616fe5743cfe8` (verified 17 Oct 2026).
+**Development branch:** [`feature/v5016-sim2real`](https://github.com/mdt733/emu/tree/feature/v5016-sim2real).
+**CI-only draft review:** [PR #8](https://github.com/mdt733/emu/pull/8), **not for merge**.
+The approved Pitch15 120,061,952-step showcase remains protected by Git blob
+`067d6156f0f9de629eabb1a69cf1b0ceb86db24c`. Actor contract: 55 × 4 = 220
+observations, six actions; checkpoint schema 7. No changes to `main`, the
+published demo or any historical training directory without express approval.
+
+## Physical-reality programme: execution gates, not a blind training schedule
+
+**Pass A — measurement correctness (IN PROGRESS).** Use the *existing*
+`evaluation.py`, `directional.py`, `results.py` and `ppo.py` tracer.
+Verify world-fixed signed distance, path error, complete alternating contact
+touchdowns, contact-conditioned foot slip, startup/braking/reversal response,
+yaw/heading error, falls and matched seed reproducibility. Overlay per-joint
+actual MJX shaft force and joint velocity, peak/p95 torque, nominal
+0.638 N m duty, absolute/positive/braking shaft work, squared-torque duty
+proxy, and stored spring energy. Keep reward, broad held-out score and
+physical evidence in distinct tables. Audit frame alignment and early
+termination with real MJX CPU traces **before** asserting physical results.
+Synthetic unit tests alone are not acceptance. Nominal duty is not a
+validated safe current/heat envelope; spring storage is not recovered energy.
+
+**Pass B — frozen baseline exam.** First run CPU shape and determinism
+checks (2 worlds, short horizon). On WSL CUDA, expand to bounded
+4–8-world, 350-frame exams on flat ground with precisely fixed seeds;
+collect steady forward/backward, sidestep both directions, rest→walk,
+walk→stop→resume, reversals and turns, both controller OFF/ON.
+Then add held-out sensor perturbations and gravity-equivalent slope trials.
+A true ramp geometry is a separate later exam. Repeat seeds 1701, 1702,
+1703 rather than promoting one lucky run. Preserve raw world-level results,
+report per-world missingness, and do not collapse into one composite score.
+The public `.emupolicy` does not satisfy the current PKL-only directional
+reader: locate an immutable full checkpoint with matching config/normalizer
+(the selected historical PKL SHA is
+`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`)
+or implement and separately verify exported-policy loading against the
+same checkpoint. Never silently substitute another actor.
+
+**Pass C — actuator model sensitivity.** Inspect the existing
+±1.913 N m forcerange, damping-based torque-speed approximation, friction,
+spring terms and one-frame action delivery in the actual XML/MJX path.
+DO NOT apply a second torque-speed cap. Define a short measured/justified
+uncertainty table for torque-speed under battery voltage, tracking delay,
+gear backlash/stiction, motor torque-duty and sensor delay. Model only
+identifiable quantities, separately log nominal vs perturbed performance,
+and label any temperature proxy as uncalibrated. Add physical collision
+sentinels and actual contact slope/terrain only after a geometry parity check.
+
+**Pass D — adaptive teaching.** Keep dynamic locomotion, not static pose
+holding, as the learning objective. Grow acquisition, acceleration, braking,
+reversing, yaw changes and push recovery according to observed course/
+contact/motor feasibility, *not* reward alone. Use bounded per-world
+variation and avoid changing sensor/actuator hardware assumptions inside
+one comparison. Explicitly test whether the 55 observable channels could
+be supplied/estimated on a real robot.
+
+**Pass E — controlled training tournament (NOT STARTED).** First complete
+a fresh small CUDA two-update save→resume→fixed-eval→export lifecycle.
+Default to 512 worlds for resource acceptance, then assess 1024; only
+use 2048 if confirmed within the RTX 4060 Ti 8 GB limit. Reserve a
+new per-source-revision run root outside Git.
+
+Proposed first exploration budget, in total *environment transitions*:
+- 12M shared foundation at one seed, trained from cold start.
+- Four matched hypotheses continued 12M each: A hardware-aware
+  nominal control; B motion acquisition/transitions; C torque/power
+  guidance; D gentle contact/robustness (only once terrain is validated).
+- Two physically credible finalists gain 20M each; one finalist gains
+  a further 20M only if the independent examiner still improves.
+- Total budget: 12 + 4×12 + 2×20 + 20 = **120M aggregate steps**,
+  not one 120M unexamined trajectory. This is a staged *budget ceiling*,
+  not an instruction to start jobs. Earlier stop conditions are desirable.
+- After pilot evidence, rerun the winning teaching difference under at
+  least two further seeds with matched setups; avoid a single-seed
+  causal conclusion.
+
+At every checkpoint freeze policy and matched evaluator. A candidate
+must (i) produce positive signed progress, (ii) exhibit alternating
+contact-stride evidence, (iii) preserve survival/recovery and
+command tracking under held-out tasks, and (iv) improve or at minimum
+not hide worsening actuator load/shaft work. Publish the individual
+Pareto dimensions and worst-world distributions, not a hidden scalar
+promotion score. Use identical environment model and evaluation seeds
+for each controlled contrast.
+
+**Pass F — real hardware identification and safety (PLANNED).** Map all
+55 observation channels to real sensors/estimators, identify servo
+torque-speed and delay on a guarded bench, measure voltage/current/
+temperature and tracking latency, then calibrate uncertainty ranges.
+Watchdogs, joint travel/torque limiting and fall-safe shutoff live
+outside the neural controller.
+
+## Validation responsibilities
+
+GitHub PR CI verifies imports, unit tests, browser tests and CPU-level
+source contracts; it does **not** establish hardware or CUDA/MJX training
+validity. WSL checks must demonstrate compiled physics, full lifecycle,
+8 GB allocation margin, and directional physical evidence. Keep a
+different run root for each source revision, never resume an older
+experiment into new source, and do not disturb any separate active
+120M WSL campaign. Every release gate records: hypothesis, source SHA,
+policy SHA, seeds, physical parameters, measured outcomes, known
+limits and next decision. Promote via reviewed PR only after explicit approval.
+
+---
+
+## Historical v5015/refactor handover (preserved for context)
 
 **Current stable release:** `main` at merge commit `252f6102dd813a451daad29fecf2fbebd586da6b`, containing the refactored trainer, single browser viewer, and real **Pitch15 120,061,952-step** `showcase/champion.emupolicy`. The public GitHub Pages site deploys only after manually dispatching the Pages workflow; do not confuse a code merge with a published site.
 
