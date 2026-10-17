@@ -250,6 +250,8 @@ def main(argv=None) -> int:
                    help='opt-in shared real incline 0..5 degrees, sim2real only')
     q.add_argument('--contact-terrain-radius',type=float,default=0.0,
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
+    q.add_argument('--sensor-actor',action='store_true',
+                   help='train opt-in 232-input ToF/optical-flow policy (sim2real profile only)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')

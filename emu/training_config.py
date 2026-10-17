@@ -18,6 +18,7 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -108,6 +109,17 @@ DOCTRINE = {
 }
 
 
+def training_sensor_contract(config) -> dict | None:
+    """Shared checkpoint/evaluator identity of the simulated sensor package."""
+    if config.observation_schema == OBS_SCHEMA_LEGACY:
+        return None
+    if config.observation_schema != OBS_SCHEMA_SENSOR:
+        raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
+    settings = dict(SENSOR_SETTINGS_DEFAULTS)
+    settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
+    return sensor_observation_contract(settings)
+
+
 def doctrine_dict() -> dict[str, object]:
     """Stable runtime constants recorded beside each run for provenance."""
     return dict(DOCTRINE)
@@ -122,6 +134,7 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
+    observation_schema: str = OBS_SCHEMA_LEGACY  # explicitly opt in to sim2real_232
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only a ladder arm with an explicit override changes them. Rollout length,
@@ -211,7 +224,7 @@ class TrainingConfig:
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode'}
+                    'domain_terrain_mode', 'observation_schema'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -222,7 +235,7 @@ class TrainingConfig:
 # Algorithm-independent aspects (physical commands, teaching, curriculum,
 # normalisation) are otherwise modifiable via TrainingConfig fields.
 IMMUTABLE_RUN_FIELDS = frozenset({
-    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile',
+    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
 })
 
 

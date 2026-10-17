@@ -96,7 +96,7 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
-        open_frontier=False, combo_mix_frac=combo_mix, combo_probe_frac=0.0,
+        observation_schema=config.observation_schema, open_frontier=False, combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
@@ -213,7 +213,7 @@ def record_fixed_exam(
     broad_history: list[float], best_score: float, best_path: Path,
     curriculum_state: Callable[[], dict], health_state: Callable[[], dict],
     field_state: Callable[[], dict], lr_scale: float, version: str,
-    perf: Any, log_prefix: str,
+    perf: Any, log_prefix: str, checkpoint_meta: dict | None = None,
 ) -> tuple[dict[str, float], float]:
     """Evaluate one frozen policy and retain the strongest exact checkpoint.
 
@@ -235,7 +235,7 @@ def record_fixed_exam(
             {'step': snapshot.step, 'policy_step': snapshot.step, 'version': version,
              'best_eval_score': best_score,
              'instant_eval_score': out['eval_broad_score'], 'evaluated_policy': True,
-             'lr_scale': lr_scale},
+             'lr_scale': lr_scale, **(checkpoint_meta or {})},
             snapshot.norm(),
             curriculum_state=curriculum_state(),
             health_state=health_state(),

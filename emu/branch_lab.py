@@ -533,7 +533,8 @@ from .training_config import verify_existing_phase_config
 from .contracts import source_repo_root
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
-from .training_config import TrainingConfig, foundation_config, mature_config
+from .training_config import TrainingConfig, foundation_config, mature_config, training_sensor_contract
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -564,6 +565,9 @@ def one_run_config(args) -> TrainingConfig:
     grade=float(getattr(args,'contact_slope_deg',0.0))
     if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
         raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
+    sensor_actor = bool(getattr(args, 'sensor_actor', False))
+    if sensor_actor and args.profile != 'sim2real':
+        raise ValueError('--sensor-actor requires --profile sim2real')
     if grade > 0 and args.profile != 'sim2real':
         raise ValueError('real contact slope requires --profile sim2real')
     terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
@@ -574,6 +578,7 @@ def one_run_config(args) -> TrainingConfig:
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
@@ -626,7 +631,9 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         verify_existing_phase_config(root, config)
 
     finished, partial, expected = resolve_target_checkpoint(
-        root, target_steps=config.steps, envs=config.envs, label=root.name)
+        root, target_steps=config.steps, envs=config.envs, label=root.name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
     if finished is not None:
         if resume not in ('', 'auto'):
             raise RuntimeError('Run already complete; external --resume is not appropriate here')
@@ -643,7 +650,9 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         parent = Path(resume).expanduser().resolve()
         if not parent.is_file():
             raise FileNotFoundError(f'Parent checkpoint not found: {parent}')
-        payload = load_checkpoint(parent, validate=True)
+        payload = load_checkpoint(
+            parent, validate=True, expected_observation_schema=config.observation_schema,
+            expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
         if source != provenance['commit']:
             raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
@@ -676,7 +685,9 @@ def train_one(args) -> int:
     # Do not announce success until the trainer's own validated final is present.
     final, _, _ = resolve_target_checkpoint(
         Path(config.run_dir), target_steps=config.steps, envs=config.envs,
-        label=Path(config.run_dir).name)
+        label=Path(config.run_dir).name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
     if final is None:
         raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
     print(f'Completed validated run: {final}')
