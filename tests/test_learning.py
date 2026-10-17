@@ -497,3 +497,72 @@ def test_old_schema_7_cannot_lie_about_sensor_semantics():
             {'checkpoint_schema': 7, 'observation_schema': OBS_SCHEMA_SENSOR})
     with pytest.raises(ValueError, match='sensor metadata inside legacy'):
         _validate_observation_meta({'checkpoint_schema': 7, 'sensor_contract': {}})
+
+
+def test_v5016_training_sensor_identity_and_schema8_resume(tmp_path):
+    """Real on-disk policy rewind accepts only matching 232-observation runs."""
+    from emu.contracts import OBS_SCHEMA_SENSOR, OBS_SCHEMA_LEGACY, SENSOR_OBS_DIM
+    from emu.training_config import training_sensor_contract
+    from emu.checkpoint_io import (
+        load_checkpoint, find_valid_resume, resolve_target_checkpoint)
+    sensor_cfg = TrainingConfig(observation_schema=OBS_SCHEMA_SENSOR)
+    contract = training_sensor_contract(sensor_cfg)
+    assert contract['settings']['sensor_noise_scale'] == 1.5
+    assert training_sensor_contract(TrainingConfig()) is None
+    run_dir = tmp_path / 'sim2real_run'
+    checkpoints = run_dir / 'checkpoints'
+    checkpoints.mkdir(parents=True)
+    params = fake_policy_params()
+    for head in ('pi', 'vf'):
+        original = params[head][0]['w']
+        params[head][0]['w'] = np.zeros((SENSOR_OBS_DIM, original.shape[1]), np.float32)
+    state = FakeState(params=params, opt_state={'count': np.asarray(1, np.int32)})
+    norm = {'mean': np.zeros(SENSOR_OBS_DIM, np.float32),
+            'var': np.ones(SENSOR_OBS_DIM, np.float32), 'count': 12.}
+    path = checkpoints / 'latest.pkl'
+    save_checkpoint(path, state, {
+        'step': 128, 'lr_scale': .25, 'checkpoint_schema': 8,
+        'observation_schema': OBS_SCHEMA_SENSOR,
+        'obs_dim': SENSOR_OBS_DIM, 'sensor_contract': contract,
+    }, norm, curriculum_state={'params': {}}, health_state={},
+                    field_state=CapabilityField().state_dict())
+    assert find_valid_resume(run_dir) is None
+    assert find_valid_resume(
+        run_dir, expected_observation_schema=OBS_SCHEMA_SENSOR,
+        expected_sensor_contract=contract) == path
+    assert load_checkpoint(
+        path, expected_observation_schema=OBS_SCHEMA_SENSOR,
+        expected_sensor_contract=contract)['meta']['step'] == 128
+    finished, partial, boundary = resolve_target_checkpoint(
+        run_dir, target_steps=320, envs=2, label='sensor-test',
+        expected_observation_schema=OBS_SCHEMA_SENSOR,
+        expected_sensor_contract=contract)
+    assert finished is None and partial == path and boundary == 320
+    resumed, step, completed = resume_training_lineage(
+        run_dir, resume='auto', target_steps=320, envs=2,
+        expected_observation_schema=OBS_SCHEMA_SENSOR,
+        expected_sensor_contract=contract)
+    assert step == 128 and not completed and resumed['meta']['obs_dim'] == 232
+    with pytest.raises(RuntimeError, match='no valid current-schema'):
+        resume_training_lineage(run_dir, resume='auto', target_steps=320, envs=2)
+    with pytest.raises(RuntimeError, match='none are valid current-schema'):
+        resolve_target_checkpoint(run_dir, target_steps=320, envs=2, label='legacy')
+    del OBS_SCHEMA_LEGACY
+
+
+def test_v5016_sensor_actor_cli_plan_is_explicit(capsys, tmp_path):
+    from emu.cli import main
+    import json
+    run_dir = tmp_path / 'sensor-actor'
+    assert main(['train', '--run-dir', str(run_dir), '--profile', 'sim2real',
+                 '--sensor-actor', '--steps', '2097152', '--envs', '512',
+                 '--device', 'cuda', '--plan']) == 0
+    content = capsys.readouterr().out
+    config = json.loads(content[content.index('{'):content.rfind('}') + 1])
+    assert config['observation_schema'] == 'sim2real_232'
+    assert config['steps'] == 2097152
+    assert config['envs'] == 512
+    assert not run_dir.exists()
+    with pytest.raises(ValueError, match='requires --profile sim2real'):
+        main(['train', '--run-dir', str(run_dir), '--profile', 'foundation',
+              '--sensor-actor', '--steps', '1024', '--envs', '2', '--plan'])

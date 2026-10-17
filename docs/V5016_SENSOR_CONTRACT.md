@@ -100,3 +100,36 @@ This test neither starts a long training run nor writes checkpoints.
 For a CPU-only testing host, add `--no-require-gpu --no-mjx-smoke`.
 Passing this smoke does NOT establish that a new actor can walk or that
 the legacy browser viewer can reproduce its observations.
+
+## End-to-end learner wiring (v5016 experimental)
+
+`emu train --profile sim2real --sensor-actor` explicitly chooses the
+232-channel policy. The unadorned sim2real profile still uses the protected
+legacy actor convention, permitting A/B tests rather than silent replacement.
+The training configuration records `observation_schema`, and the training
+coordinator supplies the same observation schema to all five matched held-out
+worlds and to the cloud evaluator. PPO running normalizers are 232-wide; every
+checkpoint family (latest, rotating snapshot, recovery, best, final) includes
+schema 8 plus the exact canonical sensor contract.
+
+Auto-resume, explicit parent resume, recovery and final-step promotion all
+validate the sensor-contract fingerprint *before* using weights. Legacy
+schema-7 functions continue to default to the protected 220-input contract.
+A v5016 checkpoint is deliberately not exported by the legacy browser writer
+or consumed by the original Pitch15-only directional examiner.
+
+The first GPU acceptance run can use 512 worlds and 2,097,152 steps (128 PPO
+updates at 32 frames per update, 16,384 env steps per update). A fresh run is
+appropriate since an archived 220 policy cannot safely bootstrap a 232 policy.
+Do not claim the sensor-trained actor is deployable until the live robot sensor
+pipeline and exporter/viewer can interpret the same sensor timestamps, ranges,
+gyro reference and field ordering. Fixed evaluator remains simulation based.
+
+Example from a clean source checkout:
+
+```bash
+emu doctor --v5016-smoke
+emu train --profile sim2real --sensor-actor \
+  --run-dir ~/robot_lab/emu_runs/v5016_sensor_2m \
+  --steps 2097152 --envs 512 --seed 733 --device cuda
+```
