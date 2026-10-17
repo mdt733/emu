@@ -18,7 +18,8 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
-from .directional import simulate_tripod_ranges, fit_tripod_ground
+from .directional import (simulate_tripod_ranges, fit_tripod_ground,
+                          simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
@@ -1717,6 +1718,45 @@ class EmuMJXEnv(TaskSampler):
         projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
+
+    def optical_flow_probe(self, data, *, range_errors_m=None,
+                           flow_errors_rad_s=None, gyro_errors_rad_s=None):
+        """Hardware-facing diagnostic: ToF-scaled, gyro-compensated image flow.
+
+        The forward camera model may read privileged MJX velocity/plane
+        geometry to synthesize a ray and image flow. The INVERSE estimator
+        receives measured flow, three-ToF fitted depth and local-frame gyro
+        only. This is not yet the production actor observation pipeline.
+        """
+        jnp=self.jnp
+        R=self._rotation_body_to_world(data)
+        torso=data.xpos[:,self.torso_id,:]
+        floor=int(self.ids['floor_geom'])
+        normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
+        origin=data.geom_xpos[:,floor,:]
+        beam=-R[:,:,2]
+        denom=jnp.sum(beam*normal,axis=-1)
+        distance=jnp.sum((origin-torso)*normal,axis=-1)
+        true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
+        true_depth=jnp.where(denom<-.3,true_depth,0.)
+        _,body_velocity,_=self._body_packets(data)
+        # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
+        # the second world-to-body rotation used by the legacy 220 actor.
+        body_gyro=data.qvel[:,3:6]
+        measured_flow,flow_valid=simulate_downward_optical_flow(
+            jnp,body_velocity,body_gyro,true_depth,
+            flow_error_rad_s=flow_errors_rad_s)
+        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
+        measured_gyro=body_gyro+(jnp.asarray(gyro_errors_rad_s)
+                                 if gyro_errors_rad_s is not None else 0.)
+        estimate=estimate_flow_velocity(
+            jnp,measured_flow,measured_gyro,ground['optical_depth_m'],
+            flow_valid=flow_valid,tof_valid=ground['valid'])
+        return dict(flow_rad_s=measured_flow,flow_return_valid=flow_valid,
+                    measured_gyro_body_rad_s=measured_gyro,
+                    tof_estimated_depth_m=ground['optical_depth_m'],
+                    ground_measurement_valid=ground['valid'],
+                    **estimate)
 
     def _floor_signed_heights(self, data, positions):
         """Per-world signed distance to the *actual* collision plane.

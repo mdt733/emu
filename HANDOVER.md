@@ -293,3 +293,19 @@ actor packet after validating these sensing assumptions, IMU angular-rate
 frame semantics and a realistic optical-flow + range velocity model.
 The protected 55x4 champion stays usable; no checkpoint interpretation
 or viewer export contracts were changed.
+
+
+## v5016 optical-flow/ground-ranging audit gate
+
+`directional.py` contains one shared NumPy/JAX inverse ToF fit and
+optical-flow velocity estimator, paired with forward measurement models.
+`EmuMJXEnv.optical_flow_probe` proves body-frame vx/vy can be reconstructed
+from **synthetic downward image motion, local IMU gyro and measured tripod
+distance** in physically tilted MJX worlds; no privileged true ground
+or velocity is handed to the inverse. The legacy 220-channel actor is
+untouched. Confirmed MuJoCo freejoint angular qvel is body-local;
+legacy _body_packets gyro double-rotation must be removed only when
+switching to a separately versioned new actor contract, to avoid
+silently corrupting the protected Pitch15 champion. Optical image
+noise, calibration, async updates, dropouts and latency are still
+diagnostic-only and not a hardware-specific implementation.

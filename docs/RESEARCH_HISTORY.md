@@ -332,3 +332,43 @@ Legacy 55x4=220 actor, the archived Pitch15 champion, schema-7
 checkpoints and browser observation paths remain unchanged. This pass is
 a diagnostically accessible sensor prototype and code-traced audit—not
 yet a policy that consumes measured terrain inclination.
+
+
+### v5016 down-looking optical-flow + triple-ToF velocity probe
+
+The existing three-ray forward/inverse model now also estimates a
+ground-plane intersection distance along the camera's body -Z optical
+axis, from **measured ray lengths** and triangulated points, never the
+simulator's privileged floor height. A pure NumPy/JAX optical forward
+model constructs approximate angular image velocity in rad/s from the
+camera's physically simulated body translation, the local-frame gyro,
+and true plane intersection (sensor-synthesis side only). The inverse
+`estimate_flow_velocity` receives optical flow, the IMU gyro and the
+ToF-fitted depth, and recovers body-frame vx/vy. The JAX-compatible
+`EmuMJXEnv.optical_flow_probe` joins these without adding actor inputs.
+
+MuJoCo freejoint rotational velocity `qvel[3:6]` is **body-local**,
+while `qvel[0:3]` is world-frame. The previous `_body_packets`
+doubly rotates the gyro by transpose(body xmat), corrupting the old
+220-input convention. The *new probe* correctly uses local qvel[3:6]
+and verifies gyro compensation in pure tests and a compiled tilted MJX
+test. The old champion's observation logic is deliberately not
+silently changed: gyro must be corrected as an explicit new actor
+contract before new foundation learning.
+
+Optical flow at the down-facing image center follows the local
+pinhole approximation flow_x=-v_body_x/depth+gyro_y,
+flow_y=-v_body_y/depth-gyro_x. Measured gyro is subtracted and observed
+ToF distance restores physical m/s scale. Missing or out-of-range
+image or depth returns become invalid with zero availability
+confidence—not falsely measured standstill. Forward simulation sees
+MJX ground normal/velocity; **inverse never does**.
+
+NOT YET a hardware-grade optical sensor model: optical texture, pixel
+quantization, gyro calibration, FOV, flow blur/rollout integration, the
+sensor's position offset, cross-axis calibration, body-to-foot/camera
+occlusion, occlusion/partial returns, asynchronous sampling, latency,
+and temporal persistence are not represented. The physical camera
+and ToF module types/mounts are still unspecified. Confidence means
+measurement availability only, NOT an error bound. No v5016 policy
+inputs or PPO weights were changed in this diagnostic pass.

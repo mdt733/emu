@@ -598,3 +598,42 @@ def test_real_mjx_tripod_probe_agrees_with_individual_contact_planes():
     np.testing.assert_allclose(missing['visibility_confidence'],0.,atol=0)
     # No actor dimension or old policy schema changed by a diagnostic probe.
     assert env.obs(state).shape==(4,220)
+
+
+def test_mjx_tripod_scaled_optical_flow_obeys_local_gyro_coordinates():
+    """Real MJX data -> synthetic camera flow -> measured ToF/IMU inverse.
+
+    Set a nonzero local angular velocity on a tilted robot, so a mistaken
+    rotation of MuJoCo qvel[3:6] breaks the equality.
+    """
+    pytest.importorskip('mujoco')
+    import jax
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv,DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=4,seed=5016,
+                  attitude_profile='v5015',
+                  domain_config=DomainRandomizationConfig(
+                      enabled=True,terrain_radius=.8,terrain_mode='contact'))
+    state,_=env.reset({'posture_difficulty':0.})
+    # Even if normal reset produces a small tilt, these root angular
+    # components are explicitly in the BODY frame per MuJoCo freejoint.
+    v=jnp.tile(jnp.asarray([.11,-.052,0.,.31,-.23,.17]),(4,1))
+    qvel=state.data.qvel.at[:,:6].set(v)
+    updated=env.forward_batched(env.mjx_model,state.data.replace(qvel=qvel))
+    truth=env._body_packets(updated)[1][:,:2]
+    measured=jax.device_get(env.optical_flow_probe(updated))
+    assert bool(np.all(measured['velocity_valid']))
+    np.testing.assert_allclose(measured['velocity_body_xy_mps'],
+                               jax.device_get(truth),atol=1e-5)
+    # Optical depth comes from the three observed rays, never from the
+    # true floor height used only inside the forward camera model.
+    assert np.all((measured['tof_estimated_depth_m']>.035)
+                  &(measured['tof_estimated_depth_m']<.6))
+    assert np.max(np.abs(measured['flow_rad_s']))>.01
+    missing=jax.device_get(env.optical_flow_probe(
+        updated,range_errors_m=np.tile([1.,0.,0.],(4,1))))
+    assert not np.any(missing['velocity_valid'])
+    np.testing.assert_array_equal(missing['velocity_confidence'],
+                                  np.zeros(4))
+    assert env.obs(state).shape==(4,220)

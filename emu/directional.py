@@ -831,13 +831,80 @@ def fit_tripod_ground(xp, ranges_m, gravity_body, *,
            &(area>=min_area_m2)&(cosine>.1)
            &(xp.sqrt(xp.sum(g*g,axis=-1))>.1)
            &(xp.sqrt(xp.sum(fwd*fwd,axis=-1))>.5))
+    # Camera at the torso origin, looking along body -Z. Recover scale
+    # from observed triangulated points, not from a privileged floor plane.
+    signed_offset=xp.sum(n*points[:,0,:],axis=-1)
+    optical_depth=-signed_offset/xp.where(xp.abs(n[:,2])>.1,n[:,2],1.)
+    depth_valid=(xp.isfinite(optical_depth)
+                 &(optical_depth>=TOF_MIN_RANGE_M)
+                 &(optical_depth<=TOF_MAX_RANGE_M))
+    valid=valid&depth_valid
     # A zero angle with valid=False MUST NOT be treated as flat ground.
     confidence=xp.where(valid,
         xp.clip(area/.00375,0.,1.)*xp.clip(cosine/.6,0.,1.),0.)
     return dict(forward_grade_rad=xp.where(valid,fgrade,0.),
                 sideways_grade_rad=xp.where(valid,sgrade,0.),
                 ground_normal_body=xp.where(valid[:,None],n,up),
-                triangle_area_m2=area,valid=valid,visibility_confidence=confidence)
+                triangle_area_m2=area,valid=valid,visibility_confidence=confidence,
+                optical_depth_m=xp.where(valid,optical_depth,0.))
+
+
+def simulate_downward_optical_flow(xp, body_velocity_mps, body_gyro_rad_s,
+                                   optical_depth_m, *, flow_error_rad_s=None):
+    """Angular image flow at the optical axis of a down-looking camera.
+
+    Forward optics uses TRUE simulator body velocity, body-local gyro and
+    true ray/plane intersection depth to generate noisy *measurements*.
+    No true velocity enters the inverse estimator. Optical boresight is
+    body -Z; image horizontal axes are body X/Y. Units rad/s approximately.
+
+    At the boresight, yaw-induced image translation is zero to first order,
+    while roll/pitch rotation must be compensated. Does not model image
+    texture, pixel quantization, FOV, self-occlusion, blur or sensor latency.
+    """
+    v=xp.asarray(body_velocity_mps)
+    w=xp.asarray(body_gyro_rad_s)
+    depth=xp.asarray(optical_depth_m)
+    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
+           &(depth<=TOF_MAX_RANGE_M)
+           &xp.all(xp.isfinite(v),axis=-1)&xp.all(xp.isfinite(w),axis=-1))
+    safe=xp.maximum(depth,TOF_MIN_RANGE_M)
+    angular=xp.stack((-v[:,0]/safe+w[:,1],
+                      -v[:,1]/safe-w[:,0]),axis=-1)
+    if flow_error_rad_s is not None:
+        angular=angular+xp.asarray(flow_error_rad_s)
+    valid=valid&xp.all(xp.isfinite(angular),axis=-1)
+    return xp.where(valid[:,None],angular,0.),valid
+
+
+def estimate_flow_velocity(xp, flow_rad_s, imu_gyro_body_rad_s,
+                           tof_estimated_optical_depth_m, *,
+                           flow_valid=None, tof_valid=None):
+    """Invert a gyro-compensated downward optical-flow measurement.
+
+    Returns *body-frame* horizontal vxy, never world velocity. The estimator
+    receives measured angular image flow, gyro and tripod-derived distance,
+    NOT the MuJoCo velocity or true floor normal used by the forward model.
+    Invalid sources produce zero velocity AND false validity; a policy must
+    not mistake this for a confident zero-speed measurement.
+    """
+    flow=xp.asarray(flow_rad_s)
+    gyro=xp.asarray(imu_gyro_body_rad_s)
+    depth=xp.asarray(tof_estimated_optical_depth_m)
+    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
+           &(depth<=TOF_MAX_RANGE_M)
+           &xp.all(xp.isfinite(flow),axis=-1)
+           &xp.all(xp.isfinite(gyro),axis=-1))
+    if flow_valid is not None:
+        valid=valid&xp.asarray(flow_valid)
+    if tof_valid is not None:
+        valid=valid&xp.asarray(tof_valid)
+    scale=xp.maximum(depth,TOF_MIN_RANGE_M)
+    vxy=xp.stack((-scale*(flow[:,0]-gyro[:,1]),
+                  -scale*(flow[:,1]+gyro[:,0])),axis=-1)
+    return dict(velocity_body_xy_mps=xp.where(valid[:,None],vxy,0.),
+                velocity_valid=valid,
+                velocity_confidence=xp.where(valid,1.,0.))
 
 
 @dataclass(frozen=True)

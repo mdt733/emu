@@ -762,3 +762,37 @@ def test_tripod_tof_estimate_separates_ground_grade_from_body_attitude():
     assert bool(noisy['valid'][0])
     assert abs(float(noisy['forward_grade_rad'][0]-
                      grade['forward_grade_rad'][0]))>0
+
+
+def test_optical_flow_gyro_compensation_and_explicit_dropouts():
+    """Optical sensor inverse has NO ground truth body velocity input."""
+    from emu.directional import (simulate_downward_optical_flow,
+                                  estimate_flow_velocity)
+    velocity=np.array([[.12,-.045,0.],[.08,.06,0.]],dtype=float)
+    gyro=np.array([[.25,-.14,.32],[-.2,.11,-.17]],dtype=float)
+    depth=np.array([.22,.28])
+    flow,visibility=simulate_downward_optical_flow(np,velocity,gyro,depth)
+    assert visibility.tolist()==[True,True]
+    estimated=estimate_flow_velocity(np,flow,gyro,depth,
+                                    flow_valid=visibility)
+    assert np.all(estimated['velocity_valid'])
+    np.testing.assert_allclose(
+        estimated['velocity_body_xy_mps'],velocity[:,:2],atol=1e-10)
+    # Without IMU rotational compensation a turning/chassis-swing robot
+    # appears to translate: this is WHY gyro frame correctness matters.
+    uncompensated=estimate_flow_velocity(np,flow,np.zeros_like(gyro),depth)
+    assert np.max(np.abs(uncompensated['velocity_body_xy_mps']-
+                         velocity[:,:2]))>.02
+    noisy_flow,visible=simulate_downward_optical_flow(
+        np,velocity,gyro,depth,flow_error_rad_s=np.array([[.02,-.02],[0.,0.]]))
+    estimate=estimate_flow_velocity(np,noisy_flow,gyro,depth,
+                                    flow_valid=visible)
+    assert np.max(np.abs(estimate['velocity_body_xy_mps'][0]-
+                         velocity[0,:2]))>1e-3
+    missing=estimate_flow_velocity(
+        np,flow,gyro,np.array([0.,.28]),flow_valid=visibility,
+        tof_valid=np.array([False,True]))
+    assert not bool(missing['velocity_valid'][0])
+    assert missing['velocity_confidence'][0]==0.
+    np.testing.assert_array_equal(missing['velocity_body_xy_mps'][0],[0,0])
+    assert bool(missing['velocity_valid'][1])
