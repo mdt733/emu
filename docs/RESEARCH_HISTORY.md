@@ -69,6 +69,14 @@ reward is not an efficiency objective.
 - The pre-existing directional examiner already measured world-fixed signed
   progress, heading, reset-safe contact-stride candidates, command transitions,
   and optional gyro-delay/noise effects. No second examiner was created.
+- v5016's protected Pitch15 actor can now be examined directly from the
+  repository's `showcase/champion.emupolicy`: the read-only loader rejects
+  incompatible XML, channel order, normalization, servo delivery and altered
+  actor bytes. JAX exam inference uses the identical actor as the browser.
+  The policy is not a resume checkpoint and the model itself is unchanged.
+- Added explicit rest-to-walk, acceleration-step and brake-to-stop courses
+  alongside existing reversals/turns. Transition response and braking travel
+  are measured from actual trajectory arrays, not derived from PPO reward.
 - Branch-only instrumentation now carries six MuJoCo actuator output torques
   and joint speeds through the existing frozen-policy MJX trace. The reducer
   reports per-joint peak/p95 torque, exposure above nominal 0.638 N·m,
@@ -79,11 +87,12 @@ reward is not an efficiency objective.
   The post-step aggregate power metrics still cover the terminating step.
   Contact-pair proximity is not a ground-reaction-force measurement.
   Total spring energy variation does not establish energy returned to gait.
-- These code changes have not yet been validated by a real local CUDA/MJX
-  rollout. The protected showcase .emupolicy is an exported actor, not a
-  checkpoint directory containing the frozen PPO parameters and observation
-  statistics needed by the existing directional-exam loader. A compatible
-  training checkpoint must be supplied separately to measure that champion.
+- GitHub's earlier real-MJX CPU trace tests passed. The protected 120M
+  actor now has a full CPU MJX examiner acceptance test, but local CUDA
+  physical acceptance and meaningful multi-seed frozen-policy measurements
+  must still be verified before asserting locomotion or hardware viability.
+  Exported actor weights/normalizer cannot resume or serve as a full PKL
+  training checkpoint.
 - Source, reward, curriculum, actor interface and physical delivery model are
   intentionally unchanged. No hardware feasibility verdict has been made.
 
