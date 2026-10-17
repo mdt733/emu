@@ -241,3 +241,13 @@ browser yaw-heading P hold and physical radial terrain park. These change no
 policy weights, source training environments, saved checkpoints or protected
 showcase actor. Browser/MuJoCo physics playback needs hands-on verification
 after automated JS checks. **Do not merge this branch yet.**
+
+## Audit refinements (v5016, 17 Oct 2026)
+
+Physical batch case recipes now carry explicit `speed`, `lateral`,
+`yaw_rate`, `turn_rate`, and `settle_frames`. A zero-lateral sidestep
+is rejected instead of producing a false pass. The same `exam_request()`
+contract defines recorded protocol, recovery and batch skip/resume decisions.
+A completed OFF/ON pair can be summarised offline after an interruption;
+an incomplete or stale run is deliberately untouched. All logic stays in
+existing `evaluation.py`; no new module architecture has been introduced.

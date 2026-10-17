@@ -326,6 +326,8 @@ def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
     assert all(x['run_dir']==str(champion.resolve()) for x in jobs)
     assert all(x['worlds']==4 and x['seed']==1701 for x in jobs)
     assert sum(x['contact_slope'] for x in jobs)==3
+    assert all(x['lateral']==.06 for x in jobs if x['scenario'].startswith('sidestep_'))
+    assert all(x['lateral']==0. for x in jobs if not x['scenario'].startswith('sidestep_'))
     assert {x['scenario'] for x in jobs} >= {'rest_start','brake_stop','reverse',
                                                'turn_stop_left','sidestep_right'}
     execute(jobs,'synthetic_revision',actually_run=False)
@@ -345,15 +347,22 @@ def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path)
     job=plan('physical',None,tmp_path/'out',policy_file=hero)[0]
     path=Path(job['output'])/'heading_comparison.json'
     path.parent.mkdir(parents=True)
-    for mode in ('off','on'):
+    from emu.evaluation import exam_request
+    protocol=exam_request(
+        angle_deg=job['angle'],direction=job['direction'],
+        worlds=job['worlds'],horizon=job['horizon'],
+        settle_frames=job['settle_frames'],speed=job['speed'],
+        lateral=job['lateral'],yaw_rate=job['yaw_rate'],
+        seed=job['seed'],device=job['device'],scenario=job['scenario'],
+        turn_rate=job['turn_rate'],gyro_bias=job['gyro_bias'],
+        gyro_noise=job['gyro_noise'],gyro_delay_frames=job['gyro_delay_frames'],
+        contact_slope=job['contact_slope'])
+    for mode,gain in (('off',0.),('on',job['heading_kp'])):
         (path.parent/mode).mkdir()
-        (path.parent/mode/'directional_exam.json').write_text('{}')
-    protocol=dict(angle_deg=job['angle'],direction=job['direction'],
-        scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
-        ground_mode='inclined_contact_plane' if job.get('contact_slope') else 'tilted_gravity',
-        seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
-        gyro_noise_std_rad_s=job['gyro_noise'],
-        gyro_delay_frames=job['gyro_delay_frames'])
+        (path.parent/mode/'directional_exam.json').write_text(json.dumps(
+            dict(source_commit='revision',source_artifact_sha256='expected',
+                 exam=dict(protocol,heading_kp=gain),
+                 worlds=[{}]*job['worlds'])))
     payload=dict(schema=2, source_artifact_sha256='expected',
                  examined_at_revision='revision',protocol=protocol,
                  heading_kp=job['heading_kp'])
@@ -574,3 +583,21 @@ def test_audit_slope_course_uses_actual_contact_normal_not_vertical_gravity():
     with pytest.raises(ValueError,match='requires actual MJX floor'):
         evaluate_trace_arrays(fake_trace(),np.tile([0,0,-9.81],(2,1)),
                               ground_mode='inclined_contact_plane')
+
+
+def test_physical_course_names_correspond_to_nonzero_real_motion():
+    from emu.evaluation import make_schedule
+    for direction in ('left','right'):
+        scenario='sidestep_'+direction
+        with pytest.raises(ValueError,match='nonzero --lateral'):
+            make_schedule(scenario,120,speed=.1,lateral=0.)
+        cmd=make_schedule(scenario,120,speed=.1,lateral=.06)
+        assert np.any(np.abs(cmd[:,1])>.05)
+        assert np.allclose(cmd[30:80,0],0.)
+        assert np.sign(cmd[31,1]) == (1 if direction=='left' else -1)
+    for scenario,beg,end in (('rest_start',0,30),('stop_resume',30,80),
+                             ('brake_stop',80,120)):
+        c=make_schedule(scenario,120,speed=.1,lateral=.06)
+        assert np.all(c[beg:end,:2]==0), scenario
+    speed=make_schedule('speed_step',120,speed=.1,lateral=.05)
+    np.testing.assert_allclose(speed[:30,1],.02,atol=1e-6)

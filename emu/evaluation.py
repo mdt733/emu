@@ -679,6 +679,28 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
     return run,dest,g
 
 
+def exam_request(*, angle_deg=0.,direction='uphill',worlds=8,horizon=350,
+                 settle_frames=25,speed=.10,lateral=0.,yaw_rate=0.,
+                 seed=1701,device='cuda',scenario='steady',turn_rate=.25,
+                 gyro_bias=0.,gyro_noise=0.,gyro_delay_frames=0,
+                 contact_slope=False):
+    """One public exam identity, shared by run, recovery, and batch.
+
+    Only operator-controlled settings belong here. Measured ground normals,
+    actual gravity, source hashes and observed outcomes live in the result.
+    """
+    return dict(angle_deg=float(angle_deg),direction=direction,
+                ground_mode='inclined_contact_plane' if contact_slope else 'tilted_gravity',
+                worlds=int(worlds),horizon=int(horizon),
+                settle_frames=int(settle_frames),
+                speed=float(speed),lateral=float(lateral),yaw_rate=float(yaw_rate),
+                seed=int(seed),device=device,scenario=scenario,
+                turn_rate=float(turn_rate),
+                gyro_bias_rad_s=float(gyro_bias),
+                gyro_noise_std_rad_s=float(gyro_noise),
+                gyro_delay_frames=int(gyro_delay_frames))
+
+
 def evaluate_directional_run(run_dir=None, *, policy_file=None,
                  angle_deg, direction, output, worlds=8,
                  horizon=350, speed=.10, lateral=0., yaw_rate=0.,
@@ -800,23 +822,20 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'actor_sha256':source_actor_sha,
         'checkpoint_sha256':checkpoint_sha,
         'checkpoint_training_step':training_step,
-        'exam':dict(angle_deg=float(angle_deg),direction=direction,
-                    ground_mode='inclined_contact_plane' if contact_slope else 'tilted_gravity',
+        'exam':dict(**exam_request(
+                    angle_deg=angle_deg,direction=direction,worlds=worlds,
+                    horizon=horizon,settle_frames=settle_frames,
+                    speed=speed,lateral=lateral,yaw_rate=yaw_rate,
+                    seed=seed,device=device,scenario=scenario,
+                    turn_rate=turn_rate,gyro_bias=gyro_bias,gyro_noise=gyro_noise,
+                    gyro_delay_frames=gyro_delay_frames,contact_slope=contact_slope),
                     actual_gravity_world=actual_gravity.tolist(),
                     grade_reference_gravity_world=g.tolist(),
                     gravity_world=actual_gravity.tolist(),
                     measured_floor_normal_world=np.asarray(
                         frames['floor_normal_world'][0,0],dtype=float).tolist(),
-                    worlds=int(worlds),
-                    horizon=int(horizon),settle_frames=int(settle_frames),
-                    speed=float(speed),lateral=float(lateral),
-                    yaw_rate=float(yaw_rate),seed=int(seed),device=device,
                     heading_p_enabled=heading_kp>0,heading_kp=float(heading_kp),
-                    heading_sensor='body gyro-Z integrated with optional bias/white noise/delay',
-                    scenario=scenario,turn_rate=float(turn_rate),
-                    gyro_bias_rad_s=float(gyro_bias),
-                    gyro_noise_std_rad_s=float(gyro_noise),
-                    gyro_delay_frames=int(gyro_delay_frames)),
+                    heading_sensor='body gyro-Z integrated with optional bias/white noise/delay'),
         'worlds':evaluated,
     }
     output.mkdir(parents=True,exist_ok=True)
@@ -979,25 +998,8 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
         if not artifact.is_file():
             raise FileNotFoundError(artifact)
         actual_sha=sha256_file(artifact)
-        # Exact operator/motor-world request; no guessing from directory names.
-        expected=dict(
-            angle_deg=float(kwargs.get('angle_deg',0.)),
-            direction=kwargs.get('direction','uphill'),
-            ground_mode=('inclined_contact_plane' if kwargs.get('contact_slope',False)
-                         else 'tilted_gravity'),
-            worlds=int(kwargs.get('worlds',8)),
-            horizon=int(kwargs.get('horizon',350)),
-            settle_frames=int(kwargs.get('settle_frames',25)),
-            speed=float(kwargs.get('speed',.10)),
-            lateral=float(kwargs.get('lateral',0.)),
-            yaw_rate=float(kwargs.get('yaw_rate',0.)),
-            seed=int(kwargs.get('seed',1701)),
-            device=kwargs.get('device','cuda'),
-            scenario=kwargs.get('scenario','steady'),
-            turn_rate=float(kwargs.get('turn_rate',.25)),
-            gyro_bias_rad_s=float(kwargs.get('gyro_bias',0.)),
-            gyro_noise_std_rad_s=float(kwargs.get('gyro_noise',0.)),
-            gyro_delay_frames=int(kwargs.get('gyro_delay_frames',0)))
+        # An exact protocol match is required before reading saved evidence.
+        expected=exam_request(**kwargs)
         for mode, report, gain in (('off',off,0.),('on',on,heading_kp)):
             exam=report.get('exam',{})
             if report.get('schema')!=2 or report.get('source_artifact_sha256')!=actual_sha:
@@ -1014,12 +1016,9 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
     if (off['source_artifact_sha256']!=on['source_artifact_sha256'] or
             off['checkpoint_training_step']!=on['checkpoint_training_step']):
         raise RuntimeError('paired evaluations did not use same checkpoint')
-    for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
-                'angle_deg','direction','settle_frames','scenario','turn_rate',
-                'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames',
-                'ground_mode','actual_gravity_world',
-                'measured_floor_normal_world'): 
-        if off['exam'][key]!=on['exam'][key]:
+    for key in (*exam_request().keys(),
+                'actual_gravity_world','measured_floor_normal_world'):
+        if off['exam'].get(key)!=on['exam'].get(key):
             raise RuntimeError('paired examinations have unequal '+key)
     s_off=_summarize_worlds(off['worlds'])
     s_on=_summarize_worlds(on['worlds'])
@@ -1160,24 +1159,26 @@ def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
         cmds[:,2] = 0.
         cmds[a:b,2] = turn_rate if scenario.endswith('left') else -turn_rate
     elif scenario in ('sidestep_left','sidestep_right'):
+        if abs(lateral) < 1e-6:
+            raise ValueError('sidestep exam requires a nonzero --lateral command')
         cmds[:,2] = 0.
         cmds[a:b,0] = 0.
-        cmds[a:b,1] = lateral if scenario.endswith('left') else -lateral
+        cmds[a:b,1] = abs(lateral) * (1 if scenario.endswith('left') else -1)
     elif scenario == 'reverse':
         cmds[:,2] = 0.
         cmds[a:b,0] = -abs(speed)
     elif scenario == 'stop_resume':
         cmds[:,2] = 0.
-        cmds[a:b,0] = 0.
+        cmds[a:b,:2] = 0.
     elif scenario == 'rest_start':
         cmds[:,2] = 0.
-        cmds[:a,0] = 0.
+        cmds[:a,:2] = 0.
     elif scenario == 'speed_step':
         cmds[:,2] = 0.
-        cmds[:a,0] = .4 * speed
+        cmds[:a,:2] *= .4
     elif scenario == 'brake_stop':
         cmds[:,2] = 0.
-        cmds[b:,0] = 0.
+        cmds[b:,:2] = 0.
     return cmds
 
 
@@ -1261,6 +1262,8 @@ def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda',
           scenario=scenario,horizon=horizon,worlds=n,seed=int(seed),
           heading_kp=kp,device=device,gyro_bias=bias,gyro_noise=noise,
           gyro_delay_frames=delay,
+          speed=.10,lateral=.06 if scenario.startswith('sidestep_') else 0.,
+          yaw_rate=0.,turn_rate=.25,settle_frames=25,
           run_dir=str(source if policy_file is not None else source/'round1'/arm),
           is_exported_policy=policy_file is not None,
           contact_slope=profile=='physical' and angle>0,
@@ -1276,19 +1279,32 @@ def verify_existing(path,job,revision,checkpoint_hash):
     if source_hash!=checkpoint_hash or (
         info.get('examined_at_revision')!=revision):
         raise ValueError('stale source or trained checkpoint in '+str(path))
-    exam=info.get('protocol',{})
-    wanted=dict(angle_deg=job['angle'],direction=job['direction'],
-        scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
-        ground_mode='inclined_contact_plane' if job.get('contact_slope') else 'tilted_gravity',
-        seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
-        gyro_noise_std_rad_s=job['gyro_noise'],
-        gyro_delay_frames=job['gyro_delay_frames'])
-    if any(exam.get(k)!=v for k,v in wanted.items()) or (
+    wanted=exam_request(
+        angle_deg=job['angle'],direction=job['direction'],
+        worlds=job['worlds'],horizon=job['horizon'],
+        settle_frames=job['settle_frames'],speed=job['speed'],
+        lateral=job['lateral'],yaw_rate=job['yaw_rate'],
+        seed=job['seed'],device=job['device'],scenario=job['scenario'],
+        turn_rate=job['turn_rate'],gyro_bias=job['gyro_bias'],
+        gyro_noise=job['gyro_noise'],gyro_delay_frames=job['gyro_delay_frames'],
+        contact_slope=job['contact_slope'])
+    if info.get('schema')!=2 or any(info.get('protocol',{}).get(k)!=v
+                                     for k,v in wanted.items()) or (
         info.get('heading_kp')!=job['heading_kp']):
         raise ValueError('stale/changed exam parameters: '+str(path))
-    if not all((path.parent/mode/'directional_exam.json').is_file()
-               for mode in ('off','on')):
-        raise ValueError('incomplete paired evidence: '+str(path))
+    # Never trust a derived summary on its own. The archived raw exams
+    # must still be the same source, operator settings and OFF/ON controls.
+    for mode,gain in (('off',0.),('on',job['heading_kp'])):
+        raw=path.parent/mode/'directional_exam.json'
+        if not raw.is_file():
+            raise ValueError('incomplete paired evidence: '+str(path))
+        data=json.loads(raw.read_text())
+        if (data.get('source_artifact_sha256')!=checkpoint_hash
+            or data.get('source_commit')!=revision
+            or any(data.get('exam',{}).get(k)!=v for k,v in wanted.items())
+            or data.get('exam',{}).get('heading_kp')!=gain
+            or len(data.get('worlds',[]))!=wanted['worlds']):
+            raise ValueError('stale/changed raw paired evidence: '+str(raw))
     return True
 
 
@@ -1300,6 +1316,9 @@ def summarize(jobs,profile_root,revision):
             data=json.loads(p.read_text())
             rows.append(dict(arm=job['arm'],case=job['label'],angle_deg=job['angle'],
                  checkpoint_sha256=data['checkpoint_sha256'],
+                 source_artifact_sha256=data['source_artifact_sha256'],
+                 source_artifact_type=data['source_artifact_type'],
+                 examined_at_revision=data['examined_at_revision'],
                  protocol=data['protocol'],off=data['off'],on=data['on'],
                  on_minus_off=data['on_minus_off']))
     summary=dict(schema=1,profile=profile_root.name,source_commit=revision,
@@ -1397,20 +1416,38 @@ def execute(jobs,revision,*,actually_run=False):
         if verify_existing(report,job,revision,hashes[job['arm']]):
             print('Already validated: '+str(dest),flush=True)
             continue
-        if dest.exists() and any(dest.iterdir()):
-            raise FileExistsError('partial exam: inspect before retry '+str(dest))
+        # One executable exam contract, whether starting a new job or
+        # recovering a pair whose physics already completed.
         cmd=[sys.executable,'-m','emu.cli','directional-exam',
              '--policy' if job.get('is_exported_policy') else '--run-dir',
-             job['run_dir'],
-             '--output',str(dest),'--angle',str(job['angle']),
-             '--direction',job['direction'],'--scenario',job['scenario'],
+             job['run_dir'],'--output',str(dest),
+             '--angle',str(job['angle']),'--direction',job['direction'],
+             '--scenario',job['scenario'],
              '--worlds',str(job['worlds']),'--horizon',str(job['horizon']),
+             '--settle-frames',str(job['settle_frames']),
+             '--speed',str(job['speed']),'--lateral',str(job['lateral']),
+             '--yaw-rate',str(job['yaw_rate']),'--turn-rate',str(job['turn_rate']),
              '--seed',str(job['seed']),'--device',job['device'],
              '--heading-kp',str(job['heading_kp']),'--compare-heading',
              '--gyro-bias',str(job['gyro_bias']),
              '--gyro-noise',str(job['gyro_noise']),
              '--gyro-delay-frames',str(job['gyro_delay_frames']),
              *(['--contact-slope'] if job.get('contact_slope') else [])]
+        if dest.exists() and any(dest.iterdir()):
+            # Only recover a finished OFF/ON pair. An incomplete or foreign
+            # run is not a valid reason to repeat/overwrite GPU work.
+            if report.exists():
+                raise FileExistsError('stale completed exam: '+str(dest))
+            raw=[dest/mode/'directional_exam.json' for mode in ('off','on')]
+            if not all(f.is_file() for f in raw):
+                raise FileExistsError('partial MJX run needs manual inspection: '+str(dest))
+            for saved in raw:
+                data=json.loads(saved.read_text())
+                if (data.get('source_commit')!=revision
+                    or data.get('source_artifact_sha256')!=hashes[job['arm']]):
+                    raise ValueError('cannot recover stale/foreign raw exam: '+str(saved))
+            cmd.append('--reuse-completed')
+            print('Recovering saved OFF/ON evidence without MJX: '+str(dest),flush=True)
         subprocess.run(cmd,check=True)
         if not verify_existing(report,job,revision,hashes[job['arm']]):
             raise RuntimeError('no completed exam at '+str(report))

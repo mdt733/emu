@@ -210,3 +210,20 @@ be proposed for main. Never resume an old training root from new source.
   grading; an actual CPU MJX reset checks ground-relative geometry. No PPO
   reward coefficients, robot.xml, actor layout, schema-7 checkpoint or
   published Pitch15 policy were changed. GPU acceptance still required.
+
+### v5016 exam protocol consolidation — physical scene and resumability
+
+- Single `exam_request()` inside existing evaluation.py now defines the
+  operator-controlled exam identity for recording, paired recovery and batch
+  verification. Source hashes and real contact normals remain measured
+  evidence, NOT settings inferred from a test label. No helper modules added.
+- A named sidestep with zero lateral request now fails explicitly; the
+  approved physical batch asks for ±0.06 m/s lateral travel. The rest,
+  brake and stop/resume cases cancel both vx and vy components, while a
+  speed step scales both. These changes mean course names identify actual
+  movement requests, not cosmetically distinct stillness tests.
+- Batch may recover ONLY when both OFF/ON raw JSON reports exist, share
+  the expected current source revision and artifact SHA, and pass the exact
+  complete protocol check. It never resumes or overwrites half-finished
+  simulations. Summary rows retain source artifact SHA/type, preserving
+  the exported actor's identity even without its original .pkl.
