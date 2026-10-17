@@ -1103,6 +1103,19 @@ ARMS=('baseline','shadow','slope','pitch15')
 
 
 def cases(profile):
+    if profile=='physical':
+        return [('champion', label, angle, direction, scenario, 350)
+                for label,angle,direction,scenario in (
+                    ('flat_steady',0.,'uphill','steady'),
+                    ('rest_start',0.,'uphill','rest_start'),
+                    ('accelerate',0.,'uphill','speed_step'),
+                    ('brake_stop',0.,'uphill','brake_stop'),
+                    ('stop_resume',0.,'uphill','stop_resume'),
+                    ('reverse',0.,'uphill','reverse'),
+                    ('turn_left',0.,'uphill','turn_stop_left'),
+                    ('turn_right',0.,'uphill','turn_stop_right'),
+                    ('sidestep_left',0.,'uphill','sidestep_left'),
+                    ('sidestep_right',0.,'uphill','sidestep_right'))]
     if profile=='smoke':
         return [('baseline','flat',0.,'uphill','steady',40),
                 ('baseline','turn_stop',0.,'uphill','turn_stop_left',160)]
@@ -1125,19 +1138,31 @@ def cases(profile):
     raise ValueError('unknown profile')
 
 
-def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda'):
-    source=Path(root).expanduser().resolve()
+def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda',
+         policy_file=None):
+    if policy_file is not None:
+        if root is not None or profile != 'physical':
+            raise ValueError('exported policy requires physical profile and no run root')
+        source=Path(policy_file).expanduser().resolve()
+        if not source.is_file() or source.suffix != '.emupolicy':
+            raise FileNotFoundError(source)
+    else:
+        if root is None or profile == 'physical':
+            raise ValueError('specify training run root, or --policy for physical profile')
+        source=Path(root).expanduser().resolve()
     dest=Path(output).expanduser().resolve()
     if source==dest or source in dest.parents or dest in source.parents:
-        raise ValueError('outputs and training directories must be separate')
-    n=int(worlds or (2 if profile=='smoke' else 8))
+        raise ValueError('outputs and training sources must be separate')
+    n=int(worlds or (2 if profile=='smoke' else 4 if profile=='physical' else 8))
     if not 2<=n<=64 or not math.isfinite(kp) or not 0<kp<=2:
         raise ValueError('bounded worlds/gain required')
     bias,noise,delay=(.015,.02,2) if profile=='sensor' else (0.,0.,0)
     return [dict(arm=arm,label=label,angle=angle,direction=direction,
           scenario=scenario,horizon=horizon,worlds=n,seed=int(seed),
           heading_kp=kp,device=device,gyro_bias=bias,gyro_noise=noise,
-          gyro_delay_frames=delay,run_dir=str(source/'round1'/arm),
+          gyro_delay_frames=delay,
+          run_dir=str(source if policy_file is not None else source/'round1'/arm),
+          is_exported_policy=policy_file is not None,
           output=str(dest/profile/arm/label))
           for arm,label,angle,direction,scenario,horizon in cases(profile)]
 
@@ -1146,7 +1171,8 @@ def verify_existing(path,job,revision,checkpoint_hash):
     if not path.exists():
         return False
     info=json.loads(path.read_text())
-    if info.get('checkpoint_sha256')!=checkpoint_hash or (
+    source_hash=info.get('source_artifact_sha256',info.get('checkpoint_sha256'))
+    if source_hash!=checkpoint_hash or (
         info.get('examined_at_revision')!=revision):
         raise ValueError('stale source or trained checkpoint in '+str(path))
     exam=info.get('protocol',{})
@@ -1253,11 +1279,12 @@ def execute(jobs,revision,*,actually_run=False):
         return
     hashes={}
     for j in jobs:
-        checkpoint=Path(j['run_dir'])/'checkpoints/final.pkl'
-        if not checkpoint.is_file():
-            raise FileNotFoundError(str(checkpoint))
+        source=Path(j['run_dir'])
+        artifact=source if j.get('is_exported_policy') else source/'checkpoints/final.pkl'
+        if not artifact.is_file():
+            raise FileNotFoundError(str(artifact))
         if j['arm'] not in hashes:
-            hashes[j['arm']]=sha256_file(checkpoint)
+            hashes[j['arm']]=sha256_file(artifact)
     profile_root.mkdir(parents=True,exist_ok=True)
     for job in jobs:
         dest=Path(job['output'])
@@ -1267,7 +1294,9 @@ def execute(jobs,revision,*,actually_run=False):
             continue
         if dest.exists() and any(dest.iterdir()):
             raise FileExistsError('partial exam: inspect before retry '+str(dest))
-        cmd=[sys.executable,'-m','emu.cli','directional-exam','--run-dir',job['run_dir'],
+        cmd=[sys.executable,'-m','emu.cli','directional-exam',
+             '--policy' if job.get('is_exported_policy') else '--run-dir',
+             job['run_dir'],
              '--output',str(dest),'--angle',str(job['angle']),
              '--direction',job['direction'],'--scenario',job['scenario'],
              '--worlds',str(job['worlds']),'--horizon',str(job['horizon']),
@@ -1286,9 +1315,11 @@ def execute(jobs,revision,*,actually_run=False):
 
 def batch_main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--root',required=True)
+    source=p.add_mutually_exclusive_group(required=True)
+    source.add_argument('--root',help='existing tournament run root')
+    source.add_argument('--policy',help='frozen exported actor for physical profile')
     p.add_argument('--output',required=True)
-    p.add_argument('--profile',choices=('smoke','pilot','sensor','stretch'),default='smoke')
+    p.add_argument('--profile',choices=('smoke','pilot','sensor','stretch','physical'),default='smoke')
     p.add_argument('--worlds',type=int)
     p.add_argument('--seed',type=int,default=1701)
     p.add_argument('--heading-kp',type=float,default=.75)
@@ -1296,7 +1327,7 @@ def batch_main(argv=None):
     p.add_argument('--run',action='store_true')
     a=p.parse_args(argv)
     jobs=plan(a.profile,a.root,a.output,worlds=a.worlds,seed=a.seed,
-              kp=a.heading_kp,device=a.device)
+              kp=a.heading_kp,device=a.device,policy_file=a.policy)
     execute(jobs,source_commit(),actually_run=a.run)
     return 0
 
