@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [develop/playground-attitude-terrain]
+    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real]
   workflow_dispatch:
 
 permissions:

@@ -49,6 +49,29 @@ BASE_OBS_DIM = len(BASE_OBS_FIELDS)
 HISTORY_LEN = 4
 OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
 
+# Explicit opt-in v5016 policy interface. Never reinterpret an archived
+# 55x4 Pitch15 actor or its observation normalizer as this 58x4 interface.
+OBS_SCHEMA_LEGACY = "pitch15_220"
+OBS_SCHEMA_SENSOR = "sim2real_232"
+SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
+    "ground_forward_grade_rad", "ground_sideways_grade_rad",
+    "ground_visibility_confidence",
+)
+SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
+SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+OBS_FIELDS_BY_SCHEMA = {
+    OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
+    OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+}
+
+
+def actor_observation_fields(schema: str) -> tuple[str, ...]:
+    """Return the exact fields of an explicitly named actor contract."""
+    try:
+        return OBS_FIELDS_BY_SCHEMA[schema]
+    except KeyError as exc:
+        raise ValueError(f"unknown actor observation schema {schema!r}") from exc
+
 # Preserve the current actor coordinate system exactly.  The membership here is
 # intentionally explicit rather than encoded as fragile numeric slices.
 OBS_NORMALIZED_FIELDS = frozenset(

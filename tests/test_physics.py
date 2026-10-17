@@ -637,3 +637,55 @@ def test_mjx_tripod_scaled_optical_flow_obeys_local_gyro_coordinates():
     np.testing.assert_array_equal(missing['velocity_confidence'],
                                   np.zeros(4))
     assert env.obs(state).shape==(4,220)
+
+
+def test_versioned_sensor_actor_schema_keeps_pitch15_frozen():
+    from emu.contracts import (
+        BASE_OBS_FIELDS, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+        SENSOR_OBS_FIELDS, SENSOR_BASE_OBS_DIM, SENSOR_OBS_DIM,
+        actor_observation_fields,
+    )
+    from emu.ppo import build_obs_norm_mask
+
+    assert OBS_DIM == 220 and len(BASE_OBS_FIELDS) == 55
+    assert SENSOR_BASE_OBS_DIM == 58 and SENSOR_OBS_DIM == 232
+    assert SENSOR_OBS_FIELDS[:55] == BASE_OBS_FIELDS
+    assert SENSOR_OBS_FIELDS[-3:] == (
+        'ground_forward_grade_rad', 'ground_sideways_grade_rad',
+        'ground_visibility_confidence')
+    np.testing.assert_array_equal(
+        build_obs_norm_mask(), build_obs_norm_mask(OBS_SCHEMA_LEGACY))
+    mask = build_obs_norm_mask(OBS_SCHEMA_SENSOR)
+    assert mask.shape == (232,)
+    assert mask[55] == mask[56] == 1.0 and mask[57] == 0.0
+    assert tuple(actor_observation_fields(OBS_SCHEMA_SENSOR)) == SENSOR_OBS_FIELDS
+    with pytest.raises(ValueError, match='observation schema'):
+        actor_observation_fields('unversioned')
+
+
+def test_opt_in_232_actor_sees_noisy_tripod_and_optical_flow_mjx():
+    """Prove the real reset/step/history path, not just standalone probes."""
+    pytest.importorskip('mujoco')
+    import jax
+    import jax.numpy as jnp
+    from emu.contracts import (
+        ROBOT_XML, BASE_OBS_FIELDS, OBS_SCHEMA_SENSOR, SENSOR_OBS_FIELDS,
+    )
+    from emu.environment import EmuMJXEnv
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=2, seed=5016,
+                    attitude_profile='v5015', contact_slope_deg=2.,
+                    observation_schema=OBS_SCHEMA_SENSOR)
+    state, obs = env.reset({'posture_difficulty':0.})
+    assert obs.shape == (2, 232) and state.hist.shape == (2, 4, 58)
+    assert env.base_obs_fields == SENSOR_OBS_FIELDS and env.obs_dim == 232
+    assert bool(np.all(np.isfinite(jax.device_get(obs))))
+    frame = np.asarray(jax.device_get(state.hist[:, -1, :]))
+    assert np.max(np.abs(frame[:, -3:-1])) > .005
+    assert np.all((frame[:, -1] >= 0.) & (frame[:, -1] <= 1.))
+    assert np.all((frame[:, BASE_OBS_FIELDS.index('vel_confidence')] >= 0.) &
+                  (frame[:, BASE_OBS_FIELDS.index('vel_confidence')] <= 1.))
+    # New actor's history and time-limit bootstrap both retain 232 fields.
+    result = env.step(state, jnp.zeros((2, 6), dtype=jnp.float32), {})
+    assert result.obs.shape == (2, 232)
+    assert result.bootstrap_obs.shape == (2, 232)
+    assert bool(np.all(np.isfinite(jax.device_get(result.obs))))

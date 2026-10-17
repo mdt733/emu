@@ -20,7 +20,7 @@ import numpy as np
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -1042,7 +1042,8 @@ class EmuMJXEnv(TaskSampler):
                  attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
-                 contact_uphill_xy: tuple[float, float] = (1.0, 0.0)):
+                 contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
+                 observation_schema: str = OBS_SCHEMA_LEGACY):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1059,6 +1060,10 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
+        self.observation_schema = observation_schema
+        self.base_obs_fields = actor_observation_fields(observation_schema)
+        self.base_obs_dim = len(self.base_obs_fields)
+        self.obs_dim = self.base_obs_dim * HISTORY_LEN
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1263,7 +1268,7 @@ class EmuMJXEnv(TaskSampler):
         return self.step_jit(state, action, p)
 
     def obs(self, state: EnvState):
-        return state.hist.reshape((self.num_envs, OBS_DIM))
+        return state.hist.reshape((self.num_envs, self.obs_dim))
 
     # ---------------- JAX-only implementation below ----------------
 
@@ -1360,7 +1365,7 @@ class EmuMJXEnv(TaskSampler):
         # observation separately for PPO bootstrap.
         base = self._base_obs(data, task, action, phase, ctrl)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
-        bootstrap_obs = hist.reshape((self.num_envs, OBS_DIM))
+        bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
         # qvel -- see the docstring on _reset_with_keys.
         reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
@@ -1756,6 +1761,9 @@ class EmuMJXEnv(TaskSampler):
                     measured_gyro_body_rad_s=measured_gyro,
                     tof_estimated_depth_m=ground['optical_depth_m'],
                     ground_measurement_valid=ground['valid'],
+                    ground_forward_grade_rad=ground['forward_grade_rad'],
+                    ground_sideways_grade_rad=ground['sideways_grade_rad'],
+                    ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
 
     def _floor_signed_heights(self, data, positions):
@@ -1969,5 +1977,32 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        assert base.shape[1] == len(BASE_OBS_FIELDS) == BASE_OBS_DIM, f"_base_obs produced {base.shape[1]} columns, contract says {BASE_OBS_DIM}"
+        if self.observation_schema == OBS_SCHEMA_SENSOR:
+            # Forward synthesis may use privileged MuJoCo physics; inversion
+            # uses only optical angular motion, three noisy ToF rays and the
+            # body-local IMU gyro. The legacy policy path above is untouched.
+            range_noise = ns[:, None] * 0.0015 * jnp.stack(
+                (n0, n1, -n0), axis=1)
+            flow_noise = ns[:, None] * 0.035 * jnp.stack(
+                (n1, n0), axis=1)
+            gyro_noise = ns[:, None] * 0.025 * jnp.stack(
+                (n1, n0, -n1), axis=1)
+            sensor = self.optical_flow_probe(
+                data, range_errors_m=range_noise,
+                flow_errors_rad_s=flow_noise, gyro_errors_rad_s=gyro_noise)
+            vel_i = BASE_OBS_FIELDS.index('vel_x')
+            height_i = BASE_OBS_FIELDS.index('tof_height')
+            conf_i = BASE_OBS_FIELDS.index('vel_confidence')
+            base = (base.at[:, 3:6].set(sensor['measured_gyro_body_rad_s'])
+                        .at[:, vel_i:vel_i+2].set(sensor['velocity_body_xy_mps'])
+                        .at[:, height_i].set(sensor['tof_estimated_depth_m'])
+                        .at[:, conf_i].set(sensor['velocity_confidence']))
+            terrain = jnp.stack((
+                sensor['ground_forward_grade_rad'],
+                sensor['ground_sideways_grade_rad'],
+                sensor['ground_visibility_confidence']), axis=1)
+            base = jnp.concatenate((base, terrain), axis=1)
+        assert base.shape[1] == self.base_obs_dim, (
+            f"_base_obs produced {base.shape[1]} columns, "
+            f"{self.observation_schema} requires {self.base_obs_dim}")
         return jnp.nan_to_num(base, nan=0.0, posinf=10.0, neginf=-10.0).astype(jnp.float32)

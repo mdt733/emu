@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -87,11 +87,19 @@ def normalize_obs(obs, obs_mean, obs_std, obs_norm_mask=None):
     return jnp.where(obs_norm_mask > 0.5, z, obs)
 
 
-def build_obs_norm_mask():
-    """Normalise physical-scale channels; keep bounded/categorical channels raw."""
+def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
+    """Normalise physical-scale channels; keep bounded/categorical channels raw.
+
+    Pitch15's historic mask is unchanged. Sensor grades are physical angles,
+    but visibility and valid/confidence flags remain unnormalised.
+    """
     import numpy as _np
+    fields = actor_observation_fields(observation_schema)
+    normalised = OBS_NORMALIZED_FIELDS
+    if observation_schema == OBS_SCHEMA_SENSOR:
+        normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
     base = _np.asarray(
-        [1.0 if name in OBS_NORMALIZED_FIELDS else 0.0 for name in BASE_OBS_FIELDS],
+        [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
     )
     return _np.tile(base, HISTORY_LEN)
@@ -134,7 +142,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     import jax.numpy as jnp
     import optax
 
-    obs_norm_mask = jnp.asarray(build_obs_norm_mask(), dtype=jnp.float32)
+    obs_norm_mask = jnp.asarray(build_obs_norm_mask(getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY)), dtype=jnp.float32)
 
     _tmp_state, _tmp_obs = env.reset({})
     obs_dim = int(_tmp_obs.shape[-1])
@@ -694,7 +702,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
-            policy_obs=hist.reshape((env.num_envs, OBS_DIM))
+            policy_obs=hist.reshape((env.num_envs, obs_dim))
             # Frozen exams need only the actor, never a value network or
             # optimiser. This permits identical evaluation of exported .emupolicy
             # actors and full schema-7 checkpoints through ONE MJX trace path.
