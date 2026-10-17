@@ -705,6 +705,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 gyro_sample_rad_s=sampled_gyro,
                 gyro_delayed_rad_s=delayed_gyro,
                 root_qvel=es.data.qvel[:,:6],
+                # Pre-step arrays are the *post-physics* state of the preceding
+                # control frame. The host examiner shifts them one frame and
+                # truncates at the first done, avoiding reset-contaminated data.
+                servo_torque_nm=es.data.actuator_force[:,:ACTION_DIM],
+                servo_joint_rate_rad_s=es.data.qvel[:,env.act_qvel],
+                # These scalar diagnostics come from this step's pre-reset
+                # physical result, not from the reset state in out.state.
+                servo_shaft_abs_power_w=out.metrics['servo_shaft_abs_power_w'],
+                servo_shaft_drive_power_w=out.metrics['servo_shaft_drive_power_w'],
+                servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
+                spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
+                shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
                 done=out.done,fell=out.metrics['episode_fell'])
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
@@ -716,7 +728,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         last_xy,last_yaw,last_foot,last_contacts=record_state(last)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                    last_floor_contact=last_contacts)
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
