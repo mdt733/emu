@@ -195,6 +195,7 @@ def main(argv=None) -> int:
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--profile',choices=['foundation','mature'],default='foundation')
+    q.add_argument('--pitch-deg',type=float,default=8.0,help='maximum commanded chassis-pitch range, e.g. 15 for Pitch15-style teaching')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
