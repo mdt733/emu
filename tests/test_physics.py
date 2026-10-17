@@ -142,6 +142,15 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert data['floor_contact'].shape==(4,2,2)
     assert data['command'].shape==(4,2,3)
     assert data['last_position_xy'].shape==(2,2)
+    # Real MJX JIT: no synthetic substitute for source actuator fields.
+    assert data['servo_torque_nm'].shape==(4,2,6)
+    assert data['servo_joint_rate_rad_s'].shape==(4,2,6)
+    assert data['last_servo_torque_nm'].shape==(2,6)
+    assert data['servo_peak_limit_nm'].shape==(2,6)
+    for name in ('servo_torque_nm','servo_joint_rate_rad_s',
+                 'servo_shaft_abs_power_w','servo_shaft_drive_power_w',
+                 'spring_potential_energy_j'):
+        assert np.isfinite(data[name]).all()
     assert np.isfinite(data['position_xy']).all()
     # Exercise the actual optional gyro-integrated heading controller JIT path.
     on=trainer['evaluate_trace'](
