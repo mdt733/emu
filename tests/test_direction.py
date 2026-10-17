@@ -431,3 +431,22 @@ def test_public_sim2real_plan_resolves_common_pitch_30(tmp_path,capsys):
     assert data['pitch_command_max_deg']==30.0
     assert data['attitude_profile']=='v5015'
     assert not run.exists()
+
+
+def test_motor_guidance_keeps_historical_config_compatible_and_rejects_bad_arm(tmp_path):
+    import json
+    from dataclasses import asdict
+    from emu.training_config import TrainingConfig, apply_experiment_knobs
+    old=asdict(TrainingConfig())
+    old.pop('motor_guidance_weight')
+    p=tmp_path/'old_training_config.json'
+    p.write_text(json.dumps(old))
+    restored=TrainingConfig.load(p)
+    assert restored.motor_guidance_weight == 0.0
+    arm=apply_experiment_knobs(restored,(('motor_guidance_weight',.06),))
+    assert arm.motor_guidance_weight == pytest.approx(.06)
+    assert restored.motor_guidance_weight == 0.0
+    with pytest.raises(ValueError,match='motor_guidance_weight'):
+        apply_experiment_knobs(restored,(('motor_guidance_weight',.25),))
+    with pytest.raises(ValueError,match='motor_guidance_weight'):
+        apply_experiment_knobs(restored,(('motor_guidance_weight',-0.01),))
