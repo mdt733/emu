@@ -314,14 +314,10 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
     # samples it belongs to a fresh episode and must never be included.
     torque = np.asarray(trace['servo_torque_nm'], dtype=float)
     speed = np.asarray(trace['servo_joint_rate_rad_s'], dtype=float)
-    final_index = stop if terminal else len(torque)
+    final_index = stop + 1 if terminal else len(torque)
     lo = max(1, start + 1)
     tau = torque[lo:final_index, world, :]
     omega = speed[lo:final_index, world, :]
-    if terminal:
-        # Terminal pre-step sample is valid, but the terminating step's
-        # post-step force cannot be recovered after auto-reset.
-        pass
     if not len(tau):
         return None
     limit = np.asarray(trace['servo_peak_limit_nm'], dtype=float)
