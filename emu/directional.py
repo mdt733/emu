@@ -215,6 +215,85 @@ def examine_course(
         'steps_scored': steps - i,
     }
 
+def examine_command_transitions(positions_xy, heading_rad, commands, *,
+                                dt=0.02, settle_frames=0, stable_frames=3):
+    """Independently measure acquisition/braking/reversal response times.
+
+    Motion is projected into the *requested* world-fixed course frame, not
+    redefined by where the robot actually turned. Response is reached only
+    after three consecutive control frames. None means not observed before
+    the next command change/episode end; it does NOT mean instant success.
+    """
+    pos=np.asarray(positions_xy,dtype=float)
+    head=np.asarray(heading_rad,dtype=float)
+    cmd=np.asarray(commands,dtype=float)
+    n=len(cmd)
+    if n < 2 or pos.shape != (n+1,2) or head.shape != (n+1,) or cmd.shape != (n,3):
+        raise ValueError('transition exam requires N+1 poses, N three-axis commands')
+    if not np.isfinite(pos).all() or not np.isfinite(head).all() or not np.isfinite(cmd).all():
+        raise ValueError('nonfinite transition trace')
+    if not np.isfinite(dt) or dt <= 0 or not 0 <= settle_frames < n:
+        raise ValueError('invalid transition time/window')
+    if stable_frames < 1:
+        raise ValueError('positive stable frame count required')
+    planned_yaw=head[0]+np.concatenate(([0.],np.cumsum(cmd[:,2]*dt)))
+    c,s=np.cos(planned_yaw[:-1]),np.sin(planned_yaw[:-1])
+    requested=np.column_stack((c*cmd[:,0]-s*cmd[:,1],
+                               s*cmd[:,0]+c*cmd[:,1]))
+    observed=np.diff(pos,axis=0)/dt
+    norm=np.linalg.norm(requested,axis=1)
+    transitions=[]
+    boundary=np.flatnonzero(np.any(np.abs(np.diff(cmd[:,:2],axis=0)) > 1e-6,axis=1))+1
+    for idx in boundary:
+        if idx < settle_frames:
+            continue
+        prev,now=norm[idx-1],norm[idx]
+        if now < .008 and prev >= .025:
+            kind='brake_to_stop'
+        elif prev < .008 and now >= .025:
+            kind='rest_to_walk'
+        elif prev >= .025 and now >= .025 and np.dot(requested[idx-1],requested[idx]) < -.50*prev*now:
+            kind='reverse_or_redirect'
+        elif now > prev*1.25 and now >= .025:
+            kind='accelerate'
+        elif now < prev*.8:
+            kind='decelerate'
+        else:
+            kind='command_change'
+        later=boundary[boundary>idx]
+        end=int(later[0]) if len(later) else n
+        end=min(end,idx+round(2/dt))
+        response=None
+        for j in range(idx,end-stable_frames+1):
+            interval=observed[j:j+stable_frames]
+            if now < .008:
+                reached=np.all(np.linalg.norm(interval,axis=1)<=max(.015,.2*prev))
+            else:
+                direction=requested[idx]/now
+                reached=np.all(interval @ direction >= .7*now)
+            if reached:
+                response=float((j-idx)*dt)
+                break
+        row=dict(start_step=int(idx),kind=kind,
+                 target_speed_mps=float(now),
+                 response_latency_s=response,
+                 response_observed=response is not None)
+        if now < .008:
+            last=min(n,idx+max(1,round(.5/dt)))
+            row['braking_path_first_0p5s_m']=float(
+                np.sum(np.linalg.norm(np.diff(pos[idx:last+1],axis=0),axis=1)))
+        transitions.append(row)
+    timings=[r['response_latency_s'] for r in transitions if r['response_observed']]
+    braking=[r['braking_path_first_0p5s_m'] for r in transitions
+             if 'braking_path_first_0p5s_m' in r]
+    return {'maneuvers':transitions,
+            'maneuver_count':len(transitions),
+            'maneuver_response_observed':len(timings),
+            'maneuver_mean_response_s':float(np.mean(timings)) if timings else None,
+            'maneuver_unobserved_count':len(transitions)-len(timings),
+            'braking_path_first_0p5s_m':float(np.mean(braking)) if braking else None}
+
+
 # Contact-pair footfalls, signed course progress, one episode at a time.
 import numpy as np
 
@@ -417,6 +496,8 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
                     completed_strides=strides,
                     uphill_world_xy=uphill,slope_deg=slope)
         result.update(course)
+        result.update(examine_command_transitions(
+            pos,head,commands,dt=dt,settle_frames=settle_frames))
         if 'issued_yaw_rate' in trace:
             issued = np.asarray(trace['issued_yaw_rate'])[:stop, w]
             operator_yaw = arrays['command'][:stop, w, 2]
