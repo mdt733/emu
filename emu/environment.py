@@ -815,6 +815,25 @@ def _severity(jax, key, radius: float, near_nominal_fraction: float, hard_tail_f
     return value * radius
 
 
+def contact_plane_quaternion(angle_deg, uphill_xy=(1.0, 0.0)):
+    """Quaternion of a real MuJoCo ground plane, gravity staying vertical.
+
+    Plane normal = (-sin(angle)*ux, -sin(angle)*uy, cos(angle)).
+    Thus walking along (ux,uy) climbs by +tan(angle) per horizontal metre.
+    Changing a WORLD geom before mjx.put_model preserves an immutable
+    MJX contact model; it does not rotate gravity or add task channels.
+    """
+    if not np.isfinite(angle_deg) or not 0.0 <= angle_deg <= 5.0:
+        raise ValueError('contact slope must lie in [0,5] degrees')
+    uphill=np.asarray(uphill_xy,dtype=float)
+    if uphill.shape != (2,) or not np.isfinite(uphill).all() or np.linalg.norm(uphill)<1e-6:
+        raise ValueError('contact uphill vector must be finite, nonzero xy')
+    ux,uy=uphill/np.linalg.norm(uphill)
+    a=math.radians(float(angle_deg))
+    return np.asarray((math.cos(a/2),math.sin(a/2)*uy,
+                       -math.sin(a/2)*ux,0.0),dtype=np.float64)
+
+
 def _gravity_from_slope(jnp, roll, pitch, magnitude):
     """Gravity vector equivalent to a plane tilted under a robot-local frame.
 
@@ -987,7 +1006,9 @@ class EmuMJXEnv(TaskSampler):
                  recovery_joint_max_deg: float = 0.0,
                  domain_config: DomainRandomizationConfig | None = None,
                  attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
-                 motor_guidance_weight: float = 0.0):
+                 motor_guidance_weight: float = 0.0,
+                 contact_slope_deg: float = 0.0,
+                 contact_uphill_xy: tuple[float, float] = (1.0, 0.0)):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1012,6 +1033,21 @@ class EmuMJXEnv(TaskSampler):
         self.robot_xml = str(robot_xml)
         self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
         self.mj_model.opt.timestep = SIM_DT
+        # Experimental REAL planar contact, rather than gravity-equivalent
+        # slope. Set the static world geom BEFORE mjx.put_model so collision
+        # broadphase/transforms and the plane normal agree. All worlds in
+        # this examiner instance share the same floor; per-world variants
+        # require separately validated MJX model batching.
+        self.contact_slope_deg = float(contact_slope_deg)
+        self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
+        orientation = contact_plane_quaternion(self.contact_slope_deg,
+                                               self.contact_uphill_xy)
+        if self.contact_slope_deg > 0:
+            floor_id=mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
+            if floor_id < 0 or self.mj_model.geom_type[floor_id] != mujoco.mjtGeom.mjGEOM_PLANE:
+                raise ValueError('real contact slope requires a named plane geom floor')
+            self.mj_model.geom_quat[floor_id] = orientation
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
