@@ -233,6 +233,18 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=.75)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--run',action='store_true',help='execute rather than plan only')
+    q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
+    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
+    q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
+    q.add_argument('--hours',type=float,default=12.)
+    q.add_argument('--envs',type=int,default=2048)
+    q.add_argument('--screen-envs',type=int,default=128)
+    q.add_argument('--screen-horizon',type=int,default=300)
+    q.add_argument('--seed',type=int,default=733)
+    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
+    q.add_argument('--plan',action='store_true')
+    q.add_argument('--status',action='store_true')
+    q.add_argument('--run',action='store_true',help='run the GPU campaign (default only plans)')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -318,6 +330,17 @@ def main(argv=None) -> int:
                   policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
+    if args.cmd=='campaign5016':
+        from .campaign5016 import main as pinnacle
+        argv=['--root',args.root,'--foundation',args.foundation,
+              '--hours',str(args.hours),'--envs',str(args.envs),
+              '--screen-envs',str(args.screen_envs),
+              '--screen-horizon',str(args.screen_horizon),
+              '--seed',str(args.seed),'--device',args.device]
+        if args.plan: argv.append('--plan')
+        if args.status: argv.append('--status')
+        if args.run: argv.append('--run')
+        return pinnacle(argv)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
