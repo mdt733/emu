@@ -318,6 +318,13 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
     lo = max(1, start + 1)
     tau = torque[lo:final_index, world, :]
     omega = speed[lo:final_index, world, :]
+    if not terminal and 'last_servo_torque_nm' in trace and 'last_servo_joint_rate_rad_s' in trace:
+        # Only unbroken survivors can use the final state; a terminal
+        # env.step has already auto-reset its state by this point.
+        tau = np.concatenate((tau,
+            np.asarray(trace['last_servo_torque_nm'], dtype=float)[world:world+1]), axis=0)
+        omega = np.concatenate((omega,
+            np.asarray(trace['last_servo_joint_rate_rad_s'], dtype=float)[world:world+1]), axis=0)
     if not len(tau):
         return None
     limit = np.asarray(trace['servo_peak_limit_nm'], dtype=float)
@@ -346,7 +353,9 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
         'servo_measured_interval_abs_shaft_work_j': float(np.sum(np.abs(power)) * dt),
         'servo_all_sample_over_continuous_fraction': float(np.mean(over)),
         'thermal_proxy_definition': 'integral (shaft torque / 0.638 Nm)^2 dt, uncalibrated; no cooling or temperature model',
-        'sampling_caveat': 'pre-step state force and velocity aligned from preceding interval; terminal post-step force unavailable',
+        'sampling_caveat': ('one-frame delayed pre-step force/velocity; '
+                            'terminal control step excluded from the scored path; '
+                            'final state appended for uninterrupted survivors'),
     }
 
 
@@ -433,7 +442,10 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             # Use the already captured POST-step, PRE-reset simulator metrics
             # for the actual scored control intervals (including termination).
             first_step = int(settle_frames)
-            last_step = stop + 1 if len(term) else horizon
+            # Course scoring stops at the pre-reset pose recorded on the
+            # terminating frame, so its actual terminating transition is
+            # excluded. Integrate only the same scored control intervals.
+            last_step = stop if len(term) else horizon
             def series(name):
                 return np.asarray(trace[name], dtype=float)[first_step:last_step, w]
             if last_step > first_step:
@@ -452,8 +464,10 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
                     physical['spring_return_not_inferred'] = True
             # The scored foot path is a contact-conditioned geometric slip
             # proxy, not a force-plate measurement of sole friction.
-            foot_delta = np.linalg.norm(np.diff(feet[:, :, :2], axis=0), axis=2)
-            grounded = contacts[:-1] & contacts[1:]
+            scored_feet = feet[settle_frames:]
+            scored_contacts = contacts[settle_frames:]
+            foot_delta = np.linalg.norm(np.diff(scored_feet[:, :, :2], axis=0), axis=2)
+            grounded = scored_contacts[:-1] & scored_contacts[1:]
             if np.any(grounded):
                 physical['contact_pair_slip_path_m'] = float(np.sum(foot_delta[grounded]))
                 physical['contact_pair_slip_speed_mean_m_s'] = float(np.mean(foot_delta[grounded] / dt))
@@ -466,9 +480,17 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             # Mechanical positive work normalized by observed signed forward
             # progress is meaningful only for a genuinely progressing course.
             progress = course['signed_course_progress_m']
+            # Complete scored-interval aggregate work is preferred to
+            # per-servo samples when calculating the work/progress ratio.
+            # Negative, zero or trivial progress must never look efficient.
+            drive_j = physical.get('step_integrated_drive_shaft_work_j')
+            abs_j = physical.get('step_integrated_abs_shaft_work_j')
             result['positive_shaft_work_per_progress_m_j_m'] = (
-                float(sum(physical['servo_positive_shaft_work_j']) / progress)
-                if progress > 0.01 else None)
+                float(drive_j / progress)
+                if progress > 0.01 and drive_j is not None else None)
+            result['absolute_shaft_work_per_progress_m_j_m'] = (
+                float(abs_j / progress)
+                if progress > 0.01 and abs_j is not None else None)
         result.update(contact_stride_pairs=strides,measured_slope_deg=slope,
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)
