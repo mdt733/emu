@@ -2,15 +2,15 @@
 
 `EmuMJXEnv` advances many simultaneous MuJoCo worlds and supplies physical
 observations to PPO. The robot's joints, springs and motor limits are defined
-in robot.xml; domain_randomization.py supplies per-world model variations.
+in robot.xml; the DomainRandomizationConfig and build_batched_model code below supply per-world variations.
 
-The lesson generator lives in tasks.py and is reused by this environment
+The TaskSampler below generates lessons for this environment
 without duplicating JAX, configuration or RNG state. This file owns the
 physical world: reset, motor delivery, disturbances, stepping, sensor packets
 and measured events. rewards.py owns the scalar teaching payment.
 
 Teacher-only task fields never become privileged actor sensor channels.
-See docs/architecture.md for the full teaching-to-physics data flow.
+See README.md for the teaching-to-physics overview.
 """
 from __future__ import annotations
 
