@@ -149,3 +149,34 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   return xml.replace('</worldbody>',geometry+'\n</worldbody>');
 }
 export const withGentleCourse=xml=>withTerrain(xml,'ramp');
+
+// Read the *actual generated ground* below the midpoint between the feet.
+// This is terrain grade, NOT chassis pitch, commanded attitude, or a
+// physically estimated IMU angle. The arrow points uphill RELATIVE to the
+// robot's current heading: up=forward, right=robot right, left=robot left.
+export function surfaceSlope(mode,park,x,y,robotHeading=0) {
+  if (![x,y,robotHeading].every(Number.isFinite))
+    return {supported:false,degrees:0,arrowDegrees:0};
+  let gx=0,gy=0;
+  if(mode==='park') {
+    if(!park||Math.abs(x)>=park.radius||Math.abs(y)>=park.radius)
+      return {supported:false,degrees:0,arrowDegrees:0};
+    const delta=Math.max(park.cell*0.5,0.05);
+    const xl=Math.max(-park.radius,x-delta),xr=Math.min(park.radius,x+delta);
+    const yl=Math.max(-park.radius,y-delta),yr=Math.min(park.radius,y+delta);
+    gx=(park.sampleHeight(xr,y)-park.sampleHeight(xl,y))/(xr-xl);
+    gy=(park.sampleHeight(x,yr)-park.sampleHeight(x,yl))/(yr-yl);
+  } else if(mode==='ramp') {
+    // Browser 1-degree course: up-ramp and down-ramp are aligned to world X.
+    if(Math.abs(y)<0.44 && x>=COURSE_START_X && x<=COURSE_START_X+0.8)
+      gx=Math.tan(Math.PI/180);
+    else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
+      gx=-Math.tan(Math.PI/180);
+  } else if(mode!=='flat') throw new Error('Unknown terrain mode');
+  const grade=Math.hypot(gx,gy);
+  const degrees=Math.atan(grade)*180/Math.PI;
+  const relative=Math.atan2(Math.sin(Math.atan2(gy,gx)-robotHeading),
+                            Math.cos(Math.atan2(gy,gx)-robotHeading));
+  return {supported:true,degrees,arrowDegrees:-relative*180/Math.PI,
+          flat:degrees<0.05};
+}
