@@ -86,6 +86,7 @@ def env_kwargs_from_args(args) -> dict:
         vx_hi_max=args.vx_hi_max, vx_lo_min=args.vx_lo_min,
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
+        motor_guidance_weight=args.motor_guidance_weight,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=args.open_frontier,
