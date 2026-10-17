@@ -87,6 +87,12 @@ reward is not an efficiency objective.
   reports per-joint peak/p95 torque, exposure above nominal 0.638 N·m,
   squared-duty thermal *proxy*, mechanical work, contact-pair slip proxy and
   changes in stored spring energy. Neither heat nor regeneration is inferred.
+- Motor caveat: MuJoCo's position actuator output is measured BEFORE the
+  joint-level 0.435 N m s/rad damping term that approximates speed-dependent
+  back-EMF; the 0.08 N m Coulomb loss and spring torques are also separate.
+  Thus reported "shaft work" is the actuator-force × joint-speed accounting
+  convention, **not** calibrated net joint output or electrical consumption.
+  No second torque-speed law has been implemented.
 - Known limitations: pre-step actuator samples lag one control interval;
   a terminating step's post-step actuator force is unavailable after reset.
   The post-step aggregate power metrics still cover the terminating step.
