@@ -32,6 +32,44 @@ def test_loaded_robot_xml_owns_actuator_limits_and_spring_reference():
     assert spring_ref.shape == stiffness.shape == (8,)
     np.testing.assert_allclose(stiffness[-2:], [4., 4.], atol=1e-6)
 
+
+def test_browser_grass_terrain_compiles_in_real_mujoco():
+    """Build the exact browser-generated XML and compile actual contact geoms.
+
+    JS unit tests alone cannot establish MJCF correctness. This uses Node
+    only to generate the identical terrain source consumed by the browser.
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+    if shutil.which('node') is None:
+        pytest.skip('Node not installed; browser workflow separately verifies this')
+    import mujoco
+    repo_root = Path(__file__).resolve().parents[1]
+    javascript = (
+        "import fs from 'node:fs';"
+        "import {withTerrain} from './emu/viewer_src/src/terrain.js';"
+        "const xml=fs.readFileSync('emu/robot.xml','utf8');"
+        "process.stdout.write(withTerrain(xml,'park',{maxDegrees:10}));"
+    )
+    completed = subprocess.run(
+        ['node', '--input-type=module', '-e', javascript],
+        cwd=repo_root, capture_output=True, text=True, timeout=40,
+    )
+    assert completed.returncode == 0, completed.stderr
+    model = mujoco.MjModel.from_xml_string(completed.stdout)
+    assert model.nu == 6
+    assert model.nhfield == 1
+    assert model.hfield_nrow[0] == model.hfield_ncol[0] == 129
+    assert model.ngeom >= 19  # Robot + ground + a grove of solid tree trunks
+    assert mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'viewer_park_ground') >= 0
+    assert mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'viewer_tree_trunk_0') >= 0
+    assert mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'floor') == -1
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    assert np.all(np.isfinite(data.qpos))
+
+
 def test_real_mjx_evaluator_trace_shapes_cpu():
     """Small real stepping smoke; exercises contact.geom1/geom2/dist plumbing."""
     pytest.importorskip('mujoco')
