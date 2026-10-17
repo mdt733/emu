@@ -57,7 +57,8 @@ test('heading-hold P responds to drift with saturating correction',()=>{
 });
 test('radial terrain is physically represented, flat at spawn, deterministic and locally grade-limited',()=>{
   const park=generateTerrainPark({maxDegrees:10});
-  assert.ok(park.tiles.length>400);\n  assert.ok(park.tiles.some(t=>localSlopeLimitDeg(Math.hypot(t.x,t.y),10)>=10));
+  assert.ok(park.tiles.length>400);
+  assert.ok(park.tiles.some(t=>localSlopeLimitDeg(Math.hypot(t.x,t.y),10)>=10));
   assert.ok(park.tiles.every(t=>Math.hypot(t.x,t.y)>2));
   assert.ok(park.tiles.every(t=>t.grade<=t.limit+1e-9));
   assert.equal(localSlopeLimitDeg(2,10),1);
