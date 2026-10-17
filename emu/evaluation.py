@@ -834,22 +834,35 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'No PPO retraining, reward or policy modification was performed.',
         'A rotated gravity field represents infinite uniform ground; not a physical ramp.',
         '',
-        '| World | Full horizon | Course pass | Gait candidate | Signed progress m | Heading MAE deg | Correction rad/s | Contact stride pairs |',
-        '|---|---|---|---|---:|---:|---:|---:|',
+        '| World | Horizon | Course | Gait | Signed m | Stride pairs | Servo over % | Peak Nm | Drive J/m | Brake latency s |',
+        '|---|---|---|---|---:|---:|---:|---:|---:|---:|',
     ]
+    def numeric(value, decimals=2):
+        return '—' if value is None else f'{float(value):.{decimals}f}'
     for r in evaluated:
-        head=r.get('heading_mae_deg')
-        lines.append('| '+ ' | '.join([
+        p=r.get('physical_evidence', {})
+        maneuvers=[m for m in r.get('maneuvers', [])
+                   if m.get('kind') == 'brake_to_stop']
+        latency=([m['response_latency_s'] for m in maneuvers
+                  if m.get('response_latency_s') is not None] or [None])[0]
+        peak=max(p['servo_peak_abs_torque_nm']) if p.get('servo_peak_abs_torque_nm') else None
+        over=p.get('servo_all_sample_over_continuous_fraction')
+        lines.append('| '+' | '.join([
             str(r['world']),
             'yes' if r['full_horizon_survival'] else 'no',
             'yes' if r.get('course_pass') else 'no',
             'yes' if r.get('walking_pass') else 'not proven',
-            f"{r['signed_course_progress_m']:.3f}" if 'signed_course_progress_m' in r else '—',
-            f'{head:.2f}' if head is not None else '—',
-            f"{r['mean_abs_controller_correction_rad_s']:.3f}"
-                if 'mean_abs_controller_correction_rad_s' in r else '—',
+            numeric(r.get('signed_course_progress_m'),3),
             str(r.get('contact_stride_pairs',0)),
+            numeric(over*100 if over is not None else None,1),
+            numeric(peak,2),
+            numeric(r.get('positive_shaft_work_per_progress_m_j_m'),1),
+            numeric(latency,2),
         ])+' |')
+    lines+=['','A dash means not measured or not applicable, NOT a zero-load or zero-latency result.',
+            'Servo over % is time/sample fraction above nominal continuous rating, not overheating.',
+            'Drive J/m is defined only for >0.01 m signed commanded-direction progress.',
+            'Per-servo p95/peak/duty/work and full maneuver events are in directional_exam.json.']
     output_md=output/'directional_exam.md'
     output_md.write_text('\n'.join(lines)+'\n')
     return output_json,output_md
