@@ -74,7 +74,7 @@ emu export-policy /path/to/checkpoints/final.pkl /tmp/my_robot.emupolicy
 
 ## Tests and troubleshooting
 
-`bash scripts/check.sh` runs the intentionally small contract suite (16 Python and four browser checks), builds the static frontend and checks the browser policy/WASM package. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
+`bash scripts/check.sh` runs the intentionally small Python and browser contract suite plus CLI/CPU-doctor checks. The GitHub browser CI job separately builds the static frontend and verifies the bundled policy/WASM assets. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
 
 If an install fails, do not delete old experiments. Verify `git status --short`, `git rev-parse HEAD`, `python -c "import emu; print(emu.__file__)"`, `nvidia-smi`, and the failing run's `console.log`. Optional `warp` import warnings don't necessarily mean MJX failed. If a checkpoint is corrupt, preserve the original and use the validated automatic recovery paths. Any source change requires a new campaign identity.
 
