@@ -133,3 +133,19 @@ emu train --profile sim2real --sensor-actor \
   --run-dir ~/robot_lab/emu_runs/v5016_sensor_2m \
   --steps 2097152 --envs 512 --seed 733 --device cuda
 ```
+
+## Foundation first, then mature sim2real
+
+For a brand-new actor, `--profile foundation --sensor-actor` uses the
+known stable low-disturbance stepping curriculum with **the new 232-channel
+sensor inputs**. Optional `--pitch-deg 15` retains the v5015 posture task.
+The existing `--profile sim2real --sensor-actor` uses mature graph-based
+curriculum and should generally be reserved for a sensor-trained lineage
+continued from a completed foundation. Both profiles pin the same
+observation schema and sensor hardware model, but can differ in lesson
+difficulty.
+
+Since experiment configurations are immutable at a run path, begin with a
+**new directory** for each phase; resume the schema-8 foundation by passing
+its exact final checkpoint as `--resume` to the mature phase (do not silently
+change a saved phase's curriculum).

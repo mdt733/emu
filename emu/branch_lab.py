@@ -566,8 +566,8 @@ def one_run_config(args) -> TrainingConfig:
     if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
         raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
     sensor_actor = bool(getattr(args, 'sensor_actor', False))
-    if sensor_actor and args.profile != 'sim2real':
-        raise ValueError('--sensor-actor requires --profile sim2real')
+    if sensor_actor and args.profile not in ('foundation', 'sim2real'):
+        raise ValueError('--sensor-actor requires --profile foundation or sim2real')
     if grade > 0 and args.profile != 'sim2real':
         raise ValueError('real contact slope requires --profile sim2real')
     terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))

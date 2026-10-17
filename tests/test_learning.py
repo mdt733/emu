@@ -563,6 +563,14 @@ def test_v5016_sensor_actor_cli_plan_is_explicit(capsys, tmp_path):
     assert config['steps'] == 2097152
     assert config['envs'] == 512
     assert not run_dir.exists()
-    with pytest.raises(ValueError, match='requires --profile sim2real'):
-        main(['train', '--run-dir', str(run_dir), '--profile', 'foundation',
+    assert main(['train', '--run-dir', str(run_dir), '--profile', 'foundation',
+                 '--sensor-actor', '--pitch-deg', '15', '--steps', '1024',
+                 '--envs', '2', '--plan']) == 0
+    output = capsys.readouterr().out
+    foundation = json.loads(output[output.index('{'):output.rfind('}') + 1])
+    assert foundation['observation_schema'] == 'sim2real_232'
+    assert foundation['open_frontier'] is False
+    assert foundation['pitch_command_max_deg'] == 15.
+    with pytest.raises(ValueError, match='requires --profile foundation or sim2real'):
+        main(['train', '--run-dir', str(run_dir), '--profile', 'mature',
               '--sensor-actor', '--steps', '1024', '--envs', '2', '--plan'])
