@@ -27,9 +27,10 @@ from .contracts import CONTROL_DT
 # Scalar names correspond to `reward_weighted_<name>` in logged metrics.
 PAYMENT_NAMES = (
     "alive", "locomotion", "posture", "contact", "anti_slip",
-    "clearance", "smoothness", "joint_safety", "motor_cost",
+    "clearance", "smoothness", "joint_safety",
 )
 FALL_PAYMENT_NAME = "fall_penalty"
+MOTOR_PAYMENT_NAME = "motor_cost"  # opt-in; old eight-payment contract stays fixed
 
 # Physical measurements needed solely to calculate teaching payments. They
 # must not be shipped in every PPO diagnostic packet or misread as evidence.
