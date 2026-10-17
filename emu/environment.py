@@ -986,7 +986,8 @@ class EmuMJXEnv(TaskSampler):
                  recovery_angvel_max_rad_s: float | None = None,
                  recovery_joint_max_deg: float = 0.0,
                  domain_config: DomainRandomizationConfig | None = None,
-                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214):
+                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
+                 motor_guidance_weight: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1000,6 +1001,9 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError(f'unknown attitude profile {attitude_profile!r}')
         if not (0.0 < pitch_command_max_deg <= 45.0):
             raise ValueError('pitch command maximum must be within (0, 45] degrees')
+        if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
+            raise ValueError('motor_guidance_weight must be in [0, 0.10]')
+        self.motor_guidance_weight = float(motor_guidance_weight)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1241,7 +1245,8 @@ class EmuMJXEnv(TaskSampler):
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
-            attitude_profile=self.attitude_profile, xp=jnp)
+            attitude_profile=self.attitude_profile, xp=jnp,
+            motor_guidance_weight=self.motor_guidance_weight)
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
