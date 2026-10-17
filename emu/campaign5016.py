@@ -439,13 +439,14 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
         cfg = phase_config(run, target=target, seed=seed, envs=envs,
                            device=device, arm=arm, polish_index=polish_index)
         started = time.monotonic()
+        already_final = (run / "checkpoints" / "final.pkl").is_file()
         result = stage_run(
             root, label=group + "/" + label, parent=parent,
             target=target, cfg=cfg, provenance=provenance,
             contract=contract, ledger=ledger)
         duration = time.monotonic() - started
         added = max(0, result["step"] - parent["step"])
-        if duration > 5 and added > 0:
+        if duration > 5 and added > 0 and not already_final:
             ledger["observed_rates"].append(added / duration)
         ledger[group][label] = result
         save_json(path, ledger)
