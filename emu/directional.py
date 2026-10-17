@@ -430,6 +430,38 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             trace, w, start=settle_frames, stop=stop, dt=dt,
             terminal=bool(len(term)))
         if physical is not None:
+            # Use the already captured POST-step, PRE-reset simulator metrics
+            # for the actual scored control intervals (including termination).
+            first_step = int(settle_frames)
+            last_step = stop + 1 if len(term) else horizon
+            def series(name):
+                return np.asarray(trace[name], dtype=float)[first_step:last_step, w]
+            if last_step > first_step:
+                watts = series('servo_shaft_abs_power_w')
+                drive = series('servo_shaft_drive_power_w')
+                brake = series('servo_shaft_brake_power_w')
+                stored = series('spring_potential_energy_j')
+                shin = series('shin_spring_energy_j')
+                if all(np.isfinite(x).all() for x in (watts, drive, brake, stored, shin)):
+                    physical['step_integrated_abs_shaft_work_j'] = float(np.sum(watts) * dt)
+                    physical['step_integrated_drive_shaft_work_j'] = float(np.sum(drive) * dt)
+                    physical['step_integrated_brake_shaft_work_j'] = float(np.sum(brake) * dt)
+                    physical['spring_potential_mean_j'] = float(np.mean(stored))
+                    physical['spring_potential_range_j'] = float(np.ptp(stored))
+                    physical['shin_spring_potential_mean_j'] = float(np.mean(shin))
+                    physical['spring_return_not_inferred'] = True
+            # The scored foot path is a contact-conditioned geometric slip
+            # proxy, not a force-plate measurement of sole friction.
+            foot_delta = np.linalg.norm(np.diff(feet[:, :, :2], axis=0), axis=2)
+            grounded = contacts[:-1] & contacts[1:]
+            if np.any(grounded):
+                physical['contact_pair_slip_path_m'] = float(np.sum(foot_delta[grounded]))
+                physical['contact_pair_slip_speed_mean_m_s'] = float(np.mean(foot_delta[grounded] / dt))
+                physical['contact_pair_sample_count'] = int(np.sum(grounded))
+            else:
+                physical['contact_pair_slip_path_m'] = None
+                physical['contact_pair_slip_speed_mean_m_s'] = None
+                physical['contact_pair_sample_count'] = 0
             result['physical_evidence'] = physical
             # Mechanical positive work normalized by observed signed forward
             # progress is meaningful only for a genuinely progressing course.
