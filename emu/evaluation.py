@@ -661,7 +661,7 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
                      angle_deg, direction, speed, lateral, yaw_rate):
     run=Path(run_dir).expanduser().resolve()
     dest=Path(output).expanduser().resolve()
-    if not run.is_dir():
+    if not run.is_dir() and not (run.is_file() and run.suffix == '.emupolicy'):
         raise FileNotFoundError(run)
     if dest == run or run in dest.parents or dest in run.parents:
         raise ValueError('output directory must be separate from training directory')
@@ -679,7 +679,8 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
     return run,dest,g
 
 
-def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
+def evaluate_directional_run(run_dir=None, *, policy_file=None,
+                 angle_deg, direction, output, worlds=8,
                  horizon=350, speed=.10, lateral=0., yaw_rate=0.,
                  seed=1701, device='cuda', settle_frames=25, heading_kp=0.0,
                  scenario='steady', turn_rate=.25,
@@ -692,8 +693,11 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
         raise ValueError('gyro realism parameters outside bounded test limits')
     schedule=make_schedule(scenario,int(horizon),speed=speed,lateral=lateral,
                            yaw_rate=yaw_rate,turn_rate=turn_rate)
+    if (run_dir is None) == (policy_file is None):
+        raise ValueError('specify exactly one of full run directory or exported policy')
     run_dir,output,g=validate_request(
-        run_dir=run_dir,output=output,worlds=int(worlds),horizon=int(horizon),
+        run_dir=policy_file if policy_file is not None else run_dir,
+        output=output,worlds=int(worlds),horizon=int(horizon),
         settle_frames=int(settle_frames),angle_deg=angle_deg,direction=direction,
         speed=speed,lateral=lateral,yaw_rate=yaw_rate)
     from .checkpoint_io import load_checkpoint
@@ -704,13 +708,39 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
     from .training_config import (
         TrainingConfig,PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST,ROLLOUT_STEPS)
 
-    cfg=TrainingConfig.load(run_dir/'training_config.json')
-    checkpoint=run_dir/'checkpoints/final.pkl'
-    saved=load_checkpoint(checkpoint,validate=True)
-    params=saved['state']['params']
+    if run_dir.is_file():
+        # The protected 120M Pitch15 .emupolicy is not a rewindable checkpoint.
+        # Validate its physical/actor contracts and use its exported mean/std
+        # through exactly the same JAX actor inference and MJX exam.
+        from types import SimpleNamespace
+        from .viewer_server import load_exported_actor_for_exam
+        params, norm, export = load_exported_actor_for_exam(run_dir)
+        cfg = SimpleNamespace(
+            phase_speed_gain=float(export['control']['phase_speed_gain']),
+            attitude_profile=export['training']['attitude_profile'],
+            pitch_command_max_deg=float(export['training']['pitch_command_max_deg']))
+        actor_std = norm['std']
+        artifact_sha = export['artifact_sha256']
+        training_step = int(export['source']['step'])
+        checkpoint_sha = None
+        source_type = 'exported_actor'
+        source_training_commit = export['source'].get('git_commit')
+        source_actor_sha = export['source'].get('actor_sha256')
+    else:
+        cfg=TrainingConfig.load(run_dir/'training_config.json')
+        checkpoint=run_dir/'checkpoints/final.pkl'
+        saved=load_checkpoint(checkpoint,validate=True)
+        params=saved['state']['params']
+        norm=saved['obs_norm']
+        actor_std = np.sqrt(np.asarray(norm['var']))
+        artifact_sha = sha256_file(checkpoint)
+        training_step = int(saved['meta']['step'])
+        checkpoint_sha = artifact_sha
+        source_type = 'schema7_checkpoint'
+        source_training_commit = (saved['meta'].get('source_provenance') or {}).get('git_commit')
+        source_actor_sha = None
     if int(np.asarray(params['pi'][0]['w']).shape[0]) != OBS_DIM:
-        raise ValueError('this examiner supports legacy 220-input actor only; no silent migration')
-    norm=saved['obs_norm']
+        raise ValueError('this examiner supports only the 220-input actor contract')
     configure_jax(device)
     import jax
     import jax.numpy as jnp
@@ -744,7 +774,7 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
     }
     trace=trainer['evaluate_trace'](
         params,env.params_array(task),
-        jnp.asarray(norm['mean']),jnp.sqrt(jnp.asarray(norm['var'])),
+        jnp.asarray(norm['mean']),jnp.asarray(actor_std),
         jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp),
         None,jnp.asarray(schedule),float(gyro_bias),float(gyro_noise),
         int(gyro_delay_frames))
@@ -753,9 +783,13 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
         frames,np.tile(g,(int(worlds),1)),dt=.02,
         settle_frames=int(settle_frames))
     report={
-        'schema':1,'source_commit':source_commit(),
-        'checkpoint_sha256':sha256_file(checkpoint),
-        'checkpoint_training_step':int(saved['meta']['step']),
+        'schema':2,'source_commit':source_commit(),
+        'source_artifact_type':source_type,
+        'source_artifact_sha256':artifact_sha,
+        'source_training_commit':source_training_commit,
+        'actor_sha256':source_actor_sha,
+        'checkpoint_sha256':checkpoint_sha,
+        'checkpoint_training_step':training_step,
         'exam':dict(angle_deg=float(angle_deg),direction=direction,
                     gravity_world=g.tolist(),worlds=int(worlds),
                     horizon=int(horizon),settle_frames=int(settle_frames),
@@ -776,7 +810,9 @@ def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
     gait=sum(bool(r.get('walking_pass')) for r in evaluated)
     lines=[
         '# EMU v5016 directional exam','',
-        'Trained policy SHA256: '+report['checkpoint_sha256'],
+        'Frozen actor source ('+source_type+') SHA256: '+artifact_sha,
+        'Original training source: '+str(source_training_commit),
+        'Original checkpoint SHA256: '+str(checkpoint_sha or 'not included in export'),
         'Exam source: '+report['source_commit'],
         'Incline: '+str(angle_deg)+' deg, '+direction,
         'Course success: '+str(ok)+'/'+str(worlds),
@@ -858,27 +894,31 @@ def _summarize_worlds(worlds):
                     mean_optional('mean_abs_controller_correction_rad_s'))
 
 
-def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
+def evaluate_directional_pair(run_dir=None, *, policy_file=None,
+                              output, heading_kp=0.75, **kwargs):
     """Two matched read-only exams plus one human-readable delta report.
 
     The same saved policy, initial seeds, command and slope are evaluated once
     with the outer heading loop OFF, once ON. Never silently select a winner.
     """
     target=Path(output).expanduser().resolve()
-    run=Path(run_dir).expanduser().resolve()
+    if (run_dir is None) == (policy_file is None):
+        raise ValueError('specify either a run directory or exported policy')
+    run=Path(policy_file if policy_file is not None else run_dir).expanduser().resolve()
     if target==run or run in target.parents or target in run.parents:
         raise ValueError('comparison output must be outside original run')
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise FileExistsError('comparison requires new/empty --output root')
     if not math.isfinite(heading_kp) or not 0 < heading_kp <= 2.0:
         raise ValueError('compare mode needs a positive heading-kp in (0,2]')
-    off_json,_=evaluate_directional_run(run_dir,output=target/'off',
-                            heading_kp=0.0,**kwargs)
-    on_json,_=evaluate_directional_run(run_dir,output=target/'on',
-                           heading_kp=heading_kp,**kwargs)
+    source_kwargs = {'policy_file': run} if policy_file is not None else {'run_dir': run}
+    off_json,_=evaluate_directional_run(output=target/'off',
+                            heading_kp=0.0,**source_kwargs,**kwargs)
+    on_json,_=evaluate_directional_run(output=target/'on',
+                           heading_kp=heading_kp,**source_kwargs,**kwargs)
     off=json.loads(off_json.read_text())
     on=json.loads(on_json.read_text())
-    if (off['checkpoint_sha256']!=on['checkpoint_sha256'] or
+    if (off['source_artifact_sha256']!=on['source_artifact_sha256'] or
             off['checkpoint_training_step']!=on['checkpoint_training_step']):
         raise RuntimeError('paired evaluations did not use same checkpoint')
     for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
@@ -898,7 +938,9 @@ def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
           'abs_work_per_progress_j_m')
     delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
            for k in keys}
-    result=dict(schema=1,checkpoint_sha256=off['checkpoint_sha256'],
+    result=dict(schema=2,checkpoint_sha256=off['checkpoint_sha256'],
+                source_artifact_sha256=off['source_artifact_sha256'],
+                source_artifact_type=off['source_artifact_type'],
                 examined_at_revision=off['source_commit'],
                 protocol={k:off['exam'][k] for k in off['exam'] if k not in
                           ('heading_p_enabled','heading_kp')},
@@ -907,7 +949,8 @@ def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
     path=target/'heading_comparison.json'
     path.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
     lines=['# Paired v5016 heading-hold evaluation','',
-           'Checkpoint SHA256: '+result['checkpoint_sha256'],
+           'Source actor SHA256: '+result['source_artifact_sha256'],
+           'Source type: '+result['source_artifact_type'],
            'Gain ON: '+str(heading_kp)+'/s. Both cases use same seeds and operator requests.',
            'The controller sees gyro-integrated relative yaw, not simulator true yaw.',
            'Course scoring always uses unmodified operator commands.',
@@ -933,7 +976,9 @@ def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
 
 def directional_main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--run-dir',required=True)
+    source=p.add_mutually_exclusive_group(required=True)
+    source.add_argument('--run-dir',help='full schema-7 run directory')
+    source.add_argument('--policy',help='exported read-only .emupolicy file')
     p.add_argument('--output',required=True)
     p.add_argument('--angle',type=float,default=0.)
     p.add_argument('--direction',choices=('uphill','downhill','cross_left','cross_right'),default='uphill')
@@ -962,12 +1007,14 @@ def directional_main(argv=None):
             turn_rate=a.turn_rate,gyro_bias=a.gyro_bias,
             gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames)
     if a.compare_heading:
-        outputs=evaluate_directional_pair(a.run_dir,output=a.output,
-                              heading_kp=a.heading_kp,**kw)
+        outputs=evaluate_directional_pair(
+                              run_dir=a.run_dir,policy_file=a.policy,
+                              output=a.output,heading_kp=a.heading_kp,**kw)
     else:
         # Single-case invocation deliberately remains controller OFF by default.
-        outputs=evaluate_directional_run(a.run_dir,output=a.output,
-                             heading_kp=0.0,**kw)
+        outputs=evaluate_directional_run(
+                             run_dir=a.run_dir,policy_file=a.policy,
+                             output=a.output,heading_kp=0.0,**kw)
     for path in outputs:
         print(path)
     return 0
