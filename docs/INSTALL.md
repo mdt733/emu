@@ -108,6 +108,38 @@ python scripts/smoke_training_lifecycle.py verify --root "$ROOT"
 
 This proves update, save, warm resume, independent fixed evaluation and actor export, **not walking ability**. Use `nvidia-smi` to watch VRAM. Earlier 8GB RTX 4060 Ti runs succeeded at 2048 worlds, but this is not a promise for other machines.
 
+## v5016 common pitch and opt-in motor teaching — future trials
+
+`emu train --profile sim2real` keeps the mature PPO, v5015 posture model and
+220-input/six-action actor, but sets the same ±30° commanded chassis pitch
+limit for every new physical-learning experiment. This does not change or
+retrain the protected Pitch15 policy. The historical `emu ladder` still
+describes the old Pitch15 comparison; **do not use that ladder as the v5016
+efficiency/terrain tournament**.
+
+Two pure plans for future matched experiments, with unique new run roots:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+BASE="$HOME/robot_lab/emu_runs/v5016_study_$(date +%Y%m%d_%H%M%S)"
+emu train --run-dir "$BASE/baseline" --profile sim2real \
+  --steps 12000000 --envs 512 --device cuda --seed 733 --plan
+emu train --run-dir "$BASE/motor_preview" --profile sim2real \
+  --steps 12000000 --envs 512 --device cuda --seed 733 \
+  --motor-guidance-weight 0.06 --plan
+```
+
+These are **plan-only previews**, not an instruction to launch independent
+cold starts or to compare unlike training ancestries. The actual study should
+use one short shared foundation, fork matched training arms from exactly the
+same checkpoint, retain source lineage and exam identical held-out courses.
+Only run after GPU acceptance and interpretation of the protected champion
+exams. The motor term is an uncalibrated training proxy for overload and
+mechanical shaft demand; spring return and electrical consumption are *not*
+inferred. Treat ±30° as an aspirational teaching envelope to verify in the
+presence of walking, not evidence that every physical angle is attainable.
+
 ## Train and inspect
 
 ```bash
