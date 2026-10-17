@@ -174,12 +174,23 @@ def test_uninterrupted_physical_trace_includes_final_state():
 
 def test_report_energy_respects_settle_window_and_progress_direction():
     """No free efficiency credit for reverse drift or warm-up work."""
-    trace=fake_trace(n=10,worlds=1)
-    trace['position_xy'][:,:,0]=np.arange(10)[:,None]*.002
-    trace['last_position_xy']=np.array([[.02,0.]])
-    trace['last_heading_rad']=np.zeros(1)
-    trace['last_foot_xyz']=trace['last_foot_xyz'][:1]
-    trace['last_floor_contact']=trace['last_floor_contact'][:1]
+    n=10
+    trace=dict(
+        position_xy=np.zeros((n,1,2)),
+        heading_rad=np.zeros((n,1)),
+        foot_xyz=np.zeros((n,1,2,3)),
+        floor_contact=np.ones((n,1,2),dtype=bool),
+        command=np.zeros((n,1,3)),
+        done=np.zeros((n,1)),
+        fell=np.zeros((n,1)),
+        last_position_xy=np.array([[.030,0.]]),
+        last_heading_rad=np.zeros(1),
+        last_foot_xyz=np.zeros((1,2,3)),
+        last_floor_contact=np.ones((1,2),dtype=bool),
+    )
+    trace['position_xy'][:,:,0]=np.arange(n)[:,None]*.003
+    trace['foot_xyz'][:,:,:,2]=.018
+    trace['last_foot_xyz'][:,:,2]=.018
     trace['command'][:,:,0]=.1
     trace['servo_torque_nm']=np.ones((10,1,6))*.1
     trace['servo_joint_rate_rad_s']=np.ones((10,1,6))*.2
@@ -199,11 +210,11 @@ def test_report_energy_respects_settle_window_and_progress_direction():
     p=report['physical_evidence']
     assert p['step_integrated_abs_shaft_work_j']==pytest.approx(5*.02*2)
     assert p['step_integrated_drive_shaft_work_j']==pytest.approx(5*.02*1)
-    assert report['positive_shaft_work_per_progress_m_j_m']==pytest.approx(.1/.01)
+    assert report['positive_shaft_work_per_progress_m_j_m']==pytest.approx(.1/.015)
     # Same measured power but movement against the command: no positive
     # metres denominator is available for a physical efficiency verdict.
-    trace['position_xy'][:,:,0]=-np.arange(10)[:,None]*.002
-    trace['last_position_xy']=np.array([[-.02,0.]])
+    trace['position_xy'][:,:,0]=-np.arange(10)[:,None]*.003
+    trace['last_position_xy']=np.array([[-.030,0.]])
     opposite=evaluate_trace_arrays(trace,np.array([[0,0,-9.81]]),
                                    settle_frames=5)[0]
     assert opposite['positive_shaft_work_per_progress_m_j_m'] is None
