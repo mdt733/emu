@@ -127,3 +127,22 @@ A branch must pass its current Python/browser CI, a clean isolated CUDA
 save-resume-evaluate-export lifecycle and local viewer playback before it can
 be proposed for main. Never resume an old training root from new source.
 `main` and the trained showcase are read-only without explicit approval.
+
+### v5016 next teaching work (same date)
+
+- User's pitch hypothesis is sensible as experiment design: share a ±30°
+  chassis pitch target across future arms rather than spending a comparison
+  slot on a posture-only variant. This was implemented as an opt-in
+  `sim2real` profile; the old v5015 Pitch15 win is not evidence that the
+  actual movements were trivial or safely reproducible at 30°.
+- A disabled-by-default, explicit motor-effort incentive is available for
+  controlled comparison once the GPU exam and real baseline are measured:
+  `motor_guidance_weight` ∈ [0,0.10]. It reports a separate weighted payment
+  and does not alter the robot model, observations or checkpoint schema.
+  It is *not* an optimisation of measured electrical energy or calibrated
+  motor heat. A spring-charging reward is intentionally absent: cycling a
+  spring without useful progress would be a reward hack.
+- The public `emu directional-exam --policy ...` and
+  `emu directional-batch --policy ... --profile physical` CLI handlers
+  were repaired; previously only lower-level calls understood this mode.
+  Tests exercise the public argument forwarding and no-write planning.
