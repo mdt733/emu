@@ -146,7 +146,10 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert data['servo_torque_nm'].shape==(4,2,6)
     assert data['servo_joint_rate_rad_s'].shape==(4,2,6)
     assert data['last_servo_torque_nm'].shape==(2,6)
-    assert data['servo_peak_limit_nm'].shape==(2,6)
+    # Nominal MJX shares limits across worlds; domain-randomized worlds
+    # may instead expose one six-actuator array per world.
+    assert data['servo_peak_limit_nm'].shape in ((6,), (2,6))
+    np.testing.assert_allclose(data['servo_peak_limit_nm'], 1.913, atol=1e-6)
     for name in ('servo_torque_nm','servo_joint_rate_rad_s',
                  'servo_shaft_abs_power_w','servo_shaft_drive_power_w',
                  'spring_potential_energy_j'):
