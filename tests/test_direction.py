@@ -365,3 +365,69 @@ def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path)
     path.write_text(json.dumps(payload))
     with pytest.raises(ValueError,match='changed exam parameters'):
         verify_existing(path,job,'revision','expected')
+
+
+def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(monkeypatch,tmp_path):
+    """Regression: public emu CLI must not require --run-dir for --policy."""
+    from pathlib import Path
+    from emu import cli, evaluation
+    policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    received=[]
+    def one(*args):
+        received.append(('exam',args))
+        return 0
+    monkeypatch.setattr(evaluation,'directional_main',one)
+    assert cli.main(['directional-exam','--policy',str(policy),
+                     '--output',str(tmp_path/'one'),'--device','cpu']) == 0
+    assert received[0][1][:2] == ('--policy',str(policy))
+    def plan_stub(*args,**kwargs):
+        received.append(('plan',args,kwargs))
+        return [{'sentinel':'read-only'}]
+    def execute_stub(jobs,source,*,actually_run):
+        received.append(('execute',jobs,actually_run))
+    monkeypatch.setattr(evaluation,'plan',plan_stub)
+    monkeypatch.setattr(evaluation,'execute',execute_stub)
+    assert cli.main(['directional-batch','--policy',str(policy),
+                     '--profile','physical','--output',str(tmp_path/'batch'),
+                     '--device','cpu']) == 0
+    assert received[1][2]['policy_file'] == str(policy)
+    assert received[2][2] is False
+    assert not (tmp_path/'batch').exists()
+
+
+def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
+    """New run only; v5015 historical recipe stays pinned and reproducible."""
+    from types import SimpleNamespace
+    from emu.branch_lab import one_run_config, ARMS
+    def config(profile, pitch=None):
+        return one_run_config(SimpleNamespace(
+            profile=profile, run_dir=str(tmp_path/profile),steps=2048,
+            envs=2,seed=733,device='cpu',pitch_deg=pitch))
+    modern=config('sim2real')
+    assert modern.attitude_profile=='v5015'
+    assert modern.pitch_command_max_deg == pytest.approx(30.0)
+    assert config('mature').pitch_command_max_deg == pytest.approx(8.0)
+    assert config('foundation').pitch_command_max_deg == pytest.approx(8.0)
+    assert config('sim2real',18).pitch_command_max_deg == pytest.approx(18.)
+    # Pitch15 is only part of the preserved *historical* lab5015 recipe.
+    # Future v5016 arms must use identical common 30deg range.
+    assert 'pitch15' in {a.name for a in ARMS}
+    assert modern.run_dir != config('mature').run_dir
+    with pytest.raises(ValueError,match='pitch-deg'):
+        config('sim2real',31.0)
+    with pytest.raises(ValueError,match='pitch-deg'):
+        config('sim2real',0.0)
+
+
+def test_public_sim2real_plan_resolves_common_pitch_30(tmp_path,capsys):
+    import json
+    from emu import cli
+    run=tmp_path/'fresh_v5016'
+    assert cli.main(['train','--profile','sim2real',
+                     '--run-dir',str(run),'--steps','2048',
+                     '--envs','2','--device','cpu','--plan']) == 0
+    output=capsys.readouterr().out
+    data=json.loads(output[output.index('{'):output.rfind('}')+1])
+    assert data['pitch_command_max_deg']==30.0
+    assert data['attitude_profile']=='v5015'
+    assert not run.exists()
