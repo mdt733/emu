@@ -325,12 +325,16 @@ def find_resume(run_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def find_valid_resume(run_dir: Path) -> Path | None:
+def find_valid_resume(run_dir: Path, *,
+                      expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                      expected_sensor_contract: dict | None = None) -> Path | None:
     """Best current-schema continuation checkpoint, skipping corrupt/incompatible files."""
 
     for path in resume_candidates(run_dir):
         try:
-            load_checkpoint(path, validate=True)
+            load_checkpoint(path, validate=True,
+                            expected_observation_schema=expected_observation_schema,
+                            expected_sensor_contract=expected_sensor_contract)
             return path
         except Exception:
             continue
@@ -377,8 +381,12 @@ def foundation_handoff_step(envs: int) -> int:
     return update_boundary_at_or_after(FOUNDATION_STEPS, envs)
 
 
-def checkpoint_step(path: Path) -> int:
-    return int(load_checkpoint(path, validate=True)['meta']['step'])
+def checkpoint_step(path: Path, *,
+                    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                    expected_sensor_contract: dict | None = None) -> int:
+    return int(load_checkpoint(path, validate=True,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)['meta']['step'])
 
 
 def promote_checkpoint(src: Path, dst: Path) -> Path:
@@ -417,6 +425,8 @@ def finish_if_target_reached(
 
 def resume_training_lineage(
     run_dir: Path, *, resume: str, target_steps: int, envs: int,
+    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+    expected_sensor_contract: dict | None = None,
 ) -> tuple[dict[str, Any] | None, int, bool]:
     """Load exact resume state; identify completed runs without a new PPO update.
 
@@ -434,7 +444,9 @@ def resume_training_lineage(
         preferred = find_resume(run_dir)
         if preferred is None:
             raise RuntimeError(f'--resume auto found no checkpoint under {run_dir / "checkpoints"}')
-        resume_path = find_valid_resume(run_dir)
+        resume_path = find_valid_resume(
+            run_dir, expected_observation_schema=expected_observation_schema,
+            expected_sensor_contract=expected_sensor_contract)
         if resume_path is None:
             raise RuntimeError(
                 f'--resume auto found checkpoints but no valid current-schema rewind point under '
@@ -447,7 +459,10 @@ def resume_training_lineage(
         if not resume_path.exists():
             raise RuntimeError(f'--resume requested but checkpoint does not exist: {resume_path}')
     try:
-        resumed_payload = load_checkpoint(resume_path, validate=True)
+        resumed_payload = load_checkpoint(
+            resume_path, validate=True,
+            expected_observation_schema=expected_observation_schema,
+            expected_sensor_contract=expected_sensor_contract)
         resumed_step = int(resumed_payload['meta']['step'])
         print(f'{LOG} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})', flush=True)
         if finish_if_target_reached(run_dir, resume_path, resumed_step, target_steps, envs):
@@ -508,7 +523,9 @@ def try_restore_recovery(
         import jax.numpy as jnp
         from .curriculum import CapabilityField
 
-        payload = load_checkpoint(recovery_path)
+        payload = load_checkpoint(
+            recovery_path, expected_observation_schema=env.observation_schema,
+            expected_sensor_contract=env.sensor_contract)
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
@@ -563,7 +580,9 @@ def try_restore_recovery(
         return None
 
 
-def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str) -> tuple[Path | None, Path | None, int]:
+def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str,
+                              expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                              expected_sensor_contract: dict | None = None) -> tuple[Path | None, Path | None, int]:
     """Return (complete_final, resumable_partial, expected_update_boundary).
 
     Completion and resumability are deliberately separate concepts. A partial
@@ -572,14 +591,18 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     """
     expected = update_boundary_at_or_after(target_steps, envs)
     raw_resume = find_resume(run_dir)
-    resume = find_valid_resume(run_dir)
+    resume = find_valid_resume(run_dir,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
     if raw_resume is not None and resume is None:
         raise RuntimeError(
             f"{label} has checkpoints but none are valid current-schema rewind points under {run_dir/'checkpoints'}"
         )
     if resume is None:
         return None, None, expected
-    step = checkpoint_step(resume)
+    step = checkpoint_step(resume,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
     if step > expected:
         raise RuntimeError(
             f"{label} checkpoint is beyond the expected target boundary: step={step:,} expected={expected:,}; "
