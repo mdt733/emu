@@ -823,10 +823,10 @@ def test_sim2real_environment_exposes_exact_sensor_checkpoint_contract():
     })
 
 
-def test_v5016_doctor_acceptance_flag_exists():
+def test_v5016_doctor_acceptance_flag_exists(capsys):
     """The GPU owner can smoke test policy gradients before spending steps."""
-    import subprocess
-    import sys
-    result = subprocess.run([sys.executable, '-m', 'emu', 'doctor', '--help'],
-                            check=True, capture_output=True, text=True)
-    assert '--v5016-smoke' in result.stdout
+    from emu.cli import main
+    with pytest.raises(SystemExit) as exc:
+        main(['doctor', '--help'])
+    assert exc.value.code == 0
+    assert '--v5016-smoke' in capsys.readouterr().out
