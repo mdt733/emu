@@ -47,7 +47,26 @@ For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu 
 
 The protected Pitch15 public policy is a legitimate **frozen actor** and now
 works as an examiner input without the historical training PKL. Use a new,
-isolated output directory outside Git; this creates reports only:
+isolated output directory outside Git; this creates reports only.
+
+For a matched 10-course exam (heading correction OFF/ON, seed-controlled),
+first print the planned jobs, then opt in explicitly with `--run`:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+BASE="$HOME/robot_lab/emu_exams/pitch15_$(date +%Y%m%d_%H%M%S)"
+emu directional-batch --policy showcase/champion.emupolicy \
+  --profile physical --device cuda --worlds 4 --seed 1701 \
+  --output "$BASE"
+# When the plan looks right, append --run to the command above.
+# Repeat with a DIFFERENT BASE for held-out seeds 1702 and 1703.
+```
+
+The executable source is the approved exported policy, never any training root.
+Individual output directories are source- and checkpoint-hash checked; partial
+or stale results fail closed instead of being silently overwritten.
+For a single case, use:
 
 ```bash
 cd "$HOME/emu-v5016"
