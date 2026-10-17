@@ -347,3 +347,14 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
 /* Keep the newly added view switch accessible without crowding tiny phones. */
 #cameraBtn { border-color: rgba(80,206,187,.42); color: #b6f1e6; }
 @media (max-width: 540px) { #cameraBtn { padding: 0 8px; font-size: 11px; min-height: 38px; } }
+
+/* Always-visible, readable gradient under the support feet.
+   The arrow is robot-relative: up=forward, right=uphill on robot's right. */
+.telemetry .terrain-slope { grid-column: 1 / -1; }
+.telemetry .slope-data { display: inline-flex; align-items: center; gap: 11px; }
+.slope-arrow {
+  display: inline-block; font-size: 25px; line-height: 1;
+  color: #9dea9e; transform-origin: center center;
+  transition: transform 0.14s ease-out;
+}
+.slope-arrow[hidden] { display: none; }

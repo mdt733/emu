@@ -27,3 +27,28 @@ export function headingHoldRate(requestedRate, headingTarget, actualHeading, kp,
   const error = clamp(wrapRadians(headingTarget - actualHeading), -0.45, 0.45);
   return clamp(requestedRate + kp * error, -maxRate, maxRate);
 }
+
+/**
+ * One viewer-only yaw control frame. Keep the operator/demo turn request in a
+ * separate state channel from the rate handed to the neural actor.
+ * Otherwise P corrections are mistaken for fresh turn requests on the next
+ * frame, and the command can stick at the maximum yaw rate after release.
+ */
+export function nextYawCommand(requestedYaw, targetYaw, headingTarget,
+                               actualHeading, dt, headingHold, kp, maxRate) {
+  const maximumStep=Math.max(0,4*dt);
+  const difference=targetYaw-requestedYaw;
+  const request=clamp(requestedYaw+clamp(difference,-maximumStep,maximumStep),
+                      -maxRate,maxRate);
+  if(!headingHold || !Number.isFinite(actualHeading)) {
+    return {requestedYaw:request,appliedYaw:request,
+            headingTarget:Number.isFinite(actualHeading)?actualHeading:headingTarget};
+  }
+  // Avoid building up an unreachable heading if the robot has fallen or
+  // lacks sufficient turning authority on unfamiliar terrain.
+  const desired=wrapRadians(headingTarget+request*dt);
+  const boundedError=clamp(wrapRadians(desired-actualHeading),-0.45,0.45);
+  const target=wrapRadians(actualHeading+boundedError);
+  return {requestedYaw:request,headingTarget:target,
+          appliedYaw:headingHoldRate(request,target,actualHeading,kp,maxRate)};
+}

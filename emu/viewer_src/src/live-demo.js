@@ -16,7 +16,9 @@ export function sampleDemoCommand(limits, rng=Math.random, nodeCandidates=[]) {
   const vxHi = Math.max(0.02, Number(limits.vx_max ?? 0.1));
   const vxLo = Math.min(0, Number(limits.vx_min ?? -0.02));
   const vy = Math.max(0, Number(limits.vy_abs ?? 0.1));
-  const yaw = Math.max(0, Number(limits.yaw_abs ?? 0.3));
+  // An autonomous showcase should stroll, not continuously pirouette at
+  // the full training frontier. Manual steering still has its full range.
+  const yaw = Math.min(0.5, Math.max(0, Number(limits.yaw_abs ?? 0.3)));
   const pitch = Math.max(0, Number(limits.pitch_abs_rad ?? 0));
   if (nodeCandidates.length) {
     const picked = nodeCandidates[Math.floor(rng() * nodeCandidates.length)];

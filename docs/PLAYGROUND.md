@@ -51,12 +51,16 @@ Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
 The park starts with a flat 2 m radius; the permitted incline grows
 approximately 1 degree per metre beyond that (1° at the 2 m boundary,
 2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
-The default park extends about 11 metres each way so the outer region can\nreach the 10° *allowed* gradient; actual generated slopes may be gentler.\nThe park is now a **single triangulated heightfield**: actual MuJoCo
+The default park extends about 11 metres each way so the outer region can
+reach the 10° *allowed* gradient; actual generated slopes may be gentler.
+The park is now a **single triangulated heightfield**: actual MuJoCo
 contact triangles are rendered as a matching continuous grassy surface,
 with a procedurally generated grass texture and daylight sky. A sparse
-deterministic grove of trees can be enabled in Settings: trunks are static
+deterministic grove of trees is **enabled by default**: trunks are static
 MuJoCo collision cylinders, while low-poly foliage is visual-only.
-Trees stay well outside the 2 m flat spawn zone, and the landscape is
+The radial park is the viewer's default environment. You can select flat
+or the original ramp and turn trees on or off in Settings. Trees stay well
+outside the 2 m flat spawn zone, and the landscape is
 generated locally with no network image downloads.
 
 Changing terrain, tree collisions or maximum slope rebuilds the browser
@@ -65,3 +69,20 @@ saved .pkl remain untouched. Rendering continuity is better than tiled
 boxes, but heightfield resolution and browser physics still need real
 walking inspection, especially near small ball-foot contacts.
 This is a viewer playground, not training terrain or independent walking proof.
+
+## Heading and ground-slope instruments
+
+The telemetry distinguishes **yaw requested** (joystick or demonstration) from
+**yaw applied** (including bounded heading-hold P correction), and shows the
+robot's measured yaw rate. The heading controller does not feed its correction
+back into the next turn request. The automatic public demo uses gentler
+maximum yaw rates than manual control, so turning at the full frontier is not
+the default demonstration behaviour.
+
+**Ground under feet** reports an approximate local incline in degrees,
+derived from the actual generated heightfield beneath the midpoint of the two
+feet. The green arrow points **uphill relative to the robot's own direction**:
+up means forward, left means uphill to its left, right means uphill to its
+right. Flat terrain reads `0.0° · level`; walking beyond the sampled terrain
+reports `No terrain underfoot`. This is a terrain probe, not a measurement of
+body pitch or proof that both feet have contact.

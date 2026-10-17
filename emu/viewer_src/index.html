@@ -37,7 +37,9 @@
       <div class="metric"><span>Height</span><b id="height">—</b></div>
       <div class="metric"><span>vx</span><b id="vxRead">—</b></div>
       <div class="metric"><span>vy</span><b id="vyRead">—</b></div>
-      <div class="metric"><span>yaw</span><b id="yawRead">—</b></div>
+      <div class="metric"><span>Yaw rate (actual / applied)</span><b id="yawRead">—</b></div>
+      <div class="metric"><span>Yaw request</span><b id="yawRequestRead">—</b></div>
+      <div class="metric terrain-slope"><span>Ground under feet · uphill</span><b class="slope-data"><span id="slopeRead">—</span><span id="slopeArrow" class="slope-arrow" aria-hidden="true" hidden>↑</span></b></div>
       <div class="metric"><span>Chassis pitch</span><b id="pitchRead">—</b></div>
       <div class="metric"><span>Robot lean</span><b id="leanRead">—</b></div>
     </aside>
@@ -66,10 +68,10 @@
         <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
         <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
         <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
-        <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid</label>
+        <label><input id="gridToggle" type="checkbox" /> 10 cm floor grid</label>
         <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
         <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park">Radial terrain park</option></select></label>
+        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
         <label><input id="headingHoldToggle" type="checkbox" checked /> Heading hold (P control)</label>

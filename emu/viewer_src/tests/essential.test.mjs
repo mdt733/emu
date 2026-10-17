@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joystickToCommands, headingHoldRate } from '../src/controls.js';
+import { joystickToCommands, headingHoldRate, nextYawCommand } from '../src/controls.js';
 import { parseShowcaseManifest, assertShowcasePolicyResponse } from '../src/showcase.js';
-import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
+import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, surfaceSlope, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
+import { sampleDemoCommand } from '../src/live-demo.js';
 const limits = {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
 const base = {schema:1,mode:'showcase',policy:'policies/champion.emupolicy',trained:true,autoplay:true,label:'EMU'};
 const xml = '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
@@ -88,4 +89,54 @@ test('park XML uses exactly one joined heightfield and real tree collisions',()=
   assert.throws(()=>withTerrain(out,'park'),/already inserted/);
   const noTrees=withTerrain(xml,'park',{trees:false});
   assert.doesNotMatch(noTrees,/viewer_tree_trunk_0/);
+});
+
+test('yaw hold never feeds its applied correction back into the next request',()=>{
+  let requestedYaw=0,headingTarget=0,realHeading=0;
+  // Ask for a strong turn then RELEASE the stick. A simulated ideal yaw
+  // response follows the applied command, so the P correction should vanish.
+  for(let frame=0;frame<150;frame++){
+    const targetYaw=frame<35?-limits.yaw_abs:0;
+    const step=nextYawCommand(requestedYaw,targetYaw,headingTarget,realHeading,
+                              0.02,true,0.75,limits.yaw_abs);
+    requestedYaw=step.requestedYaw;
+    headingTarget=step.headingTarget;
+    realHeading+=step.appliedYaw*0.02;
+    if(frame===35)assert.ok(requestedYaw<0);
+    if(frame>60)assert.ok(Math.abs(requestedYaw)<0.000001);
+    if(frame===149)assert.ok(Math.abs(step.appliedYaw)<0.015);
+  }
+  assert.equal(requestedYaw,0);
+  const drift=nextYawCommand(0,0,0,0.1,0.02,true,0.75,1.5);
+  assert.equal(drift.requestedYaw,0);
+  assert.ok(drift.appliedYaw<0);
+  const raw=nextYawCommand(0.2,0,0,0.1,0.02,false,0.75,1.5);
+  assert.ok(Math.abs(raw.appliedYaw-raw.requestedYaw)<1e-12);
+});
+test('autonomous demonstration does not lock full ±1.5 yaw frontier',()=>{
+  const out=sampleDemoCommand(limits,()=>0,[{vx:0.2,vy:0,yaw:-1.5}]);
+  assert.equal(out.command.yaw,-0.5);
+  assert.equal(joystickToCommands(0,0,1,0,limits).yaw,-1.5); // manual is still full
+});
+test('ground slope measures real generated terrain and robot-relative uphill arrow',()=>{
+  const park=generateTerrainPark();
+  const flat=surfaceSlope('park',park,0,0,0);
+  assert.equal(flat.degrees,0);
+  assert.equal(flat.flat,true);
+  const off=surfaceSlope('park',park,park.radius+0.1,0,0);
+  assert.equal(off.supported,false);
+  // A known artificial eastward incline proves the angle and arrow mapping.
+  const grade={radius:20,cell:0.2,sampleHeight:(x,y)=>0.1*x};
+  const east=surfaceSlope('park',grade,0,0,0);
+  assert.ok(Math.abs(east.degrees-Math.atan(0.1)*180/Math.PI)<1e-7);
+  assert.ok(Math.abs(east.arrowDegrees)<1e-7); // forward is uphill
+  const north=surfaceSlope('park',grade,0,0,Math.PI/2);
+  assert.ok(Math.abs(north.arrowDegrees-90)<1e-7); // uphill points to robot's right
+  const up=surfaceSlope('ramp',null,1.25,0,0);
+  assert.ok(Math.abs(up.degrees-1)<1e-7);
+  assert.ok(Math.abs(up.arrowDegrees)<1e-7);
+  const down=surfaceSlope('ramp',null,2.5,0,0);
+  assert.ok(Math.abs(down.degrees-1)<1e-7);
+  assert.ok(Math.abs(Math.abs(down.arrowDegrees)-180)<1e-7);
+  assert.equal(surfaceSlope('flat',null,0,0,0).degrees,0);
 });

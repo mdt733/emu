@@ -4,9 +4,9 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
-import { joystickToCommands, headingHoldRate, wrapRadians } from './controls.js';
+import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
-import { withTerrain, generateTerrainPark } from './terrain.js';
+import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -107,6 +107,7 @@ export class EmuBrowserSim {
     this.headingHold = true;
     this.headingKp = 0.75;
     this.headingTarget = 0;
+    this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -331,6 +332,7 @@ export class EmuBrowserSim {
       step_height: Number(d.step_height ?? 0.012),
     };
     this.command = { ...this.commandTarget };
+    this.requestedYaw = this.commandTarget.yaw;
     this.phaseOverride = Number(d.phase_rate_hz ?? 0);
     this.reset();
   }
@@ -363,6 +365,8 @@ export class EmuBrowserSim {
     // the interactive viewer so reset is not a special stationary task.
     this.data.qvel[0] = this.command.vx;
     this.data.qvel[1] = this.command.vy;
+    this.requestedYaw = this.commandTarget.yaw;
+    this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
@@ -430,7 +434,7 @@ export class EmuBrowserSim {
   smoothCommands(dt) {
     this.command.vx = approach(this.command.vx, this.commandTarget.vx, 1.1 * dt);
     this.command.vy = approach(this.command.vy, this.commandTarget.vy, 0.9 * dt);
-    this.command.yaw = approach(this.command.yaw, this.commandTarget.yaw, 4.0 * dt);
+    // Yaw is smoothed separately in nextYawCommand (not from applied yaw).
     this.command.pitch = approach(this.command.pitch, this.commandTarget.pitch, 0.70 * dt);
     this.command.height = approach(this.command.height, this.commandTarget.height, 0.045 * dt);
     this.command.roll = approach(this.command.roll, this.commandTarget.roll, 0.55 * dt);
@@ -445,12 +449,12 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    const manualYaw=this.command.yaw;
-    if (this.headingHold) {
-      this.headingTarget=wrapRadians(this.headingTarget+manualYaw*cdt);
-      this.command.yaw=headingHoldRate(manualYaw,this.headingTarget,this.actualHeading(),
-        this.headingKp,Number(this.bundle.control.command_limits.yaw_abs));
-    } else this.headingTarget=this.actualHeading();
+    const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
+      this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
+      Number(this.bundle.control.command_limits.yaw_abs));
+    this.requestedYaw=steering.requestedYaw;
+    this.headingTarget=steering.headingTarget;
+    this.command.yaw=steering.appliedYaw;
     const action = this.policy.infer(this.obs);
     const span = this.bundle.control.target_span_rad;
 
@@ -583,7 +587,10 @@ export class EmuBrowserSim {
     return {
       height: this.heightM(), vx: vel[0], vy: vel[1], yaw: ang[2],
       pitch: chassisPitch, chassisPitch, robotLean,
-      cmd: { ...this.command }, fallen: this.isFallen(), phaseRate: this.phaseRate(),
+      cmd: { ...this.command }, requestedYaw: this.requestedYaw,
+      slope: surfaceSlope(this.terrainMode, this.park,
+        (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading()),
+      fallen: this.isFallen(), phaseRate: this.phaseRate(),
     };
   }
 
