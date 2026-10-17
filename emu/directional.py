@@ -445,7 +445,10 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
         'servo_braking_shaft_work_j': (np.sum(negative, axis=0) * dt).tolist(),
         'servo_measured_interval_abs_shaft_work_j': float(np.sum(np.abs(power)) * dt),
         'servo_all_sample_over_continuous_fraction': float(np.mean(over)),
-        'thermal_proxy_definition': 'integral (shaft torque / 0.638 Nm)^2 dt, uncalibrated; no cooling or temperature model',
+        'thermal_proxy_definition': 'integral (MuJoCo actuator force / 0.638 Nm)^2 dt, uncalibrated; no cooling or temperature model',
+        'actuator_work_definition': ('integral of MuJoCo position actuator_force times '
+            'joint speed, before separate joint damping, spring and Coulomb losses; '
+            'not net transmission work or measured electrical energy'),
         'sampling_caveat': ('one-frame delayed pre-step force/velocity; '
                             'terminal control step excluded from the scored path; '
                             'final state appended for uninterrupted survivors'),
