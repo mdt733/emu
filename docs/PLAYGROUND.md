@@ -2,7 +2,7 @@
 
 **[Open the public browser demo](https://mdt733.github.io/emu/)**. The repository's exported champion is the **120M Pitch15 policy** (120,061,952 steps, 220 inputs → 6 actions). A previous published Pages build may still be live until someone intentionally dispatches the manual release workflow.
 
-The browser runs a frozen neural network and MuJoCo WebAssembly physics, not PPO. Experiment with joysticks, view modes, lighting and the 1° physical ramp; visual behaviour alone is not proof of real servo safety or matched MJX contact dynamics. `emu/viewer_src/` is the only editable browser source.
+The browser runs a frozen neural network and MuJoCo WebAssembly physics, not PPO. Experiment with joysticks, view modes, lighting and the optional 1° physical ramp or radial terrain park; visual behaviour alone is not proof of real servo safety or matched MJX contact dynamics. `emu/viewer_src/` is the only editable browser source.
 
 ## Local view of checkpoints
 
@@ -25,10 +25,32 @@ cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
-Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions, terrain and that `showcase.json` reports step 120061952. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
+Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), selectable heading hold, split/hybrid steering, both physical terrain modes, and that `showcase.json` reports step 120061952. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
 
 ## Publish (manual on purpose)
 
 After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact Git blob SHA pinned in `.github/workflows/emu-playground.yml`, actor provenance, Node browser tests, WASM and policy files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
 
 Do not commit a training `.pkl` or alter the protected `showcase/champion.emupolicy` without deliberately updating the verified pin in the SAME reviewed change.
+
+## Viewer driving and terrain
+
+By default, the left stick commands forward/sideways motion, and the right
+stick commands yaw and chassis pitch. Pitch is inverted: pushing the right
+stick up requests negative model pitch (the nose-down direction in this
+model's convention). Select **Hybrid** for diagonal steering: forward plus
+left/right diagonals mix turning and strafing, while purely sideways means
+strafe. The right stick always supports separate turning and pitch.
+
+**Heading hold** is an optional browser-only P controller (default on,
+Kp=0.75). It integrates the requested turn rate into a target heading and
+adds a bounded correction for observed torso yaw drift. It neither edits
+the neural policy nor guarantees accurate heading on unfamiliar terrain.
+
+Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
+The park starts with a flat 2 m radius; the permitted incline grows
+approximately 1 degree per metre beyond that (1° at the 2 m boundary,
+2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
+Its deterministic gentle waves are approximate tiled MuJoCo boxes, so
+seams and browser performance are worth checking on actual hardware.
+This is a viewer playground, not training terrain or independent walking proof.
