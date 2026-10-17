@@ -1048,6 +1048,11 @@ class EmuMJXEnv(TaskSampler):
             if floor_id < 0 or self.mj_model.geom_type[floor_id] != mujoco.mjtGeom.mjGEOM_PLANE:
                 raise ValueError('real contact slope requires a named plane geom floor')
             self.mj_model.geom_quat[floor_id] = orientation
+            # A compiled world geom at zero pos/identity quat usually has
+            # geom_sameframe=BODY. Leaving that compiler shortcut in place
+            # can IGNORE the rotated geom_quat completely, in CPU and MJX.
+            # MuJoCo explicitly permits changing sameframe from nonzero->0.
+            self.mj_model.geom_sameframe[floor_id] = 0
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
