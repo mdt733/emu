@@ -81,7 +81,8 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     from emu.ppo import make_trainer
     from emu.contracts import OBS_DIM
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
-                  sensor_noise_scale=0.,attitude_profile='v5015')
+                  sensor_noise_scale=0.,attitude_profile='v5015',
+                  pitch_command_max_deg=30.0)
     # E2: shared birth/transition envelope preserves exact seed/frontier
     # arithmetic and field-taught birth provenance in the REAL JAX sampler.
     from emu.environment import T
@@ -111,6 +112,18 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
             SEED_VX_LO + .6 * (expected_full[1] - SEED_VX_LO),
             .6 * expected_full[2], .6 * expected_full[3]], np.float32)
         np.testing.assert_allclose(reduced, expected_reduced, rtol=1e-6, atol=1e-7)
+    # The 30 degree command is a common posture lesson, not a new actor
+    # feature, scripted servo offset, or separate Pitch30 study arm.
+    from emu.environment import T
+    from emu.contracts import P
+    pitch_keys=jax.random.split(jax.random.PRNGKey(3016),128)
+    pitch_tasks=np.asarray(env._sample_task(
+        pitch_keys, env.params_array({'posture_difficulty':1.0})))
+    max_rad=np.deg2rad(30.)
+    assert np.max(np.abs(pitch_tasks[:,T.pitch])) <= max_rad + 1e-6
+    assert np.max(np.abs(pitch_tasks[:,T.pitch])) > np.deg2rad(25.)
+    assert np.any(pitch_tasks[:,T.pitch] > np.deg2rad(20.))
+    assert np.any(pitch_tasks[:,T.pitch] < -np.deg2rad(20.))
     env.open_frontier = False
     anchors = np.zeros((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE), np.float32)
     anchors[0] = [0.055, 0.0, 0.0, 10.0, 0.0]
