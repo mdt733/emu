@@ -276,13 +276,17 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     pytest.importorskip('jax')
     import json
     from pathlib import Path
-    from emu.evaluation import evaluate_directional_run
+    from emu import cli
     champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     out=tmp_path/'pitch15_physical_exam'
-    report_path, markdown_path=evaluate_directional_run(
-        policy_file=champion, output=out, angle_deg=0.,
-        direction='uphill', worlds=2, horizon=45,
-        speed=.06, seed=1701, settle_frames=0, device='cpu')
+    # Execute the PUBLIC entrypoint that users actually invoke. This catches
+    # mismatched argument signatures before a WSL/GPU exam wastes a run.
+    assert cli.main([
+        'directional-exam','--policy',str(champion),
+        '--output',str(out),'--angle','0','--direction','uphill',
+        '--worlds','2','--horizon','45','--speed','.06',
+        '--seed','1701','--settle-frames','0','--device','cpu']) == 0
+    report_path, markdown_path=out/'directional_exam.json',out/'directional_exam.md'
     assert report_path.is_file() and markdown_path.is_file()
     report=json.loads(report_path.read_text())
     assert report['source_artifact_type']=='exported_actor'

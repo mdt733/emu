@@ -375,13 +375,23 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
     from emu import cli, evaluation
     policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     received=[]
-    def one(*args):
-        received.append(('exam',args))
+    def one(argv=None):
+        # Match directional_main's actual signature, not a permissive
+        # *args mock that lets broken public forwarding escape CI.
+        assert isinstance(argv, list)
+        received.append(('exam',argv))
         return 0
     monkeypatch.setattr(evaluation,'directional_main',one)
     assert cli.main(['directional-exam','--policy',str(policy),
-                     '--output',str(tmp_path/'one'),'--device','cpu']) == 0
-    assert received[0][1][:2] == ('--policy',str(policy))
+                     '--output',str(tmp_path/'one'),'--device','cpu',
+                     '--contact-slope','--compare-heading']) == 0
+    assert received[0][1][:2] == ['--policy',str(policy)]
+    assert '--contact-slope' in received[0][1]
+    assert '--compare-heading' in received[0][1]
+    # The original schema-7 run path must obey the same single-list contract.
+    assert cli.main(['directional-exam','--run-dir',str(tmp_path/'old_run'),
+                     '--output',str(tmp_path/'old_exam'),'--device','cpu']) == 0
+    assert received[1][1][:2] == ['--run-dir',str(tmp_path/'old_run')]
     def plan_stub(*args,**kwargs):
         received.append(('plan',args,kwargs))
         return [{'sentinel':'read-only'}]
@@ -392,8 +402,8 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
     assert cli.main(['directional-batch','--policy',str(policy),
                      '--profile','physical','--output',str(tmp_path/'batch'),
                      '--device','cpu']) == 0
-    assert received[1][2]['policy_file'] == str(policy)
-    assert received[2][2] is False
+    assert received[2][2]['policy_file'] == str(policy)
+    assert received[3][2] is False
     assert not (tmp_path/'batch').exists()
 
 

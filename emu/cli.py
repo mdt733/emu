@@ -237,7 +237,7 @@ def main(argv=None) -> int:
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
         from .evaluation import directional_main
-        return directional_main('--policy' if args.policy else '--run-dir',
+        return directional_main(['--policy' if args.policy else '--run-dir',
                     args.policy or args.run_dir,'--output',args.output,
                     '--angle',str(args.angle),'--direction',args.direction,
                     '--worlds',str(args.worlds),'--horizon',str(args.horizon),
@@ -249,7 +249,7 @@ def main(argv=None) -> int:
                     '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
                     '--gyro-delay-frames',str(args.gyro_delay_frames),
                     *(['--contact-slope'] if args.contact_slope else []),
-                    *(['--compare-heading'] if args.compare_heading else []))
+                    *(['--compare-heading'] if args.compare_heading else [])])
     if args.cmd=='directional-batch':
         from .evaluation import plan,execute
         from .evaluation import source_commit
