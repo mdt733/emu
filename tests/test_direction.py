@@ -248,3 +248,56 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     target.write_text(json.dumps(obj))
     with pytest.raises(ValueError, match='robot XML'):
         load_exported_actor_for_exam(target)
+
+
+def test_transition_exam_measures_real_response_not_reward_or_foot_lift():
+    from emu.directional import examine_command_transitions
+    cmd=np.zeros((100,3))
+    cmd[20:60,0]=.1
+    dt=.02
+    pos,head=ideal(cmd,dt=dt)
+    r=examine_command_transitions(pos,head,cmd,dt=dt)
+    assert [x['kind'] for x in r['maneuvers']]==['rest_to_walk','brake_to_stop']
+    assert r['maneuver_unobserved_count']==0
+    assert r['maneuvers'][0]['response_latency_s']==pytest.approx(0)
+    assert r['maneuvers'][1]['response_latency_s']==pytest.approx(0)
+    assert r['braking_path_first_0p5s_m']==pytest.approx(0)
+
+    # Identical requests, but robot cannot pick up speed for 10 frames
+    # after start and coasts for 8 frames after the stop command.
+    delayed=np.zeros((101,2))
+    for i in range(100):
+        vx=(.1 if 30<=i<68 else 0.)
+        delayed[i+1]=delayed[i]+np.array([dt*vx,0])
+    late=examine_command_transitions(delayed,head,cmd,dt=dt)
+    assert late['maneuvers'][0]['response_latency_s']==pytest.approx(.20)
+    assert late['maneuvers'][1]['response_latency_s']==pytest.approx(.16)
+    assert late['braking_path_first_0p5s_m']==pytest.approx(8*.1*dt)
+
+
+def test_reverse_exam_does_not_give_credit_to_forward_only_motion():
+    from emu.directional import examine_command_transitions
+    cmd=np.tile([.1,0.,0.],(100,1))
+    cmd[35:,0]=-.1
+    pos,head=ideal(cmd)
+    pass_result=examine_command_transitions(pos,head,cmd)
+    assert pass_result['maneuvers'][0]['kind']=='reverse_or_redirect'
+    assert pass_result['maneuvers'][0]['response_latency_s']==pytest.approx(0)
+    forward_only=np.zeros_like(pos)
+    forward_only[:,0]=np.arange(101)*.002
+    failed=examine_command_transitions(forward_only,head,cmd)
+    assert failed['maneuvers'][0]['response_latency_s'] is None
+    assert failed['maneuver_unobserved_count']==1
+
+
+def test_explicit_start_speed_and_stop_schedules_are_physical_requests():
+    from emu.evaluation import make_schedule
+    start=make_schedule('rest_start',120,speed=.1)
+    step=make_schedule('speed_step',120,speed=.1)
+    brake=make_schedule('brake_stop',120,speed=.1)
+    assert np.all(start[:30,0]==0)
+    assert np.all(start[30:,0]==.1)
+    assert np.allclose(step[:30,0],.04)
+    assert np.allclose(step[30:,0],.1)
+    assert np.all(brake[80:,0]==0)
+    assert np.all(brake[:80,0]==.1)
