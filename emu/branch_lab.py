@@ -558,8 +558,12 @@ def one_run_config(args) -> TrainingConfig:
                     if requested_pitch is None else requested_pitch)
     if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
         raise ValueError('--pitch-deg must be within (0, 30] degrees')
+    weight=float(getattr(args,'motor_guidance_weight',0.0))
+    if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
+        raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   pitch_command_max_deg=pitch_deg)
+                   pitch_command_max_deg=pitch_deg,
+                   motor_guidance_weight=weight)
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
