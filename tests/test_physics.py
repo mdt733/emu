@@ -292,3 +292,35 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
                ('physical_evidence' in world and
                 world['physical_evidence']['actuator_sample_frames'] > 0)
                for world in report['worlds'])
+
+
+def test_motor_guidance_does_not_change_real_mjx_physics_or_actor_contract():
+    """Two identically seeded worlds: only reward differs under motor guidance."""
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML,OBS_DIM
+    old=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,
+                  attitude_profile='v5015',pitch_command_max_deg=30.,
+                  motor_guidance_weight=0.,sensor_noise_scale=0.)
+    new=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,
+                  attitude_profile='v5015',pitch_command_max_deg=30.,
+                  motor_guidance_weight=.08,sensor_noise_scale=0.)
+    packet=old.params_array({'steady_difficulty':0.5,'posture_difficulty':1.})
+    state_a,obs_a=old.reset(packet)
+    state_b,obs_b=new.reset(packet)
+    np.testing.assert_allclose(jax.device_get(obs_a),jax.device_get(obs_b),atol=0)
+    actions=jnp.full((2,6),.2,dtype=jnp.float32)
+    a=old.step(state_a,actions,packet)
+    b=new.step(state_b,actions,packet)
+    a,b=jax.device_get((a,b))
+    assert a.obs.shape==b.obs.shape==(2,OBS_DIM)
+    np.testing.assert_allclose(a.obs,b.obs,atol=0)
+    np.testing.assert_allclose(a.state.data.qpos,b.state.data.qpos,atol=0)
+    np.testing.assert_allclose(a.metrics['reward_weighted_motor_cost'],0.,atol=0)
+    fraction=np.clip(b.metrics['servo_over_rated_frac'],0.,1.)
+    shaft=np.clip(b.metrics['servo_shaft_abs_power_w']/20.,0.,1.)
+    expected=-.08*(.65*fraction+.35*shaft)
+    np.testing.assert_allclose(b.metrics['reward_weighted_motor_cost'],expected,atol=1e-6)
+    np.testing.assert_allclose(b.reward,a.reward+expected,rtol=1e-5,atol=1e-5)
