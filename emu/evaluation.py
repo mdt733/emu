@@ -907,6 +907,11 @@ def _summarize_worlds(worlds):
                 drive_work_j=physical_optional('step_integrated_drive_shaft_work_j'),
                 abs_work_j=physical_optional('step_integrated_abs_shaft_work_j'),
                 spring_potential_range_j=physical_optional('spring_potential_range_j'),
+                passive_shin_release_j=physical_optional('passive_shin_release_total_j'),
+                passive_shin_stance_release_j=physical_optional('passive_shin_stance_release_total_j'),
+                passive_shin_stance_release_fraction=physical_optional('passive_shin_stance_release_fraction'),
+                passive_shin_stance_release_per_progress_j_m=physical_optional(
+                    'passive_shin_stance_release_per_progress_m_j_m'),
                 contact_pair_slip_speed_m_s=physical_optional('contact_pair_slip_speed_mean_m_s'),
                 drive_work_per_progress_j_m=mean_optional('positive_shaft_work_per_progress_m_j_m'),
                 abs_work_per_progress_j_m=mean_optional('absolute_shaft_work_per_progress_m_j_m'),
@@ -969,6 +974,9 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
           'maneuver_response_s','braking_path_first_0p5s_m',
           'servo_over_continuous_frac','servo_peak_abs_torque_nm',
           'drive_work_j','abs_work_j','spring_potential_range_j',
+          'passive_shin_release_j','passive_shin_stance_release_j',
+          'passive_shin_stance_release_fraction',
+          'passive_shin_stance_release_per_progress_j_m',
           'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
           'abs_work_per_progress_j_m')
     delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
@@ -1267,6 +1275,9 @@ def summarize(jobs,profile_root,revision):
                 'physical_worlds','positive_progress_worlds',
                 'servo_over_continuous_frac','servo_peak_abs_torque_nm',
                 'drive_work_j','abs_work_j','spring_potential_range_j',
+                'passive_shin_release_j','passive_shin_stance_release_j',
+                'passive_shin_stance_release_fraction',
+                'passive_shin_stance_release_per_progress_j_m',
                 'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
                 'abs_work_per_progress_j_m')
         w=csv.DictWriter(file,fieldnames=fields)
