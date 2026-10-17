@@ -20,7 +20,7 @@ import numpy as np
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -1115,6 +1115,16 @@ class EmuMJXEnv(TaskSampler):
         self.tof_dropout_prob = float(tof_dropout_prob)
         self.flow_dropout_prob = float(flow_dropout_prob)
         self.gyro_bias_std_rad_s = float(gyro_bias_std_rad_s)
+        self.sensor_contract = (sensor_observation_contract({
+            'tof_period_frames': tof_period_frames,
+            'flow_period_frames': flow_period_frames,
+            'tof_delay_frames': tof_delay_frames,
+            'flow_delay_frames': flow_delay_frames,
+            'tof_dropout_prob': self.tof_dropout_prob,
+            'flow_dropout_prob': self.flow_dropout_prob,
+            'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
+            'sensor_noise_scale': float(sensor_noise_scale),
+        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))

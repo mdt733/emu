@@ -72,3 +72,21 @@ not a texture-based camera renderer. There is no photometric failure model,
 body occlusion, pixel quantisation, continuous gyro integration or drift
 correction. The 232-input interface is experimental until matching versioned
 training/checkpoint/export and viewer input paths have been implemented.
+
+## Checkpoint identity — schema 8 (guarded)
+
+Legacy schema-7 Pitch15 pickle checkpoints remain 220 inputs and load
+without any newly required metadata. New 232-input **checkpoint schema 8**
+requires `observation_schema=sim2real_232`, its 232/6 weight shapes,
+232-element observation-normalizer statistics, and a canonical
+`sensor_contract` containing immutable field order, ToF extrinsic geometry,
+the sensor-model revision and exact cadence/delay/dropout/noise settings.
+The contract has a SHA-256 fingerprint. It is independently regenerated on
+loading so self-consistent but altered source data cannot redefine its meaning.
+
+All existing viewers, exporters and training-resume utilities still load
+**only schema 7** by default. Reading schema 8 requires explicit schema and
+sensor contract arguments; passing a merely shape-compatible policy is never
+enough. This is an interface-safety gate, **not permission to launch 232-input
+training**; trainer configs, held-out evaluators and the browser runtime
+must be updated together before that gate is enabled.

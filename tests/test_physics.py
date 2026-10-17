@@ -805,3 +805,19 @@ def test_flow_held_between_updates_keeps_matched_gyro_cpu_mjx():
     np.testing.assert_allclose(held_gyro, old_flow_gyro, atol=0.)
     read = jax.device_get(env._sensor_readout(sensors, env._body_packets(data)[0]))
     assert np.max(np.abs(read['measured_gyro_body_rad_s'] - held_gyro)) > .05
+
+
+def test_sim2real_environment_exposes_exact_sensor_checkpoint_contract():
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR, sensor_observation_contract
+    from emu.environment import EmuMJXEnv
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=2,
+                    observation_schema=OBS_SCHEMA_SENSOR,
+                    tof_period_frames=3, flow_period_frames=2,
+                    tof_delay_frames=2, flow_delay_frames=1)
+    assert env.obs_dim == 232
+    assert env.sensor_contract == sensor_observation_contract({
+        'tof_period_frames': 3, 'flow_period_frames': 2,
+        'tof_delay_frames': 2, 'flow_delay_frames': 1,
+        'tof_dropout_prob': .01, 'flow_dropout_prob': .02,
+        'gyro_bias_std_rad_s': .015, 'sensor_noise_scale': 1.,
+    })

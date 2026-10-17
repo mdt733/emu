@@ -432,3 +432,68 @@ def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, mon
     promote_checkpoint(source, target)
     assert target.read_bytes() == b'copy fallback'
     monkeypatch.setattr(os, 'link', original_link)
+
+
+def test_sensor_checkpoint_requires_explicit_schema_and_matching_physical_contract(tmp_path):
+    """A 232-dimensional actor is not a 220 actor plus optional float fields."""
+    from emu.checkpoint_io import load_checkpoint, SENSOR_CHECKPOINT_SCHEMA
+    from emu.contracts import (OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM,
+                               sensor_observation_contract)
+    from copy import deepcopy
+    contract = sensor_observation_contract()
+    assert contract == sensor_observation_contract(dict(contract['settings']))
+    with pytest.raises(ValueError, match='keys mismatch'):
+        sensor_observation_contract({'tof_period_frames': 2})
+    params = fake_policy_params()
+    for family in ('pi', 'vf'):
+        old = params[family][0]['w']
+        params[family][0]['w'] = np.zeros((SENSOR_OBS_DIM, old.shape[1]), np.float32)
+    state = FakeState(params=params, opt_state={'count': np.asarray(1, np.int32)})
+    norm = {'mean': np.zeros(SENSOR_OBS_DIM, np.float32),
+            'var': np.ones(SENSOR_OBS_DIM, np.float32), 'count': 1.0}
+    kwargs = dict(curriculum_state={'params': {}}, health_state={},
+                  field_state={})
+    meta = dict(step=2048, lr_scale=.25,
+                checkpoint_schema=SENSOR_CHECKPOINT_SCHEMA,
+                observation_schema=OBS_SCHEMA_SENSOR,
+                obs_dim=SENSOR_OBS_DIM, sensor_contract=contract)
+    path = tmp_path / 'new_actor.pkl'
+    save_checkpoint(path, state, meta, norm, **kwargs)
+    with pytest.raises(ValueError, match='observation schema mismatch'):
+        load_checkpoint(path)
+    new = load_checkpoint(
+        path, expected_observation_schema=OBS_SCHEMA_SENSOR,
+        expected_sensor_contract=contract)
+    assert new['meta']['obs_dim'] == 232
+    changed = dict(contract['settings'])
+    changed['flow_period_frames'] = 2
+    with pytest.raises(ValueError, match='differs from requested run'):
+        load_checkpoint(
+            path, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=sensor_observation_contract(changed))
+    payload = deepcopy(new)
+    payload['meta']['sensor_contract']['settings']['tof_delay_frames'] = 0
+    with pytest.raises(ValueError, match='fingerprint'):
+        validate_resume_payload(
+            payload, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=contract)
+    payload = deepcopy(new)
+    payload['state']['params']['pi'][0]['w'] = np.zeros((220, 256), np.float32)
+    with pytest.raises(ValueError, match='parameter-shape'):
+        validate_resume_payload(
+            payload, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=contract)
+    bad = dict(meta, checkpoint_schema=7)
+    with pytest.raises(ValueError, match='observation schema mismatch'):
+        save_checkpoint(tmp_path / 'bad_legacy.pkl', state, bad, norm, **kwargs)
+
+
+def test_old_schema_7_cannot_lie_about_sensor_semantics():
+    from emu.checkpoint_io import _validate_observation_meta
+    from emu.contracts import OBS_SCHEMA_SENSOR
+    assert _validate_observation_meta({'checkpoint_schema': 7}) == 220
+    with pytest.raises(ValueError, match='observation schema mismatch'):
+        _validate_observation_meta(
+            {'checkpoint_schema': 7, 'observation_schema': OBS_SCHEMA_SENSOR})
+    with pytest.raises(ValueError, match='sensor metadata inside legacy'):
+        _validate_observation_meta({'checkpoint_schema': 7, 'sensor_contract': {}})
