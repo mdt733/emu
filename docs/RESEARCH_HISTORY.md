@@ -64,6 +64,29 @@ reward is not an efficiency objective.
 - Source consolidation exposed stale lazy imports and colliding function
   names; verify real command paths in addition to import-only tests.
 
+## v5016 — first independent physical-exam instrumentation (October 2026)
+
+- The pre-existing directional examiner already measured world-fixed signed
+  progress, heading, reset-safe contact-stride candidates, command transitions,
+  and optional gyro-delay/noise effects. No second examiner was created.
+- Branch-only instrumentation now carries six MuJoCo actuator output torques
+  and joint speeds through the existing frozen-policy MJX trace. The reducer
+  reports per-joint peak/p95 torque, exposure above nominal 0.638 N·m,
+  squared-duty thermal *proxy*, mechanical work, contact-pair slip proxy and
+  changes in stored spring energy. Neither heat nor regeneration is inferred.
+- Known limitations: pre-step actuator samples lag one control interval;
+  a terminating step's post-step actuator force is unavailable after reset.
+  The post-step aggregate power metrics still cover the terminating step.
+  Contact-pair proximity is not a ground-reaction-force measurement.
+  Total spring energy variation does not establish energy returned to gait.
+- These code changes have not yet been validated by a real local CUDA/MJX
+  rollout. The protected showcase .emupolicy is an exported actor, not a
+  checkpoint directory containing the frozen PPO parameters and observation
+  statistics needed by the existing directional-exam loader. A compatible
+  training checkpoint must be supplied separately to measure that champion.
+- Source, reward, curriculum, actor interface and physical delivery model are
+  intentionally unchanged. No hardware feasibility verdict has been made.
+
 ## Open questions and next experiments
 
 1. **Can EMU travel where commanded?** Verify signed course progress,
