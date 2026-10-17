@@ -4,7 +4,7 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
-import { joystickToCommands, headingHoldRate, wrapRadians } from './controls.js';
+import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -434,9 +434,7 @@ export class EmuBrowserSim {
   smoothCommands(dt) {
     this.command.vx = approach(this.command.vx, this.commandTarget.vx, 1.1 * dt);
     this.command.vy = approach(this.command.vy, this.commandTarget.vy, 0.9 * dt);
-    // NEVER smooth from corrected this.command.yaw: it would turn the P
-    // correction into the next operator request (a self-sustaining yaw loop).
-    this.requestedYaw = approach(this.requestedYaw, this.commandTarget.yaw, 4.0 * dt);
+    // Yaw is smoothed separately in nextYawCommand (not from applied yaw).
     this.command.pitch = approach(this.command.pitch, this.commandTarget.pitch, 0.70 * dt);
     this.command.height = approach(this.command.height, this.commandTarget.height, 0.045 * dt);
     this.command.roll = approach(this.command.roll, this.commandTarget.roll, 0.55 * dt);
@@ -451,17 +449,12 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    // Integrate only the independently smoothed operator/demo rate, not the
-    // applied correction. A zero-turn command remains zero except for the
-    // bounded P correction needed to preserve the last desired heading.
-    if (this.headingHold) {
-      this.headingTarget=wrapRadians(this.headingTarget+this.requestedYaw*cdt);
-      this.command.yaw=headingHoldRate(this.requestedYaw,this.headingTarget,this.actualHeading(),
-        this.headingKp,Number(this.bundle.control.command_limits.yaw_abs));
-    } else {
-      this.headingTarget=this.actualHeading();
-      this.command.yaw=this.requestedYaw;
-    }
+    const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
+      this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
+      Number(this.bundle.control.command_limits.yaw_abs));
+    this.requestedYaw=steering.requestedYaw;
+    this.headingTarget=steering.headingTarget;
+    this.command.yaw=steering.appliedYaw;
     const action = this.policy.infer(this.obs);
     const span = this.bundle.control.target_span_rad;
 
