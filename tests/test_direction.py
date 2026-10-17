@@ -127,6 +127,9 @@ def test_physical_trace_duty_work_and_terminal_truncation():
     assert result['actuator_sample_frames'] == 4
     assert result['servo_peak_abs_torque_nm'][0] == pytest.approx(1.0)
     assert result['servo_over_continuous_seconds'][0] == pytest.approx(.08)
+    assert result['servo_longest_continuous_overload_s'][0] == pytest.approx(.08)
+    assert result['servo_p95_abs_joint_speed_rad_s'][0] == pytest.approx(2.)
+    assert result['servo_near_peak_fraction'][0] == pytest.approx(0.)
     assert result['servo_positive_shaft_work_j'][0] == pytest.approx(.16)
     assert result['servo_thermal_exposure_proxy_s'][0] == pytest.approx(.08 / .638**2)
     assert result['servo_all_sample_over_continuous_fraction'] == pytest.approx(1 / 6)
@@ -203,6 +206,10 @@ def test_report_energy_respects_settle_window_and_progress_direction():
         trace[key]=np.zeros((10,1))
     trace['servo_shaft_abs_power_w'][:5]=999
     trace['servo_shaft_drive_power_w'][:5]=999
+    # Only the scored 5-interval window may feed the spring-cycle proxy.
+    trace['spring_potential_energy_j'][:5,0]=100.
+    trace['spring_potential_energy_j'][5:,0]=[0.,1.,0.,2.,1.]
+    trace['shin_spring_energy_j'][5:,0]=[0.,.5,0.,1.,0.]
     trace['servo_shaft_abs_power_w'][5:]=2
     trace['servo_shaft_drive_power_w'][5:]=1
     report=evaluate_trace_arrays(trace,np.array([[0,0,-9.81]]),
@@ -210,6 +217,10 @@ def test_report_energy_respects_settle_window_and_progress_direction():
     p=report['physical_evidence']
     assert p['step_integrated_abs_shaft_work_j']==pytest.approx(5*.02*2)
     assert p['step_integrated_drive_shaft_work_j']==pytest.approx(5*.02*1)
+    assert p['all_springs_charging_proxy_j']==pytest.approx(3.)
+    assert p['all_springs_release_proxy_j']==pytest.approx(2.)
+    assert p['passive_shins_charging_proxy_j']==pytest.approx(1.5)
+    assert p['passive_shins_release_proxy_j']==pytest.approx(1.5)
     assert report['positive_shaft_work_per_progress_m_j_m']==pytest.approx(.1/.015)
     # Same measured power but movement against the command: no positive
     # metres denominator is available for a physical efficiency verdict.
