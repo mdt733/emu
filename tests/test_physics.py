@@ -307,7 +307,7 @@ def test_motor_guidance_does_not_change_real_mjx_physics_or_actor_contract():
     new=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,
                   attitude_profile='v5015',pitch_command_max_deg=30.,
                   motor_guidance_weight=.08,sensor_noise_scale=0.)
-    packet=old.params_array({'steady_difficulty':0.5,'posture_difficulty':1.})
+    packet={'steady_difficulty':0.5,'posture_difficulty':1.}
     state_a,obs_a=old.reset(packet)
     state_b,obs_b=new.reset(packet)
     np.testing.assert_allclose(jax.device_get(obs_a),jax.device_get(obs_b),atol=0)
