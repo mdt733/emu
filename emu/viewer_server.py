@@ -314,6 +314,95 @@ def _f32_blob(a) -> dict:
     }
 
 
+def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
+    """Decode an immutable browser actor for the SAME frozen MJX examiner.
+
+    A .emupolicy is NOT a schema-7 training checkpoint; it contains only the
+    actor and observation normalizer. Refuse silent model/obs/servo changes.
+    The examiner must never infer new physical parameters from a filename.
+    """
+    path = Path(path).expanduser().resolve()
+    bundle = json.loads(path.read_text(encoding='utf-8'))
+    policy, observation, control = (bundle.get('policy') or {},
+                                    bundle.get('observation') or {},
+                                    bundle.get('control') or {})
+    source = bundle.get('source') or {}
+    training = bundle.get('training') or {}
+    if bundle.get('format') != FORMAT or bundle.get('schema') != SCHEMA:
+        raise ValueError('not an EMU schema-1 exported actor')
+    if (policy.get('obs_dim'), policy.get('base_obs_dim'),
+        policy.get('history_len'), policy.get('action_dim')) != (
+            OBS_DIM, BASE_OBS_DIM, HISTORY_LEN, ACTION_DIM):
+        raise ValueError('export actor observations/actions differ from the current contract')
+    if (policy.get('hidden_sizes') != list(PPO_HIDDEN_SIZES) or
+        policy.get('activation') != 'tanh' or
+        policy.get('output') != 'deterministic_mean_clipped'):
+        raise ValueError('export policy network differs from current actor')
+    if (observation.get('base_fields') != list(BASE_OBS_FIELDS) or
+        observation.get('history_order') != 'oldest_to_newest'):
+        raise ValueError('export policy channel names/history order differ')
+    if (control.get('actuated_joints') != list(ACTUATED_JOINTS) or
+        control.get('one_control_frame_actuation_delay') is not True or
+        control.get('control_substeps') != CONTROL_SUBSTEPS or
+        not np.isclose(control.get('control_dt', -1), CONTROL_DT, atol=1e-9) or
+        not np.isclose(control.get('sim_dt', -1), SIM_DT, atol=1e-9) or
+        not np.allclose(control.get('target_span_rad', []), TARGET_SPAN, atol=1e-6)):
+        raise ValueError('export control/servo delivery does not match current simulator')
+    xml_bytes = ROBOT_XML.read_bytes()
+    model_hash = hashlib.sha256(xml_bytes).hexdigest()
+    if (source.get('robot_model_sha256') != model_hash or
+        bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
+        raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
+    if source.get('checkpoint_schema') != 7 or not isinstance(source.get('step'), int):
+        raise ValueError('export provenance is not a known schema-7 training lineage')
+    if training.get('attitude_profile') not in ('v5014','v5015'):
+        raise ValueError('missing supported training attitude profile')
+    pitch = float(training.get('pitch_command_max_deg', float('nan')))
+    phase_gain = float(control.get('phase_speed_gain', float('nan')))
+    if not (np.isfinite(pitch) and 0 < pitch <= 45 and
+            np.isfinite(phase_gain) and phase_gain >= 0):
+        raise ValueError('missing or invalid exported task/phase configuration')
+
+    def decode(blob, shape, name):
+        if not isinstance(blob, dict) or blob.get('dtype') != 'float32-le' or blob.get('shape') != list(shape):
+            raise ValueError(f'exported {name} blob shape/dtype mismatch')
+        try:
+            raw = base64.b64decode(blob['data_b64'], validate=True)
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f'invalid exported {name} base64') from exc
+        if len(raw) != int(np.prod(shape)) * 4:
+            raise ValueError(f'exported {name} binary length mismatch')
+        out = np.frombuffer(raw, dtype='<f4').reshape(shape).copy()
+        if not np.isfinite(out).all():
+            raise ValueError(f'nonfinite exported {name}')
+        return out
+
+    layer_sizes = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
+    specs = policy.get('layers')
+    if not isinstance(specs, list) or len(specs) != 3:
+        raise ValueError('export must contain exactly three actor layers')
+    layers = []
+    actor_hash = hashlib.sha256()
+    for i, spec in enumerate(specs):
+        w = decode(spec.get('w'), (layer_sizes[i], layer_sizes[i+1]), f'actor[{i}].w')
+        b = decode(spec.get('b'), (layer_sizes[i+1],), f'actor[{i}].b')
+        actor_hash.update(w.tobytes(order='C'))
+        actor_hash.update(b.tobytes(order='C'))
+        layers.append({'w': w, 'b': b})
+    if actor_hash.hexdigest() != source.get('actor_sha256'):
+        raise ValueError('exported actor hash does not match declared source')
+    mean = decode(observation.get('mean'), (OBS_DIM,), 'normalizer mean')
+    std = decode(observation.get('std'), (OBS_DIM,), 'normalizer std')
+    mask = decode(observation.get('normalize_mask'), (OBS_DIM,), 'normalizer mask')
+    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask()):
+        raise ValueError('export observation standard deviations/mask incompatible')
+    return {'pi': layers}, {'mean': mean, 'std': std}, {
+        'source': source, 'training': training, 'control': control,
+        'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        'robot_model_sha256': model_hash,
+    }
+
+
 def _scalar(d: dict, key: str, default: float) -> float:
     try:
         v = float(d.get(key, default))

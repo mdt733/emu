@@ -153,7 +153,9 @@ def main(argv=None) -> int:
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
-    q.add_argument('--run-dir',required=True)
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--run-dir',help='read-only schema-7 training run')
+    source.add_argument('--policy',help='frozen exported .emupolicy actor')
     q.add_argument('--output',required=True,help='unique examination directory, outside training root')
     q.add_argument('--angle',type=float,default=0.)
     q.add_argument('--direction',choices=['uphill','downhill','cross_left','cross_right'],default='uphill')
@@ -169,6 +171,9 @@ def main(argv=None) -> int:
     q.add_argument('--gyro-bias',type=float,default=0.)
     q.add_argument('--gyro-noise',type=float,default=0.)
     q.add_argument('--gyro-delay-frames',type=int,default=0)
+    q.add_argument('--contact-slope',action='store_true',help='real inclined floor with vertical gravity')
+    q.add_argument('--reuse-completed',action='store_true',
+                   help='reuse saved OFF/ON exam JSON to rebuild missing comparison')
     q.add_argument('--compare-heading',action='store_true',
                    help='matched read-only controller OFF/ON comparison')
     q.add_argument('--heading-kp',type=float,default=0.75)
@@ -176,9 +181,11 @@ def main(argv=None) -> int:
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q=sub.add_parser('directional-batch',
         help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
-    q.add_argument('--root',required=True,help='original read-only four-way run root')
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--root',help='original read-only four-way run root')
+    source.add_argument('--policy',help='frozen exported actor, requires physical profile')
     q.add_argument('--output',required=True,help='new separate exam root')
-    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch'],
+    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch','physical'],
                    default='smoke')
     q.add_argument('--worlds',type=int)
     q.add_argument('--seed',type=int,default=1701)
@@ -194,8 +201,14 @@ def main(argv=None) -> int:
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--profile',choices=['foundation','mature'],default='foundation')
-    q.add_argument('--pitch-deg',type=float,default=8.0,help='maximum commanded chassis-pitch range, e.g. 15 for Pitch15-style teaching')
+    q.add_argument('--profile',choices=['foundation','mature','sim2real'],default='foundation')
+    q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
+    q.add_argument('--motor-guidance-weight',type=float,default=0.0,
+                   help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
+    q.add_argument('--contact-slope-deg',type=float,default=0.0,
+                   help='opt-in shared real incline 0..5 degrees, sim2real only')
+    q.add_argument('--contact-terrain-radius',type=float,default=0.0,
+                   help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
@@ -229,23 +242,37 @@ def main(argv=None) -> int:
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
-        from .evaluation import directional_main
-        return directional_main('--run-dir',args.run_dir,'--output',args.output,
-                    '--angle',str(args.angle),'--direction',args.direction,
-                    '--worlds',str(args.worlds),'--horizon',str(args.horizon),
-                    '--speed',str(args.speed),'--lateral',str(args.lateral),
-                    '--yaw-rate',str(args.yaw_rate),'--settle-frames',str(args.settle_frames),
-                    '--seed',str(args.seed),'--device',args.device,
-                    '--heading-kp',str(args.heading_kp),
-                    '--scenario',args.scenario,'--turn-rate',str(args.turn_rate),
-                    '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
-                    '--gyro-delay-frames',str(args.gyro_delay_frames),
-                    *(['--compare-heading'] if args.compare_heading else []))
+        # Parse ONCE and call the examiner directly. Previously this rebuilt
+        # strings for a second parser: a fragile seam that caused real WSL
+        # crashes while lower-level tests remained green.
+        from .evaluation import evaluate_directional_pair, evaluate_directional_run
+        if args.reuse_completed and not args.compare_heading:
+            p.error('--reuse-completed requires --compare-heading')
+        request=dict(
+            run_dir=args.run_dir,policy_file=args.policy,output=args.output,
+            angle_deg=args.angle,direction=args.direction,
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            lateral=args.lateral,yaw_rate=args.yaw_rate,
+            settle_frames=args.settle_frames,seed=args.seed,device=args.device,
+            scenario=args.scenario,turn_rate=args.turn_rate,
+            gyro_bias=args.gyro_bias,gyro_noise=args.gyro_noise,
+            gyro_delay_frames=args.gyro_delay_frames,
+            contact_slope=args.contact_slope)
+        if args.compare_heading:
+            paths=evaluate_directional_pair(
+                heading_kp=args.heading_kp,
+                reuse_completed=args.reuse_completed,**request)
+        else:
+            paths=evaluate_directional_run(heading_kp=0.,**request)
+        for path in paths:
+            print(path)
+        return 0
     if args.cmd=='directional-batch':
         from .evaluation import plan,execute
         from .evaluation import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
-                  seed=args.seed,kp=args.heading_kp,device=args.device)
+                  seed=args.seed,kp=args.heading_kp,device=args.device,
+                  policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
     if args.cmd=='report':

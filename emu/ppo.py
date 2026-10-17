@@ -653,12 +653,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             contacts=contact_pair_mask(
                 jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
                 int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
-            return data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],contacts
+            floor = int(env.ids['floor_geom'])
+            floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
+            floor_origin = data.geom_xpos[:,floor,:]
+            return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
+                    contacts,floor_normal,floor_origin)
 
         def step(carry, inputs):
             es, ob, target, estimate, history_gyro = carry
             cmd, sensor_noise = inputs
-            xy,yaw,foot_xyz,contacts=record_state(es)
+            xy,yaw,foot_xyz,contacts,floor_normal,floor_origin=record_state(es)
             raw_gyro=env._body_packets(es.data)[2][:,2]
             sampled_gyro=raw_gyro+bias+sensor_noise
             # Preserve an initial sample across the sensor's latency window.
@@ -691,11 +695,15 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
             policy_obs=hist.reshape((env.num_envs, OBS_DIM))
-            mean,_=apply(params,normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
+            # Frozen exams need only the actor, never a value network or
+            # optimiser. This permits identical evaluation of exported .emupolicy
+            # actors and full schema-7 checkpoints through ONE MJX trace path.
+            mean=mlp(params['pi'], normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
                 next_task_yaw_rate=out.state.task[:,T.yaw],
@@ -705,6 +713,22 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 gyro_sample_rad_s=sampled_gyro,
                 gyro_delayed_rad_s=delayed_gyro,
                 root_qvel=es.data.qvel[:,:6],
+                # Pre-step arrays are the *post-physics* state of the preceding
+                # control frame. The host examiner shifts them one frame and
+                # truncates at the first done, avoiding reset-contaminated data.
+                servo_torque_nm=es.data.actuator_force[:,:ACTION_DIM],
+                servo_joint_rate_rad_s=es.data.qvel[:,env.act_qvel],
+                # Eight explicit spring joints: six motor-supporting hinges,
+                # then right/left passive shin flex. Sample PRE-step poses
+                # so energy differences align with signed course displacement.
+                spring_joint_qpos_rad=es.data.qpos[:,env.spring_qpos],
+                # These scalar diagnostics come from this step's pre-reset
+                # physical result, not from the reset state in out.state.
+                servo_shaft_abs_power_w=out.metrics['servo_shaft_abs_power_w'],
+                servo_shaft_drive_power_w=out.metrics['servo_shaft_drive_power_w'],
+                servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
+                spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
+                shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
                 done=out.done,fell=out.metrics['episode_fell'])
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
@@ -713,10 +737,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
-        last_xy,last_yaw,last_foot,last_contacts=record_state(last)
+        last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                    last_floor_contact=last_contacts)
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.

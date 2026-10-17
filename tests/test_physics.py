@@ -81,7 +81,8 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     from emu.ppo import make_trainer
     from emu.contracts import OBS_DIM
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
-                  sensor_noise_scale=0.,attitude_profile='v5015')
+                  sensor_noise_scale=0.,attitude_profile='v5015',
+                  pitch_command_max_deg=30.0)
     # E2: shared birth/transition envelope preserves exact seed/frontier
     # arithmetic and field-taught birth provenance in the REAL JAX sampler.
     from emu.environment import T
@@ -111,6 +112,18 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
             SEED_VX_LO + .6 * (expected_full[1] - SEED_VX_LO),
             .6 * expected_full[2], .6 * expected_full[3]], np.float32)
         np.testing.assert_allclose(reduced, expected_reduced, rtol=1e-6, atol=1e-7)
+    # The 30 degree command is a common posture lesson, not a new actor
+    # feature, scripted servo offset, or separate Pitch30 study arm.
+    from emu.environment import T
+    from emu.contracts import P
+    pitch_keys=jax.random.split(jax.random.PRNGKey(3016),128)
+    pitch_tasks=np.asarray(env._sample_task(
+        pitch_keys, env.params_array({'posture_difficulty':1.0})))
+    max_rad=np.deg2rad(30.)
+    assert np.max(np.abs(pitch_tasks[:,T.pitch])) <= max_rad + 1e-6
+    assert np.max(np.abs(pitch_tasks[:,T.pitch])) > np.deg2rad(25.)
+    assert np.any(pitch_tasks[:,T.pitch] > np.deg2rad(20.))
+    assert np.any(pitch_tasks[:,T.pitch] < -np.deg2rad(20.))
     env.open_frontier = False
     anchors = np.zeros((FIELD_NODE_ANCHORS, FIELD_NODE_STRIDE), np.float32)
     anchors[0] = [0.055, 0.0, 0.0, 10.0, 0.0]
@@ -138,10 +151,37 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
         params,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
         mean,std,jax.random.PRNGKey(199),4)
     data=jax.device_get(history)
+    # A frozen examiner must not depend on the PPO critic or optimiser.
+    # Same random key, six actor weights and world initialization must
+    # produce identical physics whether the full training params or only
+    # the exported actor's 'pi' subtree is supplied.
+    pi_only=trainer['evaluate_trace'](
+        {'pi':params['pi']},
+        env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+        mean,std,jax.random.PRNGKey(199),4)
+    pi_only=jax.device_get(pi_only)
+    np.testing.assert_array_equal(pi_only['position_xy'],data['position_xy'])
+    np.testing.assert_array_equal(pi_only['servo_torque_nm'],data['servo_torque_nm'])
     assert data['position_xy'].shape==(4,2,2)
     assert data['floor_contact'].shape==(4,2,2)
     assert data['command'].shape==(4,2,3)
     assert data['last_position_xy'].shape==(2,2)
+    # Real MJX JIT: no synthetic substitute for source actuator fields.
+    assert data['servo_torque_nm'].shape==(4,2,6)
+    assert data['servo_joint_rate_rad_s'].shape==(4,2,6)
+    assert data['last_servo_torque_nm'].shape==(2,6)
+    assert data['spring_joint_qpos_rad'].shape==(4,2,8)
+    assert data['last_spring_joint_qpos_rad'].shape==(2,8)
+    assert data['spring_reference_rad'].shape==(8,)
+    assert data['spring_stiffness_nm_rad'].shape==(8,)
+    # Nominal MJX shares limits across worlds; domain-randomized worlds
+    # may instead expose one six-actuator array per world.
+    assert data['servo_peak_limit_nm'].shape in ((6,), (2,6))
+    np.testing.assert_allclose(data['servo_peak_limit_nm'], 1.913, atol=1e-6)
+    for name in ('servo_torque_nm','servo_joint_rate_rad_s',
+                 'servo_shaft_abs_power_w','servo_shaft_drive_power_w',
+                 'spring_potential_energy_j'):
+        assert np.isfinite(data[name]).all()
     assert np.isfinite(data['position_xy']).all()
     # Exercise the actual optional gyro-integrated heading controller JIT path.
     on=trainer['evaluate_trace'](
@@ -174,6 +214,27 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
+    # Execute the *actual protected* Pitch15 120M actor through the very
+    # same CPU MJX stepping kernel. This needs neither the historical
+    # training .pkl nor a synthetic stand-in for the trained weights.
+    from emu.viewer_server import load_exported_actor_for_exam
+    from pathlib import Path
+    hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    actor, exported_norm, export = load_exported_actor_for_exam(hero)
+    assert export['source']['step'] == 120061952
+    assert len(actor['pi']) == 3
+    assert actor['pi'][0]['w'].shape == (OBS_DIM,256)
+    # Two-world, four-control-frame smoke; physical performance is NOT
+    # inferred from an unconditioned four-frame sanity check.
+    actual = trainer['evaluate_trace'](
+        actor,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+        jnp.asarray(exported_norm['mean']),jnp.asarray(exported_norm['std']),
+        jax.random.PRNGKey(199),4)
+    actual=jax.device_get(actual)
+    assert actual['servo_torque_nm'].shape == (4,2,6)
+    assert np.isfinite(actual['position_xy']).all()
+    assert np.isfinite(actual['servo_torque_nm']).all()
+
 
     # v5016: explicit mid-episode turn/stop schedule, noisy/delayed gyro.
     # The *environment's* post-step command must match what PPO was told:
@@ -203,3 +264,337 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
                                off['root_qvel'][0,:,:5],rtol=0,atol=1e-6)
     np.testing.assert_allclose(noisy['root_qvel'][0,:,5],
                                off['root_qvel'][0,:,5]-.2,rtol=0,atol=2e-6)
+
+
+def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
+    """Real end-to-end 120M export -> actor inference -> MJX -> report.
+
+    Bounded CPU CI checks software truth; it is not GPU or hardware proof.
+    """
+    pytest.importorskip('mujoco')
+    pytest.importorskip('optax')
+    pytest.importorskip('jax')
+    import json
+    from pathlib import Path
+    from emu import cli
+    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    out=tmp_path/'pitch15_physical_exam'
+    # Execute the PUBLIC entrypoint that users actually invoke. This catches
+    # mismatched argument signatures before a WSL/GPU exam wastes a run.
+    assert cli.main([
+        'directional-exam','--policy',str(champion),
+        '--output',str(out),'--angle','0','--direction','uphill',
+        '--worlds','2','--horizon','45','--speed','.06',
+        '--seed','1701','--settle-frames','0','--device','cpu']) == 0
+    report_path, markdown_path=out/'directional_exam.json',out/'directional_exam.md'
+    assert report_path.is_file() and markdown_path.is_file()
+    report=json.loads(report_path.read_text())
+    assert report['source_artifact_type']=='exported_actor'
+    assert report['checkpoint_sha256'] is None
+    assert len(report['source_artifact_sha256'])==64
+    assert report['checkpoint_training_step']==120061952
+    assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
+    assert len(report['worlds'])==2
+    assert all('course_pass' in world for world in report['worlds'])
+    for world in report['worlds']:
+        if world.get('physical_evidence'):
+            p=world['physical_evidence']
+            assert p['spring_interval_count']==p['frames_recorded'] if 'frames_recorded' in p else p['spring_interval_count']>0
+            assert len(p['passive_shin_stance_release_j'])==2
+            assert len(p['passive_shin_release_j'])==2
+            assert all(x>=0 for x in p['passive_shin_stance_release_j'])
+    assert all(world.get('invalid_reason') is not None or
+               ('physical_evidence' in world and
+                world['physical_evidence']['actuator_sample_frames'] > 0)
+               for world in report['worlds'])
+
+
+def test_motor_guidance_does_not_change_real_mjx_physics_or_actor_contract():
+    """Two identically seeded worlds: only reward differs under motor guidance."""
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML,OBS_DIM
+    old=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,
+                  attitude_profile='v5015',pitch_command_max_deg=30.,
+                  motor_guidance_weight=0.,sensor_noise_scale=0.)
+    new=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,
+                  attitude_profile='v5015',pitch_command_max_deg=30.,
+                  motor_guidance_weight=.08,sensor_noise_scale=0.)
+    packet={'steady_difficulty':0.5,'posture_difficulty':1.}
+    state_a,obs_a=old.reset(packet)
+    state_b,obs_b=new.reset(packet)
+    np.testing.assert_allclose(jax.device_get(obs_a),jax.device_get(obs_b),atol=0)
+    actions=jnp.full((2,6),.2,dtype=jnp.float32)
+    a=old.step(state_a,actions,packet)
+    b=new.step(state_b,actions,packet)
+    a,b=jax.device_get((a,b))
+    assert a.obs.shape==b.obs.shape==(2,OBS_DIM)
+    np.testing.assert_allclose(a.obs,b.obs,atol=0)
+    np.testing.assert_allclose(a.state.data.qpos,b.state.data.qpos,atol=0)
+    np.testing.assert_allclose(a.metrics['reward_weighted_motor_cost'],0.,atol=0)
+    fraction=np.clip(b.metrics['servo_over_rated_frac'],0.,1.)
+    shaft=np.clip(b.metrics['servo_shaft_abs_power_w']/20.,0.,1.)
+    expected=-.08*(.65*fraction+.35*shaft)
+    np.testing.assert_allclose(b.metrics['reward_weighted_motor_cost'],expected,atol=1e-6)
+    np.testing.assert_allclose(b.reward,a.reward+expected,rtol=1e-5,atol=1e-5)
+
+
+def test_real_contact_plane_normal_and_gravity_through_cpu_mjx():
+    """Tilt the actual contact surface, not gravity or camera coordinates."""
+    mujoco=pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv, contact_plane_quaternion
+    from emu.contracts import ROBOT_XML
+    theta=np.deg2rad(3.)
+    for direction in ((1.,0.),(-1.,0.),(0.,1.)):
+        env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=16,
+                      attitude_profile='v5015',contact_slope_deg=3.,
+                      contact_uphill_xy=direction,sensor_noise_scale=0.)
+        idx=int(env.ids['floor_geom'])
+        quat=contact_plane_quaternion(3.,direction)
+        np.testing.assert_allclose(env.mj_model.geom_quat[idx],quat,atol=1e-7)
+        assert int(env.mj_model.geom_sameframe[idx])==0, (
+            'compiled identity-frame shortcut must not ignore rotated floor')
+        expected=np.asarray([-np.sin(theta)*direction[0],
+                            -np.sin(theta)*direction[1],np.cos(theta)])
+        cpu=mujoco.MjData(env.mj_model)
+        mujoco.mj_forward(env.mj_model,cpu)
+        np.testing.assert_allclose(
+            np.asarray(cpu.geom_xmat[idx]).reshape(3,3)[:,2],expected,atol=1e-6)
+        state,obs=env.reset({'posture_difficulty':0.})
+        state=jax.device_get(state)
+        physical_normal=np.asarray(state.data.geom_xmat)[0,idx].reshape(3,3)[:,2]
+        np.testing.assert_allclose(physical_normal,expected,atol=1e-5)
+        np.testing.assert_allclose(env.mj_model.opt.gravity,[0.,0.,-9.81],atol=1e-6)
+        assert obs.shape==(2,220)
+    for bad in (-1.,6.,float('nan')):
+        with pytest.raises(ValueError,match='contact slope'):
+            contact_plane_quaternion(bad,(1.,0.))
+    with pytest.raises(ValueError,match='uphill'):
+        contact_plane_quaternion(2.,(0.,0.))
+
+
+def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
+    """Guard the full exported-actor route on a real incline (not tilted gravity)."""
+    from pathlib import Path
+    from emu.evaluation import evaluate_directional_run
+    import json
+    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    report_path,_=evaluate_directional_run(
+        policy_file=hero, output=tmp_path/'physical_incline',
+        angle_deg=2.,direction='uphill',worlds=2,horizon=35,
+        speed=.08,seed=1701,settle_frames=0,device='cpu',
+        contact_slope=True)
+    report=json.loads(report_path.read_text())
+    exam=report['exam']
+    assert exam['ground_mode']=='inclined_contact_plane'
+    np.testing.assert_allclose(exam['actual_gravity_world'],[0,0,-9.81],atol=1e-5)
+    assert exam['grade_reference_gravity_world'][0] < 0.
+    assert len(report['worlds'])==2
+    assert all('course_pass' in row for row in report['worlds'])
+
+
+def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch):
+    """End to end through the exact --compare-heading command used in WSL.
+
+    A steady course has NO maneuver transition event. Both reported
+    response latencies must remain null, not crash or pretend zero delay.
+    """
+    pytest.importorskip('mujoco')
+    pytest.importorskip('optax')
+    pytest.importorskip('jax')
+    import json
+    from pathlib import Path
+    from emu import cli, evaluation
+    policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    out=tmp_path/'flat_pair'
+    argv=['directional-exam','--policy',str(policy),'--output',str(out),
+          '--worlds','2','--horizon','38','--settle-frames','0',
+          '--device','cpu','--seed','1701','--speed','.10',
+          '--compare-heading']
+    assert cli.main(argv)==0
+    report=json.loads((out/'heading_comparison.json').read_text())
+    assert report['off']['maneuver_response_s'] is None
+    assert report['on']['maneuver_response_s'] is None
+    assert report['reused_completed_rollouts'] is False
+    assert (out/'off'/'directional_exam.json').is_file()
+    assert (out/'on'/'directional_exam.json').is_file()
+    # Reproduce the observed WSL failure: both raw JSON are intact but
+    # the paired summary was lost. Recover entirely without another rollout.
+    (out/'heading_comparison.json').unlink()
+    (out/'heading_comparison.md').unlink()
+    def forbid_new_rollout(*args,**kwargs):
+        raise AssertionError('recovery unexpectedly started MJX simulation')
+    monkeypatch.setattr(evaluation,'evaluate_directional_run',forbid_new_rollout)
+    assert cli.main([*argv,'--reuse-completed'])==0
+    recovered=json.loads((out/'heading_comparison.json').read_text())
+    assert recovered['reused_completed_rollouts'] is True
+    assert recovered['off']==report['off'] and recovered['on']==report['on']
+    (out/'heading_comparison.json').unlink()
+    with pytest.raises(ValueError,match='reuse protocol mismatch'):
+        cli.main([*argv,'--speed','.2','--reuse-completed'])
+
+
+def test_audit_ground_relative_environment_metrics_and_observation_cpu_mjx():
+    """On the actual tilted collision plane, a grounded foot is not airborne
+    just because world-Z increases. The actor still has 220 channels.
+    """
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML
+    for slope in (0.,3.):
+        env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=42,
+                      attitude_profile='v5015',contact_slope_deg=slope,
+                      sensor_noise_scale=0.)
+        state,obs=env.reset({'posture_difficulty':0.})
+        metrics=env._metrics(state.data,state.task,
+            np.zeros((2,6),np.float32),np.zeros((2,6),np.float32),
+            state.phase,state.prev_foot_pos)
+        m=jax.device_get(metrics)
+        dat=jax.device_get(state.data)
+        idx=int(env.ids['floor_geom'])
+        normal=np.asarray(dat.geom_xmat)[:,idx].reshape((2,3,3))[:,:,2]
+        origin=np.asarray(dat.geom_xpos)[:,idx]
+        torso=np.asarray(dat.xpos)[:,int(env.ids['torso'])]
+        expected=np.sum((torso-origin)*normal,axis=1)
+        np.testing.assert_allclose(m['height'],expected,atol=1e-5)
+        assert obs.shape==(2,220)
+        # This is a model-truth test, NOT permission to claim a real TOF
+        # sensor provides perfect arbitrary-terrain height on hardware.
+
+
+def test_training_config_real_incline_is_real_mjx_geometry(tmp_path):
+    import jax
+    from types import SimpleNamespace
+    from emu.branch_lab import one_run_config
+    from emu.training import env_kwargs_from_args
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    cfg=one_run_config(SimpleNamespace(
+        profile='sim2real',run_dir=str(tmp_path/'run'),steps=2048,
+        envs=2,seed=733,device='cpu',pitch_deg=None,
+        motor_guidance_weight=0.,contact_slope_deg=2.))
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,**env_kwargs_from_args(cfg))
+    state,obs=env.reset({'posture_difficulty':0.})
+    idx=int(env.ids['floor_geom'])
+    dat=jax.device_get(state.data)
+    normals=np.asarray(dat.geom_xmat)[:,idx].reshape((2,3,3))[:,:,2]
+    theta=np.deg2rad(2.)
+    expected=np.array([-np.sin(theta),0.,np.cos(theta)])
+    np.testing.assert_allclose(normals,np.tile(expected,(2,1)),atol=1e-5)
+    np.testing.assert_allclose(env.mj_model.opt.gravity,[0.,0.,-9.81],atol=1e-6)
+    assert obs.shape==(2,220)
+    with pytest.raises(ValueError,match='cannot mix'):
+        EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=733,contact_slope_deg=2.,
+                  domain_config=DomainRandomizationConfig(
+                      enabled=True,terrain_radius=.1))
+
+
+def test_per_world_real_contact_planes_cpu_mjx_and_spawn_height():
+    """The floor is different IN each compiled MJX world, not just a label.
+
+    All other reset RNG draws are identical to a flat control. The only
+    qpos birth-position difference must be the sampled physical plane height.
+    """
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    nworld=4
+    kwargs=dict(robot_xml=str(ROBOT_XML),num_envs=nworld,seed=5016,
+                attitude_profile='v5015',sensor_noise_scale=0.)
+    flat=EmuMJXEnv(**kwargs)
+    varied=EmuMJXEnv(**kwargs,domain_config=DomainRandomizationConfig(
+        enabled=True,terrain_radius=.8,terrain_mode='contact'))
+    assert varied.model_in_axes.geom_quat == 0
+    floor_id=int(varied.ids['floor_geom'])
+    assert int(varied.mj_model.geom_sameframe[floor_id])==0
+    a,oa=flat.reset({'posture_difficulty':0.})
+    b,ob=varied.reset({'posture_difficulty':0.})
+    aa,bb=jax.device_get((a.data,b.data))
+    normals=np.asarray(bb.geom_xmat)[:,floor_id].reshape(nworld,3,3)[:,:,2]
+    expected=np.asarray(jax.device_get(varied.domain_info['contact_normal_world']))
+    np.testing.assert_allclose(normals,expected,atol=1e-5)
+    assert np.ptp(normals[:,:2],axis=0).max()>0.001
+    grade=np.rad2deg(np.arccos(np.clip(normals[:,2],-1,1)))
+    assert np.max(grade)<=5*.8+1e-3
+    gravity=np.asarray(jax.device_get(varied.mjx_model.opt.gravity))
+    np.testing.assert_allclose(gravity[:,:2],0.,atol=1e-7)
+    np.testing.assert_allclose(gravity[:,2],-9.81,atol=1e-4)
+    np.testing.assert_allclose(aa.qpos[:,:2],bb.qpos[:,:2],atol=1e-7)
+    surface_z=-(bb.qpos[:,:2]*normals[:,:2]).sum(axis=1)/normals[:,2]
+    np.testing.assert_allclose(
+        bb.qpos[:,2]-aa.qpos[:,2],surface_z,atol=2e-6)
+    assert oa.shape==ob.shape==(nworld,220)
+    out=varied.step(b,jnp.zeros((nworld,6),jnp.float32),
+                    {'posture_difficulty':0.})
+    assert bool(np.asarray(jax.device_get(jnp.all(jnp.isfinite(out.obs)))))
+    after=np.asarray(jax.device_get(out.state.data.geom_xmat))[
+        :,floor_id].reshape(nworld,3,3)[:,:,2]
+    np.testing.assert_allclose(after,normals,atol=1e-5)
+
+
+def test_legacy_terrain_still_randomizes_gravity_with_flat_contacts():
+    """Historic Pitch15 and gravity-slope experiments remain physically pinned."""
+    pytest.importorskip('mujoco')
+    jax=pytest.importorskip('jax')
+    from emu.environment import EmuMJXEnv, DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=4,seed=5016,
+                 domain_config=DomainRandomizationConfig(
+                     enabled=True,terrain_radius=.8))
+    st,_=env.reset({})
+    dat=jax.device_get(st.data)
+    floor=int(env.ids['floor_geom'])
+    n=np.asarray(dat.geom_xmat)[:,floor].reshape(4,3,3)[:,:,2]
+    np.testing.assert_allclose(n,np.tile([0,0,1.],(4,1)),atol=1e-7)
+    gravity=np.asarray(jax.device_get(env.mjx_model.opt.gravity))
+    assert np.max(np.abs(gravity[:,:2]))>.01
+    assert env.domain_info['config']['terrain_mode']=='gravity'
+    with pytest.raises(ValueError,match='terrain_mode'):
+        DomainRandomizationConfig(terrain_mode='invented').normalized()
+
+
+def test_real_mjx_tripod_probe_agrees_with_individual_contact_planes():
+    """Sensor synthesis sees the floor; the inverse estimator sees only rays."""
+    pytest.importorskip('mujoco')
+    import jax
+    from emu.environment import EmuMJXEnv,DomainRandomizationConfig
+    from emu.contracts import ROBOT_XML
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=4,seed=5016,
+                  attitude_profile='v5015',
+                  domain_config=DomainRandomizationConfig(
+                      enabled=True,terrain_radius=.8,terrain_mode='contact'))
+    state,_=env.reset({'posture_difficulty':0.})
+    observed=jax.device_get(env.ground_sensor_probe(state.data))
+    assert observed['ranges_m'].shape==(4,3)
+    assert observed['beam_valid'].shape==(4,3)
+    assert observed['valid'].shape==(4,)
+    assert bool(np.all(observed['valid']))
+    # Compare measured slope from three downward beam returns against
+    # actual MuJoCo floor normal, NEVER passed to fit_tripod_ground().
+    dat=jax.device_get(state.data)
+    floor=int(env.ids['floor_geom'])
+    n=np.asarray(dat.geom_xmat)[:,floor].reshape((4,3,3))[:,:,2]
+    R=np.asarray(dat.xmat)[:,env.torso_id].reshape((4,3,3))
+    front=R[:,:,0].copy()
+    front[:,2]=0.
+    front/=np.linalg.norm(front,axis=1,keepdims=True)
+    side=np.column_stack((-front[:,1],front[:,0],np.zeros(4)))
+    actual_f=np.arctan2(-np.sum(n*front,axis=1),n[:,2])
+    actual_s=np.arctan2(-np.sum(n*side,axis=1),n[:,2])
+    np.testing.assert_allclose(observed['forward_grade_rad'],actual_f,atol=2e-4)
+    np.testing.assert_allclose(observed['sideways_grade_rad'],actual_s,atol=2e-4)
+    assert np.max(np.abs(actual_f))+np.max(np.abs(actual_s))>.01
+    # Out-of-range return cannot be substituted with a perfect floor normal.
+    missing=jax.device_get(env.ground_sensor_probe(
+        state.data,range_errors_m=np.tile([1.,0.,0.],(4,1))))
+    assert not np.any(missing['valid'])
+    np.testing.assert_allclose(missing['visibility_confidence'],0.,atol=0)
+    # No actor dimension or old policy schema changed by a diagnostic probe.
+    assert env.obs(state).shape==(4,220)

@@ -544,17 +544,40 @@ def one_run_config(args) -> TrainingConfig:
     if args.profile == 'foundation':
         cfg = foundation_config(run_dir=run_dir, seed=args.seed,
                                 device=args.device, envs=args.envs)
-    elif args.profile == 'mature':
+    elif args.profile in ('mature', 'sim2real'):
+        # v5016 reuses the stable learning engine: pitch is a SHARED task
+        # distribution, not a pitch-only experiment arm. Future trials can
+        # vary acquisition, motor cost and terrain with this range fixed.
         cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
                             seed=args.seed, device=args.device, envs=args.envs,
                             resume=None)
     else:
         raise ValueError(f'unknown profile: {args.profile}')
-    pitch_deg=float(getattr(args, 'pitch_deg', 8.0))
-    if not math.isfinite(pitch_deg) or not 0.0 <= pitch_deg <= 30.0:
-        raise ValueError('--pitch-deg must be between 0 and 30 degrees')
+    requested_pitch=getattr(args, 'pitch_deg', None)
+    pitch_deg=float((30.0 if args.profile == 'sim2real' else 8.0)
+                    if requested_pitch is None else requested_pitch)
+    if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
+        raise ValueError('--pitch-deg must be within (0, 30] degrees')
+    weight=float(getattr(args,'motor_guidance_weight',0.0))
+    if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
+        raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
+    grade=float(getattr(args,'contact_slope_deg',0.0))
+    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
+        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
+    if grade > 0 and args.profile != 'sim2real':
+        raise ValueError('real contact slope requires --profile sim2real')
+    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
+    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
+        raise ValueError('--contact-terrain-radius must be in [0, 1]')
+    if terrain_radius > 0 and args.profile != 'sim2real':
+        raise ValueError('per-world real contact terrain requires --profile sim2real')
+    if terrain_radius > 0 and grade > 0:
+        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   pitch_command_max_deg=pitch_deg)
+                   pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
+                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
+                   domain_terrain_radius=terrain_radius,
+                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:

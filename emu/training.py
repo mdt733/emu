@@ -86,6 +86,8 @@ def env_kwargs_from_args(args) -> dict:
         vx_hi_max=args.vx_hi_max, vx_lo_min=args.vx_lo_min,
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
+        motor_guidance_weight=args.motor_guidance_weight,
+        contact_slope_deg=args.contact_slope_deg,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, open_frontier=args.open_frontier,
@@ -100,6 +102,7 @@ def env_kwargs_from_args(args) -> dict:
             enabled=bool(args.domain_randomization),
             robot_radius=float(args.domain_robot_radius),
             terrain_radius=float(args.domain_terrain_radius),
+            terrain_mode=args.domain_terrain_mode,
             hardware_radius=float(args.domain_hardware_radius),
         ),
     )

@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .directional import simulate_tripod_ranges, fit_tripod_ground
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
@@ -766,7 +767,7 @@ class DomainRandomizationConfig:
     """Narrow experiment surface for the v5014 domain envelope.
 
     ``robot_radius`` controls inertial/manufacturing-style variation,
-    ``terrain_radius`` controls slope/contact variation and
+    ``terrain_radius`` controls rotated-gravity/contact-friction variation and
     ``hardware_radius`` controls actuator/joint variation.  The concrete
     parameter ranges above are doctrine, not dozens of new experiment knobs.
     """
@@ -774,16 +775,20 @@ class DomainRandomizationConfig:
     enabled: bool = False
     robot_radius: float = 0.0
     terrain_radius: float = 0.0
+    terrain_mode: str = 'gravity'  # gravity=legacy approximation; contact=real per-world planes
     hardware_radius: float = 0.0
     near_nominal_fraction: float = 0.35
     hard_tail_fraction: float = 0.08
     seed_offset: int = 5014
 
     def normalized(self) -> "DomainRandomizationConfig":
+        if self.terrain_mode not in ('gravity','contact'):
+            raise ValueError('terrain_mode must be gravity or contact')
         return DomainRandomizationConfig(
             enabled=bool(self.enabled),
             robot_radius=max(0.0, min(1.0, float(self.robot_radius))),
             terrain_radius=max(0.0, min(1.0, float(self.terrain_radius))),
+            terrain_mode=self.terrain_mode,
             hardware_radius=max(0.0, min(1.0, float(self.hardware_radius))),
             near_nominal_fraction=max(0.0, min(0.90, float(self.near_nominal_fraction))),
             hard_tail_fraction=max(0.0, min(0.40, float(self.hard_tail_fraction))),
@@ -813,6 +818,25 @@ def _severity(jax, key, radius: float, near_nominal_fraction: float, hard_tail_f
         jax.numpy.where(bucket > 1.0 - hard_tail_fraction, hard, normal),
     )
     return value * radius
+
+
+def contact_plane_quaternion(angle_deg, uphill_xy=(1.0, 0.0)):
+    """Quaternion of a real MuJoCo ground plane, gravity staying vertical.
+
+    Plane normal = (-sin(angle)*ux, -sin(angle)*uy, cos(angle)).
+    Thus walking along (ux,uy) climbs by +tan(angle) per horizontal metre.
+    Changing a WORLD geom before mjx.put_model preserves an immutable
+    MJX contact model; it does not rotate gravity or add task channels.
+    """
+    if not np.isfinite(angle_deg) or not 0.0 <= angle_deg <= 5.0:
+        raise ValueError('contact slope must lie in [0,5] degrees')
+    uphill=np.asarray(uphill_xy,dtype=float)
+    if uphill.shape != (2,) or not np.isfinite(uphill).all() or np.linalg.norm(uphill)<1e-6:
+        raise ValueError('contact uphill vector must be finite, nonzero xy')
+    ux,uy=uphill/np.linalg.norm(uphill)
+    a=math.radians(float(angle_deg))
+    return np.asarray((math.cos(a/2),math.sin(a/2)*uy,
+                       -math.sin(a/2)*ux,0.0),dtype=np.float64)
 
 
 def _gravity_from_slope(jnp, roll, pitch, magnitude):
@@ -871,11 +895,33 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         geom_friction = geom_friction.at[floor_id].set(model.geom_friction[floor_id] * floor_scale)
         geom_friction = geom_friction.at[foot_geom_ids].set(model.geom_friction[foot_geom_ids] * foot_scale[:, None])
 
-        slope = math.radians(MAX_SLOPE_DEG) * t
-        roll = jax.random.uniform(keys[5], (), minval=-slope, maxval=slope)
-        pitch = jax.random.uniform(keys[6], (), minval=-slope, maxval=slope)
-        gmag = 9.81 * (1.0 + r * jax.random.uniform(keys[7], (), minval=-GRAVITY_MAG_FRAC, maxval=GRAVITY_MAG_FRAC))
-        gravity = _gravity_from_slope(jnp, roll, pitch, gmag)
+        gmag = 9.81 * (1.0 + r * jax.random.uniform(
+            keys[7], (), minval=-GRAVITY_MAG_FRAC, maxval=GRAVITY_MAG_FRAC))
+        if cfg.terrain_mode == 'contact':
+            # One physically inclined plane per model/world. Sampling a
+            # single polar angle enforces the actual 5-degree total cap
+            # (independent roll+pitch maxima could exceed it diagonally).
+            angle = math.radians(5.0) * t * jax.random.uniform(keys[5], ())
+            azimuth = jax.random.uniform(keys[6], (), minval=-jnp.pi, maxval=jnp.pi)
+            half = angle * .5
+            floor_quat = jnp.stack((
+                jnp.cos(half), jnp.sin(half)*jnp.sin(azimuth),
+                -jnp.sin(half)*jnp.cos(azimuth), jnp.zeros_like(angle)))
+            floor_normal = jnp.stack((
+                -jnp.sin(angle)*jnp.cos(azimuth),
+                -jnp.sin(angle)*jnp.sin(azimuth), jnp.cos(angle)))
+            gravity = jnp.stack((jnp.zeros_like(gmag),
+                                 jnp.zeros_like(gmag), -gmag))
+            roll = angle*jnp.sin(azimuth)   # diagnostic projections only
+            pitch = angle*jnp.cos(azimuth)
+        else:
+            # Preserve the original sampled tilted-gravity recipe exactly.
+            slope = math.radians(MAX_SLOPE_DEG) * t
+            roll = jax.random.uniform(keys[5], (), minval=-slope, maxval=slope)
+            pitch = jax.random.uniform(keys[6], (), minval=-slope, maxval=slope)
+            gravity = _gravity_from_slope(jnp, roll, pitch, gmag)
+            floor_quat = model.geom_quat[floor_id]
+            floor_normal = jnp.asarray((0.,0.,1.))
 
         # Robot inertial uncertainty.  Link mass variation is a standard MJX
         # sim2real randomizer; coherent *dimension* changes live in the separate
@@ -912,11 +958,13 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         forcerange = forcerange.at[act_ids].set(model.actuator_forcerange[act_ids] * torque_scale[:, None])
 
         return (geom_friction, gravity, body_mass, damping, frictionloss, armature,
-                gainprm, biasprm, forcerange, r, t, h, roll, pitch)
+                gainprm, biasprm, forcerange, floor_quat, floor_normal,
+                r, t, h, roll, pitch)
 
     (geom_friction, gravity, body_mass, damping, frictionloss, armature,
-     gainprm, biasprm, forcerange, robot_severity, terrain_severity,
-     hardware_severity, slope_roll, slope_pitch) = one(rngs)
+     gainprm, biasprm, forcerange, floor_quat, floor_normal,
+     robot_severity, terrain_severity, hardware_severity, slope_roll,
+     slope_pitch) = one(rngs)
 
     replacements = {
         'geom_friction': geom_friction,
@@ -929,6 +977,9 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         'actuator_biasprm': biasprm,
         'actuator_forcerange': forcerange,
     }
+    if cfg.terrain_mode == 'contact':
+        replacements['geom_quat'] = jax.vmap(
+            lambda q: model.geom_quat.at[floor_id].set(q))(floor_quat)
     batched = model.tree_replace(replacements)
     in_axes = jax.tree_util.tree_map(lambda _: None, model)
     in_axes = in_axes.tree_replace({name: 0 for name in replacements})
@@ -938,6 +989,7 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         'enabled': True,
         'config': cfg.as_dict(),
         'gravity_unit_world': gravity_unit,
+        'contact_normal_world': floor_normal if cfg.terrain_mode == 'contact' else None,
         # Kept on device; callers may summarize with device_get outside JIT.
         'robot_severity': robot_severity,
         'terrain_severity': terrain_severity,
@@ -986,7 +1038,10 @@ class EmuMJXEnv(TaskSampler):
                  recovery_angvel_max_rad_s: float | None = None,
                  recovery_joint_max_deg: float = 0.0,
                  domain_config: DomainRandomizationConfig | None = None,
-                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214):
+                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
+                 motor_guidance_weight: float = 0.0,
+                 contact_slope_deg: float = 0.0,
+                 contact_uphill_xy: tuple[float, float] = (1.0, 0.0)):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1000,6 +1055,9 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError(f'unknown attitude profile {attitude_profile!r}')
         if not (0.0 < pitch_command_max_deg <= 45.0):
             raise ValueError('pitch command maximum must be within (0, 45] degrees')
+        if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
+            raise ValueError('motor_guidance_weight must be in [0, 0.10]')
+        self.motor_guidance_weight = float(motor_guidance_weight)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1008,12 +1066,37 @@ class EmuMJXEnv(TaskSampler):
         self.robot_xml = str(robot_xml)
         self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
         self.mj_model.opt.timestep = SIM_DT
+        # A static real plane and per-world real contact-domain models
+        # share the same floor geom and forward-kinematics path. Both require
+        # disabling MuJoCo's compiled identity-frame shortcut BEFORE put_model.
+        self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
+        self.contact_slope_deg = float(contact_slope_deg)
+        self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
+        orientation = contact_plane_quaternion(self.contact_slope_deg,
+                                               self.contact_uphill_xy)
+        real_floor_domain = (self.domain_config.enabled
+                             and self.domain_config.terrain_mode == 'contact'
+                             and self.domain_config.terrain_radius > 0)
+        if self.contact_slope_deg > 0 and (real_floor_domain or
+                (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
+            raise ValueError('shared real contact slope cannot mix with randomized terrain')
+        if self.contact_slope_deg > 0 or real_floor_domain:
+            floor_id=mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
+            if floor_id < 0 or self.mj_model.geom_type[floor_id] != mujoco.mjtGeom.mjGEOM_PLANE:
+                raise ValueError('real contact slope requires a named plane geom floor')
+            if self.contact_slope_deg > 0:
+                self.mj_model.geom_quat[floor_id] = orientation
+            # A compiled world geom at zero pos/identity quat usually has
+            # geom_sameframe=BODY. Leaving that compiler shortcut in place
+            # can IGNORE the rotated geom_quat completely, in CPU and MJX.
+            # MuJoCo explicitly permits changing sameframe from nonzero->0.
+            self.mj_model.geom_sameframe[floor_id] = 0
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
-        self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
@@ -1022,6 +1105,17 @@ class EmuMJXEnv(TaskSampler):
             gravity_unit if gravity_unit is not None
             else jnp.tile(jnp.asarray([[0.0, 0.0, -1.0]], dtype=jnp.float32), (self.num_envs, 1))
         )
+        # Same world-specific normal drives spawn clearance and actual MJX
+        # plane collision; no independent 'virtual hill' for the trainer.
+        sampled_normal = self.domain_info.get('contact_normal_world')
+        if sampled_normal is None:
+            a = math.radians(self.contact_slope_deg)
+            u = np.asarray(self.contact_uphill_xy, dtype=float)
+            u = u / np.linalg.norm(u)
+            nominal = [-math.sin(a)*u[0], -math.sin(a)*u[1], math.cos(a)]
+            sampled_normal = jnp.tile(jnp.asarray([nominal],dtype=jnp.float32),
+                                      (self.num_envs,1))
+        self.floor_normal_world = sampled_normal
         self.key0 = jax.random.PRNGKey(int(seed))
 
         # Per-instance versions of a few module-level profile defaults
@@ -1241,7 +1335,8 @@ class EmuMJXEnv(TaskSampler):
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
-            attitude_profile=self.attitude_profile, xp=jnp)
+            attitude_profile=self.attitude_profile, xp=jnp,
+            motor_guidance_weight=self.motor_guidance_weight)
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
@@ -1460,9 +1555,14 @@ class EmuMJXEnv(TaskSampler):
         pos_noise_full = self._lerp(0.0, self.recovery_position_max_m, resilience_d)
         pos_noise_mag = jnp.where(is_resilience, pos_noise_full, pos_noise_full * STEADY_RESILIENCE_BORROW_FRAC)
         pos_offset = jax.vmap(lambda k, m: jax.random.uniform(k, (3,), minval=-m, maxval=m))(pos_keys, pos_noise_mag)
+        root_xy=pos_offset[:,:2]
+        # Physical birth height is derived from the SAME per-world plane
+        # normal that the collision engine uses (plane passes through zero).
+        normal=self.floor_normal_world
+        floor_z=-jnp.sum(root_xy*normal[:,:2],axis=1)/normal[:,2]
         qpos = qpos.at[:, 0:3].set(jnp.stack([
-            pos_offset[:, 0], pos_offset[:, 1],
-            NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2],
+            root_xy[:,0],root_xy[:,1],
+            NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2] + floor_z,
         ], axis=1))
 
         # Initial pose tilt (roll/pitch away from upright). Same
@@ -1598,6 +1698,38 @@ class EmuMJXEnv(TaskSampler):
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
 
+    def ground_sensor_probe(self, data, range_errors_m=None):
+        """Provisional three-ToF + IMU surface observation, not actor truth.
+
+        Floor geometry is used ONLY to synthesize beam returns. The inverse
+        estimate sees measured ranges and projected IMU gravity, never the
+        MuJoCo ground normal. Intentionally diagnostic until versioned
+        v5016 actor input, latency and optical-flow models are accepted.
+        """
+        jnp=self.jnp
+        R=self._rotation_body_to_world(data)
+        torso=data.xpos[:,self.torso_id,:]
+        f=int(self.ids['floor_geom'])
+        floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
+        floor_o=data.geom_xpos[:,f,:]
+        ranges,beam_valid=simulate_tripod_ranges(
+            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        projected_gravity,_,_=self._body_packets(data)
+        estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
+        return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
+
+    def _floor_signed_heights(self, data, positions):
+        """Per-world signed distance to the *actual* collision plane.
+
+        positions is [worlds,points,3]. Flat ground preserves exact world-Z
+        semantics; tilted-gravity trials still have a flat contact surface.
+        This is privileged simulator geometry, NEVER an actor observation.
+        """
+        floor = int(self.ids['floor_geom'])
+        normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
+        origin = data.geom_xpos[:,floor,:]
+        return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
+
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
 
@@ -1627,9 +1759,12 @@ class EmuMJXEnv(TaskSampler):
         body_roll = jnp.arctan2(-projected_gravity[:, 1], -projected_gravity[:, 2])
         pitch_err = body_pitch - task[:, T.pitch]
         roll_err = body_roll - task[:, T.roll]
-        height = data.xpos[:, self.torso_id, 2]
         foot_pos = data.xpos[:, self.foot_bodies, :]
-        foot_z = foot_pos[:, :, 2]
+        # Height means clearance above the actual contact plane, not world Z.
+        # Otherwise a robot walking uphill appears higher and its grounded
+        # uphill foot can be incorrectly rewarded as a swing foot.
+        height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
+        foot_ground_distance = self._floor_signed_heights(data,foot_pos)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -1656,9 +1791,9 @@ class EmuMJXEnv(TaskSampler):
         attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
         # 2. Contact, gait and fall proxies. Foot height indicates nearby
         # ground; it is NOT a verified load-bearing contact impulse.
-        foot_contacts = jnp.sum((foot_z < 0.036).astype(jnp.float32), axis=1)
+        foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = data.xpos[:, self.bad_bodies, 2]
+        bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
@@ -1667,7 +1802,7 @@ class EmuMJXEnv(TaskSampler):
         body_low_soft = jnp.any(bad_z[:, 1:] < SOFT_BODY_LOW_Z, axis=1).astype(jnp.float32)
         low_height_soft = (height < 0.130).astype(jnp.float32)
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
-        swing_clearance = jnp.maximum(0.0, jnp.max(foot_z, axis=1) - 0.018)
+        swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
@@ -1688,7 +1823,7 @@ class EmuMJXEnv(TaskSampler):
         # foot poses estimate tangential speed and only near-floor feet count.
         foot_vel_xy = (data.xpos[:, self.foot_bodies, :2] - prev_foot_pos[:, :, :2]) / CONTROL_DT
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
-        stance_w = jnp.clip((0.040 - foot_z) / 0.020, 0.0, 1.0)
+        stance_w = jnp.clip((0.040 - foot_ground_distance) / 0.020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
         # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
@@ -1702,8 +1837,8 @@ class EmuMJXEnv(TaskSampler):
         s_phase = jnp.sin(phase)
         r_expected = jnp.maximum(0.0, s_phase)
         l_expected = jnp.maximum(0.0, -s_phase)
-        r_lift = jnp.clip((foot_z[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
-        l_lift = jnp.clip((foot_z[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        r_lift = jnp.clip((foot_ground_distance[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        l_lift = jnp.clip((foot_ground_distance[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
         phase_sync = jnp.clip(1.0 - 0.5 * (jnp.abs(r_lift - r_expected) + jnp.abs(l_lift - l_expected)), 0.0, 1.0)
         step_evidence = jnp.clip((jnp.maximum(r_lift, l_lift) - 0.10) / 0.55, 0.0, 1.0)
         alternating_lift = jnp.abs(r_lift - l_lift)
@@ -1780,7 +1915,11 @@ class EmuMJXEnv(TaskSampler):
         # Simulator counterpart of a fused optical-flow + ToF + IMU/leg estimate.
         # Exact root vxy is never handed straight to the actor.
         vel_est = body_vel[:, :2] + ns[:, None] * 0.018 * jnp.stack([n0, n1], axis=1)
-        tof_height = torso[:, 2:3] + ns[:, None] * 0.0025 * n1[:, None]
+        # Approximate height-sensor reading over the physical ground plane.
+        # The sensor noise remains the legacy observer model; this is not
+        # evidence that hardware can recover true floor geometry perfectly.
+        ground_height = self._floor_signed_heights(data,torso[:,None,:])
+        tof_height = ground_height + ns[:, None] * 0.0025 * n1[:, None]
         vel_conf = jnp.clip(1.0 - 0.18*ns, 0.2, 1.0)[:, None].astype(jnp.float32)
         shin_flex_est = shin_flex + ns[:, None] * 0.0010 * jnp.stack([n0, n1], axis=1)
         shin_rate_est = shin_rate + ns[:, None] * 0.010 * jnp.stack([n1, n0], axis=1)

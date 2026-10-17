@@ -41,6 +41,90 @@ For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu 
 
 **The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
 
+
+
+### v5016 spring and real-contact slope checks
+
+The independent physical exam now accepts a genuinely inclined infinite
+MuJoCo collision plane (the original XML stays unchanged, and gravity stays
+vertical). This is **not** the earlier tilted-gravity approximation, and
+the printed report explicitly identifies which kind of slope was examined.
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+OUT="$HOME/robot_lab/emu_exams/v5016_real_slope_$(date +%Y%m%d_%H%M%S)"
+emu directional-exam --policy showcase/champion.emupolicy \
+  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+  --seed 1701 --scenario steady --speed .10 \
+  --angle 2 --direction uphill --contact-slope --compare-heading
+```
+
+For a full planned protected-policy course campaign, the
+`--profile physical` batch now has **13 scenarios**, including real 2°
+uphill/downhill/cross slope cases. Run the planned command without `--run`
+first. These experiments never alter the protected actor or train PPO.
+
+The physical JSON records each passive shin's spring-energy charging/release
+and whether its release coincided with uninterrupted stance contact. Stance
+release is only an energy-timing observation—not energy delivered to the
+ground, an efficiency percentage, or proof of spring-assisted propulsion.
+`robot.xml` still lacks shin/torso sentinel contacts, and the actual
+incline is a single infinite plane rather than rocks, steps or varying
+per-world terrain.
+
+### v5016 read-only physical reality exam (do this BEFORE expensive training)
+
+The protected Pitch15 public policy is a legitimate **frozen actor** and now
+works as an examiner input without the historical training PKL. Use a new,
+isolated output directory outside Git; this creates reports only.
+
+For a matched 10-course exam (heading correction OFF/ON, seed-controlled),
+first print the planned jobs, then opt in explicitly with `--run`:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+BASE="$HOME/robot_lab/emu_exams/pitch15_$(date +%Y%m%d_%H%M%S)"
+emu directional-batch --policy showcase/champion.emupolicy \
+  --profile physical --device cuda --worlds 4 --seed 1701 \
+  --output "$BASE"
+# When the plan looks right, append --run to the command above.
+# Repeat with a DIFFERENT BASE for held-out seeds 1702 and 1703.
+```
+
+The executable source is the approved exported policy, never any training root.
+Individual output directories are source- and checkpoint-hash checked; partial
+or stale results fail closed instead of being silently overwritten.
+For a single case, use:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+
+OUT="$HOME/robot_lab/emu_exams/pitch15_steady_$(date +%Y%m%d_%H%M%S)"
+emu directional-exam --policy showcase/champion.emupolicy \
+  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+  --seed 1701 --scenario steady --speed 0.10 --angle 0
+
+# Bounded independent stop/resume and turning checks, different output roots.
+for SCENE in rest_start speed_step brake_stop stop_resume reverse turn_stop_left turn_stop_right; do
+  OUT="$HOME/robot_lab/emu_exams/pitch15_${SCENE}_$(date +%Y%m%d_%H%M%S)"
+  emu directional-exam --policy showcase/champion.emupolicy \
+    --output "$OUT" --device cuda --worlds 4 --horizon 350 \
+    --seed 1701 --scenario "$SCENE" --speed 0.10 --angle 0
+done
+```
+
+If the CUDA examiner fails due to VRAM, collect the error and consider
+`--worlds 2`; do not silently substitute a CPU pass for GPU acceptance.
+Exam markdown reports signed progress, alternating touchdown candidates,
+per-servo torque-duty evidence, shaft work per signed metre and maneuver
+latency. Inspect the corresponding raw JSON before judging any policy.
+These tests never update the 120M trained policy, the showcase or a
+running WSL experiment. They do **not** establish electrical consumption,
+winding temperature, calibrated ground reaction forces or safe hardware use.
+
 ## GPU acceptance before a large campaign
 
 The following is a deliberately small but complete **two-update** fresh-checkpoint test. Use a never-used root outside Git:
@@ -53,6 +137,38 @@ python scripts/smoke_training_lifecycle.py verify --root "$ROOT"
 ```
 
 This proves update, save, warm resume, independent fixed evaluation and actor export, **not walking ability**. Use `nvidia-smi` to watch VRAM. Earlier 8GB RTX 4060 Ti runs succeeded at 2048 worlds, but this is not a promise for other machines.
+
+## v5016 common pitch and opt-in motor teaching — future trials
+
+`emu train --profile sim2real` keeps the mature PPO, v5015 posture model and
+220-input/six-action actor, but sets the same ±30° commanded chassis pitch
+limit for every new physical-learning experiment. This does not change or
+retrain the protected Pitch15 policy. The historical `emu ladder` still
+describes the old Pitch15 comparison; **do not use that ladder as the v5016
+efficiency/terrain tournament**.
+
+Two pure plans for future matched experiments, with unique new run roots:
+
+```bash
+cd "$HOME/emu-v5016"
+source .venv/bin/activate
+BASE="$HOME/robot_lab/emu_runs/v5016_study_$(date +%Y%m%d_%H%M%S)"
+emu train --run-dir "$BASE/baseline" --profile sim2real \
+  --steps 12000000 --envs 512 --device cuda --seed 733 --plan
+emu train --run-dir "$BASE/motor_preview" --profile sim2real \
+  --steps 12000000 --envs 512 --device cuda --seed 733 \
+  --motor-guidance-weight 0.06 --plan
+```
+
+These are **plan-only previews**, not an instruction to launch independent
+cold starts or to compare unlike training ancestries. The actual study should
+use one short shared foundation, fork matched training arms from exactly the
+same checkpoint, retain source lineage and exam identical held-out courses.
+Only run after GPU acceptance and interpretation of the protected champion
+exams. The motor term is an uncalibrated training proxy for overload and
+mechanical shaft demand; spring return and electrical consumption are *not*
+inferred. Treat ±30° as an aspirational teaching envelope to verify in the
+presence of walking, not evidence that every physical angle is attainable.
 
 ## Train and inspect
 
@@ -109,3 +225,44 @@ If an install fails, do not delete old experiments. Verify `git status --short`,
 ## Public release
 
 The only deployable policy in Git is `showcase/champion.emupolicy`. The manual GitHub Pages workflow checks its pinned Git blob hash; training `.pkl` files stay local. [PLAYGROUND.md](PLAYGROUND.md) describes build and publishing.
+
+### v5016 optional real-contact slope training (planning only)
+
+The new sim2real training mode can use one shared, genuinely inclined contact
+floor per run, with vertical gravity. This is a conservative FIRST STEP,
+**not** per-world random terrain. Historical runs retain zero incline.
+
+```bash
+OUT="$HOME/robot_lab/emu_runs/v5016_grade_$(date +%Y%m%d_%H%M%S)"
+emu train --profile sim2real --run-dir "$OUT/flat" --steps 12000000 \
+    --envs 512 --device cuda --seed 733 --plan
+emu train --profile sim2real --run-dir "$OUT/grade2" --steps 12000000 \
+    --envs 512 --device cuda --seed 733 --contact-slope-deg 2 --plan
+```
+
+These commands do not launch training. Physical grading requires matched
+frozen-policy exams on both flat and real slopes and a separate GPU acceptance.
+Never combine this mode with the older tilted-gravity `domain_terrain_radius`.
+
+
+### v5016 per-world contact slope pilot — plan only
+
+The independently randomized physical terrain preview is now a single
+flag on the existing `sim2real` training command. **No training starts
+when `--plan` is present.** It is not the historical tilted-gravity
+domain study, and not a heightfield or loose/uneven ground.
+
+```bash
+RUN="$HOME/robot_lab/emu_runs/v5016_contact_pilot_$(date +%Y%m%d_%H%M%S)"
+emu train --run-dir "$RUN" --profile sim2real \
+  --contact-terrain-radius 0.4 --steps 2048 --envs 4 \
+  --device cpu --seed 733 --plan
+```
+
+Radius 1 corresponds to **up to 5° of actual inclination** in any azimuth,
+with world-specific friction variation and unchanged vertical gravity.
+Worlds have different fixed planes sampled once at environment creation.
+Do not combine `--contact-terrain-radius` with `--contact-slope-deg`.
+Separate CPU and bounded GPU memory/performance acceptance is needed before
+trying 512/2048 worlds or comparing teaching methods. This is a
+simulation capability, not validated servo or on-robot estimator fidelity.

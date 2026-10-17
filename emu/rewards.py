@@ -11,11 +11,12 @@ simulator facts. These are used to TEACH and must not leak into the deployable
 actor's 220 observation inputs. Held-out exams independently judge actual
 course progress and walking, not the numerical teaching score.
 
-IMPORTANT: servo torque, shaft power and spring energy are *diagnostic
-measurements only*. The current reward pays a small smoothness term for
-smaller ACTION CHANGES, and a joint-limit/leg-scissoring safety term. Neither
-is measured electrical efficiency or servo power. Changing this doctrine
-requires a separately justified experiment, not a readability refactor.
+IMPORTANT: servo torque, shaft power and spring energy are *not* measured
+electrical consumption. The historical eight rewards are unchanged by default.
+A ninth, separately logged motor-cost payment is an OPT-IN v5016 hypothesis,
+enabled by motor_guidance_weight > 0. It uses bounded nominal-duty and
+simulated shaft-effort proxies only; it never assumes that mere spring cycling
+is beneficial. Change and evaluate this knob only in a matched experiment.
 
 Keep the existing reward arithmetic and left-to-right weighted addition
 unchanged so older training comparisons remain interpretable.
@@ -29,6 +30,7 @@ PAYMENT_NAMES = (
     "clearance", "smoothness", "joint_safety",
 )
 FALL_PAYMENT_NAME = "fall_penalty"
+MOTOR_PAYMENT_NAME = "motor_cost"  # opt-in; old eight-payment contract stays fixed
 
 # Physical measurements needed solely to calculate teaching payments. They
 # must not be shipped in every PPO diagnostic packet or misread as evidence.
@@ -49,7 +51,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -82,17 +84,30 @@ def training_reward(m, regime, *, attitude_profile, xp):
         remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
                                 0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
         locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
+    # Simulated actuator output is not verified motor current or electrical
+    # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
+    # Zero cost weight exactly reproduces pre-v5016 scalar economics.
+    motor_kwargs = {}
+    if motor_guidance_weight > 0.0:
+        overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
+        shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
+        motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
+        motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
         anti_slip=stance_anti_slip, clearance=swing_clearance,
         smoothness=servo_smoothness, joint_safety=joint_safety,
-        stepping_gate=stepping_gate)
-    return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()}}
+        stepping_gate=stepping_gate, **motor_kwargs)
+    # Always expose the new diagnostic to rollout CSV, even for controls;
+    # the old eight-payment reducer remains mathematically identical.
+    motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
+    return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
+                    'weighted_motor_cost': motor_payment}
 
 def weighted_training_terms(*, alive, locomotion, posture, contact,
                             anti_slip, clearance, smoothness, joint_safety,
-                            stepping_gate):
+                            stepping_gate, motor_cost=None):
     """Return (unpenalised PPO reward, individually weighted payments).
 
     Array inputs may be NumPy or JAX arrays; this function is pure and does
@@ -112,6 +127,11 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
     reward = (terms['alive'] + terms['locomotion'] + terms['posture'] +
               terms['contact'] + terms['anti_slip'] + terms['clearance'] +
               terms['smoothness'] + terms['joint_safety'])
+    # This branch is absent when disabled. In particular do not even append
+    # "+ 0" in the old floating-point reduction or change the old term set.
+    if motor_cost is not None:
+        terms['motor_cost'] = -motor_cost
+        reward = reward + terms['motor_cost']
     return reward, terms
 
 
