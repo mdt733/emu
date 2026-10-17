@@ -455,6 +455,71 @@ def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
     }
 
 
+def examine_spring_cycle(trace, world, *, start, stop, terminal, contacts):
+    """Resolve elastic storage and release on the SAME scored pose intervals.
+
+    Positive/negative changes in 1/2*k*(q-reference)^2 are not useful work,
+    net energy returned to the robot, or measured carbon-fibre damping.
+    Track passive flex separately, and label when a release overlaps a
+    continuously grounded foot. Never use post-reset spring states.
+    """
+    required = ('spring_joint_qpos_rad', 'spring_reference_rad',
+                'spring_stiffness_nm_rad')
+    if not all(k in trace for k in required):
+        return {}
+    states=np.asarray(trace['spring_joint_qpos_rad'],dtype=float)
+    reference=np.asarray(trace['spring_reference_rad'],dtype=float)
+    stiffness=np.asarray(trace['spring_stiffness_nm_rad'],dtype=float)
+    if states.ndim != 3 or states.shape[2] != 8 or reference.shape != (8,) or stiffness.shape != (8,):
+        raise ValueError('spring accounting expects eight actual MJX hinge channels')
+    if np.any(stiffness < 0) or not all(np.isfinite(v).all() for v in (states,reference,stiffness)):
+        raise ValueError('invalid spring positions or model parameters')
+    # Pre-step states indexed 0..stop on a terminal episode. An unbroken
+    # horizon instead ends at the true last state, not a repeated final
+    # sample. start/stop refer to the course's pose, not reward timesteps.
+    if terminal:
+        pose=states[start:stop+1,world,:]
+    else:
+        if 'last_spring_joint_qpos_rad' not in trace:
+            return {}
+        last=np.asarray(trace['last_spring_joint_qpos_rad'],dtype=float)
+        if last.shape != (states.shape[1],8):
+            raise ValueError('final spring state dimension differs from trace')
+        pose=np.concatenate((states[start:stop,world,:],last[world,None,:]),axis=0)
+    contact=np.asarray(contacts,dtype=bool)
+    if len(pose) < 2 or contact.shape != (len(pose),2):
+        raise ValueError('scored contacts and spring pose endpoints misaligned')
+    energy=.5*stiffness[None,:]*(pose-reference[None,:])**2
+    delta=np.diff(energy,axis=0)
+    charged=np.maximum(delta,0.)
+    released=np.maximum(-delta,0.)
+    # The first six are actuator-joint support springs; the last two
+    # are physically passive right and left shin flex joints.
+    passive_release=released[:,6:]
+    grounded=contact[:-1] & contact[1:]
+    stance=passive_release*grounded
+    airborne=passive_release*(~grounded)
+    totals=dict(
+        spring_interval_count=int(len(delta)),
+        spring_joint_charge_j=np.sum(charged,axis=0).tolist(),
+        spring_joint_release_j=np.sum(released,axis=0).tolist(),
+        spring_joint_net_storage_delta_j=np.sum(delta,axis=0).tolist(),
+        passive_shin_charge_j=np.sum(charged[:,6:],axis=0).tolist(),
+        passive_shin_release_j=np.sum(passive_release,axis=0).tolist(),
+        passive_shin_stance_release_j=np.sum(stance,axis=0).tolist(),
+        passive_shin_nonstance_release_j=np.sum(airborne,axis=0).tolist(),
+        passive_shin_stance_interval_count=np.sum(grounded,axis=0).astype(int).tolist(),
+        passive_shin_joint_energy_peak_j=np.max(energy[:,6:],axis=0).tolist(),
+        passive_shin_joint_energy_start_end_j=[
+            [float(energy[0,j]),float(energy[-1,j])] for j in (6,7)],
+        spring_mechanism_caveat=(
+            'geometric elastic potential changes at scored frame boundaries; '
+            'stance overlap does not establish propulsion, recovered useful '
+            'work, motor efficiency, or physical damping losses'),
+    )
+    return totals
+
+
 def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
     """Reduce bounded, real-MJX pre-reset frame samples into per-world verdicts.
 
@@ -537,6 +602,9 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             trace, w, start=settle_frames, stop=stop, dt=dt,
             terminal=bool(len(term)))
         if physical is not None:
+            physical.update(examine_spring_cycle(
+                trace,w,start=settle_frames,stop=stop,
+                terminal=bool(len(term)),contacts=contacts[settle_frames:]))
             # Use the already captured POST-step, PRE-reset simulator metrics
             # for the actual scored control intervals (including termination).
             first_step = int(settle_frames)
