@@ -314,6 +314,12 @@ function updateTelemetry(now, dt) {
   $('vxRead').textContent = `${fmtSigned(t.vx)} / ${fmtSigned(t.cmd.vx)}`;
   $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
   $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
+  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· demo' : '· manual'}`;
+  const s = t.slope;
+  $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
+    : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
+  $('slopeArrow').hidden = !s.supported || s.flat;
+  $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
   $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
 }
