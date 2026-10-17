@@ -77,6 +77,11 @@ reward is not an efficiency objective.
 - Added explicit rest-to-walk, acceleration-step and brake-to-stop courses
   alongside existing reversals/turns. Transition response and braking travel
   are measured from actual trajectory arrays, not derived from PPO reward.
+- The existing directional batch planner now accepts a protected exported
+  actor with a ten-course `physical` profile and explicit `--run`. This is
+  the same per-case matched command/controller comparison, not a new exam
+  implementation or a new training framework. Plan mode is read-only.
+  Seeds 1701/1702/1703 remain *planned*, not claimed measurements.
 - Branch-only instrumentation now carries six MuJoCo actuator output torques
   and joint speeds through the existing frozen-policy MJX trace. The reducer
   reports per-joint peak/p95 torque, exposure above nominal 0.638 N·m,
