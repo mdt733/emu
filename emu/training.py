@@ -25,11 +25,11 @@ from typing import Any
 
 import numpy as np
 
-from .run_support import resume_training_lineage, promote_checkpoint, try_restore_recovery
+from .checkpoint_io import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
-from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
-from .capability_field import CapabilityField
-from .capability_cloud import record_capability_cloud_exam
+from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
+from .curriculum import CapabilityField
+from .curriculum import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict,
@@ -44,11 +44,11 @@ from .training_config import (
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
 from .curriculum import RegimeGovernor
-from .health import TrainingHealth
+from .curriculum import TrainingHealth
 from .ppo import make_trainer, update_running_stats
-from .rollout_metrics import summarize_rollout, augment_rollout_row
-from .runtime import PerfBook, configure_jax, require_backend
-from .artifacts import (
+from .results import summarize_rollout, augment_rollout_row
+from .ppo import PerfBook, configure_jax, require_backend
+from .results import (
     ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
     write_capability_field_artifacts,
@@ -57,7 +57,7 @@ from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
     EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
 )
-from .paths import ROBOT_XML, VERSION
+from .contracts import ROBOT_XML, VERSION
 from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
                             source_provenance_from_env)
 

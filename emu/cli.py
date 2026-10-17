@@ -8,8 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .paths import VERSION, ROBOT_XML, seed_root
-from .checkpoints import find_evaluation
+from .contracts import VERSION, ROBOT_XML, seed_root
+from .checkpoint_io import find_evaluation
 
 
 def _run(module: str, *args: str) -> int:
@@ -35,7 +35,7 @@ def doctor(args) -> int:
     except Exception as exc: failures.append(f'MuJoCo/XML: {exc}')
     try:
         import numpy as np
-        from .capability_field import CapabilityField, FIELD_VERSION
+        from .curriculum import CapabilityField, FIELD_VERSION
         f=CapabilityField(); T,N=96,8; z=np.zeros((T,N),np.float32); o=np.ones((T,N),np.float32)
         age=(np.arange(T,dtype=np.float32)[:,None]+1)*.02+z
         m={'cmd_vx':z+.1,'cmd_vy':z,'cmd_yaw':z,'target_cmd_vx':z+.1,'target_cmd_vy':z,'target_cmd_yaw':z,
@@ -111,7 +111,7 @@ def doctor(args) -> int:
         try:
             import jax
             import jax.numpy as jnp
-            from .domain_randomization import DomainRandomizationConfig
+            from .environment import DomainRandomizationConfig
             from .environment import EmuMJXEnv
             from .curriculum import RegimeGovernor
             cfg=DomainRandomizationConfig(enabled=True,robot_radius=.6,terrain_radius=.6,hardware_radius=.6)
@@ -129,7 +129,7 @@ def doctor(args) -> int:
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(
         prog='emu', description=f'EMU {VERSION} — dynamically unstable biped RL',
-        epilog='Current recipe: emu ladder --stage plan. To train safely: bash scripts/run_ladder.sh')
+        epilog='One continuous run: emu train --help. Matched studies: emu ladder --stage plan.')
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
@@ -163,7 +163,7 @@ def main(argv=None) -> int:
     q.add_argument('--lateral',type=float,default=0.)
     q.add_argument('--yaw-rate',type=float,default=0.)
     q.add_argument('--settle-frames',type=int,default=25)
-    from .command_exams import SCENARIOS
+    from .evaluation import SCENARIOS
     q.add_argument('--scenario',choices=SCENARIOS,default='steady')
     q.add_argument('--turn-rate',type=float,default=.25)
     q.add_argument('--gyro-bias',type=float,default=0.)
@@ -195,6 +195,7 @@ def main(argv=None) -> int:
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--profile',choices=['foundation','mature'],default='foundation')
+    q.add_argument('--pitch-deg',type=float,default=8.0,help='maximum commanded chassis-pitch range, e.g. 15 for Pitch15-style teaching')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
@@ -204,7 +205,7 @@ def main(argv=None) -> int:
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
     if args.cmd=='view':
-        from .field_viewer import main as view
+        from .viewer_server import field_main as view
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
         else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed))]
@@ -214,10 +215,11 @@ def main(argv=None) -> int:
         ck=Path(args.checkpoint).expanduser() if args.checkpoint else find_evaluation(root)
         if ck is None or not ck.exists(): raise SystemExit(f'no checkpoint found under {root}')
         out=Path(args.out_dir).expanduser() if args.out_dir else root/'atlas'
-        return _run('atlas','--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed))
+        from .evaluation import atlas_main
+        return atlas_main(['--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed)])
     if args.cmd=='posture-report':
-        from .posture_report import report
-        return report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
+        from .results import posture_report
+        return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
     if args.cmd in ('ladder','lab5015'):
         av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
             '--envs',str(args.envs),'--device',args.device,
@@ -227,7 +229,8 @@ def main(argv=None) -> int:
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
-        return _run('directional_exam','--run-dir',args.run_dir,'--output',args.output,
+        from .evaluation import directional_main
+        return directional_main('--run-dir',args.run_dir,'--output',args.output,
                     '--angle',str(args.angle),'--direction',args.direction,
                     '--worlds',str(args.worlds),'--horizon',str(args.horizon),
                     '--speed',str(args.speed),'--lateral',str(args.lateral),
@@ -239,8 +242,8 @@ def main(argv=None) -> int:
                     '--gyro-delay-frames',str(args.gyro_delay_frames),
                     *(['--compare-heading'] if args.compare_heading else []))
     if args.cmd=='directional-batch':
-        from .v5016_batch import plan,execute
-        from .directional_exam import source_commit
+        from .evaluation import plan,execute
+        from .evaluation import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
                   seed=args.seed,kp=args.heading_kp,device=args.device)
         execute(jobs,source_commit(),actually_run=args.run)
@@ -251,10 +254,10 @@ def main(argv=None) -> int:
             print(output)
         return 0
     if args.cmd=='train':
-        from .single_run import train_one
+        from .branch_lab import train_one
         return train_one(args)
     if args.cmd=='export-policy':
-        from .policy_export import build_bundle, write_bundle
+        from .viewer_server import build_bundle, write_bundle
         bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0
     if args.cmd=='viewer-build':
         from .viewer_server import build

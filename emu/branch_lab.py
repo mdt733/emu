@@ -9,14 +9,87 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .run_support import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
-from .ladder_recipe import Arm, ARMS, BY_NAME, FOUNDATION, ROUNDS, SCREEN_PITCH_DEG, PROMOTION_SLOTS, plan_dict
-from .paths import source_repo_root
-from .phase_config import _phase_config, verify_existing_phase_config
+from .checkpoint_io import checkpoint_step, git_provenance, resolve_target_checkpoint, run_training
+from .contracts import source_repo_root
+from .training_config import _phase_config, verify_existing_phase_config
 from .training_config import apply_experiment_knobs
+
+
+# Human-editable experiment recipe: the complete study lives beside its executor.
+# All step targets are ABSOLUTE environment steps in a single policy lineage.
+# Round1 adds 60M to the common 20M foundation: each fork reaches 80M total.
+FOUNDATION = 20_000_000
+ROUNDS = {
+    'round1': 80_000_000,  # four comparable +60M continuations from 20M
+    'round2': 100_000_000, # optional: +20M to two eligible finalists
+    'round3': 120_000_000, # optional: +20M to best eligible finalist
+}
+# A succeeding round continues this many eligible policies from the last
+# common frozen-policy exam. Baseline/forks/finallists share ONE recipe here.
+PROMOTION_SLOTS = {'round2': 2, 'round3': 1}
+SCREEN_PITCH_DEG = 15.0  # common evaluation task, not a training command
+
+
+@dataclass(frozen=True)
+class Arm:
+    """One hypothesis: changes to named, validated TrainingConfig knobs only.
+
+    Each (field, value) pair becomes an explicit field override to the common
+    mature baseline. No PPO-engine edits or new CLI switches are needed.
+    """
+    name: str
+    hypothesis: str
+    knobs: tuple[tuple[str, bool | int | float | str | None], ...] = ()
+
+
+# Each challenger differs from the baseline in one understandable dimension.
+# All knobs are existing fields of emu/training_config.py::TrainingConfig.
+ARMS = (
+    Arm('baseline', '10% graph teaching, level-floor control'),
+    Arm('shadow', 'No capability-field teaching', (
+        ('capability_field_mode', 'shadow'),
+        ('field_max_influence', 0.0),
+    )),
+    Arm('slope', 'Gentle gravity-equivalent slope practice', (
+        ('domain_randomization', True),
+        ('domain_terrain_radius', 0.12),
+    )),
+    Arm('pitch15', '15 degree chassis command ceiling', (
+        ('pitch_command_max_deg', 15.0),
+    )),
+)
+BY_NAME = {arm.name: arm for arm in ARMS}
+
+
+def plan_dict(seed=733, envs=2048):
+    """Human-readable hypothesis/budget plan, derived from this recipe only.
+
+    The executor imports this function but does not define study budgets.
+    A complete round costs (target - previous target) per continuing arm.
+    """
+    round_names = list(ROUNDS)
+    prior_target = FOUNDATION
+    nominal_steps = FOUNDATION
+    for stage in round_names:
+        contenders = len(ARMS) if stage == 'round1' else PROMOTION_SLOTS[stage]
+        nominal_steps += contenders * (ROUNDS[stage] - prior_target)
+        prior_target = ROUNDS[stage]
+    first_increment = len(ARMS) * (ROUNDS['round1'] - FOUNDATION)
+    return {'version': 'v5015-lab1', 'seed': seed, 'envs': envs,
+            'foundation': FOUNDATION, 'rounds': ROUNDS,
+            'arms': [asdict(a) for a in ARMS],
+            'nominal_steps': nominal_steps,
+            'review_points': ['after common 20M foundation', 'after four 80M branches (+60M each)',
+                              'optional: two 100M finalists', 'optional: one 120M finalist'],
+            'recommended': 'emu ladder --stage foundation, inspect, then emu ladder --stage auto --stop-after round1',
+            'round1_incremental_steps': first_increment,
+            'through_round1_total_steps': FOUNDATION + first_increment,
+            'automatic_promotion': 'eligible-only, score-ranked in --stage auto; manual by default',
+            'auto_stop_if_ineligible': True}
+
 
 
 def _read(path):
@@ -236,7 +309,7 @@ def score(root, round_name, *, envs, screen_envs, screen_horizon, device):
         run_dirs.append(root / round_name / name)
     # All candidates are judged in the SAME deterministic v5015 environment:
     # independent of their own teacher, domain severity or training pitch limit.
-    from .screening import evaluate_runs
+    from .evaluation import evaluate_runs
     raw = evaluate_runs(run_dirs, envs=screen_envs, horizon=screen_horizon,
                         device=device, eval_pitch_deg=SCREEN_PITCH_DEG)
     rows = [score_row(name, raw[name]) for name in names]
@@ -449,6 +522,142 @@ def main(argv=None):
                    device=args.device,provenance=provenance)
     return 0
 
+
+
+# One-run profile is a small specialised path through the same experiment driver.
+import json
+from dataclasses import asdict, replace
+from pathlib import Path
+
+from .training_config import verify_existing_phase_config
+from .contracts import source_repo_root
+from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
+                          run_training, update_boundary_at_or_after)
+from .training_config import TrainingConfig, foundation_config, mature_config
+
+
+def one_run_config(args) -> TrainingConfig:
+    """Resolve a named, existing training profile without inventing PPO flags."""
+    if args.envs <= 0 or args.steps <= 0:
+        raise ValueError('--envs and --steps must both be positive')
+    run_dir = Path(args.run_dir).expanduser().resolve()
+    if args.profile == 'foundation':
+        cfg = foundation_config(run_dir=run_dir, seed=args.seed,
+                                device=args.device, envs=args.envs)
+    elif args.profile == 'mature':
+        cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
+                            seed=args.seed, device=args.device, envs=args.envs,
+                            resume=None)
+    else:
+        raise ValueError(f'unknown profile: {args.profile}')
+    pitch_deg=float(getattr(args, 'pitch_deg', 8.0))
+    if not math.isfinite(pitch_deg) or not 0.0 <= pitch_deg <= 30.0:
+        raise ValueError('--pitch-deg must be between 0 and 30 degrees')
+    return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   pitch_command_max_deg=pitch_deg)
+
+
+def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
+    """Fail closed on incompatible runs, unclean source, and unsafe paths.
+
+    Returns (validated checkpoint to resume from, already complete?).
+    A resume from another experiment does not rewrite that ancestor.
+    """
+    root = Path(config.run_dir).resolve()
+    repo = source_repo_root()
+    if repo and (root == repo.resolve() or repo.resolve() in root.parents):
+        raise RuntimeError('Choose --run-dir OUTSIDE the Git checkout; raw training outputs are not source files')
+    if root == Path.home().resolve():
+        raise RuntimeError('Do not use your home directory directly as a run directory')
+    if not provenance.get('available') or not provenance.get('commit') or provenance.get('dirty'):
+        raise RuntimeError('A clean Git source commit is required for reproducible training')
+
+    cfg_path = root / 'training_config.json'
+    meta_path = root / 'run_meta.json'
+    if root.exists() and any(root.iterdir()) and not cfg_path.is_file():
+        raise RuntimeError(f'{root} contains files but no training_config.json; refusing to overwrite them')
+    if cfg_path.is_file():
+        previous = asdict(TrainingConfig.load(cfg_path))
+        wanted = asdict(config)
+        for variable in ('resume', 'device'):
+            previous.pop(variable, None)
+            wanted.pop(variable, None)
+        if previous != wanted:
+            raise RuntimeError('Existing training configuration differs; choose a fresh --run-dir')
+        if not meta_path.is_file():
+            # run_support writes config and console.log *before* the trainer
+            # checks CUDA. A driver/setup failure leaves these two harmless
+            # files but no policy state. Allow retry only in that precise case.
+            unexpected = {p.name for p in root.iterdir()} - {
+                'training_config.json', 'console.log',
+            }
+            if unexpected:
+                raise RuntimeError(
+                    'Saved config has no run_meta.json but other run contents exist: '
+                    f'{sorted(unexpected)}; refusing ambiguous lineage')
+        else:
+            metadata = json.loads(meta_path.read_text(encoding='utf-8'))
+            ancestor = metadata.get('source_provenance', {}).get('git_commit')
+            if ancestor != provenance['commit']:
+                raise RuntimeError('Source commit differs from prior run; use the matching source or a new --run-dir')
+        verify_existing_phase_config(root, config)
+
+    finished, partial, expected = resolve_target_checkpoint(
+        root, target_steps=config.steps, envs=config.envs, label=root.name)
+    if finished is not None:
+        if resume not in ('', 'auto'):
+            raise RuntimeError('Run already complete; external --resume is not appropriate here')
+        return finished, True
+
+    if partial is not None:
+        if resume != 'auto':
+            raise RuntimeError('Existing partial checkpoint detected: use --resume auto, or a new --run-dir')
+        return partial, False
+    if resume == 'auto':
+        raise RuntimeError('--resume auto requested but no valid checkpoint exists in this run directory')
+    if resume:
+        from .checkpoint_io import load_checkpoint
+        parent = Path(resume).expanduser().resolve()
+        if not parent.is_file():
+            raise FileNotFoundError(f'Parent checkpoint not found: {parent}')
+        payload = load_checkpoint(parent, validate=True)
+        source = payload['meta'].get('source_provenance', {}).get('git_commit')
+        if source != provenance['commit']:
+            raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
+        parent_step = int(payload['meta']['step'])
+        if parent_step >= expected:
+            raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
+        return parent, False
+    return None, False
+
+
+def train_one(args) -> int:
+    """A small CLI wrapper; the existing training module performs the updates."""
+    config = one_run_config(args)
+    target = update_boundary_at_or_after(config.steps, config.envs)
+    print(f'One-run EMU: {args.profile} | {config.envs} worlds | '
+          f'{config.steps:,} requested steps (PPO boundary {target:,})')
+    print(f'Run directory: {config.run_dir}')
+    if args.plan:
+        print(json.dumps(asdict(config), sort_keys=True, indent=2))
+        print('Planning only; no checkpoint opened or training launched.')
+        return 0
+    provenance = git_provenance()
+    parent, completed = inspect_run(config, provenance=provenance, resume=args.resume)
+    if completed:
+        print(f'Already complete: validated {parent} (no PPO update).')
+        return 0
+    actual = replace(config, resume=str(parent) if parent is not None else '')
+    print(f'Training {parent or "from scratch"} -> {target:,} steps on source {provenance["commit"][:12]}')
+    run_training(actual, provenance=provenance)
+    # Do not announce success until the trainer's own validated final is present.
+    final, _, _ = resolve_target_checkpoint(
+        Path(config.run_dir), target_steps=config.steps, envs=config.envs,
+        label=Path(config.run_dir).name)
+    if final is None:
+        raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
+    print(f'Completed validated run: {final}')
+    return 0
 
 if __name__ == '__main__':
     raise SystemExit(main())

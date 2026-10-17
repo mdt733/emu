@@ -1,92 +1,67 @@
-# Public EMU Playground
+# EMU Playground
 
-**[Open the live public demonstration](https://mdt733.github.io/emu/)**
+**[Open the public browser demo](https://mdt733.github.io/emu/)**. The repository's exported champion is the **120M Pitch15 policy** (120,061,952 steps, 220 inputs → 6 actions). A previous published Pages build may still be live until someone intentionally dispatches the manual release workflow.
 
-The static site runs an intentionally published **60-million-step actor**, MuJoCo WebAssembly physics and JavaScript inference in the browser. It has **no** connection to private WSL/JAX training or the local checkpoint server. It is a visual demonstration—not a held-out evaluator.
+The browser runs a frozen neural network and MuJoCo WebAssembly physics, not PPO. Experiment with joysticks, view modes, lighting and the optional 1° physical ramp or radial terrain park; visual behaviour alone is not proof of real servo safety or matched MJX contact dynamics. `emu/viewer_src/` is the only editable browser source.
 
-## Viewer controls and experimental conditions
+## Local view of checkpoints
 
-- The **View** button cycles orbit, raw chassis-mounted POV and visually levelled POV. The last mode stabilises the *camera only*, not the robot.
-- **Robot lean** is the feet-midpoint-to-chassis line; **chassis pitch** is the rigid body's gravity-relative angle. The readouts are different quantities.
-- Settings can enable an experimental physical **1° collision ramp course** in the browser. Training's slope-equivalent gravity perturbation does not prove the published 60M actor can walk up and down that ramp.
-- Visitors can load their own `.emupolicy` bundles. That changes only their local browser session, never the published policy file.
+```bash
+source .venv/bin/activate
+emu viewer --live --root "$HOME/robot_lab/emu_runs/my-study" --no-open
+```
 
-## Preview the exact static site locally
+Open `http://127.0.0.1:8765/`. The local watcher selects completed validated snapshots, swaps the browser policy without teaching the trainer and serves a read-only unauthenticated API. **Do not expose this service publicly.** To view a fixed bundle: `emu viewer /path/to/brain.emupolicy --no-open`.
 
-From a clean checkout with Node 24:
+## Exact static preview
 
 ```bash
 python scripts/prepare_showcase.py --require-champion
 npm ci --prefix emu/viewer_src --no-audit --no-fund
 npm test --prefix emu/viewer_src
 npm run build --prefix emu/viewer_src
+python scripts/verify_showcase_dist.py
 cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
-Open the displayed local Vite URL (normally `http://127.0.0.1:4173/`). The preview should load the **trained champion**, not the `demo_zero` fixture, and expose no unexpected JS/WASM errors. Test joystick directions, settings, display modes, manual policy load and the physical ramp in a real browser.
+Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), selectable heading hold, split/hybrid steering, both physical terrain modes, and that `showcase.json` reports step 120061952. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
 
-The zero-weight fixture is a separate *local rendering* check: `emu viewer emu/viewer_src/demo_zero.emupolicy --no-open`. Do not confuse it with the static champion build.
+## Publish (manual on purpose)
 
-## Why the public appearance can look older
+After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact Git blob SHA pinned in `.github/workflows/emu-playground.yml`, actor provenance, Node browser tests, WASM and policy files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
 
-The public site is a **static build from the commit selected when the manual Pages action ran**. Neither local `emu viewer` changes nor a passing PR build update the published site's appearance. The actor's 60M checkpoint is a **separate artifact** and may stay unchanged while the frontend improves.
+Do not commit a training `.pkl` or alter the protected `showcase/champion.emupolicy` without deliberately updating the verified pin in the SAME reviewed change.
 
-Each newly published site now includes its build commit in `showcase.json` as `source_commit`. The public viewer displays its first eight characters beneath the showcase note. To diagnose a stale appearance, compare that revision with the source selected for the latest successful Pages deployment. Older deployments won't have this field. A release run fails if its manifest does not match its checked-out Git SHA.
+## Viewer driving and terrain
 
-The source of the frontend is **only** `emu/viewer_src/`: no second editable or generated copy. The static site must be built again and manually published from an approved `main` commit. **Do not deploy this draft refactor branch to fix appearance** before its WSL/MJX acceptance is complete.
+By default, the left stick commands forward/sideways motion, and the right
+stick commands yaw and chassis pitch. Pitch is inverted: pushing the right
+stick up requests negative model pitch (the nose-up direction in this
+model's convention). Select **Hybrid** for diagonal steering: forward plus
+left/right diagonals mix turning and strafing, while purely sideways means
+strafe. The right stick always supports separate turning and pitch.
 
-## Planned coordinated Pitch15 120M release — not published
+**Heading hold** is an optional browser-only P controller (default on,
+Kp=0.75). It integrates the requested turn rate into a target heading and
+adds a bounded correction for observed torso yaw drift. It neither edits
+the neural policy nor guarantees accurate heading on unfamiliar terrain.
 
-The 17 October 2026 source-pinned campaign chose `round3/pitch15` at
-**120,061,952 steps** as the best within-campaign checkpoint. The real
-browser-native actor was subsequently uploaded and staged at
-`showcase/champion.emupolicy` with Git blob `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`.
-The full raw training checkpoint remains local, not committed to Git.
+Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
+The park starts with a flat 2 m radius; the permitted incline grows
+approximately 1 degree per metre beyond that (1° at the 2 m boundary,
+2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
+The default park extends about 11 metres each way so the outer region can\nreach the 10° *allowed* gradient; actual generated slopes may be gentler.\nThe park is now a **single triangulated heightfield**: actual MuJoCo
+contact triangles are rendered as a matching continuous grassy surface,
+with a procedurally generated grass texture and daylight sky. A sparse
+deterministic grove of trees can be enabled in Settings: trunks are static
+MuJoCo collision cylinders, while low-poly foliage is visual-only.
+Trees stay well outside the 2 m flat spawn zone, and the landscape is
+generated locally with no network image downloads.
 
-Release checks for the staged, inspected `.emupolicy`:
-1. Validate the original `final.pkl` SHA-256 as
-   `ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
-   Confirm the export's source commit `a5996b8cda2c394c7c65e3e938282a3808ded121`,
-   step 120061952 and 220×6 actor contract.
-2. The approved export, refactored viewer and release notes are staged together.
-   The manually dispatched Pages workflow pins `EXPECTED=067d6156f0f9de629eabb1a69cf1b0ceb86db24c`,
-   the *Git blob SHA*, which is different from both the exported file
-   SHA-256 and the raw checkpoint SHA-256.
-3. Run Node tests and policy/WASM static preparation, build and verification,
-   then review local actual WASM joystick, controls, terrain and visual
-   behaviour with the proposed actor. The source report gives a promising
-   common-screen score, not guaranteed real-world servo safety.
-4. Merge the *combined* PR after checks; explicitly dispatch the Pages
-   workflow from `main` and verify the public page's policy step and build
-   source commit. The old 60M public actor remains unchanged until then.
-
-This is one deliberate code+model+viewer rollout, not separate code-first
-or auto-deployed changes. The Pages site changes only after manual dispatch.
-
-## Controlled GitHub Pages publishing
-
-`.github/workflows/emu-playground.yml` uses **manual `workflow_dispatch`**, not auto-publishing on merges to `main`. It checks that `showcase/champion.emupolicy` still has the pinned Git blob ID, requires a trained-policy manifest, runs browser tests, builds the static bundle and validates the included MuJoCo WASM and policy.
-
-To deliberately publish an approved viewer update while keeping the same brain:
-
-1. Merge and verify the source changes in `main`.
-2. Validate the static site locally as above.
-3. In GitHub open **Actions → EMU Playground (GitHub Pages) → Run workflow**, choose `main`.
-4. Inspect the deployment run, then test the **public** page (not only the local preview).
-
-Changing the trained champion is a **separate release decision**. Independently evaluate the proposed new checkpoint, export the actor using `emu export-policy <checkpoint.pkl> showcase/champion.emupolicy`, review the output and update the workflow's pinned blob ID deliberately. Do not automatically publish the latest experimental weights.
-
-## Local live checkpoint viewer is different
-
-```bash
-emu viewer --live --root ~/robot_lab/emu_runs/v5015_lab1 --no-open
-```
-
-This serves read-only validated checkpoint updates on `127.0.0.1:8765`. It uses Python locally to read checkpoint files but does not update PPO. **The service is unauthenticated; do not expose it on the internet.** Static GitHub Pages never calls this private API.
-
-## Known limitations
-
-A browser rendering that looks stable does not establish PPO training success, command tracking or physical robustness. Browser/WASM contact physics and sensors are not yet numerically validated to be identical to MJX, even though deterministic actor inference is covered by a cross-runtime test.
-
-[Viewer details](../emu/viewer_src/README.md) · [Policy format](../emu/viewer_src/POLICY_FORMAT.md) · [Evaluation](evaluation.md) · [Project status](STATUS.md)
+Changing terrain, tree collisions or maximum slope rebuilds the browser
+physics world and resets the on-screen robot. The training process and
+saved .pkl remain untouched. Rendering continuity is better than tiled
+boxes, but heightfield resolution and browser physics still need real
+walking inspection, especially near small ball-foot contacts.
+This is a viewer playground, not training terrain or independent walking proof.

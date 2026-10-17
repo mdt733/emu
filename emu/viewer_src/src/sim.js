@@ -4,10 +4,10 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { sampleEpisodeCadence } from './cadence.js';
-import { joystickToCommands } from './controls.js';
+import { joystickToCommands, headingHoldRate, wrapRadians } from './controls.js';
 import { measuredAttitude } from './attitude.js';
-import { withGentleCourse } from './terrain.js';
-import { createGridTexture, createSkyTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { withTerrain, generateTerrainPark } from './terrain.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -62,7 +62,7 @@ export class EmuBrowserSim {
     this.scene = new THREE.Scene();
     this.skyTexture = createSkyTexture(THREE);
     this.scene.background = this.skyTexture;
-    this.scene.fog = new THREE.Fog(0x263944, 7, 24);
+    this.scene.fog = new THREE.Fog(0xbad7e2, 15, 49);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -70,6 +70,11 @@ export class EmuBrowserSim {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
+    this.grassTexture = createGrassTexture(THREE);
+    this.grassGridTexture = createGrassTexture(THREE, true);
+    this.parkSurface = null;
+    this.treeCrowns = null;
+    this.park = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
@@ -95,7 +100,13 @@ export class EmuBrowserSim {
         new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
       ),
     );
-    this.terrainEnabled = false;
+    this.terrainMode = 'flat';
+    this.terrainMaxDegrees = 10;
+    this.parkTreesEnabled = true;
+    this.joystickMode = 'split';
+    this.headingHold = true;
+    this.headingKp = 0.75;
+    this.headingTarget = 0;
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -187,6 +198,10 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
+      if (this.parkSurface) {
+        this.parkSurface.material.map = grid ? this.grassGridTexture : this.grassTexture;
+        this.parkSurface.material.needsUpdate = true;
+      }
     }
     if (typeof trail === 'boolean') {
       this.showTrail = trail;
@@ -201,6 +216,19 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if (this.parkSurface) {
+      this.scene.remove(this.parkSurface);
+      this.parkSurface.geometry.dispose();
+      this.parkSurface.material.dispose();
+      this.parkSurface = null;
+    }
+    if (this.treeCrowns) {
+      this.scene.remove(this.treeCrowns);
+      this.treeCrowns.userData.sharedGeometry.dispose();
+      for (const material of this.treeCrowns.userData.sharedMaterials) material.dispose();
+      this.treeCrowns = null;
+    }
+    this.park = null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -217,6 +245,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
+    this.grassTexture.dispose();
+    this.grassGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -246,21 +276,54 @@ export class EmuBrowserSim {
     }
   }
 
-  setTerrainEnabled(enabled) {
-    const next = Boolean(enabled);
-    if (next === this.terrainEnabled) return;
-    this.terrainEnabled = next;
-    this.loadModel(); // new MuJoCo collision world; training and policy stay untouched
+  setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
+    if (!['flat','ramp','park'].includes(mode)) throw new Error('Unknown terrain');
+    const degrees = Number(maximum);
+    if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
+    if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
+    this.terrainMode=mode;
+    this.terrainMaxDegrees=degrees;
+    this.loadModel(); // rebuilds only browser MuJoCo contacts
+  }
+  setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setTreesEnabled(enabled) {
+    const next=Boolean(enabled);
+    if (next===this.parkTreesEnabled) return;
+    this.parkTreesEnabled=next;
+    if(this.terrainMode==='park')this.loadModel();
+  }
+  setJoystickMode(mode) {
+    if (!['split','hybrid'].includes(mode)) throw new Error('Unknown joystick layout');
+    this.joystickMode=mode;
+  }
+  setHeadingHold(enabled) {
+    this.headingHold=Boolean(enabled);
+    this.headingTarget=this.actualHeading();
+  }
+  actualHeading() {
+    if (!this.data || !this.model) return 0;
+    const r=this.bodyRotation();
+    return Math.atan2(r[3],r[0]); // torso +X projected into world XY
   }
 
   loadModel() {
     this.disposeModel();
-    const xml = this.terrainEnabled ? withGentleCourse(this.bundle.robot_xml) : this.bundle.robot_xml;
+    this.park = this.terrainMode==='park'
+      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
+      : null;
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
+    if(this.park){
+      this.parkSurface=createParkSurface(THREE,this.park,
+        this.showGrid?this.grassGridTexture:this.grassTexture);
+      this.scene.add(this.parkSurface);
+      this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
+      this.scene.add(this.treeCrowns);
+    }
     const d = this.bundle.control.default_commands || {};
     this.commandTarget = {
       vx: Number(d.vx ?? 0.04), vy: Number(d.vy ?? 0), yaw: Number(d.yaw ?? 0),
@@ -302,6 +365,7 @@ export class EmuBrowserSim {
     this.data.qvel[1] = this.command.vy;
     this.data.qvel[5] = this.command.yaw;
     mj.mj_forward(this.model, this.data);
+    this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
     this.phase = 0;
@@ -323,7 +387,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.bundle.control.command_limits,
+      leftX, leftY, rightX, rightY, this.bundle.control.command_limits, this.joystickMode,
     ));
   }
 
@@ -381,6 +445,12 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
+    const manualYaw=this.command.yaw;
+    if (this.headingHold) {
+      this.headingTarget=wrapRadians(this.headingTarget+manualYaw*cdt);
+      this.command.yaw=headingHoldRate(manualYaw,this.headingTarget,this.actualHeading(),
+        this.headingKp,Number(this.bundle.control.command_limits.yaw_abs));
+    } else this.headingTarget=this.actualHeading();
     const action = this.policy.infer(this.obs);
     const span = this.bundle.control.target_span_rad;
 
@@ -569,18 +639,21 @@ export class EmuBrowserSim {
       let mesh = this.meshes[i];
       if (!mesh) {
         const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
+        const isParkHeightfield = Number(vg.type) === mj.mjtGeom.mjGEOM_HFIELD.value;
         const material = isFloor
           ? new THREE.MeshStandardMaterial({map: this.showGrid ? this.gridTexture : null, roughness: 0.98, metalness: 0, color: this.showGrid ? 0xffffff : 0x40515e})
           : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
         mesh.userData.floor = isFloor;
+        mesh.userData.parkHeightfield = isParkHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
         mesh.matrixAutoUpdate = false;
         this.meshes.push(mesh);
         this.scene.add(mesh);
       }
-      mesh.visible = true;
+      // Heightfield collision is rendered by the seamless grass mesh above.
+      mesh.visible = !mesh.userData.parkHeightfield;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;

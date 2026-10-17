@@ -9,13 +9,13 @@ import numpy as np
 import pytest
 from emu.rewards import weighted_training_terms, PAYMENT_NAMES
 from emu.training_config import TrainingConfig, mature_config
-from emu.capability_field import CapabilityField
+from emu.curriculum import CapabilityField
 from emu.checkpoint_io import save_checkpoint, validate_resume_payload
 from emu.contracts import ACTION_DIM, OBS_DIM
-from emu.rollout_metrics import augment_rollout_row
+from emu.results import augment_rollout_row
 from emu.ppo import expected_param_shapes
-from emu.run_support import resume_training_lineage
-from emu.health import TrainingHealth
+from emu.checkpoint_io import resume_training_lineage
+from emu.curriculum import TrainingHealth
 from emu.curriculum import RegimeGovernor
 
 def fake_policy_params(fill: float = 0.0):
@@ -130,7 +130,7 @@ class CheckpointResumeTests(unittest.TestCase):
                 def obs(self, env_state):
                     return 'fresh-observations'
 
-            from emu.run_support import try_restore_recovery
+            from emu.checkpoint_io import try_restore_recovery
             teacher, health_tracker, worlds = Teacher(), Health(), Worlds()
             collapsed = LiveState(fake_policy_params(fill=-2.0), state.opt_state,
                                   'collapsed-worlds', 'collapsed-observations')
@@ -416,7 +416,7 @@ def test_training_config_roundtrip():
     assert inactive.params.frontier_vx_hi == 0.60
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
-    from emu.run_support import promote_checkpoint
+    from emu.checkpoint_io import promote_checkpoint
     source = tmp_path / 'latest.pkl'
     target = tmp_path / 'final.pkl'
     source.write_bytes(b'new complete checkpoint')

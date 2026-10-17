@@ -3,8 +3,8 @@ import math
 import numpy as np
 import pytest
 from emu.directional import HeadingState, heading_hold_step, wrap_radians, examine_course
-from emu.ground_plane import estimate_ground_plane
-from emu.gait_exam import evaluate_trace_arrays
+from emu.directional import estimate_ground_plane
+from emu.directional import evaluate_trace_arrays
 
 def ideal(commands, initial_yaw=0.0, dt=0.02):
     """Synthetic perfect command following; not a trained policy."""

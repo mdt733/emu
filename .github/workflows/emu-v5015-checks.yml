@@ -29,6 +29,24 @@ jobs:
         run: python -m compileall -q emu tests
       - name: Run 16 Python checks
         run: python -m pytest -q tests
+      - name: Smoke public doctor CLI (CPU-only)
+        run: emu doctor --no-require-gpu --no-mjx-smoke
+      - name: Smoke public planning, exams and exporter imports
+        run: |
+          emu ladder --stage plan > /dev/null
+          emu directional-exam --help > /dev/null
+          emu directional-batch --help > /dev/null
+          emu train --help > /dev/null
+          emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
+          emu evaluate --help > /dev/null
+          emu export-policy --help > /dev/null
+          python - <<'PY'
+          from emu.checkpoint_io import resume_training_lineage, git_provenance
+          from emu.branch_lab import train_one, plan_dict
+          from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
+          from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
+          print('All public entrypoint owners import cleanly')
+          PY
 
   browser:
     runs-on: ubuntu-latest
@@ -42,7 +60,7 @@ jobs:
           cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run 4 browser checks
+      - name: Run browser controls and packaging checks
         run: npm test --prefix emu/viewer_src
       - name: Prepare protected champion
         run: python3 scripts/prepare_showcase.py --require-champion

@@ -18,8 +18,8 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
-from emu.paths import source_repo_root
-from emu.run_support import git_provenance, run_training
+from emu.contracts import source_repo_root
+from emu.checkpoint_io import git_provenance, run_training
 from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config
 
 SEED = 733
@@ -205,7 +205,7 @@ def verify_stage(root: Path) -> None:
         raise RuntimeError("completed resume modified final checkpoint")
 
     # An actual deployable actor export is part of the acceptance contract.
-    from emu.policy_export import build_bundle, write_bundle
+    from emu.viewer_server import build_bundle, write_bundle
     exported = root / "tiny_smoke_actor.emupolicy"
     bundle = build_bundle(root / "continued/checkpoints/final.pkl",
                           label="Two-update smoke (not trained to walk)")

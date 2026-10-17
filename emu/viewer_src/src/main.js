@@ -19,7 +19,11 @@ const noiseToggle = $('noiseToggle');
 const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
-const terrainToggle = $('terrainToggle');
+const terrainMode = $('terrainMode');
+const terrainMax = $('terrainMax');
+const treesToggle = $('treesToggle');
+const joystickMode = $('joystickMode');
+const headingHoldToggle = $('headingHoldToggle');
 const cameraBtn = $('cameraBtn');
 const cameraModes = ['orbit', 'raw', 'level'];
 let cameraMode = 'orbit';
@@ -78,7 +82,7 @@ function limits() {
 }
 
 function updateStickLabels() {
-  const {vx, vy, yaw, pitch} = joystickToCommands(left.x, left.y, right.x, right.y, limits());
+  const {vx, vy, yaw, pitch} = joystickToCommands(left.x, left.y, right.x, right.y, limits(), joystickMode.value);
   leftValues.textContent = `vx ${fmtSigned(vx)} · vy ${fmtSigned(vy)}`;
   rightValues.textContent = `yaw ${fmtSigned(yaw)} · pitch ${fmtSigned(deg(pitch),1)}°`;
   sim?.setJoystickTargets(left.x, left.y, right.x, right.y);
@@ -151,7 +155,10 @@ async function activatePolicy(index) {
     }
     bundle = entry.bundle;
     sim.setCameraMode(cameraMode);
-    sim.setTerrainEnabled(terrainToggle.checked);
+    sim.setJoystickMode(joystickMode.value);
+    sim.setHeadingHold(headingHoldToggle.checked);
+    sim.setTreesEnabled(treesToggle.checked);
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -231,11 +238,22 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.textContent = cameraLabel(cameraMode);
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraMode === 'raw' ? 'raw chassis POV' : cameraMode === 'level' ? 'visually levelled POV' : 'orbit'}`);
 });
-terrainToggle.addEventListener('change', () => {
+function updateTerrain() {
+  $('terrainMaxOut').textContent = `${terrainMax.value}°`;
+  treesToggle.disabled = terrainMode.value!=='park';
   if (!sim) return;
-  try { sim.setTerrainEnabled(terrainToggle.checked); applyAdvanced(); updateStickLabels(); }
-  catch (err) { terrainToggle.checked = false; sim.setTerrainEnabled(false); setStatus(`Terrain unavailable: ${err.message}`, 'error'); }
+  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); applyAdvanced(); updateStickLabels(); }
+  catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
+}
+terrainMode.addEventListener('change',updateTerrain);
+terrainMax.addEventListener('change',updateTerrain);
+treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+joystickMode.addEventListener('change',()=>{
+  $('moveStickMode').textContent = joystickMode.value==='hybrid'?'vx / vy + turn':'vx / vy';
+  sim?.setJoystickMode(joystickMode.value);
+  updateStickLabels();
 });
+headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });

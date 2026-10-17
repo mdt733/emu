@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Callable
 from pathlib import Path
 from .checkpoint_io import save_checkpoint
-from .artifacts import append_metrics_csv, write_json
+from .results import append_metrics_csv, write_json
 from dataclasses import dataclass
 import time
 import math
@@ -18,7 +18,7 @@ import numpy as np
 
 from .environment import EmuMJXEnv
 from .contracts import task_param_defaults
-from .paths import ROBOT_XML
+from .contracts import ROBOT_XML
 from .ppo import make_trainer
 from .training_config import (
     TrainingConfig, MAX_EPISODE_STEPS,
@@ -262,3 +262,927 @@ def record_fixed_exam(
           f"eval_wall={out.get('perf_fixed_eval_total_s',0.0):.1f}s", flush=True)
     return out, best_score
 
+
+# Matched held-out branch screens; never fed to PPO's teacher.
+import argparse
+import json
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from .checkpoint_io import load_checkpoint
+from .contracts import task_param_defaults
+from .environment import EmuMJXEnv
+from .contracts import ROBOT_XML
+from .ppo import make_trainer
+from .ppo import configure_jax, require_backend
+from .training_config import (
+    TrainingConfig, MAX_EPISODE_STEPS, PPO_LR, ROLLOUT_STEPS,
+    PPO_ENTROPY_COST, PPO_VALUE_COST, EVAL_SEED,
+)
+
+SCREEN_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
+                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
+                 'pitch_mae', 'height_shortfall_m')
+
+
+def _screen_episode(steady: float, transition: float, resilience: float, posture: float,
+             mix: tuple[float, float, float], command_frac: float) -> dict[str, float]:
+    ep = task_param_defaults()
+    ep.update(steady_difficulty=steady, transition_difficulty=transition,
+              resilience_difficulty=resilience, posture_difficulty=posture,
+              regime_frac_steady=mix[0], regime_frac_transition=mix[1],
+              regime_frac_resilience=mix[2], regime_command_frac=command_frac)
+    return ep
+
+
+SCREEN_PANELS = {
+    # Same conceptual coordinates that exposed the v5012 graph-vs-shadow trade.
+    # Current v5013 hardware doctrine keeps its one-frame target delay; these are
+    # therefore regression-style stress probes, not claims of physical limits.
+    'resilience100': ('robust', 1103, _screen_episode(.60, .65, 1.00, .65, (.08, .17, .75), .90)),
+    'robust70': ('robust', 1207, _screen_episode(.70, .78, .75, .60, (.20, .35, .45), .90)),
+    'growth140': ('growth', 1301, _screen_episode(1.0, .92, .35, .45, (.50, .38, .12), 1.0)),
+    'growthcombo140': ('growth_combo', 1409, _screen_episode(1.0, .92, .35, .45, (.50, .38, .12), 1.0)),
+}
+
+
+def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
+           limits: tuple[float, float, float, float], push_n: float,
+           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0):
+    vx_hi, vx_lo, vy, yaw = limits
+    seed = EVAL_SEED + seed_offset
+    from .environment import DomainRandomizationConfig
+    domain = DomainRandomizationConfig(enabled=terrain_radius > 0, terrain_radius=terrain_radius)
+    env = EmuMJXEnv(
+        str(ROBOT_XML), num_envs=int(envs), seed=seed,
+        max_episode_steps=MAX_EPISODE_STEPS,
+        push_max_force_n=push_n,
+        vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
+        phase_speed_gain=config.phase_speed_gain,
+        attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
+        sensor_noise_scale=sensor_scale, open_frontier=False,
+        combo_mix_frac=combo_mix, combo_probe_frac=0.0,
+        field_teach_recovery=False,
+        domain_config=domain,
+    )
+    trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
+                           epochs=1, minibatches=1,
+                           entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
+    return env, trainer
+
+
+def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
+                  device: str | None = None, eval_pitch_deg: float | None = None) -> dict[str, dict[str, Any]]:
+    """Evaluate multiple final checkpoints through one set of compiled worlds."""
+    if not run_dirs:
+        return {}
+    run_dirs=[Path(x).expanduser().resolve() for x in run_dirs]
+    configs=[TrainingConfig.load(r/'training_config.json') for r in run_dirs]
+    config=configs[0]
+    # The stress worlds depend on physical/evaluation doctrine, not teacher
+    # settings. Guard the one config value they currently consume so batching
+    # can never silently compare arms through different evaluation dynamics.
+    if any(c.phase_speed_gain != config.phase_speed_gain for c in configs[1:]):
+        raise ValueError('batched screening requires identical phase_speed_gain')
+    if device is not None:
+        config=replace(config,device=device)
+    if eval_pitch_deg is not None:
+        # Freeze identical v5015 exam posture conditions for every contender,
+        # independent of the pitch and terrain distribution used for training.
+        if not (0 < eval_pitch_deg <= 45):
+            raise ValueError('eval_pitch_deg must be in (0, 45]')
+        config=replace(config,attitude_profile='v5015',pitch_command_max_deg=float(eval_pitch_deg))
+    configure_jax(config.device)
+    import jax
+    require_backend(config.device == 'cpu')
+
+    worlds={
+        'robust': _screen_world(config,envs=envs,seed_offset=1447,
+                         limits=(.80,-.32,.32,2.00),push_n=1.50,
+                         sensor_scale=2.0,combo_mix=.35),
+        'growth': _screen_world(config,envs=envs,seed_offset=1211,
+                         limits=(1.00,-.42,.40,2.40),push_n=.90,
+                         sensor_scale=1.5,combo_mix=0.0),
+        'growth_combo': _screen_world(config,envs=envs,seed_offset=1319,
+                               limits=(1.00,-.42,.40,2.40),push_n=.90,
+                               sensor_scale=1.5,combo_mix=1.0),
+    }
+    panels = dict(SCREEN_PANELS)
+    if eval_pitch_deg is not None:
+        # Fixed slope-equivalent stress for v5015: one additional compiled
+        # evaluation world for every arm, independent of training exposure.
+        worlds['gentle_slope'] = _screen_world(config,envs=envs,seed_offset=1555,
+            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
+            combo_mix=.20,terrain_radius=.20)
+        panels['gentle_slope'] = ('gentle_slope',1555,
+            _screen_episode(.70,.65,.35,.70,(.45,.40,.15),.80))
+    key0=jax.random.PRNGKey(EVAL_SEED)
+    results: dict[str,dict[str,Any]]={}
+    for run_dir in run_dirs:
+        ck=run_dir/'checkpoints'/'final.pkl'
+        payload=load_checkpoint(ck,validate=True)
+        params=payload['state']['params']; norm=payload['obs_norm']
+        obs_std=np.asarray(norm['var'])**.5
+        out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
+            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
+            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None}
+        for name,(world_name,salt,episode) in panels.items():
+            env,trainer=worlds[world_name]
+            compact=trainer['evaluate_summary'](
+                params,env.params_array(episode),norm['mean'],obs_std,
+                jax.random.fold_in(key0,salt),int(horizon))
+            vals=np.asarray(jax.device_get(compact),dtype=np.float64)
+            out.update({f'screen_{name}_{k}':float(v) for k,v in zip(SCREEN_FIELDS,vals)})
+        out['screen_hard_recovery']=float(np.mean([
+            out['screen_resilience100_survival'],out['screen_robust70_survival']]))
+        out['screen_growth_headroom']=float(np.mean([
+            out['screen_growth140_survival'],out['screen_growthcombo140_survival']]))
+        (run_dir/'screen_eval.json').write_text(json.dumps(out,indent=2,sort_keys=True),encoding='utf-8')
+        results[run_dir.name]=out
+    return results
+
+
+def evaluate_run(run_dir: Path, *, envs: int = 512, horizon: int = 350,
+                 device: str | None = None) -> dict[str, Any]:
+    run_dir=Path(run_dir).expanduser().resolve()
+    return evaluate_runs([run_dir],envs=envs,horizon=horizon,device=device)[run_dir.name]
+
+
+def screen_main(argv=None) -> int:
+    p=argparse.ArgumentParser(description='EMU tournament held-out stress screen')
+    p.add_argument('--run-dir',required=True,nargs='+')
+    p.add_argument('--envs',type=int,default=512)
+    p.add_argument('--horizon',type=int,default=350)
+    p.add_argument('--eval-pitch-deg',type=float,default=None)
+    p.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default=None)
+    a=p.parse_args(argv)
+    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg)
+    print(json.dumps(out,indent=2,sort_keys=True))
+    return 0
+
+
+
+
+
+# Physical command and recovery frontier examination.
+import argparse, json, math, time
+from pathlib import Path
+
+from .contracts import VERSION, ROBOT_XML
+import numpy as np
+from .contracts import CONTROL_DT
+from .contracts import recovery_outcome_numpy
+
+from .environment import EmuMJXEnv
+from .ppo import configure_jax, require_backend
+from .ppo import make_trainer
+from .checkpoint_io import load_checkpoint
+from .results import write_rows_csv
+from .contracts import task_param_defaults
+
+
+def checkpoint_training_profile(checkpoint: Path) -> tuple[str, float]:
+    """Identify a policy's training contract for independent atlas tests."""
+    ck = Path(checkpoint).expanduser().resolve()
+    for path in (ck.parent.parent / 'training_config.json', ck.parent / 'training_config.json'):
+        if path.is_file():
+            cfg = json.loads(path.read_text(encoding='utf-8'))
+            return (str(cfg.get('attitude_profile') or 'v5014'),
+                    float(cfg.get('pitch_command_max_deg', 8.0214)))
+    root = ck.parent / 'lineage.json'
+    if root.is_file():
+        lineage = json.loads(root.read_text(encoding='utf-8'))
+        if lineage.get('version') == 'v5015' and lineage.get('phases'):
+            return 'v5015', float(lineage['phases'][-1]['pitch_max_deg'])
+    return 'v5014', 8.0214
+
+
+def fmt(x, d=3):
+    try: return f"{float(x):.{d}f}"
+    except Exception: return '-'
+
+
+def command_tol(axis: str, value: float) -> float:
+    a=abs(float(value))
+    if axis.startswith('vx'): return max(0.06, 0.20*a)
+    if axis.startswith('vy'): return max(0.05, 0.25*a)
+    return max(0.18, 0.20*a)
+
+
+def physical_frontiers(rows: list[dict], value_key='level_abs') -> dict:
+    out={}
+    for target in (0.95,0.80,0.50):
+        ok=[r for r in rows if float(r.get('survival',0)) >= target and float(r.get('tracking_ok',0)) >= 0.5]
+        out[f'frontier_{int(target*100)}'] = max((float(r[value_key]) for r in ok), default=None)
+    return out
+
+
+def recovery_frontiers(rows: list[dict], value_key='level') -> dict:
+    out={}
+    for target in (0.95,0.80,0.50):
+        ok=[r for r in rows if float(r.get('recovery_rate',0)) >= target]
+        out[f'frontier_{int(target*100)}'] = max((float(r[value_key]) for r in ok), default=None)
+    return out
+
+
+def atlas_main(argv=None):
+    ap=argparse.ArgumentParser(description=f'EMU {VERSION} physical capability/recovery atlas')
+    ap.add_argument('--checkpoint', required=True)
+    ap.add_argument('--out-dir', required=True)
+    ap.add_argument('--device', choices=['auto','cpu','cuda','gpu'], default='cuda')
+    ap.add_argument('--allow-cpu-mjx', action='store_true')
+    ap.add_argument('--envs', type=int, default=1024)
+    ap.add_argument('--horizon', type=int, default=300, help='control steps; 300 = 6s at 20ms')
+    ap.add_argument('--seed', type=int, default=733)
+    args=ap.parse_args(argv)
+
+    configure_jax(args.device)
+    import jax
+    require_backend(args.allow_cpu_mjx)
+
+    ck=Path(args.checkpoint).expanduser().resolve(); out=Path(args.out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+
+    try:
+        payload = load_checkpoint(ck)
+    except Exception as exc:
+        raise SystemExit(f'invalid checkpoint {ck}: {exc}') from exc
+    state=payload['state']; params=jax.device_put(state['params'])
+    norm=payload.get('obs_norm') or {}
+
+    attitude_profile, pitch_deg = checkpoint_training_profile(ck)
+    env=EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
+                  attitude_profile=attitude_profile, pitch_command_max_deg=pitch_deg,
+                  max_episode_steps=max(args.horizon+50, 700), push_max_force_n=0.70, vx_hi_max=1.8, vx_lo_min=-0.9,
+                  vy_max_mps=0.70, yaw_max_rad_s=4.5,
+                  phase_speed_gain=1.25, sensor_noise_scale=1.5,
+                  open_frontier=False, combo_mix_frac=0.0)
+    tr=make_trainer(env, seed=args.seed, lr=2e-4, rollout=32, epochs=1, minibatches=1)
+    obs_mean=jax.numpy.asarray(norm.get('mean', np.zeros((tr['obs_dim'],),np.float32)), dtype=jax.numpy.float32)
+    obs_std=jax.numpy.asarray(np.sqrt(norm.get('var', np.ones((tr['obs_dim'],),np.float32))), dtype=jax.numpy.float32)
+
+    eval_fields=('survival','first_fall_step_mean','vx_mae','vy_mae','yaw_mae','gravity_z','foot_mid_cone','step_evidence','support','pitch_mae','height_shortfall_m')
+    rows=[]; summary={'checkpoint':str(ck),'attitude_profile':attitude_profile,'pitch_command_max_deg':pitch_deg,'envs':args.envs,'horizon_steps':args.horizon,'control_dt_s':CONTROL_DT,'commands':{},'recovery':{}}
+    t0=time.time(); basekey=jax.random.PRNGKey(args.seed+9000); salt=0
+
+    def base_ep():
+        ep = task_param_defaults()
+        ep.update(regime_command_frac=1.0, probe_cmd_vx=0.08, probe_cmd_vy=0.0, probe_cmd_yaw=0.0)
+        return ep
+
+    def eval_command(axis, value):
+        nonlocal salt
+        ep=base_ep()
+        if axis=='vx_forward' or axis=='vx_reverse': ep['probe_cmd_vx']=value
+        elif axis.startswith('vy'): ep['probe_cmd_vy']=value
+        elif axis.startswith('yaw'): ep['probe_cmd_yaw']=value
+        salt+=1; k=jax.random.fold_in(basekey,salt)
+        arr=np.asarray(jax.device_get(tr['evaluate_summary'](params,env.params_array(ep),obs_mean,obs_std,k,args.horizon)),dtype=float)
+        d={k2:float(v) for k2,v in zip(eval_fields,arr)}
+        mae=d['vx_mae'] if axis.startswith('vx') else d['vy_mae'] if axis.startswith('vy') else d['yaw_mae']
+        tol=command_tol(axis,value)
+        return {**d,'axis':axis,'level':float(value),'level_abs':abs(float(value)),'tracking_mae':mae,'tracking_tol':tol,'tracking_ok':float(mae<=tol)}
+
+    command_sweeps={
+        'vx_forward':[0.20,0.40,0.60,0.80,1.00,1.20,1.40,1.60],
+        'vx_reverse':[-0.10,-0.20,-0.30,-0.40,-0.50,-0.60,-0.70,-0.80],
+        'vy_left':[0.10,0.18,0.26,0.34,0.42,0.50,0.60],
+        'vy_right':[-0.10,-0.18,-0.26,-0.34,-0.42,-0.50,-0.60],
+        'yaw_left':[0.50,1.0,1.5,2.0,2.5,3.0,3.5,4.0],
+        'yaw_right':[-0.50,-1.0,-1.5,-2.0,-2.5,-3.0,-3.5,-4.0],
+    }
+    for axis,levels in command_sweeps.items():
+        rr=[]
+        for x in levels:
+            r=eval_command(axis,x); r['kind']='command'; rr.append(r); rows.append(r)
+            print(f"[atlas] {axis:12s} {x:+.3f}: survival={r['survival']:.3f} mae={r['tracking_mae']:.3f} tol={r['tracking_tol']:.3f}",flush=True)
+        summary['commands'][axis]={**physical_frontiers(rr),'curve':rr}
+
+    def eval_recovery(name, level, overrides):
+        nonlocal salt
+        ep=base_ep(); ep.update(overrides)
+        salt+=1; k=jax.random.fold_in(basekey,salt)
+        ff,fr=tr['evaluate_recovery'](params,env.params_array(ep),obs_mean,obs_std,k,args.horizon,10)
+        ff,fr=jax.device_get((ff,fr))
+        return {'kind':'recovery','axis':name,'level':float(level),
+                **recovery_outcome_numpy(ff,fr)}
+
+    recovery_specs={
+        'tilt_deg':[(x,{'probe_tilt_rad':math.radians(x)}) for x in [5,10,15,20,25,30,35,40,50,60]],
+        'linear_velocity_mps':[(x,{'probe_linvel_mps':x}) for x in [0.10,0.20,0.30,0.40,0.55,0.70,0.90,1.10,1.30]],
+        'angular_velocity_rad_s':[(x,{'probe_angvel_rad_s':x}) for x in [0.5,1.0,1.5,2.0,2.5,3.0,4.0,5.0,6.0]],
+        'joint_offset_deg':[(x,{'probe_joint_rad':math.radians(x)}) for x in [2,5,8,12,16,20,25,30,35]],
+    }
+    chaos_levels=[0.25,0.50,0.75,1.00,1.25,1.50]
+    recovery_specs['combined_chaos_scale']=[(x,{
+        'probe_tilt_rad':math.radians(40.0)*x,
+        'probe_linvel_mps':0.80*x,
+        'probe_angvel_rad_s':4.0*x,
+        'probe_joint_rad':math.radians(20.0)*x,
+    }) for x in chaos_levels]
+
+    for name,specs in recovery_specs.items():
+        rr=[]
+        for level,ov in specs:
+            r=eval_recovery(name,level,ov); rr.append(r); rows.append(r)
+            print(f"[atlas] {name:24s} {level:.3f}: survive={r['survival']:.3f} recover={r['recovery_rate']:.3f} p90={r['recovery_time_p90_s']:.2f}s",flush=True)
+        summary['recovery'][name]={**recovery_frontiers(rr),'curve':rr}
+
+    summary['wall_seconds']=round(time.time()-t0,2)
+    write_rows_csv(out/'capability_atlas.csv',rows)
+    (out/'capability_atlas.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
+
+    md=[f'# EMU {VERSION} capability / recovery atlas','',
+        f'- checkpoint: `{ck}`', f'- envs per point: `{args.envs}`', f'- horizon: `{args.horizon}` control steps ({args.horizon*CONTROL_DT:.1f}s)',
+        '', 'This report intentionally avoids a single aggregate score. The 95/80/50 frontiers are read-offs from the complete physical-unit curves in `capability_atlas.csv`.',
+        '', '## Command competence frontiers','', '| axis | 95% | 80% | 50% |','|---|---:|---:|---:|']
+    for name,v in summary['commands'].items(): md.append(f"| {name} | {fmt(v['frontier_95'])} | {fmt(v['frontier_80'])} | {fmt(v['frontier_50'])} |")
+    md += ['', 'A command point counts as competent only when survival clears the stated percentage **and** mean tracking MAE stays inside an explicit axis tolerance (recorded per row in the CSV).',
+           '', '## Recovery frontiers','', '| disturbance | 95% recovered | 80% recovered | 50% recovered |','|---|---:|---:|---:|']
+    for name,v in summary['recovery'].items(): md.append(f"| {name} | {fmt(v['frontier_95'])} | {fmt(v['frontier_80'])} | {fmt(v['frontier_50'])} |")
+    md += ['', 'Recovery means the robot remains unfallen and holds an appropriately commanded chassis attitude, command-tracking, supported state for 0.20s continuously. Recovery time distributions are retained for every point; survival by itself is not treated as recovery.',
+           '', f"Wall time: {summary['wall_seconds']:.1f}s", '']
+    (out/'atlas.md').write_text('\n'.join(md),encoding='utf-8')
+    print(f"[atlas] complete -> {out/'atlas.md'}",flush=True)
+    return 0
+
+
+
+# Physical signed-direction/contact-course exams and repeatable batch profiles.
+import argparse
+import hashlib
+import json
+import math
+from pathlib import Path
+import subprocess
+
+import numpy as np
+
+from .contracts import OBS_DIM
+from .directional import evaluate_trace_arrays
+
+
+def exam_gravity(angle_deg, direction):
+    """Exact tilted-gravity infinite-plane experiment; uphill is world-fixed."""
+    if not math.isfinite(angle_deg) or not 0 <= angle_deg <= 5:
+        raise ValueError('exam angle must lie in [0,5] degrees')
+    uphill = dict(uphill=(1., 0.), downhill=(-1., 0.),
+                  cross_left=(0., 1.), cross_right=(0., -1.)).get(direction)
+    if uphill is None:
+        raise ValueError('invalid slope direction')
+    a = math.radians(angle_deg)
+    return np.asarray((-9.81*math.sin(a)*uphill[0],
+                       -9.81*math.sin(a)*uphill[1],
+                       -9.81*math.cos(a)),dtype=np.float32)
+
+
+def sha256_file(path):
+    h=hashlib.sha256()
+    with path.open('rb') as f:
+        for block in iter(lambda: f.read(1<<20),b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def source_commit():
+    try:
+        r=subprocess.run(['git','rev-parse','HEAD'],
+              cwd=Path(__file__).resolve().parents[1],
+              check=True,capture_output=True,text=True,timeout=5)
+        return r.stdout.strip()
+    except (OSError,subprocess.SubprocessError):
+        return 'unknown'
+
+
+def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
+                     angle_deg, direction, speed, lateral, yaw_rate):
+    run=Path(run_dir).expanduser().resolve()
+    dest=Path(output).expanduser().resolve()
+    if not run.is_dir():
+        raise FileNotFoundError(run)
+    if dest == run or run in dest.parents or dest in run.parents:
+        raise ValueError('output directory must be separate from training directory')
+    if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
+        raise FileExistsError('use a new/empty exam output directory')
+    if not 2 <= worlds <= 64 or not 30 <= horizon <= 700:
+        raise ValueError('bounded exams require 2–64 worlds and 30–700 frames')
+    if not 0 <= settle_frames < horizon - 2:
+        raise ValueError('invalid settle window')
+    if not all(math.isfinite(x) for x in (speed,lateral,yaw_rate)):
+        raise ValueError('nonfinite request')
+    if abs(speed) > .6 or abs(lateral) > .25 or abs(yaw_rate) > 1.5:
+        raise ValueError('command outside bounded legacy-policy exam limits')
+    g=exam_gravity(angle_deg,direction)
+    return run,dest,g
+
+
+def evaluate_directional_run(run_dir, *, angle_deg, direction, output, worlds=8,
+                 horizon=350, speed=.10, lateral=0., yaw_rate=0.,
+                 seed=1701, device='cuda', settle_frames=25, heading_kp=0.0,
+                 scenario='steady', turn_rate=.25,
+                 gyro_bias=0., gyro_noise=0., gyro_delay_frames=0):
+    if not math.isfinite(heading_kp) or not 0 <= heading_kp <= 2:
+        raise ValueError('heading-kp must lie in [0,2] per second')
+    if not all(math.isfinite(v) for v in (gyro_bias,gyro_noise)) or (
+        abs(gyro_bias) > .12 or not 0 <= gyro_noise <= .20 or
+        not isinstance(gyro_delay_frames, int) or not 0 <= gyro_delay_frames <= 5):
+        raise ValueError('gyro realism parameters outside bounded test limits')
+    schedule=make_schedule(scenario,int(horizon),speed=speed,lateral=lateral,
+                           yaw_rate=yaw_rate,turn_rate=turn_rate)
+    run_dir,output,g=validate_request(
+        run_dir=run_dir,output=output,worlds=int(worlds),horizon=int(horizon),
+        settle_frames=int(settle_frames),angle_deg=angle_deg,direction=direction,
+        speed=speed,lateral=lateral,yaw_rate=yaw_rate)
+    from .checkpoint_io import load_checkpoint
+    from .environment import EmuMJXEnv
+    from .contracts import ROBOT_XML
+    from .ppo import make_trainer
+    from .ppo import configure_jax, require_backend
+    from .training_config import (
+        TrainingConfig,PPO_LR,PPO_ENTROPY_COST,PPO_VALUE_COST,ROLLOUT_STEPS)
+
+    cfg=TrainingConfig.load(run_dir/'training_config.json')
+    checkpoint=run_dir/'checkpoints/final.pkl'
+    saved=load_checkpoint(checkpoint,validate=True)
+    params=saved['state']['params']
+    if int(np.asarray(params['pi'][0]['w']).shape[0]) != OBS_DIM:
+        raise ValueError('this examiner supports legacy 220-input actor only; no silent migration')
+    norm=saved['obs_norm']
+    configure_jax(device)
+    import jax
+    import jax.numpy as jnp
+    require_backend(device=='cpu')
+    env=EmuMJXEnv(
+        str(ROBOT_XML),num_envs=int(worlds),seed=int(seed),
+        max_episode_steps=700,push_max_force_n=0.,
+        vx_hi_max=.6,vx_lo_min=-.2,vy_max_mps=.25,yaw_max_rad_s=1.5,
+        phase_speed_gain=cfg.phase_speed_gain,
+        attitude_profile=cfg.attitude_profile,
+        pitch_command_max_deg=cfg.pitch_command_max_deg,
+        sensor_noise_scale=0.,open_frontier=False,
+        combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
+    )
+    # Shared, nonrandom MJX gravity field. No robot XML modifications.
+    env.mjx_model=env.mjx_model.tree_replace({'opt.gravity': jnp.asarray(g)})
+    env.gravity_unit_world=jnp.tile(
+        jnp.asarray(g/np.linalg.norm(g))[None,:],(int(worlds),1))
+    trainer=make_trainer(
+        env,seed=int(seed),lr=PPO_LR,rollout=ROLLOUT_STEPS,
+        epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
+        value_cost=PPO_VALUE_COST)
+    task={
+        'regime_frac_steady':1.,'regime_frac_transition':0.,
+        'regime_frac_resilience':0.,'steady_difficulty':0.,
+        'transition_difficulty':0.,'resilience_difficulty':0.,
+        'posture_difficulty':0.,'probe_cmd_vx':float(speed),
+        'probe_cmd_vy':float(lateral),'probe_cmd_yaw':float(yaw_rate),
+        'probe_tilt_rad':0.,'probe_linvel_mps':0.,
+        'probe_angvel_rad_s':0.,'probe_joint_rad':0.,
+    }
+    trace=trainer['evaluate_trace'](
+        params,env.params_array(task),
+        jnp.asarray(norm['mean']),jnp.sqrt(jnp.asarray(norm['var'])),
+        jax.random.PRNGKey(int(seed)),int(horizon),float(heading_kp),
+        None,jnp.asarray(schedule),float(gyro_bias),float(gyro_noise),
+        int(gyro_delay_frames))
+    frames=jax.device_get(trace)
+    evaluated=evaluate_trace_arrays(
+        frames,np.tile(g,(int(worlds),1)),dt=.02,
+        settle_frames=int(settle_frames))
+    report={
+        'schema':1,'source_commit':source_commit(),
+        'checkpoint_sha256':sha256_file(checkpoint),
+        'checkpoint_training_step':int(saved['meta']['step']),
+        'exam':dict(angle_deg=float(angle_deg),direction=direction,
+                    gravity_world=g.tolist(),worlds=int(worlds),
+                    horizon=int(horizon),settle_frames=int(settle_frames),
+                    speed=float(speed),lateral=float(lateral),
+                    yaw_rate=float(yaw_rate),seed=int(seed),device=device,
+                    heading_p_enabled=heading_kp>0,heading_kp=float(heading_kp),
+                    heading_sensor='body gyro-Z integrated with optional bias/white noise/delay',
+                    scenario=scenario,turn_rate=float(turn_rate),
+                    gyro_bias_rad_s=float(gyro_bias),
+                    gyro_noise_std_rad_s=float(gyro_noise),
+                    gyro_delay_frames=int(gyro_delay_frames)),
+        'worlds':evaluated,
+    }
+    output.mkdir(parents=True,exist_ok=True)
+    output_json=output/'directional_exam.json'
+    output_json.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+    ok=sum(bool(r.get('course_pass')) for r in evaluated)
+    gait=sum(bool(r.get('walking_pass')) for r in evaluated)
+    lines=[
+        '# EMU v5016 directional exam','',
+        'Trained policy SHA256: '+report['checkpoint_sha256'],
+        'Exam source: '+report['source_commit'],
+        'Incline: '+str(angle_deg)+' deg, '+direction,
+        'Course success: '+str(ok)+'/'+str(worlds),
+        'Contact-pair stride candidate success: '+str(gait)+'/'+str(worlds),
+        '',
+        'The contact-pair gait count is an estimate, not measured ground-reaction force.',
+        'Scenario: '+scenario+'; turn rate: '+str(turn_rate)+' rad/s.',
+        'Gyro bias/noise/delay: '+str(gyro_bias)+' / '+
+          str(gyro_noise)+' rad/s / '+str(gyro_delay_frames)+' frames.',
+        'Heading P gain: '+str(heading_kp)+' /s (0 means OFF).',
+        'When ON, only the yaw-rate request delivered to PPO is corrected.',
+        'Exam course is ALWAYS scored against original operator commands.',
+        'Yaw estimate integrates body gyro with configured sensor imperfections.',
+        'Original operator command schedule is not changed by heading P.',
+        'No PPO retraining, reward or policy modification was performed.',
+        'A rotated gravity field represents infinite uniform ground; not a physical ramp.',
+        '',
+        '| World | Full horizon | Course pass | Gait candidate | Signed progress m | Heading MAE deg | Correction rad/s | Contact stride pairs |',
+        '|---|---|---|---|---:|---:|---:|---:|',
+    ]
+    for r in evaluated:
+        head=r.get('heading_mae_deg')
+        lines.append('| '+ ' | '.join([
+            str(r['world']),
+            'yes' if r['full_horizon_survival'] else 'no',
+            'yes' if r.get('course_pass') else 'no',
+            'yes' if r.get('walking_pass') else 'not proven',
+            f"{r['signed_course_progress_m']:.3f}" if 'signed_course_progress_m' in r else '—',
+            f'{head:.2f}' if head is not None else '—',
+            f"{r['mean_abs_controller_correction_rad_s']:.3f}"
+                if 'mean_abs_controller_correction_rad_s' in r else '—',
+            str(r.get('contact_stride_pairs',0)),
+        ])+' |')
+    output_md=output/'directional_exam.md'
+    output_md.write_text('\n'.join(lines)+'\n')
+    return output_json,output_md
+
+
+
+def _summarize_worlds(worlds):
+    """Keep survival and course/gait obedience distinct; do not merge them."""
+    def mean_optional(key):
+        values=[float(w[key]) for w in worlds if key in w]
+        return sum(values)/len(values) if values else None
+    count=len(worlds)
+    return dict(worlds=count,
+                survived_full=sum(bool(w['full_horizon_survival']) for w in worlds)/count,
+                course_pass=sum(bool(w.get('course_pass')) for w in worlds)/count,
+                gait_candidate_pass=sum(bool(w.get('walking_pass')) for w in worlds)/count,
+                progress_m=mean_optional('signed_course_progress_m'),
+                heading_mae_deg=mean_optional('heading_mae_deg'),
+                yaw_rate_mae_rad_s=mean_optional('yaw_rate_mae_rad_s'),
+                yaw_abs_error_1s=mean_optional('yaw_abs_error_1s'),
+                yaw_abs_error_3s=mean_optional('yaw_abs_error_3s'),
+                gyro_heading_error_mae_deg=mean_optional('gyro_heading_error_mae_deg'),
+                mean_abs_controller_correction_rad_s=
+                    mean_optional('mean_abs_controller_correction_rad_s'))
+
+
+def evaluate_directional_pair(run_dir, *, output, heading_kp=0.75, **kwargs):
+    """Two matched read-only exams plus one human-readable delta report.
+
+    The same saved policy, initial seeds, command and slope are evaluated once
+    with the outer heading loop OFF, once ON. Never silently select a winner.
+    """
+    target=Path(output).expanduser().resolve()
+    run=Path(run_dir).expanduser().resolve()
+    if target==run or run in target.parents or target in run.parents:
+        raise ValueError('comparison output must be outside original run')
+    if target.exists() and (not target.is_dir() or any(target.iterdir())):
+        raise FileExistsError('comparison requires new/empty --output root')
+    if not math.isfinite(heading_kp) or not 0 < heading_kp <= 2.0:
+        raise ValueError('compare mode needs a positive heading-kp in (0,2]')
+    off_json,_=evaluate_directional_run(run_dir,output=target/'off',
+                            heading_kp=0.0,**kwargs)
+    on_json,_=evaluate_directional_run(run_dir,output=target/'on',
+                           heading_kp=heading_kp,**kwargs)
+    off=json.loads(off_json.read_text())
+    on=json.loads(on_json.read_text())
+    if (off['checkpoint_sha256']!=on['checkpoint_sha256'] or
+            off['checkpoint_training_step']!=on['checkpoint_training_step']):
+        raise RuntimeError('paired evaluations did not use same checkpoint')
+    for key in ('seed','worlds','horizon','speed','lateral','yaw_rate',
+                'angle_deg','direction','settle_frames','scenario','turn_rate',
+                'gyro_bias_rad_s','gyro_noise_std_rad_s','gyro_delay_frames'):
+        if off['exam'][key]!=on['exam'][key]:
+            raise RuntimeError('paired examinations have unequal '+key)
+    s_off=_summarize_worlds(off['worlds'])
+    s_on=_summarize_worlds(on['worlds'])
+    keys=('survived_full','course_pass','gait_candidate_pass','progress_m',
+          'heading_mae_deg','yaw_rate_mae_rad_s','yaw_abs_error_1s','yaw_abs_error_3s',
+          'gyro_heading_error_mae_deg',
+          'mean_abs_controller_correction_rad_s')
+    delta={k: (s_on[k]-s_off[k]) if s_on[k] is not None and s_off[k] is not None else None
+           for k in keys}
+    result=dict(schema=1,checkpoint_sha256=off['checkpoint_sha256'],
+                examined_at_revision=off['source_commit'],
+                protocol={k:off['exam'][k] for k in off['exam'] if k not in
+                          ('heading_p_enabled','heading_kp')},
+                heading_kp=heading_kp,off=s_off,on=s_on,
+                on_minus_off=delta,conclusion='comparison only; no automatic promotion')
+    path=target/'heading_comparison.json'
+    path.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    lines=['# Paired v5016 heading-hold evaluation','',
+           'Checkpoint SHA256: '+result['checkpoint_sha256'],
+           'Gain ON: '+str(heading_kp)+'/s. Both cases use same seeds and operator requests.',
+           'The controller sees gyro-integrated relative yaw, not simulator true yaw.',
+           'Course scoring always uses unmodified operator commands.',
+           '',
+           '| Measurement | OFF | ON | ON minus OFF |',
+           '|---|---:|---:|---:|']
+    for key in keys:
+        vals=[s_off[key],s_on[key],delta[key]]
+        lines.append('| '+key+' | '+' | '.join(
+            '—' if x is None else f'{x:.4f}' for x in vals)+' |')
+    lines+=['','Fractions are over all examined worlds. Other metrics are means',
+            'of valid measured episodes, NOT conditionally matched survivor pairs.',
+            'Review individual world outcomes in off/ and on/ before any decision.',
+            'A better heading MAE does not compensate for worse survival or course progress.',
+            'This comparison did not retrain or alter the checkpoint.']
+    md=target/'heading_comparison.md'
+    md.write_text('\n'.join(lines)+'\n')
+    return path,md
+
+
+def directional_main(argv=None):
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--run-dir',required=True)
+    p.add_argument('--output',required=True)
+    p.add_argument('--angle',type=float,default=0.)
+    p.add_argument('--direction',choices=('uphill','downhill','cross_left','cross_right'),default='uphill')
+    p.add_argument('--worlds',type=int,default=8)
+    p.add_argument('--horizon',type=int,default=350)
+    p.add_argument('--speed',type=float,default=.10)
+    p.add_argument('--lateral',type=float,default=0.)
+    p.add_argument('--yaw-rate',type=float,default=0.)
+    p.add_argument('--settle-frames',type=int,default=25)
+    p.add_argument('--scenario',choices=SCENARIOS,default='steady')
+    p.add_argument('--turn-rate',type=float,default=.25)
+    p.add_argument('--gyro-bias',type=float,default=0.)
+    p.add_argument('--gyro-noise',type=float,default=0.)
+    p.add_argument('--gyro-delay-frames',type=int,default=0)
+    p.add_argument('--seed',type=int,default=1701)
+    p.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cuda')
+    p.add_argument('--heading-kp',type=float,default=0.75,
+                   help='P gain per second, used for ON/compare; default OFF unless selected')
+    p.add_argument('--compare-heading',action='store_true',
+                   help='evaluate matched OFF and ON rollouts into one separate bundle')
+    a=p.parse_args(argv)
+    kw=dict(angle_deg=a.angle,direction=a.direction,worlds=a.worlds,
+            horizon=a.horizon,speed=a.speed,lateral=a.lateral,
+            yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
+            settle_frames=a.settle_frames,scenario=a.scenario,
+            turn_rate=a.turn_rate,gyro_bias=a.gyro_bias,
+            gyro_noise=a.gyro_noise,gyro_delay_frames=a.gyro_delay_frames)
+    if a.compare_heading:
+        outputs=evaluate_directional_pair(a.run_dir,output=a.output,
+                              heading_kp=a.heading_kp,**kw)
+    else:
+        # Single-case invocation deliberately remains controller OFF by default.
+        outputs=evaluate_directional_run(a.run_dir,output=a.output,
+                             heading_kp=0.0,**kw)
+    for path in outputs:
+        print(path)
+    return 0
+
+
+
+# Operator-command courses: unmodified requests, never robot-derived.
+import math
+import numpy as np
+
+SCENARIOS = ('steady', 'turn_stop_left', 'turn_stop_right',
+             'sidestep_left', 'sidestep_right', 'reverse', 'stop_resume')
+
+
+def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
+                  yaw_rate=0., turn_rate=.25):
+    if scenario not in SCENARIOS:
+        raise ValueError('unknown scenario: '+str(scenario))
+    if not 30 <= int(horizon) <= 700:
+        raise ValueError('schedule horizon must be between 30 and 700 frames')
+    if not all(math.isfinite(x) for x in (speed, lateral, yaw_rate, turn_rate)):
+        raise ValueError('commands must be finite')
+    if abs(speed) > .6 or abs(lateral) > .25 or abs(yaw_rate) > 1.5 or not 0 < turn_rate <= 1.5:
+        raise ValueError('command outside safe test envelope')
+    n = int(horizon)
+    cmds = np.tile(np.array([speed, 0., yaw_rate], dtype=np.float32), (n, 1))
+    a = n//4
+    b = n*2//3
+    if scenario in ('turn_stop_left','turn_stop_right'):
+        cmds[:,2] = 0.
+        cmds[a:b,2] = turn_rate if scenario.endswith('left') else -turn_rate
+    elif scenario in ('sidestep_left','sidestep_right'):
+        cmds[:,2] = 0.
+        cmds[a:b,0] = 0.
+        cmds[a:b,1] = lateral if scenario.endswith('left') else -lateral
+    elif scenario == 'reverse':
+        cmds[:,2] = 0.
+        cmds[a:b,0] = -abs(speed)
+    elif scenario == 'stop_resume':
+        cmds[:,2] = 0.
+        cmds[a:b,0] = 0.
+    return cmds
+
+
+# Matched multi-branch GPU examination plans use the same physical examiner.
+
+import argparse
+import csv
+import json
+import math
+from pathlib import Path
+import subprocess
+import sys
+import zipfile
+
+
+ARMS=('baseline','shadow','slope','pitch15')
+
+
+def cases(profile):
+    if profile=='smoke':
+        return [('baseline','flat',0.,'uphill','steady',40),
+                ('baseline','turn_stop',0.,'uphill','turn_stop_left',160)]
+    if profile=='pilot':
+        tasks=[('turn_left',0.,'uphill','turn_stop_left'),
+               ('turn_right',0.,'uphill','turn_stop_right'),
+               ('up_025',.25,'uphill','steady'),
+               ('up_050',.5,'uphill','steady'),
+               ('cross_050',.5,'cross_left','steady')]
+        return [(arm,name,angle,direction,scenario,350)
+                for arm in ARMS for name,angle,direction,scenario in tasks]
+    if profile=='sensor':
+        return [(arm,name,angle,direction,scenario,350)
+                for arm in ('baseline','slope')
+                for name,angle,direction,scenario in (
+                    ('noisy_turn',0.,'uphill','turn_stop_left'),
+                    ('noisy_up_025',.25,'uphill','steady'))]
+    if profile=='stretch':
+        return [(arm,'up_100',1.,'uphill','steady',350) for arm in ARMS]
+    raise ValueError('unknown profile')
+
+
+def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda'):
+    source=Path(root).expanduser().resolve()
+    dest=Path(output).expanduser().resolve()
+    if source==dest or source in dest.parents or dest in source.parents:
+        raise ValueError('outputs and training directories must be separate')
+    n=int(worlds or (2 if profile=='smoke' else 8))
+    if not 2<=n<=64 or not math.isfinite(kp) or not 0<kp<=2:
+        raise ValueError('bounded worlds/gain required')
+    bias,noise,delay=(.015,.02,2) if profile=='sensor' else (0.,0.,0)
+    return [dict(arm=arm,label=label,angle=angle,direction=direction,
+          scenario=scenario,horizon=horizon,worlds=n,seed=int(seed),
+          heading_kp=kp,device=device,gyro_bias=bias,gyro_noise=noise,
+          gyro_delay_frames=delay,run_dir=str(source/'round1'/arm),
+          output=str(dest/profile/arm/label))
+          for arm,label,angle,direction,scenario,horizon in cases(profile)]
+
+
+def verify_existing(path,job,revision,checkpoint_hash):
+    if not path.exists():
+        return False
+    info=json.loads(path.read_text())
+    if info.get('checkpoint_sha256')!=checkpoint_hash or (
+        info.get('examined_at_revision')!=revision):
+        raise ValueError('stale source or trained checkpoint in '+str(path))
+    exam=info.get('protocol',{})
+    wanted=dict(angle_deg=job['angle'],direction=job['direction'],
+        scenario=job['scenario'],worlds=job['worlds'],horizon=job['horizon'],
+        seed=job['seed'],gyro_bias_rad_s=job['gyro_bias'],
+        gyro_noise_std_rad_s=job['gyro_noise'],
+        gyro_delay_frames=job['gyro_delay_frames'])
+    if any(exam.get(k)!=v for k,v in wanted.items()) or (
+        info.get('heading_kp')!=job['heading_kp']):
+        raise ValueError('stale/changed exam parameters: '+str(path))
+    if not all((path.parent/mode/'directional_exam.json').is_file()
+               for mode in ('off','on')):
+        raise ValueError('incomplete paired evidence: '+str(path))
+    return True
+
+
+def summarize(jobs,profile_root,revision):
+    rows=[]
+    for job in jobs:
+        p=Path(job['output'])/'heading_comparison.json'
+        if p.is_file():
+            data=json.loads(p.read_text())
+            rows.append(dict(arm=job['arm'],case=job['label'],angle_deg=job['angle'],
+                 checkpoint_sha256=data['checkpoint_sha256'],
+                 protocol=data['protocol'],off=data['off'],on=data['on'],
+                 on_minus_off=data['on_minus_off']))
+    summary=dict(schema=1,profile=profile_root.name,source_commit=revision,
+                 expected=len(jobs),completed=len(rows),results=rows)
+    (profile_root/'results_data.json').write_text(json.dumps(summary,indent=2)+'\n')
+    lines=['# v5016 '+profile_root.name+' — matched heading and terrain tests','',
+        'Source commit: '+revision,
+        str(len(rows))+'/'+str(len(jobs))+' cases complete.',
+        'Same saved checkpoint and operator request for each ON/OFF pair.',
+        'No PPO training or promotion performed. Gait contact flags are estimates.',
+        '',
+        '| Policy | Case | OFF survival | ON survival | OFF course | ON course | OFF heading MAE | ON heading MAE |',
+        '|---|---|---:|---:|---:|---:|---:|---:|']
+    def v(x,key,percent=False):
+        value=x.get(key)
+        if value is None:
+            return '—'
+        return format(100*value if percent else value,'.1f')+('%' if percent else '')
+    for row in rows:
+        a,b=row['off'],row['on']
+        lines.append('| '+' | '.join((row['arm'],row['case'],
+            v(a,'survived_full',True),v(b,'survived_full',True),
+            v(a,'course_pass',True),v(b,'course_pass',True),
+            v(a,'heading_mae_deg'),v(b,'heading_mae_deg')))+' |')
+    lines+=['','Higher survival and actual requested-course progress must accompany',
+            'any claimed heading benefit. Inspect the raw paired episodes.']
+    (profile_root/'results.md').write_text('\n'.join(lines)+'\n')
+    with (profile_root/'results.csv').open('w',newline='') as file:
+        fields=('arm','case','mode','survived_full','course_pass',
+                'gait_candidate_pass','progress_m','heading_mae_deg',
+                'yaw_abs_error_1s','gyro_heading_error_mae_deg')
+        w=csv.DictWriter(file,fieldnames=fields)
+        w.writeheader()
+        for r in rows:
+            for mode in ('off','on'):
+                item=r[mode]
+                w.writerow(dict(arm=r['arm'],case=r['case'],mode=mode,
+                    **{k:item.get(k) for k in fields[3:]}))
+    temp=profile_root/'results_bundle.zip.tmp'
+    bundle=profile_root/'results_bundle.zip'
+    with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_DEFLATED) as z:
+        for p in ('results.md','results.csv','results_data.json'):
+            z.write(profile_root/p,arcname=p)
+        for job in jobs:
+            base=Path(job['output'])
+            for p in ('heading_comparison.md','heading_comparison.json',
+                      'off/directional_exam.md','off/directional_exam.json',
+                      'on/directional_exam.md','on/directional_exam.json'):
+                f=base/p
+                if f.is_file() and not f.is_symlink():
+                    z.write(f,arcname=job['arm']+'/'+job['label']+'/'+p)
+    temp.replace(bundle)
+    return bundle,len(rows)
+
+
+def execute(jobs,revision,*,actually_run=False):
+    if not jobs:
+        raise ValueError('no experiment cases')
+    profile_root=Path(jobs[0]['output']).parents[1]
+    for i,j in enumerate(jobs,1):
+        print(f"{i:02d}/{len(jobs)} {j['arm']} {j['label']} "
+              f"{j['angle']}deg {j['worlds']} worlds x {j['horizon']} steps "
+              f"bias={j['gyro_bias']} noise={j['gyro_noise']} delay={j['gyro_delay_frames']}",
+              flush=True)
+    if not actually_run:
+        print('PLAN ONLY. Add --run to execute (saved training is read-only).')
+        return
+    hashes={}
+    for j in jobs:
+        checkpoint=Path(j['run_dir'])/'checkpoints/final.pkl'
+        if not checkpoint.is_file():
+            raise FileNotFoundError(str(checkpoint))
+        if j['arm'] not in hashes:
+            hashes[j['arm']]=sha256_file(checkpoint)
+    profile_root.mkdir(parents=True,exist_ok=True)
+    for job in jobs:
+        dest=Path(job['output'])
+        report=dest/'heading_comparison.json'
+        if verify_existing(report,job,revision,hashes[job['arm']]):
+            print('Already validated: '+str(dest),flush=True)
+            continue
+        if dest.exists() and any(dest.iterdir()):
+            raise FileExistsError('partial exam: inspect before retry '+str(dest))
+        cmd=[sys.executable,'-m','emu.cli','directional-exam','--run-dir',job['run_dir'],
+             '--output',str(dest),'--angle',str(job['angle']),
+             '--direction',job['direction'],'--scenario',job['scenario'],
+             '--worlds',str(job['worlds']),'--horizon',str(job['horizon']),
+             '--seed',str(job['seed']),'--device',job['device'],
+             '--heading-kp',str(job['heading_kp']),'--compare-heading',
+             '--gyro-bias',str(job['gyro_bias']),
+             '--gyro-noise',str(job['gyro_noise']),
+             '--gyro-delay-frames',str(job['gyro_delay_frames'])]
+        subprocess.run(cmd,check=True)
+        if not verify_existing(report,job,revision,hashes[job['arm']]):
+            raise RuntimeError('no completed exam at '+str(report))
+        summarize(jobs,profile_root,revision)
+    zip_path,n=summarize(jobs,profile_root,revision)
+    print('Completed '+str(n)+'/'+str(len(jobs))+'; upload '+str(zip_path))
+
+
+def batch_main(argv=None):
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--root',required=True)
+    p.add_argument('--output',required=True)
+    p.add_argument('--profile',choices=('smoke','pilot','sensor','stretch'),default='smoke')
+    p.add_argument('--worlds',type=int)
+    p.add_argument('--seed',type=int,default=1701)
+    p.add_argument('--heading-kp',type=float,default=.75)
+    p.add_argument('--device',choices=('auto','cpu','cuda','gpu'),default='cuda')
+    p.add_argument('--run',action='store_true')
+    a=p.parse_args(argv)
+    jobs=plan(a.profile,a.root,a.output,worlds=a.worlds,seed=a.seed,
+              kp=a.heading_kp,device=a.device)
+    execute(jobs,source_commit(),actually_run=a.run)
+    return 0
+
+if __name__ == '__main__':
+    raise SystemExit(screen_main())
