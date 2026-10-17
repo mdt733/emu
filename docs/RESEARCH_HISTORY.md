@@ -167,3 +167,23 @@ be proposed for main. Never resume an old training root from new source.
 - The approved frozen actor physical batch includes 13 cases: ten flat
   direction/maneuver cases, three separate REAL contact 2° grade cases.
   These are a physics audit, not a completed demonstrated climb.
+
+
+### v5016 real GPU examination user feedback — null summaries and recovery
+
+- A frozen Pitch15 four-world steady course completed its OFF and ON MJX
+  rollouts on the user's WSL/CUDA machine, but the paired report crashed
+  because an unobserved command-transition latency is JSON null. This is
+  expected on a steady command (no maneuver), not evidence of instantaneous
+  response. Nulls are now skipped by optional averaging, not forced to zero.
+- The existing paired exam can explicitly accept `--compare-heading
+  --reuse-completed` to reconstruct its **missing** paired report from
+  existing `off/` and `on/` exam JSON, without another simulation. It checks
+  SHA256 of the actual frozen policy/checkpoint, complete operator protocol,
+  heading mode, seed, world count and shared source revision; it records
+  the original physics and later analysis revisions separately.
+- A public CLI integration test runs the protected Pitch15 actor with the
+  same `--compare-heading` flag, verifies null reporting, deletes only
+  the derived paired summaries, and reconstructs them with MJX evaluation
+  monkeypatched to fail if any new rollout is attempted. CPU CI is required;
+  real CUDA evaluation/feasibility remain separately verified by WSL.

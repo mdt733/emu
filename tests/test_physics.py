@@ -395,3 +395,44 @@ def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
     assert exam['grade_reference_gravity_world'][0] < 0.
     assert len(report['worlds'])==2
     assert all('course_pass' in row for row in report['worlds'])
+
+
+def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch):
+    """End to end through the exact --compare-heading command used in WSL.
+
+    A steady course has NO maneuver transition event. Both reported
+    response latencies must remain null, not crash or pretend zero delay.
+    """
+    pytest.importorskip('mujoco')
+    pytest.importorskip('optax')
+    pytest.importorskip('jax')
+    import json
+    from pathlib import Path
+    from emu import cli, evaluation
+    policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    out=tmp_path/'flat_pair'
+    argv=['directional-exam','--policy',str(policy),'--output',str(out),
+          '--worlds','2','--horizon','38','--settle-frames','0',
+          '--device','cpu','--seed','1701','--speed','.10',
+          '--compare-heading']
+    assert cli.main(argv)==0
+    report=json.loads((out/'heading_comparison.json').read_text())
+    assert report['off']['maneuver_response_s'] is None
+    assert report['on']['maneuver_response_s'] is None
+    assert report['reused_completed_rollouts'] is False
+    assert (out/'off'/'directional_exam.json').is_file()
+    assert (out/'on'/'directional_exam.json').is_file()
+    # Reproduce the observed WSL failure: both raw JSON are intact but
+    # the paired summary was lost. Recover entirely without another rollout.
+    (out/'heading_comparison.json').unlink()
+    (out/'heading_comparison.md').unlink()
+    def forbid_new_rollout(*args,**kwargs):
+        raise AssertionError('recovery unexpectedly started MJX simulation')
+    monkeypatch.setattr(evaluation,'evaluate_directional_run',forbid_new_rollout)
+    assert cli.main([*argv,'--reuse-completed'])==0
+    recovered=json.loads((out/'heading_comparison.json').read_text())
+    assert recovered['reused_completed_rollouts'] is True
+    assert recovered['off']==report['off'] and recovered['on']==report['on']
+    (out/'heading_comparison.json').unlink()
+    with pytest.raises(ValueError,match='reuse protocol mismatch'):
+        cli.main([*argv,'--speed','.2','--reuse-completed'])

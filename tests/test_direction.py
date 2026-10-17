@@ -507,3 +507,21 @@ def test_spring_accounting_survivor_uses_final_state_not_stale_last_frame():
     with pytest.raises(ValueError,match='misaligned'):
         examine_spring_cycle(trace,1,start=0,stop=4,terminal=False,
                              contacts=np.ones((4,2),dtype=bool))
+
+
+def test_nullable_exam_summary_never_converts_unobserved_response_to_zero():
+    from emu.evaluation import _summarize_worlds
+    base=dict(full_horizon_survival=True,course_pass=False,
+              walking_pass=False,maneuver_mean_response_s=None,
+              braking_path_first_0p5s_m=None)
+    a=_summarize_worlds([base.copy(),base.copy()])
+    assert a['maneuver_response_s'] is None
+    assert a['braking_path_first_0p5s_m'] is None
+    assert a['physical_worlds']==0
+    assert a['drive_work_per_progress_j_m'] is None
+    observed=dict(base,maneuver_mean_response_s=.24,
+                  braking_path_first_0p5s_m=.033)
+    b=_summarize_worlds([base,observed])
+    assert b['maneuver_response_s']==pytest.approx(.24)
+    assert b['braking_path_first_0p5s_m']==pytest.approx(.033)
+    assert b['survived_full']==1.0

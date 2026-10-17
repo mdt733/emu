@@ -172,6 +172,8 @@ def main(argv=None) -> int:
     q.add_argument('--gyro-noise',type=float,default=0.)
     q.add_argument('--gyro-delay-frames',type=int,default=0)
     q.add_argument('--contact-slope',action='store_true',help='real inclined floor with vertical gravity')
+    q.add_argument('--reuse-completed',action='store_true',
+                   help='reuse saved OFF/ON exam JSON to rebuild missing comparison')
     q.add_argument('--compare-heading',action='store_true',
                    help='matched read-only controller OFF/ON comparison')
     q.add_argument('--heading-kp',type=float,default=0.75)
@@ -249,7 +251,8 @@ def main(argv=None) -> int:
                     '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
                     '--gyro-delay-frames',str(args.gyro_delay_frames),
                     *(['--contact-slope'] if args.contact_slope else []),
-                    *(['--compare-heading'] if args.compare_heading else [])])
+                    *(['--compare-heading'] if args.compare_heading else []),
+                    *(['--reuse-completed'] if args.reuse_completed else [])])
     if args.cmd=='directional-batch':
         from .evaluation import plan,execute
         from .evaluation import source_commit

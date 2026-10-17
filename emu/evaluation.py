@@ -888,7 +888,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
 def _summarize_worlds(worlds):
     """Keep survival and course/gait obedience distinct; do not merge them."""
     def mean_optional(key):
-        values=[float(w[key]) for w in worlds if key in w]
+        # Absent/unobserved events are explicitly JSON null. A missing
+        # braking or transition response is NOT zero seconds, and must
+        # never prevent reporting survival, actuator load or course travel.
+        values=[float(w[key]) for w in worlds if w.get(key) is not None]
         return sum(values)/len(values) if values else None
     def physical_optional(key):
         values=[float(w['physical_evidence'][key]) for w in worlds
@@ -933,7 +936,8 @@ def _summarize_worlds(worlds):
 
 
 def evaluate_directional_pair(run_dir=None, *, policy_file=None,
-                              output, heading_kp=0.75, **kwargs):
+                              output, heading_kp=0.75,
+                              reuse_completed=False, **kwargs):
     """Two matched read-only exams plus one human-readable delta report.
 
     The same saved policy, initial seeds, command and slope are evaluated once
@@ -945,17 +949,62 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
     run=Path(policy_file if policy_file is not None else run_dir).expanduser().resolve()
     if target==run or run in target.parents or target in run.parents:
         raise ValueError('comparison output must be outside original run')
-    if target.exists() and (not target.is_dir() or any(target.iterdir())):
-        raise FileExistsError('comparison requires new/empty --output root')
     if not math.isfinite(heading_kp) or not 0 < heading_kp <= 2.0:
         raise ValueError('compare mode needs a positive heading-kp in (0,2]')
-    source_kwargs = {'policy_file': run} if policy_file is not None else {'run_dir': run}
-    off_json,_=evaluate_directional_run(output=target/'off',
-                            heading_kp=0.0,**source_kwargs,**kwargs)
-    on_json,_=evaluate_directional_run(output=target/'on',
-                           heading_kp=heading_kp,**source_kwargs,**kwargs)
+    if reuse_completed:
+        off_json=target/'off'/'directional_exam.json'
+        on_json=target/'on'/'directional_exam.json'
+        if not off_json.is_file() or not on_json.is_file():
+            raise FileNotFoundError('recovery needs BOTH finished off/on directional_exam.json reports')
+        if (target/'heading_comparison.json').exists():
+            raise FileExistsError('paired comparison already exists; refusing to overwrite it')
+    else:
+        if target.exists() and (not target.is_dir() or any(target.iterdir())):
+            raise FileExistsError('comparison requires new/empty --output root')
+        source_kwargs = {'policy_file': run} if policy_file is not None else {'run_dir': run}
+        off_json,_=evaluate_directional_run(output=target/'off',
+                                heading_kp=0.0,**source_kwargs,**kwargs)
+        on_json,_=evaluate_directional_run(output=target/'on',
+                               heading_kp=heading_kp,**source_kwargs,**kwargs)
     off=json.loads(off_json.read_text())
     on=json.loads(on_json.read_text())
+    if reuse_completed:
+        artifact=run if run.is_file() else run/'checkpoints'/'final.pkl'
+        if not artifact.is_file():
+            raise FileNotFoundError(artifact)
+        actual_sha=sha256_file(artifact)
+        # Exact operator/motor-world request; no guessing from directory names.
+        expected=dict(
+            angle_deg=float(kwargs.get('angle_deg',0.)),
+            direction=kwargs.get('direction','uphill'),
+            ground_mode=('inclined_contact_plane' if kwargs.get('contact_slope',False)
+                         else 'tilted_gravity'),
+            worlds=int(kwargs.get('worlds',8)),
+            horizon=int(kwargs.get('horizon',350)),
+            settle_frames=int(kwargs.get('settle_frames',25)),
+            speed=float(kwargs.get('speed',.10)),
+            lateral=float(kwargs.get('lateral',0.)),
+            yaw_rate=float(kwargs.get('yaw_rate',0.)),
+            seed=int(kwargs.get('seed',1701)),
+            device=kwargs.get('device','cuda'),
+            scenario=kwargs.get('scenario','steady'),
+            turn_rate=float(kwargs.get('turn_rate',.25)),
+            gyro_bias_rad_s=float(kwargs.get('gyro_bias',0.)),
+            gyro_noise_std_rad_s=float(kwargs.get('gyro_noise',0.)),
+            gyro_delay_frames=int(kwargs.get('gyro_delay_frames',0)))
+        for mode, report, gain in (('off',off,0.),('on',on,heading_kp)):
+            exam=report.get('exam',{})
+            if report.get('schema')!=2 or report.get('source_artifact_sha256')!=actual_sha:
+                raise ValueError('saved '+mode+' actor identity does not match source')
+            if any(exam.get(k)!=v for k,v in expected.items()):
+                raise ValueError('saved '+mode+' reuse protocol mismatch; do not mix examinations')
+            if exam.get('heading_p_enabled')!=(gain>0) or exam.get('heading_kp')!=gain:
+                raise ValueError('saved '+mode+' heading controller setting mismatched')
+            if len(report.get('worlds',[]))!=expected['worlds']:
+                raise ValueError('saved '+mode+' world count mismatched')
+        if (off.get('source_commit') != on.get('source_commit')
+            or off.get('source_artifact_type') != on.get('source_artifact_type')):
+            raise ValueError('saved OFF/ON evidence came from different source revisions')
     if (off['source_artifact_sha256']!=on['source_artifact_sha256'] or
             off['checkpoint_training_step']!=on['checkpoint_training_step']):
         raise RuntimeError('paired evaluations did not use same checkpoint')
@@ -987,13 +1036,18 @@ def evaluate_directional_pair(run_dir=None, *, policy_file=None,
                 examined_at_revision=off['source_commit'],
                 protocol={k:off['exam'][k] for k in off['exam'] if k not in
                           ('heading_p_enabled','heading_kp')},
-                heading_kp=heading_kp,off=s_off,on=s_on,
+                heading_kp=heading_kp,analysis_revision=source_commit(),
+                reused_completed_rollouts=bool(reuse_completed),
+                off=s_off,on=s_on,
                 on_minus_off=delta,conclusion='comparison only; no automatic promotion')
     path=target/'heading_comparison.json'
     path.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
     lines=['# Paired v5016 heading-hold evaluation','',
            'Source actor SHA256: '+result['source_artifact_sha256'],
            'Source type: '+result['source_artifact_type'],
+           'Frozen rollout revision: '+result['examined_at_revision'],
+           'Report analysis revision: '+result['analysis_revision'],
+           'Reused completed rollouts: '+str(result['reused_completed_rollouts']),
            'Gain ON: '+str(heading_kp)+'/s. Both cases use same seeds and operator requests.',
            'The controller sees gyro-integrated relative yaw, not simulator true yaw.',
            'Course scoring always uses unmodified operator commands.',
@@ -1044,7 +1098,11 @@ def directional_main(argv=None):
                    help='P gain per second, used for ON/compare; default OFF unless selected')
     p.add_argument('--compare-heading',action='store_true',
                    help='evaluate matched OFF and ON rollouts into one separate bundle')
+    p.add_argument('--reuse-completed',action='store_true',
+                   help='rebuild a missing pair report from saved OFF/ON JSON, with no MJX stepping')
     a=p.parse_args(argv)
+    if a.reuse_completed and not a.compare_heading:
+        p.error('--reuse-completed requires --compare-heading')
     kw=dict(angle_deg=a.angle,direction=a.direction,worlds=a.worlds,
             horizon=a.horizon,speed=a.speed,lateral=a.lateral,
             yaw_rate=a.yaw_rate,seed=a.seed,device=a.device,
@@ -1055,7 +1113,8 @@ def directional_main(argv=None):
     if a.compare_heading:
         outputs=evaluate_directional_pair(
                               run_dir=a.run_dir,policy_file=a.policy,
-                              output=a.output,heading_kp=a.heading_kp,**kw)
+                              output=a.output,heading_kp=a.heading_kp,
+                              reuse_completed=a.reuse_completed,**kw)
     else:
         # Single-case invocation deliberately remains controller OFF by default.
         outputs=evaluate_directional_run(
