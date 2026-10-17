@@ -301,3 +301,25 @@ def test_explicit_start_speed_and_stop_schedules_are_physical_requests():
     assert np.allclose(step[30:,0],.1)
     assert np.all(brake[80:,0]==0)
     assert np.allclose(brake[:80,0],.1)
+
+
+def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
+    from pathlib import Path
+    from emu.evaluation import plan, execute, verify_existing
+    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    root=tmp_path/'unique_exam_results'
+    jobs=plan('physical',None,root,policy_file=champion,worlds=4,seed=1701)
+    assert len(jobs)==10
+    assert {x['arm'] for x in jobs}=={'champion'}
+    assert all(x['is_exported_policy'] for x in jobs)
+    assert all(x['run_dir']==str(champion.resolve()) for x in jobs)
+    assert all(x['worlds']==4 and x['seed']==1701 for x in jobs)
+    assert {x['scenario'] for x in jobs} >= {'rest_start','brake_stop','reverse',
+                                               'turn_stop_left','sidestep_right'}
+    execute(jobs,'synthetic_revision',actually_run=False)
+    assert not root.exists(), 'planning must create no experiment directory'
+    assert verify_existing(root/'missing.json',jobs[0],'src','sha') is False
+    with pytest.raises(ValueError,match='exported policy'):
+        plan('pilot',None,root,policy_file=champion)
+    with pytest.raises(ValueError,match='specify training'):
+        plan('physical',tmp_path/'old_run',root)
