@@ -108,3 +108,24 @@ immediately distinguishable from an unreachable waypoint.
 These are browser-runtime safety checks, not proof of goal-navigation
 competence in the full MuJoCo biped. The feature remains experimental on
 a draft PR; merge only after actual Chrome/mobile behaviour is checked.
+
+
+## 2026-10-19 additional correction: same proven command pipeline
+
+The first attempt to repair the frozen robot moved A* to a Worker but left
+an **unnecessary alternate yaw/control path** in `sim.stepControl()`.
+The user confirmed Random command practice continued to walk, while
+Navigate random poses remained frozen. Navigation now feeds the *exact*
+same `sim.setDemoCommands({vx,vy,yaw,pitch})` callback as the working
+random demonstration. There is **no navigation-specific yaw, policy
+inference, actuator, or physics path**: only the upstream selection of
+desired command velocity differs. The navigation-mode setter affects
+visual presentation only. The global frame error handler no longer
+silently sets `sim.paused=true`, so optional UI exceptions can't
+disguise the issue as a dead neural model.
+
+The heading P setting has the same meaning in both demo modes; it
+translates the commanded yaw rate into a heading setpoint. Off-thread
+A* remains optional trajectory selection rather than an alternative
+simulation system. Confirm the live actor-control frame counter advances
+when testing navigation in an actual browser.

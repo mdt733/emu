@@ -116,7 +116,7 @@ export class EmuBrowserSim {
     this.headingTarget = 0;
     this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
-    this.navigationControl = false; // route planner owns direct yaw, not manual P
+    this.navPresentationActive = false; // presentation only; no alternate actor control path
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -482,9 +482,9 @@ export class EmuBrowserSim {
       ? this.park?.trees || [] : [];
   }
 
-  setNavigationActive(active) {
-    const wasActive=this.navigationControl;
-    this.navigationControl=Boolean(active);
+  setNavigationPresentation(active) {
+    const wasActive=this.navPresentationActive;
+    this.navPresentationActive=Boolean(active);
     if(active&&!wasActive&&this.cameraMode==='orbit'){
       // Frame the route rather than only a robot-sized patch of grass.
       this.navSavedOrbit={position:this.camera.position.clone(),
@@ -501,18 +501,9 @@ export class EmuBrowserSim {
       }
       this.navSavedOrbit=null;
     }
-    // Changing between navigation direct-yaw and manual heading P must not
-    // inherit the other controller's old setpoint or accumulated request.
-    this.headingTarget=this.actualHeading();
-    this.requestedYaw=0;
-    this.commandTarget.yaw=0;
-    this.command.yaw=0;
+    // Navigation changes camera and route overlay ONLY. It must never
+    // modify neural control, heading P, current velocity, or commands.
     if(!active)this.clearNavigationOverlay();
-  }
-
-  setNavigationCommands(command) {
-    if (!this.navigationControl) throw new Error('Navigation controller is not enabled');
-    this.setDemoCommands(command);
   }
 
   terrainHeightAt(x,y) {
@@ -625,23 +616,14 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    if(this.navigationControl) {
-      // Autonomous planner already closes the heading loop. Passing through
-      // the manual heading-P again would integrate the yaw rate as a SETPOINT
-      // and cause target oscillation and overshoot.
-      const maxYaw=Number(this.bundle.control.command_limits.yaw_abs);
-      this.command.yaw=approach(this.command.y,
-        clamp(this.commandTarget.yaw,-maxYaw,maxYaw),2.4*cdt);
-      this.requestedYaw=this.command.yaw;
-      this.headingTarget=this.actualHeading();
-    } else {
-      const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
-        this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
-        Number(this.bundle.control.command_limits.yaw_abs));
-      this.requestedYaw=steering.requestedYaw;
-      this.headingTarget=steering.headingTarget;
-      this.command.yaw=steering.appliedYaw;
-    }
+    // One shared yaw controller for joystick, random-demo AND goal-demo.
+    // Navigation is only an upstream producer of vx/vy/yaw/pitch requests.
+    const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
+      this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
+      Number(this.bundle.control.command_limits.yaw_abs));
+    this.requestedYaw=steering.requestedYaw;
+    this.headingTarget=steering.headingTarget;
+    this.command.yaw=steering.appliedYaw;
     const action = this.policy.infer(this.obs);
     this.controlFrames++;
     const span = this.bundle.control.target_span_rad;

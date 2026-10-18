@@ -98,7 +98,7 @@ test('UI keeps manual and random-control modes alongside pose missions', async()
   assert.match(html,/id="navNext"/);
   assert.match(main,/navigator\.tick\(/);
   assert.match(main,/if\(goalDemoActive\(\)\)\s*\{\s*try\s*\{\s*navigationUpdate\(dt\)/);
-  assert.match(sim,/this\.navigationControl/);
+  assert.match(sim,/this\.navPresentationActive/);
   assert.match(sim,/this\.headingTarget=this\.actualHeading\(\)/);
   assert.match(sim,/this\.routeLine/);
   assert.match(sim,/this\.resetGeneration=/);
@@ -217,4 +217,28 @@ test('a goal navigation exception cannot permanently stop MuJoCo animation frame
   assert.match(sim,/this\.controlFrames\+\+/);
   assert.match(nav,/if\(this\.pendingRequest\)/);
   assert.match(worker,/self\.postMessage\(/);
+});
+
+
+// Regression for the actual user-observed bug: both mission styles MUST enter
+// exactly the same working actor input path, not a private navigation yaw path.
+test('navigation and random commands use identical setDemoCommands and policy control',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const read=x=>readFileSync(fileURLToPath(new URL(x,import.meta.url)),'utf8');
+  const main=read('../src/main.js');
+  const sim=read('../src/sim.js');
+  const controls=read('../src/controls.js');
+  assert.match(main,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\);/);
+  assert.match(main,/sim\.navigationTrees\(\),applyAutonomousCommand\)/);
+  assert.match(main,/demo\.tick\(dt, limits\(\), applyAutonomousCommand/);
+  assert.match(sim,/setNavigationPresentation\(active\)/);
+  assert.doesNotMatch(sim,/setNavigationCommands\(/);
+  assert.doesNotMatch(sim,/this\.navigationControl/);
+  const control=sim.slice(sim.indexOf('  stepControl() {'),sim.indexOf('  flattenHistory() {'));
+  assert.match(control,/nextYawCommand\(/);
+  assert.match(control,/this\.policy\.infer\(this\.obs\)/);
+  assert.doesNotMatch(control,/if\(this\.navPresentationActive\)/);
+  assert.match(controls,/function nextYawCommand/);
+  assert.doesNotMatch(main,/if\(sim\)sim\.paused=true/);
 });

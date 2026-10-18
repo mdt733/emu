@@ -63,11 +63,17 @@ function syncGoalMode() {
   navigator.active=enabled;
   navigator.reset();
   if(sim) {
-    sim.setNavigationActive(enabled);
+    // Only the presentation changes between demo modes. Both demos must
+    // share the EXISTING neural actor command and control pipeline.
+    sim.setNavigationPresentation(enabled);
     sim.autoReset=autoResetToggle.checked||demoActive;
   }
   navHud.hidden=!enabled;
   $('navNext').disabled=!enabled;
+}
+// One proven command delivery path for every autonomous input source.
+function applyAutonomousCommand(command) {
+  sim.setDemoCommands(command);
 }
 function navigationUpdate(dt) {
   const pose=sim.navigationPose();
@@ -76,7 +82,7 @@ function navigationUpdate(dt) {
     navigator.reset();
   }
   navigator.tick(dt,pose,bundle.control.command_limits,
-    sim.navigationTrees(),cmd=>sim.setNavigationCommands(cmd));
+    sim.navigationTrees(),applyAutonomousCommand);
   const state=navigator.status(pose);
   sim.setNavigationOverlay(state.goal,state.route);
   $('demoKind').textContent=state.reason;
@@ -447,11 +453,11 @@ function frame(ms) {
           demoMode.value='commands';
           syncGoalMode();
           setStatus('Navigation error: '+String(error?.message||error), 'error');
-          demo.tick(dt, limits(), cmd=>sim.setDemoCommands(cmd),
+          demo.tick(dt, limits(), applyAutonomousCommand,
             bundle?.demo?.node_candidates||[]);
         }
       }else{
-        demo.tick(dt, limits(), cmd => sim.setDemoCommands(cmd), bundle?.demo?.node_candidates || []);
+        demo.tick(dt, limits(), applyAutonomousCommand, bundle?.demo?.node_candidates || []);
         $('demoKind').textContent = demo.kind;
       }
     }
@@ -461,8 +467,14 @@ function frame(ms) {
   }
   }catch(error){
     console.error('Viewer frame error:',error);
-    setStatus('Viewer frame: '+String(error?.message||error),'error');
-    if(sim)sim.paused=true;
+    // Never secretly pause a working actor because a new optional
+    // navigation/HUD/render calculation threw. Prefer the established demo
+    // command stream, leaving the next animation frame scheduled.
+    if(goalDemoActive()){
+      demoMode.value='commands';
+      syncGoalMode();
+    }
+    setStatus('Viewer frame error: '+String(error?.message||error),'error');
   }
 }
 
