@@ -117,7 +117,7 @@ experiment means choosing a new `--root`.
 The `--run` flag is mandatory to start GPU work; all normal stage outputs
 are outside the Git checkout. This launcher never commits or merges `main`.
 The v5016 232-input actor remains incompatible with the existing 220-input
-browser viewer until a separate schema-aware browser release exists.
+legacy 220-input physical examiner. Local browser replay now uses a separate schema-2 sensor emulator; it is visual inspection, not a bit-exact held-out physics evaluation.
 
 **Important:** screen-test improvements are simulated evidence; physical
 robot torque/current and real ground sensors still need hardware validation.

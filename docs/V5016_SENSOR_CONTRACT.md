@@ -9,7 +9,7 @@ The opt-in `sim2real_232` interface is 58 channels per frame and four
 frames of history. The first 55 names retain their original ordering, but
 their gyro/velocity/range/velocity-confidence *sources* change. Because a
 field can retain a name but change meaning, the **schema string is mandatory**
-when training/export of this policy is eventually enabled.
+when training or exporting this sensor policy.
 
 - `gyro_x/y/z`: measured body-local gyroscope, not the legacy twice-rotated rate.
 - `vel_x/y`: downward optical-flow angular velocity corrected with measured
@@ -21,19 +21,14 @@ when training/export of this policy is eventually enabled.
 - `ground_visibility_confidence`: visibility/geometry confidence; it is NOT
   a guarantee against uneven terrain or specular reflections.
 
-Initial noise uses reproducible per-world/phase perturbations (1.5 mm ToF,
-0.035 rad/s optical angular flow, 0.025 rad/s gyro at noise scale 1).
-These are provisional engineering hypotheses, not verified specifications
-of an optical-flow module. Four *policy* history frames do not simulate an
-asynchronous sensor's sampling interval or latency.
+Sensor sample noise is Gaussian (1.5 mm ToF, 0.035 rad/s optical flow,
+0.025 rad/s gyro at noise scale 1). These are provisional assumptions,
+not verified optical-flow hardware specifications. The four actor history
+frames are separate from the asynchronous sensor acquisition queue.
 
-This pass exposes the opt-in schema from `EmuMJXEnv` and adapts PPO's
-normalization to its width. **Production training, checkpoint resume/export,
-live viewer and the public champion are intentionally still locked to 220.**
-Before enabling a 232 training profile: version checkpoint/provenance
-validation, enforce no cross-schema resume or export, wire matched evaluator
-environments and browser observation transforms, and test sensor update
-rates, dropouts, biases and delayed readings.
+Schema-8 232-input learning, matched fixed evaluators and the read-only
+local viewer now have explicit versioned input contracts. The public
+champion and the default 220-input training mode remain unchanged.
 
 The MuJoCo floor normal and true root velocity are used only in the forward
 measurement simulator and objective rewards, never supplied to the estimator.
@@ -70,8 +65,8 @@ training knob: v5016 training/export identity must lock it before GPU runs.
 **Known limitations:** this remains a pinhole, optical-axis flow model,
 not a texture-based camera renderer. There is no photometric failure model,
 body occlusion, pixel quantisation, continuous gyro integration or drift
-correction. The 232-input interface is experimental until matching versioned
-training/checkpoint/export and viewer input paths have been implemented.
+correction. The 232-input interface remains experimental pending validation against
+calibrated physical ToF, IMU and optical-flow hardware.
 
 ## Checkpoint identity — schema 8 (guarded)
 
@@ -84,12 +79,11 @@ the sensor-model revision and exact cadence/delay/dropout/noise settings.
 The contract has a SHA-256 fingerprint. It is independently regenerated on
 loading so self-consistent but altered source data cannot redefine its meaning.
 
-All existing viewers, exporters and training-resume utilities still load
-**only schema 7** by default. Reading schema 8 requires explicit schema and
-sensor contract arguments; passing a merely shape-compatible policy is never
-enough. This is an interface-safety gate, **not permission to launch 232-input
-training**; trainer configs, held-out evaluators and the browser runtime
-must be updated together before that gate is enabled.
+Legacy learning/resume default to schema 7; the 232-input learner opts
+into schema 8. The browser exporter converts validated schema-8 checkpoints
+to browser policy schema 2; legacy policies still export as schema 1.
+The independent physical directional examiner remains schema-1-only
+pending a dedicated sensor-aware physical examiner.
 
 ## Standalone 232-input PPO acceptance (opt-in)
 
@@ -98,8 +92,9 @@ steps them, builds the **232-input** PPO network, performs one 2-frame
 rollout/optimizer update, and rejects nonfinite parameters/rewards.
 This test neither starts a long training run nor writes checkpoints.
 For a CPU-only testing host, add `--no-require-gpu --no-mjx-smoke`.
-Passing this smoke does NOT establish that a new actor can walk or that
-the legacy browser viewer can reproduce its observations.
+Passing the smoke doesn't prove locomotion. The completed 20M sensor
+foundation is now replayable with a separate local browser observation
+emulator, which is not a held-out exam.
 
 ## End-to-end learner wiring (v5016 experimental)
 
@@ -115,8 +110,8 @@ schema 8 plus the exact canonical sensor contract.
 Auto-resume, explicit parent resume, recovery and final-step promotion all
 validate the sensor-contract fingerprint *before* using weights. Legacy
 schema-7 functions continue to default to the protected 220-input contract.
-A v5016 checkpoint is deliberately not exported by the legacy browser writer
-or consumed by the original Pitch15-only directional examiner.
+A v5016 checkpoint is exported as a separate browser policy schema and
+remains incompatible with the Pitch15-only physical directional examiner.
 
 The first GPU acceptance run can use 512 worlds and 2,097,152 steps (128 PPO
 updates at 32 frames per update, 16,384 env steps per update). A fresh run is
@@ -149,3 +144,33 @@ Since experiment configurations are immutable at a run path, begin with a
 **new directory** for each phase; resume the schema-8 foundation by passing
 its exact final checkpoint as `--resume` to the mature phase (do not silently
 change a saved phase's curriculum).
+
+## v5016 browser live replay
+
+The viewer accepts browser policy schema 2, with 58x4 channels and the
+validated schema-8 sensor contract. Its distinct browser sensor module
+models three downward ToF rays, gyro-compensated optical flow, delayed
+sample queues, missed updates, dropout and episode gyro bias.
+
+Browser replay is *approximate*, not bit-exact MJX. A rendered park
+heightfield is not the same as the tilted contact planes used for some
+training phases; browser random noise differs from JAX's PRNG. Use
+held-out MJX evaluations for promotion, not the browser demonstration.
+
+**When Pinnacle is currently running, do not pull into the training
+checkout.** Start the viewer from a separate detached Git worktree:
+
+    cd ~/emu
+    git fetch origin feature/v5016-sim2real
+    git worktree add --detach ~/emu-viewer-5016 origin/feature/v5016-sim2real
+    cd ~/emu-viewer-5016
+    PYTHONPATH="$PWD" emu viewer-build
+    PYTHONPATH="$PWD" emu viewer --live --root ~/robot_lab/emu_runs/v5016_pinnacle
+
+The watcher follows the most recently atomically published policy across
+tournament branches, reporting stage name and validated step count.
+The terrain-park grass receives a separate, depth-tested high-contrast
+10-cm overlay with bold 1-m borders, switched on by default.
+
+For the standalone foundation run, change --root to
+~/robot_lab/emu_runs/v5016_sensor_foundation_20m.
