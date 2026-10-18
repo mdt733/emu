@@ -60,7 +60,9 @@ def selected_candidate(root: Path, *, accept_budget_stop: bool = False) -> tuple
         raise ValueError('champion.pkl no longer matches pinned SHA-256')
     if winner.get('sensor_sha256') != campaign.get('sensor_sha256'):
         raise ValueError('winner observation contract does not match campaign')
-    if (winner.get('source') and winner['source'] != campaign.get('source_commit')
+    valid_sources = {campaign.get('source_commit')}
+    valid_sources.update(v.get('previous_commit') for v in campaign.get('source_migrations', []))
+    if (winner.get('source') and winner['source'] not in valid_sources
             and filename.parent.parent != foundation_root):
         raise ValueError('selected model source revision disagrees with campaign')
 
@@ -135,7 +137,9 @@ def main(argv=None) -> int:
     run_source = (meta.get('source_provenance') or {}).get('git_commit')
     if run_source != evidence['winner'].get('source'):
         raise ValueError('checkpoint Git training provenance differs from selected policy')
-    if run_source != campaign['source_commit'] and filename.parent.parent != Path(campaign['foundation']['run_dir']).resolve():
+    valid_sources = {campaign['source_commit']}
+    valid_sources.update(v.get('previous_commit') for v in campaign.get('source_migrations', []))
+    if run_source not in valid_sources and filename.parent.parent != Path(campaign['foundation']['run_dir']).resolve():
         raise ValueError('champion did not originate from the Pinnacle source revision')
 
     bundle = build_bundle(filename, label=f"EMU v5016 Pinnacle · {meta['step']:,} steps")

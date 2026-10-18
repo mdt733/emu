@@ -245,6 +245,8 @@ def main(argv=None) -> int:
     q.add_argument('--plan',action='store_true')
     q.add_argument('--status',action='store_true')
     q.add_argument('--run',action='store_true',help='run the GPU campaign (default only plans)')
+    q.add_argument('--resume-after-screen-fix',action='store_true',
+                   help='audit original training revision and resume failed Round-1 screen')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -340,6 +342,7 @@ def main(argv=None) -> int:
         if args.plan: argv.append('--plan')
         if args.status: argv.append('--status')
         if args.run: argv.append('--run')
+        if args.resume_after_screen_fix: argv.append('--resume-after-screen-fix')
         return pinnacle(argv)
     if args.cmd=='report':
         from .results import write_report

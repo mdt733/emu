@@ -414,7 +414,8 @@ def budget_allows(ledger: dict, *, steps: int) -> bool:
 
 
 def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
-             seed: int, device: str, screen_envs: int, screen_horizon: int):
+             seed: int, device: str, screen_envs: int, screen_horizon: int,
+             resume_after_screen_fix: bool = False):
     root = root.expanduser().resolve()
     check_root(root)
     if not 0.5 <= hours <= 72:
@@ -452,8 +453,22 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
         expected = (provenance["commit"], foundation_policy,
                     contract["sha256"], seed, envs, screen_envs,
                     screen_horizon, hours)
-        if any(ledger[k] != v for k, v in zip(fixed, expected)):
-            raise RuntimeError("campaign source/parameters/foundation changed; use a new root")
+        if any(ledger[k] != v for k, v in zip(fixed[1:], expected[1:])):
+            raise RuntimeError("campaign parameters/foundation changed; use the original configuration")
+        if ledger['source_commit'] != provenance['commit']:
+            if not resume_after_screen_fix:
+                raise RuntimeError(
+                    "Pinnacle is pinned to an older Git commit. Recover this exact "
+                    "Round-1 metric bug using --resume-after-screen-fix (audited); "
+                    "never edit source or checkpoint files in the campaign.")
+            from .campaign_upgrade import authorize_completed_round1
+            audit = authorize_completed_round1(ledger, root, provenance['commit'], ARMS)
+            ledger.setdefault('initial_source_commit', ledger['source_commit'])
+            ledger.setdefault('source_migrations', []).append(audit)
+            ledger['source_commit'] = provenance['commit']
+            save_json(path, ledger)
+            print("V5016 ROUND-1 REPAIR: all training-critical source files identical; "
+                  "preserved four trained 80M checkpoints; fixed examiner only.", flush=True)
     if ledger["finished"]:
         report(root, ledger)
         print("Campaign already complete:", ledger["champion"]["path"])
@@ -592,6 +607,8 @@ def main(argv=None) -> int:
     p.add_argument("--plan", action="store_true")
     p.add_argument("--run", action="store_true",
                    help="execute full campaign; otherwise show read-only plan")
+    p.add_argument("--resume-after-screen-fix", action="store_true",
+                   help="explicitly verify training code unchanged, then repair Round-1 judgement")
     p.add_argument("--status", action="store_true")
     args = p.parse_args(argv)
     root = args.root.expanduser().resolve()
@@ -622,7 +639,8 @@ def main(argv=None) -> int:
             raise RuntimeError("another pinnacle campaign is already running in this directory") from exc
         campaign(root, args.foundation, hours=args.hours, envs=args.envs,
                  seed=args.seed, device=args.device,
-                 screen_envs=args.screen_envs, screen_horizon=args.screen_horizon)
+                 screen_envs=args.screen_envs, screen_horizon=args.screen_horizon,
+                 resume_after_screen_fix=args.resume_after_screen_fix)
     return 0
 
 
