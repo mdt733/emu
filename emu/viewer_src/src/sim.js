@@ -90,7 +90,7 @@ export class EmuBrowserSim {
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
-    this.controls.maxDistance = 4;
+    this.controls.maxDistance = 11; // orbit can frame the full 4m mission arena
     this.cameraMode = 'orbit'; // orbit | chase | raw | level
     this.chaseReady = false;
     this.chaseHeading = 0;
@@ -266,7 +266,10 @@ export class EmuBrowserSim {
     this.routeLine.material.dispose();
     this.targetRing.geometry.dispose();
     this.targetRing.material.dispose();
-    this.targetArrow.dispose();
+    for(const mesh of [this.targetArrow.line,this.targetArrow.cone]){
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
     this.arenaCircle.geometry.dispose();
     this.arenaCircle.material.dispose();
     this.skyTexture.dispose();
@@ -415,6 +418,7 @@ export class EmuBrowserSim {
   }
 
   reset() {
+    this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
     this.data.ctrl.fill(0);
@@ -478,7 +482,24 @@ export class EmuBrowserSim {
   }
 
   setNavigationActive(active) {
+    const wasActive=this.navigationControl;
     this.navigationControl=Boolean(active);
+    if(active&&!wasActive&&this.cameraMode==='orbit'){
+      // Frame the route rather than only a robot-sized patch of grass.
+      this.navSavedOrbit={position:this.camera.position.clone(),
+                          target:this.controls.target.clone()};
+      const p=this.navigationPose();
+      this.controls.target.set(p.x,p.y,.12);
+      this.camera.position.set(p.x-3.4,p.y-4.0,3.8);
+      this.controls.update();
+    } else if(!active&&wasActive&&this.navSavedOrbit){
+      if(this.cameraMode==='orbit'){
+        this.camera.position.copy(this.navSavedOrbit.position);
+        this.controls.target.copy(this.navSavedOrbit.target);
+        this.controls.update();
+      }
+      this.navSavedOrbit=null;
+    }
     // Changing between navigation direct-yaw and manual heading P must not
     // inherit the other controller's old setpoint or accumulated request.
     this.headingTarget=this.actualHeading();

@@ -128,7 +128,7 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     throw new Error('Nonfinite navigation start/goal');
   const moves=primitives(limits),speed=commandSpeeds(limits);
   if(!inArena(goal,trees))return null;
-  const maxNodes=clamp(Number(options.maxNodes)||9500,100,20000);
+  const maxNodes=clamp(Number(options.maxNodes)||6500,100,20000);
   const root={...start,g:0,f:heuristic(start,goal,speed)*1.20,
               parent:null,cmd:null,dt:0};
   const heap=new Heap(),best=new Map();
@@ -163,6 +163,7 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   // A* searches quantized poses, so the final fine correction is closed
   // loop. Do not present an incomplete search as a solved fastest route.
   const solved=Boolean(winner);
+  if(!solved&&!options.allowPartial)return null;
   steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
