@@ -97,7 +97,7 @@ test('UI keeps manual and random-control modes alongside pose missions', async()
   assert.match(html,/value="commands"/);
   assert.match(html,/id="navNext"/);
   assert.match(main,/navigator\.tick\(/);
-  assert.match(main,/if\(goalDemoActive\(\)\) navigationUpdate\(dt\)/);
+  assert.match(main,/if\(goalDemoActive\(\)\)\s*\{\s*try\s*\{\s*navigationUpdate\(dt\)/);
   assert.match(sim,/this\.navigationControl/);
   assert.match(sim,/this\.headingTarget=this\.actualHeading\(\)/);
   assert.match(sim,/this\.routeLine/);
