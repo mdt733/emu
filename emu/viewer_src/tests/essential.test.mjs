@@ -4,6 +4,8 @@ import { joystickToCommands, headingHoldRate, nextYawCommand } from '../src/cont
 import { parseShowcaseManifest, assertShowcasePolicyResponse } from '../src/showcase.js';
 import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, surfaceSlope, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
 import { sampleDemoCommand } from '../src/live-demo.js';
+import { SensorObserver, inferTripod, rayHeight } from '../src/sensor.js';
+import { parsePolicy } from '../src/policy.js';
 const limits = {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
 const base = {schema:1,mode:'showcase',policy:'policies/champion.emupolicy',trained:true,autoplay:true,label:'EMU'};
 const xml = '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
@@ -156,4 +158,69 @@ test('park grid is a separate overlay with 10 cm and 1 m lines enabled by defaul
   assert.match(sim, /depthTest:true,polygonOffset:true/);
   assert.match(sim, /this\.parkGridOverlay\.material\.dispose\(\)/);
   assert.doesNotMatch(sim, /grassGridTexture/);
+});
+
+
+test('schema-8 browser sensor emulator reconstructs valid grade without privileged normal', () => {
+  const ranges=[.235-.035*.06-.05*.035, .235-.035*.06+.05*.035, .235+.04*.06];
+  const g=inferTripod(ranges,[0,0,-1]);
+  assert.equal(g.valid,true);
+  assert.ok(g.forward>0.03&&g.forward<0.09);
+  assert.ok(g.side>0.01&&g.side<0.06);
+  assert.ok(g.depth>.2&&g.depth<.4);
+  assert.equal(inferTripod([0,.2,.2],[0,0,-1]).valid,false);
+  assert.ok(Math.abs(rayHeight([0,0,.26],[0,0,-1],()=>0)-.26)<1e-5);
+});
+
+test('v5016 delayed ToF/flow readings preserve acquisition time and sensor confidence', () => {
+  const contract = {
+    schema:'sim2real_232',
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}
+  };
+  const pose = speed=>({
+    torso:[0,0,.26],R:[1,0,0,0,1,0,0,0,1],
+    vbody:[speed,0,0],gyro:[0,0,0],heightAt:()=>0
+  });
+  const o=new SensorObserver(contract);
+  o.reset(pose(0),false);
+  assert.equal(o.read([0,0,-1]).velocity[0],0);
+  o.advance(pose(.15),false);
+  assert.ok(Math.abs(o.read([0,0,-1]).velocity[0])<1e-8);
+  o.advance(pose(.15),false);
+  const read=o.read([0,0,-1]);
+  assert.ok(read.velocity[0]>.14&&read.velocity[0]<.16);
+  assert.ok(read.groundConfidence>0);
+  const dropout=new SensorObserver({...contract,settings:{...contract.settings,
+    tof_period_frames:1,flow_period_frames:1,tof_dropout_prob:1,flow_dropout_prob:1}});
+  dropout.reset(pose(0),false);
+  dropout.advance(pose(.1),true);
+  dropout.advance(pose(.1),true);
+  const bad=dropout.read([0,0,-1]);
+  assert.equal(bad.velocityConfidence,0);
+  assert.equal(bad.groundConfidence,0);
+});
+
+test('versioned browser parser accepts sensor 232 and keeps legacy schema independent', () => {
+  const c = {
+    schema:'sim2real_232',sensor_model_revision:'tripod_tof_flow_async_v1',
+    history_len:4,action_dim:6,
+    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
+    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
+    tof_range_limits_m:[.035,.6],
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:.01,flow_dropout_prob:.02,gyro_bias_std_rad_s:.015,sensor_noise_scale:1.5},
+  };
+  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
+    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
+  c.base_fields=fields;
+  const policy={format:'emu-policy',schema:2,
+    policy:{action_dim:6,history_len:4,base_obs_dim:58,obs_dim:232,layers:[{},{},{}]},
+    source:{checkpoint_schema:8},robot_xml:xml,
+    observation:{base_fields:fields,sensor_contract:c},control:{}};
+  assert.equal(parsePolicy(JSON.stringify(policy)).policy.obs_dim,232);
+  assert.throws(()=>parsePolicy(JSON.stringify({...policy,schema:1})));
+  assert.throws(()=>parsePolicy(JSON.stringify({
+    ...policy,observation:{...policy.observation,
+      sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported v5016 sensor/);
 });
