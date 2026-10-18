@@ -170,19 +170,22 @@ whether a high-speed request actually produces ground speed.
 
 ## Prototype: joystick-motion bidirectional lattice (2026-10-19)
 
-User design proposal: expand nine left-stick directions, including neutral,
-crossed with three right-stick yaw requests (left/straight/right). This
-is **27 candidate finite-duration controls**, not 27 tile neighbours.
-A predecessor tree grows BACKWARDS from the required destination pose
-`(x,y,heading)` to meet the forward tree from the robot.
+Initial proposal: nine left-stick directions crossed with three yaw
+choices. The 2026-10-19 revision replaces that with a more useful
+**forward/reverse/pivot × 9 yaw rates** arrangement. This is still a clean
+27-option finite-duration control set, but every forward or backward
+choice corresponds to a different physical turning radius. The robot CAN
+stand and pivot; the initial claim that it couldn't was mistaken.
+Eight in-place turning options are eligible, and only the ninth
+pivot-with-zero-yaw option is skipped as a do-nothing command.
+No primary search primitive strafes. Small sideways inputs remain available
+to the *existing arrival controller* for final position correction.
 
-This is exactly the state-lattice / kinodynamic-A* family used by Nav2's
-Smac State Lattice planner (which supports legged and differential-drive
-motion primitives), extended with bidirectional search. The 27 candidate
-set includes three centre-stick choices but these are excluded from execution
-because the current dynamic biped has not demonstrated stable in-place
-standing or rotation. The remaining 24 choices are finite body-frame
-`(vx,vy,yaw)` twists, integrated analytically through SE(2).
+This is in the state-lattice / kinodynamic-A* family used by Nav2's
+Smac State Lattice planner, extended with bidirectional search. The
+predecessor tree searches backwards from the required full pose
+`(x,y,heading)` to meet the forward tree from the robot. A curvature
+bridge connects near meetings without teleporting between bins.
 
 The state-space search is CONTINUOUS: a 26 cm spatial / 24-bin heading
 quantization is used **only for visited-state hashing**, not to force grid
@@ -206,3 +209,27 @@ Learned locomotion acceleration, true slope behaviour and servo thermal
 constraints require later empirical speed/cost calibration. Bidirectional
 search may fail to meet within a limited budget even when a feasible
 solution exists; a direct curvature path remains a useful baseline.
+
+### Variable-curvature motion fan
+
+The primitive chooser in `bidirectional-lattice.js` now uses nine yaw
+fractions `[-1, -.75, -.5, -.25, 0, +.25, +.5, +.75, +1]`
+applied to the policy's bounded yaw command, independently for forward,
+reverse, and in-place pivot. The walking cruise command is intentionally
+near the model's trained forward and reverse envelopes. Curvature is
+`yaw/vx`; a straight step has zero yaw; an in-place turn has zero
+translation. These are **controls**, not grid-neighbour coordinates.
+
+This matches the general design of Nav2's configurable minimum control
+set for differential-drive and state-lattice planning: include rotation
+in place and reversing when the robot can actually perform them.
+
+Choose routes by estimated time (including reversal and pivot transitions),
+not by shortest Euclidean metres. The planner has NO strafing edges.
+The follower may independently issue gentle `vy` trim close to the
+goal; it doesn't need to pay for a sideways traverse across the arena.
+
+This remains an **offline experimental solver**. The browser Worker
+continues to use the earlier known-working route planner until the new
+candidate can be compared using actual full 260M-policy MuJoCo rollouts.
+This protects the existing demonstration and makes regressions measurable.

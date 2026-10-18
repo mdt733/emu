@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {integratePose,wrapAngle} from '../src/goal-navigation.js';
 import {planCurvatureRoute} from '../src/curvature-planner.js';
 import {
- ALL_JOYSTICK_OPTIONS,joystickPrimitives,reversePrimitive,bidirectionalMotionRoute
+ ALL_JOYSTICK_OPTIONS,ARC_YAW_FRACTIONS,ARC_TRANSLATION_MODES,
+ joystickPrimitives,arcPrimitives,reversePrimitive,bidirectionalMotionRoute
 } from '../src/bidirectional-lattice.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.30,yaw_abs:1.6};
@@ -11,29 +12,39 @@ const origin={x:0,y:0,heading:0};
 const angle=(a,b)=>Math.abs(wrapAngle(a-b));
 const separation=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
-test('actual 9 translation directions × 3 yaw choices produce 27 discrete joystick candidates',()=>{
-  const options=joystickPrimitives(limits);
+test('variable-radius lattice has 9 yaw rates for each of forward, reverse and in-place turning',()=>{
+  const options=arcPrimitives(limits);
+  assert.deepEqual(joystickPrimitives(limits),options);
+  assert.equal(ARC_YAW_FRACTIONS.length,9);
+  assert.deepEqual(ARC_TRANSLATION_MODES,['forward','reverse','pivot']);
   assert.equal(ALL_JOYSTICK_OPTIONS,27);
   assert.equal(options.length,27);
-  assert.equal(options.filter(p=>p.executable).length,24,
-    'centre command is invalid for dynamical balance (standing/pivots)');
+  assert.equal(options.filter(p=>p.executable).length,26,
+    'EMU can pivot; only idle (no movement, no rotation) is a no-op');
   assert.equal(new Set(options.map(p=>p.id)).size,27);
   assert.ok(options.every(p=>p.cost>=p.dt));
   assert.ok(options.every(p=>Math.abs(p.vx)<=limits.vx_max+.01 &&
-    Math.abs(p.vy)<=limits.vy_abs+.01 &&
-    Math.abs(p.yaw)<=limits.yaw_abs+.01));
-  const forward=options.find(x=>x.joystick.join(',')==='1,0,0');
-  const strafe=options.find(x=>x.joystick.join(',')==='0,1,0');
-  const backward=options.find(x=>x.joystick.join(',')==='-1,0,0');
-  assert.ok(forward.vx>.8);
-  assert.ok(strafe.vy>0 && strafe.vx===0);
-  assert.ok(backward.vx<0);
-  assert.ok(forward.vx>Math.abs(strafe.vy)*4,
-    'time estimator must distinguish fast forward and expensive sideways travel');
+    p.vy===0 && Math.abs(p.yaw)<=limits.yaw_abs+.01));
+  const fwd=options.filter(x=>x.mode==='forward');
+  const rev=options.filter(x=>x.mode==='reverse');
+  const pivots=options.filter(x=>x.mode==='pivot');
+  assert.equal(fwd.length,9);assert.equal(rev.length,9);assert.equal(pivots.length,9);
+  assert.ok(fwd.every(x=>x.vx>.8));
+  assert.ok(rev.every(x=>x.vx<-.3));
+  assert.ok(pivots.filter(x=>x.executable).every(x=>x.vx===0&&Math.abs(x.yaw)>.1));
+  assert.equal(pivots.find(x=>x.yaw===0).executable,false);
+  // Distinct angular speeds imply distinct arc radii at fixed forward speed.
+  assert.equal(new Set(fwd.filter(x=>x.yaw!==0)
+    .map(x=>x.radius.toFixed(3))).size,4);
+  assert.ok(fwd.find(x=>x.yaw===0).radius===Infinity);
+  assert.ok(fwd.find(x=>x.yaw>0).curvature>0);
+  assert.ok(fwd.find(x=>x.yaw<0).curvature<0);
+  assert.equal(new Set(fwd.map(x=>x.vx)).size,1);
+  assert.equal(new Set(rev.map(x=>x.vx)).size,1);
 });
 
-test('reverse frontier uses mathematically inverse SE2 twist, preserving original forward control',()=>{
-  const options=joystickPrimitives(limits).filter(p=>p.executable);
+test('reverse frontier inverts forward/reverse arcs AND actual in-place turns',()=>{
+  const options=arcPrimitives(limits).filter(p=>p.executable);
   const starts=[origin,{x:1.42,y:-.85,heading:2.61},
     {x:-.21,y:1.53,heading:-3.09}];
   for(const pose of starts){
