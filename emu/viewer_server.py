@@ -64,6 +64,16 @@ def candidates(root: Path) -> list[tuple[str, Path]]:
         result.extend((phase, p) for p in sorted(
             ck.glob('snapshot_step_*.pkl'), reverse=True))
     result.append(('complete', root / 'final.pkl'))
+    # A 12-hour tournament starts several NEW runs from the same 20M
+    # ancestor, so neither round number nor absolute policy step says which
+    # branch is currently active. Watch the most recently published on-disk
+    # checkpoint; atomic writer signatures still protect against torn saves.
+    result.sort(
+        key=lambda candidate: (
+            candidate[1].stat().st_mtime_ns if candidate[1].is_file() else -1,
+            candidate[1].name == 'latest.pkl',
+        ),
+        reverse=True)
     return result
 
 
