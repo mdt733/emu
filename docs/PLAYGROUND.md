@@ -25,11 +25,11 @@ cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
-Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), selectable heading hold, split/hybrid steering, both physical terrain modes, and that `showcase.json` reports step 120061952. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
+Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), compass-heading P, chase camera, split/hybrid steering, both physical terrain modes, and that `showcase.json` references the **approved** actor step/contract. The older release is 120,061,952 steps and 220 inputs; the v5016 release must have 232 inputs. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
 
 ## Publish (manual on purpose)
 
-After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact Git blob SHA pinned in `.github/workflows/emu-playground.yml`, actor provenance, Node browser tests, WASM and policy files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
+After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact old 120M Git blob pin, **or** the explicitly reviewed `showcase/release_approval.json` for the 232-input schema-2 policy, plus actor provenance, JavaScript browser tests, WASM and asset files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
 
 Do not commit a training `.pkl` or alter the protected `showcase/champion.emupolicy` without deliberately updating the verified pin in the SAME reviewed change.
 
@@ -42,10 +42,12 @@ model's convention). Select **Hybrid** for diagonal steering: forward plus
 left/right diagonals mix turning and strafing, while purely sideways means
 strafe. The right stick always supports separate turning and pitch.
 
-**Heading hold** is an optional browser-only P controller (default on,
-Kp=0.75). It integrates the requested turn rate into a target heading and
-adds a bounded correction for observed torso yaw drift. It neither edits
-the neural policy nor guarantees accurate heading on unfamiliar terrain.
+**Heading target (P)** is an optional browser-only outer loop (default on,
+Kp=2.2). The joystick integrates a requested world heading, and the
+P error alone generates an actor yaw-rate command; releasing the joystick
+holds the compass setpoint immediately. Disable it for direct yaw-rate
+steering. The gain can be changed from 0.3 to 5 in Settings. It neither
+edits neural weights nor guarantees accurate heading on unfamiliar terrain.
 
 Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
 The park starts with a flat 2 m radius; the permitted incline grows
