@@ -268,6 +268,21 @@ def stage_run(root: Path, *, label: str, parent: dict, target: int,
             "source": provenance["commit"], "sensor_sha256": contract["sha256"]}
 
 
+def earlier_best(final: dict, contract: dict) -> dict | None:
+    """Represent a validated best.pkl as its own non-mutating candidate."""
+    path = Path(final["run_dir"]) / "checkpoints" / "best.pkl"
+    if not path.is_file():
+        return None
+    payload = validated_checkpoint(path, contract)
+    if int(payload["meta"]["step"]) > final["step"]:
+        raise RuntimeError(f"future best policy in {path}")
+    digest = sha256(path)
+    if digest == final["sha256"]:
+        return None
+    return {**final, "path": str(path), "sha256": digest,
+            "step": int(payload["meta"]["step"])}
+
+
 def screen(root: Path, ledger: dict, *, name: str, contenders: dict,
            baseline: str, envs: int, horizon: int, device: str) -> dict:
     """One read-only batch with identical worlds, seeds and commands."""
@@ -283,7 +298,7 @@ def screen(root: Path, ledger: dict, *, name: str, contenders: dict,
         return cached
 
     from .evaluation import evaluate_runs
-    dirs = [Path(contenders[k]["run_dir"]) for k in contenders]
+    dirs = [Path(contenders[k]["path"]) for k in contenders]
     started = time.monotonic()
     try:
         raw = evaluate_runs(
@@ -294,10 +309,10 @@ def screen(root: Path, ledger: dict, *, name: str, contenders: dict,
     finally:
         ledger["gpu_seconds"] += time.monotonic() - started
         save_json(root / "campaign.json", ledger)
-    safety = score(raw[contenders[baseline]["run_dir"]])
+    safety = score(raw[contenders[baseline]["path"]])
     rows = []
     for label, desc in contenders.items():
-        exam = raw[desc["run_dir"]]
+        exam = raw[desc["path"]]
         rating = score(exam, ancestor=None if label == baseline else safety)
         rows.append({"name": label, "policy": desc, "rating": rating,
                      "exam": exam, "incumbent": label == baseline})
@@ -492,6 +507,10 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
         contenders = {"foundation": ledger["foundation"],
                       **{"r1_" + k: v for k, v in ledger["round1"].items()},
                       **{"r2_" + k: v for k, v in ledger["round2"].items()}}
+        for arm, final in ledger["round2"].items():
+            candidate = earlier_best(final, contract)
+            if candidate is not None:
+                contenders["r2_" + arm + "_best"] = candidate
         board = screen(root, ledger, name="round2", contenders=contenders,
                        baseline="foundation", envs=screen_envs,
                        horizon=screen_horizon, device=device)
@@ -506,8 +525,8 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
 
     parent = ledger["champion"]
     winning_name = ledger["winners"]["round2"]
-    lineage_arm = winning_name[3:] if winning_name.startswith("r1_") else (
-        winning_name[3:] if winning_name.startswith("r2_") else "baseline")
+    lineage_arm = (winning_name[3:].removesuffix("_best")
+                   if winning_name.startswith(("r1_", "r2_")) else "baseline")
     for idx, target in enumerate(POLISH_TARGETS):
         name = str(target // 1_000_000) + "m"
         if name in ledger["polish"]:
@@ -523,15 +542,20 @@ def campaign(root: Path, foundation: Path, *, hours: float, envs: int,
         child = one(name, parent, target, lineage_arm,
                     group="polish", polish_index=idx)
         contenders = {"incumbent": parent, "challenger": child}
+        best_before_end = earlier_best(child, contract)
+        if best_before_end is not None and best_before_end["sha256"] != parent["sha256"]:
+            contenders["challenger_best"] = best_before_end
         board = screen(root, ledger, name="polish_" + name,
                        contenders=contenders, baseline="incumbent",
                        envs=screen_envs, horizon=screen_horizon, device=device)
         incumbent = next(x for x in board["rows"] if x["name"] == "incumbent")
-        challenger = next(x for x in board["rows"] if x["name"] == "challenger")
+        challengers = [x for x in board["rows"] if x["name"].startswith("challenger")]
+        challenger = max(challengers, key=lambda x: x["rating"]["score"]
+                         if x["rating"]["eligible"] else -1e9)
         if (challenger["rating"]["eligible"] and
                 challenger["rating"]["score"] >= incumbent["rating"]["score"] + .003):
-            ledger["champion"] = child
-            print(f"Promoted {name} model: held-out improvement.")
+            ledger["champion"] = challenger["policy"]
+            print(f"Promoted {name} {challenger['name']}: held-out improvement.")
         else:
             print(f"Retained previous champion over {name}: no verified improvement.")
         parent = ledger["champion"]
