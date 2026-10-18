@@ -293,6 +293,7 @@ export class GoalNavigator {
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.requestPlan=null;this.pendingRequest=null;
     this.generation=0;this.plannerError=null;
+    this.plannerMode='grid'; // UI selection; only changes background route search
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -344,7 +345,7 @@ export class GoalNavigator {
       this.reason='Planning next target in background…';
       return this.queuePlan({
         kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-        limits,trees
+        limits,trees,planner:this.plannerMode
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
@@ -451,7 +452,7 @@ export class GoalNavigator {
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees
+          goal:expectedGoal,limits,trees,planner:this.plannerMode
         },result=>{
           if(result?.route?.solved && this.goal===expectedGoal){
             this.route=result.route;this.index=0;this.replans++;

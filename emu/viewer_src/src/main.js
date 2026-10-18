@@ -55,6 +55,7 @@ navigator.useBackgroundPlanner(request=>{
   return navWorker.request(request);
 });
 const demoMode = $('demoMode'), navHud = $('navHud');
+const navPlanner = $('navPlanner');
 let lastResetGeneration = -1;
 let navCommandClock = Infinity;
 let navCommandUpdates = 0;
@@ -64,6 +65,7 @@ const goalDemoActive = () => demoActive && demoMode.value === 'goals';
 function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
+  navigator.plannerMode=navPlanner.value;
   navigator.reset();
   navCommandClock=Infinity;
   navCommandUpdates=0;
@@ -123,7 +125,7 @@ function navigationUpdate(dt) {
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`
+      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`
       : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
@@ -524,6 +526,14 @@ demoMode.addEventListener('change',()=>{
   demo.reset();
   syncGoalMode();
   $('demoKind').textContent=goalDemoActive()?'Planning goal route…':'random in-envelope commands';
+});
+navPlanner.addEventListener('change',()=>{
+  // Cancel any route built for the previous motion model. Async replies
+  // from an old Worker request cannot apply after reset generation changes.
+  navigator.plannerMode=navPlanner.value;
+  navigator.reset();
+  if(sim)sim.clearNavigationOverlay();
+  $('demoKind').textContent='Planning with '+navPlanner.selectedOptions[0].textContent;
 });
 $('navNext').addEventListener('click',()=>{
   if(!sim)return;

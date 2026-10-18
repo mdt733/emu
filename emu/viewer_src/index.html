@@ -102,10 +102,15 @@
           <option value="goals">Navigate random poses (experimental)</option>
           <option value="commands" selected>Random command practice</option>
         </select></label>
+        <label>Route planner <select id="navPlanner" aria-label="Route planning algorithm">
+          <option value="grid" selected>Pose lattice (current)</option>
+          <option value="curves">Continuous arcs · fastest candidate</option>
+          <option value="arcs">Bidirectional arcs · 27 options</option>
+        </select></label>
         <div class="nav-actions"><button type="button" id="navNext" disabled>New random target</button>
           <span>Within a 4 m circle · position + facing</span></div>
         <div class="live-demo-status">Current maneuver: <b id="demoKind">—</b></div>
-        <div class="live-foot">Browser-only planner compares forward, reverse, sideways, pivots and arcs using estimated command speeds. Not a proven time-optimal path or held-out evaluation.</div>
+        <div class="live-foot">Compare route planners on the same trained brain. Continuous curves and bidirectional yaw arcs are experimental; only the final arrival controller may use sideways corrections. Estimates are not measured fastest times.</div>
       </section>
       <section id="pitchNotice" class="notice glass" hidden>
             v5013 already exposes <code>cmd_pitch</code> to the actor, but does not explicitly reward pitch tracking. Pitch control here is experimental until v5014 trains it as an objective.

@@ -233,3 +233,31 @@ This remains an **offline experimental solver**. The browser Worker
 continues to use the earlier known-working route planner until the new
 candidate can be compared using actual full 260M-policy MuJoCo rollouts.
 This protects the existing demonstration and makes regressions measurable.
+
+### CPU-only browser comparison (no JAX / CUDA / trainer)
+
+The experimental branch now exposes a **Route planner** selector under
+**Settings → Demo controls**: **Pose lattice (current)** (default,
+established), **Continuous arcs · fastest candidate**, and
+**Bidirectional arcs · 27 options**. All routes run in a Web Worker;
+switching planners discards stale route requests and searches again.
+The control pipeline is unmodified: each drives the same proven
+`setDemoCommands()` → heading controller → 260M actor → MuJoCo WASM.
+
+For a viewer-only fresh install on Windows PowerShell (requires Git,
+Node.js, ordinary Python3; no CUDA/JAX/MuJoCo Python):
+
+```powershell
+git clone --single-branch --branch feature/v5017-goal-navigation-demo https://github.com/mdt733/emu.git emu-viewer-cpu
+cd emu-viewer-cpu
+py -3 scripts/prepare_showcase.py --require-champion
+npm ci --prefix emu/viewer_src
+npm run dev --prefix emu/viewer_src -- --host 127.0.0.1 --port 8767
+```
+
+The 260M champion is already in `showcase/champion.emupolicy`. Open
+http://127.0.0.1:8767/. In Settings, choose Navigate random poses
+(experimental), then select a route planner. Unsupported routes remain
+reported as planning failures, not fabricated success. Use Ctrl+C to
+stop the server. Python3 is used only for the stdlib static asset
+preparation, not for executing the simulation or neural actor.
