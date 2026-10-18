@@ -230,7 +230,8 @@ test('navigation and random commands use identical setDemoCommands and policy co
   const sim=read('../src/sim.js');
   const controls=read('../src/controls.js');
   assert.match(main,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\);/);
-  assert.match(main,/sim\.navigationTrees\(\),applyAutonomousCommand\)/);
+  assert.match(main,/sim\.navigationTrees\(\),command=>\{plannedCommand=command;\}\)/);
+  assert.match(main,/applyAutonomousCommand\(plannedCommand\)/);
   assert.match(main,/demo\.tick\(dt, limits\(\), applyAutonomousCommand/);
   assert.match(sim,/setNavigationPresentation\(active\)/);
   assert.doesNotMatch(sim,/setNavigationCommands\(/);
