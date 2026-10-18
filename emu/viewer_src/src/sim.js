@@ -128,6 +128,7 @@ export class EmuBrowserSim {
     this.sensorObserver = bundle.schema === 2
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
+    this.controlFrames = 0; // visible proof of live policy inference
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
     this.command = { ...this.commandTarget };
@@ -642,6 +643,7 @@ export class EmuBrowserSim {
       this.command.yaw=steering.appliedYaw;
     }
     const action = this.policy.infer(this.obs);
+    this.controlFrames++;
     const span = this.bundle.control.target_span_rad;
 
     // One control-frame delay: deliver last target, remember this action's

@@ -5,6 +5,7 @@ import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { DemoCommander } from './live-demo.js';
 import { GoalNavigator } from './goal-navigation.js';
+import { GoalPlannerWorker } from './goal-planner-client.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -45,6 +46,14 @@ const rightValues = $('rightValues');
 const livePanel = $('livePanel');
 const demo = new DemoCommander();
 const navigator = new GoalNavigator();
+let navWorker;
+let workerUnavailable=null;
+try{navWorker=new GoalPlannerWorker();}
+catch(error){workerUnavailable=String(error?.message||error);console.error('Goal worker:',error);}
+navigator.useBackgroundPlanner(request=>{
+  if(!navWorker)throw new Error(workerUnavailable||'Background navigation unavailable');
+  return navWorker.request(request);
+});
 const demoMode = $('demoMode'), navHud = $('navHud');
 let lastResetGeneration = -1;
 let demoActive = false;
@@ -73,16 +82,20 @@ function navigationUpdate(dt) {
   $('demoKind').textContent=state.reason;
   if(!state.goal){
     $('navHudTitle').textContent=state.reason;
-    $('navHudInfo').textContent='Building a walking gait, then planning a destination';
-    $('navEstimate').textContent='Navigation is experimental';
+    $('navHudInfo').textContent='Walking while the planner finds a route';
+    $('navEstimate').textContent=state.plannerError
+      ? 'Planner error: '+state.plannerError
+      : `Actor control frames: ${sim.controlFrames||0} · search off-thread`;
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
-  $('navEstimate').textContent=state.route?.solved
-    ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · ${state.route.expanded} search states`
-    : 'Partial route · recalculating';
+  $('navEstimate').textContent=state.plannerError
+    ? 'Background planner error: '+state.plannerError
+    : state.route?.solved
+      ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · actor control frames ${sim.controlFrames||0}`
+      : `Route search off-thread · actor control frames ${sim.controlFrames||0}`;
 }
 let liveRevision = null;
 let livePolling = false;
@@ -349,7 +362,7 @@ for (const control of [gridToggle, trailToggle, shadowToggle]) control.addEventL
 
 
 window.addEventListener('resize', () => sim?.resize());
-window.addEventListener('beforeunload', () => sim?.dispose());
+window.addEventListener('beforeunload', () => {navWorker?.dispose();sim?.dispose();});
 
 let dragDepth = 0;
 window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dropOverlay.hidden = false; });
@@ -412,6 +425,10 @@ function updateTelemetry(now, dt) {
 }
 
 function frame(ms) {
+  // Schedule the NEXT browser frame before doing anything that can throw.
+  // An exception in the experimental navigator may never freeze the actor.
+  requestAnimationFrame(frame);
+  try{
   const now = ms / 1000;
   const dt = Math.max(0, Math.min(0.1, now - lastFrame));
   lastFrame = now;
@@ -421,8 +438,19 @@ function frame(ms) {
   }
   if (sim) {
     if (demoActive && !sim.paused) {
-      if(goalDemoActive()) navigationUpdate(dt);
-      else {
+      if(goalDemoActive()){
+        try{navigationUpdate(dt);}
+        catch(error){
+          // Browser navigation is optional; on failure immediately restore
+          // known-working random commands without touching actor/simulation.
+          console.error('Goal navigation disabled:',error);
+          demoMode.value='commands';
+          syncGoalMode();
+          setStatus('Navigation error: '+String(error?.message||error), 'error');
+          demo.tick(dt, limits(), cmd=>sim.setDemoCommands(cmd),
+            bundle?.demo?.node_candidates||[]);
+        }
+      }else{
         demo.tick(dt, limits(), cmd => sim.setDemoCommands(cmd), bundle?.demo?.node_candidates || []);
         $('demoKind').textContent = demo.kind;
       }
@@ -431,7 +459,11 @@ function frame(ms) {
     sim.render(dt);
     updateTelemetry(now, dt);
   }
-  requestAnimationFrame(frame);
+  }catch(error){
+    console.error('Viewer frame error:',error);
+    setStatus('Viewer frame: '+String(error?.message||error),'error');
+    if(sim)sim.paused=true;
+  }
 }
 
 function stopDemo() {
