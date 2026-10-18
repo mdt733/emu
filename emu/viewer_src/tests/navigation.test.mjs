@@ -275,7 +275,7 @@ test('260M trained-speed corridor cruises fast without sideways tap-dancing',asy
   const {readFileSync}=await import('node:fs');
   const {fileURLToPath}=await import('node:url');
   const policy=JSON.parse(readFileSync(fileURLToPath(
-    new URL('../../showcase/champion.emupolicy',import.meta.url)),'utf8'));
+    new URL('../../../showcase/champion.emupolicy',import.meta.url)),'utf8'));
   const trained=policy.control.command_limits;
   assert.ok(trained.vx_max>1.0,'confirm actual Pinnacle velocity envelope');
   const route={steps:[
