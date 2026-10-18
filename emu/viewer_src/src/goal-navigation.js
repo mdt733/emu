@@ -307,7 +307,9 @@ export class GoalNavigator {
         this.searchCooldown=Math.max(0,this.searchCooldown-delta);
         apply({vx:.14,vy:0,yaw:0,pitch:0});return;
       }
-      if(!this.nextGoal(pose,limits,trees)){
+      if(!this.nextGoal(pose,limits,trees)||!this.goal){
+        // The Worker has been scheduled but hasn't returned a route yet.
+        // Advance the policy with normal walking commands in the meantime.
         apply({vx:.14,vy:0,yaw:0,pitch:0});return;
       }
     }
