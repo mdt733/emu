@@ -84,8 +84,8 @@ jobs:
       - name: Test actual 260M actor in Chromium while goal mode plans
         run: cd emu/viewer_src && node scripts/e2e-goal-smoke.mjs
 
-  cpu-viewer-windows:
-    runs-on: windows-latest
+  cpu-viewer-ubuntu:
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -94,10 +94,10 @@ jobs:
           node-version: '24'
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - name: Parse bootstrap with Windows PowerShell 5
-        shell: powershell
-        run: .\\scripts\\install_viewer_cpu.ps1 -SelfTest
-      - name: Install browser-only checkout without CUDA or Python packages
-        shell: powershell
-        run: .\\scripts\\install_viewer_cpu.ps1 -Destination "$env:RUNNER_TEMP\\emu-viewer-cpu" -NoLaunch
+          python-version: '3.12'
+      - name: Validate WSL viewer bootstrap syntax
+        run: |
+          bash -n scripts/install_viewer_wsl.sh
+          bash scripts/install_viewer_wsl.sh --self-test
+      - name: Fresh Ubuntu CPU-only viewer install (no training)
+        run: bash scripts/install_viewer_wsl.sh --destination "$RUNNER_TEMP/emu-viewer-cpu" --no-launch

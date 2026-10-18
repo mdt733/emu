@@ -244,58 +244,48 @@ switching planners discards stale route requests and searches again.
 The control pipeline is unmodified: each drives the same proven
 `setDemoCommands()` → heading controller → 260M actor → MuJoCo WASM.
 
-For a **fresh Windows 10/11 CPU-only PC**, open ordinary PowerShell
-(no WSL, administrator prompt or preinstalled Git/Node/Python required)
-and run:
+For a **fresh Ubuntu WSL2 installation on a Windows CPU-only PC**,
+open the **Ubuntu terminal** (not PowerShell). All Git, Python, Node,
+downloaded project files and browser packages stay **inside the WSL distro**.
 
-```powershell
-$setup = Join-Path $env:TEMP 'EMU-Viewer-Install.ps1'
-Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/mdt733/emu/feature/v5017-goal-navigation-demo/scripts/install_viewer_cpu.ps1' -OutFile $setup
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setup
+The only Windows step, *if WSL/Ubuntu isn't installed already*, is the
+one-time operating-system setup `wsl --install -d Ubuntu-24.04`; after
+that, run these commands **in Ubuntu**:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y curl ca-certificates
+
+curl -fsSL \
+  https://raw.githubusercontent.com/mdt733/emu/feature/v5017-goal-navigation-demo/scripts/install_viewer_wsl.sh \
+  -o /tmp/emu-viewer-install.sh
+
+bash /tmp/emu-viewer-install.sh
 ```
 
-Review the downloaded script first if desired:
-`notepad.exe $setup`. The installer itself is committed as
-`scripts/install_viewer_cpu.ps1` on this feature branch. Execution
-policy is relaxed **only for this subprocess**, not globally. The
-installer uses Windows Package Manager (`winget`, installed with
-Microsoft **App Installer** on supported updated Windows systems) to
-install any missing:
+Review the script with `less /tmp/emu-viewer-install.sh` before running
+if preferred. The script is tracked in `scripts/install_viewer_wsl.sh`
+on this feature branch. **Inside Ubuntu only**, it:
 
-- Git for Windows (`Git.Git`)
-- Node.js LTS + npm (`OpenJS.NodeJS.LTS`), unless a compatible Node already exists
-- Python 3.13 (`Python.Python.3.13`), unless Python 3.10+ is available
+- Installs any missing **Git, curl, Python 3 and CA certificates** via
+  `apt`. Ubuntu 24.04's Python 3.12 is sufficient.
+- Installs/uses **Node.js 24 and npm**, using user-local `nvm` if
+  necessary (under `~/.nvm`).
+- Clones or fast-forwards the working experiment in
+  **`~/emu-viewer-cpu`** and preserves any uncommitted changes.
+- Prepares the committed **260M Pinnacle `.emupolicy`**, installs
+  locked browser dependencies using `npm ci`, runs the viewer tests,
+  and starts Vite on **127.0.0.1:8767**.
 
-Windows may ask for normal download/UAC approval; nothing silently
-disables platform protection. If `winget` is absent, install/update
-**App Installer** from Microsoft and rerun; if a newly installed tool is
-not visible in the same process, reopen PowerShell and rerun.
+Open **http://127.0.0.1:8767/** using Windows Chrome/Edge.
+WSL2 normally forwards localhost into Windows automatically. Keep the
+Ubuntu terminal open while viewing; Ctrl+C stops the server.
 
-Then it clones/updates **`%USERPROFILE%\\emu-viewer-cpu`** on
-`feature/v5017-goal-navigation-demo`, checks for local edits before
-updating, verifies and stages the trained 260M champion using Python
-**stdlib only**, runs `npm ci` and the browser tests, then starts a
-loopback-only Vite viewer on **http://127.0.0.1:8767/**.
-Leave the terminal open while viewing and use Ctrl+C to stop. It
-**does not install the EMU Python package**, JAX, MJX, CUDA, or any
-training checkpoints.
-
-The same three PowerShell lines are safe to rerun to fast-forward
-the demo (local modifications are never forcibly overwritten). To
-install without starting the viewer, add `-NoLaunch` to the last
-command. The Windows PowerShell 5-compatible bootstrap can validate its
-own syntax without installing anything via `-SelfTest`.
-
-If the machine already has Git, Node and Python and you prefer the
-manual path, use the previous checkout steps directly:
-
-```powershell
-git clone --single-branch --branch feature/v5017-goal-navigation-demo https://github.com/mdt733/emu.git emu-viewer-cpu
-cd emu-viewer-cpu
-py -3 scripts/prepare_showcase.py --require-champion
-npm ci --prefix emu/viewer_src
-npm run dev --prefix emu/viewer_src -- --host 127.0.0.1 --port 8767
-```
+To update, rerun `bash /tmp/emu-viewer-install.sh` in Ubuntu, or
+add `--no-launch` to install without starting the server. The default
+checkout is on the Ubuntu Linux filesystem, not `/mnt/c`.
+No Windows-side Git/Node/Python, no JAX/CUDA, and **no EMU Python
+training package** are installed.
 
 The 260M champion is already in `showcase/champion.emupolicy`. Open
 http://127.0.0.1:8767/. In Settings, choose Navigate random poses
