@@ -91,8 +91,14 @@ if [[ -d "$DEST/.git" ]]; then
   say "Updating existing viewer checkout: $DEST"
   [[ "$(git -C "$DEST" branch --show-current)" == "$BRANCH" ]] ||
     die 'Existing checkout uses another branch.'
-  [[ -z "$(git -C "$DEST" status --porcelain)" ]] ||
-    die 'Local edits found; stash or commit them before rerunning.'
+  if [[ -n "$(git -C "$DEST" status --porcelain)" ]]; then
+    say 'Existing viewer checkout has uncommitted changes:'
+    git -C "$DEST" status --short
+    printf '\n'
+    die "Preserving local changes. To install an independent clean viewer, run:
+  bash /tmp/emu-viewer-install.sh --destination \"$HOME/emu-viewer-cpu-clean\"
+No files were changed or deleted."
+  fi
   git -C "$DEST" pull --ff-only
 elif [[ -e "$DEST" ]]; then
   [[ -d "$DEST" && -z "$(ls -A "$DEST")" ]] ||
