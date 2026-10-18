@@ -4,6 +4,7 @@ import { VirtualStick } from './joystick.js';
 import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { DemoCommander } from './live-demo.js';
+import { GoalNavigator } from './goal-navigation.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -43,7 +44,41 @@ const leftValues = $('leftValues');
 const rightValues = $('rightValues');
 const livePanel = $('livePanel');
 const demo = new DemoCommander();
+const navigator = new GoalNavigator();
+const demoMode = $('demoMode'), navHud = $('navHud');
+let lastResetGeneration = -1;
 let demoActive = false;
+const goalDemoActive = () => demoActive && demoMode.value === 'goals';
+function syncGoalMode() {
+  const enabled=Boolean(sim && goalDemoActive());
+  navigator.active=enabled;
+  navigator.reset();
+  if(sim) {
+    sim.setNavigationActive(enabled);
+    sim.autoReset=autoResetToggle.checked||demoActive;
+  }
+  navHud.hidden=!enabled;
+  $('navNext').disabled=!enabled;
+}
+function navigationUpdate(dt) {
+  const pose=sim.navigationPose();
+  if(sim.resetGeneration!==lastResetGeneration) {
+    lastResetGeneration=sim.resetGeneration;
+    navigator.reset();
+  }
+  navigator.tick(dt,pose,bundle.control.command_limits,
+    sim.navigationTrees(),cmd=>sim.setNavigationCommands(cmd));
+  const state=navigator.status(pose);
+  sim.setNavigationOverlay(state.goal,state.route);
+  $('demoKind').textContent=state.reason;
+  if(!state.goal)return;
+  const degrees=n=>Math.round(n*180/Math.PI);
+  $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
+  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked`;
+  $('navEstimate').textContent=state.route?.solved
+    ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · ${state.route.expanded} search states`
+    : 'Partial route · recalculating';
+}
 let liveRevision = null;
 let livePolling = false;
 let showcaseManifest = null;
@@ -218,6 +253,8 @@ async function activatePolicy(index) {
     dropOverlay.hidden = true;
     sim.resize();
     demo.reset();
+    lastResetGeneration=-1;
+    syncGoalMode();
     return true;
   } catch (err) {
     console.error(err);
@@ -272,12 +309,12 @@ function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
   if (!sim) return;
-  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); applyAdvanced(); updateStickLabels(); }
+  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); applyAdvanced(); updateStickLabels(); }
   catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
 }
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
-treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
 joystickMode.addEventListener('change',()=>{
   $('moveStickMode').textContent = joystickMode.value==='hybrid'?'vx / vy + turn':'vx / vy';
   sim?.setJoystickMode(joystickMode.value);
@@ -368,8 +405,11 @@ function frame(ms) {
   }
   if (sim) {
     if (demoActive && !sim.paused) {
-      demo.tick(dt, limits(), cmd => sim.setDemoCommands(cmd), bundle?.demo?.node_candidates || []);
-      $('demoKind').textContent = demo.kind;
+      if(goalDemoActive()) navigationUpdate(dt);
+      else {
+        demo.tick(dt, limits(), cmd => sim.setDemoCommands(cmd), bundle?.demo?.node_candidates || []);
+        $('demoKind').textContent = demo.kind;
+      }
     }
     sim.advance(dt);
     sim.render(dt);
@@ -382,6 +422,7 @@ function stopDemo() {
   demoActive = false;
   $('liveDemo').checked = false;
   demo.reset();
+  syncGoalMode();
   $('demoKind').textContent = 'manual control';
   if (sim) {
     sim.autoReset = autoResetToggle.checked;
@@ -392,11 +433,24 @@ function stopDemo() {
 $('liveDemo').addEventListener('change', () => {
   demoActive = $('liveDemo').checked;
   demo.reset();
-  if (sim) {
-    sim.autoReset = autoResetToggle.checked || demoActive;
-    if (!demoActive) sim.setJoystickTargets(left.x, left.y, right.x, right.y);
-  }
+  syncGoalMode();
+  if (sim && !demoActive) sim.setJoystickTargets(left.x, left.y, right.x, right.y);
   $('demoKind').textContent = demoActive ? 'choosing command…' : 'manual control';
+});
+demoMode.addEventListener('change',()=>{
+  demo.reset();
+  syncGoalMode();
+  $('demoKind').textContent=goalDemoActive()?'Planning goal route…':'random in-envelope commands';
+});
+$('navNext').addEventListener('click',()=>{
+  if(!sim)return;
+  if(!goalDemoActive()){
+    demoMode.value='goals';demoActive=true;$('liveDemo').checked=true;
+    syncGoalMode();
+  }
+  navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
+  const state=navigator.status(sim.navigationPose());
+  sim.setNavigationOverlay(state.goal,state.route);
 });
 
 async function pollLive() {
@@ -471,6 +525,7 @@ async function startShowcaseFeed() {
     : 'Demo fixture: explore the controls, not the walking performance';
   $('demoKind').textContent = demoActive ? 'choosing command…' : 'manual control';
   sim.autoReset = autoResetToggle.checked || demoActive;
+  syncGoalMode();
   return true;
 }
 
@@ -499,6 +554,7 @@ async function startViewerFeed() {
         if (config.live) {
           livePanel.hidden = false;
           demoActive = $('liveDemo').checked;
+          syncGoalMode();
           await pollLive();
           setInterval(pollLive, 12000);
         }
