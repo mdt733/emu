@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
+import { SensorObserver } from './sensor.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
@@ -116,7 +117,9 @@ export class EmuBrowserSim {
     this.followTarget = new THREE.Vector3();
     this.paused = false;
     this.autoReset = false;
-    this.sensorNoise = false;
+    this.sensorNoise = true;
+    this.sensorObserver = bundle.schema === 2
+      ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
@@ -127,8 +130,9 @@ export class EmuBrowserSim {
     this.prevAction = new Float32Array(6);
     this.prevRawTarget = new Float32Array(6);
     this.deliveredCtrl = new Float32Array(6);
-    this.history = Array.from({ length: 4 }, () => new Float32Array(55));
-    this.obs = new Float32Array(220);
+    this.baseObsDim = bundle.policy.base_obs_dim;
+    this.history = Array.from({ length: 4 }, () => new Float32Array(this.baseObsDim));
+    this.obs = new Float32Array(bundle.policy.obs_dim);
     this.actQpos = [];
     this.actQvel = [];
     this.shinQpos = [];
@@ -394,6 +398,7 @@ export class EmuBrowserSim {
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
+    if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
@@ -431,6 +436,7 @@ export class EmuBrowserSim {
     return next.robot_xml === old.robot_xml &&
       physicsKeys.every(k => JSON.stringify(next.control[k]) === JSON.stringify(old.control[k])) &&
       JSON.stringify(next.observation.base_fields) === JSON.stringify(old.observation.base_fields) &&
+      JSON.stringify(next.observation.sensor_contract) === JSON.stringify(old.observation.sensor_contract) &&
       next.policy.obs_dim === old.policy.obs_dim;
   }
 
@@ -493,6 +499,7 @@ export class EmuBrowserSim {
     }
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
+    if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -505,7 +512,7 @@ export class EmuBrowserSim {
   }
 
   flattenHistory() {
-    for (let h = 0; h < 4; h++) this.obs.set(this.history[h], h * 55);
+    for (let h = 0; h < 4; h++) this.obs.set(this.history[h], h * this.baseObsDim);
   }
 
   bodyRotation() {
@@ -522,6 +529,25 @@ export class EmuBrowserSim {
     ];
   }
 
+  sensorPose() {
+    const R=this.bodyRotation();
+    const xyz=this.torsoId*3;
+    const torso=Array.from(this.data.xpos.slice(xyz,xyz+3));
+    const vbody=this.worldToBody(R,this.data.qvel[0],this.data.qvel[1],this.data.qvel[2]);
+    // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
+    const gyro=Array.from(this.data.qvel.slice(3,6));
+    const heightAt=(x,y)=>{
+      if(this.terrainMode==='park'&&this.park) return this.park.sampleHeight(x,y);
+      if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
+        if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
+        if(x>1.65&&x<2.17)return .015;
+        if(x>=2.17&&x<=2.97)return .015-(x-2.17)*Math.tan(Math.PI/180);
+      }
+      return 0;
+    };
+    return {R,torso,vbody,gyro,heightAt};
+  }
+
   buildBaseObs() {
     const qpos = this.data.qpos;
     const qvel = this.data.qvel;
@@ -535,7 +561,7 @@ export class EmuBrowserSim {
     const ns = this.sensorNoise ? Number(this.bundle.control.sensor_noise_scale ?? 1.5) : 0.0;
     const n0 = Math.sin(1.73 * this.phase);
     const n1 = Math.sin(2.31 * this.phase + 0.7);
-    const base = new Float32Array(55);
+    const base = new Float32Array(this.baseObsDim);
     let k = 0;
 
     base[k++] = grav[0] + ns*0.008*n0;
@@ -544,6 +570,14 @@ export class EmuBrowserSim {
     base[k++] = bodyAng[0] + ns*0.025*n1;
     base[k++] = bodyAng[1] + ns*0.025*n0;
     base[k++] = bodyAng[2] - ns*0.025*n1;
+    const sensor = this.sensorObserver?.read([
+      grav[0]+ns*.008*n0,grav[1]+ns*.008*n1,grav[2]-ns*.004*n0
+    ]);
+    if (sensor) {
+      base[3]=sensor.gyro[0];
+      base[4]=sensor.gyro[1];
+      base[5]=sensor.gyro[2];
+    }
 
     for (let i = 0; i < 6; i++) base[k++] = qpos[this.actQpos[i]] + ns*0.0015*n0;
     for (let i = 0; i < 6; i++) base[k++] = qvel[this.actQvel[i]] + ns*0.015*n1;
@@ -558,10 +592,10 @@ export class EmuBrowserSim {
       base[k++] = rel[0]; base[k++] = rel[1]; base[k++] = rel[2];
     }
 
-    base[k++] = bodyVel[0] + ns*0.018*n0;
-    base[k++] = bodyVel[1] + ns*0.018*n1;
-    base[k++] = tz + ns*0.0025*n1;
-    base[k++] = clamp(1 - 0.18*ns, 0.2, 1.0);
+    base[k++] = sensor ? sensor.velocity[0] : bodyVel[0] + ns*0.018*n0;
+    base[k++] = sensor ? sensor.velocity[1] : bodyVel[1] + ns*0.018*n1;
+    base[k++] = sensor ? sensor.depth : tz + ns*0.0025*n1;
+    base[k++] = sensor ? sensor.velocityConfidence : clamp(1 - 0.18*ns, 0.2, 1.0);
 
     base[k++] = this.command.vx;
     base[k++] = this.command.vy;
@@ -582,7 +616,12 @@ export class EmuBrowserSim {
     base[k++] = clamp(Math.abs(sf0) / 0.10, 0, 1.5);
     base[k++] = clamp(Math.abs(sf1) / 0.10, 0, 1.5);
 
-    if (k !== 55) throw new Error(`Internal observation builder produced ${k} fields instead of 55`);
+    if (sensor) {
+      base[k++] = sensor.forwardGrade;
+      base[k++] = sensor.sideGrade;
+      base[k++] = sensor.groundConfidence;
+    }
+    if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
   }
 
