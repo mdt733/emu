@@ -624,14 +624,20 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             es, ob, sums = carry
             mean, _ = apply(params, normalize_obs(
                 ob, obs_mean, obs_std, obs_norm_mask))
-            out = env.step(es, jnp.clip(mean, -1., 1.), curriculum_params)
+            action = jnp.clip(mean, -1., 1.)
+            # action_delta_norm exists in the private reward computation,
+            # but REWARD_ONLY_METRICS deliberately strips it from StepOut.
+            # Measure the identical quantity directly from the pre-step
+            # action/state. Do not expand PPO telemetry or alter rewards.
+            action_delta_norm = jnp.linalg.norm(action - es.prev_action, axis=1)
+            out = env.step(es, action, curriculum_params)
             m = out.metrics
             sums = sums + jnp.stack((
                 jnp.sum(m['servo_shaft_abs_power_w']),
                 jnp.sum(m['servo_shaft_drive_power_w']),
                 jnp.sum(m['servo_over_rated_frac']),
                 jnp.sum(m['servo_peak_torque_limit_frac']),
-                jnp.sum(m['action_delta_norm']),
+                jnp.sum(action_delta_norm),
             ))
             return out.state, out.obs, sums
 
