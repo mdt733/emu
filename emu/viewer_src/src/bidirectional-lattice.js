@@ -95,6 +95,9 @@ function joinRoute(a,b,connector){
   while(n.parent){back.push({...n.parent.pose,cmd:n.edge,
     maneuver:'joystick primitive',dt:n.edge.dt});n=n.parent;}
   const steps=[...front,...(connector?.steps||[]),...back];
+  // Only the ACTUAL destination is a terminal pose; intermediate
+  // analytic-bridge endpoints are not little parking instructions.
+  for(const step of steps)step.final=false;
   if(steps.length)steps.at(-1).final=true;
   return steps;
 }
