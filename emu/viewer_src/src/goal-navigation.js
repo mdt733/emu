@@ -206,8 +206,41 @@ export class GoalNavigator {
     this.replans=0;this.reason='Not started';this.replanDelay=0;
     this.searchCooldown=0;this.failures=0;this.warmup=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+    this.requestPlan=null;this.pendingRequest=null;
+    this.generation=0;this.plannerError=null;
   }
-  reset(){this.goal=null;this.route=null;this.index=0;
+  // Tests can still exercise the pure synchronous planner. Browser MUST
+  // install the real Worker transport, never a Promise around sync A*.
+  useBackgroundPlanner(requestPlan){
+    if(typeof requestPlan!=='function')throw new Error('Background planner required');
+    this.requestPlan=requestPlan;
+  }
+  queuePlan(payload,consume) {
+    if(this.pendingRequest)return false;
+    const generation=this.generation;
+    let promise;
+    try {promise=Promise.resolve(this.requestPlan(payload));}
+    catch(error){this.plannerError=String(error?.message||error);return false;}
+    this.pendingRequest=promise;
+    promise.then(result=>{
+      if(generation!==this.generation||!this.active)return;
+      consume(result);
+    }).catch(error=>{
+      if(generation===this.generation){
+        this.plannerError=String(error?.message||error);
+        this.reason='Planner error · walking safely';
+        this.searchCooldown=2.0;
+        if(payload.kind==='next'){this.goal=null;this.route=null;}
+      }
+    }).finally(()=>{
+      if(generation===this.generation&&this.pendingRequest===promise)
+        this.pendingRequest=null;
+    });
+    return true;
+  }
+  reset(){
+    this.generation++;this.pendingRequest=null;this.plannerError=null;
+    this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.warmup=0;this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
@@ -222,6 +255,26 @@ export class GoalNavigator {
     return true;
   }
   nextGoal(pose,limits,trees=[]){
+    if(this.requestPlan){
+      this.reason='Planning next target in background…';
+      return this.queuePlan({
+        kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
+        limits,trees
+      },result=>{
+        if(result?.goal&&result?.route?.solved){
+          // Route already calculated off-thread; do not run A* again.
+          this.goal=result.goal;this.route=result.route;this.index=0;
+          this.elapsed=0;this.replanDelay=0;this.arrivalHold=0;
+          this.searchCooldown=0;this.stagnant=0;
+          this.bestProgress=Infinity;this.lastIndex=-1;
+          this.reason='Navigating';
+        }else{
+          this.goal=null;this.route=null;
+          this.searchCooldown=1.5;
+          this.reason='No viable route yet · trying again soon';
+        }
+      });
+    }
     for(let i=0;i<5;i++){
       const goal=sampleGoal(this.rng,trees,pose);
       const planned=this.setGoal(pose,goal,limits,trees);
@@ -245,6 +298,11 @@ export class GoalNavigator {
       return;
     }
     if(!this.goal){
+      if(this.pendingRequest){
+        this.reason='Background route search · still walking';
+        apply({vx:.14,vy:0,yaw:0,pitch:0});
+        return;
+      }
       if(this.searchCooldown>0){
         this.searchCooldown=Math.max(0,this.searchCooldown-delta);
         apply({vx:.14,vy:0,yaw:0,pitch:0});return;
@@ -301,10 +359,23 @@ export class GoalNavigator {
     // Do not thrash the target from scratch every render frame.
     if(this.replanDelay>3.2 && (remaining>.75||!this.route.solved||this.stagnant>6.0)){
       this.replanDelay=0;
-      const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
-      if(route){
-        this.route=route;this.index=0;this.replans++;
-        this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+      if(this.requestPlan){
+        const expectedGoal=this.goal;
+        this.queuePlan({
+          kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
+          goal:expectedGoal,limits,trees
+        },result=>{
+          if(result?.route?.solved && this.goal===expectedGoal){
+            this.route=result.route;this.index=0;this.replans++;
+            this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+          }
+        });
+      }else{
+        const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
+        if(route){
+          this.route=route;this.index=0;this.replans++;
+          this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+        }
       }
     }
   }
@@ -313,7 +384,8 @@ export class GoalNavigator {
       distance:this.goal?distance(pose,this.goal):0,
       headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
-      failures:this.failures,
+      failures:this.failures,planning:Boolean(this.pendingRequest),
+      plannerError:this.plannerError,
       index:this.index,reason:this.reason};
   }
 }
