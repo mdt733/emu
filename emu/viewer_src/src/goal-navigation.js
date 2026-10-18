@@ -204,17 +204,20 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
-    this.searchCooldown=0;
+    this.searchCooldown=0;this.failures=0;
+    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
   }
   reset(){this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
-    this.replanDelay=0;this.replans=0;this.searchCooldown=0;}
+    this.replanDelay=0;this.replans=0;this.searchCooldown=0;
+    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
   setGoal(pose,goal,limits,trees=[]){
     const route=planPoseRoute(pose,goal,limits,trees);
     if(!route)return false;
     this.goal={...goal};this.route=route;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.replanDelay=0;
-    this.searchCooldown=0;
+    this.searchCooldown=0;this.stagnant=0;
+    this.bestProgress=Infinity;this.lastIndex=-1;
     this.reason=route.solved?'Navigating':'Partial route · replanning';
     return true;
   }
@@ -243,6 +246,14 @@ export class GoalNavigator {
       }
     }
     this.elapsed+=delta;
+    const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
+    if(this.elapsed>deadline){
+      this.failures++;
+      this.reason='Mission timed out · new goal';
+      apply({vx:0,vy:0,yaw:0,pitch:0});
+      this.nextGoal(pose,limits,trees);
+      return;
+    }
     const dist=distance(pose,this.goal),aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
     if(dist<GOAL_POSITION_TOLERANCE_M&&aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.13){
@@ -262,16 +273,25 @@ export class GoalNavigator {
       this.index++;
     }
     const target=steps[this.index];
+    const remaining=distance(pose,target);
+    if(this.index!==this.lastIndex){
+      this.lastIndex=this.index;this.bestProgress=remaining;this.stagnant=0;
+    }else if(remaining<this.bestProgress-.035){
+      this.bestProgress=remaining;this.stagnant=0;
+    }else this.stagnant+=delta;
     const command=followWaypoint(pose,target,limits,{final:target.final});
     apply(command);
     this.reason=target.final?'Parking into final heading':target.maneuver;
     this.replanDelay+=delta;
     // Re-plan if significantly displaced from the planned next target.
     // Do not thrash the target from scratch every render frame.
-    if(this.replanDelay>3.2 && (distance(pose,target)>.75||!this.route.solved)){
+    if(this.replanDelay>3.2 && (remaining>.75||!this.route.solved||this.stagnant>6.0)){
       this.replanDelay=0;
       const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
-      if(route){this.route=route;this.index=0;this.replans++;}
+      if(route){
+        this.route=route;this.index=0;this.replans++;
+        this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+      }
     }
   }
   status(pose){
@@ -279,6 +299,7 @@ export class GoalNavigator {
       distance:this.goal?distance(pose,this.goal):0,
       headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
+      failures:this.failures,
       index:this.index,reason:this.reason};
   }
 }

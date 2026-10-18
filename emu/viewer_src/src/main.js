@@ -74,7 +74,7 @@ function navigationUpdate(dt) {
   if(!state.goal)return;
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
-  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked`;
+  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
   $('navEstimate').textContent=state.route?.solved
     ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · ${state.route.expanded} search states`
     : 'Partial route · recalculating';

@@ -59,3 +59,7 @@ This feature remains branch-only for review. Neither the public showcase
 model, release approval hash nor the legacy v5016 checkpoint was modified.
 Run `npm test --prefix emu/viewer_src`, browser build/preview, and test
 both desktop/mobile before a separate PR promotion.
+
+Unreachable or stalled missions are explicitly timed out and counted as
+failures, not successes. Stuck waypoints trigger a fresh route search,
+while target-search failures back off rather than monopolising frames.
