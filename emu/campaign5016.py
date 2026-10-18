@@ -307,6 +307,16 @@ def screen(root: Path, ledger: dict, *, name: str, contenders: dict,
             sensor_contact_exam=True, key_by_path=True,
             write_screen_files=False)
     finally:
+        # Every stage uses a separate subprocess for learning, but the GPU
+        # screening process is long-lived. Drop compiled MJX executables
+        # between tournament rounds so an 8-GB GPU does not accumulate
+        # stale world specialisations over the entire campaign.
+        import gc
+        import sys
+        if "jax" in sys.modules:
+            import jax
+            jax.clear_caches()
+        gc.collect()
         ledger["gpu_seconds"] += time.monotonic() - started
         save_json(root / "campaign.json", ledger)
     safety = score(raw[contenders[baseline]["path"]])
