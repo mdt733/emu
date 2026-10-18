@@ -1,0 +1,14 @@
+{
+  "actor_sha256": "6bbf8d2fe65ecb2bfabe59f8a1329531f1394b2f8f2b977f0bf4758665c26015",
+  "checkpoint_schema": 8,
+  "checkpoint_sha256": "a455bfb76e51d6dc1de5c519e266eb6b8e5e6fe92122c1ca54b3266daa8ef329",
+  "obs_dim": 232,
+  "policy_file": "showcase/champion.emupolicy",
+  "policy_git_blob": "163a61fef6e75fcba91f254830f3858210b491a0",
+  "policy_sha256": "d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862",
+  "release_schema": 1,
+  "schema": 2,
+  "sensor_contract_sha256": "90a465a220a5310f3211bcdff5e888d705f8009e107c28a7dba355a1043cc923",
+  "step": 260112384,
+  "training_source_commit": "ff7626e959a4cf2bb91d02818203ca9a74d1c577"
+}
