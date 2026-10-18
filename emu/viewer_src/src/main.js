@@ -252,6 +252,17 @@ async function activatePolicy(index) {
     dragDepth = 0;
     dropOverlay.hidden = true;
     sim.resize();
+    // An explicitly opened local .emupolicy also needs demo controls:
+    // /api/initial-policy is not a live watcher or static Pages manifest.
+    if (livePanel.hidden && !showcaseManifest) {
+      livePanel.hidden = false;
+      $('demoPanelTitle').textContent = 'DEMO CONTROLS';
+      $('liveUpdate').closest('label').hidden = true;
+      $('livePhase').textContent = 'Local policy';
+      $('liveStep').textContent = Number(src.step || 0).toLocaleString();
+      $('liveNote').textContent = 'Browser-only navigation: no training server involved';
+      demoActive = $('liveDemo').checked;
+    }
     demo.reset();
     lastResetGeneration=-1;
     syncGoalMode();
