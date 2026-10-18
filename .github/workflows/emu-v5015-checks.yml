@@ -4,11 +4,18 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [develop/playground-attitude-terrain]
+    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# When multiple revisions arrive on the same draft PR, only test the newest.
+# Avoid dozens of obsolete overlapping runs and failure notifications.
+# Manual dispatch and separate PRs retain independent concurrency groups.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python:

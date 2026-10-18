@@ -107,6 +107,47 @@ def doctor(args) -> int:
             print('v5015 MJX + PPO update + evaluation smoke: PASS (4 envs, one optimizer update, 11 evaluation fields)')
         except Exception as exc:
             failures.append(f'v5015 MJX + PPO smoke: {exc}')
+    if getattr(args, 'v5016_smoke', False):
+        # Explicit sensor-schema acceptance smoke, no writes or long run.
+        try:
+            import jax
+            import jax.numpy as jnp
+            from .contracts import OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
+            from .environment import EmuMJXEnv
+            from .curriculum import RegimeGovernor
+            from .ppo import make_trainer, build_obs_norm_mask
+            n = 2
+            env = EmuMJXEnv(str(ROBOT_XML), num_envs=n, seed=5016,
+                            max_episode_steps=30, attitude_profile='v5015',
+                            contact_slope_deg=2.,
+                            observation_schema=OBS_SCHEMA_SENSOR)
+            params = RegimeGovernor().params_dict()
+            state, obs = env.reset(params)
+            if obs.shape != (n, SENSOR_OBS_DIM) or state.hist.shape != (n, 4, 58):
+                raise RuntimeError(f'v5016 sensor observation shape mismatch: {obs.shape}')
+            if build_obs_norm_mask(OBS_SCHEMA_SENSOR).shape != (SENSOR_OBS_DIM,):
+                raise RuntimeError('v5016 observation normalizer mask mismatch')
+            out = env.step(state, jnp.zeros((n, 6), dtype=jnp.float32), params)
+            out.obs.block_until_ready()
+            if out.bootstrap_obs.shape != (n, SENSOR_OBS_DIM):
+                raise RuntimeError('v5016 bootstrap observation shape mismatch')
+            trainer = make_trainer(env, seed=5016, lr=2e-4, rollout=2,
+                                   epochs=1, minibatches=1)
+            init = trainer['make_initial_state'](params)
+            packed = env.params_array(params)
+            mean = jnp.zeros((SENSOR_OBS_DIM,), jnp.float32)
+            var = jnp.ones((SENSOR_OBS_DIM,), jnp.float32)
+            updated, _, diagnostics, _, _ = trainer['train_update'](
+                init, packed, mean, var, jnp.asarray(.25, dtype=jnp.float32))
+            if not all(bool(jax.device_get(jnp.all(jnp.isfinite(leaf))))
+                       for leaf in jax.tree_util.tree_leaves(updated.params)):
+                raise RuntimeError('v5016 PPO update produced nonfinite parameters')
+            if not bool(jax.device_get(jnp.isfinite(diagnostics['rollout_reward_mean']))):
+                raise RuntimeError('v5016 PPO update produced nonfinite rollout reward')
+            print('v5016 sensor MJX + 232-input PPO gradient smoke: PASS '
+                  '(2 worlds, 2-frame rollout, one optimizer update)')
+        except Exception as exc:
+            failures.append(f'v5016 sensor PPO smoke: {exc}')
     if args.domain_smoke:
         try:
             import jax
@@ -135,7 +176,7 @@ def main(argv=None) -> int:
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
-    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)')
+    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)'); q.add_argument('--v5016-smoke',action='store_true',help='compile the opt-in 232-input sensor MJX and one PPO update (no checkpoint/training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
     for ladder_command in ('ladder', 'lab5015'):
         q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
@@ -153,7 +194,9 @@ def main(argv=None) -> int:
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
-    q.add_argument('--run-dir',required=True)
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--run-dir',help='read-only schema-7 training run')
+    source.add_argument('--policy',help='frozen exported .emupolicy actor')
     q.add_argument('--output',required=True,help='unique examination directory, outside training root')
     q.add_argument('--angle',type=float,default=0.)
     q.add_argument('--direction',choices=['uphill','downhill','cross_left','cross_right'],default='uphill')
@@ -169,6 +212,9 @@ def main(argv=None) -> int:
     q.add_argument('--gyro-bias',type=float,default=0.)
     q.add_argument('--gyro-noise',type=float,default=0.)
     q.add_argument('--gyro-delay-frames',type=int,default=0)
+    q.add_argument('--contact-slope',action='store_true',help='real inclined floor with vertical gravity')
+    q.add_argument('--reuse-completed',action='store_true',
+                   help='reuse saved OFF/ON exam JSON to rebuild missing comparison')
     q.add_argument('--compare-heading',action='store_true',
                    help='matched read-only controller OFF/ON comparison')
     q.add_argument('--heading-kp',type=float,default=0.75)
@@ -176,15 +222,31 @@ def main(argv=None) -> int:
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q=sub.add_parser('directional-batch',
         help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
-    q.add_argument('--root',required=True,help='original read-only four-way run root')
+    source=q.add_mutually_exclusive_group(required=True)
+    source.add_argument('--root',help='original read-only four-way run root')
+    source.add_argument('--policy',help='frozen exported actor, requires physical profile')
     q.add_argument('--output',required=True,help='new separate exam root')
-    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch'],
+    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch','physical'],
                    default='smoke')
     q.add_argument('--worlds',type=int)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--heading-kp',type=float,default=.75)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--run',action='store_true',help='execute rather than plan only')
+    q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
+    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
+    q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
+    q.add_argument('--hours',type=float,default=12.)
+    q.add_argument('--envs',type=int,default=2048)
+    q.add_argument('--screen-envs',type=int,default=128)
+    q.add_argument('--screen-horizon',type=int,default=300)
+    q.add_argument('--seed',type=int,default=733)
+    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
+    q.add_argument('--plan',action='store_true')
+    q.add_argument('--status',action='store_true')
+    q.add_argument('--run',action='store_true',help='run the GPU campaign (default only plans)')
+    q.add_argument('--resume-after-screen-fix',action='store_true',
+                   help='audit original training revision and resume failed Round-1 screen')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -194,8 +256,16 @@ def main(argv=None) -> int:
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--profile',choices=['foundation','mature'],default='foundation')
-    q.add_argument('--pitch-deg',type=float,default=8.0,help='maximum commanded chassis-pitch range, e.g. 15 for Pitch15-style teaching')
+    q.add_argument('--profile',choices=['foundation','mature','sim2real'],default='foundation')
+    q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
+    q.add_argument('--motor-guidance-weight',type=float,default=0.0,
+                   help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
+    q.add_argument('--contact-slope-deg',type=float,default=0.0,
+                   help='opt-in shared real incline 0..5 degrees, sim2real only')
+    q.add_argument('--contact-terrain-radius',type=float,default=0.0,
+                   help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
+    q.add_argument('--sensor-actor',action='store_true',
+                   help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
@@ -229,25 +299,51 @@ def main(argv=None) -> int:
         if args.select: av += ['--select',*args.select]
         return _run('branch_lab',*av)
     if args.cmd=='directional-exam':
-        from .evaluation import directional_main
-        return directional_main('--run-dir',args.run_dir,'--output',args.output,
-                    '--angle',str(args.angle),'--direction',args.direction,
-                    '--worlds',str(args.worlds),'--horizon',str(args.horizon),
-                    '--speed',str(args.speed),'--lateral',str(args.lateral),
-                    '--yaw-rate',str(args.yaw_rate),'--settle-frames',str(args.settle_frames),
-                    '--seed',str(args.seed),'--device',args.device,
-                    '--heading-kp',str(args.heading_kp),
-                    '--scenario',args.scenario,'--turn-rate',str(args.turn_rate),
-                    '--gyro-bias',str(args.gyro_bias),'--gyro-noise',str(args.gyro_noise),
-                    '--gyro-delay-frames',str(args.gyro_delay_frames),
-                    *(['--compare-heading'] if args.compare_heading else []))
+        # Parse ONCE and call the examiner directly. Previously this rebuilt
+        # strings for a second parser: a fragile seam that caused real WSL
+        # crashes while lower-level tests remained green.
+        from .evaluation import evaluate_directional_pair, evaluate_directional_run
+        if args.reuse_completed and not args.compare_heading:
+            p.error('--reuse-completed requires --compare-heading')
+        request=dict(
+            run_dir=args.run_dir,policy_file=args.policy,output=args.output,
+            angle_deg=args.angle,direction=args.direction,
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            lateral=args.lateral,yaw_rate=args.yaw_rate,
+            settle_frames=args.settle_frames,seed=args.seed,device=args.device,
+            scenario=args.scenario,turn_rate=args.turn_rate,
+            gyro_bias=args.gyro_bias,gyro_noise=args.gyro_noise,
+            gyro_delay_frames=args.gyro_delay_frames,
+            contact_slope=args.contact_slope)
+        if args.compare_heading:
+            paths=evaluate_directional_pair(
+                heading_kp=args.heading_kp,
+                reuse_completed=args.reuse_completed,**request)
+        else:
+            paths=evaluate_directional_run(heading_kp=0.,**request)
+        for path in paths:
+            print(path)
+        return 0
     if args.cmd=='directional-batch':
         from .evaluation import plan,execute
         from .evaluation import source_commit
         jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
-                  seed=args.seed,kp=args.heading_kp,device=args.device)
+                  seed=args.seed,kp=args.heading_kp,device=args.device,
+                  policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
+    if args.cmd=='campaign5016':
+        from .campaign5016 import main as pinnacle
+        argv=['--root',args.root,'--foundation',args.foundation,
+              '--hours',str(args.hours),'--envs',str(args.envs),
+              '--screen-envs',str(args.screen_envs),
+              '--screen-horizon',str(args.screen_horizon),
+              '--seed',str(args.seed),'--device',args.device]
+        if args.plan: argv.append('--plan')
+        if args.status: argv.append('--status')
+        if args.run: argv.append('--run')
+        if args.resume_after_screen_fix: argv.append('--resume-after-screen-fix')
+        return pinnacle(argv)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):

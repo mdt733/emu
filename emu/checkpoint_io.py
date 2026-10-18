@@ -18,11 +18,13 @@ from typing import Any
 import numpy as np
 
 from .curriculum import FIELD_VERSION
-from .contracts import ACTION_DIM, OBS_DIM
+from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+                        SENSOR_OBS_DIM, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
-CHECKPOINT_SCHEMA = 7
+CHECKPOINT_SCHEMA = 7  # Historical Pitch15 pickle format, never renumber.
+SENSOR_CHECKPOINT_SCHEMA = 8
 ROBOT_MODEL_SHA256 = hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 
 
@@ -56,13 +58,45 @@ def _shape_tree(value: Any):
     return tuple(np.asarray(value).shape)
 
 
-def _validate_policy_param_shapes(params: Any, where: str = '') -> None:
-    expected = expected_param_shapes()
+def _validate_policy_param_shapes(params: Any, where: str = '', *, obs_dim: int = OBS_DIM) -> None:
+    expected = expected_param_shapes(obs_dim=obs_dim)
     actual = _shape_tree(params)
     if actual != expected:
         raise ValueError(
             f"checkpoint policy parameter-shape mismatch{where}: expected={expected} got={actual}"
         )
+
+
+def _validate_observation_meta(meta: dict[str, Any], where: str = '',
+                               *, expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                               expected_sensor_contract: dict | None = None) -> int:
+    """Fail closed on width, meaning, and acquisition parameters.
+
+    A legacy 7 checkpoint has no sensor metadata; it can ONLY mean Pitch15.
+    A v5016 8 checkpoint requires the full independently regenerated physical
+    sensor contract and explicit caller opt-in before even inspecting weights.
+    """
+    schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
+    disk_schema = meta.get('checkpoint_schema', -1)
+    if expected_observation_schema == OBS_SCHEMA_LEGACY:
+        if disk_schema != CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_LEGACY:
+            raise ValueError(f"checkpoint observation schema mismatch{where}: expected legacy Pitch15 schema 7")
+        if 'sensor_contract' in meta:
+            raise ValueError(f"checkpoint{where} has sensor metadata inside legacy schema 7")
+        return OBS_DIM
+    if expected_observation_schema != OBS_SCHEMA_SENSOR:
+        raise ValueError(f"unknown expected checkpoint observation schema {expected_observation_schema!r}")
+    if disk_schema != SENSOR_CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_SENSOR:
+        raise ValueError(f"checkpoint observation schema mismatch{where}: expected sim2real_232 schema 8")
+    supplied = meta.get('sensor_contract')
+    if not isinstance(supplied, dict) or not isinstance(supplied.get('settings'), dict):
+        raise ValueError(f"checkpoint{where} missing complete sensor contract")
+    canonical = sensor_observation_contract(supplied['settings'])
+    if supplied != canonical:
+        raise ValueError(f"checkpoint{where} sensor contract fingerprint/geometry mismatch")
+    if expected_sensor_contract is None or expected_sensor_contract != canonical:
+        raise ValueError(f"checkpoint{where} sensor contract differs from requested run")
+    return SENSOR_OBS_DIM
 
 
 def _validate_rewind_meta(meta: dict[str, Any], where: str = '') -> None:
@@ -115,6 +149,19 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     meta.setdefault('policy_hidden_sizes', list(PPO_HIDDEN_SIZES))
     meta.setdefault('robot_model_sha256', ROBOT_MODEL_SHA256)
     meta.setdefault('created_unix', float(time.time()))
+    schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
+    if schema == OBS_SCHEMA_SENSOR:
+        dimension = _validate_observation_meta(
+            meta, f" at {path}", expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=meta.get('sensor_contract'))
+    else:
+        dimension = _validate_observation_meta(meta, f" at {path}")
+    if meta.get('obs_dim') != dimension or meta.get('action_dim') != ACTION_DIM:
+        raise ValueError('checkpoint observation/action width mismatch at save')
+    _validate_policy_param_shapes(host_params, f" at {path}", obs_dim=dimension)
+    if (np.asarray(host_norm['mean']).shape != (dimension,) or
+            np.asarray(host_norm['var']).shape != (dimension,)):
+        raise ValueError('checkpoint normalizer width mismatch at save')
     payload = {
         'state': host_state,
         'obs_norm': host_norm,
@@ -154,13 +201,19 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     }
 
 
-def load_checkpoint(path: Path, *, validate: bool = True) -> dict[str, Any]:
+def load_checkpoint(path: Path, *, validate: bool = True,
+                    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                    expected_sensor_contract: dict | None = None) -> dict[str, Any]:
     with path.open('rb') as f:
         payload = pickle.load(f)
-    return validate_resume_payload(payload, path) if validate else payload
+    return (validate_resume_payload(
+        payload, path, expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract) if validate else payload)
 
 
-def validate_resume_payload(payload: Any, path: Path | None = None) -> dict[str, Any]:
+def validate_resume_payload(payload: Any, path: Path | None = None, *,
+                            expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                            expected_sensor_contract: dict | None = None) -> dict[str, Any]:
     """Validate the exact-resume contract; never reinterpret a partial checkpoint."""
     where = f" at {path}" if path is not None else ""
     if not isinstance(payload, dict):
@@ -171,12 +224,13 @@ def validate_resume_payload(payload: Any, path: Path | None = None) -> dict[str,
     meta = payload.get('meta')
     if not isinstance(meta, dict):
         raise ValueError(f"resume checkpoint{where} has no meta contract")
-    if int(meta.get('checkpoint_schema', -1)) != CHECKPOINT_SCHEMA:
-        raise ValueError(f"checkpoint schema mismatch{where}: checkpoint={meta.get('checkpoint_schema')} current={CHECKPOINT_SCHEMA}")
+    obs_dim = _validate_observation_meta(
+        meta, where, expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
     if int(meta.get('field_schema', -1)) != FIELD_VERSION:
         raise ValueError(f"field schema mismatch{where}: checkpoint={meta.get('field_schema')} current={FIELD_VERSION}")
-    if meta.get('obs_dim') != OBS_DIM or meta.get('action_dim') != ACTION_DIM:
-        raise ValueError(f"checkpoint observation/action contract mismatch{where}: checkpoint={meta.get('obs_dim')}/{meta.get('action_dim')} current={OBS_DIM}/{ACTION_DIM}")
+    if meta.get('obs_dim') != obs_dim or meta.get('action_dim') != ACTION_DIM:
+        raise ValueError(f"checkpoint observation/action contract mismatch{where}: checkpoint={meta.get('obs_dim')}/{meta.get('action_dim')} current={obs_dim}/{ACTION_DIM}")
     if tuple(meta.get('policy_hidden_sizes', ())) != tuple(PPO_HIDDEN_SIZES):
         raise ValueError(f"checkpoint policy architecture mismatch{where}: checkpoint={meta.get('policy_hidden_sizes')} current={list(PPO_HIDDEN_SIZES)}")
     if meta.get('robot_model_sha256') != ROBOT_MODEL_SHA256:
@@ -186,14 +240,14 @@ def validate_resume_payload(payload: Any, path: Path | None = None) -> dict[str,
     if not isinstance(state, dict) or set(state) != {'params', 'opt_state'}:
         got = sorted(state) if isinstance(state, dict) else type(state).__name__
         raise ValueError(f"resume checkpoint{where} PPO state contract mismatch: {got}")
-    _validate_policy_param_shapes(state['params'], where)
+    _validate_policy_param_shapes(state['params'], where, obs_dim=obs_dim)
     norm = payload.get('obs_norm')
     if not isinstance(norm, dict) or set(norm) != {'mean', 'var', 'count'}:
         got = sorted(norm) if isinstance(norm, dict) else type(norm).__name__
         raise ValueError(f"resume checkpoint{where} observation-normalizer contract mismatch: {got}")
     try:
         mean = np.asarray(norm['mean']); var = np.asarray(norm['var']); count = float(norm['count'])
-        if mean.shape != (OBS_DIM,) or var.shape != (OBS_DIM,):
+        if mean.shape != (obs_dim,) or var.shape != (obs_dim,):
             raise ValueError(f"shape={mean.shape}/{var.shape}")
         if not np.all(np.isfinite(mean)) or not np.all(np.isfinite(var)) or np.any(var <= 0.0) or not np.isfinite(count) or count <= 0.0:
             raise ValueError('non-finite/non-positive values')
@@ -271,12 +325,16 @@ def find_resume(run_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def find_valid_resume(run_dir: Path) -> Path | None:
+def find_valid_resume(run_dir: Path, *,
+                      expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                      expected_sensor_contract: dict | None = None) -> Path | None:
     """Best current-schema continuation checkpoint, skipping corrupt/incompatible files."""
 
     for path in resume_candidates(run_dir):
         try:
-            load_checkpoint(path, validate=True)
+            load_checkpoint(path, validate=True,
+                            expected_observation_schema=expected_observation_schema,
+                            expected_sensor_contract=expected_sensor_contract)
             return path
         except Exception:
             continue
@@ -323,8 +381,12 @@ def foundation_handoff_step(envs: int) -> int:
     return update_boundary_at_or_after(FOUNDATION_STEPS, envs)
 
 
-def checkpoint_step(path: Path) -> int:
-    return int(load_checkpoint(path, validate=True)['meta']['step'])
+def checkpoint_step(path: Path, *,
+                    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                    expected_sensor_contract: dict | None = None) -> int:
+    return int(load_checkpoint(path, validate=True,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)['meta']['step'])
 
 
 def promote_checkpoint(src: Path, dst: Path) -> Path:
@@ -363,6 +425,8 @@ def finish_if_target_reached(
 
 def resume_training_lineage(
     run_dir: Path, *, resume: str, target_steps: int, envs: int,
+    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+    expected_sensor_contract: dict | None = None,
 ) -> tuple[dict[str, Any] | None, int, bool]:
     """Load exact resume state; identify completed runs without a new PPO update.
 
@@ -380,7 +444,9 @@ def resume_training_lineage(
         preferred = find_resume(run_dir)
         if preferred is None:
             raise RuntimeError(f'--resume auto found no checkpoint under {run_dir / "checkpoints"}')
-        resume_path = find_valid_resume(run_dir)
+        resume_path = find_valid_resume(
+            run_dir, expected_observation_schema=expected_observation_schema,
+            expected_sensor_contract=expected_sensor_contract)
         if resume_path is None:
             raise RuntimeError(
                 f'--resume auto found checkpoints but no valid current-schema rewind point under '
@@ -393,7 +459,10 @@ def resume_training_lineage(
         if not resume_path.exists():
             raise RuntimeError(f'--resume requested but checkpoint does not exist: {resume_path}')
     try:
-        resumed_payload = load_checkpoint(resume_path, validate=True)
+        resumed_payload = load_checkpoint(
+            resume_path, validate=True,
+            expected_observation_schema=expected_observation_schema,
+            expected_sensor_contract=expected_sensor_contract)
         resumed_step = int(resumed_payload['meta']['step'])
         print(f'{LOG} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})', flush=True)
         if finish_if_target_reached(run_dir, resume_path, resumed_step, target_steps, envs):
@@ -454,7 +523,10 @@ def try_restore_recovery(
         import jax.numpy as jnp
         from .curriculum import CapabilityField
 
-        payload = load_checkpoint(recovery_path)
+        payload = load_checkpoint(
+            recovery_path,
+            expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY),
+            expected_sensor_contract=getattr(env, 'sensor_contract', None))
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
@@ -509,7 +581,9 @@ def try_restore_recovery(
         return None
 
 
-def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str) -> tuple[Path | None, Path | None, int]:
+def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str,
+                              expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                              expected_sensor_contract: dict | None = None) -> tuple[Path | None, Path | None, int]:
     """Return (complete_final, resumable_partial, expected_update_boundary).
 
     Completion and resumability are deliberately separate concepts. A partial
@@ -518,14 +592,18 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     """
     expected = update_boundary_at_or_after(target_steps, envs)
     raw_resume = find_resume(run_dir)
-    resume = find_valid_resume(run_dir)
+    resume = find_valid_resume(run_dir,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
     if raw_resume is not None and resume is None:
         raise RuntimeError(
             f"{label} has checkpoints but none are valid current-schema rewind points under {run_dir/'checkpoints'}"
         )
     if resume is None:
         return None, None, expected
-    step = checkpoint_step(resume)
+    step = checkpoint_step(resume,
+        expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
     if step > expected:
         raise RuntimeError(
             f"{label} checkpoint is beyond the expected target boundary: step={step:,} expected={expected:,}; "

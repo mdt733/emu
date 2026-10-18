@@ -31,16 +31,11 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
     if not selected.is_file():
         raise FileNotFoundError(f'Policy not found: {selected}')
 
-    # Validate the deployed file, not only its extension. Require an export
-    # from this viewer's six-actuator 55x4 contract.
+    # GitHub Pages bundles schema-1 (legacy 220) OR schema-2 (v5016 232).
+    # Both use local browser inference. No checkpoint/pickle is ever served.
+    from verify_showcase_release import validate_browser_bundle
     bundle = json.loads(selected.read_text(encoding='utf-8'))
-    policy = bundle.get('policy') or {}
-    if (bundle.get('format') != 'emu-policy' or bundle.get('schema') != 1
-            or policy.get('obs_dim') != 220 or policy.get('action_dim') != 6
-            or policy.get('history_len') != 4 or policy.get('base_obs_dim') != 55
-            or len(policy.get('layers', [])) != 3
-            or not isinstance(bundle.get('robot_xml'), str)):
-        raise ValueError(f'Incompatible EMU browser policy: {selected}')
+    validate_browser_bundle(bundle, require_trained=trained)
     source = bundle.get('source') or {}
     if trained and int(source.get('step') or 0) <= 0:
         raise ValueError('Refusing to publish a zero-step policy as a trained champion')

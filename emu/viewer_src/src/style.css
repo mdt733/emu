@@ -330,20 +330,6 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
   .showcase-banner { top: 72px; bottom: auto; }
 }
 
-/* Readable scale without crowding joysticks, and without any 3D UI draw calls. */
-.scale-legend {
-  position: absolute; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%;
-  transform: translateX(-50%); z-index: 18; pointer-events: none;
-  border-radius: 999px; padding: 8px 12px; display: flex;
-  align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
-  font-size: 11px; color: #b3c8d6;
-}
-.scale-legend b { color: #f2f8fc; }
-.scale-legend .axis-x { color: #edaf70; }
-.scale-legend .axis-y { color: #7fd2e6; }
-.scale-legend .legend-sep { opacity: .5; }
-@media (max-width: 780px) { .scale-legend { display: none; } }
-
 /* Keep the newly added view switch accessible without crowding tiny phones. */
 #cameraBtn { border-color: rgba(80,206,187,.42); color: #b6f1e6; }
 @media (max-width: 540px) { #cameraBtn { padding: 0 8px; font-size: 11px; min-height: 38px; } }
@@ -358,3 +344,12 @@ summary { cursor: pointer; color: #94a5b8; font-size: 12px; }
   transition: transform 0.14s ease-out;
 }
 .slope-arrow[hidden] { display: none; }
+
+
+/* Explain when browser pitch commands exceed the policy's learned range. */
+.settings-drawer .control-note {
+  color: #f0bf83;
+  font-size: 11px;
+  line-height: 1.45;
+  grid-column: 1 / -1;
+}

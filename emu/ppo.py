@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -87,11 +87,19 @@ def normalize_obs(obs, obs_mean, obs_std, obs_norm_mask=None):
     return jnp.where(obs_norm_mask > 0.5, z, obs)
 
 
-def build_obs_norm_mask():
-    """Normalise physical-scale channels; keep bounded/categorical channels raw."""
+def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
+    """Normalise physical-scale channels; keep bounded/categorical channels raw.
+
+    Pitch15's historic mask is unchanged. Sensor grades are physical angles,
+    but visibility and valid/confidence flags remain unnormalised.
+    """
     import numpy as _np
+    fields = actor_observation_fields(observation_schema)
+    normalised = OBS_NORMALIZED_FIELDS
+    if observation_schema == OBS_SCHEMA_SENSOR:
+        normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
     base = _np.asarray(
-        [1.0 if name in OBS_NORMALIZED_FIELDS else 0.0 for name in BASE_OBS_FIELDS],
+        [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
     )
     return _np.tile(base, HISTORY_LEN)
@@ -134,7 +142,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     import jax.numpy as jnp
     import optax
 
-    obs_norm_mask = jnp.asarray(build_obs_norm_mask(), dtype=jnp.float32)
+    obs_norm_mask = jnp.asarray(build_obs_norm_mask(getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY)), dtype=jnp.float32)
 
     _tmp_state, _tmp_obs = env.reset({})
     obs_dim = int(_tmp_obs.shape[-1])
@@ -598,6 +606,47 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
+    def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
+                            eval_key, horizon):
+        """Common-condition efficiency telemetry, NEVER used as a PPO reward.
+
+        Three motor terms plus command smoothness are collected with the same
+        immutable exam seed. Interpret with survival/command performance;
+        a robot that falls early must not win merely by drawing less power.
+        This is simulated shaft power, not electrical battery consumption.
+        """
+        keys = jax.random.split(eval_key, env.num_envs)
+        state = env._reset_with_keys(keys, curriculum_params)
+        obs = env.obs(state)
+        totals = jnp.zeros((5,), dtype=jnp.float32)
+
+        def one(i, carry):
+            es, ob, sums = carry
+            mean, _ = apply(params, normalize_obs(
+                ob, obs_mean, obs_std, obs_norm_mask))
+            action = jnp.clip(mean, -1., 1.)
+            # action_delta_norm exists in the private reward computation,
+            # but REWARD_ONLY_METRICS deliberately strips it from StepOut.
+            # Measure the identical quantity directly from the pre-step
+            # action/state. Do not expand PPO telemetry or alter rewards.
+            action_delta_norm = jnp.linalg.norm(action - es.prev_action, axis=1)
+            out = env.step(es, action, curriculum_params)
+            m = out.metrics
+            sums = sums + jnp.stack((
+                jnp.sum(m['servo_shaft_abs_power_w']),
+                jnp.sum(m['servo_shaft_drive_power_w']),
+                jnp.sum(m['servo_over_rated_frac']),
+                jnp.sum(m['servo_peak_torque_limit_frac']),
+                jnp.sum(action_delta_norm),
+            ))
+            return out.state, out.obs, sums
+
+        _, _, sums = jax.lax.fori_loop(
+            0, horizon, one, (state, obs, totals))
+        return sums / float(env.num_envs * horizon)
+
+    evaluate_efficiency = jax.jit(evaluate_efficiency, static_argnums=(5,))
+
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
@@ -653,12 +702,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             contacts=contact_pair_mask(
                 jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
                 int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
-            return data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],contacts
+            floor = int(env.ids['floor_geom'])
+            floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
+            floor_origin = data.geom_xpos[:,floor,:]
+            return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
+                    contacts,floor_normal,floor_origin)
 
         def step(carry, inputs):
             es, ob, target, estimate, history_gyro = carry
             cmd, sensor_noise = inputs
-            xy,yaw,foot_xyz,contacts=record_state(es)
+            xy,yaw,foot_xyz,contacts,floor_normal,floor_origin=record_state(es)
             raw_gyro=env._body_packets(es.data)[2][:,2]
             sampled_gyro=raw_gyro+bias+sensor_noise
             # Preserve an initial sample across the sensor's latency window.
@@ -690,12 +743,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
-            policy_obs=hist.reshape((env.num_envs, OBS_DIM))
-            mean,_=apply(params,normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
+            policy_obs=hist.reshape((env.num_envs, obs_dim))
+            # Frozen exams need only the actor, never a value network or
+            # optimiser. This permits identical evaluation of exported .emupolicy
+            # actors and full schema-7 checkpoints through ONE MJX trace path.
+            mean=mlp(params['pi'], normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
                 next_task_yaw_rate=out.state.task[:,T.yaw],
@@ -705,6 +762,22 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 gyro_sample_rad_s=sampled_gyro,
                 gyro_delayed_rad_s=delayed_gyro,
                 root_qvel=es.data.qvel[:,:6],
+                # Pre-step arrays are the *post-physics* state of the preceding
+                # control frame. The host examiner shifts them one frame and
+                # truncates at the first done, avoiding reset-contaminated data.
+                servo_torque_nm=es.data.actuator_force[:,:ACTION_DIM],
+                servo_joint_rate_rad_s=es.data.qvel[:,env.act_qvel],
+                # Eight explicit spring joints: six motor-supporting hinges,
+                # then right/left passive shin flex. Sample PRE-step poses
+                # so energy differences align with signed course displacement.
+                spring_joint_qpos_rad=es.data.qpos[:,env.spring_qpos],
+                # These scalar diagnostics come from this step's pre-reset
+                # physical result, not from the reset state in out.state.
+                servo_shaft_abs_power_w=out.metrics['servo_shaft_abs_power_w'],
+                servo_shaft_drive_power_w=out.metrics['servo_shaft_drive_power_w'],
+                servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
+                spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
+                shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
                 done=out.done,fell=out.metrics['episode_fell'])
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
@@ -713,10 +786,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
-        last_xy,last_yaw,last_foot,last_contacts=record_state(last)
+        last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                    last_floor_contact=last_contacts)
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
@@ -810,6 +889,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
         'evaluate_node_window': evaluate_node_window,

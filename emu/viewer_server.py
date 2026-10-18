@@ -64,6 +64,16 @@ def candidates(root: Path) -> list[tuple[str, Path]]:
         result.extend((phase, p) for p in sorted(
             ck.glob('snapshot_step_*.pkl'), reverse=True))
     result.append(('complete', root / 'final.pkl'))
+    # A 12-hour tournament starts several NEW runs from the same 20M
+    # ancestor, so neither round number nor absolute policy step says which
+    # branch is currently active. Watch the most recently published on-disk
+    # checkpoint; atomic writer signatures still protect against torn saves.
+    result.sort(
+        key=lambda candidate: (
+            candidate[1].stat().st_mtime_ns if candidate[1].is_file() else -1,
+            candidate[1].name == 'latest.pkl',
+        ),
+        reverse=True)
     return result
 
 
@@ -289,6 +299,9 @@ from .contracts import (
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
     OBS_DIM,
+    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
+    sensor_observation_contract,
     SIM_DT,
 )
 from .environment import TARGET_SPAN
@@ -311,6 +324,95 @@ def _f32_blob(a) -> dict:
         "dtype": "float32-le",
         "shape": list(arr.shape),
         "data_b64": base64.b64encode(arr.tobytes(order='C')).decode('ascii'),
+    }
+
+
+def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
+    """Decode an immutable browser actor for the SAME frozen MJX examiner.
+
+    A .emupolicy is NOT a schema-7 training checkpoint; it contains only the
+    actor and observation normalizer. Refuse silent model/obs/servo changes.
+    The examiner must never infer new physical parameters from a filename.
+    """
+    path = Path(path).expanduser().resolve()
+    bundle = json.loads(path.read_text(encoding='utf-8'))
+    policy, observation, control = (bundle.get('policy') or {},
+                                    bundle.get('observation') or {},
+                                    bundle.get('control') or {})
+    source = bundle.get('source') or {}
+    training = bundle.get('training') or {}
+    if bundle.get('format') != FORMAT or bundle.get('schema') != SCHEMA:
+        raise ValueError('not an EMU schema-1 exported actor')
+    if (policy.get('obs_dim'), policy.get('base_obs_dim'),
+        policy.get('history_len'), policy.get('action_dim')) != (
+            OBS_DIM, BASE_OBS_DIM, HISTORY_LEN, ACTION_DIM):
+        raise ValueError('export actor observations/actions differ from the current contract')
+    if (policy.get('hidden_sizes') != list(PPO_HIDDEN_SIZES) or
+        policy.get('activation') != 'tanh' or
+        policy.get('output') != 'deterministic_mean_clipped'):
+        raise ValueError('export policy network differs from current actor')
+    if (observation.get('base_fields') != list(BASE_OBS_FIELDS) or
+        observation.get('history_order') != 'oldest_to_newest'):
+        raise ValueError('export policy channel names/history order differ')
+    if (control.get('actuated_joints') != list(ACTUATED_JOINTS) or
+        control.get('one_control_frame_actuation_delay') is not True or
+        control.get('control_substeps') != CONTROL_SUBSTEPS or
+        not np.isclose(control.get('control_dt', -1), CONTROL_DT, atol=1e-9) or
+        not np.isclose(control.get('sim_dt', -1), SIM_DT, atol=1e-9) or
+        not np.allclose(control.get('target_span_rad', []), TARGET_SPAN, atol=1e-6)):
+        raise ValueError('export control/servo delivery does not match current simulator')
+    xml_bytes = ROBOT_XML.read_bytes()
+    model_hash = hashlib.sha256(xml_bytes).hexdigest()
+    if (source.get('robot_model_sha256') != model_hash or
+        bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
+        raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
+    if source.get('checkpoint_schema') != 7 or not isinstance(source.get('step'), int):
+        raise ValueError('export provenance is not a known schema-7 training lineage')
+    if training.get('attitude_profile') not in ('v5014','v5015'):
+        raise ValueError('missing supported training attitude profile')
+    pitch = float(training.get('pitch_command_max_deg', float('nan')))
+    phase_gain = float(control.get('phase_speed_gain', float('nan')))
+    if not (np.isfinite(pitch) and 0 < pitch <= 45 and
+            np.isfinite(phase_gain) and phase_gain >= 0):
+        raise ValueError('missing or invalid exported task/phase configuration')
+
+    def decode(blob, shape, name):
+        if not isinstance(blob, dict) or blob.get('dtype') != 'float32-le' or blob.get('shape') != list(shape):
+            raise ValueError(f'exported {name} blob shape/dtype mismatch')
+        try:
+            raw = base64.b64decode(blob['data_b64'], validate=True)
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f'invalid exported {name} base64') from exc
+        if len(raw) != int(np.prod(shape)) * 4:
+            raise ValueError(f'exported {name} binary length mismatch')
+        out = np.frombuffer(raw, dtype='<f4').reshape(shape).copy()
+        if not np.isfinite(out).all():
+            raise ValueError(f'nonfinite exported {name}')
+        return out
+
+    layer_sizes = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
+    specs = policy.get('layers')
+    if not isinstance(specs, list) or len(specs) != 3:
+        raise ValueError('export must contain exactly three actor layers')
+    layers = []
+    actor_hash = hashlib.sha256()
+    for i, spec in enumerate(specs):
+        w = decode(spec.get('w'), (layer_sizes[i], layer_sizes[i+1]), f'actor[{i}].w')
+        b = decode(spec.get('b'), (layer_sizes[i+1],), f'actor[{i}].b')
+        actor_hash.update(w.tobytes(order='C'))
+        actor_hash.update(b.tobytes(order='C'))
+        layers.append({'w': w, 'b': b})
+    if actor_hash.hexdigest() != source.get('actor_sha256'):
+        raise ValueError('exported actor hash does not match declared source')
+    mean = decode(observation.get('mean'), (OBS_DIM,), 'normalizer mean')
+    std = decode(observation.get('std'), (OBS_DIM,), 'normalizer std')
+    mask = decode(observation.get('normalize_mask'), (OBS_DIM,), 'normalizer mask')
+    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask()):
+        raise ValueError('export observation standard deviations/mask incompatible')
+    return {'pi': layers}, {'mean': mean, 'std': std}, {
+        'source': source, 'training': training, 'control': control,
+        'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        'robot_model_sha256': model_hash,
     }
 
 
@@ -451,7 +553,23 @@ def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) ->
 def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                  label: str | None = None) -> dict:
     checkpoint = checkpoint.expanduser().resolve()
-    payload = load_checkpoint(checkpoint)
+    # Legacy policy bundles remain schema 1. Sensor checkpoints explicitly
+    # cross the versioned schema-8 gate before any browser export takes place.
+    unverified = load_checkpoint(checkpoint, validate=False)
+    meta_hint = unverified.get('meta') or {}
+    is_sensor = meta_hint.get('observation_schema') == OBS_SCHEMA_SENSOR
+    if is_sensor:
+        contract = meta_hint.get('sensor_contract')
+        payload = load_checkpoint(
+            checkpoint, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=contract)
+        obs_dim, base_dim = SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM
+        obs_fields = SENSOR_OBS_FIELDS
+    else:
+        payload = load_checkpoint(checkpoint)
+        contract = None
+        obs_dim, base_dim = OBS_DIM, BASE_OBS_DIM
+        obs_fields = BASE_OBS_FIELDS
     run_meta = {}
     run_meta_path = checkpoint.parent.parent / 'run_meta.json'
     if run_meta_path.exists():
@@ -469,7 +587,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
 
     obs_mean = np.asarray(norm['mean'], dtype=np.float32)
     obs_std = np.sqrt(np.asarray(norm['var'], dtype=np.float32))
-    if obs_mean.shape != (OBS_DIM,) or obs_std.shape != (OBS_DIM,):
+    if obs_mean.shape != (obs_dim,) or obs_std.shape != (obs_dim,):
         raise ValueError(f"unexpected observation normalizer shape {obs_mean.shape}/{obs_std.shape}")
 
     actor_layers = []
@@ -506,7 +624,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": SCHEMA,
+        "schema": 2 if is_sensor else SCHEMA,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -535,8 +653,8 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "field_influence_zero_steps": _number(run_cfg.get('field_influence_zero_steps')),
         },
         "policy": {
-            "obs_dim": OBS_DIM,
-            "base_obs_dim": BASE_OBS_DIM,
+            "obs_dim": obs_dim,
+            "base_obs_dim": base_dim,
             "history_len": HISTORY_LEN,
             "action_dim": ACTION_DIM,
             "hidden_sizes": list(PPO_HIDDEN_SIZES),
@@ -547,11 +665,13 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "std_clip": [PPO_STD_MIN, PPO_STD_MAX],
         },
         "observation": {
-            "base_fields": list(BASE_OBS_FIELDS),
+            "base_fields": list(obs_fields),
+            "sensor_contract": contract if is_sensor else None,
             "history_order": "oldest_to_newest",
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
-            "normalize_mask": _f32_blob(build_obs_norm_mask()),
+            "normalize_mask": _f32_blob(build_obs_norm_mask(
+                OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY)),
         },
         "control": {
             "sim_dt": SIM_DT,

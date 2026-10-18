@@ -18,6 +18,7 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -108,6 +109,17 @@ DOCTRINE = {
 }
 
 
+def training_sensor_contract(config) -> dict | None:
+    """Shared checkpoint/evaluator identity of the simulated sensor package."""
+    if config.observation_schema == OBS_SCHEMA_LEGACY:
+        return None
+    if config.observation_schema != OBS_SCHEMA_SENSOR:
+        raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
+    settings = dict(SENSOR_SETTINGS_DEFAULTS)
+    settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
+    return sensor_observation_contract(settings)
+
+
 def doctrine_dict() -> dict[str, object]:
     """Stable runtime constants recorded beside each run for provenance."""
     return dict(DOCTRINE)
@@ -122,6 +134,7 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
+    observation_schema: str = OBS_SCHEMA_LEGACY  # explicitly opt in to sim2real_232
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only a ladder arm with an explicit override changes them. Rollout length,
@@ -147,7 +160,18 @@ class TrainingConfig:
     domain_randomization: bool = False
     domain_robot_radius: float = 0.0
     domain_terrain_radius: float = 0.0
+    domain_terrain_mode: str = 'gravity'  # opt-in 'contact' for genuine varied floor normals
     domain_hardware_radius: float = 0.0
+
+    # v5016 opt-in motor-effort teaching hypothesis (NOT hardware truth).
+    # Zero preserves the v5015 reward exactly. A small positive value pays
+    # less for repeated nominal overload and gross shaft-motion effort.
+    # Compare only against a matched no-guidance branch after physics exams.
+    motor_guidance_weight: float = 0.0
+
+    # Opt-in real contact incline, uniform across all training worlds.
+    # The historical tilted-gravity terrain randomizer remains separate.
+    contact_slope_deg: float = 0.0
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -198,7 +222,9 @@ class TrainingConfig:
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
         optional = {'attitude_profile', 'pitch_command_max_deg',
-                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost'}
+                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
+                    'motor_guidance_weight', 'contact_slope_deg',
+                    'domain_terrain_mode', 'observation_schema'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -209,7 +235,7 @@ class TrainingConfig:
 # Algorithm-independent aspects (physical commands, teaching, curriculum,
 # normalisation) are otherwise modifiable via TrainingConfig fields.
 IMMUTABLE_RUN_FIELDS = frozenset({
-    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile',
+    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
 })
 
 
@@ -257,6 +283,12 @@ def apply_experiment_knobs(
             raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
         if key == 'ppo_lr' and value <= 0:
             raise ValueError('ppo_lr must be positive')
+        if key == 'domain_terrain_mode' and value not in ('gravity','contact'):
+            raise ValueError('domain_terrain_mode must be gravity or contact')
+        if key == 'contact_slope_deg' and not 0.0 <= value <= 5.0:
+            raise ValueError('contact_slope_deg must be between 0 and 5 degrees')
+        if key == 'motor_guidance_weight' and not 0.0 <= value <= 0.10:
+            raise ValueError('motor_guidance_weight must be between 0 and 0.10')
         if key in ('ppo_entropy_cost','ppo_value_cost') and value < 0:
             raise ValueError(f'{key} cannot be negative')
         values[key] = value

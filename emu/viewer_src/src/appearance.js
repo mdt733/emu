@@ -108,6 +108,38 @@ export function createGrassTexture(THREE, grid=false) {
   return texture;
 }
 
+// Separate transparent overlay: the grass texture stays readable below the
+// grid. Unlike baking faint lines into shaded green pixels, this is rendered
+// after the underlying park, on exactly the same collision-derived geometry.
+// A 1-m repeat contains ten 10-cm cells and a strong 1-m boundary.
+export function createParkGridTexture(THREE) {
+  const side=512,canvas=document.createElement('canvas');
+  canvas.width=canvas.height=side;
+  const g=canvas.getContext('2d');
+  if(!g)throw new Error('No 2D canvas for terrain grid');
+  g.clearRect(0,0,side,side);
+  for(let i=0;i<=10;i++){
+    const p=i*side/10,major=i===0||i===10;
+    // Dark silhouette remains legible on bright grass and terrain highlights;
+    // the thin warm-white core stays legible in the darker green shadows.
+    g.beginPath();
+    g.strokeStyle=major?'rgba(16,35,29,0.82)':'rgba(14,44,39,0.60)';
+    g.lineWidth=major?4.5:2.4;
+    g.moveTo(p,0);g.lineTo(p,side);g.moveTo(0,p);g.lineTo(side,p);
+    g.stroke();
+    g.beginPath();
+    g.strokeStyle=major?'rgba(255,249,218,0.92)':'rgba(243,252,219,0.72)';
+    g.lineWidth=major?2.2:1.0;
+    g.moveTo(p,0);g.lineTo(p,side);g.moveTo(0,p);g.lineTo(side,p);
+    g.stroke();
+  }
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.colorSpace=THREE.SRGBColorSpace;
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  texture.anisotropy=4;
+  return texture;
+}
+
 // The graphics mesh samples the *same* grid used by MuJoCo collision;
 // vertices are joined triangles rather than discontinuous box tops.
 export function createParkSurface(THREE,park,grassTexture) {

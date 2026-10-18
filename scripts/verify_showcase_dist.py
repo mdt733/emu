@@ -25,8 +25,16 @@ def verify(dist: Path, *, expected_source_commit: str = '') -> dict:
     if not policy_path.is_file() or policy_path.stat().st_size == 0:
         raise FileNotFoundError(f'Static policy missing: {policy_path}')
     exported = json.loads(policy_path.read_text(encoding='utf-8'))
-    if exported.get('format') != 'emu-policy' or exported.get('schema') != 1:
-        raise ValueError(f'Invalid exported policy: {policy_path}')
+    from verify_showcase_release import validate_browser_bundle, verify_approved_release
+    validate_browser_bundle(exported, require_trained=manifest.get('trained') is True)
+    if (ROOT / 'showcase' / 'release_approval.json').is_file():
+        verify_approved_release(ROOT / 'showcase' / 'champion.emupolicy',
+                                ROOT / 'showcase' / 'release_approval.json')
+    # Static manifest must resolve to the *exact* approved local asset.
+    if policy_path.read_bytes() != (ROOT / 'showcase' / 'champion.emupolicy').read_bytes():
+        raise ValueError('Published asset differs from reviewed champion')
+    if exported.get('source', {}).get('step', 0) <= 0 and manifest.get('trained'):
+        raise ValueError('Trained showcase cannot contain zero-step actor')
     if not list((dist / 'assets').glob('*.wasm')):
         raise FileNotFoundError(f'MuJoCo WASM asset missing: {dist / "assets"}')
     return manifest

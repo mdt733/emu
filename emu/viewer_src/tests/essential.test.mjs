@@ -4,6 +4,8 @@ import { joystickToCommands, headingHoldRate, nextYawCommand } from '../src/cont
 import { parseShowcaseManifest, assertShowcasePolicyResponse } from '../src/showcase.js';
 import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, surfaceSlope, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
 import { sampleDemoCommand } from '../src/live-demo.js';
+import { SensorObserver, inferTripod, rayHeight } from '../src/sensor.js';
+import { parsePolicy } from '../src/policy.js';
 const limits = {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
 const base = {schema:1,mode:'showcase',policy:'policies/champion.emupolicy',trained:true,autoplay:true,label:'EMU'};
 const xml = '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
@@ -54,7 +56,8 @@ test('inverted pitch, blended diagonal steering, and side-only strafing',()=>{
 test('heading-hold P responds to drift with saturating correction',()=>{
   assert.ok(headingHoldRate(0,0,0.1,0.75,1.5)<0);
   assert.ok(headingHoldRate(0,0,-0.1,0.75,1.5)>0);
-  assert.equal(headingHoldRate(1.5,1.0,0,0.75,1.5),1.5);
+  // Pure P: no additive 1.5 rad/s joystick feedforward.
+  assert.equal(headingHoldRate(1.5,1.0,0,0.75,1.5),0.75);
 });
 test('continuous physical heightfield agrees with visual sample grid',()=>{
   const park=generateTerrainPark({maxDegrees:10});
@@ -98,16 +101,16 @@ test('yaw hold never feeds its applied correction back into the next request',()
   for(let frame=0;frame<150;frame++){
     const targetYaw=frame<35?-limits.yaw_abs:0;
     const step=nextYawCommand(requestedYaw,targetYaw,headingTarget,realHeading,
-                              0.02,true,0.75,limits.yaw_abs);
+                              0.02,true,2.2,limits.yaw_abs);
     requestedYaw=step.requestedYaw;
     headingTarget=step.headingTarget;
     realHeading+=step.appliedYaw*0.02;
-    if(frame===35)assert.ok(requestedYaw<0);
+    if(frame===35)assert.equal(requestedYaw,0); // stick released: no setpoint glide
     if(frame>60)assert.ok(Math.abs(requestedYaw)<0.000001);
     if(frame===149)assert.ok(Math.abs(step.appliedYaw)<0.015);
   }
   assert.equal(requestedYaw,0);
-  const drift=nextYawCommand(0,0,0,0.1,0.02,true,0.75,1.5);
+  const drift=nextYawCommand(0,0,0,0.1,0.02,true,2.2,1.5);
   assert.equal(drift.requestedYaw,0);
   assert.ok(drift.appliedYaw<0);
   const raw=nextYawCommand(0.2,0,0,0.1,0.02,false,0.75,1.5);
@@ -139,4 +142,182 @@ test('ground slope measures real generated terrain and robot-relative uphill arr
   assert.ok(Math.abs(down.degrees-1)<1e-7);
   assert.ok(Math.abs(Math.abs(down.arrowDegrees)-180)<1e-7);
   assert.equal(surfaceSlope('flat',null,0,0,0).degrees,0);
+});
+
+
+test('park grid is a separate overlay with 10 cm and 1 m lines enabled by default', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {fileURLToPath} = await import('node:url');
+  const path = fileURLToPath(new URL('../index.html',import.meta.url));
+  const sim = readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const appearance = readFileSync(fileURLToPath(new URL('../src/appearance.js',import.meta.url)),'utf8');
+  const html = readFileSync(path,'utf8');
+  assert.match(html, /id="gridToggle"[^>]+checked/);
+  assert.match(appearance, /createParkGridTexture/);
+  assert.match(appearance, /i<=10/);
+  assert.match(sim, /parkGridOverlay\.visible=this\.showGrid/);
+  assert.match(sim, /depthTest:true,polygonOffset:true/);
+  assert.match(sim, /this\.parkGridOverlay\.material\.dispose\(\)/);
+  assert.doesNotMatch(sim, /grassGridTexture/);
+});
+
+
+test('schema-8 browser sensor emulator reconstructs valid grade without privileged normal', () => {
+  const ranges=[.235-.035*.06+.05*.035, .235-.035*.06-.05*.035, .235+.04*.06];
+  const g=inferTripod(ranges,[0,0,-1]);
+  assert.equal(g.valid,true);
+  assert.ok(g.forward>0.03&&g.forward<0.09);
+  assert.ok(g.side>0.01&&g.side<0.06);
+  assert.ok(g.depth>.2&&g.depth<.4);
+  assert.equal(inferTripod([0,.2,.2],[0,0,-1]).valid,false);
+  assert.ok(Math.abs(rayHeight([0,0,.26],[0,0,-1],()=>0)-.26)<1e-5);
+});
+
+test('v5016 delayed ToF/flow readings preserve acquisition time and sensor confidence', () => {
+  const contract = {
+    schema:'sim2real_232',
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}
+  };
+  const pose = speed=>({
+    torso:[0,0,.26],R:[1,0,0,0,1,0,0,0,1],
+    vbody:[speed,0,0],gyro:[0,0,0],heightAt:()=>0
+  });
+  const o=new SensorObserver(contract);
+  o.reset(pose(0),false);
+  assert.ok(Math.abs(o.read([0,0,-1]).velocity[0])<1e-8);
+  o.advance(pose(.15),false);
+  assert.ok(Math.abs(o.read([0,0,-1]).velocity[0])<1e-8);
+  o.advance(pose(.15),false);
+  const read=o.read([0,0,-1]);
+  assert.ok(read.velocity[0]>.14&&read.velocity[0]<.16);
+  assert.ok(read.groundConfidence>0);
+  const dropout=new SensorObserver({...contract,settings:{...contract.settings,
+    tof_period_frames:1,flow_period_frames:1,tof_dropout_prob:1,flow_dropout_prob:1}});
+  dropout.reset(pose(0),false);
+  dropout.advance(pose(.1),true);
+  dropout.advance(pose(.1),true);
+  const bad=dropout.read([0,0,-1]);
+  assert.equal(bad.velocityConfidence,0);
+  assert.equal(bad.groundConfidence,0);
+});
+
+test('versioned browser parser accepts sensor 232 and keeps legacy schema independent', () => {
+  const c = {
+    schema:'sim2real_232',sensor_model_revision:'tripod_tof_flow_async_v1',
+    history_len:4,action_dim:6,
+    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
+    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
+    tof_range_limits_m:[.035,.6],
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:.01,flow_dropout_prob:.02,gyro_bias_std_rad_s:.015,sensor_noise_scale:1.5},
+  };
+  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
+    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
+  c.base_fields=fields;
+  const policy={format:'emu-policy',schema:2,
+    policy:{action_dim:6,history_len:4,base_obs_dim:58,obs_dim:232,layers:[{},{},{}]},
+    source:{checkpoint_schema:8},robot_xml:xml,
+    observation:{base_fields:fields,sensor_contract:c},control:{}};
+  assert.equal(parsePolicy(JSON.stringify(policy)).policy.obs_dim,232);
+  assert.throws(()=>parsePolicy(JSON.stringify({...policy,schema:1})));
+  assert.throws(()=>parsePolicy(JSON.stringify({
+    ...policy,observation:{...policy.observation,
+      sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported v5016 sensor/);
+});
+
+
+test('third-person chase follows robot heading at constant height above the terrain', async () => {
+  const { chasePose, smoothHeading, smoothFactor } = await import('../src/chase-camera.js');
+  const front = chasePose([2, 3, .26], 0, () => 0);
+  assert.ok(front.position[0] < 2);
+  assert.equal(front.position[1], 3);
+  assert.ok(front.position[2] > .6);
+  assert.ok(front.target[0] > 2);
+  const right = chasePose([2, 3, .26], Math.PI / 2, () => 0);
+  assert.ok(right.position[1] < 3);
+  assert.ok(Math.abs(right.position[0] - 2) < 1e-12);
+  // Camera clears even an uphill patch directly behind the robot.
+  const slope = chasePose([2, 3, .26], 0, x => x < 2 ? .55 : 0);
+  assert.ok(slope.position[2] >= .98);
+  // The spring is frame-time dependent, not tied to 60 FPS.
+  assert.ok(Math.abs(smoothFactor(.02, 5) - (1 - Math.exp(-.1))) < 1e-12);
+  assert.equal(smoothFactor(0, 5), 0);
+  // Crossing the -180/+180 seam rotates through 2 degrees, not 358.
+  const h = smoothHeading(179 * Math.PI / 180, -179 * Math.PI / 180, .5);
+  assert.ok(Math.abs(Math.abs(h) - Math.PI) < .01);
+  assert.throws(() => chasePose([0, Infinity, 0], 0));
+});
+
+test('viewer offers chase mode without removing orbit or either POV mode', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const main = readFileSync(fileURLToPath(new URL('../src/main.js', import.meta.url)), 'utf8');
+  const sim = readFileSync(fileURLToPath(new URL('../src/sim.js', import.meta.url)), 'utf8');
+  const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
+  assert.match(main, /cameraModes = \['orbit', 'chase', 'raw', 'level'\]/);
+  assert.match(main, /sim\.render\(dt\)/);
+  assert.match(sim, /this\.cameraMode === 'chase'\) this\.updateChaseCamera\(dt\)/);
+  assert.match(sim, /this\.chaseReady = false/);
+  assert.match(html, /chase \(behind\/above\)/);
+});
+
+
+test('heading joystick integrates a compass setpoint; releasing it holds heading with pure P',()=>{
+  const kp=2.2, cap=1.5, dt=.02;
+  let target=0,request=0,heading=0;
+  // A turn command first moves the setpoint, which produces a SMALL P yaw
+  // request, rather than immediately sending full yaw rate to the actor.
+  let frame=nextYawCommand(request,-cap,target,heading,dt,true,kp,cap);
+  assert.ok(frame.headingTarget<0);
+  assert.ok(frame.appliedYaw<0 && Math.abs(frame.appliedYaw)<cap*.15);
+  request=frame.requestedYaw;target=frame.headingTarget;
+  for(let i=0;i<35;i++){
+    frame=nextYawCommand(request,-cap,target,heading,dt,true,kp,cap);
+    request=frame.requestedYaw;
+    target=frame.headingTarget;
+    heading=wrapHeading(heading+frame.appliedYaw*dt);
+  }
+  const beforeRelease=target;
+  for(let i=0;i<100;i++){
+    frame=nextYawCommand(request,0,target,heading,dt,true,kp,cap);
+    request=frame.requestedYaw;target=frame.headingTarget;
+    heading=wrapHeading(heading+frame.appliedYaw*dt);
+  }
+  assert.ok(Math.abs(request)<1e-12);
+  assert.ok(Math.abs(heading-target)<.045);
+  assert.ok(Math.abs(frame.appliedYaw)<.10);
+  assert.ok(Math.abs(beforeRelease-target)<1e-9); // releasing stick freezes the setpoint
+  assert.ok(Math.abs(frame.headingTarget)>.1);
+  // Turning off heading mode returns direct-rate steering and re-anchors.
+  const direct=nextYawCommand(0,0.8,target,heading,dt,false,kp,cap);
+  assert.equal(direct.appliedYaw,direct.requestedYaw);
+  assert.ok(Math.abs(direct.headingTarget-heading)<1e-8);
+});
+function wrapHeading(radians){return Math.atan2(Math.sin(radians),Math.cos(radians))}
+
+test('heading setpoint wraps safely, saturates its error and never winds up',()=>{
+  const deg=x=>x*Math.PI/180;
+  const seam=nextYawCommand(0,0,deg(179),deg(-179),.02,true,2.2,1.5);
+  assert.ok(Math.abs(seam.appliedYaw)<.1);
+  const stuck=nextYawCommand(1.5,1.5,deg(180),0,.02,true,2.2,1.5);
+  assert.ok(Math.abs(stuck.appliedYaw)<=1.5);
+  assert.ok(Math.abs(wrapHeading(stuck.headingTarget))<=1.01);
+});
+
+test('viewer-only pitch override exposes ±30/45 without changing source policy or campaign',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const sim=readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  const html=readFileSync(fileURLToPath(new URL('../index.html',import.meta.url)),'utf8');
+  assert.match(html, /id="pitchRange"/);
+  assert.match(html, /value="30">±30°/);
+  assert.match(html, /value="45">±45°/);
+  assert.match(sim, /manualCommandLimits\(\)/);
+  assert.match(main, /applyViewerPitchRange\(\)/);
+  assert.match(sim, /const l = this\.bundle\.control\.command_limits;/); // demo stays trained
+  assert.doesNotMatch(html, /id="scaleLegend"/);
+  assert.doesNotMatch(main, /scaleLegend/);
+  assert.doesNotMatch(sim, /this\.headingKp = 0\.75/);
 });

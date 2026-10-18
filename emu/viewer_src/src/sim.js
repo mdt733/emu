@@ -3,11 +3,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
+import { SensorObserver } from './sensor.js';
+import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
-import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -71,8 +73,9 @@ export class EmuBrowserSim {
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
     this.grassTexture = createGrassTexture(THREE);
-    this.grassGridTexture = createGrassTexture(THREE, true);
+    this.parkGridTexture = createParkGridTexture(THREE);
     this.parkSurface = null;
+    this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
     this.showGrid = true;
@@ -87,7 +90,10 @@ export class EmuBrowserSim {
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
     this.controls.maxDistance = 4;
-    this.cameraMode = 'orbit'; // orbit | raw | level
+    this.cameraMode = 'orbit'; // orbit | chase | raw | level
+    this.chaseReady = false;
+    this.chaseHeading = 0;
+    this.chaseTarget = new THREE.Vector3();
     this.orbitPosition = this.camera.position.clone();
     this.orbitTarget = this.controls.target.clone();
     this.levelPoseValid = false;
@@ -105,8 +111,9 @@ export class EmuBrowserSim {
     this.parkTreesEnabled = true;
     this.joystickMode = 'split';
     this.headingHold = true;
-    this.headingKp = 0.75;
+    this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
+    this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
 
     this.meshes = [];
@@ -115,7 +122,9 @@ export class EmuBrowserSim {
     this.followTarget = new THREE.Vector3();
     this.paused = false;
     this.autoReset = false;
-    this.sensorNoise = false;
+    this.sensorNoise = true;
+    this.sensorObserver = bundle.schema === 2
+      ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
@@ -126,8 +135,9 @@ export class EmuBrowserSim {
     this.prevAction = new Float32Array(6);
     this.prevRawTarget = new Float32Array(6);
     this.deliveredCtrl = new Float32Array(6);
-    this.history = Array.from({ length: 4 }, () => new Float32Array(55));
-    this.obs = new Float32Array(220);
+    this.baseObsDim = bundle.policy.base_obs_dim;
+    this.history = Array.from({ length: 4 }, () => new Float32Array(this.baseObsDim));
+    this.obs = new Float32Array(bundle.policy.obs_dim);
     this.actQpos = [];
     this.actQvel = [];
     this.shinQpos = [];
@@ -199,10 +209,7 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
-      if (this.parkSurface) {
-        this.parkSurface.material.map = grid ? this.grassGridTexture : this.grassTexture;
-        this.parkSurface.material.needsUpdate = true;
-      }
+      if (this.parkGridOverlay) this.parkGridOverlay.visible = grid;
     }
     if (typeof trail === 'boolean') {
       this.showTrail = trail;
@@ -217,6 +224,13 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if (this.parkGridOverlay) {
+      this.scene.remove(this.parkGridOverlay);
+      // Deliberately share parkSurface geometry; dispose only the overlay
+      // material. The park mesh below owns geometry lifecycle.
+      this.parkGridOverlay.material.dispose();
+      this.parkGridOverlay = null;
+    }
     if (this.parkSurface) {
       this.scene.remove(this.parkSurface);
       this.parkSurface.geometry.dispose();
@@ -247,7 +261,7 @@ export class EmuBrowserSim {
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
-    this.grassGridTexture.dispose();
+    this.parkGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -260,7 +274,7 @@ export class EmuBrowserSim {
   }
 
   setCameraMode(mode) {
-    if (!['orbit', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
+    if (!['orbit', 'chase', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
     if (mode === this.cameraMode) return;
     if (this.cameraMode === 'orbit') {
       this.orbitPosition.copy(this.camera.position);
@@ -269,6 +283,7 @@ export class EmuBrowserSim {
     this.cameraMode = mode;
     this.controls.enabled = mode === 'orbit';
     this.levelPoseValid = false;
+    this.chaseReady = false;
     if (mode === 'orbit') {
       this.camera.position.copy(this.orbitPosition);
       this.controls.target.copy(this.orbitTarget);
@@ -299,7 +314,26 @@ export class EmuBrowserSim {
   }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
+    // Bumpless engage: no jump towards an old target from an earlier mode.
     this.headingTarget=this.actualHeading();
+  }
+  setHeadingGain(kp) {
+    if (!Number.isFinite(kp) || kp < 0.3 || kp > 5)
+      throw new Error('Heading P gain must be between 0.3 and 5');
+    this.headingKp=kp;
+  }
+  setViewerPitchLimitDeg(degrees = null) {
+    // A browser-only command override, never a change to the trained PPO
+    // curriculum or its observation contract. Demo stays in trained range.
+    if (degrees !== null && (![30,45].includes(degrees)))
+      throw new Error('Viewer pitch override must be 30° or 45°');
+    this.viewerPitchLimitRad=degrees===null ? null : degrees*Math.PI/180;
+    const max=this.manualCommandLimits().pitch_abs_rad;
+    this.commandTarget.pitch=clamp(this.commandTarget.pitch,-max,max);
+  }
+  manualCommandLimits() {
+    const trained=this.bundle.control.command_limits;
+    return {...trained, pitch_abs_rad:this.viewerPitchLimitRad??trained.pitch_abs_rad};
   }
   actualHeading() {
     if (!this.data || !this.model) return 0;
@@ -319,9 +353,22 @@ export class EmuBrowserSim {
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
     if(this.park){
-      this.parkSurface=createParkSurface(THREE,this.park,
-        this.showGrid?this.grassGridTexture:this.grassTexture);
+      this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
+      // Depth-tested so feet, rocks and trunks can occlude the grid, with
+      // polygon offset and render order to prevent coplanar flicker. It hugs
+      // every peak and depression: no floating world-Z grid on slopes.
+      this.parkGridOverlay=new THREE.Mesh(this.parkSurface.geometry,
+        new THREE.MeshBasicMaterial({
+          map:this.parkGridTexture,transparent:true,opacity:1,
+          depthWrite:false,depthTest:true,polygonOffset:true,
+          polygonOffsetFactor:-1,polygonOffsetUnits:-2,
+          side:THREE.DoubleSide,toneMapped:false,
+        }));
+      this.parkGridOverlay.renderOrder=3;
+      this.parkGridOverlay.visible=this.showGrid;
+      this.parkGridOverlay.frustumCulled=false;
+      this.scene.add(this.parkGridOverlay);
       this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
       this.scene.add(this.treeCrowns);
     }
@@ -376,6 +423,7 @@ export class EmuBrowserSim {
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
+    if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
@@ -383,6 +431,7 @@ export class EmuBrowserSim {
     this.fallenFor = 0;
     this.pathTrail.clear();
     this.levelPoseValid = false;
+    this.chaseReady = false;
     this.trailLine.geometry.setDrawRange(0, 0);
     this.refreshScene();
   }
@@ -391,7 +440,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.bundle.control.command_limits, this.joystickMode,
+      leftX, leftY, rightX, rightY, this.manualCommandLimits(), this.joystickMode,
     ));
   }
 
@@ -413,6 +462,7 @@ export class EmuBrowserSim {
     return next.robot_xml === old.robot_xml &&
       physicsKeys.every(k => JSON.stringify(next.control[k]) === JSON.stringify(old.control[k])) &&
       JSON.stringify(next.observation.base_fields) === JSON.stringify(old.observation.base_fields) &&
+      JSON.stringify(next.observation.sensor_contract) === JSON.stringify(old.observation.sensor_contract) &&
       next.policy.obs_dim === old.policy.obs_dim;
   }
 
@@ -475,6 +525,7 @@ export class EmuBrowserSim {
     }
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
+    if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -487,7 +538,7 @@ export class EmuBrowserSim {
   }
 
   flattenHistory() {
-    for (let h = 0; h < 4; h++) this.obs.set(this.history[h], h * 55);
+    for (let h = 0; h < 4; h++) this.obs.set(this.history[h], h * this.baseObsDim);
   }
 
   bodyRotation() {
@@ -504,6 +555,25 @@ export class EmuBrowserSim {
     ];
   }
 
+  sensorPose() {
+    const R=this.bodyRotation();
+    const xyz=this.torsoId*3;
+    const torso=Array.from(this.data.xpos.slice(xyz,xyz+3));
+    const vbody=this.worldToBody(R,this.data.qvel[0],this.data.qvel[1],this.data.qvel[2]);
+    // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
+    const gyro=Array.from(this.data.qvel.slice(3,6));
+    const heightAt=(x,y)=>{
+      if(this.terrainMode==='park'&&this.park) return this.park.sampleHeight(x,y);
+      if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
+        if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
+        if(x>1.65&&x<2.17)return .015;
+        if(x>=2.17&&x<=2.97)return .015-(x-2.17)*Math.tan(Math.PI/180);
+      }
+      return 0;
+    };
+    return {R,torso,vbody,gyro,heightAt};
+  }
+
   buildBaseObs() {
     const qpos = this.data.qpos;
     const qvel = this.data.qvel;
@@ -517,7 +587,7 @@ export class EmuBrowserSim {
     const ns = this.sensorNoise ? Number(this.bundle.control.sensor_noise_scale ?? 1.5) : 0.0;
     const n0 = Math.sin(1.73 * this.phase);
     const n1 = Math.sin(2.31 * this.phase + 0.7);
-    const base = new Float32Array(55);
+    const base = new Float32Array(this.baseObsDim);
     let k = 0;
 
     base[k++] = grav[0] + ns*0.008*n0;
@@ -526,6 +596,14 @@ export class EmuBrowserSim {
     base[k++] = bodyAng[0] + ns*0.025*n1;
     base[k++] = bodyAng[1] + ns*0.025*n0;
     base[k++] = bodyAng[2] - ns*0.025*n1;
+    const sensor = this.sensorObserver?.read([
+      grav[0]+ns*.008*n0,grav[1]+ns*.008*n1,grav[2]-ns*.004*n0
+    ]);
+    if (sensor) {
+      base[3]=sensor.gyro[0];
+      base[4]=sensor.gyro[1];
+      base[5]=sensor.gyro[2];
+    }
 
     for (let i = 0; i < 6; i++) base[k++] = qpos[this.actQpos[i]] + ns*0.0015*n0;
     for (let i = 0; i < 6; i++) base[k++] = qvel[this.actQvel[i]] + ns*0.015*n1;
@@ -540,10 +618,10 @@ export class EmuBrowserSim {
       base[k++] = rel[0]; base[k++] = rel[1]; base[k++] = rel[2];
     }
 
-    base[k++] = bodyVel[0] + ns*0.018*n0;
-    base[k++] = bodyVel[1] + ns*0.018*n1;
-    base[k++] = tz + ns*0.0025*n1;
-    base[k++] = clamp(1 - 0.18*ns, 0.2, 1.0);
+    base[k++] = sensor ? sensor.velocity[0] : bodyVel[0] + ns*0.018*n0;
+    base[k++] = sensor ? sensor.velocity[1] : bodyVel[1] + ns*0.018*n1;
+    base[k++] = sensor ? sensor.depth : tz + ns*0.0025*n1;
+    base[k++] = sensor ? sensor.velocityConfidence : clamp(1 - 0.18*ns, 0.2, 1.0);
 
     base[k++] = this.command.vx;
     base[k++] = this.command.vy;
@@ -564,7 +642,12 @@ export class EmuBrowserSim {
     base[k++] = clamp(Math.abs(sf0) / 0.10, 0, 1.5);
     base[k++] = clamp(Math.abs(sf1) / 0.10, 0, 1.5);
 
-    if (k !== 55) throw new Error(`Internal observation builder produced ${k} fields instead of 55`);
+    if (sensor) {
+      base[k++] = sensor.forwardGrade;
+      base[k++] = sensor.sideGrade;
+      base[k++] = sensor.groundConfidence;
+    }
+    if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
   }
 
@@ -588,6 +671,8 @@ export class EmuBrowserSim {
       height: this.heightM(), vx: vel[0], vy: vel[1], yaw: ang[2],
       pitch: chassisPitch, chassisPitch, robotLean,
       cmd: { ...this.command }, requestedYaw: this.requestedYaw,
+      headingHold: this.headingHold, headingActual: this.actualHeading(),
+      headingTarget: this.headingTarget,
       slope: surfaceSlope(this.terrainMode, this.park,
         (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading()),
       fallen: this.isFallen(), phaseRate: this.phaseRate(),
@@ -702,6 +787,37 @@ export class EmuBrowserSim {
     }
   }
 
+  updateChaseCamera(dt = 1 / 60) {
+    // Follow the robot's *actual* world heading, not the operator's target.
+    // Only heading affects the camera's bearing: body roll and pitch never
+    // spin the horizon when EMU steps, leans, or catches a fall.
+    const heading = this.actualHeading();
+    const first = !this.chaseReady;
+    const o = this.torsoId * 3;
+    const torso = [Number(this.data.xpos[o]),
+                   Number(this.data.xpos[o + 1]),
+                   Number(this.data.xpos[o + 2])];
+    this.chaseHeading = first ? heading
+      : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
+    const terrainAt = (x, y) =>
+      this.terrainMode === 'park' && this.park ? this.park.sampleHeight(x, y) : 0;
+    const desired = chasePose(torso, this.chaseHeading, terrainAt);
+    const position = new THREE.Vector3(...desired.position);
+    const target = new THREE.Vector3(...desired.target);
+    // Reset/hot-swap/teleport snaps; regular steps glide after the robot.
+    const teleport = !first && this.camera.position.distanceToSquared(position) > 4;
+    if (first || teleport) {
+      this.camera.position.copy(position);
+      this.chaseTarget.copy(target);
+    } else {
+      this.camera.position.lerp(position, smoothFactor(dt, 5));
+      this.chaseTarget.lerp(target, smoothFactor(dt, 7));
+    }
+    this.chaseReady = true;
+    this.camera.up.set(0, 0, 1);
+    this.camera.lookAt(this.chaseTarget);
+  }
+
   updateFirstPersonCamera() {
     const R = this.bodyRotation();
     const torsoRotation = new THREE.Matrix4().set(
@@ -730,9 +846,10 @@ export class EmuBrowserSim {
     }
   }
 
-  render() {
+  render(dt = 1 / 60) {
     this.refreshScene();
     if (this.cameraMode === 'orbit') this.controls.update();
+    else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
     this.renderer.render(this.scene, this.camera);
   }

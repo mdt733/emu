@@ -215,6 +215,116 @@ def examine_course(
         'steps_scored': steps - i,
     }
 
+def examine_command_transitions(positions_xy, heading_rad, commands, *,
+                                dt=0.02, settle_frames=0, stable_frames=3):
+    """Independently measure acquisition/braking/reversal response times.
+
+    Motion is projected into the *requested* world-fixed course frame, not
+    redefined by where the robot actually turned. Response is reached only
+    after three consecutive control frames. None means not observed before
+    the next command change/episode end; it does NOT mean instant success.
+    """
+    pos=np.asarray(positions_xy,dtype=float)
+    head=np.asarray(heading_rad,dtype=float)
+    cmd=np.asarray(commands,dtype=float)
+    n=len(cmd)
+    if n < 2 or pos.shape != (n+1,2) or head.shape != (n+1,) or cmd.shape != (n,3):
+        raise ValueError('transition exam requires N+1 poses, N three-axis commands')
+    if not np.isfinite(pos).all() or not np.isfinite(head).all() or not np.isfinite(cmd).all():
+        raise ValueError('nonfinite transition trace')
+    if not np.isfinite(dt) or dt <= 0 or not 0 <= settle_frames < n:
+        raise ValueError('invalid transition time/window')
+    if stable_frames < 1:
+        raise ValueError('positive stable frame count required')
+    planned_yaw=head[0]+np.concatenate(([0.],np.cumsum(cmd[:,2]*dt)))
+    c,s=np.cos(planned_yaw[:-1]),np.sin(planned_yaw[:-1])
+    requested=np.column_stack((c*cmd[:,0]-s*cmd[:,1],
+                               s*cmd[:,0]+c*cmd[:,1]))
+    observed=np.diff(pos,axis=0)/dt
+    norm=np.linalg.norm(requested,axis=1)
+    transitions=[]
+    linear_change=np.any(np.abs(np.diff(cmd[:,:2],axis=0))>1e-6,axis=1)
+    angular_change=np.abs(np.diff(cmd[:,2]))>1e-6
+    boundary=np.flatnonzero(linear_change|angular_change)+1
+    actual_yaw=np.arctan2(np.sin(np.diff(head)),np.cos(np.diff(head)))/dt
+    for idx in boundary:
+        if idx < settle_frames:
+            continue
+        next_bound=boundary[boundary>idx]
+        end=int(next_bound[0]) if len(next_bound) else n
+        end=min(end,idx+round(2/dt))
+        # Multiple physical requests can change on one frame; measure the
+        # linear and angular response separately, rather than pretending a
+        # pure turn isn't a maneuver.
+        if linear_change[idx-1]:
+            prev,now=norm[idx-1],norm[idx]
+            if now < .008 and prev >= .025:
+                kind='brake_to_stop'
+            elif prev < .008 and now >= .025:
+                kind='rest_to_walk'
+            elif prev >= .025 and now >= .025 and np.dot(requested[idx-1],requested[idx]) < -.50*prev*now:
+                kind='reverse_or_redirect'
+            elif now > prev*1.25 and now >= .025:
+                kind='accelerate'
+            elif now < prev*.8:
+                kind='decelerate'
+            else:
+                kind='command_change'
+            response=None
+            for j in range(idx,end-stable_frames+1):
+                interval=observed[j:j+stable_frames]
+                if now < .008:
+                    reached=np.all(np.linalg.norm(interval,axis=1)<=max(.015,.2*prev))
+                else:
+                    direction=requested[idx]/now
+                    reached=np.all(interval @ direction >= .7*now)
+                if reached:
+                    response=float((j-idx)*dt)
+                    break
+            row=dict(start_step=int(idx),kind=kind,response_axis='translation',
+                     target_speed_mps=float(now),response_latency_s=response,
+                     response_observed=response is not None)
+            if now < .008:
+                last=min(n,idx+max(1,round(.5/dt)))
+                row['braking_path_first_0p5s_m']=float(
+                    np.sum(np.linalg.norm(np.diff(pos[idx:last+1],axis=0),axis=1)))
+            transitions.append(row)
+        if angular_change[idx-1]:
+            previous=float(cmd[idx-1,2])
+            target=float(cmd[idx,2])
+            if abs(target)<.008 and abs(previous)>=.025:
+                kind='turn_stop'
+            elif abs(previous)<.008 and abs(target)>=.025:
+                kind='turn_start'
+            elif target*previous<0.:
+                kind='turn_reverse'
+            else:
+                kind='turn_rate_change'
+            response=None
+            for j in range(idx,end-stable_frames+1):
+                rates=actual_yaw[j:j+stable_frames]
+                if abs(target)<.008:
+                    reached=np.all(np.abs(rates)<=max(.04,.2*abs(previous)))
+                else:
+                    reached=np.all(rates*np.sign(target)>=.70*abs(target))
+                if reached:
+                    response=float((j-idx)*dt)
+                    break
+            transitions.append(dict(
+                start_step=int(idx),kind=kind,response_axis='yaw',
+                target_yaw_rate_rad_s=target,response_latency_s=response,
+                response_observed=response is not None))
+    timings=[r['response_latency_s'] for r in transitions if r['response_observed']]
+    braking=[r['braking_path_first_0p5s_m'] for r in transitions
+             if 'braking_path_first_0p5s_m' in r]
+    return {'maneuvers':transitions,
+            'maneuver_count':len(transitions),
+            'maneuver_response_observed':len(timings),
+            'maneuver_mean_response_s':float(np.mean(timings)) if timings else None,
+            'maneuver_unobserved_count':len(transitions)-len(timings),
+            'braking_path_first_0p5s_m':float(np.mean(braking)) if braking else None}
+
+
 # Contact-pair footfalls, signed course progress, one episode at a time.
 import numpy as np
 
@@ -237,6 +347,7 @@ def contact_pair_mask(xp, contact_geom1, contact_geom2, contact_distance,
 
 
 def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
+                          foot_clearance_m=None,
                           min_air_frames=3, min_swing_m=.012,
                           min_clearance_m=.004, min_body_progress_m=.025):
     """Conservative alternating touchdown pair count, NOT foot-lift count.
@@ -256,6 +367,12 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
         raise ValueError('nonfinite foot trajectory')
     if not 0 <= settle_frames < n:
         raise ValueError('invalid settle window')
+    # Signed ball-bottom clearance against the actual plane is supplied by
+    # the examiner; older flat-world calls retain their original semantics.
+    clearance = (np.asarray(foot_clearance_m,dtype=float)
+                 if foot_clearance_m is not None else feet[:,:,2]-.018)
+    if clearance.shape != (n,2) or not np.isfinite(clearance).all():
+        raise ValueError('invalid foot-ground clearance shape/values')
     swing_start = [None, None]
     max_clearance = [0.0, 0.0]
     air_frames = [0, 0]
@@ -267,11 +384,11 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
             if ct[k-1, foot] and not ct[k, foot]:
                 swing_start[foot] = k-1
                 air_frames[foot] = 1
-                max_clearance[foot] = max(0.0, feet[k, foot, 2] - .018)
+                max_clearance[foot] = max(0.0, clearance[k, foot])
             elif not ct[k, foot] and swing_start[foot] is not None:
                 air_frames[foot] += 1
                 max_clearance[foot] = max(max_clearance[foot],
-                                          float(feet[k, foot, 2] - .018))
+                                          float(clearance[k, foot]))
             elif not ct[k-1, foot] and ct[k, foot]:
                 start = swing_start[foot]
                 if start is not None and air_frames[foot] >= min_air_frames:
@@ -296,7 +413,159 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
     return pairs
 
 
-def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
+def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
+    """Read-only per-servo load and work evidence from the existing MJX trace.
+
+    Torque is actual MuJoCo actuator output, not motor current. A squared
+    relative-torque integral is an UNCALIBRATED heating-exposure proxy.
+    It is neither temperature nor a claimed safe duty limit.
+    """
+    required = ('servo_torque_nm', 'servo_joint_rate_rad_s',
+                'servo_peak_limit_nm', 'servo_shaft_abs_power_w',
+                'servo_shaft_drive_power_w', 'servo_shaft_brake_power_w',
+                'spring_potential_energy_j', 'shin_spring_energy_j')
+    if not all(k in trace for k in required):
+        return None
+    # Pre-step physics at index k reflects the preceding control interval.
+    # At the first terminal sample the state is still pre-reset; at later
+    # samples it belongs to a fresh episode and must never be included.
+    torque = np.asarray(trace['servo_torque_nm'], dtype=float)
+    speed = np.asarray(trace['servo_joint_rate_rad_s'], dtype=float)
+    final_index = stop + 1 if terminal else len(torque)
+    lo = max(1, start + 1)
+    tau = torque[lo:final_index, world, :]
+    omega = speed[lo:final_index, world, :]
+    if not terminal and 'last_servo_torque_nm' in trace and 'last_servo_joint_rate_rad_s' in trace:
+        # Only unbroken survivors can use the final state; a terminal
+        # env.step has already auto-reset its state by this point.
+        tau = np.concatenate((tau,
+            np.asarray(trace['last_servo_torque_nm'], dtype=float)[world:world+1]), axis=0)
+        omega = np.concatenate((omega,
+            np.asarray(trace['last_servo_joint_rate_rad_s'], dtype=float)[world:world+1]), axis=0)
+    if not len(tau):
+        return None
+    limit = np.asarray(trace['servo_peak_limit_nm'], dtype=float)
+    ceiling = limit[world] if limit.ndim == 2 else limit
+    if tau.shape[1] != 6 or omega.shape != tau.shape or np.asarray(ceiling).shape != (6,):
+        raise ValueError('physical exam expected six aligned servo channels')
+    if not np.isfinite(tau).all() or not np.isfinite(omega).all() or not np.isfinite(ceiling).all() or np.any(ceiling <= 0):
+        raise ValueError('nonfinite or invalid actuator measurements')
+    rating = 0.638  # nominal STS3215 rating; hardware confirmation outstanding
+    power = tau * omega
+    positive = np.maximum(power, 0)
+    negative = np.maximum(-power, 0)
+    over = np.abs(tau) > rating
+    duration = len(tau) * dt
+    # Consecutive overload is more informative than isolated spikes.
+    # Break each boolean channel into contiguous runs in actual frame time.
+    def max_true_run(mask):
+        padded = np.concatenate(([False], np.asarray(mask,dtype=bool), [False]))
+        changes = np.diff(padded.astype(np.int8))
+        starts = np.flatnonzero(changes == 1)
+        ends = np.flatnonzero(changes == -1)
+        return float(np.max(ends-starts) * dt) if len(starts) else 0.
+    longest = [max_true_run(over[:,k]) for k in range(6)]
+    near_peak = np.abs(tau) >= .90*ceiling
+    return {
+        'actuator_sample_frames': int(len(tau)),
+        'actuator_sample_duration_s': float(duration),
+        'servo_peak_abs_torque_nm': np.max(np.abs(tau), axis=0).tolist(),
+        'servo_p95_abs_torque_nm': np.percentile(np.abs(tau), 95, axis=0).tolist(),
+        'servo_over_continuous_fraction': np.mean(over, axis=0).tolist(),
+        'servo_over_continuous_seconds': (np.sum(over, axis=0) * dt).tolist(),
+        'servo_longest_continuous_overload_s': longest,
+        'servo_near_peak_fraction': np.mean(near_peak, axis=0).tolist(),
+        'servo_p95_abs_joint_speed_rad_s': np.percentile(np.abs(omega),95,axis=0).tolist(),
+        'servo_peak_abs_joint_speed_rad_s': np.max(np.abs(omega),axis=0).tolist(),
+        'servo_peak_limit_utilization': np.max(np.abs(tau) / ceiling, axis=0).tolist(),
+        'servo_thermal_exposure_proxy_s': (np.sum((tau / rating) ** 2, axis=0) * dt).tolist(),
+        'servo_positive_shaft_work_j': (np.sum(positive, axis=0) * dt).tolist(),
+        'servo_braking_shaft_work_j': (np.sum(negative, axis=0) * dt).tolist(),
+        'servo_measured_interval_abs_shaft_work_j': float(np.sum(np.abs(power)) * dt),
+        'servo_all_sample_over_continuous_fraction': float(np.mean(over)),
+        'thermal_proxy_definition': 'integral (MuJoCo actuator force / 0.638 Nm)^2 dt, uncalibrated; no cooling or temperature model',
+        'actuator_work_definition': ('integral of MuJoCo position actuator_force times '
+            'joint speed, before separate joint damping, spring and Coulomb losses; '
+            'not net transmission work or measured electrical energy'),
+        'sampling_caveat': ('one-frame delayed pre-step force/velocity; '
+                            'terminal control step excluded from the scored path; '
+                            'final state appended for uninterrupted survivors'),
+    }
+
+
+def examine_spring_cycle(trace, world, *, start, stop, terminal, contacts):
+    """Resolve elastic storage and release on the SAME scored pose intervals.
+
+    Positive/negative changes in 1/2*k*(q-reference)^2 are not useful work,
+    net energy returned to the robot, or measured carbon-fibre damping.
+    Track passive flex separately, and label when a release overlaps a
+    continuously grounded foot. Never use post-reset spring states.
+    """
+    required = ('spring_joint_qpos_rad', 'spring_reference_rad',
+                'spring_stiffness_nm_rad')
+    if not all(k in trace for k in required):
+        return {}
+    states=np.asarray(trace['spring_joint_qpos_rad'],dtype=float)
+    reference=np.asarray(trace['spring_reference_rad'],dtype=float)
+    stiffness=np.asarray(trace['spring_stiffness_nm_rad'],dtype=float)
+    if states.ndim != 3 or states.shape[2] != 8 or reference.shape != (8,) or stiffness.shape != (8,):
+        raise ValueError('spring accounting expects eight actual MJX hinge channels')
+    if np.any(stiffness < 0) or not all(np.isfinite(v).all() for v in (states,reference,stiffness)):
+        raise ValueError('invalid spring positions or model parameters')
+    # Pre-step states indexed 0..stop on a terminal episode. An unbroken
+    # horizon instead ends at the true last state, not a repeated final
+    # sample. start/stop refer to the course's pose, not reward timesteps.
+    if terminal:
+        pose=states[start:stop+1,world,:]
+    else:
+        if 'last_spring_joint_qpos_rad' not in trace:
+            return {}
+        last=np.asarray(trace['last_spring_joint_qpos_rad'],dtype=float)
+        if last.shape != (states.shape[1],8):
+            raise ValueError('final spring state dimension differs from trace')
+        pose=np.concatenate((states[start:stop,world,:],last[world,None,:]),axis=0)
+    contact=np.asarray(contacts,dtype=bool)
+    if len(pose) < 2 or contact.shape != (len(pose),2):
+        raise ValueError('scored contacts and spring pose endpoints misaligned')
+    energy=.5*stiffness[None,:]*(pose-reference[None,:])**2
+    delta=np.diff(energy,axis=0)
+    charged=np.maximum(delta,0.)
+    released=np.maximum(-delta,0.)
+    # The first six are actuator-joint support springs; the last two
+    # are physically passive right and left shin flex joints.
+    passive_release=released[:,6:]
+    grounded=contact[:-1] & contact[1:]
+    stance=passive_release*grounded
+    airborne=passive_release*(~grounded)
+    stance_j=float(np.sum(stance))
+    release_j=float(np.sum(passive_release))
+    totals=dict(
+        spring_interval_count=int(len(delta)),
+        passive_shin_release_total_j=release_j,
+        passive_shin_stance_release_total_j=stance_j,
+        passive_shin_stance_release_fraction=(
+            float(stance_j/release_j) if release_j > 1e-12 else None),
+        spring_joint_charge_j=np.sum(charged,axis=0).tolist(),
+        spring_joint_release_j=np.sum(released,axis=0).tolist(),
+        spring_joint_net_storage_delta_j=np.sum(delta,axis=0).tolist(),
+        passive_shin_charge_j=np.sum(charged[:,6:],axis=0).tolist(),
+        passive_shin_release_j=np.sum(passive_release,axis=0).tolist(),
+        passive_shin_stance_release_j=np.sum(stance,axis=0).tolist(),
+        passive_shin_nonstance_release_j=np.sum(airborne,axis=0).tolist(),
+        passive_shin_stance_interval_count=np.sum(grounded,axis=0).astype(int).tolist(),
+        passive_shin_joint_energy_peak_j=np.max(energy[:,6:],axis=0).tolist(),
+        passive_shin_joint_energy_start_end_j=[
+            [float(energy[0,j]),float(energy[-1,j])] for j in (6,7)],
+        spring_mechanism_caveat=(
+            'geometric elastic potential changes at scored frame boundaries; '
+            'stance overlap does not establish propulsion, recovered useful '
+            'work, motor efficiency, or physical damping losses'),
+    )
+    return totals
+
+
+def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25,
+                          ground_mode='tilted_gravity'):
     """Reduce bounded, real-MJX pre-reset frame samples into per-world verdicts.
 
     trace contains [horizon, worlds, ...] pre-step poses/contacts/commands and
@@ -312,6 +581,20 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
     g = np.asarray(gravity_world, dtype=float)
     if g.shape != (worlds, 3):
         raise ValueError('gravity vector count must equal number of worlds')
+    if ground_mode not in ('tilted_gravity','inclined_contact_plane'):
+        raise ValueError('unknown ground scoring mode')
+    # Geometric ground must originate in the actual MJX Data, not from
+    # requested angle labels; never silently "prove" a slope from a flag.
+    floor_n = np.asarray(trace.get('floor_normal_world',
+                        np.broadcast_to([0.,0.,1.],(horizon,worlds,3))),dtype=float)
+    floor_o = np.asarray(trace.get('floor_origin_world',
+                        np.zeros((horizon,worlds,3))),dtype=float)
+    if (floor_n.shape!=(horizon,worlds,3) or floor_o.shape!=(horizon,worlds,3)
+        or not np.isfinite(floor_n).all() or not np.isfinite(floor_o).all()):
+        raise ValueError('invalid MJX floor geom transform trace')
+    if ground_mode=='inclined_contact_plane' and (
+        'floor_normal_world' not in trace or 'floor_origin_world' not in trace):
+        raise ValueError('inclined contact exam requires actual MJX floor geometry')
     findings = []
     for w in range(worlds):
         term = np.flatnonzero(arrays['done'][:, w] > .5)
@@ -345,8 +628,23 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
         contacts = np.concatenate((arrays['floor_contact'][:stop,w],
                                    final_contacts[None]),axis=0)
         commands = arrays['command'][:stop,w]
-        slope, uphill = incline_from_tilted_gravity(g[w])
-        strides = count_contact_strides(pos,feet,contacts,settle_frames=settle_frames)
+        ground_n=floor_n[0,w]
+        ground_o=floor_o[0,w]
+        if (np.linalg.norm(ground_n)<1e-8 or ground_n[2]<=0
+            or np.max(np.abs(floor_n[:stop,w]-ground_n))>1e-5
+            or np.max(np.abs(floor_o[:stop,w]-ground_o))>1e-5):
+            raise ValueError('physical floor normal/origin changed inside the scored episode')
+        ground_n=ground_n/np.linalg.norm(ground_n)
+        if ground_mode=='inclined_contact_plane':
+            horizontal=np.linalg.norm(ground_n[:2])
+            slope=math.degrees(math.atan2(horizontal,ground_n[2]))
+            uphill=(-ground_n[:2]/horizontal) if horizontal>1e-8 else None
+        else:
+            slope,uphill=incline_from_tilted_gravity(g[w])
+        foot_clearance=np.sum((feet-ground_o)*ground_n,axis=2)-.018
+        strides = count_contact_strides(
+            pos,feet,contacts,settle_frames=settle_frames,
+            foot_clearance_m=foot_clearance)
         # The grading function rejects early terminations. The stride count
         # stays reported but cannot override an invalid course or fall.
         course = examine_course(pos,head,commands,dt=dt,
@@ -354,6 +652,8 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
                     completed_strides=strides,
                     uphill_world_xy=uphill,slope_deg=slope)
         result.update(course)
+        result.update(examine_command_transitions(
+            pos,head,commands,dt=dt,settle_frames=settle_frames))
         if 'issued_yaw_rate' in trace:
             issued = np.asarray(trace['issued_yaw_rate'])[:stop, w]
             operator_yaw = arrays['command'][:stop, w, 2]
@@ -372,16 +672,239 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25):
             result['gyro_heading_error_mae_deg'] = float(np.degrees(
                 np.mean(np.abs(estimated[settle_frames:] -
                                true_relative[settle_frames:]))))
-        result.update(contact_stride_pairs=strides,measured_slope_deg=slope,
+        physical = examine_actuator_trace(
+            trace, w, start=settle_frames, stop=stop, dt=dt,
+            terminal=bool(len(term)))
+        if physical is not None:
+            physical.update(examine_spring_cycle(
+                trace,w,start=settle_frames,stop=stop,
+                terminal=bool(len(term)),contacts=contacts[settle_frames:]))
+            progress=course['signed_course_progress_m']
+            release=physical.get('passive_shin_stance_release_total_j')
+            physical['passive_shin_stance_release_per_progress_m_j_m'] = (
+                float(release/progress) if release is not None and progress>0.01
+                else None)
+            # Use the already captured POST-step, PRE-reset simulator metrics
+            # for the actual scored control intervals (including termination).
+            first_step = int(settle_frames)
+            # Course scoring stops at the pre-reset pose recorded on the
+            # terminating frame, so its actual terminating transition is
+            # excluded. Integrate only the same scored control intervals.
+            last_step = stop if len(term) else horizon
+            def series(name):
+                return np.asarray(trace[name], dtype=float)[first_step:last_step, w]
+            if last_step > first_step:
+                watts = series('servo_shaft_abs_power_w')
+                drive = series('servo_shaft_drive_power_w')
+                brake = series('servo_shaft_brake_power_w')
+                stored = series('spring_potential_energy_j')
+                shin = series('shin_spring_energy_j')
+                if all(np.isfinite(x).all() for x in (watts, drive, brake, stored, shin)):
+                    physical['step_integrated_abs_shaft_work_j'] = float(np.sum(watts) * dt)
+                    physical['step_integrated_drive_shaft_work_j'] = float(np.sum(drive) * dt)
+                    physical['step_integrated_brake_shaft_work_j'] = float(np.sum(brake) * dt)
+                    physical['spring_potential_mean_j'] = float(np.mean(stored))
+                    physical['spring_potential_range_j'] = float(np.ptp(stored))
+                    physical['shin_spring_potential_mean_j'] = float(np.mean(shin))
+                    # Positive storage/release changes are energy-state
+                    # movements, NOT calibrated useful work at the feet.
+                    for prefix, energy in (('all_springs',stored),('passive_shins',shin)):
+                        delta=np.diff(energy)
+                        physical[prefix+'_charging_proxy_j'] = float(np.sum(np.maximum(delta,0.)))
+                        physical[prefix+'_release_proxy_j'] = float(np.sum(np.maximum(-delta,0.)))
+                    physical['spring_return_not_inferred'] = True
+            # The scored foot path is a contact-conditioned geometric slip
+            # proxy, not a force-plate measurement of sole friction.
+            scored_feet = feet[settle_frames:]
+            scored_contacts = contacts[settle_frames:]
+            delta_3d=np.diff(scored_feet,axis=0)
+            tangent_delta=delta_3d-np.sum(delta_3d*ground_n,axis=2)[:,:,None]*ground_n
+            foot_delta = np.linalg.norm(tangent_delta,axis=2)
+            grounded = scored_contacts[:-1] & scored_contacts[1:]
+            if np.any(grounded):
+                physical['contact_pair_slip_path_m'] = float(np.sum(foot_delta[grounded]))
+                physical['contact_pair_slip_speed_mean_m_s'] = float(np.mean(foot_delta[grounded] / dt))
+                physical['contact_pair_sample_count'] = int(np.sum(grounded))
+            else:
+                physical['contact_pair_slip_path_m'] = None
+                physical['contact_pair_slip_speed_mean_m_s'] = None
+                physical['contact_pair_sample_count'] = 0
+            result['physical_evidence'] = physical
+            # Mechanical positive work normalized by observed signed forward
+            # progress is meaningful only for a genuinely progressing course.
+            progress = course['signed_course_progress_m']
+            # Complete scored-interval aggregate work is preferred to
+            # per-servo samples when calculating the work/progress ratio.
+            # Negative, zero or trivial progress must never look efficient.
+            drive_j = physical.get('step_integrated_drive_shaft_work_j')
+            abs_j = physical.get('step_integrated_abs_shaft_work_j')
+            result['positive_shaft_work_per_progress_m_j_m'] = (
+                float(drive_j / progress)
+                if progress > 0.01 and drive_j is not None else None)
+            result['absolute_shaft_work_per_progress_m_j_m'] = (
+                float(abs_j / progress)
+                if progress > 0.01 and abs_j is not None else None)
+        # Grade is the requested course geometry, not a measured incline
+        # recovered from a sensor or contact impulses.
+        result.update(contact_stride_pairs=strides,configured_course_grade_deg=slope,
+                      measured_ground_normal_xyz=ground_n.tolist(),
                       invalid_reason=('terminated before horizon' if len(term) else None))
         findings.append(result)
     return findings
 
 
-# Optional three-ray ground-plane experiment (read-only geometry).
-from dataclasses import dataclass
-import math
-import numpy as np
+# Three ToF modules below the torso: front-right, front-left, rear.
+# Local coordinates are provisional mounting points, not a CAD claim.
+# Calibrate their actual measured extrinsics before any physical deployment.
+TOF_TRIPOD_MOUNTS_BODY_M = (
+    (.035, -.050, -.025),
+    (.035,  .050, -.025),
+    (-.040, .000, -.025),
+)
+TOF_TRIPOD_BEAMS_BODY = ((0.,0.,-1.),)*3
+TOF_MIN_RANGE_M = .035
+TOF_MAX_RANGE_M = .60
+
+
+def simulate_tripod_ranges(xp, torso_world, rotation_body_to_world,
+                           floor_origin_world, floor_normal_world,
+                           *, range_errors_m=None):
+    """Sensor *forward model*: true collision geometry may only be read here.
+
+    Three body-mounted, narrow downward rays intersect the fixed plane.
+    Results are measured ray lengths, not the floor normal. No body/shin
+    self-occlusion, reflectance, multipath or surface texture yet.
+    """
+    mounts=xp.asarray(TOF_TRIPOD_MOUNTS_BODY_M)
+    beams=xp.asarray(TOF_TRIPOD_BEAMS_BODY)
+    pos=torso_world[:,None,:]+xp.einsum('wij,kj->wki',rotation_body_to_world,mounts)
+    dirs=xp.einsum('wij,kj->wki',rotation_body_to_world,beams)
+    n=floor_normal_world
+    denominator=xp.sum(dirs*n[:,None,:],axis=-1)
+    numerator=xp.sum((floor_origin_world[:,None,:]-pos)*n[:,None,:],axis=-1)
+    # Floor normals point upward. Near-grazing beams are invalid.
+    safe=xp.where(xp.abs(denominator)>1e-6,denominator,-1.)
+    ranges=numerator/safe
+    if range_errors_m is not None:
+        ranges=ranges+xp.asarray(range_errors_m)
+    valid=(denominator<-.3)&xp.isfinite(ranges)&(ranges>=TOF_MIN_RANGE_M)&(ranges<=TOF_MAX_RANGE_M)
+    return xp.where(valid,ranges,0.),valid
+
+
+def fit_tripod_ground(xp, ranges_m, gravity_body, *,
+                      mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                      beams_body=TOF_TRIPOD_BEAMS_BODY,
+                      min_area_m2=.0001):
+    """Estimator shared by CPU and JAX; no simulator floor normal input.
+
+    Uses only the three measured beam lengths, calibrated mounts, and IMU
+    gravity estimate. Positive forward/side grades are uphill in the torso
+    heading's gravity-levelled X/Y directions, expressed in radians.
+
+    Three points ALWAYS define a plane: no residual-based quality claim is
+    possible. Confidence here means valid geometry/visibility only, not
+    probability of accurate terrain on broken, mixed or reflective ground.
+    """
+    ranges=xp.asarray(ranges_m)
+    g=xp.asarray(gravity_body)
+    origins=xp.asarray(mounts_body)
+    dirs=xp.asarray(beams_body)
+    length=xp.sqrt(xp.sum(dirs*dirs,axis=-1))
+    dirs=dirs/xp.maximum(length[:,None],1e-8)
+    points=origins[None,:,:]+ranges[:,:,None]*dirs[None,:,:]
+    v1=points[:,1,:]-points[:,0,:]
+    v2=points[:,2,:]-points[:,0,:]
+    raw=xp.cross(v1,v2)
+    area=.5*xp.sqrt(xp.sum(raw*raw,axis=-1))
+    n=raw/xp.maximum(2*area[:,None],1e-8)
+    up=-g/xp.maximum(xp.sqrt(xp.sum(g*g,axis=-1,keepdims=True)),1e-8)
+    n=xp.where(xp.sum(n*up,axis=-1,keepdims=True)<0,-n,n)
+    cosine=xp.sum(n*up,axis=-1)
+    fwd=xp.broadcast_to(xp.asarray((1.,0.,0.)),up.shape)
+    fwd=fwd-xp.sum(fwd*up,axis=-1,keepdims=True)*up
+    fwd=fwd/xp.maximum(xp.sqrt(xp.sum(fwd*fwd,axis=-1,keepdims=True)),1e-8)
+    side=xp.cross(up,fwd)
+    fgrade=xp.arctan2(-xp.sum(n*fwd,axis=-1),cosine)
+    sgrade=xp.arctan2(-xp.sum(n*side,axis=-1),cosine)
+    valid=(xp.all(xp.isfinite(ranges)&(ranges>=TOF_MIN_RANGE_M)&
+                  (ranges<=TOF_MAX_RANGE_M),axis=-1)
+           &(area>=min_area_m2)&(cosine>.1)
+           &(xp.sqrt(xp.sum(g*g,axis=-1))>.1)
+           &(xp.sqrt(xp.sum(fwd*fwd,axis=-1))>.5))
+    # Camera at the torso origin, looking along body -Z. Recover scale
+    # from observed triangulated points, not from a privileged floor plane.
+    signed_offset=xp.sum(n*points[:,0,:],axis=-1)
+    optical_depth=-signed_offset/xp.where(xp.abs(n[:,2])>.1,n[:,2],1.)
+    depth_valid=(xp.isfinite(optical_depth)
+                 &(optical_depth>=TOF_MIN_RANGE_M)
+                 &(optical_depth<=TOF_MAX_RANGE_M))
+    valid=valid&depth_valid
+    # A zero angle with valid=False MUST NOT be treated as flat ground.
+    confidence=xp.where(valid,
+        xp.clip(area/.00375,0.,1.)*xp.clip(cosine/.6,0.,1.),0.)
+    return dict(forward_grade_rad=xp.where(valid,fgrade,0.),
+                sideways_grade_rad=xp.where(valid,sgrade,0.),
+                ground_normal_body=xp.where(valid[:,None],n,up),
+                triangle_area_m2=area,valid=valid,visibility_confidence=confidence,
+                optical_depth_m=xp.where(valid,optical_depth,0.))
+
+
+def simulate_downward_optical_flow(xp, body_velocity_mps, body_gyro_rad_s,
+                                   optical_depth_m, *, flow_error_rad_s=None):
+    """Angular image flow at the optical axis of a down-looking camera.
+
+    Forward optics uses TRUE simulator body velocity, body-local gyro and
+    true ray/plane intersection depth to generate noisy *measurements*.
+    No true velocity enters the inverse estimator. Optical boresight is
+    body -Z; image horizontal axes are body X/Y. Units rad/s approximately.
+
+    At the boresight, yaw-induced image translation is zero to first order,
+    while roll/pitch rotation must be compensated. Does not model image
+    texture, pixel quantization, FOV, self-occlusion, blur or sensor latency.
+    """
+    v=xp.asarray(body_velocity_mps)
+    w=xp.asarray(body_gyro_rad_s)
+    depth=xp.asarray(optical_depth_m)
+    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
+           &(depth<=TOF_MAX_RANGE_M)
+           &xp.all(xp.isfinite(v),axis=-1)&xp.all(xp.isfinite(w),axis=-1))
+    safe=xp.maximum(depth,TOF_MIN_RANGE_M)
+    angular=xp.stack((-v[:,0]/safe+w[:,1],
+                      -v[:,1]/safe-w[:,0]),axis=-1)
+    if flow_error_rad_s is not None:
+        angular=angular+xp.asarray(flow_error_rad_s)
+    valid=valid&xp.all(xp.isfinite(angular),axis=-1)
+    return xp.where(valid[:,None],angular,0.),valid
+
+
+def estimate_flow_velocity(xp, flow_rad_s, imu_gyro_body_rad_s,
+                           tof_estimated_optical_depth_m, *,
+                           flow_valid=None, tof_valid=None):
+    """Invert a gyro-compensated downward optical-flow measurement.
+
+    Returns *body-frame* horizontal vxy, never world velocity. The estimator
+    receives measured angular image flow, gyro and tripod-derived distance,
+    NOT the MuJoCo velocity or true floor normal used by the forward model.
+    Invalid sources produce zero velocity AND false validity; a policy must
+    not mistake this for a confident zero-speed measurement.
+    """
+    flow=xp.asarray(flow_rad_s)
+    gyro=xp.asarray(imu_gyro_body_rad_s)
+    depth=xp.asarray(tof_estimated_optical_depth_m)
+    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
+           &(depth<=TOF_MAX_RANGE_M)
+           &xp.all(xp.isfinite(flow),axis=-1)
+           &xp.all(xp.isfinite(gyro),axis=-1))
+    if flow_valid is not None:
+        valid=valid&xp.asarray(flow_valid)
+    if tof_valid is not None:
+        valid=valid&xp.asarray(tof_valid)
+    scale=xp.maximum(depth,TOF_MIN_RANGE_M)
+    vxy=xp.stack((-scale*(flow[:,0]-gyro[:,1]),
+                  -scale*(flow[:,1]+gyro[:,0])),axis=-1)
+    return dict(velocity_body_xy_mps=xp.where(valid[:,None],vxy,0.),
+                velocity_valid=valid,
+                velocity_confidence=xp.where(valid,1.,0.))
 
 
 @dataclass(frozen=True)
@@ -420,18 +943,19 @@ def estimate_ground_plane(
     g_norm = np.linalg.norm(gravity)
     if np.any(ray_norm < 1e-8) or g_norm < 1e-8:
         return GroundPlane(False, 'degenerate ray/gravity')
-    ray_direction = direction / ray_norm[:, None]
-    points = origin + ranges[:, None] * ray_direction
-    n = np.cross(points[1] - points[0], points[2] - points[0])
-    length = np.linalg.norm(n)
-    area = 0.5 * length
-    if length < 1e-10 or area < min_area_m2:
-        return GroundPlane(False, 'nearly collinear ground returns', triangle_area_m2=float(area))
-    n = n / length
-    g = gravity / g_norm
-    if np.dot(n, -g) < 0:
-        n = -n
-    cosine = float(np.dot(n, -g))
+    fitted = fit_tripod_ground(np,ranges[None,:],gravity[None,:],
+                               mounts_body=origin,beams_body=direction,
+                               min_area_m2=min_area_m2)
+    area=float(fitted['triangle_area_m2'][0])
+    if area<min_area_m2:
+        return GroundPlane(False,'nearly collinear ground returns',
+                           triangle_area_m2=area)
+    if not bool(fitted['valid'][0]):
+        return GroundPlane(False,'ground normal nearly perpendicular to gravity',
+                           triangle_area_m2=area)
+    n=np.asarray(fitted['ground_normal_body'][0])
+    g=gravity/g_norm
+    cosine=float(np.dot(n,-g))
     if cosine < 0.1:
         return GroundPlane(False, 'ground normal nearly perpendicular to gravity', triangle_area_m2=float(area))
     tangential_down = g - np.dot(g, n) * n

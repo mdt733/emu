@@ -25,11 +25,11 @@ cd emu/viewer_src
 npm run preview -- --host 127.0.0.1
 ```
 
-Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), selectable heading hold, split/hybrid steering, both physical terrain modes, and that `showcase.json` reports step 120061952. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
+Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), compass-heading P, chase camera, split/hybrid steering, both physical terrain modes, and that `showcase.json` references the **approved** actor step/contract. The older release is 120,061,952 steps and 220 inputs; the v5016 release must have 232 inputs. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
 
 ## Publish (manual on purpose)
 
-After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact Git blob SHA pinned in `.github/workflows/emu-playground.yml`, actor provenance, Node browser tests, WASM and policy files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
+After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact old 120M Git blob pin, **or** the explicitly reviewed `showcase/release_approval.json` for the 232-input schema-2 policy, plus actor provenance, JavaScript browser tests, WASM and asset files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
 
 Do not commit a training `.pkl` or alter the protected `showcase/champion.emupolicy` without deliberately updating the verified pin in the SAME reviewed change.
 
@@ -42,10 +42,12 @@ model's convention). Select **Hybrid** for diagonal steering: forward plus
 left/right diagonals mix turning and strafing, while purely sideways means
 strafe. The right stick always supports separate turning and pitch.
 
-**Heading hold** is an optional browser-only P controller (default on,
-Kp=0.75). It integrates the requested turn rate into a target heading and
-adds a bounded correction for observed torso yaw drift. It neither edits
-the neural policy nor guarantees accurate heading on unfamiliar terrain.
+**Heading target (P)** is an optional browser-only outer loop (default on,
+Kp=2.2). The joystick integrates a requested world heading, and the
+P error alone generates an actor yaw-rate command; releasing the joystick
+holds the compass setpoint immediately. Disable it for direct yaw-rate
+steering. The gain can be changed from 0.3 to 5 in Settings. It neither
+edits neural weights nor guarantees accurate heading on unfamiliar terrain.
 
 Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
 The park starts with a flat 2 m radius; the permitted incline grows
@@ -86,3 +88,46 @@ up means forward, left means uphill to its left, right means uphill to its
 right. Flat terrain reads `0.0° · level`; walking beyond the sampled terrain
 reports `No terrain underfoot`. This is a terrain probe, not a measurement of
 body pitch or proof that both feet have contact.
+
+
+## Third-person chase camera
+
+Cycle the **View** button: Orbit → Chase → POV → Level POV.
+**Chase** follows behind and above EMU in the robot's *actual* heading,
+with a slightly forward-looking aim. The camera smoothly handles turns
+including the ±180° boundary, maintains a level horizon independently of
+chassis roll/pitch, and keeps above the ground as the robot traverses the
+terrain park. It snaps into position on reset or policy hot-swap instead
+of slowly flying across the scene; returning to Orbit restores its earlier
+orbit target and camera position. The ordinary Follow toggle applies to
+Orbit; Chase always follows by definition.
+
+The camera runs only in the browser renderer; it does not alter commands,
+sensor observations, controls, physics, trained weights or campaign files.
+
+
+## Heading setpoint P and experimental pitch range (viewer only)
+
+**Heading target (P)** now integrates the requested right-stick yaw rate into a
+world-frame target heading. The proportional outer loop turns heading error
+into the **yaw-rate command** that the unchanged learned actor accepts. On
+stick release the setpoint stays in place and the robot attempts to hold it.
+The command saturates at the actor's declared maximum yaw rate and the
+setpoint can never build up more than ~57° of unreachable heading error.
+The P gain starts at 2.2 (rad/s per rad of heading error) and is adjustable
+in Settings, from 0.3 to 5. No I or D is applied; switching the controller off
+returns direct-rate yaw control, switching it back on captures current
+heading to avoid a sudden turn. The telemetry shows target and actual
+heading, while distinguishing stick-requested yaw from applied yaw.
+
+The **manual pitch range** selector defaults to the checkpoint's *trained*
+limit (currently ±15° on v5016 Pinnacle), with optional ±30° and ±45°
+viewer-only experiments. Those larger command angles do **not** expand the
+neural policy's training curriculum, and may produce poor posture tracking,
+loss of balance or falls. They do not alter auto-demo command envelopes,
+checkpoints or PPO weights. To teach robust ±30°/±45° pitch tracking requires
+a separate training experiment/lineage, rather than changing the active
+Pinnacle run at ~50M steps.
+
+The unnecessary bottom-centre scale-caption pill has been removed; the
+10 cm / 1 m lines remain visible over the terrain.

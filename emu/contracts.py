@@ -49,6 +49,90 @@ BASE_OBS_DIM = len(BASE_OBS_FIELDS)
 HISTORY_LEN = 4
 OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
 
+# Explicit opt-in v5016 policy interface. Never reinterpret an archived
+# 55x4 Pitch15 actor or its observation normalizer as this 58x4 interface.
+OBS_SCHEMA_LEGACY = "pitch15_220"
+OBS_SCHEMA_SENSOR = "sim2real_232"
+SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
+    "ground_forward_grade_rad", "ground_sideways_grade_rad",
+    "ground_visibility_confidence",
+)
+SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
+SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+# Observation schema identifies meanings, not merely array widths. A hash
+# also covers timing and physical sensor extrinsics when using sim2real_232.
+SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
+SENSOR_SETTINGS_DEFAULTS = {
+    "tof_period_frames": 2,
+    "flow_period_frames": 1,
+    "tof_delay_frames": 1,
+    "flow_delay_frames": 1,
+    "tof_dropout_prob": 0.01,
+    "flow_dropout_prob": 0.02,
+    "gyro_bias_std_rad_s": 0.015,
+    "sensor_noise_scale": 1.0,
+}
+
+
+def sensor_observation_contract(settings: dict | None = None) -> dict:
+    """Canonical, independently verifiable v5016 observation identity.
+
+    Sensor mount geometry and fields are part of the meaning of a saved
+    policy; a fingerprint cannot be self-certified by just rehashing an
+    arbitrary serialized manifest.
+    """
+    import hashlib
+    import json
+    import math
+    from .directional import (TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
+                              TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
+
+    values = dict(SENSOR_SETTINGS_DEFAULTS if settings is None else settings)
+    if set(values) != set(SENSOR_SETTINGS_DEFAULTS):
+        raise ValueError("sensor observation settings keys mismatch")
+    for key in ("tof_period_frames", "flow_period_frames"):
+        if type(values[key]) is not int or not 1 <= values[key] <= 20:
+            raise ValueError(f"invalid {key}")
+    for key in ("tof_delay_frames", "flow_delay_frames"):
+        if type(values[key]) is not int or not 0 <= values[key] < HISTORY_LEN:
+            raise ValueError(f"invalid {key}")
+    for key in ("tof_dropout_prob", "flow_dropout_prob"):
+        x = values[key]
+        if type(x) not in (int, float) or not math.isfinite(x) or not 0 <= x <= 1:
+            raise ValueError(f"invalid {key}")
+    for key in ("gyro_bias_std_rad_s", "sensor_noise_scale"):
+        x = values[key]
+        if type(x) not in (int, float) or not math.isfinite(x) or x < 0:
+            raise ValueError(f"invalid {key}")
+    body = {
+        "schema": OBS_SCHEMA_SENSOR,
+        "sensor_model_revision": SENSOR_MODEL_REVISION,
+        "base_fields": list(SENSOR_OBS_FIELDS),
+        "history_len": HISTORY_LEN,
+        "action_dim": ACTION_DIM,
+        "control_dt": CONTROL_DT,
+        "tripod_mounts_body_m": [list(p) for p in TOF_TRIPOD_MOUNTS_BODY_M],
+        "tripod_beams_body": [list(p) for p in TOF_TRIPOD_BEAMS_BODY],
+        "tof_range_limits_m": [TOF_MIN_RANGE_M, TOF_MAX_RANGE_M],
+        "settings": values,
+    }
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {**body, "sha256": digest}
+
+
+OBS_FIELDS_BY_SCHEMA = {
+    OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
+    OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+}
+
+
+def actor_observation_fields(schema: str) -> tuple[str, ...]:
+    """Return the exact fields of an explicitly named actor contract."""
+    try:
+        return OBS_FIELDS_BY_SCHEMA[schema]
+    except KeyError as exc:
+        raise ValueError(f"unknown actor observation schema {schema!r}") from exc
+
 # Preserve the current actor coordinate system exactly.  The membership here is
 # intentionally explicit rather than encoded as fragile numeric slices.
 OBS_NORMALIZED_FIELDS = frozenset(

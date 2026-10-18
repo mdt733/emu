@@ -533,7 +533,8 @@ from .training_config import verify_existing_phase_config
 from .contracts import source_repo_root
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
-from .training_config import TrainingConfig, foundation_config, mature_config
+from .training_config import TrainingConfig, foundation_config, mature_config, training_sensor_contract
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -544,17 +545,44 @@ def one_run_config(args) -> TrainingConfig:
     if args.profile == 'foundation':
         cfg = foundation_config(run_dir=run_dir, seed=args.seed,
                                 device=args.device, envs=args.envs)
-    elif args.profile == 'mature':
+    elif args.profile in ('mature', 'sim2real'):
+        # v5016 reuses the stable learning engine: pitch is a SHARED task
+        # distribution, not a pitch-only experiment arm. Future trials can
+        # vary acquisition, motor cost and terrain with this range fixed.
         cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
                             seed=args.seed, device=args.device, envs=args.envs,
                             resume=None)
     else:
         raise ValueError(f'unknown profile: {args.profile}')
-    pitch_deg=float(getattr(args, 'pitch_deg', 8.0))
-    if not math.isfinite(pitch_deg) or not 0.0 <= pitch_deg <= 30.0:
-        raise ValueError('--pitch-deg must be between 0 and 30 degrees')
+    requested_pitch=getattr(args, 'pitch_deg', None)
+    pitch_deg=float((30.0 if args.profile == 'sim2real' else 8.0)
+                    if requested_pitch is None else requested_pitch)
+    if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
+        raise ValueError('--pitch-deg must be within (0, 30] degrees')
+    weight=float(getattr(args,'motor_guidance_weight',0.0))
+    if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
+        raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
+    grade=float(getattr(args,'contact_slope_deg',0.0))
+    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
+        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
+    sensor_actor = bool(getattr(args, 'sensor_actor', False))
+    if sensor_actor and args.profile not in ('foundation', 'sim2real'):
+        raise ValueError('--sensor-actor requires --profile foundation or sim2real')
+    if grade > 0 and args.profile != 'sim2real':
+        raise ValueError('real contact slope requires --profile sim2real')
+    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
+    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
+        raise ValueError('--contact-terrain-radius must be in [0, 1]')
+    if terrain_radius > 0 and args.profile != 'sim2real':
+        raise ValueError('per-world real contact terrain requires --profile sim2real')
+    if terrain_radius > 0 and grade > 0:
+        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   pitch_command_max_deg=pitch_deg)
+                   observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
+                   pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
+                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
+                   domain_terrain_radius=terrain_radius,
+                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
@@ -603,7 +631,9 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         verify_existing_phase_config(root, config)
 
     finished, partial, expected = resolve_target_checkpoint(
-        root, target_steps=config.steps, envs=config.envs, label=root.name)
+        root, target_steps=config.steps, envs=config.envs, label=root.name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
     if finished is not None:
         if resume not in ('', 'auto'):
             raise RuntimeError('Run already complete; external --resume is not appropriate here')
@@ -620,7 +650,9 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         parent = Path(resume).expanduser().resolve()
         if not parent.is_file():
             raise FileNotFoundError(f'Parent checkpoint not found: {parent}')
-        payload = load_checkpoint(parent, validate=True)
+        payload = load_checkpoint(
+            parent, validate=True, expected_observation_schema=config.observation_schema,
+            expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
         if source != provenance['commit']:
             raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
@@ -653,7 +685,9 @@ def train_one(args) -> int:
     # Do not announce success until the trainer's own validated final is present.
     final, _, _ = resolve_target_checkpoint(
         Path(config.run_dir), target_steps=config.steps, envs=config.envs,
-        label=Path(config.run_dir).name)
+        label=Path(config.run_dir).name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
     if final is None:
         raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
     print(f'Completed validated run: {final}')
