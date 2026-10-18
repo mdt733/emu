@@ -244,8 +244,50 @@ switching planners discards stale route requests and searches again.
 The control pipeline is unmodified: each drives the same proven
 `setDemoCommands()` → heading controller → 260M actor → MuJoCo WASM.
 
-For a viewer-only fresh install on Windows PowerShell (requires Git,
-Node.js, ordinary Python3; no CUDA/JAX/MuJoCo Python):
+For a **fresh Windows 10/11 CPU-only PC**, open ordinary PowerShell
+(no WSL, administrator prompt or preinstalled Git/Node/Python required)
+and run:
+
+```powershell
+$setup = Join-Path $env:TEMP 'EMU-Viewer-Install.ps1'
+Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/mdt733/emu/feature/v5017-goal-navigation-demo/scripts/install_viewer_cpu.ps1' -OutFile $setup
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setup
+```
+
+Review the downloaded script first if desired:
+`notepad.exe $setup`. The installer itself is committed as
+`scripts/install_viewer_cpu.ps1` on this feature branch. Execution
+policy is relaxed **only for this subprocess**, not globally. The
+installer uses Windows Package Manager (`winget`, installed with
+Microsoft **App Installer** on supported updated Windows systems) to
+install any missing:
+
+- Git for Windows (`Git.Git`)
+- Node.js LTS + npm (`OpenJS.NodeJS.LTS`), unless a compatible Node already exists
+- Python 3.13 (`Python.Python.3.13`), unless Python 3.10+ is available
+
+Windows may ask for normal download/UAC approval; nothing silently
+disables platform protection. If `winget` is absent, install/update
+**App Installer** from Microsoft and rerun; if a newly installed tool is
+not visible in the same process, reopen PowerShell and rerun.
+
+Then it clones/updates **`%USERPROFILE%\\emu-viewer-cpu`** on
+`feature/v5017-goal-navigation-demo`, checks for local edits before
+updating, verifies and stages the trained 260M champion using Python
+**stdlib only**, runs `npm ci` and the browser tests, then starts a
+loopback-only Vite viewer on **http://127.0.0.1:8767/**.
+Leave the terminal open while viewing and use Ctrl+C to stop. It
+**does not install the EMU Python package**, JAX, MJX, CUDA, or any
+training checkpoints.
+
+The same three PowerShell lines are safe to rerun to fast-forward
+the demo (local modifications are never forcibly overwritten). To
+install without starting the viewer, add `-NoLaunch` to the last
+command. The Windows PowerShell 5-compatible bootstrap can validate its
+own syntax without installing anything via `-SelfTest`.
+
+If the machine already has Git, Node and Python and you prefer the
+manual path, use the previous checkout steps directly:
 
 ```powershell
 git clone --single-branch --branch feature/v5017-goal-navigation-demo https://github.com/mdt733/emu.git emu-viewer-cpu

@@ -83,3 +83,21 @@ jobs:
         run: npm install --prefix emu/viewer_src --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
       - name: Test actual 260M actor in Chromium while goal mode plans
         run: cd emu/viewer_src && node scripts/e2e-goal-smoke.mjs
+
+  cpu-viewer-windows:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Parse bootstrap with Windows PowerShell 5
+        shell: powershell
+        run: .\\scripts\\install_viewer_cpu.ps1 -SelfTest
+      - name: Install browser-only checkout without CUDA or Python packages
+        shell: powershell
+        run: .\\scripts\\install_viewer_cpu.ps1 -Destination "$env:RUNNER_TEMP\\emu-viewer-cpu" -NoLaunch

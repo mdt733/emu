@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
+**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only Windows viewer](docs/V5017_GOAL_NAVIGATION.md#cpu-only-browser-comparison-no-jax--cuda--trainer)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
 
 ## How it works
 
