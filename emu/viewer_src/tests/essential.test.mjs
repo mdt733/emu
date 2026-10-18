@@ -162,7 +162,7 @@ test('park grid is a separate overlay with 10 cm and 1 m lines enabled by defaul
 
 
 test('schema-8 browser sensor emulator reconstructs valid grade without privileged normal', () => {
-  const ranges=[.235-.035*.06-.05*.035, .235-.035*.06+.05*.035, .235+.04*.06];
+  const ranges=[.235-.035*.06+.05*.035, .235-.035*.06-.05*.035, .235+.04*.06];
   const g=inferTripod(ranges,[0,0,-1]);
   assert.equal(g.valid,true);
   assert.ok(g.forward>0.03&&g.forward<0.09);
