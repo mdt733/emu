@@ -335,7 +335,10 @@ def train(args: TrainingConfig) -> int:
     best_recovery_rank = (-1, -1.0)
     if recovery_path.exists():
         try:
-            existing_recovery = load_checkpoint(recovery_path)
+            existing_recovery = load_checkpoint(
+                recovery_path,
+                expected_observation_schema=args.observation_schema,
+                expected_sensor_contract=sensor_contract)
             saved_rank = existing_recovery.get('meta', {}).get('recovery_rank', [-1, -1.0])
             best_recovery_rank = (int(saved_rank[0]), float(saved_rank[1]))
         except Exception:
