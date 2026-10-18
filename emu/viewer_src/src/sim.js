@@ -7,7 +7,7 @@ import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
-import { createGridTexture, createSkyTexture, createGrassTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -71,8 +71,9 @@ export class EmuBrowserSim {
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
     this.grassTexture = createGrassTexture(THREE);
-    this.grassGridTexture = createGrassTexture(THREE, true);
+    this.parkGridTexture = createParkGridTexture(THREE);
     this.parkSurface = null;
+    this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
     this.showGrid = true;
@@ -199,10 +200,7 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
-      if (this.parkSurface) {
-        this.parkSurface.material.map = grid ? this.grassGridTexture : this.grassTexture;
-        this.parkSurface.material.needsUpdate = true;
-      }
+      if (this.parkGridOverlay) this.parkGridOverlay.visible = grid;
     }
     if (typeof trail === 'boolean') {
       this.showTrail = trail;
@@ -217,6 +215,13 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if (this.parkGridOverlay) {
+      this.scene.remove(this.parkGridOverlay);
+      // Deliberately share parkSurface geometry; dispose only the overlay
+      // material. The park mesh below owns geometry lifecycle.
+      this.parkGridOverlay.material.dispose();
+      this.parkGridOverlay = null;
+    }
     if (this.parkSurface) {
       this.scene.remove(this.parkSurface);
       this.parkSurface.geometry.dispose();
@@ -247,7 +252,7 @@ export class EmuBrowserSim {
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
-    this.grassGridTexture.dispose();
+    this.parkGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -319,9 +324,22 @@ export class EmuBrowserSim {
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
     if(this.park){
-      this.parkSurface=createParkSurface(THREE,this.park,
-        this.showGrid?this.grassGridTexture:this.grassTexture);
+      this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
+      // Depth-tested so feet, rocks and trunks can occlude the grid, with
+      // polygon offset and render order to prevent coplanar flicker. It hugs
+      // every peak and depression: no floating world-Z grid on slopes.
+      this.parkGridOverlay=new THREE.Mesh(this.parkSurface.geometry,
+        new THREE.MeshBasicMaterial({
+          map:this.parkGridTexture,transparent:true,opacity:1,
+          depthWrite:false,depthTest:true,polygonOffset:true,
+          polygonOffsetFactor:-1,polygonOffsetUnits:-2,
+          side:THREE.DoubleSide,toneMapped:false,
+        }));
+      this.parkGridOverlay.renderOrder=3;
+      this.parkGridOverlay.visible=this.showGrid;
+      this.parkGridOverlay.frustumCulled=false;
+      this.scene.add(this.parkGridOverlay);
       this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
       this.scene.add(this.treeCrowns);
     }

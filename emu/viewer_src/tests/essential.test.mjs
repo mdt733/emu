@@ -140,3 +140,20 @@ test('ground slope measures real generated terrain and robot-relative uphill arr
   assert.ok(Math.abs(Math.abs(down.arrowDegrees)-180)<1e-7);
   assert.equal(surfaceSlope('flat',null,0,0,0).degrees,0);
 });
+
+
+test('park grid is a separate overlay with 10 cm and 1 m lines enabled by default', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {fileURLToPath} = await import('node:url');
+  const path = fileURLToPath(new URL('../index.html',import.meta.url));
+  const sim = readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const appearance = readFileSync(fileURLToPath(new URL('../src/appearance.js',import.meta.url)),'utf8');
+  const html = readFileSync(path,'utf8');
+  assert.match(html, /id="gridToggle"[^>]+checked/);
+  assert.match(appearance, /createParkGridTexture/);
+  assert.match(appearance, /i<=10/);
+  assert.match(sim, /parkGridOverlay\.visible=this\.showGrid/);
+  assert.match(sim, /depthTest:true,polygonOffset:true/);
+  assert.match(sim, /this\.parkGridOverlay\.material\.dispose\(\)/);
+  assert.doesNotMatch(sim, /grassGridTexture/);
+});
