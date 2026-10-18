@@ -167,3 +167,42 @@ the same `setDemoCommands()` path (the actor remains at its normal control
 frequency). The navigation HUD shows both the commanded forward velocity
 and observed body-frame forward velocity so it is immediately apparent
 whether a high-speed request actually produces ground speed.
+
+## Prototype: joystick-motion bidirectional lattice (2026-10-19)
+
+User design proposal: expand nine left-stick directions, including neutral,
+crossed with three right-stick yaw requests (left/straight/right). This
+is **27 candidate finite-duration controls**, not 27 tile neighbours.
+A predecessor tree grows BACKWARDS from the required destination pose
+`(x,y,heading)` to meet the forward tree from the robot.
+
+This is exactly the state-lattice / kinodynamic-A* family used by Nav2's
+Smac State Lattice planner (which supports legged and differential-drive
+motion primitives), extended with bidirectional search. The 27 candidate
+set includes three centre-stick choices but these are excluded from execution
+because the current dynamic biped has not demonstrated stable in-place
+standing or rotation. The remaining 24 choices are finite body-frame
+`(vx,vy,yaw)` twists, integrated analytically through SE(2).
+
+The state-space search is CONTINUOUS: a 26 cm spatial / 24-bin heading
+quantization is used **only for visited-state hashing**, not to force grid
+edges or stopping at tile centres. Reverse-time expansion uses negated
+body twist to discover predecessors; when the resulting route is
+reconstructed, the actual recorded original forward action is used.
+Both trees must match pose position AND heading, and an independently
+validated short curvature segment joins their near-matching states.
+
+Cost is estimated seconds plus light steering/reversal/sideways penalties.
+The real trained command limits determine translational and turn speeds.
+An alternative continuous Dubins forward/reverse candidate planner is in
+`curvature-planner.js`. The lattice is computationally bounded and has
+no authority over PPO, viewer actuator commands, or production showcase.
+Do not activate either new planner in the viewer until the model-backed
+browser test and route quality comparisons pass.
+
+**Important limitation:** full MuJoCo gait physics is NOT time-reversible.
+The backward search is an inverse of the *kinematic command model* only.
+Learned locomotion acceleration, true slope behaviour and servo thermal
+constraints require later empirical speed/cost calibration. Bidirectional
+search may fail to meet within a limited budget even when a feasible
+solution exists; a direct curvature path remains a useful baseline.
