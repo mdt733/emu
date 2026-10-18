@@ -31,8 +31,10 @@ export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_
   return {x:0,y:0,heading:wrapAngle(tau*rng()-Math.PI)};
 }
 function commandSpeeds(limits){
-  const f=clamp(Number(limits.vx_max)*.72,0,.48);
-  const b=clamp(-Number(limits.vx_min)*.72,0,.24);
+  // Use the REAL checkpoint's published speed frontier, not the
+  // arbitrary 0.48 m/s cap that made high-speed forward routes expensive.
+  const f=clamp(Number(limits.vx_max)*.84,0,.95);
+  const b=clamp(-Number(limits.vx_min)*.75,0,.45);
   const s=clamp(Number(limits.vy_abs)*.75,0,.24);
   const w=clamp(Number(limits.yaw_abs)*.70,0,.95);
   if(!(f>.03&&w>.10))throw new Error('Policy command envelope is too small for navigation');
@@ -47,7 +49,7 @@ function primitives(limits){
     out.push({name,vx,vy,yaw,dt,cost:dt*(1+0.05*Math.abs(yaw)/w+
       0.035*Math.abs(vy)/(s||1))});
   };
-  add('forward',f,0,0,.27/f);
+  add('forward',f,0,0,.40/f);
   add('forward-left',f*.83,0,w*.72,clamp(.40/(w*.72),.35,1.1));
   add('forward-right',f*.83,0,-w*.72,clamp(.40/(w*.72),.35,1.1));
   if(b>.06){
@@ -58,8 +60,8 @@ function primitives(limits){
   if(s>.07){
     add('strafe-left',0,s,0,.25/s);
     add('strafe-right',0,-s,0,.25/s);
-    add('diagonal-left',f*.72,s*.70,0,.26/Math.hypot(f*.72,s*.70));
-    add('diagonal-right',f*.72,-s*.70,0,.26/Math.hypot(f*.72,s*.70));
+    add('diagonal-left',f*.80,s*.50,0,.40/Math.hypot(f*.80,s*.50));
+    add('diagonal-right',f*.80,-s*.50,0,.40/Math.hypot(f*.80,s*.50));
     add('side-arc-left',0,s*.85,w*.67,clamp(.39/(w*.67),.4,1.1));
     add('side-arc-right',0,-s*.85,-w*.67,clamp(.39/(w*.67),.4,1.1));
   }
@@ -172,32 +174,115 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
 const safe=(v,a,b)=>clamp(Number.isFinite(v)?v:0,a,b);
-export function followWaypoint(pose,waypoint,limits,{final=false}={}){
-  const dx=waypoint.x-pose.x,dy=waypoint.y-pose.y;
-  const ct=Math.cos(pose.heading),st=Math.sin(pose.heading);
-  const fwd=ct*dx+st*dy,side=-st*dx+ct*dy;
-  const err=angleError(waypoint.heading,pose.heading);
-  const d=Math.hypot(dx,dy);
-  const desired=waypoint.cmd||{vx:0,vy:0,yaw:0};
-  // Combine position feedback and feedforward; no privileged simulator
-  // truth enters the neural actor, and every command stays in-envelope.
-  let vx=clamp(1.1*fwd+(final?0:.65*desired.vx),-.15,.30);
-  let vy=clamp(1.1*side+(final?0:.55*desired.vy),-.11,.11);
-  let yaw=clamp(1.35*err+(final?0:.20*desired.yaw),-.40,.40);
-  const maxF=Math.max(0,limits.vx_max),maxB=Math.max(0,-limits.vx_min);
-  const maxS=Math.max(0,limits.vy_abs),maxYaw=Math.max(0,limits.yaw_abs);
-  // Full-speed sideways+forward is not presumed safe: project onto
-  // conservative combined-translation ellipse.
-  const a=maxF*.78,b=maxB*.78,s=maxS*.80;
-  const r=Math.hypot(vx/(vx>=0?Math.max(a,.01):Math.max(b,.01)),
-                     vy/Math.max(s,.01));
-  if(r>1){vx/=r;vy/=r;}
-  const rate=safe(yaw,-Math.min(.40,maxYaw*.5),Math.min(.40,maxYaw*.5));
-  // Slow before arriving, but don't multiply down alignment corrections.
-  const brake=final?clamp(d/.55,.3,1):1;
-  return {vx:safe(vx*brake,-maxB,maxF),vy:safe(vy*brake,-maxS,maxS),
-          yaw:rate,pitch:0};
+
+/**
+ * Select a target ~1.1-1.7 metres AHEAD along the planned polyline.
+ * The old controller chased the next 22cm lattice node AND its heading,
+ * which forced a slow sidestep to each quantised position. Pure pursuit
+ * instead advances monotonically and treats intermediate headings as
+ * planning context, NEVER as intermediate parking obligations.
+ */
+export function previewRoute(pose,steps,index=0,trees=[],speed=0){
+  if(!steps?.length)throw new Error('Cannot follow empty navigation route');
+  const last=steps.length-1;
+  // Search only the local corridor; looping paths can cross themselves.
+  let nearest=clamp(index,0,last),best=distance(pose,steps[nearest]);
+  for(let i=nearest+1;i<=Math.min(last,index+12);i++){
+    const d=distance(pose,steps[i]);
+    if(d<best-.025){best=d;nearest=i;}
+  }
+  const lookahead=clamp(1.10+.65*Math.max(0,speed),1.10,1.70);
+  let travelled=0,look=steps[nearest],targetIndex=nearest;
+  let prev={x:pose.x,y:pose.y};
+  for(let i=nearest;i<=last;i++){
+    const q=steps[i],segment=distance(prev,q);
+    if(travelled+segment>=lookahead && segment>.00001){
+      const t=(lookahead-travelled)/segment;
+      const candidate={...q,x:prev.x+(q.x-prev.x)*t,
+                             y:prev.y+(q.y-prev.y)*t};
+      if(directRouteClear(pose,candidate,trees)){
+        look=candidate;targetIndex=i;
+      }
+      break;
+    }
+    if(!directRouteClear(pose,q,trees))break;
+    travelled+=segment;prev=q;look=q;targetIndex=i;
+  }
+  // If a segment is directly blocked by a tree, don't shortcut the path;
+  // return the last visible intermediate point instead.
+  return {target:look,progress:nearest,targetIndex,
+          lookahead,remaining:distance(pose,steps[last])};
 }
+function directRouteClear(from,to,trees){
+  const length=distance(from,to);
+  for(let i=1;i<=Math.max(1,Math.ceil(length/.10));i++){
+    const t=i/Math.max(1,Math.ceil(length/.10));
+    const x=from.x+(to.x-from.x)*t,y=from.y+(to.y-from.y)*t;
+    if(treeCollision(x,y,trees))return false;
+  }
+  return true;
+}
+
+/**
+ * Velocity controller for a DYNAMIC biped, not a holonomic parked robot.
+ *
+ * Far: drive quickly toward a far-ahead preview with one smooth yaw arc;
+ *      no lateral corrections for intermediate lattice errors.
+ * Near: release cruise velocity and steer toward the final pose.
+ * Last metres: finish world-heading approach and use modest sideways
+ *      trim if needed. All velocities remain within the learned envelope.
+ */
+export function followWaypoint(pose,waypoint,limits,{final=false,goal=null}={}){
+  const actualGoal=goal||waypoint;
+  const remaining=distance(pose,actualGoal);
+  const dx=waypoint.x-pose.x,dy=waypoint.y-pose.y;
+  const sight=Math.atan2(dy,dx);
+  const eBearing=angleError(sight,pose.heading);
+  const finalError=angleError(actualGoal.heading,pose.heading);
+  const maxF=Math.max(0,Number(limits.vx_max)||0);
+  const maxB=Math.max(0,-Number(limits.vx_min)||0);
+  const maxS=Math.max(0,Number(limits.vy_abs)||0);
+  const maxYaw=Math.max(0,Number(limits.yaw_abs)||0);
+  const requested=waypoint.cmd||{vx:maxF,vy:0,yaw:0};
+  const reverse= !final && Number(requested.vx)<-.07 &&
+      remaining>.65 && Math.abs(eBearing)>1.65 && maxB>.08;
+  const sightError=reverse?wrapAngle(eBearing-Math.PI*Math.sign(eBearing)):eBearing;
+  // Heading alignment is gradual, not a requirement to stop at each node.
+  const arrivalBlend=clamp((1.10-remaining)/.90,0,1);
+  const turnError=(1-arrivalBlend*.76)*sightError+arrivalBlend*.76*finalError;
+  const yaw=safe(1.45*turnError,-maxYaw*.82,maxYaw*.82);
+  // Sprint when there is space and the turning radius permits it.
+  const cruise=maxF*.90;
+  const distanceThrottle=remaining>=1.5?1:
+    remaining>=.75?(.52+.48*(remaining-.75)/.75):
+    remaining>=.33?(.25+.27*(remaining-.33)/.42):
+    .10;
+  const curveThrottle=clamp(1-.65*Math.abs(sightError)/Math.PI,.28,1);
+  let vx=cruise*distanceThrottle*curveThrottle;
+  // This is a dynamic biped; maintain forward stepping in a broad turn.
+  if(remaining>.55)vx=Math.max(vx,Math.min(.27,maxF*.30));
+  if(reverse){
+    vx=-Math.min(maxB*.76,Math.max(.12,maxB*.70*distanceThrottle));
+  }
+  // Sideways speed is precious: do NOT expend it following every 22cm
+  // lattice point. Only trim residual error in the arrival neighbourhood.
+  let vy=0;
+  if(remaining<.64){
+    const ex=actualGoal.x-pose.x,ey=actualGoal.y-pose.y;
+    const lateral=-Math.sin(pose.heading)*ex+Math.cos(pose.heading)*ey;
+    vy=clamp(lateral*.70,-maxS*.68,maxS*.68);
+    // Do not compound full forward and lateral frontiers.
+    const ellipse=Math.hypot(vx/Math.max(maxF*.90,.01),vy/Math.max(maxS*.70,.01));
+    if(ellipse>1){vx/=ellipse;vy/=ellipse;}
+  }
+  if(final && remaining<.28 && Math.abs(finalError)>.30){
+    // Give orientation correction room while still dynamically stepping.
+    vx=Math.max(vx,Math.min(maxF*.16,.15));
+  }
+  return {vx:safe(vx,-maxB,maxF),vy:safe(vy,-maxS,maxS),
+          yaw,pitch:0};
+}
+
 export class GoalNavigator {
   constructor(seed=5017){
     this.rng=makeRng(seed);this.active=false;
@@ -337,25 +422,26 @@ export class GoalNavigator {
     }
     this.arrivalHold=0;
     const steps=this.route.steps;
-    while(this.index<steps.length-1){
-      const p=steps[this.index];
-      if(distance(pose,p)>.16||Math.abs(angleError(p.heading,pose.heading))>.34)break;
-      this.index++;
-    }
-    // Look ahead across several ~25cm lattice edges: no stop-go to each node.
-    const target=steps[Math.min(steps.length-1,this.index+2)];
+    const preview=previewRoute(pose,steps,this.index,trees,
+      Math.max(0,pose.vx||0));
+    // Route progress is based on actual spatial progress, NOT reaching the
+    // heading of every intermediate node. The planner's final heading is
+    // still enforced at the actual destination.
+    this.index=Math.max(this.index,preview.progress);
+    const target=preview.target;
     const remaining=distance(pose,target);
     if(this.index!==this.lastIndex){
       this.lastIndex=this.index;this.bestProgress=remaining;this.stagnant=0;
-    }else if(remaining<this.bestProgress-.035){
+    }else if(remaining<this.bestProgress-.08){
       this.bestProgress=remaining;this.stagnant=0;
     }else this.stagnant+=delta;
-    const command=followWaypoint(pose,target,limits,{final:target.final});
-    // Avoid static/near-zero instructions for a dynamically stepping NN.
-    if(Math.abs(command.vx)<.09&&Math.abs(command.vy)<.065)
-      command.vx=Math.min(.14,Math.max(.09,limits.vx_max*.25));
+    const command=followWaypoint(pose,target,limits,{
+      goal:this.goal,final:preview.remaining<.65
+    });
     apply(command);
-    this.reason=target.final?'Parking into final heading':target.maneuver;
+    const targetDistance=distance(pose,this.goal);
+    this.reason=targetDistance>1.25?'Cruising toward goal'
+      :targetDistance>.48?'Curved approach':'Final pose alignment';
     this.replanDelay+=delta;
     // Re-plan if significantly displaced from the planned next target.
     // Do not thrash the target from scratch every render frame.
