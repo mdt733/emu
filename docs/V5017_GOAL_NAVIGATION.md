@@ -137,3 +137,27 @@ of this command cadence. HUD diagnostics report both continuously
 incrementing actor inference frames and the count of delivered command
 updates; either staying at zero distinguishes a control-loop fault from a
 navigation-planning fault.
+
+## Cruise controller revision (after real-browser actor validation)
+
+The first goal driver enforced heading and position at every 22 cm A* lattice
+node, capped forward speed to **0.30 m/s**, and constantly strafed to align.
+The actual v5016 Pinnacle browser policy declares `vx_max=1.042937 m/s`
+and `vx_min=-0.529896 m/s`; it is not inherently limited to 0.30.
+
+The revised planner uses an estimated **0.84 × learned forward speed**
+(up to 0.95 m/s) rather than a hardcoded 0.48 m/s. Its route follower is
+a **velocity-limited pure-pursuit controller** with a 1.1–1.7 m
+speed-dependent preview, no intermediate heading requirements, fast
+forward cruising near 90% of the checkpoint's commanded `vx_max`
+when aligned, and simultaneous sweeping turns while walking. Sideways
+error correction is only allowed within 0.64 m of the FINAL goal, and
+the final heading becomes increasingly important during approach.
+The planner still checks trunk clearance before taking a preview shortcut.
+Route progress is monotonic by position instead of stopping for each
+quantized heading. The original actor/normalization/inference pipeline,
+motion physics and command delivery cadence are unchanged.
+
+The speed limits are **command limits**, not measured real ground speeds.
+We need to measure actual progress, arrival rates, falls and average
+time-to-goal before calling these near-optimal or deploying to main.

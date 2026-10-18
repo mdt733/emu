@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ARENA_RADIUS_M, GOAL_POSITION_TOLERANCE_M, GOAL_HEADING_TOLERANCE_RAD,
   TREE_CLEARANCE_M, wrapAngle, angleError, sampleGoal,
-  integratePose, planPoseRoute, followWaypoint, GoalNavigator
+  integratePose, planPoseRoute, followWaypoint, previewRoute, GoalNavigator
 } from '../src/goal-navigation.js';
 import {makeRng} from '../src/live-demo.js';
 
@@ -267,4 +267,83 @@ test('actual actuator travel is tracked after each MuJoCo control step',async()=
   const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
   assert.match(sim,/this\.motorTravelRad\+=Math\.abs\(Number\(this\.data\.qpos/);
   assert.match(main,/sim\.motorTravelRad\.toFixed\(3\)/);
+});
+
+
+test('260M trained-speed corridor cruises fast without sideways tap-dancing',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const policy=JSON.parse(readFileSync(fileURLToPath(
+    new URL('../../showcase/champion.emupolicy',import.meta.url)),'utf8'));
+  const trained=policy.control.command_limits;
+  assert.ok(trained.vx_max>1.0,'confirm actual Pinnacle velocity envelope');
+  const route={steps:[
+    {x:.30,y:0,heading:.1,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:.65,y:0,heading:-.20,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:1.00,y:0,heading:.3,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:1.35,y:0,heading:-.5,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:1.70,y:0,heading:.2,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:2.25,y:0,heading:-.1,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:3.60,y:0,heading:0,cmd:{vx:0,vy:0,yaw:0},final:true}
+  ]};
+  const preview=previewRoute(pose,route.steps,0,[],.65);
+  assert.ok(preview.target.x>1.1&&preview.target.x<1.7,
+    'do not chase each tiny 22cm planner step');
+  const fast=followWaypoint(pose,preview.target,trained,{
+    goal:{x:3.6,y:0,heading:0}});
+  assert.ok(fast.vx>.75,
+    '1m/s-trained actor should cruise at >.75 m/s command, got '+fast.vx);
+  assert.equal(fast.vy,0,'no lateral strafe for intermediate lattice nodes');
+  assert.ok(Math.abs(fast.yaw)<.01);
+});
+
+test('turn at speed instead of strafing to a far sideways lattice point',()=>{
+  const heading=0,start={x:0,y:0,heading};
+  const goal={x:2.8,y:2.4,heading:1.3};
+  const p=followWaypoint(start,{x:1.2,y:.85,heading:-2.5,
+    cmd:{vx:.7,vy:.15,yaw:.5}},limits,{goal});
+  assert.ok(p.vx>.20,'biped must keep stepping while making its turn');
+  assert.equal(p.vy,0,'long-distance approach should not use sideways trim');
+  assert.ok(p.yaw>.25,'heading towards route tangent should steer left');
+  assert.ok(Math.abs(p.yaw)<=limits.yaw_abs*.82+.001);
+});
+
+test('only approach phase uses lateral trim and final heading; speeds stay in policy envelope',()=>{
+  const target={x:.27,y:.18,heading:Math.PI/2,
+                cmd:{vx:0,vy:0,yaw:0},final:true};
+  const c=followWaypoint(pose,target,limits,{goal:target,final:true});
+  assert.ok(c.vx<limits.vx_max*.3,'slow for the actual destination');
+  assert.ok(c.vy>0,'lateral trim allowed in last ~60cm');
+  assert.ok(c.yaw>0,'final heading matters once near destination');
+  assert.ok(c.vx>=limits.vx_min&&c.vx<=limits.vx_max);
+  assert.ok(Math.abs(c.vy)<=limits.vy_abs);
+  assert.ok(Math.abs(c.yaw)<=limits.yaw_abs);
+});
+
+test('path preview advances past old nodes without requiring each node heading',()=>{
+  const steps=[
+    {x:.25,y:0,heading:Math.PI,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:.50,y:0,heading:-Math.PI/2,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:.85,y:0,heading:Math.PI/2,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:1.25,y:0,heading:0,cmd:{vx:.7,vy:0,yaw:0}},
+    {x:2.25,y:0,heading:0,cmd:{vx:0,vy:0,yaw:0},final:true},
+  ];
+  const p=previewRoute({x:.68,y:.035,heading:0},steps,0,[],.6);
+  assert.ok(p.progress>=1,'robot has already physically passed first lattice node');
+  assert.ok(p.target.x>1.3,'should pursue distant route, not do local heading correction');
+  const e=followWaypoint({x:.68,y:.035,heading:0},p.target,limits,
+    {goal:{x:2.25,y:0,heading:0}});
+  assert.ok(e.vx>.30 && Math.abs(e.vy)<1e-12);
+});
+
+test('preview cannot look through a tree trunk',()=>{
+  const steps=[
+    {x:.40,y:0,heading:0,cmd:{vx:.4,vy:0,yaw:0}},
+    {x:.65,y:.8,heading:1,cmd:{vx:.4,vy:0,yaw:0}},
+    {x:1.1,y:1.3,heading:0,cmd:{vx:.4,vy:0,yaw:0}},
+    {x:2,y:1.3,heading:0,cmd:{vx:0,vy:0,yaw:0},final:true}
+  ];
+  const p=previewRoute(pose,steps,0,[{x:1,y:0}],.8);
+  assert.ok(p.target.x<1.1||p.target.y>.2,
+    'shortcut directly through a tree should not be selected');
 });
