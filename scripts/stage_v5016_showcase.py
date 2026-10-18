@@ -61,7 +61,7 @@ def selected_candidate(root: Path, *, accept_budget_stop: bool = False) -> tuple
     if winner.get('sensor_sha256') != campaign.get('sensor_sha256'):
         raise ValueError('winner observation contract does not match campaign')
     if (winner.get('source') and winner['source'] != campaign.get('source_commit')
-            and filename not in (foundation_root/'checkpoints').parents):
+            and filename.parent.parent != foundation_root):
         raise ValueError('selected model source revision disagrees with campaign')
 
     # Require actual, independently evaluated promotion evidence. Neither the

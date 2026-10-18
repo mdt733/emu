@@ -128,6 +128,8 @@ def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
     if hashlib.sha256(policy_path.read_bytes()).hexdigest() != approval['policy_sha256']:
         raise ValueError('approved browser policy bytes have changed')
     identity = validate_browser_bundle(json.loads(policy_path.read_text(encoding='utf-8')))
+    if identity['schema'] != 2 or identity['checkpoint_schema'] != 8 or identity['obs_dim'] != 232:
+        raise ValueError('v5016 approval cannot downgrade to 220-input legacy model')
     for field, value in identity.items():
         if approval.get(field) != value:
             raise ValueError(f'approved release {field} disagrees with bundled policy')

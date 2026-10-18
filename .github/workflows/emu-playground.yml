@@ -1,7 +1,9 @@
 name: EMU Playground (GitHub Pages)
 
 # Public deployment is intentionally MANUAL. Merging experimental Python or
-# browser source to main must not silently replace the working 60M demo.
+# browser source to main must not silently replace the approved demo.
+# Legacy 120M is pinned to its exact historical Git blob; a v5016 release
+# must carry a reviewed release_approval.json + matching browser asset.
 # The release custodian explicitly runs this workflow after a browser review.
 on:
   workflow_dispatch:
@@ -25,7 +27,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: emu/viewer_src/package-lock.json
-      - name: Require the approved Pitch15 120M showcase champion
+      - name: Require approved legacy champion OR explicitly pinned v5016
+        if: ${{ hashFiles('showcase/release_approval.json') == '' }}
         shell: bash
         run: |
           test -f showcase/champion.emupolicy
@@ -36,6 +39,7 @@ jobs:
             exit 1
           fi
       - name: Validate approved 120M policy provenance
+        if: ${{ hashFiles('showcase/release_approval.json') == '' }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -50,6 +54,9 @@ jobs:
           assert p['training']['pitch_command_max_deg'] == 15.0
           print('Approved browser-only Pitch15 120M champion verified')
           PY
+      - name: Validate exact pinned schema-8 Pinnacle release
+        if: ${{ hashFiles('showcase/release_approval.json') != '' }}
+        run: python3 scripts/verify_showcase_release.py
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
