@@ -204,36 +204,44 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
+    this.searchCooldown=0;
   }
   reset(){this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
-    this.replanDelay=0;this.replans=0;}
+    this.replanDelay=0;this.replans=0;this.searchCooldown=0;}
   setGoal(pose,goal,limits,trees=[]){
     const route=planPoseRoute(pose,goal,limits,trees);
     if(!route)return false;
     this.goal={...goal};this.route=route;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.replanDelay=0;
+    this.searchCooldown=0;
     this.reason=route.solved?'Navigating':'Partial route · replanning';
     return true;
   }
   nextGoal(pose,limits,trees=[]){
-    for(let i=0;i<24;i++){
+    for(let i=0;i<5;i++){
       const goal=sampleGoal(this.rng,trees,pose);
       const planned=this.setGoal(pose,goal,limits,trees);
       if(planned&&this.route.solved)return true;
     }
-    this.reason='No fully planned target; adjust terrain/trees';
-    this.goal=null;this.route=null;
+    this.reason='No feasible full route; sampling again soon';
+    this.goal=null;this.route=null;this.searchCooldown=1.5;
     return false;
   }
   tick(dt,pose,limits,trees=[],apply=()=>{}){
     if(!this.active)return;
-    if(!this.goal&&!this.nextGoal(pose,limits,trees)){
-      apply({vx:0,vy:0,yaw:0,pitch:0});return;
-    }
     if(!Number.isFinite(pose.x)||!Number.isFinite(pose.y)||
        !Number.isFinite(pose.heading))return;
     const delta=clamp(dt,0,.1);
+    if(!this.goal){
+      if(this.searchCooldown>0){
+        this.searchCooldown=Math.max(0,this.searchCooldown-delta);
+        apply({vx:0,vy:0,yaw:0,pitch:0});return;
+      }
+      if(!this.nextGoal(pose,limits,trees)){
+        apply({vx:0,vy:0,yaw:0,pitch:0});return;
+      }
+    }
     this.elapsed+=delta;
     const dist=distance(pose,this.goal),aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
