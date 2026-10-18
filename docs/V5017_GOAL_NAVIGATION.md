@@ -161,3 +161,9 @@ motion physics and command delivery cadence are unchanged.
 The speed limits are **command limits**, not measured real ground speeds.
 We need to measure actual progress, arrival rates, falls and average
 time-to-goal before calling these near-optimal or deploying to main.
+
+Command updates now run at 4 Hz in cruise and 5 Hz in approach through
+the same `setDemoCommands()` path (the actor remains at its normal control
+frequency). The navigation HUD shows both the commanded forward velocity
+and observed body-frame forward velocity so it is immediately apparent
+whether a high-speed request actually produces ground speed.

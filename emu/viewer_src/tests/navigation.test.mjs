@@ -253,7 +253,8 @@ test('goal mission coalesces fast feedback into stable held velocity setpoints',
                         src.indexOf('let liveRevision = null;'));
   assert.match(block,/navigator\.tick\(dt,pose,bundle\.control\.command_limits/);
   assert.match(block,/command=>\{plannedCommand=command;\}/);
-  assert.match(block,/navCommandClock>=\.65/);
+  assert.match(block,/commandPeriod=remaining>1\.0\?\.25:\.20/);
+  assert.match(block,/navCommandClock>=commandPeriod/);
   assert.match(block,/applyAutonomousCommand\(plannedCommand\)/);
   assert.match(src,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\)/);
   assert.doesNotMatch(block,/sim\.setNavigationCommands\(/);

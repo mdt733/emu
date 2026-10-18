@@ -58,6 +58,7 @@ const demoMode = $('demoMode'), navHud = $('navHud');
 let lastResetGeneration = -1;
 let navCommandClock = Infinity;
 let navCommandUpdates = 0;
+let navLastCommand = {vx:0,vy:0,yaw:0};
 let demoActive = false;
 const goalDemoActive = () => demoActive && demoMode.value === 'goals';
 function syncGoalMode() {
@@ -66,6 +67,7 @@ function syncGoalMode() {
   navigator.reset();
   navCommandClock=Infinity;
   navCommandUpdates=0;
+  navLastCommand={vx:0,vy:0,yaw:0};
   if(sim) {
     // Only the presentation changes between demo modes. Both demos must
     // share the EXISTING neural actor command and control pipeline.
@@ -88,13 +90,18 @@ function navigationUpdate(dt) {
   let plannedCommand=null;
   navigator.tick(dt,pose,bundle.control.command_limits,
     sim.navigationTrees(),command=>{plannedCommand=command;});
-  // The proven random demo holds each command for several control frames.
-  // Use the SAME zero-order-hold idea here: the planner may calculate on
-  // each rendered frame, but the actor receives a new velocity setpoint
-  // only every 0.65s, through exactly the same setDemoCommands() callback.
+  // Both modes still use the same tested setDemoCommands() pipeline.
+  // Higher cruising speed needs tighter steering corrections than the
+  // initial 650ms zero-order hold (which travelled ~0.6m at full speed).
+  // Deliver the latest planned velocity at 4Hz in cruise and 5Hz near
+  // the final pose; PPO inference continues at its normal 50Hz.
+  const remaining=navigator.goal?Math.hypot(
+    pose.x-navigator.goal.x,pose.y-navigator.goal.y):Infinity;
+  const commandPeriod=remaining>1.0?.25:.20;
   navCommandClock+=Math.min(Math.max(dt,0),.1);
-  if(plannedCommand && navCommandClock>=.65){
+  if(plannedCommand && navCommandClock>=commandPeriod){
     applyAutonomousCommand(plannedCommand);
+    navLastCommand={...plannedCommand};
     navCommandClock=0;
     navCommandUpdates++;
   }
@@ -112,6 +119,7 @@ function navigationUpdate(dt) {
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
+  $('navHudInfo').textContent+=` · vx ${navLastCommand.vx.toFixed(2)} commanded / ${pose.vx.toFixed(2)} observed`;
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
