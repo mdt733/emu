@@ -852,7 +852,7 @@ def test_v5016_real_mjx_efficiency_exam_uses_pre_step_action_not_reward_only_fie
                   pitch_command_max_deg=15.)
     p=env.params_array({'probe_cmd_vx':.09})
     trainer=make_trainer(env,seed=1701,lr=.0002,rollout=2,epochs=1,minibatches=1)
-    state=trainer['make_initial_state'](p)
+    state=trainer['make_initial_state']({'probe_cmd_vx':.09})
     out=env.step(state.env_state,jnp.zeros((2,6),dtype=jnp.float32),p)
     assert 'action_delta_norm' not in out.metrics
     assert 'servo_shaft_abs_power_w' in out.metrics
