@@ -63,3 +63,19 @@ both desktop/mobile before a separate PR promotion.
 Unreachable or stalled missions are explicitly timed out and counted as
 failures, not successes. Stuck waypoints trigger a fresh route search,
 while target-search failures back off rather than monopolising frames.
+
+To preview in a separate WSL directory with your existing viewer virtual
+environment (no training checkpoint needed):
+
+```bash
+git clone --single-branch --branch feature/v5017-goal-navigation-demo \
+  https://github.com/mdt733/emu.git ~/emu-goal-demo
+cd ~/emu-goal-demo
+source ~/emu-viewer-5016/.venv/bin/activate
+export JAX_PLATFORMS=cpu
+PYTHONPATH="$PWD" emu viewer-build
+PYTHONPATH="$PWD" emu viewer showcase/champion.emupolicy --port 8767 --no-open
+```
+
+Open http://127.0.0.1:8767 and choose **Settings → Demo controls**.
+The latest committed 260M inference policy is already included.

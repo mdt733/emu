@@ -123,3 +123,12 @@ test('several longer target poses are planned inside the 4m field, with no tree 
         'route entered collision keep-out');
   }
 });
+
+test('local .emupolicy launch exposes autonomous controls without a live server', async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  assert.match(main,/if \(livePanel\.hidden && !showcaseManifest\)/);
+  assert.match(main,/demoActive = \$\('liveDemo'\)\.checked/);
+  assert.match(main,/\$\('livePhase'\)\.textContent = 'Local policy'/);
+});
