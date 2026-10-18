@@ -289,6 +289,9 @@ from .contracts import (
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
     OBS_DIM,
+    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
+    sensor_observation_contract,
     SIM_DT,
 )
 from .environment import TARGET_SPAN
@@ -540,7 +543,23 @@ def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) ->
 def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                  label: str | None = None) -> dict:
     checkpoint = checkpoint.expanduser().resolve()
-    payload = load_checkpoint(checkpoint)
+    # Legacy policy bundles remain schema 1. Sensor checkpoints explicitly
+    # cross the versioned schema-8 gate before any browser export takes place.
+    unverified = load_checkpoint(checkpoint, validate=False)
+    meta_hint = unverified.get('meta') or {}
+    is_sensor = meta_hint.get('observation_schema') == OBS_SCHEMA_SENSOR
+    if is_sensor:
+        contract = meta_hint.get('sensor_contract')
+        payload = load_checkpoint(
+            checkpoint, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            expected_sensor_contract=contract)
+        obs_dim, base_dim = SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM
+        obs_fields = SENSOR_OBS_FIELDS
+    else:
+        payload = load_checkpoint(checkpoint)
+        contract = None
+        obs_dim, base_dim = OBS_DIM, BASE_OBS_DIM
+        obs_fields = BASE_OBS_FIELDS
     run_meta = {}
     run_meta_path = checkpoint.parent.parent / 'run_meta.json'
     if run_meta_path.exists():
@@ -558,7 +577,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
 
     obs_mean = np.asarray(norm['mean'], dtype=np.float32)
     obs_std = np.sqrt(np.asarray(norm['var'], dtype=np.float32))
-    if obs_mean.shape != (OBS_DIM,) or obs_std.shape != (OBS_DIM,):
+    if obs_mean.shape != (obs_dim,) or obs_std.shape != (obs_dim,):
         raise ValueError(f"unexpected observation normalizer shape {obs_mean.shape}/{obs_std.shape}")
 
     actor_layers = []
@@ -595,7 +614,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": SCHEMA,
+        "schema": 2 if is_sensor else SCHEMA,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -624,8 +643,8 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "field_influence_zero_steps": _number(run_cfg.get('field_influence_zero_steps')),
         },
         "policy": {
-            "obs_dim": OBS_DIM,
-            "base_obs_dim": BASE_OBS_DIM,
+            "obs_dim": obs_dim,
+            "base_obs_dim": base_dim,
             "history_len": HISTORY_LEN,
             "action_dim": ACTION_DIM,
             "hidden_sizes": list(PPO_HIDDEN_SIZES),
@@ -636,11 +655,13 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "std_clip": [PPO_STD_MIN, PPO_STD_MAX],
         },
         "observation": {
-            "base_fields": list(BASE_OBS_FIELDS),
+            "base_fields": list(obs_fields),
+            "sensor_contract": contract if is_sensor else None,
             "history_order": "oldest_to_newest",
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
-            "normalize_mask": _f32_blob(build_obs_norm_mask()),
+            "normalize_mask": _f32_blob(build_obs_norm_mask(
+                OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY)),
         },
         "control": {
             "sim_dt": SIM_DT,
