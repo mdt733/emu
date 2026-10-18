@@ -348,3 +348,44 @@ test('preview cannot look through a tree trunk',()=>{
   assert.ok(p.target.x<1.1||p.target.y>.2,
     'shortcut directly through a tree should not be selected');
 });
+
+
+test('all three navigation modes route through the same Worker and actor pipeline',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const read=p=>readFileSync(fileURLToPath(new URL(p,import.meta.url)),'utf8');
+  const html=read('../index.html');
+  const source=read('../src/main.js');
+  const worker=read('../src/goal-worker.js');
+  const client=read('../src/goal-planner-client.js');
+  const nav=read('../src/goal-navigation.js');
+  assert.match(html,/id="navPlanner"/);
+  for(const id of ['grid','curves','arcs']){
+    assert.match(html,new RegExp('value="'+id+'"'));
+    assert.match(worker,new RegExp("case '"+id+"'"));
+  }
+  assert.match(source,/navigator\.plannerMode=navPlanner\.value/);
+  assert.match(source,/navPlanner\.addEventListener\('change'/);
+  assert.match(client,/this\.worker\.postMessage\(\{id,kind,pose,limits,trees,goal,planner\}\)/);
+  assert.match(nav,/planner:this\.plannerMode/);
+  assert.match(worker,/planCurvatureRoute\(/);
+  assert.match(worker,/bidirectionalMotionRoute\(/);
+  assert.match(source,/applyAutonomousCommand\(plannedCommand\)/);
+  assert.doesNotMatch(source,/sim\.setNavigationCommands/);
+});
+
+test('planner request broker transmits selected arc mode with unchanged commands',async()=>{
+  const {GoalPlannerWorker}=await import('../src/goal-planner-client.js');
+  let fake;
+  const broker=new GoalPlannerWorker({makeWorker:()=>{
+    fake={postMessage(x){this.request=x;},terminate(){}};
+    return fake;
+  }});
+  const next=broker.request({kind:'next',pose,limits,trees:[],planner:'arcs'});
+  assert.equal(fake.request.planner,'arcs');
+  assert.equal(fake.request.kind,'next');
+  fake.onmessage({data:{id:fake.request.id,kind:'next',goal:null,route:null}});
+  const value=await next;
+  assert.equal(value.route,null);
+  broker.dispose();
+});

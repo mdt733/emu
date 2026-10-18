@@ -532,6 +532,7 @@ navPlanner.addEventListener('change',()=>{
   // from an old Worker request cannot apply after reset generation changes.
   navigator.plannerMode=navPlanner.value;
   navigator.reset();
+  navCommandClock=Infinity; // release old yaw setpoint on next frame
   if(sim)sim.clearNavigationOverlay();
   $('demoKind').textContent='Planning with '+navPlanner.selectedOptions[0].textContent;
 });

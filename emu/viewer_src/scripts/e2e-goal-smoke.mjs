@@ -79,10 +79,29 @@ try {
   assert.equal(await page.locator('#status').getAttribute('data-kind'),'ok',
     'goal mode entered an error state: '+await page.locator('#status').textContent());
   assert.equal(await select.inputValue(),'goals','goal mode crashed back to random');
+  const alternate=[];
+  // Prove BOTH experimental backends can be selected through the real UI
+  // without interrupting the SAME 260M PPO actor and MuJoCo motor motion.
+  for(const planner of ['curves','arcs']){
+    await page.locator('#navPlanner').selectOption(planner);
+    await page.waitForTimeout(1600);
+    const before=await page.locator('#navEstimate').textContent();
+    await page.waitForTimeout(3400);
+    const after=await page.locator('#navEstimate').textContent();
+    const v0=frames(before),v1=frames(after);
+    const r0=jointTravel(before),r1=jointTravel(after);
+    assert.ok(v1-v0>5,planner+' froze neural inference: '+before+' -> '+after);
+    assert.ok(r1-r0>.03,planner+' froze servo joints: '+before+' -> '+after);
+    assert.doesNotMatch(after,/planner error/i,
+      planner+' had a background planner exception: '+after);
+    assert.equal(await select.inputValue(),'goals',
+      planner+' unexpectedly switched off goal mode');
+    alternate.push({planner,frames:v1-v0,jointsRad:r1-r0,status:after});
+  }
   const report={source:'actual Chromium WebGL+WASM',
     actorFramesBefore:f0,actorFramesAfter:f1,delta:f1-f0,
     jointsBefore:j0,jointsAfter:j1,jointMovementRad:j1-j0,
-    navBefore:a,navAfter:b,errors};
+    alternate,navBefore:a,navAfter:b,errors};
   console.log('EMU GOAL NAVIGATION E2E: '+JSON.stringify(report));
   if(errors.length)console.warn('Browser logged errors: '+errors.join('; '));
   // Do not call a successful route "completed": this verifies that the
