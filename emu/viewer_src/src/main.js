@@ -56,12 +56,16 @@ navigator.useBackgroundPlanner(request=>{
 });
 const demoMode = $('demoMode'), navHud = $('navHud');
 let lastResetGeneration = -1;
+let navCommandClock = Infinity;
+let navCommandUpdates = 0;
 let demoActive = false;
 const goalDemoActive = () => demoActive && demoMode.value === 'goals';
 function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
   navigator.reset();
+  navCommandClock=Infinity;
+  navCommandUpdates=0;
   if(sim) {
     // Only the presentation changes between demo modes. Both demos must
     // share the EXISTING neural actor command and control pipeline.
@@ -81,8 +85,19 @@ function navigationUpdate(dt) {
     lastResetGeneration=sim.resetGeneration;
     navigator.reset();
   }
+  let plannedCommand=null;
   navigator.tick(dt,pose,bundle.control.command_limits,
-    sim.navigationTrees(),applyAutonomousCommand);
+    sim.navigationTrees(),command=>{plannedCommand=command;});
+  // The proven random demo holds each command for several control frames.
+  // Use the SAME zero-order-hold idea here: the planner may calculate on
+  // each rendered frame, but the actor receives a new velocity setpoint
+  // only every 0.65s, through exactly the same setDemoCommands() callback.
+  navCommandClock+=Math.min(Math.max(dt,0),.1);
+  if(plannedCommand && navCommandClock>=.65){
+    applyAutonomousCommand(plannedCommand);
+    navCommandClock=0;
+    navCommandUpdates++;
+  }
   const state=navigator.status(pose);
   sim.setNavigationOverlay(state.goal,state.route);
   $('demoKind').textContent=state.reason;
@@ -91,7 +106,7 @@ function navigationUpdate(dt) {
     $('navHudInfo').textContent='Walking while the planner finds a route';
     $('navEstimate').textContent=state.plannerError
       ? 'Planner error: '+state.plannerError
-      : `Actor control frames: ${sim.controlFrames||0} · search off-thread`;
+      : `Actor frames ${sim.controlFrames||0} · velocity updates ${navCommandUpdates}`;
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
@@ -100,8 +115,8 @@ function navigationUpdate(dt) {
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · actor control frames ${sim.controlFrames||0}`
-      : `Route search off-thread · actor control frames ${sim.controlFrames||0}`;
+      ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · cmd ${navCommandUpdates}`
+      : `Searching · actor frames ${sim.controlFrames||0} · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
 let livePolling = false;

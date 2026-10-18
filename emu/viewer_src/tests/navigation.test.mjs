@@ -242,3 +242,18 @@ test('navigation and random commands use identical setDemoCommands and policy co
   assert.match(controls,/function nextYawCommand/);
   assert.doesNotMatch(main,/if\(sim\)sim\.paused=true/);
 });
+
+
+test('goal mission coalesces fast feedback into stable held velocity setpoints',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const src=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  const block=src.slice(src.indexOf('function navigationUpdate(dt)'),
+                        src.indexOf('let liveRevision = null;'));
+  assert.match(block,/navigator\.tick\(dt,pose,bundle\.control\.command_limits/);
+  assert.match(block,/command=>\{plannedCommand=command;\}/);
+  assert.match(block,/navCommandClock>=\.65/);
+  assert.match(block,/applyAutonomousCommand\(plannedCommand\)/);
+  assert.match(src,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\)/);
+  assert.doesNotMatch(block,/sim\.setNavigationCommands\(/);
+});

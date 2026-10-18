@@ -129,3 +129,11 @@ translates the commanded yaw rate into a heading setpoint. Off-thread
 A* remains optional trajectory selection rather than an alternative
 simulation system. Confirm the live actor-control frame counter advances
 when testing navigation in an actual browser.
+
+Command updates are now delivered with a 650 ms zero-order hold, mirroring
+the proven random command demonstration's practice of holding each velocity
+request between neural control frames. Route evaluation remains independent
+of this command cadence. HUD diagnostics report both continuously
+incrementing actor inference frames and the count of delivered command
+updates; either staying at zero distinguishes a control-loop fault from a
+navigation-planning fault.
