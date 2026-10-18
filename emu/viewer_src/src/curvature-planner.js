@@ -96,7 +96,7 @@ function generate(start,goal,limits,trees,radius,type,dims,reverse){
   if(!steps.length)return null;
   // Use mathematically exact final pose; preserve the preceding segment's
   // curvature command instead of inserting a spurious stationary waypoint.
-  steps.at(-1)={...steps.at(-1),x:goal.x,y:goal.y,heading:goal.heading,final:true};
+  steps[steps.length-1]={...steps.at(-1),x:goal.x,y:goal.y,heading:goal.heading,final:true};
   return {steps,segments,meters:linear,estimatedSeconds:cost,
           solved:true,expanded:0,planner:'continuous-curves',
           family:(reverse?'backwards ':'forward ')+type+' R='+radius.toFixed(2),
