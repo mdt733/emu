@@ -133,3 +133,88 @@ test('local .emupolicy launch exposes autonomous controls without a live server'
   assert.match(main,/demoActive = \$\('liveDemo'\)\.checked/);
   assert.match(main,/\$\('livePhase'\)\.textContent = 'Local policy'/);
 });
+
+
+test('browser planner uses a true message worker and returns asynchronously',async()=>{
+  const {GoalPlannerWorker}=await import('../src/goal-planner-client.js');
+  let fake;
+  const broker=new GoalPlannerWorker({timeoutMs:2000,makeWorker:()=>{
+    fake={posted:[],postMessage(x){this.posted.push(x);},terminate(){this.ended=true;}};
+    return fake;
+  }});
+  const answer=broker.request({kind:'next',pose,limits,trees:[]});
+  assert.equal(fake.posted.length,1);
+  assert.equal(fake.posted[0].kind,'next');
+  assert.equal(fake.posted[0].pose.x,0);
+  let completed=false;answer.then(()=>{completed=true;});
+  await Promise.resolve();
+  assert.equal(completed,false,'search must not execute synchronously on render thread');
+  fake.onmessage({data:{id:fake.posted[0].id,kind:'next',
+    goal:{x:1,y:0,heading:0},route:{solved:true,steps:[],estimatedSeconds:2}}});
+  const result=await answer;
+  assert.equal(result.goal.x,1);
+  assert.equal(completed,true);
+  broker.dispose();
+  assert.equal(fake.ended,true);
+});
+
+test('while route search is pending, every frame still commands the neural walker',async()=>{
+  const nav=new GoalNavigator(92);nav.active=true;
+  let resolvePlan,called=0;
+  nav.useBackgroundPlanner(req=>{
+    called++;
+    assert.equal(req.kind,'next');
+    return new Promise(resolve=>{resolvePlan=resolve;});
+  });
+  const commands=[];
+  // Advance past 1.2 second dynamic warmup.
+  for(let i=0;i<65;i++)nav.tick(.02,pose,limits,[],x=>commands.push(x));
+  assert.equal(called,1);
+  assert.ok(nav.pendingRequest);
+  assert.equal(commands.length,65);
+  assert.ok(commands.every(c=>c.vx>.08));
+  for(let i=0;i<200;i++)nav.tick(.02,pose,limits,[],x=>commands.push(x));
+  assert.equal(called,1,'only one in-flight worker plan');
+  assert.equal(commands.length,265,'cannot freeze or skip frames during search');
+  resolvePlan({goal:{x:1,y:0,heading:0},route:{
+    solved:true,steps:[{x:1,y:0,heading:0,final:true,
+      maneuver:'forward',cmd:{vx:.1,vy:0,yaw:0}}],
+    estimatedSeconds:3,expanded:80}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(nav.goal && nav.route?.solved);
+  const count=commands.length;
+  nav.tick(.02,pose,limits,[],x=>commands.push(x));
+  assert.equal(commands.length,count+1);
+  assert.ok(Number.isFinite(commands.at(-1).vx));
+});
+
+test('navigation reset prevents stale worker result from changing a new mission',async()=>{
+  const nav=new GoalNavigator(92);nav.active=true;
+  let reply;
+  nav.useBackgroundPlanner(()=>new Promise(resolve=>reply=resolve));
+  nav.nextGoal(pose,limits,[]);
+  assert.ok(nav.pendingRequest);
+  nav.reset();
+  reply({goal:{x:2,y:2,heading:1},route:{solved:true,steps:[],estimatedSeconds:10}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(nav.goal,null);
+  assert.equal(nav.route,null);
+  assert.equal(nav.pendingRequest,null);
+});
+
+test('a goal navigation exception cannot permanently stop MuJoCo animation frames',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  const sim=readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const nav=readFileSync(fileURLToPath(new URL('../src/goal-navigation.js',import.meta.url)),'utf8');
+  const worker=readFileSync(fileURLToPath(new URL('../src/goal-worker.js',import.meta.url)),'utf8');
+  const frame=main.slice(main.indexOf('function frame(ms)'),main.indexOf('function stopDemo()'));
+  assert.ok(frame.indexOf('requestAnimationFrame(frame)')<frame.indexOf('navigationUpdate(dt)'));
+  assert.match(frame,/catch\(error\)\{[\s\S]*demoMode.value='commands'/);
+  assert.match(main,/navigator.useBackgroundPlanner/);
+  assert.match(main,/new GoalPlannerWorker\(\)/);
+  assert.match(sim,/this\.controlFrames\+\+/);
+  assert.match(nav,/if\(this\.pendingRequest\)/);
+  assert.match(worker,/self\.postMessage\(/);
+});

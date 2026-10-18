@@ -84,3 +84,27 @@ PYTHONPATH="$PWD" emu viewer showcase/champion.emupolicy --port 8767 --no-open
 
 Open http://127.0.0.1:8767 and choose **Settings → Demo controls**.
 The latest committed 260M inference policy is already included.
+
+## v5017 frozen-actor regression: root cause and guard
+
+First preview showed the 260M model's last pose frozen when navigation
+started, whereas random command mode advanced inference normally. The
+first goal planner synchronously explored up to 5 × 6500 lattice nodes
+inside `requestAnimationFrame`, and the next animation frame was queued
+only after navigation returned. A slow search or JavaScript exception
+could therefore stop all `stepControl` and freeze leg animation.
+
+**Repair:** expensive goal search and replanning now execute in a Vite
+module Worker. The main render loop submits requests and continues
+calling MuJoCo and the policy at normal control rate, with gentle walking
+while a result is pending. A request-generation guard discards stale
+answers after reset or model hot-swap. Timeouts and Worker errors are
+reported instead of preventing physics steps. The next animation frame
+is queued at the beginning of each frame, and navigation exceptions
+restore the known-working random-command mode. The navigation HUD shows
+an increasing `actor control frames` counter so a stalled policy is
+immediately distinguishable from an unreachable waypoint.
+
+These are browser-runtime safety checks, not proof of goal-navigation
+competence in the full MuJoCo biped. The feature remains experimental on
+a draft PR; merge only after actual Chrome/mobile behaviour is checked.
