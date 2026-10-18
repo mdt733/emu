@@ -101,16 +101,16 @@ test('yaw hold never feeds its applied correction back into the next request',()
   for(let frame=0;frame<150;frame++){
     const targetYaw=frame<35?-limits.yaw_abs:0;
     const step=nextYawCommand(requestedYaw,targetYaw,headingTarget,realHeading,
-                              0.02,true,0.75,limits.yaw_abs);
+                              0.02,true,2.2,limits.yaw_abs);
     requestedYaw=step.requestedYaw;
     headingTarget=step.headingTarget;
     realHeading+=step.appliedYaw*0.02;
-    if(frame===35)assert.ok(requestedYaw<0);
+    if(frame===35)assert.equal(requestedYaw,0); // stick released: no setpoint glide
     if(frame>60)assert.ok(Math.abs(requestedYaw)<0.000001);
     if(frame===149)assert.ok(Math.abs(step.appliedYaw)<0.015);
   }
   assert.equal(requestedYaw,0);
-  const drift=nextYawCommand(0,0,0,0.1,0.02,true,0.75,1.5);
+  const drift=nextYawCommand(0,0,0,0.1,0.02,true,2.2,1.5);
   assert.equal(drift.requestedYaw,0);
   assert.ok(drift.appliedYaw<0);
   const raw=nextYawCommand(0.2,0,0,0.1,0.02,false,0.75,1.5);
@@ -287,7 +287,7 @@ test('heading joystick integrates a compass setpoint; releasing it holds heading
   assert.ok(Math.abs(request)<1e-12);
   assert.ok(Math.abs(heading-target)<.045);
   assert.ok(Math.abs(frame.appliedYaw)<.10);
-  assert.ok(Math.abs(beforeRelease-target)<.15); // smoothing stops moving target promptly
+  assert.ok(Math.abs(beforeRelease-target)<1e-9); // releasing stick freezes the setpoint
   assert.ok(Math.abs(frame.headingTarget)>.1);
   // Turning off heading mode returns direct-rate steering and re-anchors.
   const direct=nextYawCommand(0,0.8,target,heading,dt,false,kp,cap);

@@ -41,8 +41,12 @@ export function nextYawCommand(requestedYaw, targetYaw, headingTarget,
                                actualHeading, dt, headingHold, kp, maxRate) {
   const maximumStep=Math.max(0,4*Math.min(Math.max(dt,0),.1));
   const difference=targetYaw-requestedYaw;
-  const request=clamp(requestedYaw+clamp(difference,-maximumStep,maximumStep),
-                      -maxRate,maxRate);
+  // A heading *setpoint* must stop moving immediately when the stick is
+  // released. Only direct-rate steering needs the old rate slew limiter.
+  const request=headingHold
+    ? clamp(targetYaw,-maxRate,maxRate)
+    : clamp(requestedYaw+clamp(difference,-maximumStep,maximumStep),
+            -maxRate,maxRate);
   if(!headingHold || !Number.isFinite(actualHeading)) {
     return {requestedYaw:request,appliedYaw:request,
             headingTarget:Number.isFinite(actualHeading)?wrapRadians(actualHeading):headingTarget};
