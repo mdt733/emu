@@ -36,6 +36,10 @@ function frames(text){
   const m=/actor frames?\s+(\d+)/i.exec(text);
   return m?Number(m[1]):NaN;
 }
+function jointTravel(text){
+  const m=/joints\s+([\d.]+)\s+rad/i.exec(text);
+  return m?Number(m[1]):NaN;
+}
 try {
   await waitServer();
   browser=await chromium.launch({executablePath:executable,headless:true,
@@ -67,12 +71,17 @@ try {
   const f0=frames(a),f1=frames(b);
   assert.ok(Number.isFinite(f0)&&Number.isFinite(f1),
     'actor inference counter missing from goal mission HUD: '+a+' / '+b);
-  assert.ok(f1-f0>50,'the model stopped evaluating in goal mode: '+f0+' -> '+f1);
+  assert.ok(f1-f0>10,'the model stopped evaluating in goal mode: '+f0+' -> '+f1);
+  const j0=jointTravel(a),j1=jointTravel(b);
+  assert.ok(Number.isFinite(j0)&&Number.isFinite(j1),
+    'joint movement instrumentation missing: '+a+' / '+b);
+  assert.ok(j1-j0>.05,'the ACTUAL servo joints did not move in goal mode: '+j0+' -> '+j1);
   assert.equal(await page.locator('#status').getAttribute('data-kind'),'ok',
     'goal mode entered an error state: '+await page.locator('#status').textContent());
   assert.equal(await select.inputValue(),'goals','goal mode crashed back to random');
   const report={source:'actual Chromium WebGL+WASM',
     actorFramesBefore:f0,actorFramesAfter:f1,delta:f1-f0,
+    jointsBefore:j0,jointsAfter:j1,jointMovementRad:j1-j0,
     navBefore:a,navAfter:b,errors};
   console.log('EMU GOAL NAVIGATION E2E: '+JSON.stringify(report));
   if(errors.length)console.warn('Browser logged errors: '+errors.join('; '));

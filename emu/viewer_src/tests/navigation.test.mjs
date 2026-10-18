@@ -258,3 +258,13 @@ test('goal mission coalesces fast feedback into stable held velocity setpoints',
   assert.match(src,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\)/);
   assert.doesNotMatch(block,/sim\.setNavigationCommands\(/);
 });
+
+
+test('actual actuator travel is tracked after each MuJoCo control step',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const sim=readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  assert.match(sim,/this\.motorTravelRad\+=Math\.abs\(Number\(this\.data\.qpos/);
+  assert.match(main,/sim\.motorTravelRad\.toFixed\(3\)/);
+});

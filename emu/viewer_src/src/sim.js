@@ -129,6 +129,7 @@ export class EmuBrowserSim {
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
     this.controlFrames = 0; // visible proof of live policy inference
+    this.motorTravelRad = 0; // integrated actuated joint movement (rad)
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
     this.command = { ...this.commandTarget };
@@ -636,7 +637,10 @@ export class EmuBrowserSim {
     }
 
     const nsub = Number(this.bundle.control.control_substeps || 4);
+    const beforeJoints=this.actQpos.map(i=>Number(this.data.qpos[i]));
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
+    for(let i=0;i<this.actQpos.length;i++)
+      this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
 
     for (let i = 0; i < 6; i++) {
       const raw = clamp(action[i] * span[i], -span[i], span[i]);

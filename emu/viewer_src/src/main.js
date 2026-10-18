@@ -106,7 +106,7 @@ function navigationUpdate(dt) {
     $('navHudInfo').textContent='Walking while the planner finds a route';
     $('navEstimate').textContent=state.plannerError
       ? 'Planner error: '+state.plannerError
-      : `Actor frames ${sim.controlFrames||0} · velocity updates ${navCommandUpdates}`;
+      : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
@@ -115,8 +115,8 @@ function navigationUpdate(dt) {
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `Planned ~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · cmd ${navCommandUpdates}`
-      : `Searching · actor frames ${sim.controlFrames||0} · cmd ${navCommandUpdates}`;
+      ? `~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`
+      : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
 let livePolling = false;
