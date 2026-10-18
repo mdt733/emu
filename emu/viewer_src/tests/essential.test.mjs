@@ -56,7 +56,8 @@ test('inverted pitch, blended diagonal steering, and side-only strafing',()=>{
 test('heading-hold P responds to drift with saturating correction',()=>{
   assert.ok(headingHoldRate(0,0,0.1,0.75,1.5)<0);
   assert.ok(headingHoldRate(0,0,-0.1,0.75,1.5)>0);
-  assert.equal(headingHoldRate(1.5,1.0,0,0.75,1.5),1.5);
+  // Pure P: no additive 1.5 rad/s joystick feedforward.
+  assert.equal(headingHoldRate(1.5,1.0,0,0.75,1.5),0.75);
 });
 test('continuous physical heightfield agrees with visual sample grid',()=>{
   const park=generateTerrainPark({maxDegrees:10});
@@ -259,4 +260,64 @@ test('viewer offers chase mode without removing orbit or either POV mode', async
   assert.match(sim, /this\.cameraMode === 'chase'\) this\.updateChaseCamera\(dt\)/);
   assert.match(sim, /this\.chaseReady = false/);
   assert.match(html, /chase \(behind\/above\)/);
+});
+
+
+test('heading joystick integrates a compass setpoint; releasing it holds heading with pure P',()=>{
+  const kp=2.2, cap=1.5, dt=.02;
+  let target=0,request=0,heading=0;
+  // A turn command first moves the setpoint, which produces a SMALL P yaw
+  // request, rather than immediately sending full yaw rate to the actor.
+  let frame=nextYawCommand(request,-cap,target,heading,dt,true,kp,cap);
+  assert.ok(frame.headingTarget<0);
+  assert.ok(frame.appliedYaw<0 && Math.abs(frame.appliedYaw)<cap*.15);
+  request=frame.requestedYaw;target=frame.headingTarget;
+  for(let i=0;i<35;i++){
+    frame=nextYawCommand(request,-cap,target,heading,dt,true,kp,cap);
+    request=frame.requestedYaw;
+    target=frame.headingTarget;
+    heading=wrapHeading(heading+frame.appliedYaw*dt);
+  }
+  const beforeRelease=target;
+  for(let i=0;i<100;i++){
+    frame=nextYawCommand(request,0,target,heading,dt,true,kp,cap);
+    request=frame.requestedYaw;target=frame.headingTarget;
+    heading=wrapHeading(heading+frame.appliedYaw*dt);
+  }
+  assert.ok(Math.abs(request)<1e-12);
+  assert.ok(Math.abs(heading-target)<.045);
+  assert.ok(Math.abs(frame.appliedYaw)<.10);
+  assert.ok(Math.abs(beforeRelease-target)<.15); // smoothing stops moving target promptly
+  assert.ok(Math.abs(frame.headingTarget)>.1);
+  // Turning off heading mode returns direct-rate steering and re-anchors.
+  const direct=nextYawCommand(0,0.8,target,heading,dt,false,kp,cap);
+  assert.equal(direct.appliedYaw,direct.requestedYaw);
+  assert.ok(Math.abs(direct.headingTarget-heading)<1e-8);
+});
+function wrapHeading(radians){return Math.atan2(Math.sin(radians),Math.cos(radians))}
+
+test('heading setpoint wraps safely, saturates its error and never winds up',()=>{
+  const deg=x=>x*Math.PI/180;
+  const seam=nextYawCommand(0,0,deg(179),deg(-179),.02,true,2.2,1.5);
+  assert.ok(Math.abs(seam.appliedYaw)<.1);
+  const stuck=nextYawCommand(1.5,1.5,deg(180),0,.02,true,2.2,1.5);
+  assert.ok(Math.abs(stuck.appliedYaw)<=1.5);
+  assert.ok(Math.abs(wrapHeading(stuck.headingTarget))<=1.01);
+});
+
+test('viewer-only pitch override exposes ±30/45 without changing source policy or campaign',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const sim=readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
+  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
+  const html=readFileSync(fileURLToPath(new URL('../index.html',import.meta.url)),'utf8');
+  assert.match(html, /id="pitchRange"/);
+  assert.match(html, /value="30">±30°/);
+  assert.match(html, /value="45">±45°/);
+  assert.match(sim, /manualCommandLimits\(\)/);
+  assert.match(main, /applyViewerPitchRange\(\)/);
+  assert.match(sim, /const l = this\.bundle\.control\.command_limits;/); // demo stays trained
+  assert.doesNotMatch(html, /id="scaleLegend"/);
+  assert.doesNotMatch(main, /scaleLegend/);
+  assert.doesNotMatch(sim, /this\.headingKp = 0\.75/);
 });

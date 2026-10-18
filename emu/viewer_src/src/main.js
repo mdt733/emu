@@ -24,6 +24,8 @@ const terrainMax = $('terrainMax');
 const treesToggle = $('treesToggle');
 const joystickMode = $('joystickMode');
 const headingHoldToggle = $('headingHoldToggle');
+const headingGain = $('headingGain');
+const pitchRange = $('pitchRange');
 const cameraBtn = $('cameraBtn');
 const cameraModes = ['orbit', 'chase', 'raw', 'level'];
 let cameraMode = 'orbit';
@@ -85,7 +87,26 @@ function deg(rad) { return rad * 180 / Math.PI; }
 function fmtSigned(x, n=2) { return `${x >= 0 ? '+' : ''}${x.toFixed(n)}`; }
 
 function limits() {
-  return bundle?.control?.command_limits || {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
+  const trained=bundle?.control?.command_limits ||
+    {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
+  const manualPitch=pitchRange.value==='trained' ? trained.pitch_abs_rad
+    : Number(pitchRange.value)*Math.PI/180;
+  return {...trained, pitch_abs_rad:manualPitch};
+}
+function applyViewerPitchRange() {
+  const trained=bundle?.control?.command_limits?.pitch_abs_rad;
+  if (Number.isFinite(trained)) {
+    pitchRange.options[0].textContent=`Trained ±${deg(trained).toFixed(0)}°`;
+  }
+  const extended=pitchRange.value!=='trained';
+  $('pitchRangeNote').hidden=!extended;
+  sim?.setViewerPitchLimitDeg(extended?Number(pitchRange.value):null);
+  updateStickLabels();
+}
+function applyHeadingGain() {
+  const kp=Number(headingGain.value);
+  $('headingGainOut').textContent=kp.toFixed(1);
+  sim?.setHeadingGain(kp);
 }
 
 function updateStickLabels() {
@@ -164,6 +185,8 @@ async function activatePolicy(index) {
     sim.setCameraMode(cameraMode);
     sim.setJoystickMode(joystickMode.value);
     sim.setHeadingHold(headingHoldToggle.checked);
+    applyHeadingGain();
+    applyViewerPitchRange();
     sim.setTreesEnabled(treesToggle.checked);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     sim.follow = followToggle.checked;
@@ -261,12 +284,13 @@ joystickMode.addEventListener('change',()=>{
   updateStickLabels();
 });
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
+headingGain.addEventListener('input',applyHeadingGain);
+pitchRange.addEventListener('change',applyViewerPitchRange);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
 const applyAppearance = () => {
   sim?.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
-  $('scaleLegend').hidden = !gridToggle.checked;
 };
 for (const control of [gridToggle, trailToggle, shadowToggle]) control.addEventListener('change', applyAppearance);
 
@@ -322,6 +346,9 @@ function updateTelemetry(now, dt) {
   $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
   $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
   $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· demo' : '· manual'}`;
+  $('headingRead').textContent=t.headingHold
+    ? `${fmtSigned(deg(t.headingTarget),0)}° / ${fmtSigned(deg(t.headingActual),0)}°`
+    : 'direct yaw-rate';
   const s = t.slope;
   $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
     : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
@@ -486,6 +513,7 @@ async function startViewerFeed() {
 }
 
 applyAdvanced();
-updateStickLabels();
+applyHeadingGain();
+applyViewerPitchRange();
 startViewerFeed();
 requestAnimationFrame(frame);

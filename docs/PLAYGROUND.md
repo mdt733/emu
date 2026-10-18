@@ -102,3 +102,30 @@ Orbit; Chase always follows by definition.
 
 The camera runs only in the browser renderer; it does not alter commands,
 sensor observations, controls, physics, trained weights or campaign files.
+
+
+## Heading setpoint P and experimental pitch range (viewer only)
+
+**Heading target (P)** now integrates the requested right-stick yaw rate into a
+world-frame target heading. The proportional outer loop turns heading error
+into the **yaw-rate command** that the unchanged learned actor accepts. On
+stick release the setpoint stays in place and the robot attempts to hold it.
+The command saturates at the actor's declared maximum yaw rate and the
+setpoint can never build up more than ~57° of unreachable heading error.
+The P gain starts at 2.2 (rad/s per rad of heading error) and is adjustable
+in Settings, from 0.3 to 5. No I or D is applied; switching the controller off
+returns direct-rate yaw control, switching it back on captures current
+heading to avoid a sudden turn. The telemetry shows target and actual
+heading, while distinguishing stick-requested yaw from applied yaw.
+
+The **manual pitch range** selector defaults to the checkpoint's *trained*
+limit (currently ±15° on v5016 Pinnacle), with optional ±30° and ±45°
+viewer-only experiments. Those larger command angles do **not** expand the
+neural policy's training curriculum, and may produce poor posture tracking,
+loss of balance or falls. They do not alter auto-demo command envelopes,
+checkpoints or PPO weights. To teach robust ±30°/±45° pitch tracking requires
+a separate training experiment/lineage, rather than changing the active
+Pinnacle run at ~50M steps.
+
+The unnecessary bottom-centre scale-caption pill has been removed; the
+10 cm / 1 m lines remain visible over the terrain.

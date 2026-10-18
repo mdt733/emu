@@ -39,6 +39,7 @@
       <div class="metric"><span>vy</span><b id="vyRead">—</b></div>
       <div class="metric"><span>Yaw rate (actual / applied)</span><b id="yawRead">—</b></div>
       <div class="metric"><span>Yaw request</span><b id="yawRequestRead">—</b></div>
+      <div class="metric"><span>Heading target / actual</span><b id="headingRead">—</b></div>
       <div class="metric terrain-slope"><span>Ground under feet · uphill</span><b class="slope-data"><span id="slopeRead">—</span><span id="slopeArrow" class="slope-arrow" aria-hidden="true" hidden>↑</span></b></div>
       <div class="metric"><span>Chassis pitch</span><b id="pitchRead">—</b></div>
       <div class="metric"><span>Robot lean</span><b id="leanRead">—</b></div>
@@ -74,7 +75,10 @@
         <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
-        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading hold (P control)</label>
+        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading target (P) — joystick steers setpoint</label>
+        <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
+        <label>Manual pitch range <select id="pitchRange"><option value="trained" selected>Trained envelope</option><option value="30">±30° (experimental)</option><option value="45">±45° (experimental)</option></select></label>
+        <div id="pitchRangeNote" class="control-note" hidden>Beyond the policy's trained pitch envelope: experimental extrapolation only.</div>
         <label>Joysticks <select id="joystickMode"><option value="split">Split: move / turn</option><option value="hybrid">Hybrid: diagonal steering</option></select></label>
       </div>
       <details>
@@ -86,7 +90,7 @@
           <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
         </div>
       </details>
-      <div class="drawer-tip">Chase view follows behind and above the robot, smoothing turns and keeping the horizon level. Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading hold modifies only the yaw command, never PPO weights. Settings never change PPO weights.</div>
+      <div class="drawer-tip">Chase view follows behind and above the robot, smoothing turns and keeping the horizon level. Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading target uses P-only feedback to produce a yaw-rate command; disable it for direct turning. The gain is viewer-only. A manual ±30°/±45° pitch request may exceed the current model's ±15° training range. Settings never change PPO weights.</div>
       </section>
       <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
         <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
@@ -102,11 +106,6 @@
           </section>
       <div class="drawer-footer"><a id="sourceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Source on GitHub ↗</a><span id="showcaseNote" hidden></span></div>
     </aside>
-
-    <div id="scaleLegend" class="scale-legend glass" aria-label="Floor scale">
-      <span><b>10 cm</b> squares</span><span class="legend-sep">·</span><span><b>1 m</b> bold</span>
-      <span class="legend-sep">·</span><span class="axis-x">world X</span><span class="axis-y">world Y</span>
-    </div>
 
     <div class="sticks" aria-label="Touch controls">
       <div class="stick-wrap">

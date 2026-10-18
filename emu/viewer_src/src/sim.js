@@ -111,8 +111,9 @@ export class EmuBrowserSim {
     this.parkTreesEnabled = true;
     this.joystickMode = 'split';
     this.headingHold = true;
-    this.headingKp = 0.75;
+    this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
+    this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
 
     this.meshes = [];
@@ -313,7 +314,26 @@ export class EmuBrowserSim {
   }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
+    // Bumpless engage: no jump towards an old target from an earlier mode.
     this.headingTarget=this.actualHeading();
+  }
+  setHeadingGain(kp) {
+    if (!Number.isFinite(kp) || kp < 0.3 || kp > 5)
+      throw new Error('Heading P gain must be between 0.3 and 5');
+    this.headingKp=kp;
+  }
+  setViewerPitchLimitDeg(degrees = null) {
+    // A browser-only command override, never a change to the trained PPO
+    // curriculum or its observation contract. Demo stays in trained range.
+    if (degrees !== null && (![30,45].includes(degrees)))
+      throw new Error('Viewer pitch override must be 30° or 45°');
+    this.viewerPitchLimitRad=degrees===null ? null : degrees*Math.PI/180;
+    const max=this.manualCommandLimits().pitch_abs_rad;
+    this.commandTarget.pitch=clamp(this.commandTarget.pitch,-max,max);
+  }
+  manualCommandLimits() {
+    const trained=this.bundle.control.command_limits;
+    return {...trained, pitch_abs_rad:this.viewerPitchLimitRad??trained.pitch_abs_rad};
   }
   actualHeading() {
     if (!this.data || !this.model) return 0;
@@ -420,7 +440,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.bundle.control.command_limits, this.joystickMode,
+      leftX, leftY, rightX, rightY, this.manualCommandLimits(), this.joystickMode,
     ));
   }
 
@@ -651,6 +671,8 @@ export class EmuBrowserSim {
       height: this.heightM(), vx: vel[0], vy: vel[1], yaw: ang[2],
       pitch: chassisPitch, chassisPitch, robotLean,
       cmd: { ...this.command }, requestedYaw: this.requestedYaw,
+      headingHold: this.headingHold, headingActual: this.actualHeading(),
+      headingTarget: this.headingTarget,
       slope: surfaceSlope(this.terrainMode, this.park,
         (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading()),
       fallen: this.isFallen(), phaseRate: this.phaseRate(),
