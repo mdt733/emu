@@ -265,8 +265,11 @@ export class GoalNavigator {
     const dist=distance(pose,this.goal),aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
     if(dist<GOAL_POSITION_TOLERANCE_M&&aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
-      // Dynamic arrival: heading and position achieved while stepping.
-      // Stationary parking has not been trained or independently verified.
+      // Dynamic arrival: NEVER leave the last turn/sideways command latched
+      // while searching for another destination. Keep a gentle walking
+      // request applied on EVERY simulator frame, even between missions.
+      apply({vx:Math.min(.14,Math.max(.09,limits.vx_max*.25)),
+             vy:0,yaw:0,pitch:0});
       this.arrivals++;
       this.reason='Pose reached while walking · next target';
       this.nextGoal(pose,limits,trees);
