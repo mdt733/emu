@@ -71,7 +71,12 @@ function navigationUpdate(dt) {
   const state=navigator.status(pose);
   sim.setNavigationOverlay(state.goal,state.route);
   $('demoKind').textContent=state.reason;
-  if(!state.goal)return;
+  if(!state.goal){
+    $('navHudTitle').textContent=state.reason;
+    $('navHudInfo').textContent='Building a walking gait, then planning a destination';
+    $('navEstimate').textContent='Navigation is experimental';
+    return;
+  }
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;

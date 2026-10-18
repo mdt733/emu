@@ -63,8 +63,8 @@ function primitives(limits){
     add('side-arc-left',0,s*.85,w*.67,clamp(.39/(w*.67),.4,1.1));
     add('side-arc-right',0,-s*.85,-w*.67,clamp(.39/(w*.67),.4,1.1));
   }
-  add('pivot-left',0,0,w,(tau/HEADINGS)/w);
-  add('pivot-right',0,0,-w,(tau/HEADINGS)/w);
+  // This dynamic biped was not taught to pivot while standing still.
+  // Prefer forward/reverse/side arcs for heading changes.
   return out;
 }
 export function integratePose(p,cmd,dt){
@@ -181,9 +181,9 @@ export function followWaypoint(pose,waypoint,limits,{final=false}={}){
   const desired=waypoint.cmd||{vx:0,vy:0,yaw:0};
   // Combine position feedback and feedforward; no privileged simulator
   // truth enters the neural actor, and every command stays in-envelope.
-  let vx=1.4*fwd+(final?0:.5*desired.vx);
-  let vy=1.4*side+(final?0:.5*desired.vy);
-  let yaw=2.2*err+(final?0:.15*desired.yaw);
+  let vx=clamp(1.1*fwd+(final?0:.65*desired.vx),-.15,.30);
+  let vy=clamp(1.1*side+(final?0:.55*desired.vy),-.11,.11);
+  let yaw=clamp(1.35*err+(final?0:.20*desired.yaw),-.40,.40);
   const maxF=Math.max(0,limits.vx_max),maxB=Math.max(0,-limits.vx_min);
   const maxS=Math.max(0,limits.vy_abs),maxYaw=Math.max(0,limits.yaw_abs);
   // Full-speed sideways+forward is not presumed safe: project onto
@@ -192,9 +192,9 @@ export function followWaypoint(pose,waypoint,limits,{final=false}={}){
   const r=Math.hypot(vx/(vx>=0?Math.max(a,.01):Math.max(b,.01)),
                      vy/Math.max(s,.01));
   if(r>1){vx/=r;vy/=r;}
-  const rate=safe(yaw,-maxYaw*.73,maxYaw*.73);
+  const rate=safe(yaw,-Math.min(.40,maxYaw*.5),Math.min(.40,maxYaw*.5));
   // Slow before arriving, but don't multiply down alignment corrections.
-  const brake=final?clamp(d/.55,.16,1):1;
+  const brake=final?clamp(d/.55,.3,1):1;
   return {vx:safe(vx*brake,-maxB,maxF),vy:safe(vy*brake,-maxS,maxS),
           yaw:rate,pitch:0};
 }
@@ -204,13 +204,13 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
-    this.searchCooldown=0;this.failures=0;
+    this.searchCooldown=0;this.failures=0;this.warmup=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
   }
   reset(){this.goal=null;this.route=null;this.index=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
-    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
+    this.warmup=0;this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
   setGoal(pose,goal,limits,trees=[]){
     const route=planPoseRoute(pose,goal,limits,trees);
     if(!route)return false;
@@ -236,13 +236,21 @@ export class GoalNavigator {
     if(!Number.isFinite(pose.x)||!Number.isFinite(pose.y)||
        !Number.isFinite(pose.heading))return;
     const delta=clamp(dt,0,.1);
+    // Start from dynamic gait, not a stationary pivot/standing command.
+    if(this.warmup<1.2){
+      this.warmup+=delta;
+      this.reason='Walking warm-up before navigation';
+      apply({vx:Math.min(.20,Math.max(.08,limits.vx_max*.38)),
+             vy:0,yaw:0,pitch:0});
+      return;
+    }
     if(!this.goal){
       if(this.searchCooldown>0){
         this.searchCooldown=Math.max(0,this.searchCooldown-delta);
-        apply({vx:0,vy:0,yaw:0,pitch:0});return;
+        apply({vx:.14,vy:0,yaw:0,pitch:0});return;
       }
       if(!this.nextGoal(pose,limits,trees)){
-        apply({vx:0,vy:0,yaw:0,pitch:0});return;
+        apply({vx:.14,vy:0,yaw:0,pitch:0});return;
       }
     }
     this.elapsed+=delta;
@@ -250,19 +258,18 @@ export class GoalNavigator {
     if(this.elapsed>deadline){
       this.failures++;
       this.reason='Mission timed out · new goal';
-      apply({vx:0,vy:0,yaw:0,pitch:0});
+      apply({vx:.14,vy:0,yaw:0,pitch:0});
       this.nextGoal(pose,limits,trees);
       return;
     }
     const dist=distance(pose,this.goal),aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
-    if(dist<GOAL_POSITION_TOLERANCE_M&&aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.13){
-      apply({vx:0,vy:0,yaw:0,pitch:0});
-      this.arrivalHold+=delta;
-      this.reason='Parking · holding pose';
-      if(this.arrivalHold>.75){
-        this.arrivals++;this.nextGoal(pose,limits,trees);
-      }
+    if(dist<GOAL_POSITION_TOLERANCE_M&&aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
+      // Dynamic arrival: heading and position achieved while stepping.
+      // Stationary parking has not been trained or independently verified.
+      this.arrivals++;
+      this.reason='Pose reached while walking · next target';
+      this.nextGoal(pose,limits,trees);
       return;
     }
     this.arrivalHold=0;
@@ -272,7 +279,8 @@ export class GoalNavigator {
       if(distance(pose,p)>.16||Math.abs(angleError(p.heading,pose.heading))>.34)break;
       this.index++;
     }
-    const target=steps[this.index];
+    // Look ahead across several ~25cm lattice edges: no stop-go to each node.
+    const target=steps[Math.min(steps.length-1,this.index+2)];
     const remaining=distance(pose,target);
     if(this.index!==this.lastIndex){
       this.lastIndex=this.index;this.bestProgress=remaining;this.stagnant=0;
@@ -280,6 +288,9 @@ export class GoalNavigator {
       this.bestProgress=remaining;this.stagnant=0;
     }else this.stagnant+=delta;
     const command=followWaypoint(pose,target,limits,{final:target.final});
+    // Avoid static/near-zero instructions for a dynamically stepping NN.
+    if(Math.abs(command.vx)<.09&&Math.abs(command.vy)<.065)
+      command.vx=Math.min(.14,Math.max(.09,limits.vx_max*.25));
     apply(command);
     this.reason=target.final?'Parking into final heading':target.maneuver;
     this.replanDelay+=delta;

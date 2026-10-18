@@ -32,8 +32,13 @@ active so the two controllers never fight.
 Open local EMU viewer with any trained schema-2 policy. In **Settings →
 Demo controls**, keep Autonomous demonstration checked and select
 **Navigate random poses** (the default in public showcase).
-Choose **Random command practice** for previous behaviour, or uncheck
-Autonomous demonstration for manual joystick control. **New random target**
+**Random command practice** is currently the safe default.
+Choose **Navigate random poses (experimental)** to opt into navigation.
+The planner first commands a gentle 1.2-second walking warm-up,
+avoids untrained stationary pivots and uses continuous stepping.
+Arrivals are dynamic pass-throughs at the requested heading, not
+a verified static parking hold. Uncheck Autonomous demonstration
+to use manual joystick control. **New random target**
 skips to another mission. Orbit camera frames the area when navigation
 starts; Chase, POV and level POV are still available. Touch stick or
 WASD/Q/E input immediately cancels the autonomous demo.

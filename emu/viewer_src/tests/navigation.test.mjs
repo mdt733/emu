@@ -92,7 +92,8 @@ test('UI keeps manual and random-control modes alongside pose missions', async()
   const {fileURLToPath}=await import('node:url');
   const read=p=>readFileSync(fileURLToPath(new URL(p,import.meta.url)),'utf8');
   const html=read('../index.html'), main=read('../src/main.js'), sim=read('../src/sim.js');
-  assert.match(html,/value="goals" selected/);
+  assert.match(html,/value="goals"/);
+  assert.match(html,/value="commands" selected/);
   assert.match(html,/value="commands"/);
   assert.match(html,/id="navNext"/);
   assert.match(main,/navigator\.tick\(/);
