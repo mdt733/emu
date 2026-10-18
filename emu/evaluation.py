@@ -348,7 +348,11 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
     if not run_dirs:
         return {}
     run_dirs=[Path(x).expanduser().resolve() for x in run_dirs]
-    configs=[TrainingConfig.load(r/'training_config.json') for r in run_dirs]
+    # In sensor campaigns, an earlier held-out best.pkl from the same run
+    # may outrank final.pkl. Explicit file paths are read-only and remain
+    # uniquely addressable even when two candidates share a run directory.
+    cfg_dirs=[r.parent.parent if r.suffix == '.pkl' else r for r in run_dirs]
+    configs=[TrainingConfig.load(r/'training_config.json') for r in cfg_dirs]
     config=configs[0]
     # The stress worlds depend on physical/evaluation doctrine, not teacher
     # settings. Guard the one config value they currently consume so batching
@@ -421,8 +425,9 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             _screen_episode(.70,.70,.50,.65,(.25,.45,.30),.85))
     key0=jax.random.PRNGKey(EVAL_SEED)
     results: dict[str,dict[str,Any]]={}
-    for run_dir in run_dirs:
-        ck=run_dir/'checkpoints'/'final.pkl'
+    for source in run_dirs:
+        run_dir=source.parent.parent if source.suffix == '.pkl' else source
+        ck=source if source.suffix == '.pkl' else run_dir/'checkpoints'/'final.pkl'
         payload=load_checkpoint(
             ck,validate=True,expected_observation_schema=config.observation_schema,
             expected_sensor_contract=expected_sensor_contract)
@@ -468,7 +473,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         if write_screen_files:
             (run_dir/'screen_eval.json').write_text(
                 json.dumps(out,indent=2,sort_keys=True),encoding='utf-8')
-        key=str(run_dir) if key_by_path else run_dir.name
+        key=str(source) if key_by_path else run_dir.name
         if key in results:
             raise ValueError('duplicate screen result key; enable key_by_path')
         results[key]=out
