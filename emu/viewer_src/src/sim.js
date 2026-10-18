@@ -4,6 +4,7 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { SensorObserver } from './sensor.js';
+import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
@@ -89,7 +90,10 @@ export class EmuBrowserSim {
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
     this.controls.maxDistance = 4;
-    this.cameraMode = 'orbit'; // orbit | raw | level
+    this.cameraMode = 'orbit'; // orbit | chase | raw | level
+    this.chaseReady = false;
+    this.chaseHeading = 0;
+    this.chaseTarget = new THREE.Vector3();
     this.orbitPosition = this.camera.position.clone();
     this.orbitTarget = this.controls.target.clone();
     this.levelPoseValid = false;
@@ -269,7 +273,7 @@ export class EmuBrowserSim {
   }
 
   setCameraMode(mode) {
-    if (!['orbit', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
+    if (!['orbit', 'chase', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
     if (mode === this.cameraMode) return;
     if (this.cameraMode === 'orbit') {
       this.orbitPosition.copy(this.camera.position);
@@ -278,6 +282,7 @@ export class EmuBrowserSim {
     this.cameraMode = mode;
     this.controls.enabled = mode === 'orbit';
     this.levelPoseValid = false;
+    this.chaseReady = false;
     if (mode === 'orbit') {
       this.camera.position.copy(this.orbitPosition);
       this.controls.target.copy(this.orbitTarget);
@@ -406,6 +411,7 @@ export class EmuBrowserSim {
     this.fallenFor = 0;
     this.pathTrail.clear();
     this.levelPoseValid = false;
+    this.chaseReady = false;
     this.trailLine.geometry.setDrawRange(0, 0);
     this.refreshScene();
   }
@@ -759,6 +765,37 @@ export class EmuBrowserSim {
     }
   }
 
+  updateChaseCamera(dt = 1 / 60) {
+    // Follow the robot's *actual* world heading, not the operator's target.
+    // Only heading affects the camera's bearing: body roll and pitch never
+    // spin the horizon when EMU steps, leans, or catches a fall.
+    const heading = this.actualHeading();
+    const first = !this.chaseReady;
+    const o = this.torsoId * 3;
+    const torso = [Number(this.data.xpos[o]),
+                   Number(this.data.xpos[o + 1]),
+                   Number(this.data.xpos[o + 2])];
+    this.chaseHeading = first ? heading
+      : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
+    const terrainAt = (x, y) =>
+      this.terrainMode === 'park' && this.park ? this.park.sampleHeight(x, y) : 0;
+    const desired = chasePose(torso, this.chaseHeading, terrainAt);
+    const position = new THREE.Vector3(...desired.position);
+    const target = new THREE.Vector3(...desired.target);
+    // Reset/hot-swap/teleport snaps; regular steps glide after the robot.
+    const teleport = !first && this.camera.position.distanceToSquared(position) > 4;
+    if (first || teleport) {
+      this.camera.position.copy(position);
+      this.chaseTarget.copy(target);
+    } else {
+      this.camera.position.lerp(position, smoothFactor(dt, 5));
+      this.chaseTarget.lerp(target, smoothFactor(dt, 7));
+    }
+    this.chaseReady = true;
+    this.camera.up.set(0, 0, 1);
+    this.camera.lookAt(this.chaseTarget);
+  }
+
   updateFirstPersonCamera() {
     const R = this.bodyRotation();
     const torsoRotation = new THREE.Matrix4().set(
@@ -787,9 +824,10 @@ export class EmuBrowserSim {
     }
   }
 
-  render() {
+  render(dt = 1 / 60) {
     this.refreshScene();
     if (this.cameraMode === 'orbit') this.controls.update();
+    else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
     this.renderer.render(this.scene, this.camera);
   }

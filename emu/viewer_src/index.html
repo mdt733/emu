@@ -25,7 +25,7 @@
         <select id="policySelect" class="policy-select" aria-label="Loaded policy" hidden></select>
         <button id="pauseBtn" type="button" disabled>Pause</button>
         <button id="resetBtn" type="button" disabled>Reset</button>
-        <button id="cameraBtn" type="button" title="Cycle orbit, raw POV, level POV">View: orbit</button>
+        <button id="cameraBtn" type="button" title="Cycle orbit, chase (behind/above), raw POV and level POV">View: orbit</button>
         <button id="settingsOpen" type="button" aria-controls="settingsDrawer" aria-expanded="false">Settings</button>
       </div>
     </header>
@@ -86,7 +86,7 @@
           <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
         </div>
       </details>
-      <div class="drawer-tip">Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading hold modifies only the yaw command, never PPO weights. Settings never change PPO weights.</div>
+      <div class="drawer-tip">Chase view follows behind and above the robot, smoothing turns and keeping the horizon level. Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading hold modifies only the yaw command, never PPO weights. Settings never change PPO weights.</div>
       </section>
       <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
         <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>

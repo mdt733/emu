@@ -25,9 +25,16 @@ const treesToggle = $('treesToggle');
 const joystickMode = $('joystickMode');
 const headingHoldToggle = $('headingHoldToggle');
 const cameraBtn = $('cameraBtn');
-const cameraModes = ['orbit', 'raw', 'level'];
+const cameraModes = ['orbit', 'chase', 'raw', 'level'];
 let cameraMode = 'orbit';
-function cameraLabel(mode) { return mode === 'orbit' ? 'View: orbit' : mode === 'raw' ? 'View: POV' : 'View: level POV'; }
+function cameraLabel(mode) {
+  return {orbit:'View: orbit', chase:'View: chase',
+          raw:'View: POV', level:'View: level POV'}[mode];
+}
+function cameraDescription(mode) {
+  return {orbit:'orbit camera', chase:'third-person chase camera behind and above robot',
+          raw:'raw chassis POV', level:'visually levelled POV'}[mode];
+}
 const pitchNotice = $('pitchNotice');
 const dropOverlay = $('dropOverlay');
 const leftValues = $('leftValues');
@@ -236,7 +243,7 @@ cameraBtn.addEventListener('click', () => {
   cameraMode = cameraModes[(cameraModes.indexOf(cameraMode) + 1) % cameraModes.length];
   sim?.setCameraMode(cameraMode);
   cameraBtn.textContent = cameraLabel(cameraMode);
-  cameraBtn.setAttribute('aria-label', `Camera: ${cameraMode === 'raw' ? 'raw chassis POV' : cameraMode === 'level' ? 'visually levelled POV' : 'orbit'}`);
+  cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
@@ -338,7 +345,7 @@ function frame(ms) {
       $('demoKind').textContent = demo.kind;
     }
     sim.advance(dt);
-    sim.render();
+    sim.render(dt);
     updateTelemetry(now, dt);
   }
   requestAnimationFrame(frame);

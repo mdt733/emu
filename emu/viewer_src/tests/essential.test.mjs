@@ -224,3 +224,39 @@ test('versioned browser parser accepts sensor 232 and keeps legacy schema indepe
     ...policy,observation:{...policy.observation,
       sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported v5016 sensor/);
 });
+
+
+test('third-person chase follows robot heading at constant height above the terrain', async () => {
+  const { chasePose, smoothHeading, smoothFactor } = await import('../src/chase-camera.js');
+  const front = chasePose([2, 3, .26], 0, () => 0);
+  assert.ok(front.position[0] < 2);
+  assert.equal(front.position[1], 3);
+  assert.ok(front.position[2] > .6);
+  assert.ok(front.target[0] > 2);
+  const right = chasePose([2, 3, .26], Math.PI / 2, () => 0);
+  assert.ok(right.position[1] < 3);
+  assert.ok(Math.abs(right.position[0] - 2) < 1e-12);
+  // Camera clears even an uphill patch directly behind the robot.
+  const slope = chasePose([2, 3, .26], 0, x => x < 2 ? .55 : 0);
+  assert.ok(slope.position[2] >= .98);
+  // The spring is frame-time dependent, not tied to 60 FPS.
+  assert.ok(Math.abs(smoothFactor(.02, 5) - (1 - Math.exp(-.1))) < 1e-12);
+  assert.equal(smoothFactor(0, 5), 0);
+  // Crossing the -180/+180 seam rotates through 2 degrees, not 358.
+  const h = smoothHeading(179 * Math.PI / 180, -179 * Math.PI / 180, .5);
+  assert.ok(Math.abs(Math.abs(h) - Math.PI) < .01);
+  assert.throws(() => chasePose([0, Infinity, 0], 0));
+});
+
+test('viewer offers chase mode without removing orbit or either POV mode', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const main = readFileSync(fileURLToPath(new URL('../src/main.js', import.meta.url)), 'utf8');
+  const sim = readFileSync(fileURLToPath(new URL('../src/sim.js', import.meta.url)), 'utf8');
+  const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
+  assert.match(main, /cameraModes = \['orbit', 'chase', 'raw', 'level'\]/);
+  assert.match(main, /sim\.render\(dt\)/);
+  assert.match(sim, /this\.cameraMode === 'chase'\) this\.updateChaseCamera\(dt\)/);
+  assert.match(sim, /this\.chaseReady = false/);
+  assert.match(html, /chase \(behind\/above\)/);
+});

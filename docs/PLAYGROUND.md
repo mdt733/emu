@@ -86,3 +86,19 @@ up means forward, left means uphill to its left, right means uphill to its
 right. Flat terrain reads `0.0° · level`; walking beyond the sampled terrain
 reports `No terrain underfoot`. This is a terrain probe, not a measurement of
 body pitch or proof that both feet have contact.
+
+
+## Third-person chase camera
+
+Cycle the **View** button: Orbit → Chase → POV → Level POV.
+**Chase** follows behind and above EMU in the robot's *actual* heading,
+with a slightly forward-looking aim. The camera smoothly handles turns
+including the ±180° boundary, maintains a level horizon independently of
+chassis roll/pitch, and keeps above the ground as the robot traverses the
+terrain park. It snaps into position on reset or policy hot-swap instead
+of slowly flying across the scene; returning to Orbit restores its earlier
+orbit target and camera position. The ordinary Follow toggle applies to
+Orbit; Chase always follows by definition.
+
+The camera runs only in the browser renderer; it does not alter commands,
+sensor observations, controls, physics, trained weights or campaign files.
