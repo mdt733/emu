@@ -79,3 +79,7 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard)"
       - name: Verify policy and WASM assets
         run: python3 scripts/verify_showcase_dist.py
+      - name: Install untracked headless browser test harness
+        run: npm install --prefix emu/viewer_src --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
+      - name: Test actual 260M actor in Chromium while goal mode plans
+        run: cd emu/viewer_src && node scripts/e2e-goal-smoke.mjs
