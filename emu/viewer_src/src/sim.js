@@ -82,6 +82,7 @@ export class EmuBrowserSim {
     this.showTrail = true;
     this.showShadows = true;
     this.createWorldGuides();
+    this.createNavigationGuides();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.01, 50);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(-0.72, -0.78, 0.52);
@@ -115,6 +116,7 @@ export class EmuBrowserSim {
     this.headingTarget = 0;
     this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
+    this.navigationControl = false; // route planner owns direct yaw, not manual P
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -244,6 +246,8 @@ export class EmuBrowserSim {
       this.treeCrowns = null;
     }
     this.park = null;
+    // Terrain geometry moved; rebuild guide heights on the next nav tick.
+    this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -258,6 +262,13 @@ export class EmuBrowserSim {
 
   dispose() {
     this.disposeModel();
+    this.routeLine.geometry.dispose();
+    this.routeLine.material.dispose();
+    this.targetRing.geometry.dispose();
+    this.targetRing.material.dispose();
+    this.targetArrow.dispose();
+    this.arenaCircle.geometry.dispose();
+    this.arenaCircle.material.dispose();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
@@ -452,6 +463,101 @@ export class EmuBrowserSim {
     this.commandTarget.pitch = clamp(Number(pitch), -l.pitch_abs_rad, l.pitch_abs_rad);
   }
 
+  navigationPose() {
+    const o = this.torsoId * 3;
+    const heading=this.actualHeading(),c=Math.cos(heading),s=Math.sin(heading);
+    const wx=Number(this.data.qvel[0]),wy=Number(this.data.qvel[1]);
+    return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
+      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,
+      fallen:this.isFallen()};
+  }
+
+  navigationTrees() {
+    return this.terrainMode==='park' && this.parkTreesEnabled
+      ? this.park?.trees || [] : [];
+  }
+
+  setNavigationActive(active) {
+    this.navigationControl=Boolean(active);
+    // Changing between navigation direct-yaw and manual heading P must not
+    // inherit the other controller's old setpoint or accumulated request.
+    this.headingTarget=this.actualHeading();
+    this.requestedYaw=0;
+    this.commandTarget.yaw=0;
+    this.command.yaw=0;
+    if(!active)this.clearNavigationOverlay();
+  }
+
+  setNavigationCommands(command) {
+    if (!this.navigationControl) throw new Error('Navigation controller is not enabled');
+    this.setDemoCommands(command);
+  }
+
+  terrainHeightAt(x,y) {
+    return this.terrainMode==='park' && this.park ? this.park.sampleHeight(x,y) : 0;
+  }
+
+  createNavigationGuides() {
+    const THREE=this.THREE;
+    const mat=new THREE.MeshBasicMaterial({color:0xfce38b,side:THREE.DoubleSide,
+                                           depthWrite:false,depthTest:true});
+    this.targetRing=new THREE.Mesh(new THREE.RingGeometry(.16,.205,40),mat);
+    this.targetRing.renderOrder=9;
+    this.scene.add(this.targetRing);
+    this.targetArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),
+       new THREE.Vector3(0,0,.06),.50,0xffd96e,.15,.075);
+    this.targetArrow.renderOrder=9;
+    this.scene.add(this.targetArrow);
+    this.routeLine=new THREE.Line(new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({color:0x54f8da,depthTest:true,
+                                   depthWrite:false,transparent:true,opacity:.95}));
+    this.routeLine.renderOrder=8;
+    this.scene.add(this.routeLine);
+    this.arenaCircle=new THREE.LineLoop(new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({color:0x7eb8ff,transparent:true,
+                                   opacity:.46,depthWrite:false}));
+    this.arenaCircle.renderOrder=7;
+    this.scene.add(this.arenaCircle);
+    this.navGoalSeen=null;this.navRouteSeen=null;
+    this.clearNavigationOverlay();
+  }
+
+  clearNavigationOverlay() {
+    this.targetRing.visible=false;
+    this.targetArrow.visible=false;
+    this.routeLine.visible=false;
+    this.arenaCircle.visible=false;
+    this.navGoalSeen=null;this.navRouteSeen=null;
+  }
+
+  setNavigationOverlay(goal,route) {
+    if(!goal||!route){this.clearNavigationOverlay();return;}
+    if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
+    const THREE=this.THREE;
+    const z=this.terrainHeightAt(goal.x,goal.y);
+    this.targetRing.position.set(goal.x,goal.y,z+.030);
+    this.targetArrow.position.set(goal.x,goal.y,z+.045);
+    this.targetArrow.setDirection(new THREE.Vector3(Math.cos(goal.heading),
+      Math.sin(goal.heading),0));
+    // Refresh the predicted route on new targets or meaningful replans.
+    const pose=this.navigationPose();
+    const points=[new THREE.Vector3(pose.x,pose.y,
+      this.terrainHeightAt(pose.x,pose.y)+.038),
+      ...route.steps.map(p=>new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.038))];
+    this.routeLine.geometry.dispose();
+    this.routeLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
+    const circle=[];
+    for(let i=0;i<128;i++){
+      const a=2*Math.PI*i/128,x=4*Math.cos(a),y=4*Math.sin(a);
+      circle.push(new THREE.Vector3(x,y,this.terrainHeightAt(x,y)+.032));
+    }
+    this.arenaCircle.geometry.dispose();
+    this.arenaCircle.geometry=new THREE.BufferGeometry().setFromPoints(circle);
+    for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
+      mesh.visible=true;
+    this.navGoalSeen=goal;this.navRouteSeen=route;
+  }
+
   canSwapPolicy(next) {
     const old = this.bundle;
     // A browser replay can only replace the actor if physics, observations and
@@ -499,12 +605,23 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
-      this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
-      Number(this.bundle.control.command_limits.yaw_abs));
-    this.requestedYaw=steering.requestedYaw;
-    this.headingTarget=steering.headingTarget;
-    this.command.yaw=steering.appliedYaw;
+    if(this.navigationControl) {
+      // Autonomous planner already closes the heading loop. Passing through
+      // the manual heading-P again would integrate the yaw rate as a SETPOINT
+      // and cause target oscillation and overshoot.
+      const maxYaw=Number(this.bundle.control.command_limits.yaw_abs);
+      this.command.yaw=approach(this.command.y,
+        clamp(this.commandTarget.yaw,-maxYaw,maxYaw),2.4*cdt);
+      this.requestedYaw=this.command.yaw;
+      this.headingTarget=this.actualHeading();
+    } else {
+      const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
+        this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
+        Number(this.bundle.control.command_limits.yaw_abs));
+      this.requestedYaw=steering.requestedYaw;
+      this.headingTarget=steering.headingTarget;
+      this.command.yaw=steering.appliedYaw;
+    }
     const action = this.policy.infer(this.obs);
     const span = this.bundle.control.target_span_rad;
 
