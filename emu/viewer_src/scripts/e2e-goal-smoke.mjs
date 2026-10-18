@@ -55,6 +55,8 @@ try {
   await page.waitForTimeout(2200);
   assert.equal(await page.locator('#status').getAttribute('data-kind'),'ok',
     'champion must load without viewer errors');
+  await page.locator('#settingsOpen').click();
+  await page.locator('#demoMode').waitFor({state:'visible'});
   await select.selectOption('goals');
   await page.waitForTimeout(2000);
   assert.equal(await select.inputValue(),'goals',
