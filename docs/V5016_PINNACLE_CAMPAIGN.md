@@ -121,3 +121,42 @@ legacy 220-input physical examiner. Local browser replay now uses a separate sch
 
 **Important:** screen-test improvements are simulated evidence; physical
 robot torque/current and real ground sensors still need hardware validation.
+
+
+## Recovery of original Round-1 examiner crash (October 18, 2026)
+
+The original four-way Round 1 reached 80,019,456 steps and trained to
+completion, but judging then raised `KeyError: 'action_delta_norm'` from
+`ppo.evaluate_efficiency`. The environment calculated that smoothness
+number for its rewards and deliberately stripped it from the public
+`StepOut.metrics`; this was an **examiner-only fault**, not a failed
+training update. The fix calculates the same scalar using the actor's
+clipped applied action and `EnvState.prev_action` before calling step.
+It changes no physics, inputs, PPO weights, gradients or servo rewards.
+
+Because the campaign pins an exact Git SHA, blindly pulling newer source
+would otherwise be refused even though the trained files are valid.
+This one-time explicit gate audits the **original commit against the new
+commit's full training-relevant source**, allowing only the read-only
+efficiency examiner to differ. It preserves all four 80M checkpoint files,
+logs, source references and the previously spent GPU time, records the
+source migration in `campaign.json`, then runs the fixed Round-1 screen.
+
+After the ORIGINAL command has exited, in the **training checkout**:
+
+```bash
+cd ~/emu-v5016-verify
+git status --short              # must be clean
+git pull --ff-only
+source .venv/bin/activate
+emu campaign5016 --status
+emu campaign5016 --run --resume-after-screen-fix
+```
+
+No new 20M or 80M branch training is required. Keep the **same** root,
+foundation, env-count, seed and time-budget options as the first launch;
+for defaults they are already implied. Do not delete the old directories.
+The migration is available only immediately after all four branches
+completed and before Round-1 judging. If training-critical source differs,
+the script refuses and does not touch checkpoint data. The repair flag
+is not a general permission to mix incompatible source versions.

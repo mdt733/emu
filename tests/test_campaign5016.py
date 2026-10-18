@@ -109,3 +109,44 @@ def test_planning_does_not_mutate_campaign_root(tmp_path, monkeypatch, capsys):
     assert main(['--root', str(run_root), '--plan']) == 0
     assert '1.08B' in capsys.readouterr().out
     assert not run_root.exists()
+
+
+def test_round1_repair_requires_all_four_original_checkpoint_records(tmp_path,monkeypatch):
+    import emu.campaign_upgrade as upgrade
+    from types import SimpleNamespace
+    old='a'*40;new='b'*40
+    monkeypatch.setattr(upgrade.subprocess,'run',lambda *a,**kw:SimpleNamespace(returncode=0))
+    def source(commit,path):
+        if path!='emu/ppo.py':return 'identical training source'
+        return ("  observer\n"
+                "    def evaluate_efficiency():\n"+
+                ("       jnp.sum(m['action_delta_norm'])\n" if commit==old
+                 else "       jnp.sum(action_delta_norm)\n")+
+                "    def evaluate_trace():\n  rest")
+    monkeypatch.setattr(upgrade,'_file',source)
+    audit=upgrade.verify_exam_fix_upgrade(old,new)
+    assert audit['previous_commit']==old
+    assert 'emu/ppo.py' in audit['training_files_checked']
+    ledger={'source_commit':old,'round1':{k:{} for k in ARMS},
+            'round2':{},'polish':{},'selected':[]}
+    assert upgrade.authorize_completed_round1(ledger,tmp_path,new,ARMS)==audit
+    with pytest.raises(RuntimeError, match='before judging'):
+        upgrade.authorize_completed_round1({**ledger,'selected':['grace']},
+                                           tmp_path,new,ARMS)
+    (tmp_path/'scoreboards').mkdir()
+    (tmp_path/'scoreboards'/'round1.json').write_text('{}')
+    with pytest.raises(RuntimeError, match='before judging'):
+        upgrade.authorize_completed_round1(ledger,tmp_path,new,ARMS)
+    (tmp_path/'scoreboards'/'round1.json').unlink()
+    monkeypatch.setattr(upgrade,'_file',
+        lambda commit,path: 'changed environment' if (path=='emu/environment.py' and commit==new) else source(commit,path))
+    with pytest.raises(RuntimeError,match='training-critical source changed'):
+        upgrade.verify_exam_fix_upgrade(old,new)
+
+
+def test_cli_exposes_audited_resume_without_running_gpu(capsys):
+    from emu.cli import main as emu_main
+    with pytest.raises(SystemExit) as exc:
+        emu_main(['campaign5016','--help'])
+    assert exc.value.code==0
+    assert '--resume-after-screen-fix' in capsys.readouterr().out

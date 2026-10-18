@@ -830,3 +830,35 @@ def test_v5016_doctor_acceptance_flag_exists(capsys):
         main(['doctor', '--help'])
     assert exc.value.code == 0
     assert '--v5016-smoke' in capsys.readouterr().out
+
+
+def test_v5016_real_mjx_efficiency_exam_uses_pre_step_action_not_reward_only_fields():
+    """Regression: 80M Round 1 crashed after training on action_delta_norm.
+
+    StepOut deliberately hides reward-only action_delta_norm; independent
+    efficiency telemetry must calculate its own action difference directly.
+    Compile and execute the exact JAX path which failed for the user.
+    """
+    jax=pytest.importorskip('jax')
+    pytest.importorskip('mujoco')
+    pytest.importorskip('optax')
+    import jax.numpy as jnp
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.ppo import make_trainer
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
+                  observation_schema=OBS_SCHEMA_SENSOR,
+                  sensor_noise_scale=1.5,attitude_profile='v5015',
+                  pitch_command_max_deg=15.)
+    p=env.params_array({'probe_cmd_vx':.09})
+    trainer=make_trainer(env,seed=1701,lr=.0002,rollout=2,epochs=1,minibatches=1)
+    state=trainer['make_initial_state'](p)
+    out=env.step(state.env_state,jnp.zeros((2,6),dtype=jnp.float32),p)
+    assert 'action_delta_norm' not in out.metrics
+    assert 'servo_shaft_abs_power_w' in out.metrics
+    result=np.asarray(jax.device_get(trainer['evaluate_efficiency'](
+        state.params,p,jnp.zeros((232,),dtype=jnp.float32),
+        jnp.ones((232,),dtype=jnp.float32),jax.random.PRNGKey(1234),3)))
+    assert result.shape==(5,)
+    assert np.all(np.isfinite(result))
+    assert result[0]>=0 and result[2]>=0 and result[4]>=0
