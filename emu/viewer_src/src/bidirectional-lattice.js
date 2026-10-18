@@ -10,47 +10,52 @@ const TAU=2*Math.PI;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const deltaAngle=(a,b)=>Math.abs(wrapAngle(a-b));
-const terminal=(a,b)=>dist(a,b)<.19&&deltaAngle(a.heading,b.heading)<.21;
-const DIRECTION_CHOICES=[
-  [1,0], [1,1], [0,1], [-1,1],
-  [-1,0],[-1,-1],[0,-1],[1,-1],[0,0]
-];
-export const ALL_JOYSTICK_OPTIONS=27;
+// Three translation modes × nine yaw rates. This produces different
+// physical turning RADII (vx / omega), rather than merely different grid
+// directions. Heading and XY are continuous; bins only prune duplicates.
+export const ARC_YAW_FRACTIONS=Object.freeze([-1,-.75,-.5,-.25,0,.25,.5,.75,1]);
+export const ARC_TRANSLATION_MODES=Object.freeze(['forward','reverse','pivot']);
+export const ALL_JOYSTICK_OPTIONS=ARC_YAW_FRACTIONS.length*ARC_TRANSLATION_MODES.length;
 
-/** Each action is a finite-duration, real commanded velocity triple.
- * The full 9×3 set is visible, including idle and rotate-only options.
- * For dynamic walking we don't EXECUTE standing pivots or zero velocity:
- * unsupported centre-stick moves are omitted from the search frontier.
+/** Sample a finite-duration, executable body twist from the NN's trained
+ * command envelope. The biped CAN rotate in place: unlike the initial
+ * prototype, pivot primitives are first-class. Sideways control belongs
+ * to the near-goal follower, not a long-distance search edge.
+ *
+ * 9 forward arcs/straights + 9 reverse arcs/straights + 8 pivot speeds
+ * (the ninth, neutral+straight, is a no-op and is not expanded).
+ * This makes both vehicle-parking and in-place final heading feasible.
  */
-export function joystickPrimitives(limits,{duration=.55}={}){
-  const maxF=Math.min(Math.max(0,limits.vx_max||0)*.88,.95);
-  const maxB=Math.min(Math.max(0,-limits.vx_min||0)*.82,.43);
-  const side=Math.min(Math.max(0,limits.vy_abs||0)*.68,.23);
-  const yaw=Math.min(Math.max(0,limits.yaw_abs||0)*.65,.95);
-  if(!(maxF>.08&&yaw>.1))throw new Error('Policy has insufficient forward/yaw authority');
-  const options=[];
-  for(let i=0;i<DIRECTION_CHOICES.length;i++){
-    const [x,y]=DIRECTION_CHOICES[i];
-    for(const z of [-1,0,1]){
-      // Do NOT assume a dynamically unstable biped can stand and spin.
-      // Keep these options represented for transparency but mark invalid.
-      const invalid=x===0&&y===0;
-      const diagonal=x!==0&&y!==0;
-      const vx=x>=0?maxF*x*(diagonal?.77:1):maxB*x*(diagonal?.77:1);
-      const vy=side*y*(diagonal?.67:1);
-      const w=yaw*z;
-      // Pure sideways is a possible NN command but comparatively slow.
-      // Time cost dominates; extra costs disfavor steps, twitchy
-      // reversals and high lateral work without inventing throughput.
-      options.push({id:i*3+z+1,joystick:[x,y,z],vx,vy,yaw:w,dt:duration,
-        executable:!invalid,
-        cost:duration*(1+(.12*Math.abs(vy)/Math.max(side,.01))+
-            (.06*Math.abs(w)/Math.max(yaw,.01))+
-            (vx<0?.12:0))});
+export function arcPrimitives(limits,{duration=.55}={}){
+  const maxF=Math.min(Math.max(0,Number(limits.vx_max)||0)*.90,.95);
+  const maxB=Math.min(Math.max(0,-Number(limits.vx_min)||0)*.84,.48);
+  const maxYaw=Math.min(Math.max(0,Number(limits.yaw_abs)||0)*.78,1.25);
+  if(!(maxF>.08&&maxYaw>.1))throw new Error('Policy has insufficient forward/yaw authority');
+  const results=[];
+  for(const mode of ARC_TRANSLATION_MODES){
+    const vx=mode==='forward'?maxF:mode==='reverse'?-maxB:0;
+    for(const [index,fraction] of ARC_YAW_FRACTIONS.entries()){
+      const yaw=maxYaw*fraction,executable=mode!=='pivot'||index!==4;
+      const pivot=mode==='pivot';
+      const radius=Math.abs(yaw)>1e-10?Math.abs(vx/yaw):Infinity;
+      const curvature=Math.abs(vx)>1e-10?yaw/vx:null;
+      const effort=Math.abs(fraction);
+      results.push({
+        id:results.length+1,mode,joystick:[Math.sign(vx),0,fraction],
+        yawFraction:fraction,vx,vy:0,yaw,dt:duration,radius,curvature,
+        executable,
+        // Time first; small costs for high turn rate, reverse or pivot.
+        // Do not penalise a tight parking turn more than many metres of
+        // extra travel merely because it uses high angular velocity.
+        cost:duration*(1+.045*effort+(mode==='reverse'?.10:0)+
+          (pivot?.14:0))
+      });
     }
   }
-  return options;
+  return results;
 }
+// Retain the original API name for independent comparisons / callers.
+export const joystickPrimitives=arcPrimitives;
 
 export function reversePrimitive(primitive){
   // Invert the same finite-duration SE(2) twist exactly; never pretend
@@ -110,9 +115,9 @@ export function bidirectionalMotionRoute(start,goal,limits,trees=[],opts={}){
   if(![start.x,start.y,start.heading,goal.x,goal.y,goal.heading].every(Number.isFinite))
     throw new Error('Nonfinite start/goal pose');
   if(!valid(start,trees)||!valid(goal,trees))return null;
-  const maneuvers=joystickPrimitives(limits).filter(p=>p.executable);
-  const speed=Math.min(limits.vx_max*.88,.95);
-  const yaw=Math.min(limits.yaw_abs*.65,.95);
+  const maneuvers=arcPrimitives(limits).filter(p=>p.executable);
+  const speed=Math.min(limits.vx_max*.90,.95);
+  const yaw=Math.min(limits.yaw_abs*.78,1.25);
   const heuristic=(pose,other)=>Math.max(
     dist(pose,other)/Math.max(.1,speed),
     deltaAngle(pose.heading,other.heading)/Math.max(.1,yaw));
@@ -155,9 +160,12 @@ export function bidirectionalMotionRoute(start,goal,limits,trees=[],opts={}){
       let cost=action.cost;
       if(current.edge){
         const prev=current.edge;
-        if(Math.sign(prev.vx)!==Math.sign(action.vx))cost+=.20;
-        if(Math.sign(prev.yaw)!==Math.sign(action.yaw)&&prev.yaw&&action.yaw)cost+=.07;
-        if(Math.abs(prev.vx-action.vx)>.42)cost+=.13;
+        if(Math.sign(prev.vx)!==Math.sign(action.vx))cost+=.13;
+        if(Math.sign(prev.yaw)!==Math.sign(action.yaw)&&prev.yaw&&action.yaw)cost+=.05;
+        // Penalise mode switches more than gradual yaw changes, but not
+        // so heavily that short parking pivots become uneconomical.
+        if(Math.abs(prev.vx-action.vx)>.42)cost+=.10;
+        cost+=.06*Math.abs(prev.yaw-action.yaw)/Math.max(.1,yaw);
       }
       const g=current.g+cost;
       if(g>=(costs[side].get(h)??Infinity)-1e-8)continue;
@@ -174,6 +182,6 @@ export function bidirectionalMotionRoute(start,goal,limits,trees=[],opts={}){
           expanded:expansions,
           meetPose:{...best.f.pose},
           connectionMetres:best.connector.meters,
-          modes:['body twist','reverse time search','curvature bridge'],
-          families:'27 joystick options, unsupported pivots excluded'};
+          modes:['forward arcs','reverse arcs','in-place yaw','curvature bridge'],
+          families:'9 yaw samples × {forward, reverse, pivot}, with no sideways cruise'};
 }
