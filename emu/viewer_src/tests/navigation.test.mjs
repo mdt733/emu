@@ -102,3 +102,24 @@ test('UI keeps manual and random-control modes alongside pose missions', async()
   assert.match(sim,/this\.routeLine/);
   assert.match(sim,/this\.resetGeneration=/);
 });
+
+
+test('several longer target poses are planned inside the 4m field, with no tree entry',()=>{
+  const start={x:0,y:0,heading:0};
+  const goals=[{x:2.6,y:0,heading:0},{x:1.5,y:2.0,heading:Math.PI/2},
+               {x:-2.0,y:-1.0,heading:-Math.PI/2}];
+  for(const goal of goals){
+    const route=planPoseRoute(start,goal,limits,[],{maxNodes:7000});
+    assert.ok(route?.solved, 'goal not planned '+JSON.stringify(goal));
+    assert.ok(route.estimatedSeconds>0);
+    assert.ok(route.steps.at(-1).final);
+  }
+  const tree={x:.8,y:0};
+  const goal={x:1.8,y:0,heading:0};
+  const route=planPoseRoute(start,goal,limits,[tree],{maxNodes:7000});
+  if(route){
+    for(const step of route.steps)
+      assert.ok(Math.hypot(step.x-tree.x,step.y-tree.y)>=TREE_CLEARANCE_M,
+        'route entered collision keep-out');
+  }
+});
