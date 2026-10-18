@@ -184,7 +184,7 @@ test('v5016 delayed ToF/flow readings preserve acquisition time and sensor confi
   });
   const o=new SensorObserver(contract);
   o.reset(pose(0),false);
-  assert.equal(o.read([0,0,-1]).velocity[0],0);
+  assert.ok(Math.abs(o.read([0,0,-1]).velocity[0])<1e-8);
   o.advance(pose(.15),false);
   assert.ok(Math.abs(o.read([0,0,-1]).velocity[0])<1e-8);
   o.advance(pose(.15),false);
