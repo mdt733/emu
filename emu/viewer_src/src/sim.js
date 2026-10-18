@@ -498,7 +498,6 @@ export class EmuBrowserSim {
   }
 
   createNavigationGuides() {
-    const THREE=this.THREE;
     const mat=new THREE.MeshBasicMaterial({color:0xfce38b,side:THREE.DoubleSide,
                                            depthWrite:false,depthTest:true});
     this.targetRing=new THREE.Mesh(new THREE.RingGeometry(.16,.205,40),mat);
@@ -533,7 +532,6 @@ export class EmuBrowserSim {
   setNavigationOverlay(goal,route) {
     if(!goal||!route){this.clearNavigationOverlay();return;}
     if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
-    const THREE=this.THREE;
     const z=this.terrainHeightAt(goal.x,goal.y);
     this.targetRing.position.set(goal.x,goal.y,z+.030);
     this.targetArrow.position.set(goal.x,goal.y,z+.045);
