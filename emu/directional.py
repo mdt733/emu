@@ -413,6 +413,93 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
     return pairs
 
 
+def diagnose_contact_stride_gate(body_xy, feet_xyz, contacts, *,
+                                 settle_frames=0, foot_clearance_m=None):
+    """Explain the existing conservative walking test without relaxing it.
+
+    A real touchdown requires floor contact to reappear after a liftoff;
+    diagnostic rejection counters can overlap. This function never
+    manufactures missing contacts or changes the walking pass threshold.
+    """
+    body = np.asarray(body_xy, dtype=float)
+    feet = np.asarray(feet_xyz, dtype=float)
+    ct = np.asarray(contacts)
+    n = len(body)
+    if body.shape != (n, 2) or feet.shape != (n, 2, 3) or ct.shape != (n, 2):
+        raise ValueError('expected aligned body, ball feet, and floor contact arrays')
+    if ct.dtype != np.bool_ or n < 2 or not 0 <= settle_frames < n:
+        raise ValueError('contacts must be boolean and settle window valid')
+    clearance = (np.asarray(foot_clearance_m, dtype=float)
+                 if foot_clearance_m is not None else feet[:, :, 2] - .018)
+    if clearance.shape != (n, 2) or not all(np.isfinite(v).all()
+            for v in (body, feet, clearance)):
+        raise ValueError('invalid finite ball-foot clearance/trajectory')
+    per_foot = []
+    strict_pairs = count_contact_strides(
+        body, feet, ct, settle_frames=settle_frames,
+        foot_clearance_m=clearance)
+    for side in (0, 1):
+        contacts_side = ct[:, side]
+        liftoff = 0
+        touchdown = 0
+        airborne_runs = 0
+        qualifying = 0
+        max_air = 0
+        max_lift = float(np.max(clearance[settle_frames:, side]))
+        max_swing = 0.
+        max_body = 0.
+        rejects = {'airborne_under_3_frames': 0,
+                   'toe_clearance_under_4mm': 0,
+                   'foot_relocation_under_12mm': 0,
+                   'body_motion_under_25mm': 0}
+        start = None
+        for k in range(max(1, settle_frames), n):
+            if contacts_side[k-1] and not contacts_side[k]:
+                liftoff += 1
+                start = k-1
+            elif not contacts_side[k-1] and contacts_side[k]:
+                touchdown += 1
+                if start is not None:
+                    air = k-start-1
+                    peak = float(np.max(clearance[start+1:k, side])) if air else 0.
+                    foot_path = float(np.linalg.norm(
+                        feet[k, side, :2]-feet[start, side, :2]))
+                    body_path = float(np.linalg.norm(body[k]-body[start]))
+                    airborne_runs += 1
+                    max_air = max(max_air, air)
+                    max_swing = max(max_swing, foot_path)
+                    max_body = max(max_body, body_path)
+                    flags = {
+                        'airborne_under_3_frames': air < 3,
+                        'toe_clearance_under_4mm': peak < .004,
+                        'foot_relocation_under_12mm': foot_path < .012,
+                        'body_motion_under_25mm': body_path < .025,
+                    }
+                    for name, bad in flags.items():
+                        rejects[name] += int(bad)
+                    qualifying += int(not any(flags.values()))
+                start = None
+        per_foot.append({
+            'foot': 'right' if side == 0 else 'left',
+            'contact_fraction': float(np.mean(contacts_side[settle_frames:])),
+            'liftoffs': liftoff,
+            'touchdowns': touchdown,
+            'completed_airborne_periods': airborne_runs,
+            'qualifying_touchdowns': qualifying,
+            'longest_completed_airborne_frames': max_air,
+            'peak_signed_ball_bottom_clearance_mm': max_lift*1000.,
+            'max_foot_relocation_during_air_m': max_swing,
+            'max_body_translation_during_air_m': max_body,
+            'touchdown_rejections_nonexclusive': rejects,
+        })
+    return {
+        'strict_completed_stride_pairs': int(strict_pairs),
+        'foot_contact_source': 'actual floor-to-ball contact pair',
+        'scoring_note': 'not an unconstrained foot lift estimate',
+        'per_foot': per_foot,
+    }
+
+
 def examine_actuator_trace(trace, world, *, start, stop, dt, terminal):
     """Read-only per-servo load and work evidence from the existing MJX trace.
 
