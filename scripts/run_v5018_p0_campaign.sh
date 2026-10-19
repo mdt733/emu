@@ -76,6 +76,7 @@ run npm_tests npm --prefix "$ROOT/emu/viewer_src" test
 run npm_build npm --prefix "$ROOT/emu/viewer_src" run build
 run gpu_doctor emu doctor --domain-smoke
 run contact_ray_v3 python "$ROOT/scripts/v5018_terrain_spike.py" --batch
+run wasm_cpu_gap node "$ROOT/emu/viewer_src/scripts/v5018_wasm_contact.mjs" "$OUT/v5018_p0a_spike_v3_results.json"
 run moving_contacts python "$ROOT/scripts/v5018_dynamic_contact.py"
 run scanner_coverage python "$ROOT/scripts/v5018_scanner_coverage.py"
 run clearance_kinematics python "$ROOT/scripts/v5018_clearance_envelope.py"
