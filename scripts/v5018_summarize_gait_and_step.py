@@ -60,8 +60,13 @@ def aggregate(root: Path):
             'course':f"{info['step_height_mm']}mm",
             'mode':'on' if info['heading_kp'] else 'off',
             'seed':info['seed'],'worlds':info['worlds'],
+            'requested_speed_m_s':info.get('requested_body_vx_m_s'),
+            'step_yaw_deg':info.get('step_yaw_deg',0.),
             'crossing_pass':info.get('crossing_success_worlds'),
             'step_contact_world_frames':info.get('step_contact_world_frames'),
+            'foot_frames_inside_step_xy':info.get('foot_frames_inside_step_xy'),
+            'foot_frames_inside_step_xy_bottom_below_top_by_3mm':
+                info.get('foot_frames_inside_step_xy_bottom_below_top_by_3mm'),
             'mean_signed_progress_m':info.get('mean_signed_progress_m'),
             'rejection_counts':reject_counts,
         })
@@ -90,9 +95,12 @@ def aggregate(root: Path):
                   f"strides={row['qualified_strides_total']} "
                   f"diagnostics={'yes' if row['has_stride_diagnostic'] else 'no'}")
         else:
-            print(f"step={row['course']:4} kp={row['mode']} "
-                  f"seed={row['seed']} crossing={row['crossing_pass']}/{row['worlds']} "
+            print(f"step={row['course']:4} yaw={row['step_yaw_deg']:+.0f}deg "
+                  f"speed={row['requested_speed_m_s']:.2f}m/s "
+                  f"kp={row['mode']} seed={row['seed']} "
+                  f"crossing={row['crossing_pass']}/{row['worlds']} "
                   f"box_contact_frames={row['step_contact_world_frames']} "
+                  f"foot_in_step_xy={row['foot_frames_inside_step_xy']} "
                   f"failure_reasons={row['rejection_counts']}")
     print(f"Saved: {out}")
 
