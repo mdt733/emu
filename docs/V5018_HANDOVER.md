@@ -210,6 +210,34 @@ to see *some* physical threshold traversal:
   runner are **committed but not executed on user's GPU**
   yet. They may discover issues requiring targeted fixes.
 
+**Fourth frontier attempt — partial, NOT a failed physics result:**
+At 10:26 AEDT, user executed
+`scripts/run_v5018_obstacle_frontier.sh` on
+`c6a5dab5b0ea9b7c6d34db2b6e85599ae015314a`.
+Protected policy hash remained unchanged; 4/4 targeted
+Python tests and all four matched real flat/10° directional
+studies (four worlds each, heading OFF/ON) completed.
+Flat course passing 2/4→3/4; 10° uphill, downhill,
+cross-left course passing 0/4 both modes. Heading
+mean absolute errors OFF→ON 14.21→4.57°, 22.01→5.37°,
+45.29→7.39°, 68.77→27.94°, respectively. The cross-left
+yaw-rate error and slip worsened despite better orientation.
+**No step-height/angle/speed frontier trials ran**: the
+shell runner stopped with `code_y: unbound variable`
+while expanding the first step trial filename.
+
+**Corrected only on the feature branch after the attempt:**
+fixed `code_y`→`code_yaw`, added
+`--resume EXISTING_OUTPUT_DIR`, skip only
+stage-PASS + extant logs/artifacts, original policy hash
+verification, original and resumed commit history in
+`revision_history.tsv`, and EXIT-trap tar.gz even if
+an unexpected error occurs. This fix has not been
+verified by a subsequent user-run yet. **Use the same
+output directory and do not repeat the four GPU studies**.
+This is a *mixed-commit resumed campaign* by design;
+interpret logs with their stored revision history.
+
 **NEXT USER-RUN (when not sharing GPU with other training):**
 
 ```bash
@@ -217,10 +245,11 @@ cd ~/emu-v5018
 git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_obstacle_frontier.sh
+bash scripts/run_v5018_obstacle_frontier.sh --resume \
+  ~/robot_lab/emu_exams/v5018_frontier_20261020_102641
 ```
 
-The script saves a `~/robot_lab/emu_exams/v5018_frontier_*.tar.gz`
+The script resumes a `~/robot_lab/emu_exams/v5018_frontier_*.tar.gz`
 containing per-experiment source/actor identities, exact stride
 displacement and crossing logs and JSON. Upload the archive even
 if some stages fail. **Do not rerun the previous three complete
@@ -323,11 +352,17 @@ evidence and user-approved PR.**
 > per-airborne-interval torso travel threshold rejects
 > nearly all genuine touchdown cycles. Do NOT relax
 > the score without quantitative per-event evidence.
-> Next experiment committed but UNEXECUTED:
-> `bash scripts/run_v5018_obstacle_frontier.sh`,
-> which audits real touch-down-event distributions and
-> tests height, ±25° face-angle, speed and heading control
-> with matched seeds on read-only collidable geometry.
+> The first frontier run (10:26 AEDT, original commit
+> `c6a5dab`) passed 4/4 Python tests and four flat/10°
+> heading OFF/ON diagnostics, then STOPPED with a Bash
+> unbound variable `code_y` in the step-trial filename
+> before any step-height/angle/speed frontier ran.
+> New feature-branch fix adds a resumable runner; execute
+> `bash scripts/run_v5018_obstacle_frontier.sh --resume
+> ~/robot_lab/emu_exams/v5018_frontier_20261020_102641`
+> after pulling the current branch, and send the archive.
+> Earlier diagnostics and resumed frontier use different
+> recorded commits; the full study is still incomplete.
 > Update the ONE authoritative living checklist
 > `docs/V5018_TERRAIN_PLAN.md`. Keep experimental
 > source/actor SHA evidence. Never change main, champion,
