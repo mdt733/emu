@@ -147,56 +147,97 @@ effort warning **not a measured winding temperature/current
 or safe hardware duty cycle**. No physical hardware run is
 authorized by this work.
 
-**New branch code after the heading archive (NOT YET RUN):**
-- Corrected the exception-message unit assertion.
-- Kept the existing conservative walking score intact and
-  added **reason-level diagnostic counts** for liftoff,
-  touchdown, airborne time, clearance, foot relocation and
-  torso progress in the read-only course evaluator, plus
-  focused synthetic tests.
-- Added a named obstacle-contact mask to
-  `ppo.evaluate_trace` for evaluation ONLY; actor input,
-  checkpoint shape, policy weights and reward functions
-  are unchanged.
-- Implemented an independent frozen-policy
-  `scripts/v5018_champion_step_pilot.py` that copies
-  the robot XML, adds physically collidable **5mm or 10mm**
-  steps (plus an off-course-box flat control), and scores
-  genuine 2-foot-plus-torso course completion inside a
-  world-fixed corridor, with actual ball-to-obstacle
-  contacts recorded. No training or auto-promotion.
-- Batched these into
-  `scripts/run_v5018_gait_and_step_pilot.sh`: target the
-  previous regression, collect exact stride rejection
-  evidence on flat/10° grades, run frozen actor ON/OFF
-  through small steps across two seeds, and generate a
-  `.tar.gz` and compact summary.
+**Third uploaded archive (20 October 09:49, fully reviewed):**
+`v5018_gait_step_20261020_094915.tar.gz`, tested feature commit
+`45f0655f687fa4628f0c9b002c5af202362e2896`, same protected
+champion SHA-256
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+**All 15 stages PASS**, including **6/6 targeted Python tests**.
+Frozen actor measured real collidable steps in copied XML, with
+0mm/off-course-box flat control, 5mm step and 10mm step. Every
+real-step variant physically registered actual ball-foot/box
+contacts (5mm **914**, 10mm **1,031** world-frame occurrences
+summed over its 3 configurations); no off-course-box contact
+on flat.
 
-**NEXT USER-RUN after current branch update:**
+**The exciting finding:** no terrain policy training needed
+to see *some* physical threshold traversal:
+- OFF heading correction (seed 1701): **0/4** strict
+  fixed-world corridor crossings for each flat/5/10mm course.
+- ON (kp=.75, seeds 1701+1702): **4/8 flat**,
+  **5/8 with 5mm box**, **6/8 with 10mm box**.
+- All failing pilot scores were **corridor_detours**,
+  often torso drift 0.13–0.29m vs ±0.12m allowed.
+  Successful scores required torso + both feet beyond
+  actual obstacle far edge, genuine subsequent far-side
+  support and finish runout. The contact counts prove
+  collision interaction but do NOT prove an intentionally
+  adapted high-step gait; spherical feet may bump/roll
+  over shallow edges. Do not infer 10mm universally
+  easier than 5mm; there are only two ON seeds and
+  one OFF seed.
+- Critically, strict contact-pair *walking* gait score
+  remains **zero on flat** despite authentic liftoffs,
+  touchdown transitions and airborne intervals.
+  The new rejection counters show the
+  **25mm torso motion required within each individual
+  foot airborne interval** rejects nearly every
+  touchdown on flat. A naturally short-step robot may
+  fail this criterion despite useful movement.
+  Do **not** edit pass criteria until per-event displacement,
+  true support/foot travel/slip evidence is measured.
+- Baseline actuator effort remains high (~74–76% of
+  scored samples above simulated nominal continuous
+  torque). No real hardware motor thermal proof.
+
+**Branch implementation AFTER 09:49 archive (not WSL executed):**
+- Added per-event real-contact airborne interval diagnostics
+  including frame numbers, foot/body travel, clearance and
+  p10/median/p90 distributions; existing conservative gait
+  pass/fail rule is unchanged.
+- Expanded the same immutable frozen-champion pilot to
+  **0/5/10/15/20mm steps**, rotated step faces up to **±35°**,
+  forward speeds **0.05–0.18m/s**, conservative projected
+  near/far scoring bounds, spatial ball-foot-vs-box height
+  diagnostics; still no NN terrain preview or reward changes.
+- Added `scripts/run_v5018_obstacle_frontier.sh` with
+  targeted unit tests, four real flat/10° directional-stride
+  investigations, controlled two-seed height sweeps,
+  ±25° face-angle trials, slower/faster 0.07/0.14m/s
+  trials and heading OFF comparisons. Every experiment
+  logs its own exit and actual crossing result.
+- The event-probe, angle/height/speed extension and batch
+  runner are **committed but not executed on user's GPU**
+  yet. They may discover issues requiring targeted fixes.
+
+**NEXT USER-RUN (when not sharing GPU with other training):**
 
 ```bash
 cd ~/emu-v5018
 git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_gait_and_step_pilot.sh
+bash scripts/run_v5018_obstacle_frontier.sh
 ```
 
-Output: `~/robot_lab/emu_exams/v5018_gait_step_YYYYMMDD_HHMMSS.tar.gz`.
-Send that archive, even if a new probe fails. The new scripts
-are committed, not yet WSL-tested. **Do not rerun either
-previous big campaign** just to address a stale test message.
-The live detailed evidence and next gate status remain
-exclusively in `docs/V5018_TERRAIN_PLAN.md`.
+The script saves a `~/robot_lab/emu_exams/v5018_frontier_*.tar.gz`
+containing per-experiment source/actor identities, exact stride
+displacement and crossing logs and JSON. Upload the archive even
+if some stages fail. **Do not rerun the previous three complete
+batches.** The sole authoritative historical measurements
+and gates are in `docs/V5018_TERRAIN_PLAN.md`.
 
-**Still open:** dynamic servo under-load clearance, attached
-forward scanner moving-leg occlusion/dropout/odometry and
-full six-servo MJX–CPU–WASM commanded trajectory equivalence.
-The new step experiment is a **frozen-policy baseline**, not
-a newly trained terrain controller. The 220/232 exports are
-preserved; `terrain_312` is not frozen. No changes to main,
-showcase, Pages or a running GPU training process without
-explicit permission.
+**Still P0B blockers:** dynamic, torque-limited true swing
+clearance and hardware energy budget; realistic moving-leg
+forward-scan occlusion/dropout/IMU+flow drift; identical actual
+six-servo contact course CPU/MJX/WASM transfer. P1 training
+physics has not yet been corrected for terrain-relative support,
+swing, stance slip and reward. The current 0/5/10 crossing
+pilot demonstrates partial pre-existing physical obstacle
+capability, **not a trained terrain-aware 312-input actor**.
+Do not advance P1 learning or promote a champion based on these
+small samples. Preserve the existing 220/232 interface, main,
+the showcase, Pages and any ongoing GPU run.
 
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
@@ -264,29 +305,33 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 exclusively on `feature/v5018-terrain-awareness`
+> Continue EMU v5018 strictly on `feature/v5018-terrain-awareness`
 > at https://github.com/mdt733/emu. Read the actual
 > `docs/V5018_HANDOVER.md`, `docs/V5018_TERRAIN_PLAN.md`,
-> and `docs/INSTALL.md` from the *current feature-branch HEAD*.
-> The 20 Oct 08:18 big P0 and 09:07 frozen-champion heading
-> archives have been reviewed. Physical primitive collisions/rays
-> work at up to 2048 EMU GPU environments, but these are
-> NOT verified terrain walking; the frozen 232 champion's
-> 80 tests all survived while strict gait-qualified passes
-> remained zero, and heading P (.75) markedly reduced yaw
-> error. A real 232 PPO smoke passed. The currently
-> committed next test is
-> `bash scripts/run_v5018_gait_and_step_pilot.sh`,
-> producing strict stride-rejection diagnostics plus true
-> 0/5/10mm box-step no-detour exam JSON. No output has
-> been reviewed for this new script yet; interpret real
-> crossing scores rather than script exit status.
-> User observed 10° viewer slope capability; preserve it
-> while diagnosing actual controlled gait. Keep source
-> SHA and champion hash in every archive. Update only
-> the ONE living checklist `docs/V5018_TERRAIN_PLAN.md`.
-> Work/commit only on feature branch: never alter main,
-> showcase, Pages, or active training; do not freeze
-> terrain_312 until physical forward scanner studies;
-> do not claim unexecuted tests passed.
-
+> and `docs/INSTALL.md` from the CURRENT feature-branch
+> Git HEAD. Three 20 October archives were reviewed:
+> 08:18 P0A GPU/contact probes, 09:07 frozen 232 champion
+> heading 10° physical-plane ON/OFF, 09:49 real 0/5/10mm
+> obstacle crossing/stride diagnostics. Current physical
+> frozen policy actually crossed 5mm (5/8) and 10mm (6/8)
+> box obstacles with heading P ON, 0/4 OFF each seed1701,
+> using no-detour objective world-fixed course scoring;
+> many failed solely on lateral corridor drift. These
+> are small frozen-policy tests and do not prove a terrain
+> NN preview or true high-foot stepping. Strict gait
+> qualification remains zero on flat because the 25mm
+> per-airborne-interval torso travel threshold rejects
+> nearly all genuine touchdown cycles. Do NOT relax
+> the score without quantitative per-event evidence.
+> Next experiment committed but UNEXECUTED:
+> `bash scripts/run_v5018_obstacle_frontier.sh`,
+> which audits real touch-down-event distributions and
+> tests height, ±25° face-angle, speed and heading control
+> with matched seeds on read-only collidable geometry.
+> Update the ONE authoritative living checklist
+> `docs/V5018_TERRAIN_PLAN.md`. Keep experimental
+> source/actor SHA evidence. Never change main, champion,
+> GitHub Pages or a running training process. Avoid
+> premature terrain_312 freeze or huge PPO runs before
+> physically correct terrain-referenced metrics,
+> realistic forward sensors and hardware load constraints.
