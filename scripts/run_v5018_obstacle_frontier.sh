@@ -98,23 +98,30 @@ run() {
   echo "$stage exit=$code" | tee -a "$OUT/campaign.log"
 }
 
-# Tiny no-GPU runner preflight: execute filename expansion for every
-# parameter shape, and refuse duplicates before launching the frontier.
-# This specifically guards against unbound/obsolete shell variable names.
+# The ONLY experiment-stage name formatter, shared by actual execution and
+# dry preflight. This avoids a second stale variable in a copy of the logic.
+step_stage_name() {
+  local h="$1" yaw="$2" speed="$3" seed="$4" kp="$5"
+  local mode=on
+  if [[ "$kp" == 0 ]]; then mode=off; fi
+  local code_speed="${speed/./p}"
+  local code_yaw="${yaw/-/m}"
+  code_yaw="${code_yaw/+/p}"
+  printf 'step_%smm_yaw%s_speed%s_%s_seed%s\n' \
+    "$h" "$code_yaw" "$code_speed" "$mode" "$seed"
+}
+
+# No-GPU preflight uses the SAME formatter as step() and checks all 180
+# unique names before any expensive heading or physics experiment.
 check_step_naming() {
-  local h yaw speed seed kp mode code_speed code_yaw stage
+  local h yaw speed seed kp stage
   local -A names=()
   for h in 0 5 10 15 20; do
     for yaw in 0 -25 25; do
       for speed in .07 .10 .14; do
         for seed in 1701 1702; do
           for kp in 0 .75; do
-            mode=on
-            if [[ "$kp" == 0 ]]; then mode=off; fi
-            code_speed="${speed/./p}"
-            code_yaw="${yaw/-/m}"
-            code_yaw="${code_yaw/+/p}"
-            stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
+            stage="$(step_stage_name "$h" "$yaw" "$speed" "$seed" "$kp")" || return 2
             if [[ -n "${names[$stage]+seen}" ]]; then
               echo "Duplicate frontier experiment name: $stage" >&2
               return 2
@@ -155,12 +162,11 @@ done
 
 step() {
   local h="$1" yaw="$2" speed="$3" seed="$4" kp="$5"
-  local mode=on
-  if [[ "$kp" == 0 ]]; then mode=off; fi
-  local code_speed="${speed/./p}"
-  local code_yaw="${yaw/-/m}"
-  code_yaw="${code_yaw/+/p}"
-  local stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
+  local stage
+  stage="$(step_stage_name "$h" "$yaw" "$speed" "$seed" "$kp")" || {
+    echo "Could not construct unique frontier stage name" >&2
+    exit 2
+  }
   run "$stage" python "$ROOT/scripts/v5018_champion_step_pilot.py" \
     --height-mm "$h" --step-yaw-deg "$yaw" --speed "$speed" \
     --heading-kp "$kp" --seed "$seed" --worlds 4 \
