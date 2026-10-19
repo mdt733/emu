@@ -403,58 +403,115 @@ were executed under that archived SHA.
   for physical hardware or a safe transfer criterion. Before
   real deployment, address actuator realism and effort/heat.
 
-### Committed AFTER this archive — unexecuted diagnostic/pilot branch
+### 20 Oct 09:49 — independent first physical step/stride pilot, reviewed
 
-- [~] `emu/directional.py::diagnose_contact_stride_gate` now
-  records per-foot genuine contact fraction, liftoffs,
-  touchdowns, airborne duration, toe clearance, swing travel,
-  body displacement, **specific strict rejection reasons**
-  and unchanged strict stride score. Hooked into read-only
-  `evaluate_trace_arrays` outputs, with focused unit test.
-- [~] `emu/ppo.py` read-only evaluation trace now records
-  actual foot-vs-named-obstacle **collision contact pairs**
-  separately from flat-plane support. This does **not**
-  touch policy observations, training rewards or neural weights.
-- [~] `scripts/v5018_champion_step_pilot.py` builds
-  independent XML course copies with an off-course box flat
-  control, **real 5mm/10mm raised boxes**, preserved 232-input
-  sensor/actuation protocol and frozen actor. Uses the already
-  defined **world-fixed no-detour scorer**, and requires far-side
-  genuine foot support; step contacts and course failures
-  are recorded explicitly. **No policy terrain training.**
-- [~] `scripts/run_v5018_gait_and_step_pilot.sh` batches
-  targeted Python checks, four repeated 0°/10° heading
-  ON/OFF exams with new stride forensics, and nine frozen
-  flat/5/10mm step experiments across seeds/gains, then
-  `scripts/v5018_summarize_gait_and_step.py` writes a
-  compact report and archive. **Committed; no local GPU
-  execution evidence yet.** A zero-crossing result is valid
-  research evidence and must not be presented as PASS on
-  obstacle traversal.
+**User-run archive:** `v5018_gait_step_20261020_094915.tar.gz`.
+**Exactly tested feature commit:**
+`45f0655f687fa4628f0c9b002c5af202362e2896`.
+**Protected 260M actor SHA-256:**
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+The post-archive branch is newer; do not conflate newly committed
+instrumentation with this old-source test result.
 
-### Next branch-only implementation (committed, not yet verified by WSL)
+- [x] **All 15/15 independent stages exited zero**; six targeted
+  pytest cases **6/6 PASS in 0.38s**. Four matched
+  0°/10° directional-gait probes, nine frozen actual 0/5/10 mm
+  courses, objective report summary. The prior assertion-message
+  error is resolved **on the tested source**.
+- [x] Read-only 232 frozen actor, commanded **+0.10 m/s** for
+  **350 × 20 ms = 7s** in **four worlds per case**,
+  heading P=0 or P=.75 (no motor scripting), two seeds for ON,
+  one seed for OFF. All step geometries are actual *static
+  collidable boxes* in a transient copy of robot XML; untouched
+  `showcase/champion.emupolicy`, policy observation, weights,
+  reward and old training roots.
+- [x] Objective course crossing gate checks fixed world-frame
+  forward course, torso and BOTH ball feet beyond the far edge,
+  genuine subsequent foot-ground-or-obstacle support, 0.42m finish,
+  heading reversal, timeouts, teleport, stable runout and
+  **±0.12m torso corridor**. The physical obstacle spans
+  ±0.20m in Y (so ordinary body detours outside the corridor
+  cannot simply sidestep a 0.08m longitudinal box).
+- [x] **Course gate successes (per tested pilot, not gait-certified):**
 
-- [~] Fixed the two pytest regressions **after** this archive.
-- [~] `scripts/run_v5018_frozen_champion_baseline.sh` now
-  schedules corrected targeted pytest, real **232-input PPO**
-  smoke and matched frozen-champion
-  **heading P-controller OFF/ON** 0° flat, real 10° uphill,
-  real 10° downhill, cross-left 10° (seeds 1701, 1702),
-  plus flat reverse and turn-stop. All independent outcomes,
-  hash-identified, no actor modification or long training.
-  This command is **not yet executed**.
-- [~] Added pure `emu/directional.py::examine_obstacle_crossing`
-  no-detour/two-foot-support evaluator and adversarial unit
-  examples (turn-around, backtracking, bypass, hover, long stall,
-  reset/teleport). **Only a scorer contract, not wired into
-  training or P1 terrain rewards.** Its new tests have not
-  yet been run, and P1 integration remains gated on P0.
-- [~] `scripts/bootstrap_wsl_v5018.sh` installs a blank Ubuntu
-  WSL Python 3.13 via uv, CUDA JAX, pinned npm/Node;
-  committed but **not separately rerun clean-room**.
-- [x] `@mujoco/mujoco` viewer pinned to npm package **3.15.0**
-  in manifest and lock; actual npm CI, **12 tests**, build
-  and minimal WASM fixture executed PASS in this archive.
+  | Scenario | Heading OFF, seed 1701 | Heading ON, seed 1701 | Heading ON, seed 1702 | Heading ON total |
+  |---|---:|---:|---:|---:|
+  | Flat with off-course control box | 0/4 | 1/4 | 3/4 | **4/8** |
+  | Actual 5mm raised box | 0/4 | 2/4 | 3/4 | **5/8** |
+  | Actual 10mm raised box | 0/4 | 3/4 | 3/4 | **6/8** |
+
+  Every failed pilot crossing in this dataset was labelled
+  **`corridor_detour`**, with actual torso max lateral excursions
+  often 0.13–0.29m. Other scorer gates passed in those worlds.
+  This supports evaluating heading hold as a useful stabiliser,
+  **not** treating it as an automatic guarantee of accurate lateral
+  path following. Unequal OFF/ON seed coverage prevents simplistic
+  0/12 vs 15/24 inferential claims.
+- [x] Real ball-foot/box *world-frame* contact counts across 3 pilot
+  configs: **5mm: 314+315+285=914**; **10mm:
+  365+379+287=1,031**. Flat control: **0**. Every step trial
+  touched the real obstacle with the simulated ball feet.
+  **Contact by itself does not certify a controlled step-over
+  manoeuvre**: sphere feet may contact/roll against the edge,
+  and the current pilot did not record step-top vs riser normals,
+  peak penetration, true impulse or force transfer.
+- [!] The surprising empirical **10mm 6/8 vs 5mm 5/8 vs flat 4/8**
+  is *not proof higher obstacles are easier*. Sample is small;
+  contact can affect lateral guidance/foot motion and scoring
+  margin. The next controlled frontier should change one
+  dimension at a time with matched seeds/commands/same corridor.
+- [!] The strict *walking/gait* gate still recorded zero
+  qualification on flat and uphill, with **some** downhill and
+  cross-slope alternating touchdown pairs. Across four
+  flat-control worlds the contact diagnostic recorded **around
+  100 liftoffs per foot aggregate**, contact fractions ~0.56–0.62,
+  and real airborne intervals up to 6–7 × 20ms.
+  The strongest rejection was **`body_motion_under_25mm`**
+  during each specific air interval: ~96–100 of ~100
+  completed flat touchdowns per foot. Air duration and
+  4mm toe clearance were often adequate; foot displacement
+  sometimes under 12mm. A fixed 25mm-per-airborne-event
+  body-travel requirement may not suit an actual *short-step*
+  gait, but **do not quietly relax the scoring gate**;
+  first inspect per-event displacement distributions, support
+  transfer and foot slip/chatter. Qualifying touchdown
+  counters and alternating *pairs* are separate.
+- [!] Servo over-nominal-continuous model torque in the actual
+  step pilot was typically around **0.74–0.76 of samples**,
+  confirming existing efficiency/hardware realism warning.
+
+### Implemented AFTER the 09:49 archive (not yet run on WSL)
+
+- [~] Extended **read-only** `diagnose_contact_stride_gate` with
+  every independent contact-backed airborne event's start/end
+  frame, toe-clearance, per-step foot/torso displacement and
+  p10/median/p90 distribution. Strict previous pass criteria
+  and physical contact source are unchanged; focused synthetic
+  tests were expanded. This is designed to identify real
+  small-stride walking versus contact chatter/sliding without
+  upgrading failed evidence into a false pass.
+- [~] Extended `scripts/v5018_champion_step_pilot.py` to a
+  bounded **0/5/10/15/20mm** geometric course and **±35°**
+  step front-face orientation, optional **0.05–0.18m/s** forward
+  command, and recorded actual ball-feet spatial overlap with
+  the top of the obstacle. The world-frame near/far/finish
+  checks account for rotated box projected footprint.
+  **No new NN terrain preview, servo torque training or
+  full browser actor parity**.
+- [~] `scripts/run_v5018_obstacle_frontier.sh` batches the
+  targeted tests, fresh contact-backed stride diagnostics,
+  two-seed straight 0/5/10/15/20mm comparisons, ±25° face
+  approaches, 0.07/0.14m/s speed perturbation and matched
+  heading-OFF ablations; results/archive outside Git.
+  This campaign has **not** been run yet.
+- [~] Existing CLI evaluator and P0 campaign assets remain
+  compatible; the step extension and new diagnostics must be
+  validated on the user's WSL before performance claims.
+- [x] `@mujoco/mujoco` pinned to npm/WASM **3.15.0** with
+  prior 12/12 browser Node tests and ball fixture pass.
+  Full six-servo actor/terrain contact parity is not certified.
+- [~] `scripts/bootstrap_wsl_v5018.sh` remains committed
+  but has not been independently clean-room rerun.
 
 ## P0 blocking gates before schema freeze or PPO terrain training
 - [ ] Check *moving* collisions/toe strikes and actual contact/support force in MJX against CPU, not merely final sphere poses.
@@ -475,34 +532,37 @@ were executed under that archived SHA.
 - **P6:** Physical MuJoCo/WASM challenge courses, full-sensor consistency, preserve v5017 joystick/navigation/mobile.
 - **P7:** Independent validation/scoreboard and reviewed PR; **approval required** before main/showcase changes.
 
-## Next user-run: stride forensics and read-only discrete-step pilot
+## Next user-run: matched obstacle height/angle/speed frontier
 
-The previous physical slope/heading archive is complete and preserved;
-the two-target regression message mismatch was subsequently patched.
-Do **not** rerun those full frozen-champion tests to repair an exception
-message. The next branch-only experiment is:
+The first real 5/10mm pilot **succeeded**, and the source SHA plus
+full archive are preserved. **Do not rerun that entire completed batch.**
+The next *separate* read-only campaign is:
 
 ```bash
 cd ~/emu-v5018
 git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_gait_and_step_pilot.sh
+bash scripts/run_v5018_obstacle_frontier.sh
 ```
 
-This starts new read-only simulations in
-`~/robot_lab/emu_exams/v5018_gait_step_YYYYMMDD_HHMMSS/`
-and creates a compressed `.tar.gz`. Upload the archive.
-It produces actual reason-level contact-stride diagnostics and
-compares frozen 232 actor traversal on flat, 5mm, 10mm physical
-step courses with heading ON/OFF and two seeds. **No PPO terrain
-updates and no actor schema/reward change.** Trial pass means
-the execution completed, while `crossing_success_worlds`
-reports whether EMU truly crossed.
+Produces
+`~/robot_lab/emu_exams/v5018_frontier_YYYYMMDD_HHMMSS.tar.gz`;
+upload the archive including failures. It executes tests for new
+diagnostic/probe code first, then independent GPU experiments. A
+script-execution PASS is **not** terrain-crossing success.
+The archive must distinguish 0mm control and
+physical box contacts, original operator world-axis travel,
+frozen policy hash, actual crossing rate, speed/approach
+orientation, foot-over-top geometry and contact-event
+distributions.
 
-After evidence review: decide whether the zero strict gait
-passes come from physics/foot contact vs scorer thresholds,
-then repair/validate terrain-relative support and challenge
-contacts before designing the rolling profile and P1 train
-curriculum. Dynamic motor under-load clearance and realistic
-moving-leg sensor occlusion remain P0B blockers.
+Following this evidence: decide whether the frozen champion's
+true short steps are missed by the strict examiner, calibrate
+the gait metric on physical contacts/swing mechanics without
+retroactive manipulation of results, then close P0B moving-
+leg occlusion/realistic scanner and dynamic motor-envelope
+questions. **Only after independent verification** wire
+terrain-relative support/swing/termination into P1 and
+run bounded PPO experiments. Preserve the 220/232 actor
+contracts; terrain_312 remains provisional.
