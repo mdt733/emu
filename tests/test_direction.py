@@ -923,7 +923,8 @@ def test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support():
               requested_heading_rad=0.)
     with pytest.raises(ValueError,match='boolean contacts'):
         examine_obstacle_crossing(base,feet,np.ones((6,2)),head,**opts)
-    with pytest.raises(ValueError,match='world-fixed'):
+    # A zero-length requested course cannot have a valid world-fixed axis.
+    with pytest.raises(ValueError,match='course axis must be nonzero'):
         examine_obstacle_crossing(base,feet,np.ones((6,2),bool),head,
              **{**opts,'course_axis_xy':(0.,0.)})
     with pytest.raises(ValueError,match='aligned'):
