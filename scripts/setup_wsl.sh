@@ -5,14 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$ROOT"
 CUDA13=0
 INSTALL_NODE=0
+SKIP_TESTS=0
 for arg in "$@"; do
   case "$arg" in
     --cuda13) CUDA13=1 ;;
     --install-node) INSTALL_NODE=1 ;;
+    --skip-tests) SKIP_TESTS=1 ;;
     --help|-h)
-      printf 'Usage: bash scripts/setup_wsl.sh [--cuda13] [--install-node]\n'
+      printf 'Usage: bash scripts/setup_wsl.sh [--cuda13] [--install-node] [--skip-tests]\n'
       printf '  --cuda13         Install JAX CUDA 13 wheels for a compatible NVIDIA GPU\n'
       printf '  --install-node   Install Node 24 via official pinned nvm installer if missing\n'
+      printf '  --skip-tests     Explicitly skip Python regression suite (NOT a validation pass)\n'
       exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -20,7 +23,11 @@ done
 command -v git >/dev/null || { echo 'Git required. On Ubuntu: sudo apt install git' >&2; exit 1; }
 command -v curl >/dev/null || { echo 'curl required. On Ubuntu: sudo apt install curl' >&2; exit 1; }
 
-if command -v python3.13 >/dev/null 2>&1; then
+# Prefer the already-created isolated uv/venv Python. It may not have a
+# global python3.13 alias on fresh Ubuntu, but is still fully supported.
+if [[ -x .venv/bin/python ]] && .venv/bin/python -c 'import sys;sys.exit(sys.version_info < (3,13))'; then
+  PYTHON=.venv/bin/python
+elif command -v python3.13 >/dev/null 2>&1; then
   PYTHON=python3.13
 elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys;sys.exit(sys.version_info < (3,13))'; then
   PYTHON=python3
@@ -80,10 +87,20 @@ python -c 'import sys; assert sys.version_info >= (3,13), "Existing .venv uses t
 python -m pip install --upgrade pip
 if [[ $CUDA13 -eq 1 ]]; then python -m pip install 'jax[cuda13]'; fi
 python -m pip install -e '.[dev]'
-python -m pytest -q
-if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
+# Build the independent browser even if a Python regression subsequently fails.
+# Explicit --skip-tests is for an incomplete install or debugging session only.
 emu viewer-build
+(
+  cd emu/viewer_src
+  npm test
+)
 emu ladder --stage plan
+if [[ $SKIP_TESTS -eq 0 ]]; then
+  python -m pytest -q
+else
+  echo 'WARNING: Python regression suite SKIPPED; setup is not fully validated.'
+fi
+if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
 printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
