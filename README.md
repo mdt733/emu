@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
+**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
 
 ## How it works
 
@@ -24,7 +24,7 @@ results.py                       How did it learn? Which branches really improve
            export-policy
 ```
 
-EMU supports two deliberately versioned actor contracts: **v5015/Pitch15: 55×4 = 220 observations**, and **v5016/sim2real: 58×4 = 232 observations** (ToF ground grades and optical-flow-derived velocity with measurement timing/bias). Both output six joint targets. A full checkpoint contains the learning state; a smaller `.emupolicy` contains browser inference weights and its exact observation contract. The public site serves the **last explicitly published** champion, which may still be the historical 120M Pitch15 actor until the v5016 Pinnacle release is reviewed and manually deployed. A good-looking demo is not evidence of safe physical servos.
+EMU supports two deliberately versioned actor contracts: **v5015/Pitch15: 55×4 = 220 observations**, and **v5016/sim2real: 58×4 = 232 observations** (ToF ground grades and optical-flow-derived velocity with measurement timing/bias). Both output six joint targets. A full checkpoint contains the learning state; a smaller `.emupolicy` contains browser inference weights and its exact observation contract. The protected showcase asset now holds the **approved v5016 Pinnacle 260,112,384-step, 232-input actor**. GitHub Pages may show an older deployment until the release-specific Pages workflow succeeds. A good-looking demo is not evidence of safe physical servos.
 
 ## Start
 
@@ -51,7 +51,7 @@ See [INSTALL.md](docs/INSTALL.md) for fresh Windows/WSL setup, GPU checkpoint ac
 
 ## What the research found
 
-A shared **20M-step foundation** fed four matched 80M-step teaching experiments, then two 100M-step finalists and a 120M-step winner (320M aggregate training steps). **Pitch15** (a 15° chassis-pitch command teaching ceiling) ranked first on the common frozen-policy screen: 0.684 at 80M → 0.712 at 100M → **0.723 at 120M**. The last fully published reference was the genuine 120,061,952-step Pitch15 actor; v5016 adds a separate 232-input sensor/Pinnacle lineage. Until the selected Pinnacle policy is staged, reviewed and manually deployed, `showcase/champion.emupolicy` remains the historical actor. Public Pages can also serve the previous deployment until its manual workflow is run.
+A shared **20M-step foundation** fed four matched 80M-step teaching experiments, then two 100M-step finalists and a 120M-step winner (320M aggregate training steps). **Pitch15** (a 15° chassis-pitch command teaching ceiling) ranked first on the common frozen-policy screen: 0.684 at 80M → 0.712 at 100M → **0.723 at 120M**. That historical 120M Pitch15 reference remains in Git history. The reviewed `showcase/champion.emupolicy` is now the **260M-step v5016 Pinnacle actor**. The public browser viewer uses pose-lattice goal navigation by default, and the release-specific Pages workflow publishes the pinned asset without training or changing its weights.
 
 **Important limitation:** final training telemetry reported **74.1% of servo samples over the configured rated-torque threshold**. The model is a *simulation demonstration*, not a hardware-safe controller; signed distance, complete strides, real motor currents and contact transfer still require further study.
 

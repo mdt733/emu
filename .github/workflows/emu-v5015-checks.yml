@@ -79,3 +79,24 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard)"
       - name: Verify policy and WASM assets
         run: python3 scripts/verify_showcase_dist.py
+      # The deleted experimental browser harness is not invoked here.
+      # The twelve maintained viewer contracts run above. Full manual
+      # MuJoCo browser acceptance remains a release-review step.
+
+  cpu-viewer-ubuntu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate WSL viewer bootstrap syntax
+        run: |
+          bash -n scripts/install_viewer_wsl.sh
+          bash scripts/install_viewer_wsl.sh --self-test
+      - name: Fresh Ubuntu CPU-only viewer install (no training)
+        run: bash scripts/install_viewer_wsl.sh --destination "$RUNNER_TEMP/emu-viewer-cpu" --branch "${{ github.head_ref || 'main' }}" --no-launch

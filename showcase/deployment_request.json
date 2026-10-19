@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "release": "v5017-pose-lattice",
+  "approved_feature_commit": "ba7829ee794d597d420cced3b0c958ec9ed58582",
+  "policy_git_blob": "163a61fef6e75fcba91f254830f3858210b491a0",
+  "note": "Release-specific publication of the approved 260M actor with the v5017 lattice viewer; manually requested by repository owner on 2026-10-19.",
+  "viewer_git_blob": "3d6b971d295b9c3f1217ad5253c8db8b5108def3"
+}

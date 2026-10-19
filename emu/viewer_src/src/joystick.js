@@ -59,13 +59,23 @@ export class VirtualStick {
     this.set(clamp(x, -1, 1), clamp(y, -1, 1));
   }
 
+  // Show autonomous commands without generating a synthetic human-input
+  // event. Only genuine touch / keyboard actions invoke onChange.
+  setDisplay(x, y) {
+    this.render(x, y, false);
+  }
+
   set(x, y) {
+    this.render(x, y, true);
+  }
+
+  render(x, y, notify) {
     const len = Math.hypot(x, y);
     if (len < this.deadzone) { x = 0; y = 0; }
     this.x = x;
     this.y = y;
     const maxPx = this.root.clientWidth * 0.5 - this.nub.clientWidth * 0.5 - 5;
     this.nub.style.transform = `translate(calc(-50% + ${x * maxPx}px), calc(-50% + ${-y * maxPx}px))`;
-    this.onChange?.(x, y);
+    if(notify)this.onChange?.(x, y);
   }
 }

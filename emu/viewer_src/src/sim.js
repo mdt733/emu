@@ -82,6 +82,7 @@ export class EmuBrowserSim {
     this.showTrail = true;
     this.showShadows = true;
     this.createWorldGuides();
+    this.createNavigationGuides();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.01, 50);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(-0.72, -0.78, 0.52);
@@ -89,7 +90,7 @@ export class EmuBrowserSim {
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
-    this.controls.maxDistance = 4;
+    this.controls.maxDistance = 11; // orbit can frame the full 4m mission arena
     this.cameraMode = 'orbit'; // orbit | chase | raw | level
     this.chaseReady = false;
     this.chaseHeading = 0;
@@ -109,12 +110,11 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.parkTreesEnabled = true;
-    this.joystickMode = 'split';
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
-    this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
+    this.navPresentationActive = false; // presentation only; no alternate actor control path
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -126,10 +126,11 @@ export class EmuBrowserSim {
     this.sensorObserver = bundle.schema === 2
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
+    this.controlFrames = 0; // visible proof of live policy inference
+    this.motorTravelRad = 0; // integrated actuated joint movement (rad)
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
     this.command = { ...this.commandTarget };
-    this.phaseOverride = 0;
     this.episodePhaseHz = 1.025;
     this.phase = 0;
     this.prevAction = new Float32Array(6);
@@ -244,6 +245,8 @@ export class EmuBrowserSim {
       this.treeCrowns = null;
     }
     this.park = null;
+    // Terrain geometry moved; rebuild guide heights on the next nav tick.
+    this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -258,6 +261,16 @@ export class EmuBrowserSim {
 
   dispose() {
     this.disposeModel();
+    this.routeLine.geometry.dispose();
+    this.routeLine.material.dispose();
+    this.targetRing.geometry.dispose();
+    this.targetRing.material.dispose();
+    for(const mesh of [this.targetArrow.line,this.targetArrow.cone]){
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    this.arenaCircle.geometry.dispose();
+    this.arenaCircle.material.dispose();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
@@ -308,10 +321,6 @@ export class EmuBrowserSim {
     this.parkTreesEnabled=next;
     if(this.terrainMode==='park')this.loadModel();
   }
-  setJoystickMode(mode) {
-    if (!['split','hybrid'].includes(mode)) throw new Error('Unknown joystick layout');
-    this.joystickMode=mode;
-  }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
     // Bumpless engage: no jump towards an old target from an earlier mode.
@@ -322,18 +331,8 @@ export class EmuBrowserSim {
       throw new Error('Heading P gain must be between 0.3 and 5');
     this.headingKp=kp;
   }
-  setViewerPitchLimitDeg(degrees = null) {
-    // A browser-only command override, never a change to the trained PPO
-    // curriculum or its observation contract. Demo stays in trained range.
-    if (degrees !== null && (![30,45].includes(degrees)))
-      throw new Error('Viewer pitch override must be 30° or 45°');
-    this.viewerPitchLimitRad=degrees===null ? null : degrees*Math.PI/180;
-    const max=this.manualCommandLimits().pitch_abs_rad;
-    this.commandTarget.pitch=clamp(this.commandTarget.pitch,-max,max);
-  }
   manualCommandLimits() {
-    const trained=this.bundle.control.command_limits;
-    return {...trained, pitch_abs_rad:this.viewerPitchLimitRad??trained.pitch_abs_rad};
+    return this.bundle.control.command_limits;
   }
   actualHeading() {
     if (!this.data || !this.model) return 0;
@@ -380,7 +379,6 @@ export class EmuBrowserSim {
     };
     this.command = { ...this.commandTarget };
     this.requestedYaw = this.commandTarget.yaw;
-    this.phaseOverride = Number(d.phase_rate_hz ?? 0);
     this.reset();
   }
 
@@ -404,6 +402,7 @@ export class EmuBrowserSim {
   }
 
   reset() {
+    this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
     this.data.ctrl.fill(0);
@@ -440,7 +439,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.manualCommandLimits(), this.joystickMode,
+      leftX, leftY, rightX, rightY, this.manualCommandLimits(),
     ));
   }
 
@@ -450,6 +449,115 @@ export class EmuBrowserSim {
     this.commandTarget.vy = clamp(Number(vy), -l.vy_abs, l.vy_abs);
     this.commandTarget.yaw = clamp(Number(yaw), -l.yaw_abs, l.yaw_abs);
     this.commandTarget.pitch = clamp(Number(pitch), -l.pitch_abs_rad, l.pitch_abs_rad);
+  }
+
+  navigationPose() {
+    const o = this.torsoId * 3;
+    const heading=this.actualHeading(),c=Math.cos(heading),s=Math.sin(heading);
+    const wx=Number(this.data.qvel[0]),wy=Number(this.data.qvel[1]);
+    // MuJoCo freejoint angular qvel is body-local; turn it into an
+    // observed horizontal heading rate for navigation's yaw damping.
+    const R=this.bodyRotation(),q=this.data.qvel;
+    const ax=R[0]*q[3]+R[1]*q[4]+R[2]*q[5];
+    const ay=R[3]*q[3]+R[4]*q[4]+R[5]*q[5];
+    const az=R[6]*q[3]+R[7]*q[4]+R[8]*q[5];
+    const horizontal=Math.max(.01,R[0]*R[0]+R[3]*R[3]);
+    const yawRate=az-R[6]*(R[0]*ax+R[3]*ay)/horizontal;
+    return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
+      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,yawRate,
+      fallen:this.isFallen()};
+  }
+
+  navigationTrees() {
+    return this.terrainMode==='park' && this.parkTreesEnabled
+      ? this.park?.trees || [] : [];
+  }
+
+  setNavigationPresentation(active) {
+    const wasActive=this.navPresentationActive;
+    this.navPresentationActive=Boolean(active);
+    if(active&&!wasActive&&this.cameraMode==='orbit'){
+      // Frame the route rather than only a robot-sized patch of grass.
+      this.navSavedOrbit={position:this.camera.position.clone(),
+                          target:this.controls.target.clone()};
+      const p=this.navigationPose();
+      this.controls.target.set(p.x,p.y,.12);
+      this.camera.position.set(p.x-3.4,p.y-4.0,3.8);
+      this.controls.update();
+    } else if(!active&&wasActive&&this.navSavedOrbit){
+      if(this.cameraMode==='orbit'){
+        this.camera.position.copy(this.navSavedOrbit.position);
+        this.controls.target.copy(this.navSavedOrbit.target);
+        this.controls.update();
+      }
+      this.navSavedOrbit=null;
+    }
+    // Navigation changes camera and route overlay ONLY. It must never
+    // modify neural control, heading P, current velocity, or commands.
+    if(!active)this.clearNavigationOverlay();
+  }
+
+  terrainHeightAt(x,y) {
+    return this.terrainMode==='park' && this.park ? this.park.sampleHeight(x,y) : 0;
+  }
+
+  createNavigationGuides() {
+    const mat=new THREE.MeshBasicMaterial({color:0xfce38b,side:THREE.DoubleSide,
+                                           depthWrite:false,depthTest:true});
+    this.targetRing=new THREE.Mesh(new THREE.RingGeometry(.16,.205,40),mat);
+    this.targetRing.renderOrder=9;
+    this.scene.add(this.targetRing);
+    this.targetArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),
+       new THREE.Vector3(0,0,.06),.50,0xffd96e,.15,.075);
+    this.targetArrow.renderOrder=9;
+    this.scene.add(this.targetArrow);
+    this.routeLine=new THREE.Line(new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({color:0x54f8da,depthTest:true,
+                                   depthWrite:false,transparent:true,opacity:.95}));
+    this.routeLine.renderOrder=8;
+    this.scene.add(this.routeLine);
+    this.arenaCircle=new THREE.LineLoop(new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({color:0x7eb8ff,transparent:true,
+                                   opacity:.46,depthWrite:false}));
+    this.arenaCircle.renderOrder=7;
+    this.scene.add(this.arenaCircle);
+    this.navGoalSeen=null;this.navRouteSeen=null;
+    this.clearNavigationOverlay();
+  }
+
+  clearNavigationOverlay() {
+    this.targetRing.visible=false;
+    this.targetArrow.visible=false;
+    this.routeLine.visible=false;
+    this.arenaCircle.visible=false;
+    this.navGoalSeen=null;this.navRouteSeen=null;
+  }
+
+  setNavigationOverlay(goal,route) {
+    if(!goal||!route){this.clearNavigationOverlay();return;}
+    if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
+    const z=this.terrainHeightAt(goal.x,goal.y);
+    this.targetRing.position.set(goal.x,goal.y,z+.030);
+    this.targetArrow.position.set(goal.x,goal.y,z+.045);
+    this.targetArrow.setDirection(new THREE.Vector3(Math.cos(goal.heading),
+      Math.sin(goal.heading),0));
+    // Refresh the predicted route on new targets or meaningful replans.
+    const pose=this.navigationPose();
+    const points=[new THREE.Vector3(pose.x,pose.y,
+      this.terrainHeightAt(pose.x,pose.y)+.038),
+      ...route.steps.map(p=>new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.038))];
+    this.routeLine.geometry.dispose();
+    this.routeLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
+    const circle=[];
+    for(let i=0;i<128;i++){
+      const a=2*Math.PI*i/128,x=4*Math.cos(a),y=4*Math.sin(a);
+      circle.push(new THREE.Vector3(x,y,this.terrainHeightAt(x,y)+.032));
+    }
+    this.arenaCircle.geometry.dispose();
+    this.arenaCircle.geometry=new THREE.BufferGeometry().setFromPoints(circle);
+    for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
+      mesh.visible=true;
+    this.navGoalSeen=goal;this.navRouteSeen=route;
   }
 
   canSwapPolicy(next) {
@@ -474,13 +582,6 @@ export class EmuBrowserSim {
     this.reset(); // clean comparison, not a fictitious uninterrupted rollout
   }
 
-  setAdvanced({ height, roll, stepHeight, phaseRate }) {
-    if (Number.isFinite(height)) this.commandTarget.height = height;
-    if (Number.isFinite(roll)) this.commandTarget.roll = roll;
-    if (Number.isFinite(stepHeight)) this.commandTarget.step_height = stepHeight;
-    if (Number.isFinite(phaseRate)) this.phaseOverride = phaseRate;
-  }
-
   smoothCommands(dt) {
     this.command.vx = approach(this.command.vx, this.commandTarget.vx, 1.1 * dt);
     this.command.vy = approach(this.command.vy, this.commandTarget.vy, 0.9 * dt);
@@ -492,13 +593,14 @@ export class EmuBrowserSim {
   }
 
   phaseRate() {
-    if (this.phaseOverride > 0.001) return this.phaseOverride;
     return this.episodePhaseHz;
   }
 
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
+    // One shared yaw controller for joystick and autonomous navigation.
+    // Navigation is only an upstream producer of vx/vy/yaw/pitch requests.
     const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
       this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
       Number(this.bundle.control.command_limits.yaw_abs));
@@ -506,6 +608,7 @@ export class EmuBrowserSim {
     this.headingTarget=steering.headingTarget;
     this.command.yaw=steering.appliedYaw;
     const action = this.policy.infer(this.obs);
+    this.controlFrames++;
     const span = this.bundle.control.target_span_rad;
 
     // One control-frame delay: deliver last target, remember this action's
@@ -516,7 +619,10 @@ export class EmuBrowserSim {
     }
 
     const nsub = Number(this.bundle.control.control_substeps || 4);
+    const beforeJoints=this.actQpos.map(i=>Number(this.data.qpos[i]));
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
+    for(let i=0;i<this.actQpos.length;i++)
+      this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
 
     for (let i = 0; i < 6; i++) {
       const raw = clamp(action[i] * span[i], -span[i], span[i]);

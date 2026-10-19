@@ -1,19 +1,12 @@
-// Browser-only command mapping. Policy observations keep their canonical axes.
-// "split": left = forward/strafe, right = yaw/pitch (good for touch).
-// "hybrid": left diagonal mixes forward, yaw and strafe; full sideways is strafe.
-// Right stick continues to provide independent yaw trim and pitch.
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-export const JOYSTICK_MODES = ['split', 'hybrid'];
-
-export function joystickToCommands(leftX, leftY, rightX, rightY, limits, mode='split') {
-  if (!JOYSTICK_MODES.includes(mode)) throw new Error('Unknown joystick mode');
-  const vx = leftY >= 0 ? leftY * limits.vx_max : (-leftY) * limits.vx_min;
-  const turnBlend = mode === 'hybrid' ? 0.8 * clamp((Math.abs(leftY) - 0.12) / 0.60, 0, 1) : 0;
-  const vy = -leftX * (1 - turnBlend) * limits.vy_abs;
-  const yaw = -clamp(rightX + leftX * turnBlend, -1, 1) * limits.yaw_abs;
-  // Pull back pitches the chassis back, push forward pitches it forward.
-  const pitch = -rightY * limits.pitch_abs_rad;
-  return {vx, vy, yaw: yaw || 0, pitch};
+// One predictable split-stick mapping for manual and autonomous input:
+// left = forward / sideways, right = yaw / chassis pitch.
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+export function joystickToCommands(leftX,leftY,rightX,rightY,limits){
+  const vx=leftY>=0?leftY*limits.vx_max:(-leftY)*limits.vx_min;
+  const vy=-leftX*limits.vy_abs;
+  const yaw=-clamp(rightX,-1,1)*limits.yaw_abs;
+  const pitch=-rightY*limits.pitch_abs_rad;
+  return {vx,vy,yaw,pitch};
 }
 
 export const wrapRadians = radians => Math.atan2(Math.sin(radians), Math.cos(radians));
