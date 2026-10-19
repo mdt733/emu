@@ -1,133 +1,64 @@
-# EMU Playground
+# EMU Playground — public browser demo
 
-**[Open the public browser demo](https://mdt733.github.io/emu/)**. The repository's exported champion is the **120M Pitch15 policy** (120,061,952 steps, 220 inputs → 6 actions). A previous published Pages build may still be live until someone intentionally dispatches the manual release workflow.
+**[Open the EMU Playground](https://mdt733.github.io/emu/)**
 
-The browser runs a frozen neural network and MuJoCo WebAssembly physics, not PPO. Experiment with joysticks, view modes, lighting and the optional 1° physical ramp or radial terrain park; visual behaviour alone is not proof of real servo safety or matched MJX contact dynamics. `emu/viewer_src/` is the only editable browser source.
+EMU's public MuJoCo/WASM viewer runs the real six-servo policy locally
+in the browser. The approved `showcase/champion.emupolicy` is the
+**260,112,384-step v5016 Pinnacle actor** (232 observations; six actions),
+pinned by `showcase/release_approval.json`. The site can serve a previous
+build until the approved Pages workflow has completed.
 
-## Local view of checkpoints
+## What the demo does
+
+On loading, the viewer starts **pose-lattice autonomous navigation**.
+A Web Worker chooses a reachable target pose and plans a route; a
+feedback controller follows the continuous line, anticipates sideways
+drift, slows as tracking error grows, and performs the final pose correction.
+The trained actor, its observation contract, and MuJoCo physics remain
+unchanged.
+
+The left stick controls forward/reverse and sideways velocity. The right
+stick controls yaw rate and chassis pitch. While autonomous navigation is
+active, the stick knobs show the **requested** control inputs (not measured
+motion), without pretending a human touched them.
+
+Touch either stick or use WASD / Q-E / R-F to take manual control.
+Navigation resumes from the current pose after **30 seconds of no human
+input**; holding a key or stick prevents the handoff. The settings drawer
+holds optional terrain, camera, grid, heading-assist, policy, and evaluation
+controls. There is one autonomous demo—not multiple experimental planners.
+
+## Local viewer
+
+For a CPU-only WSL viewer (no CUDA/JAX required):
 
 ```bash
-source .venv/bin/activate
-emu viewer --live --root "$HOME/robot_lab/emu_runs/my-study" --no-open
+curl -fsSL https://raw.githubusercontent.com/mdt733/emu/main/scripts/install_viewer_wsl.sh \
+  -o /tmp/emu-viewer-install.sh
+bash /tmp/emu-viewer-install.sh --destination "$HOME/emu-viewer-cpu-clean"
 ```
 
-Open `http://127.0.0.1:8765/`. The local watcher selects completed validated snapshots, swaps the browser policy without teaching the trainer and serves a read-only unauthenticated API. **Do not expose this service publicly.** To view a fixed bundle: `emu viewer /path/to/brain.emupolicy --no-open`.
+Open `http://127.0.0.1:8767/`. The installer now checks out `main` by default. Supply
+`--branch feature/your-experiment` to explicitly test another branch. It installs viewer dependencies and runs exactly
+**twelve** maintained browser contract tests.
 
-## Exact static preview
+For live training inspection, `emu viewer --live --root RUN_DIR --no-open`
+continues serving validated checkpoints independently of the public demo.
 
-```bash
-python scripts/prepare_showcase.py --require-champion
-npm ci --prefix emu/viewer_src --no-audit --no-fund
-npm test --prefix emu/viewer_src
-npm run build --prefix emu/viewer_src
-python scripts/verify_showcase_dist.py
-cd emu/viewer_src
-npm run preview -- --host 127.0.0.1
-```
+## Publishing safeguards
 
-Open the Vite preview URL (normally `http://127.0.0.1:4173/`), verify joystick directions (including inverted pitch), compass-heading P, chase camera, split/hybrid steering, both physical terrain modes, and that `showcase.json` references the **approved** actor step/contract. The older release is 120,061,952 steps and 220 inputs; the v5016 release must have 232 inputs. The static site must bundle `dist/policies/champion.emupolicy` and a `.wasm` asset; a zero-action fixture does not count.
+The approved champion is **not automatically replaced** when Python training
+or browser code changes. The GitHub Pages workflow
+`.github/workflows/emu-playground.yml` supports manual dispatch and a
+specific owner-approved `showcase/deployment_request.json` update on
+`main`. Ordinary main merges without that request do not publish.
 
-## Publish (manual on purpose)
+The workflow verifies the exact champion release approval and provenance,
+runs the twelve browser checks, builds static WASM/JS, validates bundled
+assets, and deploys GitHub Pages. Check the workflow deployment status
+before considering the new public site live. The training checkpoint
+(.pkl) is never shipped to browsers.
 
-After merging a reviewed code + viewer + real actor update into `main`, open GitHub **Actions → EMU Playground (GitHub Pages) → Run workflow → main**. The workflow verifies the exact old 120M Git blob pin, **or** the explicitly reviewed `showcase/release_approval.json` for the 232-input schema-2 policy, plus actor provenance, JavaScript browser tests, WASM and asset files. Check the deployment job, then reload the public URL and inspect the step/build commit in the UI. **Merging Git code does not publish Pages.**
-
-Do not commit a training `.pkl` or alter the protected `showcase/champion.emupolicy` without deliberately updating the verified pin in the SAME reviewed change.
-
-## Viewer driving and terrain
-
-By default, the left stick commands forward/sideways motion, and the right
-stick commands yaw and chassis pitch. Pitch is inverted: pushing the right
-stick up requests negative model pitch (the nose-up direction in this
-model's convention). Select **Hybrid** for diagonal steering: forward plus
-left/right diagonals mix turning and strafing, while purely sideways means
-strafe. The right stick always supports separate turning and pitch.
-
-**Heading target (P)** is an optional browser-only outer loop (default on,
-Kp=2.2). The joystick integrates a requested world heading, and the
-P error alone generates an actor yaw-rate command; releasing the joystick
-holds the compass setpoint immediately. Disable it for direct yaw-rate
-steering. The gain can be changed from 0.3 to 5 in Settings. It neither
-edits neural weights nor guarantees accurate heading on unfamiliar terrain.
-
-Terrain choices are **flat**, **1° ramp**, and **radial terrain park**.
-The park starts with a flat 2 m radius; the permitted incline grows
-approximately 1 degree per metre beyond that (1° at the 2 m boundary,
-2° at 3 m), capped by the chosen maximum (default 10°, adjustable 1–20°).
-The default park extends about 11 metres each way so the outer region can
-reach the 10° *allowed* gradient; actual generated slopes may be gentler.
-The park is now a **single triangulated heightfield**: actual MuJoCo
-contact triangles are rendered as a matching continuous grassy surface,
-with a procedurally generated grass texture and daylight sky. A sparse
-deterministic grove of trees is **enabled by default**: trunks are static
-MuJoCo collision cylinders, while low-poly foliage is visual-only.
-The radial park is the viewer's default environment. You can select flat
-or the original ramp and turn trees on or off in Settings. Trees stay well
-outside the 2 m flat spawn zone, and the landscape is
-generated locally with no network image downloads.
-
-Changing terrain, tree collisions or maximum slope rebuilds the browser
-physics world and resets the on-screen robot. The training process and
-saved .pkl remain untouched. Rendering continuity is better than tiled
-boxes, but heightfield resolution and browser physics still need real
-walking inspection, especially near small ball-foot contacts.
-This is a viewer playground, not training terrain or independent walking proof.
-
-## Heading and ground-slope instruments
-
-The telemetry distinguishes **yaw requested** (joystick or demonstration) from
-**yaw applied** (including bounded heading-hold P correction), and shows the
-robot's measured yaw rate. The heading controller does not feed its correction
-back into the next turn request. The automatic public demo uses gentler
-maximum yaw rates than manual control, so turning at the full frontier is not
-the default demonstration behaviour.
-
-**Ground under feet** reports an approximate local incline in degrees,
-derived from the actual generated heightfield beneath the midpoint of the two
-feet. The green arrow points **uphill relative to the robot's own direction**:
-up means forward, left means uphill to its left, right means uphill to its
-right. Flat terrain reads `0.0° · level`; walking beyond the sampled terrain
-reports `No terrain underfoot`. This is a terrain probe, not a measurement of
-body pitch or proof that both feet have contact.
-
-
-## Third-person chase camera
-
-Cycle the **View** button: Orbit → Chase → POV → Level POV.
-**Chase** follows behind and above EMU in the robot's *actual* heading,
-with a slightly forward-looking aim. The camera smoothly handles turns
-including the ±180° boundary, maintains a level horizon independently of
-chassis roll/pitch, and keeps above the ground as the robot traverses the
-terrain park. It snaps into position on reset or policy hot-swap instead
-of slowly flying across the scene; returning to Orbit restores its earlier
-orbit target and camera position. The ordinary Follow toggle applies to
-Orbit; Chase always follows by definition.
-
-The camera runs only in the browser renderer; it does not alter commands,
-sensor observations, controls, physics, trained weights or campaign files.
-
-
-## Heading setpoint P and experimental pitch range (viewer only)
-
-**Heading target (P)** now integrates the requested right-stick yaw rate into a
-world-frame target heading. The proportional outer loop turns heading error
-into the **yaw-rate command** that the unchanged learned actor accepts. On
-stick release the setpoint stays in place and the robot attempts to hold it.
-The command saturates at the actor's declared maximum yaw rate and the
-setpoint can never build up more than ~57° of unreachable heading error.
-The P gain starts at 2.2 (rad/s per rad of heading error) and is adjustable
-in Settings, from 0.3 to 5. No I or D is applied; switching the controller off
-returns direct-rate yaw control, switching it back on captures current
-heading to avoid a sudden turn. The telemetry shows target and actual
-heading, while distinguishing stick-requested yaw from applied yaw.
-
-The **manual pitch range** selector defaults to the checkpoint's *trained*
-limit (currently ±15° on v5016 Pinnacle), with optional ±30° and ±45°
-viewer-only experiments. Those larger command angles do **not** expand the
-neural policy's training curriculum, and may produce poor posture tracking,
-loss of balance or falls. They do not alter auto-demo command envelopes,
-checkpoints or PPO weights. To teach robust ±30°/±45° pitch tracking requires
-a separate training experiment/lineage, rather than changing the active
-Pinnacle run at ~50M steps.
-
-The unnecessary bottom-centre scale-caption pill has been removed; the
-10 cm / 1 m lines remain visible over the terrain.
+See [v5017 navigation internals](V5017_GOAL_NAVIGATION.md) and
+[v5016 release safeguards](V5016_RELEASE.md). Neither a successful browser
+build nor a visually stable walk proves servo safety on hardware.

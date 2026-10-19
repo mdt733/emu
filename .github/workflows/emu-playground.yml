@@ -5,8 +5,14 @@ name: EMU Playground (GitHub Pages)
 # Legacy 120M is pinned to its exact historical Git blob; a v5016 release
 # must carry a reviewed release_approval.json + matching browser asset.
 # The release custodian explicitly runs this workflow after a browser review.
+# Release-specific publish requests are explicit opt-ins by the owner.
+# An ordinary main merge still does NOT publish the playground.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - showcase/deployment_request.json
 
 permissions:
   contents: read
@@ -21,6 +27,24 @@ jobs:
     steps:
       - name: Checkout code and policy
         uses: actions/checkout@v4
+      - name: Verify owner-authorized release request
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          r = json.loads(Path("showcase/deployment_request.json").read_text())
+          assert r["schema"] == 1
+          assert r["release"] == "v5017-pose-lattice"
+          assert r["policy_git_blob"] == "163a61fef6e75fcba91f254830f3858210b491a0"
+          # Only an explicit reviewed source commit may trigger an automatic
+          # publication. It must be in this merge's ancestry.
+          subprocess.run(["git", "merge-base", "--is-ancestor",
+                          r["approved_feature_commit"], "HEAD"], check=True)
+          print("Release-specific GitHub Pages publication approved")
+          PY
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:

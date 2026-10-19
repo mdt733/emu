@@ -2,7 +2,7 @@
 # EMU CPU-only viewer for Ubuntu/WSL2. Installs tools INSIDE Linux only.
 # No CUDA/JAX/MJX, training checkpoint, or Python MuJoCo installation.
 set -Eeuo pipefail
-BRANCH=feature/v5017-goal-navigation-demo
+BRANCH="${EMU_VIEWER_BRANCH:-main}"
 REPO=https://github.com/mdt733/emu.git
 DEST="$HOME/emu-viewer-cpu"
 LAUNCH=1
@@ -10,7 +10,7 @@ say() { printf '\n[EMU WSL viewer] %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Usage: bash install_viewer_wsl.sh [--no-launch] [--destination PATH] [--self-test]
+Usage: bash install_viewer_wsl.sh [--no-launch] [--destination PATH] [--branch NAME] [--self-test]
 Run from Ubuntu inside WSL2. All downloads and experiments stay in Linux.
 Ctrl+C stops the viewer at http://127.0.0.1:8767/.
 EOF
@@ -19,12 +19,17 @@ while (($#)); do
   case "$1" in
     --no-launch) LAUNCH=0 ;;
     --destination) (($#>1)) || die '--destination needs an argument'; DEST="$2"; shift ;;
+    --branch) (($#>1)) || die '--branch needs an argument'; BRANCH="$2"; shift ;;
     --self-test) say 'Viewer bootstrap self-test passed; nothing installed.'; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
   shift
 done
+# Accept only branch names composed of ordinary Git ref path components.
+# Never interpolate arbitrary shell or option-shaped values into git commands.
+[[ "$BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$BRANCH" != *..* ]] ||
+  die 'Invalid branch name.'
 [[ "$(uname -s)" == Linux ]] || die 'Run inside WSL Ubuntu, not PowerShell.'
 [[ -f /etc/os-release ]] || die 'Cannot identify Linux distribution.'
 # shellcheck disable=SC1091
@@ -96,7 +101,7 @@ if [[ -d "$DEST/.git" ]]; then
     git -C "$DEST" status --short
     printf '\n'
     die "Preserving local changes. To install an independent clean viewer, run:
-  bash /tmp/emu-viewer-install.sh --destination \"$HOME/emu-viewer-cpu-clean\"
+  bash /tmp/emu-viewer-install.sh --destination \"$HOME/emu-viewer-main\"
 No files were changed or deleted."
   fi
   git -C "$DEST" pull --ff-only
