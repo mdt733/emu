@@ -607,9 +607,26 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     assert bundle['observation']['sensor_contract']==contract
     assert len(bundle['observation']['base_fields'])==58
     assert bundle['policy']['layers'][0]['w']['shape'][0]==232
-    # Old physical directional examiner must not misinterpret a sensor actor.
+    # The upgraded examiner must load the new schema faithfully rather than
+    # either misinterpreting 232 sensor inputs as 220 or rejecting them.
     from emu.viewer_server import write_bundle
+    from emu.contracts import OBS_SCHEMA_SENSOR
     artifact=tmp_path/'sensor.emupolicy'
     write_bundle(bundle,artifact)
-    with pytest.raises(ValueError,match='schema-1'):
-        load_exported_actor_for_exam(artifact)
+    loaded_actor, loaded_norm, details = load_exported_actor_for_exam(artifact)
+    assert loaded_actor['pi'][0]['w'].shape == (SENSOR_OBS_DIM, 256)
+    assert loaded_norm['mean'].shape == (SENSOR_OBS_DIM,)
+    assert loaded_norm['std'].shape == (SENSOR_OBS_DIM,)
+    assert details['observation_schema'] == OBS_SCHEMA_SENSOR
+    assert details['sensor_contract'] == contract
+    assert details['source']['checkpoint_schema'] == 8
+
+    # Any change to measurement timing, even on an otherwise valid export,
+    # breaks the authoritative sensor contract.
+    import json
+    altered = json.loads(artifact.read_text(encoding='utf-8'))
+    altered['observation']['sensor_contract']['settings']['tof_period_frames'] = 3
+    tampered = tmp_path/'sensor_tampered.emupolicy'
+    tampered.write_text(json.dumps(altered), encoding='utf-8')
+    with pytest.raises(ValueError, match='sensor contract'):
+        load_exported_actor_for_exam(tampered)
