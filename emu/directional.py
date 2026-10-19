@@ -732,6 +732,12 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25,
         strides = count_contact_strides(
             pos,feet,contacts,settle_frames=settle_frames,
             foot_clearance_m=foot_clearance)
+        # Diagnostic only: reveal whether strict gait scoring is blocked by
+        # actual missing liftoffs, short airborne time, short steps, low
+        # clearance or insufficient body progress. No scoring thresholds change.
+        result['stride_gate_diagnostics'] = diagnose_contact_stride_gate(
+            pos,feet,contacts,settle_frames=settle_frames,
+            foot_clearance_m=foot_clearance)
         # The grading function rejects early terminations. The stride count
         # stays reported but cannot override an invalid course or fall.
         course = examine_course(pos,head,commands,dt=dt,
