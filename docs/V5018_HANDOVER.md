@@ -238,6 +238,38 @@ output directory and do not repeat the four GPU studies**.
 This is a *mixed-commit resumed campaign* by design;
 interpret logs with their stored revision history.
 
+**Second resume attempt — archive reviewed, still no new
+obstacle measurements:**
+User uploaded `v5018_frontier_20261020_102641.tar.gz`
+after a 10:43 resume on feature commit
+`cad93f94fbb026da5feade1f15786af9fc25b8ee`.
+The archive contains *only* the original five PASS stage rows
+and four prior flat/10° heading study folders;
+`campaign.log` confirms all five were skipped as intended.
+**No step_*.json and no aggregate summary exist.** The runner
+still had a second stale `code_y` reference inside the stage
+filename despite the earlier assignment fix. This is a
+Bash `set -u` orchestration error and must NEVER be
+reported as robot failing 15/20mm steps or bad heading.
+
+**New code after that uploaded archive:** on
+`feature/v5018-terrain-awareness`, the second
+`code_y` reference was replaced with `code_yaw`;
+a preflight expands and tests **180 distinct experiment
+names** prior to any GPU calls, and stderr is saved to
+`runner_stderr.log` for future unexpected shell errors.
+A standalone `bash -u` isolated naming simulation
+covered 180 combinations and 3 representative edge cases
+PASS, but the full user-WSL campaign has not run since
+this latest correction.
+
+**Important:** Resume the *same* saved directory
+`~/robot_lab/emu_exams/v5018_frontier_20261020_102641`
+on the newest feature branch. The original stride files
+are from `c6a5dab...`; first resume recorded
+`cad93f94...`; new step experiments will be
+from a later commit. Preserve all three source identities.
+
 **NEXT USER-RUN (when not sharing GPU with other training):**
 
 ```bash
@@ -354,15 +386,19 @@ evidence and user-approved PR.**
 > the score without quantitative per-event evidence.
 > The first frontier run (10:26 AEDT, original commit
 > `c6a5dab`) passed 4/4 Python tests and four flat/10°
-> heading OFF/ON diagnostics, then STOPPED with a Bash
-> unbound variable `code_y` in the step-trial filename
-> before any step-height/angle/speed frontier ran.
-> New feature-branch fix adds a resumable runner; execute
+> heading OFF/ON diagnostics, then stopped on a Bash
+> `code_y` variable typo. A first resume at 10:43 on
+> `cad93f94` correctly skipped all five stages and
+> archived the results, but another stale `code_y` in
+> the filename stopped it before ANY frontier step cases.
+> The latest feature fix eliminates both variable
+> references, adds a 180-case no-GPU naming preflight,
+> and logs unexpected runner stderr. Execute:
 > `bash scripts/run_v5018_obstacle_frontier.sh --resume
 > ~/robot_lab/emu_exams/v5018_frontier_20261020_102641`
-> after pulling the current branch, and send the archive.
-> Earlier diagnostics and resumed frontier use different
-> recorded commits; the full study is still incomplete.
+> after pulling feature branch, and send its new archive.
+> Both early attempts collected ZERO new height/angle/
+> speed experiments; preserve revision_history.tsv.
 > Update the ONE authoritative living checklist
 > `docs/V5018_TERRAIN_PLAN.md`. Keep experimental
 > source/actor SHA evidence. Never change main, champion,
