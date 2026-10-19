@@ -39,9 +39,23 @@ function sample(run,s){
     return {pose:{x:seg.from.x+(seg.to.x-seg.from.x)*t,
       y:seg.from.y+(seg.to.y-seg.from.y)*t,
       heading:wrap(seg.from.heading+delta(seg.to.heading,seg.from.heading)*t)},
-      segment:seg};
+      segment:seg,t};
   }
-  return {pose:run.end,segment:run.segments.at(-1)};
+  return {pose:run.end,segment:run.segments.at(-1),t:1};
+}
+/** A planned step holds the *exit* speed for its arc-length segment.
+ * Interpolate from the previous profiled step so speed/yaw references don't
+ * jump at every ~12 cm smoothed lattice sample. Avoid mixing manoeuvre modes.
+ */
+export function referenceAt(run,s){
+  const point=sample(run,s),seg=point.segment;
+  if(!seg)return {command:zero(),profiled:false};
+  const i=run.segments.indexOf(seg),prior=i>0?run.segments[i-1].cmd:seg.cmd;
+  const t=point.t??1,cmd={};
+  for(const key of ['vx','vy','yaw','pitch'])
+    cmd[key]=(prior[key]||0)*(1-t)+(seg.cmd[key]||0)*t;
+  return {command:cmd,profiled:Boolean(seg.cmd.profiled),pose:point.pose,
+    segment:seg};
 }
 export function projectOnRun(pose,run,previous=0){
   let best=null,score=Infinity;
@@ -84,8 +98,10 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
   const near=projectOnRun(pose,run,progress);
   const s=Math.max(progress,near.s),remaining=Math.max(0,run.length-s);
   const speed=Math.hypot(pose.vx||0,pose.vy||0);
-  const ahead=sample(run,s+clamp(.14+.18*speed,.14,.33));
-  const motion=near.segment?.cmd||ahead.segment?.cmd||zero();
+  const previewDistance=clamp(.14+.18*speed,.14,.33);
+  const ahead=referenceAt(run,s+previewDistance);
+  const current=referenceAt(run,s);
+  const motion=current.command;
   const heading=delta(ahead.pose.heading,pose.heading);
   const c=Math.cos(pose.heading),sn=Math.sin(pose.heading);
   const wx=c*(pose.vx||0)-sn*(pose.vy||0);
@@ -101,28 +117,55 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
   const angle=delta(desired,pose.heading);
   // Wider errors => slower forward (or reverse), never outright frozen.
   // Drift towards (or away from) the line calls for extra correction time.
-  const trackThrottle=clamp(1-.70*Math.max(
-    Math.abs(near.crossTrack),Math.abs(predictedCrossTrack))/.70,.22,1);
-  const faceThrottle=clamp(1-.55*Math.abs(angle)/1.15,.35,1);
-  // Refined routes already brake before a cusp/goal; don't apply a
-  // second near-zero end throttle that would make the walker crawl.
-  const endThrottle=motion.profiled?1:clamp((remaining+.08)/.65,.19,1);
-  const throttle=trackThrottle*faceThrottle*endThrottle;
-  const plannedYaw=(motion.yaw||0)*throttle;
-  // Measured yaw damping prevents continued turning past the route.
+  // Track the planner's arc-length-indexed speed, rather than inventing a
+  // cruising speed from multiple throttles. Gait lag changes elapsed time,
+  // not which section of the route the walker must currently follow.
+  const profile=current.profiled;
+  const key=run.mode==='lateral'?'vy':'vx';
+  const signedReference=motion[key]||0;
+  const direction=Math.sign(signedReference);
+  const desiredSpeed=Math.abs(signedReference);
+  const measured=Number.isFinite(pose[key])?pose[key]:0;
+  const achievedAlongMode=direction*measured;
+  // The neural gait is not an ideal kinematic actuator: small measured-speed
+  // feedback compensates for lag, but never overrides the actor's limits.
+  const speedTrim=profile?clamp(.38*(desiredSpeed-achievedAlongMode),-.13,.13):0;
+  const maxCommand=run.mode==='lateral'?Math.max(0,Number(limits.vy_abs)||0)
+    :direction>=0?Math.max(0,Number(limits.vx_max)||0)
+    :Math.max(0,-Number(limits.vx_min)||0);
+  // Safety slows the walker when noticeably far from the line; within the
+  // normal ~12 cm corridor, the profiled feedforward remains unattenuated.
+  const trackingError=Math.max(Math.abs(near.crossTrack),Math.abs(predictedCrossTrack));
+  const safetyCap=clamp(1-Math.max(0,trackingError-.12)/.95,.30,1)*
+    clamp(1-Math.max(0,Math.abs(angle)-.45)/1.25,.45,1);
+  const legacyEnd=profile?1:clamp((remaining+.08)/.65,.19,1);
+  const legacyScale=profile?1:clamp(1-trackingError/.95,.30,1);
+  // Limited preview braking: do not drive faster than can reasonably slow
+  // to the reference speed in the next few decimetres.
+  const future=referenceAt(run,s+previewDistance);
+  const nextSpeed=Math.abs(future.command[key]||0);
+  const approachLimit=profile
+    ?Math.sqrt(nextSpeed*nextSpeed+2*1.0*Math.min(previewDistance,remaining))
+    :Infinity;
+  const targetSpeed=Math.min(maxCommand,approachLimit,
+    Math.max(0,desiredSpeed+speedTrim))*safetyCap*legacyEnd*legacyScale;
+  const plannedYaw=(motion.yaw||0)*(desiredSpeed>.04
+    ?Math.min(1,targetSpeed/desiredSpeed):1);
+  // Measured yaw damping prevents continuing to turn after alignment.
   const measuredYaw=Number.isFinite(pose.yawRate)?pose.yawRate:plannedYaw;
   const yaw=clamp(plannedYaw+1.65*angle-.50*(measuredYaw-plannedYaw),
     -maxYaw*.86,maxYaw*.86);
-  const cmd={vx:(motion.vx||0)*throttle,
-    vy:run.mode==='lateral'?(motion.vy||0)*throttle:0,
-    yaw,pitch:0};
+  const cmd={vx:run.mode==='lateral'?0:direction*targetSpeed,
+    vy:run.mode==='lateral'?direction*targetSpeed:0,yaw,pitch:0};
   if(run.mode==='lateral')
-    cmd.yaw=clamp((motion.yaw||0)*throttle+1.5*heading,
+    cmd.yaw=clamp(plannedYaw+1.5*heading-.45*(measuredYaw-plannedYaw),
       -maxYaw*.80,maxYaw*.80);
   const endDistance=dist(pose,run.end);
   const endHeading=Math.abs(delta(run.end.heading,pose.heading));
   return {command:cmd,crossTrack:near.crossTrack,progress:s,
     headingError:angle,remaining,mode:run.mode,
+    referenceSpeed:direction*desiredSpeed,observedSpeed:measured,
+    speedError:desiredSpeed-achievedAlongMode,
     ready:remaining<.20&&endDistance<.23&&endHeading<.45};
 }
 /** Separate fine parking: EMU can reverse, pivot and make small side steps. */

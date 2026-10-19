@@ -161,3 +161,44 @@ The obstacle interface currently accepts stationary circular keep-out
 centres based on the park's solid trees. Optional obstacle presets
 (Off / Sparse / Course) would need matching *physical MuJoCo geometry*
 and collision-aware planner input; merely drawing new scenery is not enough.
+
+
+## Arc-length trajectory tracking (experimental follow-up)
+
+The route-refinement branch now has a **profile-aware follower** rather than
+multiplying planned cruise speed by three unrelated throttles. A* already
+returns movement samples containing commanded \`vx\`, \`vy\`, \`yaw\` and
+segment \`dt\`; the refinement stage provides a bounded commanded-speed and
+yaw profile. The follower:
+
+1. Projects the real robot onto the current route run, preserving monotonically
+   increasing arc-length progress even when the gait wanders.
+2. Interpolates the planned twist between adjacent samples at that progress;
+   checks a short distance ahead for upcoming braking.
+3. Uses the profile as feedforward, plus a small bounded correction from the
+   **measured body velocity** (at most 0.13 m/s of command trim). This is
+   not a fitted dynamic model.
+4. Preserves 30-degree line interception, sideways drift prediction and yaw
+   damping; reduces speed substantially **only when line/heading errors
+   become significant**, so a normal on-path profile isn't multiplied down.
+5. Preserves reverse, lateral movement, stationary pivots and the existing
+   blended parking correction. The original outer-loop/heading-hold/PPO
+   command interface is unchanged.
+
+**Why spatial progress, not absolute playback time?** A six-servo learned
+walker doesn't follow an ideal clock. If it takes longer to execute a
+motion or wanders off the line, replaying \`x_ref(t)\` can run metres ahead
+of the real robot. Arc-length-indexed reference speed maintains the
+benefits of planning and lets the controller adapt to actual motion. The
+per-segment \`dt\` is still recorded for planner timing and diagnostics.
+
+The status/HUD now reports mean absolute cross-track, heading and speed
+tracking errors; reference vs observed speed; plan time vs real elapsed
+time; and time spent in each manoeuvre mode. Those measurements can inform
+later viewer tuning or a **small optional** in-browser calibration if
+measurements show a real problem.
+
+No mandatory per-policy calibration sweep, LQR, MPPI, second planner or
+additional tests. There remain **12** core viewer tests. Predicted
+kinematic arrival and collision-clearance checks are not a substitute for
+testing the actual MuJoCo actor's wandering gait and braking distances.

@@ -12,7 +12,7 @@ import {VirtualStick} from '../src/joystick.js';
 import {makeRng} from '../src/rng.js';
 import {sampleGoal,planPoseRoute,refineRouteSteps,integratePose,GoalNavigator,TREE_CLEARANCE_M}
   from '../src/goal-navigation.js';
-import {buildRoutePath,projectOnRun,trackRoutePath,parkAtGoal}
+import {buildRoutePath,projectOnRun,trackRoutePath,referenceAt,parkAtGoal}
   from '../src/path-follower.js';
 import {GoalPlannerWorker} from '../src/goal-planner-client.js';
 
@@ -230,19 +230,46 @@ test('path follower slows off-line, anticipates drift, and respects pivot/revers
     assert.ok(dv2<=2*.85*ds+.055,'acceleration-limited reference');
     assert.ok(dv2>=-2*1.0*ds-.055,'braking-limited reference');
   }
+  // The follower must consume the speed reference by *progress*, not
+  // multiply the whole profiled trajectory by arbitrary cruising throttles.
+  const profiled=buildRoutePath({start:origin,steps:[
+    {x:1,y:0,heading:0,cmd:{vx:.60,vy:0,yaw:0,profiled:true}},
+    {x:2,y:0,heading:0,cmd:{vx:.20,vy:0,yaw:0,profiled:true}}
+  ]});
+  const reference=referenceAt(profiled.runs[0],1.5);
+  assert.ok(Math.abs(reference.command.vx-.40)<1e-9);
+  const measured=(vx,y=0)=>trackRoutePath({x:1.5,y,heading:0,vx,vy:0,
+    yawRate:0},profiled,0,1.4,limits);
+  const matched=measured(.40),slow=measured(.10),fast=measured(.65);
+  assert.ok(Math.abs(matched.command.vx-.40)<.02,
+    'on-line profiled velocity should pass through without double throttling');
+  assert.ok(slow.command.vx>matched.command.vx+.04,
+    'feedback should compensate for a gait slower than the planned speed');
+  assert.ok(fast.command.vx<matched.command.vx-.04,
+    'feedback should brake when measured gait is ahead of the reference');
+  assert.ok(measured(.40,.5).command.vx<matched.command.vx,
+    'off-route corrections still cap speed for safer interception');
 });
 
 // 11. A mission has one physical arrival, including settle/dwell time.
 test('navigator reaches goals and does not double-count pending arrivals',()=>{
   const nav=new GoalNavigator(800);nav.active=true;
   assert.ok(nav.setGoal(origin,{x:.9,y:0,heading:0},limits,[]));
-  let pose={...origin};
+  let pose={...origin},seenTracking=false;
   for(let i=0;i<1400&&!nav.arrivals;i++){
     let c;nav.tick(.02,pose,limits,[],cmd=>c=cmd);
     assert.ok(c);
     pose={...integratePose(pose,c,.02),vx:c.vx,vy:c.vy};
+    const tracked=nav.status(pose);
+    if(tracked.modeSeconds.forward>.1){
+      seenTracking=true;
+      assert.ok(tracked.plannedModeSeconds.forward>0);
+      for(const metric of ['meanTrackError','meanHeadingError','meanSpeedError'])
+        assert.ok(Number.isFinite(tracked[metric])&&tracked[metric]>=0);
+    }
   }
   assert.equal(nav.arrivals,1);
+  assert.ok(seenTracking,'tracking telemetry must report live mission error');
   const held=new GoalNavigator(123);held.active=true;
   let requested=0;
   held.useBackgroundPlanner(()=>{requested++;return new Promise(()=>{});});

@@ -323,6 +323,12 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
+    this.trackingTime=0;this.trackErrorIntegral=0;
+    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+    this.referenceSpeed=0;this.observedSpeed=0;
+    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
     this.searchCooldown=0;this.failures=0;
@@ -364,18 +370,35 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
+    this.trackingTime=0;this.trackErrorIntegral=0;
+    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+    this.referenceSpeed=0;this.observedSpeed=0;
+    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    for(const step of route.steps){
+      const kind=motionKind(step.cmd);
+      if(Object.hasOwn(this.plannedModeSeconds,kind))
+        this.plannedModeSeconds[kind]+=Math.max(0,Number(step.dt)||0);
+    }
     this.runIndex=0;this.runProgress=0;this.index=0;
     this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
     this.replanDelay=0;
     if(newMission){
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
+      this.trackingTime=0;this.trackErrorIntegral=0;
+      this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+      this.referenceSpeed=0;this.observedSpeed=0;
+      this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+      this.currentMode='parking';
     }
     this.reason=route.solved?'Following route':'Partial route · replanning';
   }
@@ -496,6 +519,15 @@ export class GoalNavigator {
     this.replanDelay+=delta;
     const signedCross=result?.mode==='pivot'?0:(result?.crossTrack||0);
     this.crossTrack=signedCross;
+    const currentMode=finished?'parking':result?.mode||'parking';
+    this.currentMode=currentMode;
+    this.modeSeconds[currentMode]=(this.modeSeconds[currentMode]||0)+delta;
+    this.trackingTime+=delta;
+    this.trackErrorIntegral+=Math.abs(signedCross)*delta;
+    this.headingErrorIntegral+=Math.abs(result?.headingError||0)*delta;
+    this.speedErrorIntegral+=Math.abs(result?.speedError||0)*delta;
+    this.referenceSpeed=result?.referenceSpeed||0;
+    this.observedSpeed=result?.observedSpeed||0;
     // Hysteresis avoids treating each gait-induced wiggle as a crossing.
     const side=Math.abs(signedCross)>.045?Math.sign(signedCross):0;
     if(side&&this.crossSide&&side!==this.crossSide)this.crossings++;
@@ -531,6 +563,12 @@ export class GoalNavigator {
       headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
       crossTrack:this.crossTrack,crossings:this.crossings,
+      meanTrackError:this.trackingTime?this.trackErrorIntegral/this.trackingTime:0,
+      meanHeadingError:this.trackingTime?this.headingErrorIntegral/this.trackingTime:0,
+      meanSpeedError:this.trackingTime?this.speedErrorIntegral/this.trackingTime:0,
+      referenceSpeed:this.referenceSpeed,observedSpeed:this.observedSpeed,
+      modeSeconds:{...this.modeSeconds},
+      plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
       index:this.index,reason:this.reason};

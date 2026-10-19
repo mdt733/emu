@@ -115,12 +115,12 @@ function navigationUpdate(dt) {
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
-  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m · crosses ${state.crossings}`;
-  $('navHudInfo').textContent+=` · vx ${navLastCommand.vx.toFixed(2)} commanded / ${pose.vx.toFixed(2)} observed`;
+  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
+  $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`
+      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
       : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
