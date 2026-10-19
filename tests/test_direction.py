@@ -929,3 +929,45 @@ def test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support():
              **{**opts,'course_axis_xy':(0.,0.)})
     with pytest.raises(ValueError,match='aligned'):
         examine_obstacle_crossing(base,feet[:3],np.ones((6,2),bool),head,**opts)
+
+
+def test_v5018_stride_diagnostics_identifies_strict_gait_rejection_without_changing_pass():
+    from emu.directional import diagnose_contact_stride_gate, count_contact_strides
+
+    n = 81
+    body = np.zeros((n,2),dtype=float)
+    body[:,0] = np.arange(n)*.006
+    feet = np.zeros((n,2,3),dtype=float)
+    feet[:,:,2] = .018
+    ct = np.ones((n,2),dtype=bool)
+    # Real floor separation lasting five control frames, right then left;
+    # each landing moves its foot 40 mm while the torso advances.
+    for foot, first, last in ((0,10,14),(1,23,27)):
+        ct[first:last+1, foot] = False
+        feet[first:last+1,foot,2] = .028
+        feet[first+1:,foot,0] = .04
+
+    diagnostic = diagnose_contact_stride_gate(body,feet,ct,settle_frames=3)
+    strict = count_contact_strides(body,feet,ct,settle_frames=3)
+    assert strict == 1
+    assert diagnostic['strict_completed_stride_pairs'] == strict
+    assert [p['qualifying_touchdowns'] for p in diagnostic['per_foot']] == [1,1]
+    assert all(p['longest_completed_airborne_frames'] == 5
+               for p in diagnostic['per_foot'])
+
+    # Keep the same contact/liftoff geometry but erase the required foot
+    # relocation: the physical score MUST reject that candidate touchdown.
+    missing_step = feet.copy()
+    missing_step[10:,0,0] = 0.
+    no_step = diagnose_contact_stride_gate(body,missing_step,ct,settle_frames=3)
+    assert no_step['strict_completed_stride_pairs'] == 0
+    assert no_step['per_foot'][0]['touchdown_rejections_nonexclusive'][
+        'foot_relocation_under_12mm'] == 1
+
+    too_fast = ct.copy()
+    too_fast[10:15,0] = True
+    too_fast[10:12,0] = False
+    fast = diagnose_contact_stride_gate(body,feet,too_fast,settle_frames=3)
+    assert fast['per_foot'][0]['touchdown_rejections_nonexclusive'][
+        'airborne_under_3_frames'] == 1
+    assert fast['strict_completed_stride_pairs'] == 0
