@@ -98,6 +98,37 @@ run() {
   echo "$stage exit=$code" | tee -a "$OUT/campaign.log"
 }
 
+# Tiny no-GPU runner preflight: execute filename expansion for every
+# parameter shape, and refuse duplicates before launching the frontier.
+# This specifically guards against unbound/obsolete shell variable names.
+check_step_naming() {
+  local h yaw speed seed kp mode code_speed code_yaw stage
+  local -A names=()
+  for h in 0 5 10 15 20; do
+    for yaw in 0 -25 25; do
+      for speed in .07 .10 .14; do
+        for seed in 1701 1702; do
+          for kp in 0 .75; do
+            mode=on
+            if [[ "$kp" == 0 ]]; then mode=off; fi
+            code_speed="${speed/./p}"
+            code_yaw="${yaw/-/m}"
+            code_yaw="${code_yaw/+/p}"
+            stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
+            if [[ -n "${names[$stage]+seen}" ]]; then
+              echo "Duplicate frontier experiment name: $stage" >&2
+              return 2
+            fi
+            names[$stage]=1
+          done
+        done
+      done
+    done
+  done
+  echo "Frontier naming preflight PASS: ${#names[@]} unique combinations"
+}
+check_step_naming || exit 2
+
 run targeted_python_tests python -m pytest -q \
  tests/test_direction.py::test_v5018_stride_diagnostics_identifies_strict_gait_rejection_without_changing_pass \
  tests/test_direction.py::test_v5018_step_pilot_xml_yaw_and_declared_height \
@@ -135,37 +166,6 @@ step() {
     --heading-kp "$kp" --seed "$seed" --worlds 4 \
     --horizon 350 --output "$OUT/$stage.json"
 }
-
-# Tiny no-GPU runner preflight: execute filename expansion for every
-# parameter shape, and refuse duplicates before launching the frontier.
-# This specifically guards against unbound/obsolete shell variable names.
-check_step_naming() {
-  local h yaw speed seed kp mode code_speed code_yaw stage
-  local -A names=()
-  for h in 0 5 10 15 20; do
-    for yaw in 0 -25 25; do
-      for speed in .07 .10 .14; do
-        for seed in 1701 1702; do
-          for kp in 0 .75; do
-            mode=on
-            if [[ "$kp" == 0 ]]; then mode=off; fi
-            code_speed="${speed/./p}"
-            code_yaw="${yaw/-/m}"
-            code_yaw="${code_yaw/+/p}"
-            stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
-            if [[ -n "${names[$stage]+seen}" ]]; then
-              echo "Duplicate frontier experiment name: $stage" >&2
-              return 2
-            fi
-            names[$stage]=1
-          done
-        done
-      done
-    done
-  done
-  echo "Frontier naming preflight PASS: ${#names[@]} unique combinations"
-}
-check_step_naming || exit 2
 
 # Controlled height frontier with matched 2-seed physical course samples
 # at the original .10m/s speed and heading hold ON.
