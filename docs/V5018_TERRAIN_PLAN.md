@@ -338,6 +338,26 @@ flat/step/contact variant in a fresh subprocess. These are
   inclined-plane test allowance without broadening the
   production/training 5° limit; awaiting local execution.
 
+### Interim result from next frozen-champion batch (not completed)
+
+- [~] At the user's 20 Oct morning run, the `corrected_contracts`
+  stage reported **5 passed, 1 failed**, in **0.49s**.
+  The single failure was **test assertion wording only**:
+  `test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support`
+  expected exception text `world-fixed` for a zero-length
+  `course_axis_xy=(0,0)`, but the evaluator correctly rejected it with
+  `ValueError: course axis must be nonzero`.
+- [~] Corrected the assertion in feature-branch commit
+  `85d36c79f91c9ca3328f86ee81d4068e53726618`.
+  **Not present in the already-running local campaign and not rerun.**
+- [ ] The user snippet ended just as `sensor232_ppo_smoke`
+  began. **No outcome for this or any later heading tests was supplied.**
+  Do not infer an outcome. Allow that campaign to complete and preserve
+  the archive before pulling the newer commit.
+- [ ] After it completes, run only the one corrected test and/or a
+  short targeted suite; do **not** rerun the GPU slope campaign just
+  to fix an exception-message assertion.
+
 ### Next branch-only implementation (committed, not yet verified by WSL)
 
 - [~] Fixed the two pytest regressions **after** this archive.
