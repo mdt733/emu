@@ -98,43 +98,114 @@ grade that capability** rather than starting slopes at 1° as though
 nothing was learned. Viewer observation is meaningful, not a measured
 held-out contact-based training or hardware result.
 
-## What's currently running / still UNPROVEN
+## The 20 Oct big campaign is finished — next continuation
 
-As of the last conversation (20 Oct 2026), the user had launched the
-**combined P0 feasibility campaign**, and we were awaiting its output.
-Do **not** mark any of the following as passed without the uploaded
-archive: complete updated pytest suite, npm CI/build/Node tests, GPU
-doctor/PPO smoke, MuJoCo/WASM gap, moving toe strikes, per-world
-`geom_pos`, scanner coverage, kinematic clearance, contact-stressed
-256→2048 scaling. **The terrain policy has not been trained.**
+**Provenance:** the uploaded `v5018_p0_20261020_081806.tar.gz`
+was created at **08:18 AEDT on 20 Oct** from branch commit
+`6a32841c73042ffa380d197e953f31b196f60857`. It is a real
+user-run GPU/CPU/WASM report. The subsequent documentation and
+test fixes are **later commits** and cannot be credited as tested.
 
-Command for a future **new** run only (do not restart an active run):
+**Summary:** **12/13 campaign stages completed successfully**.
+Python suite **76/78 passed**, with two failures: Python tests
+were run outside the repository and could not import local
+`scripts.smoke_training_lifecycle`; an older test still expected
+the schema-2/232 exported policy to be refused by the examiner.
+Both have source fixes committed; updated regressions still require
+a local targeted run. Browser npm ci, 12/12 Node tests, Vite
+build, GPU doctor and actual 220-input PPO gradient smoke
+passed. The real **232-input** PPO update still needs its
+own smoke.
+
+**Physics:** all 5 stationary ball-foot collision cases and
+12 JAX-primitive vs CPU ray intersections passed; all 4
+moving toe/landing/clearance probes agreed on collision
+timing to the same 5ms step, with max position-trajectory
+difference about **0.0022 mm**. CPU versus headless
+MuJoCo/WASM ball-foot resting positions all passed;
+actual six-servo actor/browser trajectories remain untested.
+Batched MJX `geom_pos` changed actual box position per world
+correctly without recompilation on the same shape.
+
+**GPU:** real 232-input EMU `2048`-world
+**environment stepping** hit ~25,799 steps/s flat,
+~23,383 with forward step geom present (zero obstacle
+contacts), ~24,533 with *real ball-foot contacts* on a
+5mm pad (16,240 contact world-frames in the final
+8-frame repeat). Roughly **4.9% contact-stress
+slowdown** in this short noisy benchmark. This is
+**NOT PPO training FPS**, complete engine parity, full
+contact-force validation or a robot obstacle-crossing proof.
+The dynamic probe emitted recoverable JAX GPU preallocation
+OOM warnings but subsequently passed. Physical VRAM is
+not the same as JAX allocator's reported ~224MB peak.
+
+**Scanners and mechanics:** 54/54 idealized static
+visibility conditions detected a test step for each of
+single-45° and three-zone beam configurations, with minimum
+lead 136mm and 208mm respectively. This does **NOT**
+address moving-leg occlusion, real ToF footprint/noise,
+timestamp drift/dropout or lane coverage under dynamic
+gait. A fixed-torso speed-limited random FK experiment
+recorded large potential relative swing-foot rises
+but ignored torque/support/safety; **do not choose obstacle
+heights from these numbers**.
+
+**Branch changes after archive (all UNVERIFIED locally):**
+- Fixed the stale 232 actor loader roundtrip test, added
+  sensor timing tamper rejection, and made campaign
+  Python pytest run from the repository root.
+- Opted the read-only directional examiner into up to
+  **12° of actual inclined contact plane** while keeping
+  all existing training and gravity-equivalent slope caps
+  at 5° by default. This makes a first quantitative
+  10° retention exam possible.
+- Added independent
+  `scripts/run_v5018_frozen_champion_baseline.sh`:
+  corrected targeted regression checks, true 232-input
+  PPO gradient smoke, and matched frozen-champion heading
+  correction **OFF/ON** on flat, 10° up/down/cross
+  inclines (seeds 1701/1702) plus flat reverse/turn tests.
+  Writes a shareable archive outside Git; no long training.
+- Added a **pure evaluator** in
+  `emu/directional.py::examine_obstacle_crossing` and
+  adversarial unit tests. It scores signed forward
+  progress, fixed world corridor, both ball feet and
+  torso beyond the far edge, real subsequent foothold
+  support, completion runout, direction, and no
+  detours/falls/resets/teleports/long stalling.
+  **This is NOT integrated into PPO training or actual
+  step environment yet**, and the added unit tests
+  remain to be executed.
+
+**Next run on the current feature branch:**
 
 ```bash
 cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_p0_campaign.sh
+bash scripts/run_v5018_frozen_champion_baseline.sh
 ```
 
-It writes a dated directory and matching `.tar.gz` under
-`~/robot_lab/emu_experiments/`. The shell script continues independent
-tests after a stage failure; individual `stages.tsv` results and logs
-must be inspected. Only the GPU batch benchmark stops increasing world
-count when the current size fails. It contains a small PPO-update smoke
-but **no long terrain training run**.
+The `~/robot_lab/emu_exams/v5018_heading_*.tar.gz`
+will include fresh post-fix targeted test results and
+the frozen actor's 10° physical heading comparison.
+**Upload it** to continue; do not spend another ten minutes
+rerunning the whole P0 campaign just to test two stale cases.
+The original command for a new full terrain feasibility
+campaign, if specifically necessary, remains
+`bash scripts/run_v5018_p0_campaign.sh`.
 
-When the user's archive arrives:
-1. Read the **actual** branch `docs/V5018_TERRAIN_PLAN.md`, current Git
-   status/HEAD, and the archive's `environment.txt` commit SHA;
-   distinguish the revision being tested from any later documentation edits.
-2. Inspect `stages.tsv`, failing logs, JSON traces and independent ground
-   truth. Review the real GPU memory and collision-loaded throughput.
-3. Fix genuine failures only on the feature branch; execute CPU/static
-   checks wherever possible, provide user-run GPU commands only for blocked
-   GPU work, and keep P0A/P0B gated until evidence actually meets exit
-   criteria. Update the **single** living checklist and commit.
-4. Do not ask to rerun a 7-minute suite or all 2048-world probes merely
-   because a standalone stage failed; target the observed failure.
+**Still blocking P0 completion:** realistic servo force
+and dynamic clearance under load, attached forward scanner
+occlusion/dropout/optical-flow motion compensation, 232
+PPO update and six-servo CPU/MJX/WASM command/contact parity,
+plus true collision/terrain-relative support and rewards
+before any terrain learning. The P0 primitive feasibility
+and GPU batch evidence are promising but do not close
+the entire gate. The **only authoritative up-to-date gate
+status and all detailed numbers** are in
+`docs/V5018_TERRAIN_PLAN.md`.
 
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
