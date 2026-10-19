@@ -700,10 +700,15 @@ from .contracts import OBS_DIM
 from .directional import evaluate_trace_arrays
 
 
-def exam_gravity(angle_deg, direction):
-    """Exact tilted-gravity infinite-plane experiment; uphill is world-fixed."""
-    if not math.isfinite(angle_deg) or not 0 <= angle_deg <= 5:
-        raise ValueError('exam angle must lie in [0,5] degrees')
+def exam_gravity(angle_deg, direction, *, max_angle_deg=5.):
+    """Return a world-fixed equivalent grade direction for exam scoring.
+
+    Historical tilted-gravity exams remain capped at 5 degrees. A larger
+    bounded REAL inclined-collision-plane test may use this direction
+    reference but still holds actual gravity vertically downward.
+    """
+    if not math.isfinite(angle_deg) or not 0 <= angle_deg <= max_angle_deg:
+        raise ValueError(f'exam angle must lie in [0,{max_angle_deg:g}] degrees')
     uphill = dict(uphill=(1., 0.), downhill=(-1., 0.),
                   cross_left=(0., 1.), cross_right=(0., -1.)).get(direction)
     if uphill is None:
@@ -733,7 +738,8 @@ def source_commit():
 
 
 def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
-                     angle_deg, direction, speed, lateral, yaw_rate):
+                     angle_deg, direction, speed, lateral, yaw_rate,
+                     contact_slope=False):
     run=Path(run_dir).expanduser().resolve()
     dest=Path(output).expanduser().resolve()
     if not run.is_dir() and not (run.is_file() and run.suffix == '.emupolicy'):
@@ -750,7 +756,11 @@ def validate_request(*, run_dir, output, worlds, horizon, settle_frames,
         raise ValueError('nonfinite request')
     if abs(speed) > .6 or abs(lateral) > .25 or abs(yaw_rate) > 1.5:
         raise ValueError('command outside bounded legacy-policy exam limits')
-    g=exam_gravity(angle_deg,direction)
+    # Physical 10-degree slope retention is a new v5018 EXAM only.
+    # Do not widen the historical 5-degree tilted-gravity study contract
+    # or the separate <=5-degree training curriculum configuration.
+    g=exam_gravity(angle_deg,direction,
+                   max_angle_deg=12. if contact_slope else 5.)
     return run,dest,g
 
 
@@ -797,7 +807,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         run_dir=policy_file if policy_file is not None else run_dir,
         output=output,worlds=int(worlds),horizon=int(horizon),
         settle_frames=int(settle_frames),angle_deg=angle_deg,direction=direction,
-        speed=speed,lateral=lateral,yaw_rate=yaw_rate)
+        speed=speed,lateral=lateral,yaw_rate=yaw_rate,
+        contact_slope=contact_slope)
     from .checkpoint_io import load_checkpoint
     from .environment import EmuMJXEnv
     from .contracts import ROBOT_XML
