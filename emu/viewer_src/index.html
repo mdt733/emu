@@ -47,23 +47,9 @@
 
 
 
-    <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
-      <div class="result-head"><b>EVALUATION</b><span id="resultRole">—</span></div>
-      <div class="result-grid">
-        <div><span>Broad</span><b id="resultBroad">—</b></div>
-        <div><span>Hard recovery</span><b id="resultHard">—</b></div>
-        <div><span>Growth</span><b id="resultGrowth">—</b></div>
-        <div><span>Cloud recovery</span><b id="resultRecovery">—</b></div>
-        <div><span>Worst dir</span><b id="resultWorst">—</b></div>
-        <div><span>Cal MAE</span><b id="resultCal">—</b></div>
-      </div>
-    </section>
-
-
-
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
-      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>Environment &amp; commands</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
+      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World &amp; steering</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
       <section class="controls-panel">
       <div class="control-row">
         <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
@@ -75,59 +61,45 @@
         <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
-        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading target (P) — joystick steers setpoint</label>
+        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
         <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
-        <label>Manual pitch range <select id="pitchRange"><option value="trained" selected>Trained envelope</option><option value="30">±30° (experimental)</option><option value="45">±45° (experimental)</option></select></label>
-        <div id="pitchRangeNote" class="control-note" hidden>Beyond the policy's trained pitch envelope: experimental extrapolation only.</div>
-        <label>Joysticks <select id="joystickMode"><option value="split">Split: move / turn</option><option value="hybrid">Hybrid: diagonal steering</option></select></label>
       </div>
-      <details>
-        <summary>Advanced commands</summary>
-        <div class="sliders">
-          <label>Height <output id="heightCmdOut">0 mm</output><input id="heightCmd" type="range" min="-18" max="18" value="0" step="1" /></label>
-          <label>Roll <output id="rollCmdOut">0.0°</output><input id="rollCmd" type="range" min="-3.2" max="3.2" value="0" step="0.1" /></label>
-          <label>Step height <output id="stepCmdOut">12 mm</output><input id="stepCmd" type="range" min="8" max="42" value="12" step="1" /></label>
-          <label>Cadence <output id="phaseCmdOut">auto</output><input id="phaseCmd" type="range" min="0" max="2.6" value="0" step="0.05" /></label>
-        </div>
-      </details>
-      <div class="drawer-tip">Chase view follows behind and above the robot, smoothing turns and keeping the horizon level. Raw POV follows the chassis-mounted camera, including shake. Level POV stabilises the picture only, not the robot. The terrain park uses one continuous MuJoCo heightfield, with textured grass and solid tree trunks. Foliage is visual only. The centre stays flat for 2 m, then the permitted slope increases outward. Changing terrain or trees resets the viewer robot, not the trained brain. Heading target uses P-only feedback to produce a yaw-rate command; disable it for direct turning. The gain is viewer-only. A manual ±30°/±45° pitch request may exceed the current model's ±15° training range. Settings never change PPO weights.</div>
       </section>
       <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
         <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
         <div class="live-progress">Validated step <b id="liveStep">—</b></div>
         <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
         <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
-        <label><input id="liveDemo" type="checkbox" checked /> Autonomous demonstration</label>
-        <label>Mission style <select id="demoMode" aria-label="Demo mission style">
-          <option value="goals">Navigate random poses (experimental)</option>
-          <option value="commands" selected>Random command practice</option>
-        </select></label>
-        <label>Route planner <select id="navPlanner" aria-label="Route planning algorithm">
-          <option value="grid" selected>Pose lattice · recommended</option>
-          <option value="curves">Continuous arcs · fastest candidate</option>
-          <option value="arcs">Bidirectional arcs · 27 options</option>
-        </select></label>
-        <div class="nav-actions"><button type="button" id="navNext" disabled>New random target</button>
-          <span>Within a 4 m circle · position + facing</span></div>
-        <div class="live-demo-status">Current maneuver: <b id="demoKind">—</b></div>
-        <div class="live-foot">Compare route planners on the same trained brain. Continuous curves and bidirectional yaw arcs are experimental; only the final arrival controller may use sideways corrections. Estimates are not measured fastest times.</div>
+        <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
+        <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
+          <span>Pose lattice · position + facing</span></div>
+        <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
+        <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
       </section>
-      <section id="pitchNotice" class="notice glass" hidden>
-            v5013 already exposes <code>cmd_pitch</code> to the actor, but does not explicitly reward pitch tracking. Pitch control here is experimental until v5014 trains it as an objective.
-          </section>
+      <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
+      <div class="result-head"><b>EVALUATION</b><span id="resultRole">—</span></div>
+      <div class="result-grid">
+        <div><span>Broad</span><b id="resultBroad">—</b></div>
+        <div><span>Hard recovery</span><b id="resultHard">—</b></div>
+        <div><span>Growth</span><b id="resultGrowth">—</b></div>
+        <div><span>Cloud recovery</span><b id="resultRecovery">—</b></div>
+        <div><span>Worst dir</span><b id="resultWorst">—</b></div>
+        <div><span>Cal MAE</span><b id="resultCal">—</b></div>
+      </div>
+    </section>
       <div class="drawer-footer"><a id="sourceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Source on GitHub ↗</a><span id="showcaseNote" hidden></span></div>
     </aside>
 
     <div class="sticks" aria-label="Touch controls">
       <div class="stick-wrap">
-        <div class="stick-label"><b>MOVE</b><span id="moveStickMode">vx / vy</span></div>
+        <div class="stick-label"><b>MOVE</b><span id="moveStickMode">forward / sideways</span></div>
         <div id="leftStick" class="stick" tabindex="0" role="application" aria-label="Velocity joystick">
           <div class="stick-cross"></div><div class="nub"></div>
         </div>
         <div id="leftValues" class="stick-values">vx +0.00 · vy +0.00</div>
       </div>
       <div class="stick-wrap right">
-        <div class="stick-label"><b>LOOK / TURN</b><span>yaw / pitch</span></div>
+        <div class="stick-label"><b>TURN / TILT</b><span>yaw / pitch</span></div>
         <div id="rightStick" class="stick" tabindex="0" role="application" aria-label="Yaw and pitch joystick">
           <div class="stick-cross"></div><div class="nub"></div>
         </div>
@@ -138,7 +110,7 @@
     <aside id="navHud" class="nav-hud glass" hidden aria-label="Autonomous mission">
       <b id="navHudTitle">POSITION + HEADING</b>
       <span id="navHudInfo">Waiting for goal…</span>
-      <small id="navEstimate">Time-weighted pose planning</small>
+      <small id="navEstimate">Pose-lattice navigation</small>
     </aside>
 
     <div id="showcaseBanner" class="showcase-banner glass" hidden role="status">

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { joystickToCommands, headingHoldRate, nextYawCommand } from '../src/controls.js';
 import { parseShowcaseManifest, assertShowcasePolicyResponse } from '../src/showcase.js';
 import { withGentleCourse, withTerrain, generateTerrainPark, localSlopeLimitDeg, surfaceSlope, GENTLE_SLOPE_DEGREES } from '../src/terrain.js';
-import { sampleDemoCommand } from '../src/live-demo.js';
 import { SensorObserver, inferTripod, rayHeight } from '../src/sensor.js';
 import { parsePolicy } from '../src/policy.js';
 const limits = {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
@@ -45,13 +44,11 @@ test('gentle terrain is real additional MuJoCo contact geometry', () => {
   assert.throws(() => withGentleCourse(out), /already inserted/);
 });
 
-test('inverted pitch, blended diagonal steering, and side-only strafing',()=>{
+test('trained pitch and split-stick axes remain predictable',()=>{
   assert.equal(joystickToCommands(0,0,0,1,limits).pitch,-limits.pitch_abs_rad);
-  const side=joystickToCommands(1,0,0,0,limits,'hybrid');
-  assert.equal(side.vy,-limits.vy_abs);assert.equal(side.yaw,0);
-  const diagonal=joystickToCommands(0.6,0.8,0,0,limits,'hybrid');
-  assert.ok(diagonal.vx>0 && diagonal.yaw<0 && diagonal.vy<0);
-  assert.ok(Math.abs(diagonal.vy)<Math.abs(side.vy));
+  assert.equal(joystickToCommands(1,0,0,0,limits).vy,-limits.vy_abs);
+  assert.equal(joystickToCommands(0,.5,0,0,limits).vx,limits.vx_max*.5);
+  assert.equal(joystickToCommands(0,-.5,0,0,limits).vx,limits.vx_min*.5);
 });
 test('heading-hold P responds to drift with saturating correction',()=>{
   assert.ok(headingHoldRate(0,0,0.1,0.75,1.5)<0);
@@ -115,11 +112,6 @@ test('yaw hold never feeds its applied correction back into the next request',()
   assert.ok(drift.appliedYaw<0);
   const raw=nextYawCommand(0.2,0,0,0.1,0.02,false,0.75,1.5);
   assert.ok(Math.abs(raw.appliedYaw-raw.requestedYaw)<1e-12);
-});
-test('autonomous demonstration does not lock full ±1.5 yaw frontier',()=>{
-  const out=sampleDemoCommand(limits,()=>0,[{vx:0.2,vy:0,yaw:-1.5}]);
-  assert.equal(out.command.yaw,-0.5);
-  assert.equal(joystickToCommands(0,0,1,0,limits).yaw,-1.5); // manual is still full
 });
 test('ground slope measures real generated terrain and robot-relative uphill arrow',()=>{
   const park=generateTerrainPark();
@@ -305,19 +297,14 @@ test('heading setpoint wraps safely, saturates its error and never winds up',()=
   assert.ok(Math.abs(wrapHeading(stuck.headingTarget))<=1.01);
 });
 
-test('viewer-only pitch override exposes ±30/45 without changing source policy or campaign',async()=>{
+test('viewer hides unsupported advanced input overrides but retains trained observation fields',async()=>{
   const {readFileSync}=await import('node:fs');
   const {fileURLToPath}=await import('node:url');
-  const sim=readFileSync(fileURLToPath(new URL('../src/sim.js',import.meta.url)),'utf8');
-  const main=readFileSync(fileURLToPath(new URL('../src/main.js',import.meta.url)),'utf8');
-  const html=readFileSync(fileURLToPath(new URL('../index.html',import.meta.url)),'utf8');
-  assert.match(html, /id="pitchRange"/);
-  assert.match(html, /value="30">±30°/);
-  assert.match(html, /value="45">±45°/);
-  assert.match(sim, /manualCommandLimits\(\)/);
-  assert.match(main, /applyViewerPitchRange\(\)/);
-  assert.match(sim, /const l = this\.bundle\.control\.command_limits;/); // demo stays trained
-  assert.doesNotMatch(html, /id="scaleLegend"/);
-  assert.doesNotMatch(main, /scaleLegend/);
-  assert.doesNotMatch(sim, /this\.headingKp = 0\.75/);
+  const read=p=>readFileSync(fileURLToPath(new URL(p,import.meta.url)),'utf8');
+  const sim=read('../src/sim.js'),html=read('../index.html');
+  assert.doesNotMatch(html,/heightCmd|phaseCmd|rollCmd|pitchRange|joystickMode/);
+  assert.doesNotMatch(sim,/setAdvanced\(|phaseOverride|viewerPitchLimitRad/);
+  for(const field of ['this.command.height','this.command.roll',
+                      'this.command.step_height','this.phase'])
+    assert.ok(sim.includes(field),'preserved model observation '+field);
 });

@@ -1,8 +1,8 @@
 // Browser-only pose navigation: time-weighted SE(2) lattice and closed-loop
-// waypoint tracking. This plans *commands*, never neural weights. It is
+// continuous line tracking. This plans *commands*, never neural weights. It is
 // an estimated fastest route under a conservative velocity envelope,
 // not proof of optimality or a learned capability/safety guarantee.
-import { makeRng } from './live-demo.js';
+import { makeRng } from './rng.js';
 import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
 export const ARENA_RADIUS_M = 4;
 export const GOAL_POSITION_TOLERANCE_M = .19;
@@ -175,118 +175,6 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     heuristic(last,goal,speed),solved,expanded,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
-const safe=(v,a,b)=>clamp(Number.isFinite(v)?v:0,a,b);
-
-/**
- * Select a target ~1.1-1.7 metres AHEAD along the planned polyline.
- * The old controller chased the next 22cm lattice node AND its heading,
- * which forced a slow sidestep to each quantised position. Pure pursuit
- * instead advances monotonically and treats intermediate headings as
- * planning context, NEVER as intermediate parking obligations.
- */
-export function previewRoute(pose,steps,index=0,trees=[],speed=0){
-  if(!steps?.length)throw new Error('Cannot follow empty navigation route');
-  const last=steps.length-1;
-  // Search only the local corridor; looping paths can cross themselves.
-  let nearest=clamp(index,0,last),best=distance(pose,steps[nearest]);
-  for(let i=nearest+1;i<=Math.min(last,index+12);i++){
-    const d=distance(pose,steps[i]);
-    if(d<best-.025){best=d;nearest=i;}
-  }
-  const lookahead=clamp(1.10+.65*Math.max(0,speed),1.10,1.70);
-  let travelled=0,look=steps[nearest],targetIndex=nearest;
-  let prev={x:pose.x,y:pose.y};
-  for(let i=nearest;i<=last;i++){
-    const q=steps[i],segment=distance(prev,q);
-    if(travelled+segment>=lookahead && segment>.00001){
-      const t=(lookahead-travelled)/segment;
-      const candidate={...q,x:prev.x+(q.x-prev.x)*t,
-                             y:prev.y+(q.y-prev.y)*t};
-      if(directRouteClear(pose,candidate,trees)){
-        look=candidate;targetIndex=i;
-      }
-      break;
-    }
-    if(!directRouteClear(pose,q,trees))break;
-    travelled+=segment;prev=q;look=q;targetIndex=i;
-  }
-  // If a segment is directly blocked by a tree, don't shortcut the path;
-  // return the last visible intermediate point instead.
-  return {target:look,progress:nearest,targetIndex,
-          lookahead,remaining:distance(pose,steps[last])};
-}
-function directRouteClear(from,to,trees){
-  const length=distance(from,to);
-  for(let i=1;i<=Math.max(1,Math.ceil(length/.10));i++){
-    const t=i/Math.max(1,Math.ceil(length/.10));
-    const x=from.x+(to.x-from.x)*t,y=from.y+(to.y-from.y)*t;
-    if(treeCollision(x,y,trees))return false;
-  }
-  return true;
-}
-
-/**
- * Legacy waypoint driver retained for regression comparisons only.
- * Active goal missions use path-follower.js.
- * Velocity controller for a DYNAMIC biped, not a holonomic parked robot.
- *
- * Far: drive quickly toward a far-ahead preview with one smooth yaw arc;
- *      no lateral corrections for intermediate lattice errors.
- * Near: release cruise velocity and steer toward the final pose.
- * Last metres: finish world-heading approach and use modest sideways
- *      trim if needed. All velocities remain within the learned envelope.
- */
-export function followWaypoint(pose,waypoint,limits,{final=false,goal=null}={}){
-  const actualGoal=goal||waypoint;
-  const remaining=distance(pose,actualGoal);
-  const dx=waypoint.x-pose.x,dy=waypoint.y-pose.y;
-  const sight=Math.atan2(dy,dx);
-  const eBearing=angleError(sight,pose.heading);
-  const finalError=angleError(actualGoal.heading,pose.heading);
-  const maxF=Math.max(0,Number(limits.vx_max)||0);
-  const maxB=Math.max(0,-Number(limits.vx_min)||0);
-  const maxS=Math.max(0,Number(limits.vy_abs)||0);
-  const maxYaw=Math.max(0,Number(limits.yaw_abs)||0);
-  const requested=waypoint.cmd||{vx:maxF,vy:0,yaw:0};
-  const reverse= !final && Number(requested.vx)<-.07 &&
-      remaining>.65 && Math.abs(eBearing)>1.65 && maxB>.08;
-  const sightError=reverse?wrapAngle(eBearing-Math.PI*Math.sign(eBearing)):eBearing;
-  // Heading alignment is gradual, not a requirement to stop at each node.
-  const arrivalBlend=clamp((1.10-remaining)/.90,0,1);
-  const turnError=(1-arrivalBlend*.76)*sightError+arrivalBlend*.76*finalError;
-  const yaw=safe(1.45*turnError,-maxYaw*.82,maxYaw*.82);
-  // Sprint when there is space and the turning radius permits it.
-  const cruise=maxF*.90;
-  const distanceThrottle=remaining>=1.5?1:
-    remaining>=.75?(.52+.48*(remaining-.75)/.75):
-    remaining>=.33?(.25+.27*(remaining-.33)/.42):
-    .10;
-  const curveThrottle=clamp(1-.65*Math.abs(sightError)/Math.PI,.28,1);
-  let vx=cruise*distanceThrottle*curveThrottle;
-  // This is a dynamic biped; maintain forward stepping in a broad turn.
-  if(remaining>.55)vx=Math.max(vx,Math.min(.27,maxF*.30));
-  if(reverse){
-    vx=-Math.min(maxB*.76,Math.max(.12,maxB*.70*distanceThrottle));
-  }
-  // Sideways speed is precious: do NOT expend it following every 22cm
-  // lattice point. Only trim residual error in the arrival neighbourhood.
-  let vy=0;
-  if(remaining<.64){
-    const ex=actualGoal.x-pose.x,ey=actualGoal.y-pose.y;
-    const lateral=-Math.sin(pose.heading)*ex+Math.cos(pose.heading)*ey;
-    vy=clamp(lateral*.70,-maxS*.68,maxS*.68);
-    // Do not compound full forward and lateral frontiers.
-    const ellipse=Math.hypot(vx/Math.max(maxF*.90,.01),vy/Math.max(maxS*.70,.01));
-    if(ellipse>1){vx/=ellipse;vy/=ellipse;}
-  }
-  if(final && remaining<.28 && Math.abs(finalError)>.30){
-    // Give orientation correction room while still dynamically stepping.
-    vx=Math.max(vx,Math.min(maxF*.16,.15));
-  }
-  return {vx:safe(vx,-maxB,maxF),vy:safe(vy,-maxS,maxS),
-          yaw,pitch:0};
-}
-
 export class GoalNavigator {
   constructor(seed=5017){
     this.rng=makeRng(seed);this.active=false;
@@ -295,11 +183,10 @@ export class GoalNavigator {
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
-    this.searchCooldown=0;this.failures=0;this.warmup=0;
+    this.searchCooldown=0;this.failures=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.requestPlan=null;this.pendingRequest=null;
     this.generation=0;this.plannerError=null;
-    this.plannerMode='grid'; // UI selection; only changes background route search
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -337,7 +224,7 @@ export class GoalNavigator {
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
-    this.warmup=0;this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
+    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
@@ -361,7 +248,7 @@ export class GoalNavigator {
       this.reason='Planning next target in background…';
       return this.queuePlan({
         kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-        limits,trees,planner:this.plannerMode
+        limits,trees
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
@@ -472,7 +359,7 @@ export class GoalNavigator {
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees,planner:this.plannerMode
+          goal:expectedGoal,limits,trees
         },answer=>{
           if(answer?.route?.solved&&this.goal===expectedGoal){
             this.acceptRoute(pose,expectedGoal,answer.route);

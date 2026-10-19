@@ -3,7 +3,7 @@ import { parsePolicy } from './policy.js';
 import { VirtualStick } from './joystick.js';
 import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
-import { DemoCommander } from './live-demo.js';
+import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
@@ -24,10 +24,8 @@ const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
 const treesToggle = $('treesToggle');
-const joystickMode = $('joystickMode');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
-const pitchRange = $('pitchRange');
 const cameraBtn = $('cameraBtn');
 const cameraModes = ['orbit', 'chase', 'raw', 'level'];
 let cameraMode = 'orbit';
@@ -39,12 +37,10 @@ function cameraDescription(mode) {
   return {orbit:'orbit camera', chase:'third-person chase camera behind and above robot',
           raw:'raw chassis POV', level:'visually levelled POV'}[mode];
 }
-const pitchNotice = $('pitchNotice');
 const dropOverlay = $('dropOverlay');
 const leftValues = $('leftValues');
 const rightValues = $('rightValues');
 const livePanel = $('livePanel');
-const demo = new DemoCommander();
 const navigator = new GoalNavigator();
 let navWorker;
 let workerUnavailable=null;
@@ -54,34 +50,35 @@ navigator.useBackgroundPlanner(request=>{
   if(!navWorker)throw new Error(workerUnavailable||'Background navigation unavailable');
   return navWorker.request(request);
 });
-const demoMode = $('demoMode'), navHud = $('navHud');
-const navPlanner = $('navPlanner');
+const navHud = $('navHud');
 let lastResetGeneration = -1;
 let navCommandClock = Infinity;
 let navCommandUpdates = 0;
 let navLastCommand = {vx:0,vy:0,yaw:0};
-let demoActive = false;
-const goalDemoActive = () => demoActive && demoMode.value === 'goals';
+let demoActive = true;
+let navigationFault = false;
+const handoff = new DemoHandoff();
+const goalDemoActive = () => demoActive;
 function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
-  navigator.plannerMode=navPlanner.value;
   navigator.reset();
   navCommandClock=Infinity;
   navCommandUpdates=0;
   navLastCommand={vx:0,vy:0,yaw:0};
   if(sim) {
-    // Only the presentation changes between demo modes. Both demos must
-    // share the EXISTING neural actor command and control pipeline.
+    // Autonomy and manual use the same policy command/observation path.
     sim.setNavigationPresentation(enabled);
     sim.autoReset=autoResetToggle.checked||demoActive;
   }
-  navHud.hidden=!enabled;
-  $('navNext').disabled=!enabled;
+  navHud.hidden=!sim;
+  $('navNext').disabled=!sim;
 }
 // One proven command delivery path for every autonomous input source.
 function applyAutonomousCommand(command) {
   sim.setDemoCommands(command);
+  navLastCommand={...command};
+  updateStickLabels();
 }
 function navigationUpdate(dt) {
   const pose=sim.navigationPose();
@@ -101,7 +98,6 @@ function navigationUpdate(dt) {
   navCommandClock+=Math.min(Math.max(dt,0),.1);
   if(plannedCommand && navCommandClock>=commandPeriod){
     applyAutonomousCommand(plannedCommand);
-    navLastCommand={...plannedCommand};
     navCommandClock=0;
     navCommandUpdates++;
   }
@@ -110,7 +106,7 @@ function navigationUpdate(dt) {
   $('demoKind').textContent=state.reason;
   if(!state.goal){
     $('navHudTitle').textContent=state.reason;
-    $('navHudInfo').textContent='Walking while the planner finds a route';
+    $('navHudInfo').textContent='Planning a route…';
     $('navEstimate').textContent=state.plannerError
       ? 'Planner error: '+state.plannerError
       : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
@@ -170,21 +166,8 @@ function deg(rad) { return rad * 180 / Math.PI; }
 function fmtSigned(x, n=2) { return `${x >= 0 ? '+' : ''}${x.toFixed(n)}`; }
 
 function limits() {
-  const trained=bundle?.control?.command_limits ||
-    {vx_min:-0.2,vx_max:0.6,vy_abs:0.22,yaw_abs:1.5,pitch_abs_rad:0.08};
-  const manualPitch=pitchRange.value==='trained' ? trained.pitch_abs_rad
-    : Number(pitchRange.value)*Math.PI/180;
-  return {...trained, pitch_abs_rad:manualPitch};
-}
-function applyViewerPitchRange() {
-  const trained=bundle?.control?.command_limits?.pitch_abs_rad;
-  if (Number.isFinite(trained)) {
-    pitchRange.options[0].textContent=`Trained ±${deg(trained).toFixed(0)}°`;
-  }
-  const extended=pitchRange.value!=='trained';
-  $('pitchRangeNote').hidden=!extended;
-  sim?.setViewerPitchLimitDeg(extended?Number(pitchRange.value):null);
-  updateStickLabels();
+  return bundle?.control?.command_limits ||
+    {vx_min:-.2,vx_max:.6,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
 }
 function applyHeadingGain() {
   const kp=Number(headingGain.value);
@@ -193,27 +176,29 @@ function applyHeadingGain() {
 }
 
 function updateStickLabels() {
-  const {vx, vy, yaw, pitch} = joystickToCommands(left.x, left.y, right.x, right.y, limits(), joystickMode.value);
-  leftValues.textContent = `vx ${fmtSigned(vx)} · vy ${fmtSigned(vy)}`;
-  rightValues.textContent = `yaw ${fmtSigned(yaw)} · pitch ${fmtSigned(deg(pitch),1)}°`;
-  sim?.setJoystickTargets(left.x, left.y, right.x, right.y);
+  if(demoActive){
+    const sticks=commandStickPositions(navLastCommand,limits());
+    leftStick.setDisplay(sticks.left.x,sticks.left.y);
+    rightStick.setDisplay(sticks.right.x,sticks.right.y);
+    leftValues.textContent=`vx ${fmtSigned(navLastCommand.vx)} · vy ${fmtSigned(navLastCommand.vy)}`;
+    rightValues.textContent=`yaw ${fmtSigned(navLastCommand.yaw)} · pitch ${fmtSigned(deg(navLastCommand.pitch||0),1)}°`;
+    return;
+  }
+  const {vx,vy,yaw,pitch}=joystickToCommands(left.x,left.y,right.x,right.y,limits());
+  leftValues.textContent=`vx ${fmtSigned(vx)} · vy ${fmtSigned(vy)}`;
+  rightValues.textContent=`yaw ${fmtSigned(yaw)} · pitch ${fmtSigned(deg(pitch),1)}°`;
+  sim?.setJoystickTargets(left.x,left.y,right.x,right.y);
 }
-
-const leftStick = new VirtualStick($('leftStick'), (x,y) => { if (demoActive && (x || y)) stopDemo(); left={x,y}; updateStickLabels(); });
-const rightStick = new VirtualStick($('rightStick'), (x,y) => { if (demoActive && (x || y)) stopDemo(); right={x,y}; updateStickLabels(); });
-
-function applyAdvanced() {
-  const h = Number($('heightCmd').value) / 1000;
-  const r = Number($('rollCmd').value) * Math.PI / 180;
-  const s = Number($('stepCmd').value) / 1000;
-  const p = Number($('phaseCmd').value);
-  $('heightCmdOut').textContent = `${Math.round(h*1000)} mm`;
-  $('rollCmdOut').textContent = `${deg(r).toFixed(1)}°`;
-  $('stepCmdOut').textContent = `${Math.round(s*1000)} mm`;
-  $('phaseCmdOut').textContent = p <= 0.001 ? 'auto' : `${p.toFixed(2)} Hz`;
-  sim?.setAdvanced({height:h, roll:r, stepHeight:s, phaseRate:p});
+function humanStickChange(side,x,y) {
+  if(demoActive && (Math.abs(x)>.06||Math.abs(y)>.06))stopDemo();
+  if(!demoActive){
+    handoff.takeControl(performance.now()/1000);
+    if(side==='left')left={x,y};else right={x,y};
+    updateStickLabels();
+  }
 }
-for (const id of ['heightCmd','rollCmd','stepCmd','phaseCmd']) $(id).addEventListener('input', applyAdvanced);
+const leftStick=new VirtualStick($('leftStick'),(x,y)=>humanStickChange('left',x,y));
+const rightStick=new VirtualStick($('rightStick'),(x,y)=>humanStickChange('right',x,y));
 
 function metricText(x) {
   const n = Number(x);
@@ -266,17 +251,14 @@ async function activatePolicy(index) {
     }
     bundle = entry.bundle;
     sim.setCameraMode(cameraMode);
-    sim.setJoystickMode(joystickMode.value);
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
-    applyViewerPitchRange();
     sim.setTreesEnabled(treesToggle.checked);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
     sim.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
-    applyAdvanced();
     updateStickLabels();
 
     const src = bundle.source || {};
@@ -290,7 +272,6 @@ async function activatePolicy(index) {
         ? (showcaseManifest.trained ? 'Browser-local physics and inference · no account needed' : 'Viewer preview only. This is not a trained walking policy.')
         : 'Your own dropped policy — not the published model';
     }
-    pitchNotice.hidden = bundle.features?.pitch_tracking_trained === true;
     updateResultCard();
     refreshPolicySelect();
     pauseBtn.disabled = false;
@@ -308,11 +289,11 @@ async function activatePolicy(index) {
       $('liveUpdate').closest('label').hidden = true;
       $('livePhase').textContent = 'Local policy';
       $('liveStep').textContent = Number(src.step || 0).toLocaleString();
-      $('liveNote').textContent = 'Browser-only navigation: no training server involved';
+      $('liveNote').textContent = 'Runs entirely in your browser';
       demoActive = $('liveDemo').checked;
     }
-    demo.reset();
     lastResetGeneration=-1;
+    navigationFault=false;
     syncGoalMode();
     return true;
   } catch (err) {
@@ -368,20 +349,14 @@ function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
   if (!sim) return;
-  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); applyAdvanced(); updateStickLabels(); }
+  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
   catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
 }
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
-joystickMode.addEventListener('change',()=>{
-  $('moveStickMode').textContent = joystickMode.value==='hybrid'?'vx / vy + turn':'vx / vy';
-  sim?.setJoystickMode(joystickMode.value);
-  updateStickLabels();
-});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
-pitchRange.addEventListener('change',applyViewerPitchRange);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
@@ -407,6 +382,7 @@ window.addEventListener('drop', e => {
 // Desktop fallback: WASD = vx/vy, Q/E = yaw, R/F = pitch.
 const held = new Set();
 function updateKeyboard() {
+  if(demoActive)return; // Never let idle key-up repaint autonomous sticks.
   let lx = 0, ly = 0, rx = 0, ry = 0;
   if (held.has('KeyA')) lx -= 1;
   if (held.has('KeyD')) lx += 1;
@@ -441,7 +417,7 @@ function updateTelemetry(now, dt) {
   $('vxRead').textContent = `${fmtSigned(t.vx)} / ${fmtSigned(t.cmd.vx)}`;
   $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
   $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
-  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· demo' : '· manual'}`;
+  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· auto' : '· manual'}`;
   $('headingRead').textContent=t.headingHold
     ? `${fmtSigned(deg(t.headingTarget),0)}° / ${fmtSigned(deg(t.headingActual),0)}°`
     : 'direct yaw-rate';
@@ -467,23 +443,26 @@ function frame(ms) {
     fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
   }
   if (sim) {
+    if (!demoActive && !navigationFault && handoff.shouldResume(now,
+       held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
+       Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
+      startDemo();
+    }
     if (demoActive && !sim.paused) {
-      if(goalDemoActive()){
-        try{navigationUpdate(dt);}
-        catch(error){
-          // Browser navigation is optional; on failure immediately restore
-          // known-working random commands without touching actor/simulation.
-          console.error('Goal navigation disabled:',error);
-          demoMode.value='commands';
-          syncGoalMode();
-          setStatus('Navigation error: '+String(error?.message||error), 'error');
-          demo.tick(dt, limits(), applyAutonomousCommand,
-            bundle?.demo?.node_candidates||[]);
-        }
-      }else{
-        demo.tick(dt, limits(), applyAutonomousCommand, bundle?.demo?.node_candidates || []);
-        $('demoKind').textContent = demo.kind;
+      try{navigationUpdate(dt);}
+      catch(error){
+        console.error('Goal navigation:',error);
+        navigationFault=true;
+        stopDemo();
+        sim.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
+        setStatus('Navigation error: '+String(error?.message||error), 'error');
       }
+    }else if(!demoActive) {
+      const leftTime=Math.max(0,30-(now-handoff.lastHumanInput));
+      $('navHudTitle').textContent='MANUAL CONTROL';
+      $('navHudInfo').textContent=navigationFault?'Navigation requires a restart':
+        `Autonomous navigation resumes in ${Math.ceil(leftTime)}s`;
+      $('navEstimate').textContent='Move either joystick or use WASD · Q/E to steer';
     }
     sim.advance(dt);
     sim.render(dt);
@@ -491,61 +470,43 @@ function frame(ms) {
   }
   }catch(error){
     console.error('Viewer frame error:',error);
-    // Never secretly pause a working actor because a new optional
-    // navigation/HUD/render calculation threw. Prefer the established demo
-    // command stream, leaving the next animation frame scheduled.
-    if(goalDemoActive()){
-      demoMode.value='commands';
-      syncGoalMode();
-    }
+    // Keep the next browser animation frame alive for recovery.
+    navigationFault=true;
+    if(goalDemoActive())stopDemo();
     setStatus('Viewer frame error: '+String(error?.message||error),'error');
   }
 }
 
-function stopDemo() {
-  demoActive = false;
-  $('liveDemo').checked = false;
-  demo.reset();
+function stopDemo(){
+  demoActive=false;
+  handoff.takeControl(performance.now()/1000);
+  $('liveDemo').checked=false;
   syncGoalMode();
-  $('demoKind').textContent = 'manual control';
-  if (sim) {
-    sim.autoReset = autoResetToggle.checked;
-    sim.setJoystickTargets(left.x, left.y, right.x, right.y);
-  }
+  $('demoKind').textContent='Manual control';
+  leftStick.setDisplay(left.x,left.y);
+  rightStick.setDisplay(right.x,right.y);
+  updateStickLabels();
 }
-
-$('liveDemo').addEventListener('change', () => {
-  demoActive = $('liveDemo').checked;
-  demo.reset();
+function startDemo(){
+  if(!sim||navigationFault)return;
+  demoActive=true;
+  handoff.resume();
+  $('liveDemo').checked=true;
+  left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
-  if (sim && !demoActive) sim.setJoystickTargets(left.x, left.y, right.x, right.y);
-  $('demoKind').textContent = demoActive ? 'choosing command…' : 'manual control';
-});
-demoMode.addEventListener('change',()=>{
-  demo.reset();
-  syncGoalMode();
-  $('demoKind').textContent=goalDemoActive()?'Planning goal route…':'random in-envelope commands';
-});
-navPlanner.addEventListener('change',()=>{
-  // Cancel any route built for the previous motion model. Async replies
-  // from an old Worker request cannot apply after reset generation changes.
-  navigator.plannerMode=navPlanner.value;
-  navigator.reset();
-  navCommandClock=Infinity; // release old yaw setpoint on next frame
-  if(sim)sim.clearNavigationOverlay();
-  $('demoKind').textContent='Planning with '+navPlanner.selectedOptions[0].textContent;
+  $('demoKind').textContent='Finding next destination…';
+  updateStickLabels();
+}
+$('liveDemo').addEventListener('change',()=>{
+  if($('liveDemo').checked)startDemo();else stopDemo();
 });
 $('navNext').addEventListener('click',()=>{
   if(!sim)return;
-  if(!goalDemoActive()){
-    demoMode.value='goals';demoActive=true;$('liveDemo').checked=true;
-    syncGoalMode();
-  }
+  if(!demoActive)startDemo();
   navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
   const state=navigator.status(sim.navigationPose());
   sim.setNavigationOverlay(state.goal,state.route);
 });
-
 async function pollLive() {
   if (livePolling) return;
   livePolling = true;
@@ -605,7 +566,8 @@ async function startShowcaseFeed() {
   policyLibrary.push({fileName:manifest.label, bundle:parsed, isShowcase:true});
   const ok = await activatePolicy(policyLibrary.length - 1);
   if (!ok) throw new Error('Showcase policy could not be started');
-  demoActive = manifest.autoplay;
+  demoActive = manifest.trained;
+  handoff.resume();
   $('liveDemo').checked = demoActive;
   // The public playground gets the same demo controls as the live watcher.
   livePanel.hidden = false;
@@ -616,7 +578,7 @@ async function startShowcaseFeed() {
   $('liveNote').textContent = manifest.trained
     ? 'Static, published policy — no training server required'
     : 'Demo fixture: explore the controls, not the walking performance';
-  $('demoKind').textContent = demoActive ? 'choosing command…' : 'manual control';
+  $('demoKind').textContent = demoActive ? 'Finding next destination…' : 'Manual control';
   sim.autoReset = autoResetToggle.checked || demoActive;
   syncGoalMode();
   return true;
@@ -661,8 +623,6 @@ async function startViewerFeed() {
   }
 }
 
-applyAdvanced();
 applyHeadingGain();
-applyViewerPitchRange();
 startViewerFeed();
 requestAnimationFrame(frame);

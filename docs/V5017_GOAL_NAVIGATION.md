@@ -1,343 +1,104 @@
-# Browser-only autonomous pose navigation — v5017 prototype
+# EMU browser viewer — v5017
 
-**Branch:** `feature/v5017-goal-navigation-demo`. The approved v5016
-Pinnacle brain on `main` is unchanged; the planner never trains it.
+A public-facing, browser-only MuJoCo / WASM playground for EMU's trained
+six-servo biped. **Only the pose-lattice autonomous navigation demo ships**.
+The viewer does not train or modify the network.
 
-## What it does
+## What happens at startup
 
-The demo can now choose **random targets in a circle of radius 4 m**:
-each target is a world (x, y) position **and a target final heading**.
-The target appears as a gold position ring and facing arrow. An outlined
-4 m arena and a cyan planned path show where the robot intends to go.
+1. Load the published trained `.emupolicy` from the static showcase, or the
+   selected policy from the local WSL viewer.
+2. Start autonomous pose navigation immediately. A Web Worker chooses a
+   position *and* target heading and searches a time-weighted pose lattice.
+3. Follow the continuous route line, not each discrete lattice node:
+   cross-track prediction, up-to-30° interception, speed reduction for
+   large current/predicted lateral error, measured yaw-rate damping.
+4. Set commands using **the same** `setDemoCommands()` / heading controller
+   / PPO actor / MuJoCo chain as before. PPO inference remains 50 Hz.
+5. Show the commands by moving the two joystick knobs, without fabricating
+   human input events. Touch either joystick or use WASD / Q-E / R-F
+   to take manual control immediately.
+6. When the human releases the controls and leaves them idle for **30
+   seconds**, restore autonomous navigation and plan a fresh route from the
+   *current* physical pose. Holding a stick or key prevents that timeout.
 
-The browser's **time-weighted SE(2) lattice planner** evaluates
-forward, reverse, sideways, diagonal, pivot and simultaneous steering
-primitives. It uses command-speed *estimates* bounded below the checkpoint's
-published (vx, vy, yaw-rate) frontier, and checks predicted motion against
-the solid tree-trunk locations with clearance. A 16-heading grid and 22 cm
-position lattice keep the search usable on desktop and mobile.
+The trained policy's command limits define the manual and automatic
+joystick range. No per-policy movement calibration is required.
 
-Each leg of the plan is tracked by a **feedback controller** using robot
-position and world heading; near the goal it brakes, corrects remaining
-position and turns to the final facing direction. A mission counts as
-parked only if the actual body is within ~19 cm position and ~16° heading,
-with low speed for 0.75 seconds, then samples another random target.
-The router retries from real robot position if it drifts far off its path.
-The planner's outer-loop yaw is applied **directly** as a rate command;
-the manual world-heading P loop is bypassed only while navigation is
-active so the two controllers never fight.
+## Controls
 
-## How to use
+- **Left joystick:** up/down = forward/reverse, left/right = lateral.
+- **Right joystick:** left/right = turning, up/down = chassis pitch.
+  The knobs *display* the currently requested autonomous commands.
+- **W/A/S/D, Q/E, R/F:** keyboard equivalents. Space = pause; Backspace
+  = reset.
+- **New destination:** pick another random position and facing.
+- **Settings:** simulation terrain, trees, camera follow, resets,
+  rendering options, heading assist and live policy updates.
+- **Load policies / drag-drop:** switch to another `.emupolicy`. Same
+  start-in-autonomy behaviour, no changes to neural weights.
+- **Camera:** orbit, chase, raw chassis POV and levelled POV.
+- **Telemetry:** observed versus requested motion. Held-out evaluation is
+  available in Settings when the bundle contains the relevant metrics.
 
-Open local EMU viewer with any trained schema-2 policy. In **Settings →
-Demo controls**, keep Autonomous demonstration checked and select
-**Navigate random poses** (the default in public showcase).
-**Random command practice** is currently the safe default.
-Choose **Navigate random poses (experimental)** to opt into navigation.
-The planner first commands a gentle 1.2-second walking warm-up,
-avoids untrained stationary pivots and uses continuous stepping.
-Arrivals are dynamic pass-throughs at the requested heading, not
-a verified static parking hold. Uncheck Autonomous demonstration
-to use manual joystick control. **New random target**
-skips to another mission. Orbit camera frames the area when navigation
-starts; Chase, POV and level POV are still available. Touch stick or
-WASD/Q/E input immediately cancels the autonomous demo.
+The removed height/roll/step-height/cadence sliders were not a useful public
+interface. The actor **still receives its required observation fields** and
+the automatically chosen episode cadence; those were not removed.
 
-All three modes run entirely in browser-local MuJoCo/WASM. The viewer shows
-planned estimated time, manoeuvre name, distance/angle to the goal and
-number of successfully parked poses. Trees outside the very centre
-become obstacles, not just visual decoration.
+## Architecture
 
-**Limitations:** The lattice is weighted A* with a conservative command
-velocity envelope, not a mathematically time-optimal trajectory under true
-actuator dynamics, thermal limits or heading-control latency. Obstacle
-clearance uses static trunk footprints only. The learned sensor actor
-does not get a new goal observation; only the browser-level command
-controller knows the pose target. This is a compelling navigation demo,
-*not* a validated autonomy/performance score. Measured speed envelopes
-from repeated physical/simulation waypoint trials would be the next
-research upgrade, followed by predictive turn-and-brake planning.
-
-## Release safety
-
-This feature remains branch-only for review. Neither the public showcase
-model, release approval hash nor the legacy v5016 checkpoint was modified.
-Run `npm test --prefix emu/viewer_src`, browser build/preview, and test
-both desktop/mobile before a separate PR promotion.
-
-Unreachable or stalled missions are explicitly timed out and counted as
-failures, not successes. Stuck waypoints trigger a fresh route search,
-while target-search failures back off rather than monopolising frames.
-
-To preview in a separate WSL directory with your existing viewer virtual
-environment (no training checkpoint needed):
-
-```bash
-git clone --single-branch --branch feature/v5017-goal-navigation-demo \
-  https://github.com/mdt733/emu.git ~/emu-goal-demo
-cd ~/emu-goal-demo
-source ~/emu-viewer-5016/.venv/bin/activate
-export JAX_PLATFORMS=cpu
-PYTHONPATH="$PWD" emu viewer-build
-PYTHONPATH="$PWD" emu viewer showcase/champion.emupolicy --port 8767 --no-open
+```text
+goal target / park trees
+        |
+pose-lattice A* in goal-worker.js
+        |
+continuous path geometry (path-follower.js)
+        |
+cross-track / yaw feedback + final parking
+        |
+setDemoCommands() or manual setJoystickTargets()
+        |
+existing heading controller + PPO actor + MuJoCo/WASM
+        |
+actual pose and velocity back to controller and HUD
 ```
 
-Open http://127.0.0.1:8767 and choose **Settings → Demo controls**.
-The latest committed 260M inference policy is already included.
+Essential source:
+- `index.html`, `src/style.css`: compact public UI
+- `src/main.js`: viewer lifecycle and manual/autonomous handoff
+- `src/joystick.js`, `src/demo-handoff.js`, `src/controls.js`:
+  input and display, including non-interactive joystick mirroring
+- `src/goal-navigation.js`, `src/goal-worker.js`,
+  `src/goal-planner-client.js`, `src/path-follower.js`: route planning
+  and tracking
+- `src/sim.js`, `src/policy.js`, `src/sensor.js`: actual robot,
+  neural inference, sensor emulation, physics and visuals
 
-## v5017 frozen-actor regression: root cause and guard
+The experimental continuous-curvature and bidirectional-arc backends,
+the random-command demo, unused waypoint follower and their dedicated
+tests are deleted from this branch. Their earlier versions remain in Git
+history. Other independent viewer facilities (model loading, telemetry,
+terrain, camera and live update support) are retained.
 
-First preview showed the 260M model's last pose frozen when navigation
-started, whereas random command mode advanced inference normally. The
-first goal planner synchronously explored up to 5 × 6500 lattice nodes
-inside `requestAnimationFrame`, and the next animation frame was queued
-only after navigation returned. A slow search or JavaScript exception
-could therefore stop all `stepControl` and freeze leg animation.
-
-**Repair:** expensive goal search and replanning now execute in a Vite
-module Worker. The main render loop submits requests and continues
-calling MuJoCo and the policy at normal control rate, with gentle walking
-while a result is pending. A request-generation guard discards stale
-answers after reset or model hot-swap. Timeouts and Worker errors are
-reported instead of preventing physics steps. The next animation frame
-is queued at the beginning of each frame, and navigation exceptions
-restore the known-working random-command mode. The navigation HUD shows
-an increasing `actor control frames` counter so a stalled policy is
-immediately distinguishable from an unreachable waypoint.
-
-These are browser-runtime safety checks, not proof of goal-navigation
-competence in the full MuJoCo biped. The feature remains experimental on
-a draft PR; merge only after actual Chrome/mobile behaviour is checked.
-
-
-## 2026-10-19 additional correction: same proven command pipeline
-
-The first attempt to repair the frozen robot moved A* to a Worker but left
-an **unnecessary alternate yaw/control path** in `sim.stepControl()`.
-The user confirmed Random command practice continued to walk, while
-Navigate random poses remained frozen. Navigation now feeds the *exact*
-same `sim.setDemoCommands({vx,vy,yaw,pitch})` callback as the working
-random demonstration. There is **no navigation-specific yaw, policy
-inference, actuator, or physics path**: only the upstream selection of
-desired command velocity differs. The navigation-mode setter affects
-visual presentation only. The global frame error handler no longer
-silently sets `sim.paused=true`, so optional UI exceptions can't
-disguise the issue as a dead neural model.
-
-The heading P setting has the same meaning in both demo modes; it
-translates the commanded yaw rate into a heading setpoint. Off-thread
-A* remains optional trajectory selection rather than an alternative
-simulation system. Confirm the live actor-control frame counter advances
-when testing navigation in an actual browser.
-
-Command updates are now delivered with a 650 ms zero-order hold, mirroring
-the proven random command demonstration's practice of holding each velocity
-request between neural control frames. Route evaluation remains independent
-of this command cadence. HUD diagnostics report both continuously
-incrementing actor inference frames and the count of delivered command
-updates; either staying at zero distinguishes a control-loop fault from a
-navigation-planning fault.
-
-## Cruise controller revision (after real-browser actor validation)
-
-The first goal driver enforced heading and position at every 22 cm A* lattice
-node, capped forward speed to **0.30 m/s**, and constantly strafed to align.
-The actual v5016 Pinnacle browser policy declares `vx_max=1.042937 m/s`
-and `vx_min=-0.529896 m/s`; it is not inherently limited to 0.30.
-
-The revised planner uses an estimated **0.84 × learned forward speed**
-(up to 0.95 m/s) rather than a hardcoded 0.48 m/s. Its route follower is
-a **velocity-limited pure-pursuit controller** with a 1.1–1.7 m
-speed-dependent preview, no intermediate heading requirements, fast
-forward cruising near 90% of the checkpoint's commanded `vx_max`
-when aligned, and simultaneous sweeping turns while walking. Sideways
-error correction is only allowed within 0.64 m of the FINAL goal, and
-the final heading becomes increasingly important during approach.
-The planner still checks trunk clearance before taking a preview shortcut.
-Route progress is monotonic by position instead of stopping for each
-quantized heading. The original actor/normalization/inference pipeline,
-motion physics and command delivery cadence are unchanged.
-
-The speed limits are **command limits**, not measured real ground speeds.
-We need to measure actual progress, arrival rates, falls and average
-time-to-goal before calling these near-optimal or deploying to main.
-
-Command updates now run at 4 Hz in cruise and 5 Hz in approach through
-the same `setDemoCommands()` path (the actor remains at its normal control
-frequency). The navigation HUD shows both the commanded forward velocity
-and observed body-frame forward velocity so it is immediately apparent
-whether a high-speed request actually produces ground speed.
-
-## Prototype: joystick-motion bidirectional lattice (2026-10-19)
-
-Initial proposal: nine left-stick directions crossed with three yaw
-choices. The 2026-10-19 revision replaces that with a more useful
-**forward/reverse/pivot × 9 yaw rates** arrangement. This is still a clean
-27-option finite-duration control set, but every forward or backward
-choice corresponds to a different physical turning radius. The robot CAN
-stand and pivot; the initial claim that it couldn't was mistaken.
-Eight in-place turning options are eligible, and only the ninth
-pivot-with-zero-yaw option is skipped as a do-nothing command.
-No primary search primitive strafes. Small sideways inputs remain available
-to the *existing arrival controller* for final position correction.
-
-This is in the state-lattice / kinodynamic-A* family used by Nav2's
-Smac State Lattice planner, extended with bidirectional search. The
-predecessor tree searches backwards from the required full pose
-`(x,y,heading)` to meet the forward tree from the robot. A curvature
-bridge connects near meetings without teleporting between bins.
-
-The state-space search is CONTINUOUS: a 26 cm spatial / 24-bin heading
-quantization is used **only for visited-state hashing**, not to force grid
-edges or stopping at tile centres. Reverse-time expansion uses negated
-body twist to discover predecessors; when the resulting route is
-reconstructed, the actual recorded original forward action is used.
-Both trees must match pose position AND heading, and an independently
-validated short curvature segment joins their near-matching states.
-
-Cost is estimated seconds plus light steering/reversal/sideways penalties.
-The real trained command limits determine translational and turn speeds.
-An alternative continuous Dubins forward/reverse candidate planner is in
-`curvature-planner.js`. The lattice is computationally bounded and has
-no authority over PPO, viewer actuator commands, or production showcase.
-Do not activate either new planner in the viewer until the model-backed
-browser test and route quality comparisons pass.
-
-**Important limitation:** full MuJoCo gait physics is NOT time-reversible.
-The backward search is an inverse of the *kinematic command model* only.
-Learned locomotion acceleration, true slope behaviour and servo thermal
-constraints require later empirical speed/cost calibration. Bidirectional
-search may fail to meet within a limited budget even when a feasible
-solution exists; a direct curvature path remains a useful baseline.
-
-### Variable-curvature motion fan
-
-The primitive chooser in `bidirectional-lattice.js` now uses nine yaw
-fractions `[-1, -.75, -.5, -.25, 0, +.25, +.5, +.75, +1]`
-applied to the policy's bounded yaw command, independently for forward,
-reverse, and in-place pivot. The walking cruise command is intentionally
-near the model's trained forward and reverse envelopes. Curvature is
-`yaw/vx`; a straight step has zero yaw; an in-place turn has zero
-translation. These are **controls**, not grid-neighbour coordinates.
-
-This matches the general design of Nav2's configurable minimum control
-set for differential-drive and state-lattice planning: include rotation
-in place and reversing when the robot can actually perform them.
-
-Choose routes by estimated time (including reversal and pivot transitions),
-not by shortest Euclidean metres. The planner has NO strafing edges.
-The follower may independently issue gentle `vy` trim close to the
-goal; it doesn't need to pay for a sideways traverse across the arena.
-
-This remains an **offline experimental solver**. The browser Worker
-continues to use the earlier known-working route planner until the new
-candidate can be compared using actual full 260M-policy MuJoCo rollouts.
-This protects the existing demonstration and makes regressions measurable.
-
-### CPU-only browser comparison (no JAX / CUDA / trainer)
-
-The experimental branch now exposes a **Route planner** selector under
-**Settings → Demo controls**: **Pose lattice (current)** (default,
-established), **Continuous arcs · fastest candidate**, and
-**Bidirectional arcs · 27 options**. All routes run in a Web Worker;
-switching planners discards stale route requests and searches again.
-The control pipeline is unmodified: each drives the same proven
-`setDemoCommands()` → heading controller → 260M actor → MuJoCo WASM.
-
-For a **fresh Ubuntu WSL2 installation on a Windows CPU-only PC**,
-open the **Ubuntu terminal** (not PowerShell). All Git, Python, Node,
-downloaded project files and browser packages stay **inside the WSL distro**.
-
-The only Windows step, *if WSL/Ubuntu isn't installed already*, is the
-one-time operating-system setup `wsl --install -d Ubuntu-24.04`; after
-that, run these commands **in Ubuntu**:
+## Launch / tests (Ubuntu WSL)
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y curl ca-certificates
-
 curl -fsSL \
   https://raw.githubusercontent.com/mdt733/emu/feature/v5017-goal-navigation-demo/scripts/install_viewer_wsl.sh \
   -o /tmp/emu-viewer-install.sh
-
-bash /tmp/emu-viewer-install.sh
+bash /tmp/emu-viewer-install.sh --destination "$HOME/emu-viewer-cpu-clean"
 ```
 
-Review the script with `less /tmp/emu-viewer-install.sh` before running
-if preferred. The script is tracked in `scripts/install_viewer_wsl.sh`
-on this feature branch. **Inside Ubuntu only**, it:
+The installer pulls the branch only if the checkout is clean, prepares the
+champion policy, runs `npm test`, and serves the local viewer at
+`http://127.0.0.1:8767/`. No training GPU dependencies are needed.
+Optionally run `npm run build --prefix emu/viewer_src` for a production
+asset build.
 
-- Installs any missing **Git, curl, Python 3 and CA certificates** via
-  `apt`. Ubuntu 24.04's Python 3.12 is sufficient.
-- Installs/uses **Node.js 24 and npm**, using user-local `nvm` if
-  necessary (under `~/.nvm`).
-- Clones or fast-forwards the working experiment in
-  **`~/emu-viewer-cpu`** and preserves any uncommitted changes.
-- Prepares the committed **260M Pinnacle `.emupolicy`**, installs
-  locked browser dependencies using `npm ci`, runs the viewer tests,
-  and starts Vite on **127.0.0.1:8767**.
+### Honest validation boundary
 
-Open **http://127.0.0.1:8767/** using Windows Chrome/Edge.
-WSL2 normally forwards localhost into Windows automatically. Keep the
-Ubuntu terminal open while viewing; Ctrl+C stops the server.
-
-To update, rerun `bash /tmp/emu-viewer-install.sh` in Ubuntu, or
-add `--no-launch` to install without starting the server. The default
-checkout is on the Ubuntu Linux filesystem, not `/mnt/c`.
-No Windows-side Git/Node/Python, no JAX/CUDA, and **no EMU Python
-training package** are installed.
-
-The 260M champion is already in `showcase/champion.emupolicy`. Open
-http://127.0.0.1:8767/. In Settings, choose Navigate random poses
-(experimental), then select a route planner. Unsupported routes remain
-reported as planning failures, not fabricated success. Use Ctrl+C to
-stop the server. Python3 is used only for the stdlib static asset
-preparation, not for executing the simulation or neural actor.
-
-
-## v5017 path-relative follower update (experimental branch)
-
-The route controller now projects actual robot position onto continuous route
-segments rather than chasing waypoints. A Stanley-style interception angle
-is capped at 30 degrees and relaxes towards zero as EMU returns to the line.
-Yaw-rate feedforward retains the planner's intended arcs, while reverse,
-lateral and pivot manoeuvres remain explicit path runs. Cross-track error
-progressively reduces travel speed, leaving more time for yaw correction;
-measured lateral drift damps oscillations. The robot does not need to reach
-or park at intermediate path samples.
-
-Replanning now measures lateral deviation from the path and lack of progress,
-not distance from a deliberately distant lookahead point. While Worker
-planning is pending, navigation requests zero movement rather than walking
-away from the pose being planned. Final pose correction can reverse, pivot
-and strafe; a stable arrival requires 0.55 seconds inside tolerance and is
-counted once. Timeouts also retire their current mission.
-
-Navigation commands continue through the same setDemoCommands() -> heading
-controller -> PPO -> MuJoCo pipeline. Path feedback is delivered up to 10 Hz
-while actor inference remains 50 Hz. No new trained-motion-model calibration
-is mandatory: the controller uses the checkpoint's published command limits.
-Compare line tracking, S-curves, pivots, reverse approaches and obstacles in
-actual browser MuJoCo before merging to main.
-
-
-### Default pose lattice and cross-track overshoot damping
-
-The Pose lattice remains the preselected default, now explicitly labelled
-"recommended" in the viewer. The previous continuous-line follower was
-overshooting: it steered largely from instantaneous lateral error without
-fully accounting for lateral momentum and actual yaw-rate delay.
-
-The revised follower forecasts approximately 0.40 seconds of cross-track
-motion from measured ground velocity and begins straightening **before**
-crossing the planned line. The maximum intercept angle remains 30 degrees.
-Forward/reverse travel slows according to the larger of actual cross-track
-error or the short-horizon projected error, giving yaw control more time.
-A measured heading-rate damping term reduces steering when EMU is already
-turning towards the line. These are deliberately lightweight feedback
-corrections, not a new learned motion model or a calibration requirement.
-
-The navigation HUD exposes signed line deviation (metres) and substantial
-line-crossing count, ignoring tiny excursions under 4.5 cm. Evaluate
-comparable S-curve and displaced-start routes in full browser MuJoCo.
-The reference branch, policy, and PPO inference pipeline are unchanged.
+Unit tests cover planner geometry, actor command limits, manual/display
+mapping, handoff timeout, path tracking, arrivals and background Worker
+protocol. Full browser MuJoCo/WASM testing is needed to check actual gait
+wander, stability, touch behaviour and responsive layout. Never infer
+physical success from ideal kinematic tests alone.

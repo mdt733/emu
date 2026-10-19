@@ -33,7 +33,7 @@ export class GoalPlannerWorker {
     this.worker?.terminate();
     this.open();
   }
-  request({kind,pose,limits,trees,goal,planner='grid'}){
+  request({kind,pose,limits,trees,goal}){
     if(this.disposed)return Promise.reject(new Error('Goal planner disposed'));
     if(!['next','replan'].includes(kind))
       return Promise.reject(new Error('Unknown route request'));
@@ -44,7 +44,7 @@ export class GoalPlannerWorker {
         this.restart(new Error('Goal planning exceeded '+this.timeoutMs+' ms'));
       },this.timeoutMs);
       this.pending.set(id,{resolve,reject,timer});
-      try{this.worker.postMessage({id,kind,pose,limits,trees,goal,planner});}
+      try{this.worker.postMessage({id,kind,pose,limits,trees,goal});}
       catch(error){this.restart(error);}
     });
   }

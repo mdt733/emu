@@ -110,11 +110,9 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.parkTreesEnabled = true;
-    this.joystickMode = 'split';
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
-    this.viewerPitchLimitRad = null;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
     this.navPresentationActive = false; // presentation only; no alternate actor control path
 
@@ -133,7 +131,6 @@ export class EmuBrowserSim {
 
     this.commandTarget = { vx: 0, vy: 0, yaw: 0, height: 0, pitch: 0, roll: 0, step_height: 0.012 };
     this.command = { ...this.commandTarget };
-    this.phaseOverride = 0;
     this.episodePhaseHz = 1.025;
     this.phase = 0;
     this.prevAction = new Float32Array(6);
@@ -324,10 +321,6 @@ export class EmuBrowserSim {
     this.parkTreesEnabled=next;
     if(this.terrainMode==='park')this.loadModel();
   }
-  setJoystickMode(mode) {
-    if (!['split','hybrid'].includes(mode)) throw new Error('Unknown joystick layout');
-    this.joystickMode=mode;
-  }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
     // Bumpless engage: no jump towards an old target from an earlier mode.
@@ -338,18 +331,8 @@ export class EmuBrowserSim {
       throw new Error('Heading P gain must be between 0.3 and 5');
     this.headingKp=kp;
   }
-  setViewerPitchLimitDeg(degrees = null) {
-    // A browser-only command override, never a change to the trained PPO
-    // curriculum or its observation contract. Demo stays in trained range.
-    if (degrees !== null && (![30,45].includes(degrees)))
-      throw new Error('Viewer pitch override must be 30° or 45°');
-    this.viewerPitchLimitRad=degrees===null ? null : degrees*Math.PI/180;
-    const max=this.manualCommandLimits().pitch_abs_rad;
-    this.commandTarget.pitch=clamp(this.commandTarget.pitch,-max,max);
-  }
   manualCommandLimits() {
-    const trained=this.bundle.control.command_limits;
-    return {...trained, pitch_abs_rad:this.viewerPitchLimitRad??trained.pitch_abs_rad};
+    return this.bundle.control.command_limits;
   }
   actualHeading() {
     if (!this.data || !this.model) return 0;
@@ -457,7 +440,7 @@ export class EmuBrowserSim {
     // One mapping for manual command values and their on-screen labels.
     // Positive screen-right must map to the physically rightward strafe.
     Object.assign(this.commandTarget, joystickToCommands(
-      leftX, leftY, rightX, rightY, this.manualCommandLimits(), this.joystickMode,
+      leftX, leftY, rightX, rightY, this.manualCommandLimits(),
     ));
   }
 
@@ -600,13 +583,6 @@ export class EmuBrowserSim {
     this.reset(); // clean comparison, not a fictitious uninterrupted rollout
   }
 
-  setAdvanced({ height, roll, stepHeight, phaseRate }) {
-    if (Number.isFinite(height)) this.commandTarget.height = height;
-    if (Number.isFinite(roll)) this.commandTarget.roll = roll;
-    if (Number.isFinite(stepHeight)) this.commandTarget.step_height = stepHeight;
-    if (Number.isFinite(phaseRate)) this.phaseOverride = phaseRate;
-  }
-
   smoothCommands(dt) {
     this.command.vx = approach(this.command.vx, this.commandTarget.vx, 1.1 * dt);
     this.command.vy = approach(this.command.vy, this.commandTarget.vy, 0.9 * dt);
@@ -618,14 +594,13 @@ export class EmuBrowserSim {
   }
 
   phaseRate() {
-    if (this.phaseOverride > 0.001) return this.phaseOverride;
     return this.episodePhaseHz;
   }
 
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    // One shared yaw controller for joystick, random-demo AND goal-demo.
+    // One shared yaw controller for joystick and autonomous navigation.
     // Navigation is only an upstream producer of vx/vy/yaw/pitch requests.
     const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
       this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
