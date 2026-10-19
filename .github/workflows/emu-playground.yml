@@ -39,10 +39,13 @@ jobs:
           assert r["schema"] == 1
           assert r["release"] == "v5017-pose-lattice"
           assert r["policy_git_blob"] == "163a61fef6e75fcba91f254830f3858210b491a0"
-          # Only an explicit reviewed source commit may trigger an automatic
-          # publication. It must be in this merge's ancestry.
-          subprocess.run(["git", "merge-base", "--is-ancestor",
-                          r["approved_feature_commit"], "HEAD"], check=True)
+          # The request binds an exact reviewed viewer Git blob, not an
+          # unverified branch name. Works for clean squash PR merges too.
+          actual = subprocess.check_output(
+              ["git", "hash-object", "emu/viewer_src/src/main.js"],
+              text=True).strip()
+          assert actual == r["viewer_git_blob"], (
+              f"Viewer differs from the approved release: {actual}")
           print("Release-specific GitHub Pages publication approved")
           PY
       - name: Install Node.js
