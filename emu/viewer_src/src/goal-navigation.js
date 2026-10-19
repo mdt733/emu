@@ -7,7 +7,8 @@ import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
 export const ARENA_RADIUS_M = 4;
 export const GOAL_POSITION_TOLERANCE_M = .19;
 export const GOAL_HEADING_TOLERANCE_RAD = .28;
-export const TREE_CLEARANCE_M = .53;
+// Extra tracking room beyond the tree's physical trunk footprint.
+export const TREE_CLEARANCE_M = .62;
 const GRID = .22, HEADINGS = 16, BOUND = 5.6;
 const tau = 2*Math.PI;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -91,6 +92,140 @@ function segmentSafe(p,cmd,dt,trees){
   }
   return true;
 }
+
+/**
+ * Refine exact-twist A* primitives into a usable continuous reference.
+ * Do not smooth THROUGH reverse/pivot/lateral transitions or endpoints.
+ * Every modified chord is checked against tree clearance and the arena.
+ * This is intentionally a small bounded post-pass, NOT another planner.
+ */
+const motionKind=cmd=>Math.abs(cmd?.vx||0)>.045?(cmd.vx>0?'forward':'reverse'):
+  Math.abs(cmd?.vy||0)>.035?'lateral':Math.abs(cmd?.yaw||0)>.035?'pivot':'terminal';
+const chordSafe=(a,b,trees,extra=0)=>{
+  const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
+  const n=Math.max(1,Math.ceil(Math.sqrt(d2)/.07));
+  for(let j=0;j<=n;j++){
+    const t=j/n,x=a.x+t*dx,y=a.y+t*dy;
+    if(Math.hypot(x,y)>=BOUND-.03||
+       trees.some(tree=>Math.hypot(tree.x-x,tree.y-y)<TREE_CLEARANCE_M+extra))
+      return false;
+  }
+  return true;
+};
+const safePolyline=(start,steps,trees)=>{
+  let prev=start;
+  for(const p of steps){
+    if(!chordSafe(prev,p,trees))return false;
+    prev=p;
+  }
+  return true;
+};
+export function refineRouteSteps(start,rawSteps,limits,trees=[]){
+  const terminal=rawSteps.at(-1)?.final?rawSteps.at(-1):null;
+  const source=terminal?rawSteps.slice(0,-1):rawSteps;
+  if(!source.length)return [...rawSteps];
+  const dense=[];
+  let from=start;
+  for(const step of source){
+    const angular=Math.abs(angleError(step.heading,from.heading));
+    const length=distance(from,step);
+    const slices=clamp(Math.max(1,Math.ceil(length/.12),
+      Math.ceil(angular/.17)),1,18);
+    for(let j=1;j<=slices;j++){
+      const p=j===slices?{x:step.x,y:step.y,heading:step.heading}:
+        integratePose(from,step.cmd,step.dt*j/slices);
+      dense.push({...p,cmd:{...step.cmd},
+        maneuver:step.maneuver,dt:step.dt/slices,refined:true});
+    }
+    from=step;
+  }
+
+  // Small elastic-band adjustment. Keep the original route as an anchor so
+  // curvature can't be smoothed into a physically unachievable shortcut.
+  const original=dense.map(p=>({...p}));
+  const pointBefore=i=>i===0?start:dense[i-1];
+  for(let pass=0;pass<12;pass++){
+    for(let i=0;i<dense.length-1;i++){
+      const kind=motionKind(dense[i].cmd);
+      if(kind==='pivot'||kind==='terminal')continue;
+      if(i===0||motionKind(dense[i-1].cmd)!==kind||
+         motionKind(dense[i+1].cmd)!==kind)continue;
+      const prev=pointBefore(i),next=dense[i+1],p=dense[i];
+      const x=p.x+.26*(prev.x+next.x-2*p.x)+.08*(original[i].x-p.x);
+      const y=p.y+.26*(prev.y+next.y-2*p.y)+.08*(original[i].y-p.y);
+      // Prevent large changes to the original swept collision-free route.
+      const dx=x-original[i].x,dy=y-original[i].y;
+      const size=Math.hypot(dx,dy),ratio=size>.10?.10/size:1;
+      const q={x:original[i].x+dx*ratio,y:original[i].y+dy*ratio};
+      if(chordSafe(prev,q,trees,.045)&&chordSafe(q,next,trees,.045)){
+        p.x=q.x;p.y=q.y;
+      }
+    }
+  }
+  // Source headings remain close to what the actor can actually execute;
+  // adjust only short-interior tangents with bounded heading corrections.
+  for(let i=1;i<dense.length-1;i++){
+    const kind=motionKind(dense[i].cmd);
+    if(kind!=='forward'&&kind!=='reverse')continue;
+    if(motionKind(dense[i-1].cmd)!==kind||
+       motionKind(dense[i+1].cmd)!==kind)continue;
+    const prev=dense[i-1],next=dense[i+1];
+    const bearing=Math.atan2(next.y-prev.y,next.x-prev.x);
+    const wanted=wrapAngle(bearing+(kind==='reverse'?Math.PI:0));
+    const correction=clamp(angleError(wanted,original[i].heading),-.28,.28);
+    dense[i].heading=wrapAngle(original[i].heading+.55*correction);
+  }
+
+  // Cheap acceleration/braking profile (m/s^2): forward/backward passes
+  // within each movement run. Stops at cusps and pivots, no calibration
+  // step required when the user loads a different trained brain.
+  const accelerate=.85,brake=1.0,yawMax=Math.max(.1,Number(limits.yaw_abs)||1);
+  let begin=0;
+  while(begin<dense.length){
+    const kind=motionKind(dense[begin].cmd);
+    let end=begin;
+    while(end+1<dense.length&&motionKind(dense[end+1].cmd)===kind)end++;
+    if(kind==='forward'||kind==='reverse'||kind==='lateral'){
+      const speeds=[],spans=[];
+      for(let i=begin;i<=end;i++){
+        const previous=i===0?start:dense[i-1];
+        const span=distance(previous,dense[i]);
+        const base=Math.abs(kind==='lateral'?dense[i].cmd.vy:dense[i].cmd.vx);
+        const radians=Math.abs(angleError(dense[i].heading,previous.heading));
+        const curvature=radians/Math.max(.035,span);
+        const cornerCap=curvature>.001?yawMax*.72/curvature:Infinity;
+        spans.push(span);
+        speeds.push(Math.max(.07,Math.min(base,cornerCap)));
+      }
+      // Keep a small but nonzero command; the actor retains dynamic gait.
+      for(let i=0;i<speeds.length;i++){
+        const before=i===0?.12:speeds[i-1];
+        speeds[i]=Math.max(.07,Math.min(speeds[i],
+          Math.sqrt(before*before+2*accelerate*spans[i])));
+      }
+      for(let i=speeds.length-1;i>=0;i--){
+        const after=i===speeds.length-1?.12:speeds[i+1];
+        speeds[i]=Math.max(.07,Math.min(speeds[i],
+          Math.sqrt(after*after+2*brake*spans[i])));
+      }
+      for(let j=0;j<speeds.length;j++){
+        const p=dense[begin+j];
+        const cmd=p.cmd;
+        const old=Math.abs(kind==='lateral'?cmd.vy:cmd.vx);
+        const factor=old>1e-7?speeds[j]/old:1;
+        p.cmd={...cmd,vx:cmd.vx*factor,vy:cmd.vy*factor,
+          yaw:clamp(cmd.yaw*factor,-yawMax,yawMax),profiled:true};
+        if(spans[j]>.0001)p.dt=spans[j]/Math.max(.07,speeds[j]);
+      }
+    }
+    begin=end+1;
+  }
+  // Never publish a modified route that is less safe than the raw plan.
+  // Even an original curved primitive is rechecked by dense chords.
+  if(!safePolyline(start,dense,trees)||
+     (terminal&&!chordSafe(dense.at(-1),terminal,trees)))return rawSteps;
+  return terminal?[...dense,terminal]:dense;
+}
 class Heap {
   constructor(){this.a=[]}
   push(node){
@@ -144,7 +279,8 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     expanded++;
     const h=heuristic(p,goal,speed);
     if(h<bestH){bestH=h;closest=p;}
-    if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40){
+    if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40
+       &&chordSafe(p,goal,trees)){
       winner=p;break;
     }
     for(const cmd of moves){
@@ -171,8 +307,14 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  return {start:{...start},steps,estimatedSeconds:last.g+
-    heuristic(last,goal,speed),solved,expanded,
+  const refined=refineRouteSteps(start,steps,limits,trees);
+  // Commanded-time estimate is only a planning hint, not measured gait
+  // duration. Reflect extra braking instead of advertising raw A* time.
+  const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
+  return {start:{...start},steps:refined,
+    estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
+    solved,expanded,
+    refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
 export class GoalNavigator {
@@ -181,6 +323,12 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
+    this.trackingTime=0;this.trackErrorIntegral=0;
+    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+    this.referenceSpeed=0;this.observedSpeed=0;
+    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
     this.searchCooldown=0;this.failures=0;
@@ -222,18 +370,35 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
+    this.trackingTime=0;this.trackErrorIntegral=0;
+    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+    this.referenceSpeed=0;this.observedSpeed=0;
+    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
+    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+    for(const step of route.steps){
+      const kind=motionKind(step.cmd);
+      if(Object.hasOwn(this.plannedModeSeconds,kind))
+        this.plannedModeSeconds[kind]+=Math.max(0,Number(step.dt)||0);
+    }
     this.runIndex=0;this.runProgress=0;this.index=0;
     this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
     this.replanDelay=0;
     if(newMission){
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
+      this.trackingTime=0;this.trackErrorIntegral=0;
+      this.headingErrorIntegral=0;this.speedErrorIntegral=0;
+      this.referenceSpeed=0;this.observedSpeed=0;
+      this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
+      this.currentMode='parking';
     }
     this.reason=route.solved?'Following route':'Partial route · replanning';
   }
@@ -329,11 +494,19 @@ export class GoalNavigator {
         this.runIndex=lastRun+1;
       }
     }
-    const finalApproach=dist<.42&&
-      (this.runIndex>=lastRun||lastRun<0);
-    const command=finalApproach||this.runIndex>lastRun
-      ?parkAtGoal(pose,this.goal,limits)
-      :result.command;
+    // Ease into final pose correction rather than switching controllers
+    // abruptly at a fixed distance. Preserve pivots and reverse cusps.
+    const finished=this.runIndex>lastRun||lastRun<0;
+    const blending=!finished&&this.runIndex===lastRun&&
+      result?.mode!=='pivot'&&dist<.60&&result.remaining<.60;
+    const blend=blending?clamp((.60-dist)/.40,0,1)*
+      clamp((.60-result.remaining)/.42,0,1):0;
+    const finalApproach=finished||blending;
+    const cruise=result?.command||{vx:0,vy:0,yaw:0,pitch:0};
+    const park=finished||blending?parkAtGoal(pose,this.goal,limits):null;
+    const command=finished?park:!blending?cruise:
+      Object.fromEntries(['vx','vy','yaw','pitch'].map(key=>[
+        key,(1-blend)*(cruise[key]||0)+blend*(park[key]||0)]));
     apply(command);
     this.reason=finalApproach?'Final pose correction'
       :result?.mode==='pivot'?'Following planned pivot'
@@ -346,6 +519,15 @@ export class GoalNavigator {
     this.replanDelay+=delta;
     const signedCross=result?.mode==='pivot'?0:(result?.crossTrack||0);
     this.crossTrack=signedCross;
+    const currentMode=finished?'parking':result?.mode||'parking';
+    this.currentMode=currentMode;
+    this.modeSeconds[currentMode]=(this.modeSeconds[currentMode]||0)+delta;
+    this.trackingTime+=delta;
+    this.trackErrorIntegral+=Math.abs(signedCross)*delta;
+    this.headingErrorIntegral+=Math.abs(result?.headingError||0)*delta;
+    this.speedErrorIntegral+=Math.abs(result?.speedError||0)*delta;
+    this.referenceSpeed=result?.referenceSpeed||0;
+    this.observedSpeed=result?.observedSpeed||0;
     // Hysteresis avoids treating each gait-induced wiggle as a crossing.
     const side=Math.abs(signedCross)>.045?Math.sign(signedCross):0;
     if(side&&this.crossSide&&side!==this.crossSide)this.crossings++;
@@ -381,6 +563,12 @@ export class GoalNavigator {
       headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
       crossTrack:this.crossTrack,crossings:this.crossings,
+      meanTrackError:this.trackingTime?this.trackErrorIntegral/this.trackingTime:0,
+      meanHeadingError:this.trackingTime?this.headingErrorIntegral/this.trackingTime:0,
+      meanSpeedError:this.trackingTime?this.speedErrorIntegral/this.trackingTime:0,
+      referenceSpeed:this.referenceSpeed,observedSpeed:this.observedSpeed,
+      modeSeconds:{...this.modeSeconds},
+      plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
       index:this.index,reason:this.reason};

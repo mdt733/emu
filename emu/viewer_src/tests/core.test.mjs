@@ -10,9 +10,9 @@ import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {commandStickPositions,DemoHandoff} from '../src/demo-handoff.js';
 import {VirtualStick} from '../src/joystick.js';
 import {makeRng} from '../src/rng.js';
-import {sampleGoal,planPoseRoute,integratePose,GoalNavigator,TREE_CLEARANCE_M}
+import {sampleGoal,planPoseRoute,refineRouteSteps,integratePose,GoalNavigator,TREE_CLEARANCE_M}
   from '../src/goal-navigation.js';
-import {buildRoutePath,projectOnRun,trackRoutePath,parkAtGoal}
+import {buildRoutePath,projectOnRun,trackRoutePath,referenceAt,parkAtGoal}
   from '../src/path-follower.js';
 import {GoalPlannerWorker} from '../src/goal-planner-client.js';
 
@@ -160,6 +160,11 @@ test('pose lattice plans forward, reverse, pivot and offset goals',()=>{
     assert.ok(route?.solved,'failed '+JSON.stringify(goal));
     assert.ok(route.steps.at(-1).final);
     assert.ok(route.estimatedSeconds>0);
+    assert.ok(route.steps.length>=2);
+    if(goal.x>1 && goal.y===0){
+      assert.ok(route.refined,'straight A* steps must be refined');
+      assert.ok(route.steps.some(p=>p.cmd.profiled),'acceleration-aware speed profile');
+    }
   }
 });
 
@@ -173,9 +178,23 @@ test('lattice targets respect tree keep-out and reject unsafe goals',()=>{
     assert.ok(Math.hypot(g.x,g.y)<=4);
     assert.ok(Math.hypot(g.x-.8,g.y)>=TREE_CLEARANCE_M);
   }
-  const route=planPoseRoute(origin,{x:2,y:0,heading:0},limits,trees);
-  if(route)for(const step of route.steps)
-    assert.ok(Math.hypot(step.x-.8,step.y)>=TREE_CLEARANCE_M);
+  // Centreline path that forces a real obstacle detour. Check complete
+  // interpolated route including the last parking segment, not nodes alone.
+  const tree={x:1,y:0},route=planPoseRoute(origin,
+    {x:2,y:0,heading:0},limits,[tree],{maxNodes:6500});
+  assert.ok(route?.solved);
+  let previous=origin;
+  for(const step of route.steps){
+    const length=Math.hypot(step.x-previous.x,step.y-previous.y);
+    for(let j=0;j<=Math.max(1,Math.ceil(length/.025));j++){
+      const n=Math.max(1,Math.ceil(length/.025)),t=j/n;
+      const x=previous.x+(step.x-previous.x)*t;
+      const y=previous.y+(step.y-previous.y)*t;
+      assert.ok(Math.hypot(x-tree.x,y-tree.y)>=TREE_CLEARANCE_M-.001,
+        'refining a route must never cut the obstacle clearance circle');
+    }
+    previous=step;
+  }
 });
 
 // 10. The new feedback controller follows the route line, not waypoints.
@@ -200,19 +219,57 @@ test('path follower slows off-line, anticipates drift, and respects pivot/revers
   assert.ok(trackRoutePath({...origin,x:-.1,vx:-.2},
     reverse,0,0,limits).command.vx<0);
   assert.ok(parkAtGoal(origin,{x:0,y:0,heading:1},limits).yaw>0);
+  // Both directions of the speed envelope are bounded by the planner's
+  // simple acceleration/braking assumptions. No new test file needed.
+  const refined=planPoseRoute(origin,{x:2,y:0,heading:0},limits,[]);
+  const motion=refined.steps.filter(p=>p.cmd.profiled&&p.cmd.vx>0);
+  assert.ok(motion.length>4);
+  for(let i=1;i<motion.length;i++){
+    const a=motion[i-1],b=motion[i],ds=Math.hypot(b.x-a.x,b.y-a.y);
+    const dv2=b.cmd.vx**2-a.cmd.vx**2;
+    assert.ok(dv2<=2*.85*ds+.055,'acceleration-limited reference');
+    assert.ok(dv2>=-2*1.0*ds-.055,'braking-limited reference');
+  }
+  // The follower must consume the speed reference by *progress*, not
+  // multiply the whole profiled trajectory by arbitrary cruising throttles.
+  const profiled=buildRoutePath({start:origin,steps:[
+    {x:1,y:0,heading:0,cmd:{vx:.60,vy:0,yaw:0,profiled:true}},
+    {x:2,y:0,heading:0,cmd:{vx:.20,vy:0,yaw:0,profiled:true}}
+  ]});
+  const reference=referenceAt(profiled.runs[0],1.5);
+  assert.ok(Math.abs(reference.command.vx-.40)<1e-9);
+  const measured=(vx,y=0)=>trackRoutePath({x:1.5,y,heading:0,vx,vy:0,
+    yawRate:0},profiled,0,1.4,limits);
+  const matched=measured(.40),slow=measured(.10),fast=measured(.65);
+  assert.ok(Math.abs(matched.command.vx-.40)<.02,
+    'on-line profiled velocity should pass through without double throttling');
+  assert.ok(slow.command.vx>matched.command.vx+.04,
+    'feedback should compensate for a gait slower than the planned speed');
+  assert.ok(fast.command.vx<matched.command.vx-.04,
+    'feedback should brake when measured gait is ahead of the reference');
+  assert.ok(measured(.40,.5).command.vx<matched.command.vx,
+    'off-route corrections still cap speed for safer interception');
 });
 
 // 11. A mission has one physical arrival, including settle/dwell time.
 test('navigator reaches goals and does not double-count pending arrivals',()=>{
   const nav=new GoalNavigator(800);nav.active=true;
   assert.ok(nav.setGoal(origin,{x:.9,y:0,heading:0},limits,[]));
-  let pose={...origin};
+  let pose={...origin},seenTracking=false;
   for(let i=0;i<1400&&!nav.arrivals;i++){
     let c;nav.tick(.02,pose,limits,[],cmd=>c=cmd);
     assert.ok(c);
     pose={...integratePose(pose,c,.02),vx:c.vx,vy:c.vy};
+    const tracked=nav.status(pose);
+    if(tracked.modeSeconds.forward>.1){
+      seenTracking=true;
+      assert.ok(tracked.plannedModeSeconds.forward>0);
+      for(const metric of ['meanTrackError','meanHeadingError','meanSpeedError'])
+        assert.ok(Number.isFinite(tracked[metric])&&tracked[metric]>=0);
+    }
   }
   assert.equal(nav.arrivals,1);
+  assert.ok(seenTracking,'tracking telemetry must report live mission error');
   const held=new GoalNavigator(123);held.active=true;
   let requested=0;
   held.useBackgroundPlanner(()=>{requested++;return new Promise(()=>{});});

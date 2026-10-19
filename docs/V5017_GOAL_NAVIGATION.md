@@ -121,3 +121,84 @@ still calls the same `npm test` command, which now runs this single file.
 Cleanup also removed a dangling assignment to `this.phaseOverride` from
 the MuJoCo viewer: the public cadence override slider was already removed,
 and the policy's automatic episode cadence is preserved.
+
+
+## Route-quality refinement (experimental)
+
+Keep one pose-lattice A* in the background Worker, with its established
+forward/reverse/pivot/sideways manoeuvres. After planning:
+
+- Subdivide the exact integrated motion primitives into ~12 cm / ~10-degree
+  samples instead of joining sparse A* nodes by long straight chords.
+- Apply a bounded, 12-pass elastic smoother **only within uninterrupted
+  moving runs**. Never smooth across reverse cusps, pivots or the terminal
+  target. Keep modifications within 10 cm of their swept source.
+- Collision-check both adjacent chords during smoothing and verify the
+  entire final polyline, including the terminal connection. Failed
+  refinement falls back to the original route. A* also verifies that its
+  final approach to the goal is unobstructed.
+- Increase nominal obstacle clearance to **62 cm** from obstacle centres
+  (formerly 53 cm) to allow some room for real gait wander. This is NOT a
+  physical collision guarantee: the robot may leave the requested route.
+- Add a lightweight forward/backward acceleration and braking envelope
+  along each movement run, without mandatory policy-specific calibration.
+  The trained actor's command limits bound speeds. The follower uses
+  that profile directly instead of applying duplicate end-of-run braking.
+- Ease the final few decimetres into the existing closed-loop parking
+  controller. A separate final parking correction remains necessary for
+  residual errors; it is blended rather than switched abruptly.
+
+The route overlay shows the refined centreline. Nominal travel time is
+still a heuristic based on requested commands, **not** measured speed or
+a time-optimal trajectory. There is no LQR, MPPI, or another search planner.
+
+All changes are covered by the **existing 12 core tests**, with stronger
+assertions inside the existing path, obstacle and lattice tests. Browser
+MuJoCo tests are still needed to measure line crossings, detour clearance,
+falls and final docking in the real learned gait.
+
+The obstacle interface currently accepts stationary circular keep-out
+centres based on the park's solid trees. Optional obstacle presets
+(Off / Sparse / Course) would need matching *physical MuJoCo geometry*
+and collision-aware planner input; merely drawing new scenery is not enough.
+
+
+## Arc-length trajectory tracking (experimental follow-up)
+
+The route-refinement branch now has a **profile-aware follower** rather than
+multiplying planned cruise speed by three unrelated throttles. A* already
+returns movement samples containing commanded \`vx\`, \`vy\`, \`yaw\` and
+segment \`dt\`; the refinement stage provides a bounded commanded-speed and
+yaw profile. The follower:
+
+1. Projects the real robot onto the current route run, preserving monotonically
+   increasing arc-length progress even when the gait wanders.
+2. Interpolates the planned twist between adjacent samples at that progress;
+   checks a short distance ahead for upcoming braking.
+3. Uses the profile as feedforward, plus a small bounded correction from the
+   **measured body velocity** (at most 0.13 m/s of command trim). This is
+   not a fitted dynamic model.
+4. Preserves 30-degree line interception, sideways drift prediction and yaw
+   damping; reduces speed substantially **only when line/heading errors
+   become significant**, so a normal on-path profile isn't multiplied down.
+5. Preserves reverse, lateral movement, stationary pivots and the existing
+   blended parking correction. The original outer-loop/heading-hold/PPO
+   command interface is unchanged.
+
+**Why spatial progress, not absolute playback time?** A six-servo learned
+walker doesn't follow an ideal clock. If it takes longer to execute a
+motion or wanders off the line, replaying \`x_ref(t)\` can run metres ahead
+of the real robot. Arc-length-indexed reference speed maintains the
+benefits of planning and lets the controller adapt to actual motion. The
+per-segment \`dt\` is still recorded for planner timing and diagnostics.
+
+The status/HUD now reports mean absolute cross-track, heading and speed
+tracking errors; reference vs observed speed; plan time vs real elapsed
+time; and time spent in each manoeuvre mode. Those measurements can inform
+later viewer tuning or a **small optional** in-browser calibration if
+measurements show a real problem.
+
+No mandatory per-policy calibration sweep, LQR, MPPI, second planner or
+additional tests. There remain **12** core viewer tests. Predicted
+kinematic arrival and collision-clearance checks are not a substitute for
+testing the actual MuJoCo actor's wandering gait and braking distances.
