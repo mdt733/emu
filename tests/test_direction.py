@@ -836,3 +836,95 @@ def test_v5018_read_only_exam_allows_10deg_real_plane_but_not_training_or_tilted
         validate_request(**{**kwargs, 'angle_deg': 12.1}, contact_slope=True)
     with pytest.raises(ValueError, match='angle'):
         exam_gravity(10., 'uphill')  # historical gravity-equivalent cap
+
+
+def test_v5018_crossing_gate_accepts_only_supported_world_fixed_crossings():
+    """No reward farming: both feet land beyond the obstacle and the torso
+    resumes moving on the original commanded course without detours."""
+    from emu.directional import examine_obstacle_crossing
+
+    n = 101
+    position = np.zeros((n,2), dtype=float)
+    position[:,0] = np.linspace(-.04,.44,n)
+    feet = np.repeat(position[:,None,:],2,axis=1)
+    feet[:,0,0] += .007
+    feet[:,1,0] -= .007
+    feet[:,0,1] += .08
+    feet[:,1,1] -= .08
+    contact = np.zeros((n,2),dtype=bool)
+    contact[::2,0]=True
+    contact[1::2,1]=True
+    heading = np.zeros(n)
+    args = dict(start_xy=(0.,0.),course_axis_xy=(1.,0.),
+                requested_heading_rad=0.)
+    valid = examine_obstacle_crossing(position,feet,contact,heading,**args)
+    assert valid['crossing_pass']
+    assert valid['first_two_feet_crossing_frame'] is not None
+    assert valid['foot_supported_after_crossing'] == [True, True]
+    assert valid['finish_line_progress_m'] == pytest.approx(.44)
+
+    def evaluate(*, body=None, feet_=None, support_=None, heading_=None,
+                 reset_=None):
+        return examine_obstacle_crossing(
+            position if body is None else body,
+            feet if feet_ is None else feet_,
+            contact if support_ is None else support_,
+            heading if heading_ is None else heading_,
+            reset=reset_, **args)
+
+    detour=position.copy()
+    detour[20:70,1]=.20
+    assert 'corridor_detour' in evaluate(body=detour)['rejection_reasons']
+
+    turn=heading.copy()
+    turn[40:60]=np.pi
+    assert 'heading_reversal' in evaluate(heading_=turn)['rejection_reasons']
+
+    foot_stays=feet.copy()
+    foot_stays[:,1,0]=np.minimum(foot_stays[:,1,0],.20)
+    assert 'no_torso_and_two_feet_crossing' in evaluate(feet_=foot_stays)['rejection_reasons']
+
+    floating=np.zeros_like(contact)
+    assert 'missing_far_side_support' in evaluate(support_=floating)['rejection_reasons']
+
+    wait=position.copy()
+    wait[10:85,0]=wait[10,0]
+    assert 'perpetual_hesitation' in evaluate(body=wait)['rejection_reasons']
+
+    flags=np.zeros(n,dtype=bool)
+    flags[34]=True
+    assert 'fall_or_reset' in evaluate(reset_=flags)['rejection_reasons']
+
+    teleport=position.copy()
+    teleport[70,0]+=.12
+    assert 'teleport_or_invalid_speed' in evaluate(body=teleport)['rejection_reasons']
+
+    walk_back=position.copy()
+    walk_back[-1,0]=.10
+    assert 'no_stable_finish_and_runout' in evaluate(body=walk_back)['rejection_reasons']
+
+    # Rotate the *entire course* 35 degrees: no magic +X assumption.
+    a=np.deg2rad(35.)
+    rot=np.array([[np.cos(a),-np.sin(a)],
+                  [np.sin(a), np.cos(a)]])
+    diagonal=examine_obstacle_crossing(position@rot.T,feet@rot.T,contact,
+             heading+a,start_xy=(0.,0.),
+             course_axis_xy=(np.cos(a),np.sin(a)),
+             requested_heading_rad=a)
+    assert diagonal['crossing_pass']
+
+
+def test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support():
+    from emu.directional import examine_obstacle_crossing
+    base=np.zeros((6,2))
+    feet=np.zeros((6,2,2))
+    head=np.zeros(6)
+    opts=dict(start_xy=(0.,0.), course_axis_xy=(1.,0.),
+              requested_heading_rad=0.)
+    with pytest.raises(ValueError,match='boolean contacts'):
+        examine_obstacle_crossing(base,feet,np.ones((6,2)),head,**opts)
+    with pytest.raises(ValueError,match='world-fixed'):
+        examine_obstacle_crossing(base,feet,np.ones((6,2),bool),head,
+             **{**opts,'course_axis_xy':(0.,0.)})
+    with pytest.raises(ValueError,match='aligned'):
+        examine_obstacle_crossing(base,feet[:3],np.ones((6,2),bool),head,**opts)
