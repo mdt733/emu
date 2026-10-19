@@ -1,77 +1,68 @@
-# v5018 Terrain Awareness — living branch checklist
+# EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-## Status — 20 October 2026
+**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the only tracked living v5018 plan. The full initial motivation/experimental protocol is in the reviewed handover document, not an additional branch status file.
 
-Branch: `feature/v5018-terrain-awareness`. P0A **partial**, P0B pending. No measured terrain contact results, training success or GPU FPS yet. Never touch main/showcase without explicit approval.
+## What is measured and verified
 
-### Fresh WSL acceptance evidence (user-run)
-- [x] Fresh installation reached `python -m pytest -q`: **73 passed, 5 failed, 24 deprecation warnings, 428.56 seconds**.
-- [x] All five failures were outdated 120M schema-1/220-input tests calling `showcase/champion.emupolicy` which currently contains the protected **260,112,384-step, checkpoint schema-8, export schema-2, 232-input** champion. This was verified against actual JSON metadata, not guessed.
-- [x] Showcase XML embedded in the policy byte-for-byte matches current `emu/robot.xml`.
-- [~] Implemented schema-1/2 exam-reader validation, independent reconstruction of the 232 sensor contract and runtime examiner matching, plus updated current-champion tests and package installer. **Not yet rerun on user's WSL; no regression PASS claimed**.
-- [!] Because the old installer ran `pytest` before `emu viewer-build`, nonzero exit prevented viewer/npm checks, doctor and the v5018 terrain probe from running. The adjusted installer builds/tests viewer first and allows explicit `--skip-tests` for diagnostic-only use.
-- [ ] Rerun updated Python tests and npm viewer tests in WSL; verify legacy 220 load remains intact.
-- [ ] Confirm CUDA-13 JAX plugin/device, driver, doctor, Node/npm, viewer build, GPU VRAM; user's pasted output proves only Python dependency installation and partial test suite.
-- [ ] Capture results from `scripts/v5018_terrain_spike.py`.
+### Fresh WSL baseline
+- [x] Python **3.13.16**, MuJoCo/MJX **3.16.0**, JAX **0.12.0**, device **cuda:0**, from user-run v3 JSON.
+- [x] Initial clean install ran 78 Python tests: **73 passed, 5 failed, 24 warnings in 428.56 s**. All five failures traced to stale 120M/220-input protected policy assumptions; actual immutable showcase is 260,112,384-step **232-input schema-2** policy with checkpoint schema 8.
+- [~] Branch has reader + examiner support for both 220/232 and corrected test fixtures with schema/fingerprint validation. **The corrected full test suite has not been rerun and is not a PASS.**
+- [x] Showcase's embedded robot XML byte-for-byte matched the repository model during inspection. Its weights and `showcase/` have not changed.
 
-### P0A v2 measured GPU results (user JSON; 20 Oct 2026)
-- [x] Python **3.13.16**, MuJoCo **3.16.0**, JAX **0.12.0**, device **cuda:0**.
-- [x] All **5/5 constrained sphere-foot collision cases passed** with matching intended CPU and MJX contact geom labels: ground, raised box, lower plane, rotated ramp and capsule log.
-- [x] Final CPU/MJX ball-centre Z discrepancy: 0.000394–0.000590 **mm** (maximum ~0.59 micrometres). This is **not** a full trajectory or multi-contact force solver check.
-- [x] CPU support contact-force magnitudes: ~0.0981 N for level cases, ~0.10004 N for tilted slab; consistent with 10 g test sphere supporting gravity, **not yet measured MJX force equality**.
-- [x] CPU `mj_ray` versus JAX analytic static-plane/oriented-box intersection: first-hit distances match within **0.000026 mm** over the recorded valid rays; tested top/flat/diagonal and step-up/-down risers. JAX **capsule** ray was explicitly unimplemented in v2, so the `log_top` row's `pass=true` indicates CPU observation only; it does not assert a JAX comparison.
-- [x] Optional **2-world** same-topology MJX batch: both positions produced the intended result, step z=0.04763332 m and flat z=0.01763340 m. This is *different ball placement in one static shared course*, **not per-world heterogeneous terrain geometry**.
-- [~] Added P0A **v3 unexecuted** JAX capsule ray/cylinder+spherical-end intersection with CPU comparison, horizontal log-side occlusion ray; output `v5018_p0a_spike_v3_results.json`.
-- [~] Added **unexecuted full EMU GPU benchmark** `scripts/v5018_batch_benchmark.py`: compares native `sim2real_232` EMU environment stepping on existing flat model versus same robot with a real collidable box step, in isolated subprocesses; per-size JSON records compiler+first run, measured steady state env-steps/s, available allocator peak, optional contact counts, and failure reason. **It does not measure PPO gradient/update FPS nor prove obstacle traversal.**
-- [ ] Run v3 and batch benchmark on local 8GB GPU; inspect any new validation failures. Only then consider larger environments and P0 exit.
-- [ ] Test moving/impact contact normal/force transfer; scanner footprint and camera/ToF coverage across body pitch, lateral walk and terrain riser occlusion; train-loop PPO scaling and browser engine transfer still blocked.
+### Collidable contact and ray physics (user-run v3 JSON)
+- [x] **5/5** contact cases with correct CPU and MJX geom pairs: flat, 30 mm raised box, 30 mm real lower landing, tilted box, low capsule log. CPU/MJX final centre-Z maximum discrepancy **0.000590 mm** (0.59 µm). This is constrained-ball resting position evidence, not gait/dynamic load agreement.
+- [x] **12/12** CPU `mj_ray` versus JAX plane/oriented-box/capsule first-hit distances matched within **0.000046 mm**. Includes actual step faces and both log top and log side. This uses collision primitives; no oracle heightfield shortcut. These rays still have idealized static extrinsics; sensor calibration/occlusion by robot limbs unmeasured.
+- [x] CPU contact support magnitudes near 0.0981 N for the 10 g sphere (incline ~0.1000 N). **MJX force equivalence is unmeasured.**
+- [x] Two spheres at separate X positions in the **same shared terrain topology** landed correctly on raised step and floor. **This does not establish varying geometry between worlds.**
 
-### P0A user-run results — initial minimal spike
-- [x] CPU MuJoCo 3.16.0 / MJX-JAX first fixture run produced five final ball-foot contact cases without reported exceptions (uploaded `v5018_p0a_spike_results.json`).
-- [x] Final centre-height deltas absolute max **0.00057742 mm** (0.57742 µm). This is final resting geometry agreement **only**; no trajectory/impulse/contact-force transfer proof and not evidence of GPU backend usage without device metadata.
-- [x] Raised step: support on `obstacle`, final CPU centre z 0.0476328 m; elevated about 30 mm above flat. Log: support on `log`, final CPU centre z 0.0476328 m.
-- [!] Step-down fixture landed on `upper` shelf, not `lower`, so it did **not** demonstrate descending contact.
-- [!] Diagonal fixture landed on `ground`, not `ramp`, so it did **not** demonstrate graded contact.
-- [~] Replaced P0A script with **unexecuted v2**: vertical-slider sphere contact (prevents ramp rollout masquerading as collision failure), geometrically unambiguous lower landing/tilted slab, actual contact geom labels and CPU force magnitude; CPU static `mj_ray` vs JAX-oriented-box/plane primitive intersection including risers and occlusion, marked unsupported capsule ray; optional 2-world same-topology vmap. Writes `v5018_p0a_spike_v2_results.json`. ALL v2 validation remains pending local execution. This is not full free-body gait or train-loop benchmark.
-- [ ] Execute `python scripts/v5018_terrain_spike.py --batch` after `git pull --ff-only`; inspect every `pass` and any exception, the CPU and JAX geom hits, contact force and 2-world batch results.
-- [ ] Separate CPU trajectories/swing-foot impacts and moving-foot collision after stationary clearance proof. Resolve log/capsule JAX sensor-ray intersection against CPU truth before declaring sensing feasible.
+### Full EMU MJX GPU *stepping* (user-run 256/512 JSON)
+- [x] Native `sim2real_232` EMU environment completed **256** and **512** worlds on GPU in isolated subprocesses:
+  - 256 flat: **9,541 env-steps/s**; step geometry present: **9,717 env-steps/s**
+  - 512 flat: **15,290 env-steps/s**; step geometry present: **16,690 env-steps/s**
+- [!] Both configurations reported **zero contacts with the inserted step at the last frame**; these results only establish overhead of geometry presence in short 8-frame sequences, **not collision-loaded throughput**. Step and flat rewards matched; reward is not yet terrain-relative. The small apparent speed advantage is noise, not a physics optimization claim.
+- [x] Reported XLA allocator peak ~201.4 MB in all cases, `bytes_limit=6,440,353,792` bytes. This is **not** total VRAM usage and does not prove 2048-world training fits.
+- [ ] Quantify 1024 and 2048-world GPU stepping, **actual obstacle foot contacts**, VRAM and *PPO update* FPS independently.
 
-### P0A physics and sensing
-- [~] `scripts/v5018_terrain_spike.py` v2 fixes lower/diagonal fixture ambiguity and adds primitive ray/occlusion and optional two-world evidence collection. **Committed, not yet executed; not an end-to-end training benchmark**.
-- [ ] Actual CPU/MJX contact, support force, step geometry, riser/toe strike, ray occlusion and geometry-pair agreement.
-- [ ] Actual two-world heterogeneous batch, then 256/512/1024/2048 VRAM/FPS scale trials where possible on RTX 4060 Ti (8GB).
-- [ ] Identify viable exact ray/collision representation; hfield collision support does not imply hfield raycast support.
-- [ ] P0B clearance envelope, sensor footprint, MJX/CPU/WASM gap, and installed/runtime version pin.
-- [ ] P1–P7 blocked pending P0 evidence.
+## Implemented in feature branch; **not yet executed**
 
-### Engineering decisions
-1. Preserve 220/232 contracts and every existing released policy file. The current champion is schema 2; tests and examiner must acknowledge it rather than alter its file or coerce it to 220.
-2. For schema-2 examiner loading, validate sensor field order, normalizer shape/mask, source hashes and recompute the locally authoritative sensor-contract fingerprint; keep legacy schema-1 decoding.
-3. Keep `terrain_312` provisional. No contact, sensor coverage or learning success is proved by the initial script alone.
-4. `@mujoco/mujoco` resolves to **3.15.0** in npm lock; the browser package declares a mutable `latest` selector and will require pinning in P0B.
+- [~] `scripts/v5018_dynamic_contact.py`: four genuine time-resolved moving-sphere controls (slow/fast step-face strikes, high-clearance no-hit control, vertical onto-top hit), first-impact timing, CPU impulse proxy, MJX contact flags. Constrained slider, no learned gait.
+- [~] `scripts/v5018_per_world_terrain.py`: vary actual `geom_pos` on two MJX worlds with identical collision topology; swap positions without changing compiled shape; CPU references. If unsupported, choose a small static course bank. Does not prove arbitrary mesh topology is cheap.
+- [~] `scripts/v5018_scanner_coverage.py`: CPU MuJoCo-first-hit two-lane forward scan over 3 chassis heights × 3 pitches × 3 rolls × 2 lanes and two beam proposals, with valid-range, riser/top hazard labels and first-detection lead. **Candidate beams only**, no physical module claim, and currently no articulated leg self-occlusion/noise.
+- [~] `scripts/v5018_clearance_envelope.py`: exploratory robot.xml FK of actuated joints, forward reach and rising foot relative to support under optimistic no-load speed limits; **not a dynamic clearance envelope or servo torque proof**.
+- [~] `scripts/v5018_batch_benchmark.py` now includes an added **'contact'** mode: a shallow 5 mm pad deliberately under the right ball foot, requiring true contact samples, and the earlier 'flat'/'step' controls; tests 256→512→1024→2048 while capacity allows. All three use the full robot environment; **not PPO update throughput or walk-over success**.
+- [~] `emu/viewer_src/scripts/v5018_wasm_contact.mjs`: headless actual MuJoCo/WASM 3.15.0 five-fixture final-height comparison to the CPU 3.16.0 JSON, preliminary engine-gap evidence only (not full browser/actor trajectory).
+- [x] Pinned the viewer's `@mujoco/mujoco` in **package.json and package-lock.json to 3.15.0**. This preserves the previous resolved wasm release and prevents future implicit `latest` drift; npm runtime regression remains untested.
+- [~] `scripts/run_v5018_p0_campaign.sh`: a **single local sequential campaign**: Python syntax/full regression, npm ci/tests/build, GPU doctor, v3 ray/contact, WASM check, moving impacts, heterogeneous-position MJX, sensor scanner, clearance FK, and 256→2048 native GPU benchmarks. Independent steps continue after failures; GPU batch escalation stops at first failing size. The script logs every exit and creates a compressed archive outside the source tree. **No campaign stages run by assistant** (local runtime lacks MuJoCo and network access).
 
-### Reproduce on the user's fresh WSL
+## P0 blocking gates before schema freeze or PPO terrain training
+- [ ] Check *moving* collisions/toe strikes and actual contact/support force in MJX against CPU, not merely final sphere poses.
+- [ ] Confirm per-world terrain pose variation is JIT-efficient or adopt fixed static course-bank fallback.
+- [ ] Obtain **collision-loaded** full robot GPU throughput, then measure one real PPO update and VRAM. 2048 is a goal, not mandatory; reduce safely when needed.
+- [ ] Prove physically plausible forward-scanner coverage of both future foot lanes for selected pitch/roll heights, including risers/occlusion/dropout. Choose actual sensor class/FOV and compare 3/5/8 bins later in P2.
+- [ ] CPU–MJX–WASM discrepancy for same actor commands and terrain; account for wasm 3.15.0 vs CPU/MJX 3.16.0.
+- [ ] Derive mechanical *dynamically achievable* swing clearance with actuator speed, torque, drag and support, not only kinematic reach. Physical hardware deployment not demonstrated; sim-first only.
+- [ ] Retest full 220/232 loader, viewer/mobile navigation regressions; preserve old policy behaviour.
+- [ ] Fix any failed probe rather than relaxing numeric gates silently. Do not infer real steps/climbing from the initial 30 mm sphere collision.
+
+## Later gates (remain intentionally locked)
+- **P1:** Integrate verified collidable terrain into actual resets/worlds; terrain-relative support/swing/reward-only metrics, corrected flat control and no-detour corridor crossing exam. Preserve old policy semantics.
+- **P2:** Realistic timestamped two-lane beam model, inertial/flow motion compensation, bounded confidence-rated rolling profiles, quantified 3/5/8-bin choice, separate instantaneous tripod slope.
+- **P3:** Explicit schema only after P2 (312 if and only if 5 bins/lane), strict fingerprint and normalizer checks; fresh/warm PPO smoke, save/resume/export/actual WASM inference, old-policy compatibility.
+- **P4:** Bounded anti-cheat reward/curriculum audit with feasible obstacles; no hidden terrain truth into actor.
+- **P5:** Controlled matched A masked/B current-scan/C rolling, R0 archived/R1 corrected-flat and delayed D oracle; staged GPU seeds/steps with held-out no-detour crossing and flat retention.
+- **P6:** Physical MuJoCo/WASM challenge courses, full-sensor consistency, preserve v5017 joystick/navigation/mobile.
+- **P7:** Independent validation/scoreboard and reviewed PR; **approval required** before main/showcase changes.
+
+## Run the combined local campaign
 
 ```bash
 cd ~/emu-v5018
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/setup_wsl.sh --cuda13 --install-node
-python scripts/v5018_terrain_spike.py --batch
+bash scripts/run_v5018_p0_campaign.sh
 ```
 
-If full suite fails again, keep the output. To finish dependency/viewer installation independently use `bash scripts/setup_wsl.sh --cuda13 --install-node --skip-tests` (clearly **not a test pass**), then run targeted tests with `python -m pytest -q tests/test_direction.py::test_protected_export_reader_refuses_contract_and_actor_tampering tests/test_physics.py::test_protected_sensor_champion_full_directional_exam_cpu`. Send GPU diagnostics, log and `v5018_p0a_spike_v2_results.json`.
+The campaign saves logs, `stages.tsv` and JSON under `~/robot_lab/emu_experiments/v5018_p0_YYYYMMDD_HHMMSS/`, plus a matching `.tar.gz`. **Upload that archive** (including failures) for the next review. No training starts; the script never modifies main or the protected showcase. Do not run alongside another GPU training job.
 
-### Next (newly committed probes)
-```bash
-cd ~/emu-v5018 && git pull --ff-only origin feature/v5018-terrain-awareness
-source .venv/bin/activate
-python scripts/v5018_terrain_spike.py --batch
-python scripts/v5018_batch_benchmark.py --envs 256 512 --output emu_v5018_batch_256_512.json
-# Only if viable at 512, then run:
-python scripts/v5018_batch_benchmark.py --envs 1024 2048 --output emu_v5018_batch_1024_2048.json
-```
-Expected files: `v5018_p0a_spike_v3_results.json`, benchmark JSON(s), plus terminal errors if any. Run benchmark separately from training. Then address the remaining meaningful P0 gates: independent MJX contact impulses/forces, physically observable two-lane scanner coverage, per-world geometry/topology options, and browser engine comparison.
-
-### Prior next-step note
-Resolve any newly observed schema-2 exam failure without weakening hash/shape checks. Then build same-topology two-world MJX collidable fixtures and sensor-ray occlusion probe. Update only this checklist after each pass.
+**Next implementation decision:** after local results, choose the simplest proven course primitive family and batch ceiling, then close remaining P0 gates before implementing terrain truth in P1.
