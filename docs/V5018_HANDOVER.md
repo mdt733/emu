@@ -258,6 +258,10 @@ reported as robot failing 15/20mm steps or bad heading.
 a preflight expands and tests **180 distinct experiment
 names** prior to any GPU calls, and stderr is saved to
 `runner_stderr.log` for future unexpected shell errors.
+The real run and preflight share ONE `step_stage_name()` formatter
+(commit `3c029c256614adf35f2db93d4dbc21a324a287fc`);
+an isolated `bash -u` check of this exact formatter passed
+all 180 combinations. The end-to-end WSL campaign remains unverified.
 A standalone `bash -u` isolated naming simulation
 covered 180 combinations and 3 representative edge cases
 PASS, but the full user-WSL campaign has not run since
