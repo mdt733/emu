@@ -482,6 +482,9 @@ function stopDemo(){
   handoff.takeControl(performance.now()/1000);
   $('liveDemo').checked=false;
   syncGoalMode();
+  // Reset the heading setpoint to the ACTUAL chassis heading. Otherwise the
+  // P controller can keep completing the discarded autonomous turn.
+  sim?.setHeadingHold(headingHoldToggle.checked);
   $('demoKind').textContent='Manual control';
   leftStick.setDisplay(left.x,left.y);
   rightStick.setDisplay(right.x,right.y);
@@ -494,6 +497,7 @@ function startDemo(){
   $('liveDemo').checked=true;
   left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
+  sim.setHeadingHold(headingHoldToggle.checked);
   $('demoKind').textContent='Finding next destination…';
   updateStickLabels();
 }
