@@ -167,12 +167,12 @@ test('while route search is pending, every frame still commands the neural walke
     return new Promise(resolve=>{resolvePlan=resolve;});
   });
   const commands=[];
-  // Advance past 1.2 second dynamic warmup.
+  // The walker must remain in place while an asynchronous route is pending.
   for(let i=0;i<65;i++)nav.tick(.02,pose,limits,[],x=>commands.push(x));
   assert.equal(called,1);
   assert.ok(nav.pendingRequest);
   assert.equal(commands.length,65);
-  assert.ok(commands.every(c=>c.vx>.08));
+  assert.ok(commands.every(c=>c.vx===0&&c.vy===0&&c.yaw===0));
   for(let i=0;i<200;i++)nav.tick(.02,pose,limits,[],x=>commands.push(x));
   assert.equal(called,1,'only one in-flight worker plan');
   assert.equal(commands.length,265,'cannot freeze or skip frames during search');
@@ -253,7 +253,7 @@ test('goal mission coalesces fast feedback into stable held velocity setpoints',
                         src.indexOf('let liveRevision = null;'));
   assert.match(block,/navigator\.tick\(dt,pose,bundle\.control\.command_limits/);
   assert.match(block,/command=>\{plannedCommand=command;\}/);
-  assert.match(block,/commandPeriod=remaining>1\.0\?\.25:\.20/);
+  assert.match(block,/commandPeriod=\.10/);
   assert.match(block,/navCommandClock>=commandPeriod/);
   assert.match(block,/applyAutonomousCommand\(plannedCommand\)/);
   assert.match(src,/function applyAutonomousCommand\(command\)\s*\{\s*sim\.setDemoCommands\(command\)/);
@@ -388,4 +388,82 @@ test('planner request broker transmits selected arc mode with unchanged commands
   const value=await next;
   assert.equal(value.route,null);
   broker.dispose();
+});
+
+
+test('path-relative follower corrects the line with progressive slowdown',async()=>{
+  const {buildRoutePath,trackRoutePath,projectOnRun}=
+    await import('../src/path-follower.js');
+  const cmd={vx:.7,vy:0,yaw:0};
+  const route={start:{x:0,y:0,heading:0},steps:[
+    {x:1,y:0,heading:0,cmd},{x:2,y:0,heading:0,cmd},
+    {x:3,y:0,heading:0,cmd}
+  ]};
+  const path=buildRoutePath(route);
+  const drive=y=>trackRoutePath({x:.5,y,heading:0,vx:.5,vy:0},
+    path,0,0,limits);
+  const on=drive(0),off=drive(.4),far=drive(.8);
+  assert.ok(on.command.vx>off.command.vx&&off.command.vx>far.command.vx);
+  assert.ok(off.command.yaw<0,'left of route should steer right');
+  assert.ok(Math.abs(far.headingError)<=Math.PI/6+1e-8);
+  assert.ok(Math.abs(projectOnRun({x:.7,y:.4},path.runs[0]).crossTrack-.4)<1e-9);
+});
+
+test('planned curvature, reversal and pivot survive path tracking',async()=>{
+  const {buildRoutePath,trackRoutePath}=await import('../src/path-follower.js');
+  const arc=buildRoutePath({start:{x:0,y:0,heading:0},steps:[
+    {x:.4794,y:.1224,heading:.5,cmd:{vx:.5,vy:0,yaw:.5}}
+  ]});
+  assert.ok(trackRoutePath({x:0,y:0,heading:0,vx:.4},arc,0,0,limits).command.yaw>.1);
+  const reverse=buildRoutePath({start:{x:0,y:0,heading:0},steps:[
+    {x:-.8,y:0,heading:0,cmd:{vx:-.3,vy:0,yaw:0}}
+  ]});
+  assert.ok(trackRoutePath({x:-.1,y:0,heading:0,vx:-.2},reverse,0,0,limits).command.vx<0);
+  const pivot=buildRoutePath({start:{x:0,y:0,heading:0},steps:[
+    {x:0,y:0,heading:1,cmd:{vx:0,vy:0,yaw:.8}},
+    {x:.5,y:.5,heading:1,cmd:{vx:.4,vy:0,yaw:0}}
+  ]});
+  const turn=trackRoutePath({x:0,y:0,heading:0},pivot,0,0,limits);
+  assert.ok(turn.command.vx===0&&turn.command.yaw>0&&!turn.ready);
+  assert.ok(trackRoutePath({x:0,y:0,heading:1},pivot,0,0,limits).ready);
+});
+
+test('final pose can rotate without any forced forward circling',async()=>{
+  const {parkAtGoal}=await import('../src/path-follower.js');
+  const cmd=parkAtGoal({x:0,y:0,heading:0,vx:0,vy:0},
+    {x:0,y:0,heading:Math.PI/2},limits);
+  assert.equal(cmd.vx,0);assert.equal(cmd.vy,0);assert.ok(cmd.yaw>0);
+});
+
+test('arrivals are held and counted exactly once while worker is pending',()=>{
+  const nav=new GoalNavigator();nav.active=true;
+  let calls=0;
+  nav.useBackgroundPlanner(()=>{calls++;return new Promise(()=>{});});
+  const p={x:0,y:0,heading:0,vx:0,vy:0};
+  nav.goal={x:0,y:0,heading:0};
+  nav.route={solved:true,estimatedSeconds:1,steps:[]};
+  for(let i=0;i<20;i++)nav.tick(.02,p,limits,[],()=>{});
+  assert.equal(nav.arrivals,0);
+  for(let i=0;i<35;i++)nav.tick(.02,p,limits,[],()=>{});
+  assert.equal(nav.arrivals,1);
+  assert.equal(nav.goal,null);
+  assert.equal(calls,1);
+  for(let i=0;i<100;i++)nav.tick(.02,p,limits,[],()=>{});
+  assert.equal(nav.arrivals,1);
+});
+
+test('perfect centreline progress never triggers the old lookahead replan bug',()=>{
+  const nav=new GoalNavigator();nav.active=true;
+  nav.useBackgroundPlanner(()=>{throw Error('unexpected replan');});
+  const start={x:0,y:0,heading:0,vx:.6,vy:0};
+  const goal={x:4,y:0,heading:0};
+  const cmd={vx:.6,vy:0,yaw:0};
+  nav.acceptRoute(start,goal,{start,solved:true,estimatedSeconds:7,steps:[
+    {x:1,y:0,heading:0,cmd},{x:2,y:0,heading:0,cmd},
+    {x:3,y:0,heading:0,cmd},{x:4,y:0,heading:0,cmd}
+  ]},{newMission:true});
+  for(let i=0;i<190;i++)
+    nav.tick(.02,{x:i*.012,y:0,heading:0,vx:.6,vy:0},limits,[],()=>{});
+  assert.equal(nav.replans,0);
+  assert.equal(nav.plannerError,null);
 });

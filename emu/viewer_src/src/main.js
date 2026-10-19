@@ -95,11 +95,9 @@ function navigationUpdate(dt) {
   // Both modes still use the same tested setDemoCommands() pipeline.
   // Higher cruising speed needs tighter steering corrections than the
   // initial 650ms zero-order hold (which travelled ~0.6m at full speed).
-  // Deliver the latest planned velocity at 4Hz in cruise and 5Hz near
-  // the final pose; PPO inference continues at its normal 50Hz.
-  const remaining=navigator.goal?Math.hypot(
-    pose.x-navigator.goal.x,pose.y-navigator.goal.y):Infinity;
-  const commandPeriod=remaining>1.0?.25:.20;
+  // Route feedback up to 10 Hz through the same command path.
+  // Neural actor inference remains at its normal 50 Hz.
+  const commandPeriod=.10;
   navCommandClock+=Math.min(Math.max(dt,0),.1);
   if(plannedCommand && navCommandClock>=commandPeriod){
     applyAutonomousCommand(plannedCommand);

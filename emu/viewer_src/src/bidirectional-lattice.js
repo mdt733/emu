@@ -177,7 +177,7 @@ export function bidirectionalMotionRoute(start,goal,limits,trees=[],opts={}){
   }
   if(!best)return null;
   const steps=joinRoute(best.f,best.b,best.connector);
-  return {steps,estimatedSeconds:best.score,solved:true,
+  return {start:{...start},steps,estimatedSeconds:best.score,solved:true,
           planner:'bidirectional-motion-lattice',
           expanded:expansions,
           meetPose:{...best.f.pose},

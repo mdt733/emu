@@ -3,6 +3,7 @@
 // an estimated fastest route under a conservative velocity envelope,
 // not proof of optimality or a learned capability/safety guarantee.
 import { makeRng } from './live-demo.js';
+import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
 export const ARENA_RADIUS_M = 4;
 export const GOAL_POSITION_TOLERANCE_M = .19;
 export const GOAL_HEADING_TOLERANCE_RAD = .28;
@@ -65,8 +66,9 @@ function primitives(limits){
     add('side-arc-left',0,s*.85,w*.67,clamp(.39/(w*.67),.4,1.1));
     add('side-arc-right',0,-s*.85,-w*.67,clamp(.39/(w*.67),.4,1.1));
   }
-  // This dynamic biped was not taught to pivot while standing still.
-  // Prefer forward/reverse/side arcs for heading changes.
+  // The current Pinnacle actor can pivot. Honour that capability.
+  add('pivot-left',0,0,w*.85,clamp(.40/(w*.85),.3,1.0));
+  add('pivot-right',0,0,-w*.85,clamp(.40/(w*.85),.3,1.0));
   return out;
 }
 export function integratePose(p,cmd,dt){
@@ -169,7 +171,7 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  return {steps,estimatedSeconds:last.g+
+  return {start:{...start},steps,estimatedSeconds:last.g+
     heuristic(last,goal,speed),solved,expanded,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
@@ -224,6 +226,8 @@ function directRouteClear(from,to,trees){
 }
 
 /**
+ * Legacy waypoint driver retained for regression comparisons only.
+ * Active goal missions use path-follower.js.
  * Velocity controller for a DYNAMIC biped, not a holonomic parked robot.
  *
  * Far: drive quickly toward a far-ahead preview with one smooth yaw arc;
@@ -286,7 +290,8 @@ export function followWaypoint(pose,waypoint,limits,{final=false,goal=null}={}){
 export class GoalNavigator {
   constructor(seed=5017){
     this.rng=makeRng(seed);this.active=false;
-    this.goal=null;this.route=null;this.index=0;
+    this.goal=null;this.route=null;this.path=null;this.index=0;
+    this.runIndex=0;this.runProgress=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
     this.searchCooldown=0;this.failures=0;this.warmup=0;
@@ -316,7 +321,7 @@ export class GoalNavigator {
         this.plannerError=String(error?.message||error);
         this.reason='Planner error · walking safely';
         this.searchCooldown=2.0;
-        if(payload.kind==='next'){this.goal=null;this.route=null;}
+        if(payload.kind==='next'){this.goal=null;this.route=null;this.path=null;}
       }
     }).finally(()=>{
       if(generation===this.generation&&this.pendingRequest===promise)
@@ -326,18 +331,26 @@ export class GoalNavigator {
   }
   reset(){
     this.generation++;this.pendingRequest=null;this.plannerError=null;
-    this.goal=null;this.route=null;this.index=0;
+    this.goal=null;this.route=null;this.path=null;this.index=0;
+    this.runIndex=0;this.runProgress=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.warmup=0;this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
+  acceptRoute(pose,goal,route,{newMission=false}={}){
+    this.goal={...goal};this.route=route;
+    this.path=buildRoutePath(route,route.start||pose);
+    this.runIndex=0;this.runProgress=0;this.index=0;
+    this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
+    this.replanDelay=0;
+    if(newMission){
+      this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
+    }
+    this.reason=route.solved?'Following route':'Partial route · replanning';
+  }
   setGoal(pose,goal,limits,trees=[]){
     const route=planPoseRoute(pose,goal,limits,trees);
     if(!route)return false;
-    this.goal={...goal};this.route=route;this.index=0;
-    this.elapsed=0;this.arrivalHold=0;this.replanDelay=0;
-    this.searchCooldown=0;this.stagnant=0;
-    this.bestProgress=Infinity;this.lastIndex=-1;
-    this.reason=route.solved?'Navigating':'Partial route · replanning';
+    this.acceptRoute(pose,goal,route,{newMission:true});
     return true;
   }
   nextGoal(pose,limits,trees=[]){
@@ -349,13 +362,9 @@ export class GoalNavigator {
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
-          this.goal=result.goal;this.route=result.route;this.index=0;
-          this.elapsed=0;this.replanDelay=0;this.arrivalHold=0;
-          this.searchCooldown=0;this.stagnant=0;
-          this.bestProgress=Infinity;this.lastIndex=-1;
-          this.reason='Navigating';
+          this.acceptRoute(pose,result.goal,result.route,{newMission:true});
         }else{
-          this.goal=null;this.route=null;
+          this.goal=null;this.route=null;this.path=null;
           this.searchCooldown=1.5;
           this.reason='No viable route yet · trying again soon';
         }
@@ -367,103 +376,105 @@ export class GoalNavigator {
       if(planned&&this.route.solved)return true;
     }
     this.reason='No feasible full route; sampling again soon';
-    this.goal=null;this.route=null;this.searchCooldown=1.5;
+    this.goal=null;this.route=null;this.path=null;this.searchCooldown=1.5;
     return false;
   }
   tick(dt,pose,limits,trees=[],apply=()=>{}){
     if(!this.active)return;
-    if(!Number.isFinite(pose.x)||!Number.isFinite(pose.y)||
-       !Number.isFinite(pose.heading))return;
+    if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
     const delta=clamp(dt,0,.1);
-    // Start from dynamic gait, not a stationary pivot/standing command.
-    if(this.warmup<1.2){
-      this.warmup+=delta;
-      this.reason='Walking warm-up before navigation';
-      apply({vx:Math.min(.20,Math.max(.08,limits.vx_max*.38)),
-             vy:0,yaw:0,pitch:0});
-      return;
-    }
+    // Standing while waiting avoids making an asynchronous plan stale.
     if(!this.goal){
       if(this.pendingRequest){
-        this.reason='Background route search · still walking';
-        apply({vx:.14,vy:0,yaw:0,pitch:0});
-        return;
+        this.reason='Background route search';
+        apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
       if(this.searchCooldown>0){
         this.searchCooldown=Math.max(0,this.searchCooldown-delta);
-        apply({vx:.14,vy:0,yaw:0,pitch:0});return;
+        apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
       if(!this.nextGoal(pose,limits,trees)||!this.goal){
-        // The Worker has been scheduled but hasn't returned a route yet.
-        // Advance the policy with normal walking commands in the meantime.
-        apply({vx:.14,vy:0,yaw:0,pitch:0});return;
+        apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
     }
     this.elapsed+=delta;
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
     if(this.elapsed>deadline){
       this.failures++;
+      this.goal=null;this.route=null;this.path=null;
       this.reason='Mission timed out · new goal';
-      apply({vx:.14,vy:0,yaw:0,pitch:0});
+      apply({vx:0,vy:0,yaw:0,pitch:0});
       this.nextGoal(pose,limits,trees);
       return;
     }
-    const dist=distance(pose,this.goal),aerr=Math.abs(angleError(this.goal.heading,pose.heading));
+    const dist=distance(pose,this.goal);
+    const aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
-    if(dist<GOAL_POSITION_TOLERANCE_M&&aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
-      // Dynamic arrival: NEVER leave the last turn/sideways command latched
-      // while searching for another destination. Keep a gentle walking
-      // request applied on EVERY simulator frame, even between missions.
-      apply({vx:Math.min(.14,Math.max(.09,limits.vx_max*.25)),
-             vy:0,yaw:0,pitch:0});
-      this.arrivals++;
-      this.reason='Pose reached while walking · next target';
-      this.nextGoal(pose,limits,trees);
+    if(dist<GOAL_POSITION_TOLERANCE_M&&
+       aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
+      this.arrivalHold+=delta;
+      apply({vx:0,vy:0,yaw:0,pitch:0});
+      if(this.arrivalHold>=.55){
+        // Retire this mission before asking the Worker for a new one.
+        this.arrivals++;
+        this.goal=null;this.route=null;this.path=null;
+        this.reason='Goal reached · choosing next target';
+        this.nextGoal(pose,limits,trees);
+      }else this.reason='Verifying arrival';
       return;
     }
     this.arrivalHold=0;
-    const steps=this.route.steps;
-    const preview=previewRoute(pose,steps,this.index,trees,
-      Math.max(0,pose.vx||0));
-    // Route progress is based on actual spatial progress, NOT reaching the
-    // heading of every intermediate node. The planner's final heading is
-    // still enforced at the actual destination.
-    this.index=Math.max(this.index,preview.progress);
-    const target=preview.target;
-    const remaining=distance(pose,target);
-    if(this.index!==this.lastIndex){
-      this.lastIndex=this.index;this.bestProgress=remaining;this.stagnant=0;
-    }else if(remaining<this.bestProgress-.08){
-      this.bestProgress=remaining;this.stagnant=0;
-    }else this.stagnant+=delta;
-    const command=followWaypoint(pose,target,limits,{
-      goal:this.goal,final:preview.remaining<.65
-    });
+    const path=this.path;
+    const lastRun=path?.runs.length-1??-1;
+    let result=null;
+    if(this.runIndex<=lastRun){
+      result=trackRoutePath(pose,path,this.runIndex,this.runProgress,limits);
+      this.runProgress=Math.max(this.runProgress,result.progress);
+      // Respect reverse/pivot boundaries; do not jump across a cusp.
+      if(result.ready&&this.runIndex<lastRun){
+        this.runIndex++;
+        this.runProgress=0;
+        result=trackRoutePath(pose,path,this.runIndex,0,limits);
+      }else if(result.ready&&this.runIndex===lastRun){
+        this.runIndex=lastRun+1;
+      }
+    }
+    const finalApproach=dist<.42&&
+      (this.runIndex>=lastRun||lastRun<0);
+    const command=finalApproach||this.runIndex>lastRun
+      ?parkAtGoal(pose,this.goal,limits)
+      :result.command;
     apply(command);
-    const targetDistance=distance(pose,this.goal);
-    this.reason=targetDistance>1.25?'Cruising toward goal'
-      :targetDistance>.48?'Curved approach':'Final pose alignment';
+    this.reason=finalApproach?'Final pose correction'
+      :result?.mode==='pivot'?'Following planned pivot'
+      :dist>1.1?'Following path':'Approaching goal';
+    const progress=this.runIndex*10000+this.runProgress;
+    if(progress>this.bestProgress+.045){
+      this.bestProgress=progress;this.stagnant=0;
+    }else if(!finalApproach)this.stagnant+=delta;
+    this.index=this.runIndex;
     this.replanDelay+=delta;
-    // Re-plan if significantly displaced from the planned next target.
-    // Do not thrash the target from scratch every render frame.
-    if(this.replanDelay>3.2 && (remaining>.75||!this.route.solved||this.stagnant>6.0)){
+    const offRoute=Math.abs(result?.crossTrack||0);
+    // Compare with the line, NOT distance to a far-ahead lookahead target.
+    if(this.replanDelay>3.2&&!this.pendingRequest&&
+       (offRoute>.80||!this.route.solved||(!finalApproach&&this.stagnant>6))){
       this.replanDelay=0;
       if(this.requestPlan){
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
           goal:expectedGoal,limits,trees,planner:this.plannerMode
-        },result=>{
-          if(result?.route?.solved && this.goal===expectedGoal){
-            this.route=result.route;this.index=0;this.replans++;
-            this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+        },answer=>{
+          if(answer?.route?.solved&&this.goal===expectedGoal){
+            this.acceptRoute(pose,expectedGoal,answer.route);
+            this.replans++;
           }
         });
       }else{
         const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
-        if(route){
-          this.route=route;this.index=0;this.replans++;
-          this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+        if(route?.solved){
+          this.acceptRoute(pose,this.goal,route);
+          this.replans++;
         }
       }
     }

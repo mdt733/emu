@@ -293,3 +293,29 @@ http://127.0.0.1:8767/. In Settings, choose Navigate random poses
 reported as planning failures, not fabricated success. Use Ctrl+C to
 stop the server. Python3 is used only for the stdlib static asset
 preparation, not for executing the simulation or neural actor.
+
+
+## v5017 path-relative follower update (experimental branch)
+
+The route controller now projects actual robot position onto continuous route
+segments rather than chasing waypoints. A Stanley-style interception angle
+is capped at 30 degrees and relaxes towards zero as EMU returns to the line.
+Yaw-rate feedforward retains the planner's intended arcs, while reverse,
+lateral and pivot manoeuvres remain explicit path runs. Cross-track error
+progressively reduces travel speed, leaving more time for yaw correction;
+measured lateral drift damps oscillations. The robot does not need to reach
+or park at intermediate path samples.
+
+Replanning now measures lateral deviation from the path and lack of progress,
+not distance from a deliberately distant lookahead point. While Worker
+planning is pending, navigation requests zero movement rather than walking
+away from the pose being planned. Final pose correction can reverse, pivot
+and strafe; a stable arrival requires 0.55 seconds inside tolerance and is
+counted once. Timeouts also retire their current mission.
+
+Navigation commands continue through the same setDemoCommands() -> heading
+controller -> PPO -> MuJoCo pipeline. Path feedback is delivered up to 10 Hz
+while actor inference remains 50 Hz. No new trained-motion-model calibration
+is mandatory: the controller uses the checkpoint's published command limits.
+Compare line tracking, S-curves, pivots, reverse approaches and obstacles in
+actual browser MuJoCo before merging to main.

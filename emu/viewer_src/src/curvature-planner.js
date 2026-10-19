@@ -97,7 +97,7 @@ function generate(start,goal,limits,trees,radius,type,dims,reverse){
   // Use mathematically exact final pose; preserve the preceding segment's
   // curvature command instead of inserting a spurious stationary waypoint.
   steps[steps.length-1]={...steps.at(-1),x:goal.x,y:goal.y,heading:goal.heading,final:true};
-  return {steps,segments,meters:linear,estimatedSeconds:cost,
+  return {start:{...start},steps,segments,meters:linear,estimatedSeconds:cost,
           solved:true,expanded:0,planner:'continuous-curves',
           family:(reverse?'backwards ':'forward ')+type+' R='+radius.toFixed(2),
           modes:segments.map(x=>(reverse?'reverse ':'')+x.mode)};
@@ -153,7 +153,7 @@ function detourCandidates(start,goal,limits,trees,radii){
             if(!winner||cost<winner.estimatedSeconds){
               const steps=[...a.steps,...b.steps];
               steps[steps.length-1]={...steps.at(-1),final:true};
-              winner={steps,segments:[...a.segments,...b.segments],
+              winner={start:{...start},steps,segments:[...a.segments,...b.segments],
                 meters:a.meters+b.meters,estimatedSeconds:cost,
                 family:'detour '+a.family+' + '+b.family,
                 planner:'continuous-curves',solved:true,expanded:examined,
@@ -172,7 +172,7 @@ export function planCurvatureRoute(start,goal,limits,trees=[],options={}){
     throw new Error('Policy command envelope too small for curvature planning');
   if(!safe(goal)||collision(goal,trees))return null;
   if(dist(start,goal)<.02&&Math.abs(wrap(goal.heading-start.heading))<.04)
-    return {steps:[{...goal,cmd:{vx:0,vy:0,yaw:0,pitch:0},final:true}],
+    return {start:{...start},steps:[{...goal,cmd:{vx:0,vy:0,yaw:0,pitch:0},final:true}],
       segments:[],meters:0,estimatedSeconds:0,solved:true,
       expanded:0,planner:'continuous-curves',family:'already at goal',modes:[]};
   // Different radii trade travel length against cornering speed.
