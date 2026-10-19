@@ -37,7 +37,7 @@ def main():
     baseline_l = np.asarray(d.geom_xpos[left]).copy()
     joints = [model.joint(name) for name in JOINTS]
     ranges = np.asarray([model.jnt_range[j.id] for j in joints])
-    addresses = [int(j.qposadr[0]) for j in joints]
+    addresses = [int(model.jnt_qposadr[j.id]) for j in joints]
     neutral = np.asarray([d.qpos[a] for a in addresses], dtype=float)
     rng = np.random.default_rng(SEED)
     reports = []
