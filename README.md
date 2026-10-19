@@ -6,8 +6,8 @@
 > [fresh-WSL installation guide](docs/INSTALL.md).
 > Only `feature/v5018-terrain-awareness` is approved for this experiment;
 > `main`, the protected showcase policy and Pages are not to be changed.
-> The current P0 feasibility campaign has **not** yet produced reviewed
-> results; do not report its unexecuted probes as passes.
+> For current experimental status and measured gate evidence, read
+> the sole living checklist; do not infer success from committed scripts.
 
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
