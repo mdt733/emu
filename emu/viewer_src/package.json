@@ -10,7 +10,7 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@mujoco/mujoco": "latest",
+    "@mujoco/mujoco": "3.15.0",
     "three": "^0.180.0"
   },
   "devDependencies": {
