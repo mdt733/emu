@@ -424,7 +424,7 @@ were executed under that archived SHA.
   are recorded explicitly. **No policy terrain training.**
 - [~] `scripts/run_v5018_gait_and_step_pilot.sh` batches
   targeted Python checks, four repeated 0°/10° heading
-  ON/OFF exams with new stride forensics, and ten frozen
+  ON/OFF exams with new stride forensics, and nine frozen
   flat/5/10mm step experiments across seeds/gains, then
   `scripts/v5018_summarize_gait_and_step.py` writes a
   compact report and archive. **Committed; no local GPU
