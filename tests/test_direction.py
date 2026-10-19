@@ -238,10 +238,10 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     from emu.viewer_server import load_exported_actor_for_exam
     champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     layers,norm,details=load_exported_actor_for_exam(champion)
-    assert details['source']['step']==120061952
-    assert details['source']['checkpoint_schema']==7
-    assert layers['pi'][0]['w'].shape==(220,256)
-    assert norm['std'].shape==(220,)
+    assert details['source']['step']==260112384
+    assert details['source']['checkpoint_schema']==8
+    assert layers['pi'][0]['w'].shape==(232,256)
+    assert norm['std'].shape==(232,)
     assert (norm['std']>0).all()
     obj=json.loads(champion.read_text())
     obj['source']['actor_sha256']='0'*64
@@ -253,6 +253,13 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     obj['observation']['base_fields'][0]='wrong_channel'
     target.write_text(json.dumps(obj))
     with pytest.raises(ValueError, match='channel names'):
+        load_exported_actor_for_exam(target)
+    # The current public champion is schema 2; never accept a fabricated
+    # fingerprint or altered sensor acquisition timing/mount contract.
+    obj=json.loads(champion.read_text())
+    obj['observation']['sensor_contract']['settings']['tof_period_frames']=3
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='sensor contract'):
         load_exported_actor_for_exam(target)
     obj=json.loads(champion.read_text())
     obj['source']['robot_model_sha256']='0'*64
