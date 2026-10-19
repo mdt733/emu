@@ -610,6 +610,14 @@ Protected champion SHA-256 remained
   exercised under `bash -u` (3 edge cases + 180 unique
   names) locally with PASS. The full WSL campaign has **not**
   been rerun; real 15/20mm/±25°/speed outcomes remain UNKNOWN.
+  The runner was then further hardened in commit
+  `3c029c256614adf35f2db93d4dbc21a324a287fc`:
+  **one shared `step_stage_name()` routine** now generates
+  filenames for BOTH the real runner and its preflight,
+  avoiding divergent duplicated string interpolation.
+  This exact formatter was separately exercised with 180
+  unique combinations under strict Bash variable checking
+  (PASS). This is still not a completed WSL physics run.
 - [ ] The same directory is still the correct resume target:
   `~/robot_lab/emu_exams/v5018_frontier_20261020_102641`.
   On the next resume, new stage results must record their
