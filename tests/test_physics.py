@@ -214,20 +214,30 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
-    # Execute the *actual protected* Pitch15 120M actor through the very
-    # same CPU MJX stepping kernel. This needs neither the historical
-    # training .pkl nor a synthetic stand-in for the trained weights.
+    # The protected showcase is NOW the 260M schema-2/232-input actor.
+    # Examine it with its actual sensor clocks and observation layout,
+    # never coerce it into the earlier 220-input Pitch15 environment.
     from emu.viewer_server import load_exported_actor_for_exam
+    from emu.contracts import OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
     from pathlib import Path
     hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     actor, exported_norm, export = load_exported_actor_for_exam(hero)
-    assert export['source']['step'] == 120061952
+    assert export['source']['step'] == 260112384
+    assert export['source']['checkpoint_schema'] == 8
     assert len(actor['pi']) == 3
-    assert actor['pi'][0]['w'].shape == (OBS_DIM,256)
-    # Two-world, four-control-frame smoke; physical performance is NOT
-    # inferred from an unconditioned four-frame sanity check.
-    actual = trainer['evaluate_trace'](
-        actor,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+    assert actor['pi'][0]['w'].shape == (SENSOR_OBS_DIM,256)
+    settings=export['sensor_contract']['settings']
+    sensor_env=EmuMJXEnv(
+        str(ROBOT_XML),num_envs=2,seed=1701,
+        attitude_profile=export['training']['attitude_profile'],
+        pitch_command_max_deg=export['training']['pitch_command_max_deg'],
+        observation_schema=OBS_SCHEMA_SENSOR,
+        **settings)
+    assert sensor_env.sensor_contract == export['sensor_contract']
+    sensor_trainer=make_trainer(
+        sensor_env,seed=1701,lr=.0002,rollout=2,epochs=1,minibatches=1)
+    actual=sensor_trainer['evaluate_trace'](
+        actor,sensor_env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
         jnp.asarray(exported_norm['mean']),jnp.asarray(exported_norm['std']),
         jax.random.PRNGKey(199),4)
     actual=jax.device_get(actual)
@@ -266,8 +276,8 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
                                off['root_qvel'][0,:,5]-.2,rtol=0,atol=2e-6)
 
 
-def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
-    """Real end-to-end 120M export -> actor inference -> MJX -> report.
+def test_protected_sensor_champion_full_directional_exam_cpu(tmp_path):
+    """Real end-to-end schema-2 export -> actor inference -> MJX -> report.
 
     Bounded CPU CI checks software truth; it is not GPU or hardware proof.
     """
@@ -292,8 +302,8 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     assert report['source_artifact_type']=='exported_actor'
     assert report['checkpoint_sha256'] is None
     assert len(report['source_artifact_sha256'])==64
-    assert report['checkpoint_training_step']==120061952
-    assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
+    assert report['checkpoint_training_step']==260112384
+    assert report['source_training_commit']=='ff7626e959a4cf2bb91d02818203ca9a74d1c577'
     assert len(report['worlds'])==2
     assert all('course_pass' in world for world in report['worlds'])
     for world in report['worlds']:
@@ -377,7 +387,7 @@ def test_real_contact_plane_normal_and_gravity_through_cpu_mjx():
         contact_plane_quaternion(2.,(0.,0.))
 
 
-def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
+def test_real_contact_slope_protected_sensor_mjx_exam(tmp_path):
     """Guard the full exported-actor route on a real incline (not tilted gravity)."""
     from pathlib import Path
     from emu.evaluation import evaluate_directional_run
@@ -397,7 +407,7 @@ def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
     assert all('course_pass' in row for row in report['worlds'])
 
 
-def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch):
+def test_public_frozen_sensor_paired_exam_and_recovery_cpu(tmp_path,monkeypatch):
     """End to end through the exact --compare-heading command used in WSL.
 
     A steady course has NO maneuver transition event. Both reported
