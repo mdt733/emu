@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import tempfile
 import xml.etree.ElementTree as ET
@@ -21,9 +22,12 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 
-def collidable_course(robot_source: Path, dest: Path, height_mm: int) -> Path:
-    if height_mm not in (0, 5, 10):
-        raise ValueError('only declared 0, 5 or 10 mm pilot steps')
+def collidable_course(robot_source: Path, dest: Path, height_mm: int,
+                     *, yaw_deg: float = 0.) -> Path:
+    if height_mm not in (0, 5, 10, 15, 20):
+        raise ValueError('only declared 0, 5, 10, 15 or 20 mm pilot steps')
+    if not math.isfinite(yaw_deg) or abs(yaw_deg) > 35:
+        raise ValueError('bounded step yaw is -35 through +35 degrees')
     tree = ET.parse(robot_source)
     world = tree.getroot().find('worldbody')
     if world is None:
@@ -34,7 +38,7 @@ def collidable_course(robot_source: Path, dest: Path, height_mm: int) -> Path:
     thickness = h / 2. if h else .0025
     ET.SubElement(world, 'geom', {
         'name': 'v5018_obstacle_step', 'type': 'box',
-        'pos': f'{x} 0 {thickness}',
+        'pos': f'{x} 0 {thickness}', 'euler': f'0 0 {yaw_deg}',
         'size': f'.04 .20 {thickness}',
         'friction': '1.5 .005 .0001',
     })
@@ -43,7 +47,8 @@ def collidable_course(robot_source: Path, dest: Path, height_mm: int) -> Path:
 
 
 def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
-        horizon: int, output: Path):
+        horizon: int, output: Path, *, step_yaw_deg: float = 0.,
+        speed_m_s: float = .10):
     # configure_jax before importing jax directly
     from emu.ppo import configure_jax, require_backend
     configure_jax('cuda')
@@ -69,7 +74,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
     settings = export['sensor_contract']['settings']
 
     with tempfile.TemporaryDirectory(prefix='emu5018_pilot_') as tmp:
-        course = collidable_course(ROBOT_XML,Path(tmp)/'course.xml',height_mm)
+        course = collidable_course(
+            ROBOT_XML,Path(tmp)/'course.xml',height_mm,
+            yaw_deg=step_yaw_deg)
         course_sha = hashlib.sha256(course.read_bytes()).hexdigest()
         env = EmuMJXEnv(
             str(course),num_envs=worlds,seed=seed,
@@ -97,12 +104,12 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             'regime_frac_steady':1.,'regime_frac_transition':0.,
             'regime_frac_resilience':0.,'steady_difficulty':0.,
             'transition_difficulty':0.,'resilience_difficulty':0.,
-            'posture_difficulty':0.,'probe_cmd_vx':.10,
+            'posture_difficulty':0.,'probe_cmd_vx':speed_m_s,
             'probe_cmd_vy':0.,'probe_cmd_yaw':0.,
             'probe_tilt_rad':0.,'probe_linvel_mps':0.,
             'probe_angvel_rad_s':0.,'probe_joint_rad':0.,
         }
-        schedule = jnp.tile(jnp.asarray([[.10,0.,0.]],dtype=jnp.float32),
+        schedule = jnp.tile(jnp.asarray([[speed_m_s,0.,0.]],dtype=jnp.float32),
                             (horizon,1))
         trace = jax.device_get(trainer['evaluate_trace'](
             actor,env.params_array(task),
@@ -117,8 +124,16 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             trace,np.tile(np.asarray([0.,0.,-9.81]),(worlds,1)),
             dt=.02,settle_frames=25,ground_mode='inclined_contact_plane')
         per_world = []
+        # The step's projected world-X depth changes when the front face
+        # rotates relative to the requested straight-forward course.
+        yaw=math.radians(step_yaw_deg)
+        projected_half_x=(abs(.04*math.cos(yaw)) +
+                          abs(.20*math.sin(yaw))) if height_mm else .04
+        near_x=.20-projected_half_x
+        far_x=.20+projected_half_x
+        finish_x=max(.42,far_x+.06)
         gate=ObstacleCrossingGate(
-            near_edge_m=.16,far_edge_m=.24,finish_m=.42,
+            near_edge_m=near_x,far_edge_m=far_x,finish_m=finish_x,
             corridor_half_width_m=.12,foot_margin_m=.005,
             max_heading_error_deg=80.,max_idle_frames=60,
             min_runout_frames=8,max_translation_per_frame_m=.060)
@@ -159,6 +174,20 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                 continue
             flags=np.zeros(len(position),dtype=bool)
             flags[-1]=bool(len(terminal) or np.any(fell[:stop+1]>.5))
+            # Observed body and ball-centre spatial exposure to the actual
+            # step footprint. This is a diagnostic of over/around/side
+            # contact, NOT a proxy for signed contact penetration.
+            delta=feet[:,:,:2]-np.array([.20,0.])
+            local_x= math.cos(yaw)*delta[:,:,0]+math.sin(yaw)*delta[:,:,1]
+            local_y=-math.sin(yaw)*delta[:,:,0]+math.cos(yaw)*delta[:,:,1]
+            inside=((np.abs(local_x)<.04) & (np.abs(local_y)<.20))
+            ball_bottom=feet[:,:,2]-.018
+            step_top=height_mm/1000.
+            if height_mm:
+                above_or_near=int(np.sum(inside & (ball_bottom>=step_top-.003)))
+                below_top=int(np.sum(inside & (ball_bottom<step_top-.003)))
+            else:
+                above_or_near=below_top=0
             result=examine_obstacle_crossing(
                 position,feet[:,:,:2],support,head,
                 start_xy=(0.,0.),course_axis_xy=(1.,0.),
@@ -169,6 +198,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                 'physical_step_contact_world_frames':int(np.sum(np.any(box,axis=1))),
                 'physical_step_contact_foot_frames':int(np.sum(box)),
                 'ground_contact_foot_frames':int(np.sum(floor)),
+                'foot_frames_inside_step_xy':int(np.sum(inside)) if height_mm else 0,
+                'foot_frames_inside_step_xy_bottom_near_or_above_top':above_or_near,
+                'foot_frames_inside_step_xy_bottom_below_top_by_3mm':below_top,
                 'original_course_pass':original[w].get('course_pass',False),
                 'original_contact_stride_pairs':original[w].get('contact_stride_pairs',0),
                 'stride_gate_diagnostics':original[w].get('stride_gate_diagnostics'),
@@ -185,7 +217,12 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             'step_height_mm':height_mm,
             'flat_control_off_course_box':height_mm==0,
             'worlds':worlds,'horizon':horizon,'seed':seed,
-            'requested_body_vx_m_s':.10,'requested_heading_rad':0.,
+            'requested_body_vx_m_s':speed_m_s,
+            'step_yaw_deg':step_yaw_deg,
+            'physical_obstacle_near_edge_x_m':near_x,
+            'physical_obstacle_far_edge_x_m':far_x,
+            'finish_line_world_x_m':finish_x,
+            'requested_heading_rad':0.,
             'heading_kp':heading_kp,
             'source_commit_not_rewritten':export['source'].get('git_commit'),
             'source_policy_sha256':export['artifact_sha256'],
@@ -197,6 +234,11 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                                          for r in per_world),
             'step_contact_world_frames':sum(
                 int(r.get('physical_step_contact_world_frames',0)) for r in per_world),
+            'foot_frames_inside_step_xy':sum(
+                int(r.get('foot_frames_inside_step_xy',0)) for r in per_world),
+            'foot_frames_inside_step_xy_bottom_below_top_by_3mm':sum(
+                int(r.get('foot_frames_inside_step_xy_bottom_below_top_by_3mm',0))
+                for r in per_world),
             'mean_signed_progress_m':(
                 float(np.mean([
                     r['final_signed_progress_m'] for r in per_world
@@ -205,7 +247,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                 else None),
             'per_world':per_world,
             'limitations':[
-                'World position and obstacle dimensions are fixed in this pilot.',
+                'Obstacle orientation is explicit; robot is still initially heading +X.',
+                'The ball-bottom/top footprint metric is diagnostic, not a solver penetration estimate.',
+                'No sample-by-sample normal force or collision impulse agreement measured.',
                 'Policy has existing 232 sensor inputs, no preview profile.',
                 'Actuator behaviour uses simulated MuJoCo model only.',
                 'Crossing success is independent of frozen policy reward.',
@@ -217,6 +261,7 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         output.write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
         print(json.dumps({
             'step_height_mm':height_mm,'heading_kp':heading_kp,
+            'step_yaw_deg':step_yaw_deg,'requested_speed_m_s':speed_m_s,
             'seed':seed,'pass_experiment_executed':True,
             'actual_crossing_success_worlds':result['crossing_success_worlds'],
             'worlds':worlds,
@@ -228,7 +273,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('--height-mm',type=int,choices=[0,5,10],required=True)
+    p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20],required=True)
+    p.add_argument('--step-yaw-deg',type=float,default=0.)
+    p.add_argument('--speed',type=float,default=.10)
     p.add_argument('--heading-kp',type=float,choices=[0.,.75],required=True)
     p.add_argument('--seed',type=int,default=1701)
     p.add_argument('--worlds',type=int,default=4)
@@ -237,7 +284,12 @@ def main():
     a=p.parse_args()
     if not 2<=a.worlds<=8 or not 80<=a.horizon<=700:
         p.error('pilot uses 2–8 worlds and 80–700 frames')
-    run(a.height_mm,a.heading_kp,a.seed,a.worlds,a.horizon,a.output)
+    if not math.isfinite(a.step_yaw_deg) or abs(a.step_yaw_deg)>35:
+        p.error('physical step orientation must be between -35 and +35 degrees')
+    if not math.isfinite(a.speed) or not .05<=a.speed<=.18:
+        p.error('physical pilot speed must be between .05 and .18 m/s')
+    run(a.height_mm,a.heading_kp,a.seed,a.worlds,a.horizon,a.output,
+        step_yaw_deg=a.step_yaw_deg,speed_m_s=a.speed)
 
 
 if __name__ == '__main__':
