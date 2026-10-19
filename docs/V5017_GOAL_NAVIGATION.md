@@ -121,3 +121,43 @@ still calls the same `npm test` command, which now runs this single file.
 Cleanup also removed a dangling assignment to `this.phaseOverride` from
 the MuJoCo viewer: the public cadence override slider was already removed,
 and the policy's automatic episode cadence is preserved.
+
+
+## Route-quality refinement (experimental)
+
+Keep one pose-lattice A* in the background Worker, with its established
+forward/reverse/pivot/sideways manoeuvres. After planning:
+
+- Subdivide the exact integrated motion primitives into ~12 cm / ~10-degree
+  samples instead of joining sparse A* nodes by long straight chords.
+- Apply a bounded, 12-pass elastic smoother **only within uninterrupted
+  moving runs**. Never smooth across reverse cusps, pivots or the terminal
+  target. Keep modifications within 10 cm of their swept source.
+- Collision-check both adjacent chords during smoothing and verify the
+  entire final polyline, including the terminal connection. Failed
+  refinement falls back to the original route. A* also verifies that its
+  final approach to the goal is unobstructed.
+- Increase nominal obstacle clearance to **62 cm** from obstacle centres
+  (formerly 53 cm) to allow some room for real gait wander. This is NOT a
+  physical collision guarantee: the robot may leave the requested route.
+- Add a lightweight forward/backward acceleration and braking envelope
+  along each movement run, without mandatory policy-specific calibration.
+  The trained actor's command limits bound speeds. The follower uses
+  that profile directly instead of applying duplicate end-of-run braking.
+- Ease the final few decimetres into the existing closed-loop parking
+  controller. A separate final parking correction remains necessary for
+  residual errors; it is blended rather than switched abruptly.
+
+The route overlay shows the refined centreline. Nominal travel time is
+still a heuristic based on requested commands, **not** measured speed or
+a time-optimal trajectory. There is no LQR, MPPI, or another search planner.
+
+All changes are covered by the **existing 12 core tests**, with stronger
+assertions inside the existing path, obstacle and lattice tests. Browser
+MuJoCo tests are still needed to measure line crossings, detour clearance,
+falls and final docking in the real learned gait.
+
+The obstacle interface currently accepts stationary circular keep-out
+centres based on the park's solid trees. Optional obstacle presets
+(Off / Sparse / Course) would need matching *physical MuJoCo geometry*
+and collision-aware planner input; merely drawing new scenery is not enough.

@@ -10,7 +10,7 @@ import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {commandStickPositions,DemoHandoff} from '../src/demo-handoff.js';
 import {VirtualStick} from '../src/joystick.js';
 import {makeRng} from '../src/rng.js';
-import {sampleGoal,planPoseRoute,integratePose,GoalNavigator,TREE_CLEARANCE_M}
+import {sampleGoal,planPoseRoute,refineRouteSteps,integratePose,GoalNavigator,TREE_CLEARANCE_M}
   from '../src/goal-navigation.js';
 import {buildRoutePath,projectOnRun,trackRoutePath,parkAtGoal}
   from '../src/path-follower.js';
@@ -160,6 +160,11 @@ test('pose lattice plans forward, reverse, pivot and offset goals',()=>{
     assert.ok(route?.solved,'failed '+JSON.stringify(goal));
     assert.ok(route.steps.at(-1).final);
     assert.ok(route.estimatedSeconds>0);
+    assert.ok(route.steps.length>=2);
+    if(goal.x>1 && goal.y===0){
+      assert.ok(route.refined,'straight A* steps must be refined');
+      assert.ok(route.steps.some(p=>p.cmd.profiled),'acceleration-aware speed profile');
+    }
   }
 });
 
@@ -173,9 +178,23 @@ test('lattice targets respect tree keep-out and reject unsafe goals',()=>{
     assert.ok(Math.hypot(g.x,g.y)<=4);
     assert.ok(Math.hypot(g.x-.8,g.y)>=TREE_CLEARANCE_M);
   }
-  const route=planPoseRoute(origin,{x:2,y:0,heading:0},limits,trees);
-  if(route)for(const step of route.steps)
-    assert.ok(Math.hypot(step.x-.8,step.y)>=TREE_CLEARANCE_M);
+  // Centreline path that forces a real obstacle detour. Check complete
+  // interpolated route including the last parking segment, not nodes alone.
+  const tree={x:1,y:0},route=planPoseRoute(origin,
+    {x:2,y:0,heading:0},limits,[tree],{maxNodes:6500});
+  assert.ok(route?.solved);
+  let previous=origin;
+  for(const step of route.steps){
+    const length=Math.hypot(step.x-previous.x,step.y-previous.y);
+    for(let j=0;j<=Math.max(1,Math.ceil(length/.025));j++){
+      const n=Math.max(1,Math.ceil(length/.025)),t=j/n;
+      const x=previous.x+(step.x-previous.x)*t;
+      const y=previous.y+(step.y-previous.y)*t;
+      assert.ok(Math.hypot(x-tree.x,y-tree.y)>=TREE_CLEARANCE_M-.001,
+        'refining a route must never cut the obstacle clearance circle');
+    }
+    previous=step;
+  }
 });
 
 // 10. The new feedback controller follows the route line, not waypoints.
@@ -200,6 +219,17 @@ test('path follower slows off-line, anticipates drift, and respects pivot/revers
   assert.ok(trackRoutePath({...origin,x:-.1,vx:-.2},
     reverse,0,0,limits).command.vx<0);
   assert.ok(parkAtGoal(origin,{x:0,y:0,heading:1},limits).yaw>0);
+  // Both directions of the speed envelope are bounded by the planner's
+  // simple acceleration/braking assumptions. No new test file needed.
+  const refined=planPoseRoute(origin,{x:2,y:0,heading:0},limits,[]);
+  const motion=refined.steps.filter(p=>p.cmd.profiled&&p.cmd.vx>0);
+  assert.ok(motion.length>4);
+  for(let i=1;i<motion.length;i++){
+    const a=motion[i-1],b=motion[i],ds=Math.hypot(b.x-a.x,b.y-a.y);
+    const dv2=b.cmd.vx**2-a.cmd.vx**2;
+    assert.ok(dv2<=2*.85*ds+.055,'acceleration-limited reference');
+    assert.ok(dv2>=-2*1.0*ds-.055,'braking-limited reference');
+  }
 });
 
 // 11. A mission has one physical arrival, including settle/dwell time.

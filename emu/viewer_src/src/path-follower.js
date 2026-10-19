@@ -104,7 +104,9 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
   const trackThrottle=clamp(1-.70*Math.max(
     Math.abs(near.crossTrack),Math.abs(predictedCrossTrack))/.70,.22,1);
   const faceThrottle=clamp(1-.55*Math.abs(angle)/1.15,.35,1);
-  const endThrottle=clamp((remaining+.08)/.65,.19,1);
+  // Refined routes already brake before a cusp/goal; don't apply a
+  // second near-zero end throttle that would make the walker crawl.
+  const endThrottle=motion.profiled?1:clamp((remaining+.08)/.65,.19,1);
   const throttle=trackThrottle*faceThrottle*endThrottle;
   const plannedYaw=(motion.yaw||0)*throttle;
   // Measured yaw damping prevents continued turning past the route.
