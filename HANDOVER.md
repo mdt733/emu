@@ -1,3 +1,21 @@
+# EMU — Current feature-branch handover pointer (20 October 2026)
+
+**For ongoing v5018 terrain-aware work, read
+[`docs/V5018_HANDOVER.md`](docs/V5018_HANDOVER.md) FIRST.**
+The sole current v5018 progress log, gates and acceptance evidence live in
+[`docs/V5018_TERRAIN_PLAN.md`](docs/V5018_TERRAIN_PLAN.md).
+[`docs/INSTALL.md`](docs/INSTALL.md) begins with a complete fresh
+Ubuntu WSL2/uv Python 3.13/CUDA JAX/nvm/npm setup and the combined P0
+campaign. **Do not treat the historical v5016 champion and commit claims
+below as the current showcase state.**
+
+This root document remains the historical v5016/refactor narrative. It is
+*not* a competing v5018 living checklist. The current working branch is
+`feature/v5018-terrain-awareness`; `main`, the champion and Pages
+must remain untouched without explicit user approval.
+
+---
+
 # EMU — v5016 sim-to-real living handover
 
 **Authoritative baseline:** GitHub `main` at `77c468c5bd78eedfaedaa755937616fe5743cfe8` (verified 17 Oct 2026).
