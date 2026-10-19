@@ -532,19 +532,73 @@ instrumentation with this old-source test result.
 - **P6:** Physical MuJoCo/WASM challenge courses, full-sensor consistency, preserve v5017 joystick/navigation/mobile.
 - **P7:** Independent validation/scoreboard and reviewed PR; **approval required** before main/showcase changes.
 
+### 20 Oct 10:26 — first frontier attempt interrupted by Bash typo
+
+- [x] Started frozen 232-input actor frontier at source commit
+  `c6a5dab5b0ea9b7c6d34db2b6e85599ae015314a`;
+  champion SHA-256 remained
+  `d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`,
+  JAX 0.12.0 / MuJoCo 3.16.0 / CUDA RTX 4060 Ti 8GB.
+- [x] `targeted_python_tests` **4/4 passed in 0.15s**.
+  All four 4-world heading comparison runs (flat, real
+  10° uphill, downhill, cross-left) finished with exit 0.
+  The four attached per-surface `heading_comparison.md`
+  reports come from **seed 1701 only**, 4 worlds/mode:
+  - Flat: heading error **14.21° OFF → 4.57° ON**,
+    strict course pass **2/4 → 3/4**,
+    progress 0.5261m → 0.5192m, strict gait 0/4 each.
+  - Uphill 10°: heading error **22.01° → 5.37°**,
+    progress 0.1321m → 0.2108m, strict course pass
+    0/4 in both.
+  - Downhill 10°: heading error **45.29° → 7.39°**,
+    progress 0.9121m → 1.0687m, strict course pass
+    0/4 in both.
+  - Cross-left 10°: heading error **68.77° → 27.94°**,
+    progress 0.2847m → 0.5413m, strict course pass
+    0/4 each; yaw-rate MAE and contact slip speed
+    **worsened** under heading hold.
+  Full survival was 1.0 in all four OFF/ON reports.
+  Correct original operator commands were used for scoring.
+  This is partial frontier evidence, not an independent
+  training improvement or complete slope-walking qualification.
+- [!] Before the **first step-frontier world** was launched,
+  Bash exited at runner line 72:
+  `code_yaw="${code_y/+/p}"` referenced undefined
+  `code_y` under `set -u`. This is an experiment
+  orchestration typo, **not a failed MuJoCo collision,
+  neural policy or terrain algorithm**. No 15/20mm,
+  ±25° or speed-frontier data were collected yet.
+- [~] Fixed the typo in feature branch commit
+  `6a53dbadfa5170cafe05c1c8bd5709dff802f423`;
+  added `--resume EXISTING_OUTPUT_DIR` to skip
+  already-PASS stages only when logs/output exist,
+  preserve `environment.txt` original tested SHA,
+  append `revision_history.tsv` with updated source SHA,
+  require matching protected policy SHA, and write a
+  tar.gz via EXIT trap **even on an unexpected shell abort**.
+  This bugfix itself has **not been executed** in WSL.
+
 ## Next user-run: matched obstacle height/angle/speed frontier
 
 The first real 5/10mm pilot **succeeded**, and the source SHA plus
 full archive are preserved. **Do not rerun that entire completed batch.**
-The next *separate* read-only campaign is:
+The first frontier attempt was interrupted **after its five successful
+test/stride stages**, before any physical step variants ran.
+**Resume that existing directory, rather than repeating them:**
 
 ```bash
 cd ~/emu-v5018
-git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_obstacle_frontier.sh
+bash scripts/run_v5018_obstacle_frontier.sh --resume \
+  ~/robot_lab/emu_exams/v5018_frontier_20261020_102641
 ```
+
+The archive will include source revision history: early diagnostic
+stages belong to the original tested commit, while resumed step
+experiments belong to the new bugfix commit. Compare each reported
+stage against its recorded source revision; this is a **resumed study,
+not a single-commit clean-room run**.
 
 Produces
 `~/robot_lab/emu_exams/v5018_frontier_YYYYMMDD_HHMMSS.tar.gz`;
