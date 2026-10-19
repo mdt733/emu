@@ -842,7 +842,7 @@ def _severity(jax, key, radius: float, near_nominal_fraction: float, hard_tail_f
     return value * radius
 
 
-def contact_plane_quaternion(angle_deg, uphill_xy=(1.0, 0.0)):
+def contact_plane_quaternion(angle_deg, uphill_xy=(1.0, 0.0), *, max_angle_deg=5.0):
     """Quaternion of a real MuJoCo ground plane, gravity staying vertical.
 
     Plane normal = (-sin(angle)*ux, -sin(angle)*uy, cos(angle)).
@@ -850,8 +850,8 @@ def contact_plane_quaternion(angle_deg, uphill_xy=(1.0, 0.0)):
     Changing a WORLD geom before mjx.put_model preserves an immutable
     MJX contact model; it does not rotate gravity or add task channels.
     """
-    if not np.isfinite(angle_deg) or not 0.0 <= angle_deg <= 5.0:
-        raise ValueError('contact slope must lie in [0,5] degrees')
+    if not np.isfinite(angle_deg) or not 0.0 <= angle_deg <= max_angle_deg:
+        raise ValueError(f'contact slope must lie in [0,{max_angle_deg:g}] degrees')
     uphill=np.asarray(uphill_xy,dtype=float)
     if uphill.shape != (2,) or not np.isfinite(uphill).all() or np.linalg.norm(uphill)<1e-6:
         raise ValueError('contact uphill vector must be finite, nonzero xy')
@@ -1064,6 +1064,7 @@ class EmuMJXEnv(TaskSampler):
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
                  contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
+                 contact_slope_exam_limit_deg: float = 5.0,
                  observation_schema: str = OBS_SCHEMA_LEGACY,
                  tof_period_frames: int = 2,
                  flow_period_frames: int = 1,
@@ -1139,8 +1140,14 @@ class EmuMJXEnv(TaskSampler):
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
         self.contact_slope_deg = float(contact_slope_deg)
         self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
-        orientation = contact_plane_quaternion(self.contact_slope_deg,
-                                               self.contact_uphill_xy)
+        # Production/training retains its original 5-degree default.
+        # A bounded higher experimental incline is opt-in from the
+        # read-only frozen-policy physical examiner only.
+        if contact_slope_exam_limit_deg not in (5.0, 12.0):
+            raise ValueError('contact_slope_exam_limit_deg must be 5 or 12')
+        orientation = contact_plane_quaternion(
+            self.contact_slope_deg, self.contact_uphill_xy,
+            max_angle_deg=contact_slope_exam_limit_deg)
         real_floor_domain = (self.domain_config.enabled
                              and self.domain_config.terrain_mode == 'contact'
                              and self.domain_config.terrain_radius > 0)
