@@ -578,12 +578,52 @@ instrumentation with this old-source test result.
   tar.gz via EXIT trap **even on an unexpected shell abort**.
   This bugfix itself has **not been executed** in WSL.
 
+### 20 Oct 10:43 — resumed frontier interrupted before physics steps
+
+**User-uploaded actual archive:** `v5018_frontier_20261020_102641.tar.gz`,
+containing **46 tar entries and only five PASS stage rows**.
+Source recorded for first attempt:
+`c6a5dab5b0ea9b7c6d34db2b6e85599ae015314a`.
+Resume history recorded:
+`2026-10-20T10:43:30+11:00`,
+commit `cad93f94fbb026da5feade1f15786af9fc25b8ee`.
+Protected champion SHA-256 remained
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+
+- [x] Resume correctly **skipped 5 completed stages**, retaining all
+  old `stride_*/heading_comparison.json` and original
+  `environment.txt` (4/4 targeted tests + four slope/flat
+  matched heading exams). Those are from the ORIGINAL commit.
+- [!] **Zero** `step_*.json` frontier results or
+  `aggregate_reports` output exist in the uploaded archive.
+  The abort came from a **second** stale variable reference in
+  the runner's stage filename: the assignment used
+  `code_yaw`, but `local stage="...yaw${code_y}..."`
+  still referenced undefined `code_y` with `set -u`.
+  This is **not** evidence of any robot failing terrain.
+- [~] Corrected the second unbound variable in branch commit
+  `17414a31d8b7c0aa62bc07ea1bd4261e1c469d16`.
+  Added a **pre-GPU** Bash loop to render and verify 180
+  unique parameter combinations, plus stderr capture to
+  `runner_stderr.log` for unexpected shell failures.
+  The variable expansion/naming loop was independently
+  exercised under `bash -u` (3 edge cases + 180 unique
+  names) locally with PASS. The full WSL campaign has **not**
+  been rerun; real 15/20mm/±25°/speed outcomes remain UNKNOWN.
+- [ ] The same directory is still the correct resume target:
+  `~/robot_lab/emu_exams/v5018_frontier_20261020_102641`.
+  On the next resume, new stage results must record their
+  later source SHA in `revision_history.tsv` alongside
+  the preserved original stages.
+
 ## Next user-run: matched obstacle height/angle/speed frontier
 
 The first real 5/10mm pilot **succeeded**, and the source SHA plus
 full archive are preserved. **Do not rerun that entire completed batch.**
-The first frontier attempt was interrupted **after its five successful
-test/stride stages**, before any physical step variants ran.
+The first and second frontier attempts were interrupted **after the
+same five successful test/stride stages**, before any new physical step
+variants ran; the first resume saved an archive but its second stale
+shell variable prevented reaching the first step case.
 **Resume that existing directory, rather than repeating them:**
 
 ```bash
