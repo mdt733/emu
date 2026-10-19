@@ -63,6 +63,9 @@ archive_on_exit() {
   fi
 }
 trap archive_on_exit EXIT
+# Capture unexpected shell errors as evidence (including set -u failures
+# outside individually logged stages). Preserve live terminal visibility.
+exec 2> >(tee -a "$OUT/runner_stderr.log" >&2)
 
 already_completed() {
   local stage="$1"
@@ -126,12 +129,43 @@ step() {
   local code_speed="${speed/./p}"
   local code_yaw="${yaw/-/m}"
   code_yaw="${code_yaw/+/p}"
-  local stage="step_${h}mm_yaw${code_y}_speed${code_speed}_${mode}_seed${seed}"
+  local stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
   run "$stage" python "$ROOT/scripts/v5018_champion_step_pilot.py" \
     --height-mm "$h" --step-yaw-deg "$yaw" --speed "$speed" \
     --heading-kp "$kp" --seed "$seed" --worlds 4 \
     --horizon 350 --output "$OUT/$stage.json"
 }
+
+# Tiny no-GPU runner preflight: execute filename expansion for every
+# parameter shape, and refuse duplicates before launching the frontier.
+# This specifically guards against unbound/obsolete shell variable names.
+check_step_naming() {
+  local h yaw speed seed kp mode code_speed code_yaw stage
+  local -A names=()
+  for h in 0 5 10 15 20; do
+    for yaw in 0 -25 25; do
+      for speed in .07 .10 .14; do
+        for seed in 1701 1702; do
+          for kp in 0 .75; do
+            mode=on
+            if [[ "$kp" == 0 ]]; then mode=off; fi
+            code_speed="${speed/./p}"
+            code_yaw="${yaw/-/m}"
+            code_yaw="${code_yaw/+/p}"
+            stage="step_${h}mm_yaw${code_yaw}_speed${code_speed}_${mode}_seed${seed}"
+            if [[ -n "${names[$stage]+seen}" ]]; then
+              echo "Duplicate frontier experiment name: $stage" >&2
+              return 2
+            fi
+            names[$stage]=1
+          done
+        done
+      done
+    done
+  done
+  echo "Frontier naming preflight PASS: ${#names[@]} unique combinations"
+}
+check_step_naming || exit 2
 
 # Controlled height frontier with matched 2-seed physical course samples
 # at the original .10m/s speed and heading hold ON.
