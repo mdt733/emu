@@ -1,5 +1,15 @@
 # EMU · Learning to walk
 
+> **Working on v5018 terrain awareness?** Read the
+> [v5018 clean handover](docs/V5018_HANDOVER.md), the
+> [single living research/checklist](docs/V5018_TERRAIN_PLAN.md) and the
+> [fresh-WSL installation guide](docs/INSTALL.md).
+> Only `feature/v5018-terrain-awareness` is approved for this experiment;
+> `main`, the protected showcase policy and Pages are not to be changed.
+> The current P0 feasibility campaign has **not** yet produced reviewed
+> results; do not report its unexecuted probes as passes.
+
+
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
 **[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
