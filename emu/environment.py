@@ -1064,7 +1064,6 @@ class EmuMJXEnv(TaskSampler):
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
                  contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
-                 contact_slope_exam_limit_deg: float = 5.0,
                  observation_schema: str = OBS_SCHEMA_LEGACY,
                  tof_period_frames: int = 2,
                  flow_period_frames: int = 1,
@@ -1072,7 +1071,8 @@ class EmuMJXEnv(TaskSampler):
                  flow_delay_frames: int = 1,
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
-                 gyro_bias_std_rad_s: float = 0.015):
+                 gyro_bias_std_rad_s: float = 0.015,
+                 contact_slope_exam_limit_deg: float = 5.0):
         import jax
         import jax.numpy as jnp
         import mujoco
