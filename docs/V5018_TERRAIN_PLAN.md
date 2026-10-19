@@ -1,35 +1,44 @@
 # v5018 Terrain Awareness — living branch checklist
 
-## Status (2026-10-20)
-Branch: `feature/v5018-terrain-awareness`. P0A partial, P0B pending. No learned terrain performance or GPU measurements claimed.
+## Status — 20 October 2026
 
-### Evidence
-- [x] Read reviewed v5018 master plan and handover.
-- [x] Audited actual `emu/robot.xml`, `emu/environment.py`, `emu/directional.py`, and browser package lock from GitHub.
-- [~] Added `scripts/v5018_terrain_spike.py`: CPU MuJoCo vs MJX-JAX sphere-foot contact on flat, raised box, lowered edge, rotated box and capsule log; JSON results. **Not yet executed** on local GPU; this is a feasibility probe, not a pass.
-- [!] Runtime clone unavailable in agent container (GitHub DNS resolution failure); GitHub connector enabled branch-only file operations.
-- [ ] Inspect actual results, fix fixture issues, confirm physical contact/forces, foot support and ray intersections (including risers and occlusion).
-- [ ] Test 2-world heterogeneous batch and 256/512/1024/2048 scaling on local RTX 4060 Ti, record peak VRAM and FPS vs flat.
-- [ ] P0B clearance envelope, scanner footprint, CPU/MJX/WASM engine gap, runtime package pin.
-- [ ] P1–P7 blocked pending P0 feasibility evidence.
+Branch: `feature/v5018-terrain-awareness`. P0A **partial**, P0B pending. No measured terrain contact results, training success or GPU FPS yet. Never touch main/showcase without explicit approval.
+
+### Fresh WSL acceptance evidence (user-run)
+- [x] Fresh installation reached `python -m pytest -q`: **73 passed, 5 failed, 24 deprecation warnings, 428.56 seconds**.
+- [x] All five failures were outdated 120M schema-1/220-input tests calling `showcase/champion.emupolicy` which currently contains the protected **260,112,384-step, checkpoint schema-8, export schema-2, 232-input** champion. This was verified against actual JSON metadata, not guessed.
+- [x] Showcase XML embedded in the policy byte-for-byte matches current `emu/robot.xml`.
+- [~] Implemented schema-1/2 exam-reader validation, independent reconstruction of the 232 sensor contract and runtime examiner matching, plus updated current-champion tests and package installer. **Not yet rerun on user's WSL; no regression PASS claimed**.
+- [!] Because the old installer ran `pytest` before `emu viewer-build`, nonzero exit prevented viewer/npm checks, doctor and the v5018 terrain probe from running. The adjusted installer builds/tests viewer first and allows explicit `--skip-tests` for diagnostic-only use.
+- [ ] Rerun updated Python tests and npm viewer tests in WSL; verify legacy 220 load remains intact.
+- [ ] Confirm CUDA-13 JAX plugin/device, driver, doctor, Node/npm, viewer build, GPU VRAM; user's pasted output proves only Python dependency installation and partial test suite.
+- [ ] Capture results from `scripts/v5018_terrain_spike.py`.
+
+### P0A physics and sensing
+- [~] `scripts/v5018_terrain_spike.py` implements minimal untrained sphere-foot CPU/MJX contact cases: flat, raised box, lowered edge, rotated box and capsule log. **Not a two-world throughput/raycast proof**.
+- [ ] Actual CPU/MJX contact, support force, step geometry, riser/toe strike, ray occlusion and geometry-pair agreement.
+- [ ] Actual two-world heterogeneous batch, then 256/512/1024/2048 VRAM/FPS scale trials where possible on RTX 4060 Ti (8GB).
+- [ ] Identify viable exact ray/collision representation; hfield collision support does not imply hfield raycast support.
+- [ ] P0B clearance envelope, sensor footprint, MJX/CPU/WASM gap, and installed/runtime version pin.
+- [ ] P1–P7 blocked pending P0 evidence.
 
 ### Engineering decisions
-- Preserve existing 220/232 observation contracts and all champion/showcase assets.
-- Keep `terrain_312` provisional pending sensor coverage and estimator bin study.
-- The initial script intentionally isolates contact feasibility from the full EMU robot; success cannot establish full training throughput, support forces, raycasting or learned stepping.
-- Browser lockfile root currently specifies `@mujoco/mujoco: latest`; resolved version and WASM behavior require separate verification.
+1. Preserve 220/232 contracts and every existing released policy file. The current champion is schema 2; tests and examiner must acknowledge it rather than alter its file or coerce it to 220.
+2. For schema-2 examiner loading, validate sensor field order, normalizer shape/mask, source hashes and recompute the locally authoritative sensor-contract fingerprint; keep legacy schema-1 decoding.
+3. Keep `terrain_312` provisional. No contact, sensor coverage or learning success is proved by the initial script alone.
+4. `@mujoco/mujoco` resolves to **3.15.0** in npm lock; the browser package declares a mutable `latest` selector and will require pinning in P0B.
 
-### Run on clean WSL worktree
+### Reproduce on the user's fresh WSL
+
 ```bash
-cd ~/emu
-git fetch origin
-git worktree add ../emu-v5018 origin/feature/v5018-terrain-awareness
-cd ../emu-v5018
-# activate your existing compatible Python/JAX/MuJoCo environment
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/setup_wsl.sh --cuda13 --install-node
 python scripts/v5018_terrain_spike.py
-cat v5018_p0a_spike_results.json
 ```
-Do not use a worktree containing an active training run. Upload the JSON and terminal output. If the script fails, preserve the full traceback; do not treat a nonzero exit as a passed gate.
+
+If full suite fails again, keep the output. To finish dependency/viewer installation independently use `bash scripts/setup_wsl.sh --cuda13 --install-node --skip-tests` (clearly **not a test pass**), then run targeted tests with `python -m pytest -q tests/test_direction.py::test_protected_export_reader_refuses_contract_and_actor_tampering tests/test_physics.py::test_protected_sensor_champion_full_directional_exam_cpu`. Send GPU diagnostics, log and `v5018_p0a_spike_results.json`.
 
 ### Next
-Review actual P0A measurements; extend to a batched same-topology fixture, CPU ray oracle and JAX-compatible occluding beam model. Keep this file as the single status record.
+Resolve any newly observed schema-2 exam failure without weakening hash/shape checks. Then build same-topology two-world MJX collidable fixtures and sensor-ray occlusion probe. Update only this checklist after each pass.
