@@ -338,25 +338,99 @@ flat/step/contact variant in a fresh subprocess. These are
   inclined-plane test allowance without broadening the
   production/training 5° limit; awaiting local execution.
 
-### Interim result from next frozen-champion batch (not completed)
+### 20 Oct 09:07 frozen-champion heading/10° exam — reviewed results
 
-- [~] At the user's 20 Oct morning run, the `corrected_contracts`
-  stage reported **5 passed, 1 failed**, in **0.49s**.
-  The single failure was **test assertion wording only**:
-  `test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support`
-  expected exception text `world-fixed` for a zero-length
-  `course_axis_xy=(0,0)`, but the evaluator correctly rejected it with
-  `ValueError: course axis must be nonzero`.
-- [~] Corrected the assertion in feature-branch commit
-  `85d36c79f91c9ca3328f86ee81d4068e53726618`.
-  **Not present in the already-running local campaign and not rerun.**
-- [ ] The user snippet ended just as `sensor232_ppo_smoke`
-  began. **No outcome for this or any later heading tests was supplied.**
-  Do not infer an outcome. Allow that campaign to complete and preserve
-  the archive before pulling the newer commit.
-- [ ] After it completes, run only the one corrected test and/or a
-  short targeted suite; do **not** rerun the GPU slope campaign just
-  to fix an exception-message assertion.
+**Archive:** `v5018_heading_20261020_090712.tar.gz`.
+**Exactly tested commit:** `d525ab662990405bc2ab6c8cd3e12cf14cdb60a7`;
+**protected champion SHA-256:**
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+The local branch subsequently advanced; do **not** claim new tests/code
+were executed under that archived SHA.
+
+- [x] **11/12 independent stages exited zero**. The only failed stage
+  was `corrected_contracts`: **5 passed / 1 failed**, an assertion that
+  expected `world-fixed` on a zero-length axis while the scorer
+  correctly emitted `ValueError: course axis must be nonzero`.
+  The assertion wording was fixed later in feature commit
+  `85d36c79f91c9ca3328f86ee81d4068e53726618`; rerun pending.
+- [x] **Real 232-input PPO gradient/update smoke PASS** on
+  CUDA: 2 worlds, 2-frame rollout, one optimizer update, finite params
+  and rewards. This closes the earlier missing *minimal* 232 PPO smoke,
+  **not** 2048-world PPO terrain training throughput or memory.
+- [x] **10 matched heading comparisons all executed** using
+  frozen 260M 232-input champion: flat, *real* inclined 10°
+  uphill/downhill/cross-left (seeds 1701+1702, four worlds each),
+  plus flat reverse and turn-stop (seed 1701, four worlds each).
+  All original operator commands preserved; no servo scripts or
+  policy mutation, outer `kp=0.75` ON versus OFF.
+- [x] **80/80 complete 350-frame (7s) trajectories survived**,
+  across all 10 cases × heading OFF/ON × four worlds. This is
+  simulator survival only, not demonstrated challenge completion.
+- [!] **0/80 strict contact-qualified walking passes**, despite
+  clear signed movement. Some downhill trajectories produced
+  1–5 alternating touchdown pairs, but no world simultaneously
+  met all strict course+stride conditions; flat cases registered
+  zero qualifying pairs. This could be overly stringent contact
+  event scoring *or* genuine sliding/low-clearance gait. **Do not
+  weaken thresholds or declare "not walking" until raw contact
+  traces are diagnosed.**
+- [!] Real 10° incline results: **0/8 strict course passes per
+  heading mode per slope direction** (up/down/cross).
+  Positive motion and survival do **not** certify controlled
+  sustained 10° incline traversal. The user-observed 10° viewer
+  ability remains an important but different observation.
+- [x] Heading controller improved yaw orientation substantially.
+  Across both seeds (8 worlds per slope/flat), mean heading
+  absolute error OFF→ON and signed movement m OFF→ON:
+  - flat: **12.5°→3.7°**, **0.532→0.558m**; strict course
+    pass **5/8→6/8**, strict gait pass 0.
+  - uphill 10°: **20.2°→3.9°**, **0.164→0.228m**; course pass 0.
+  - downhill 10°: **40.4°→6.1°**, **0.915→1.070m**;
+    course pass 0 (large path error/overspeed), not success.
+  - cross-left 10°: **64.3°→24.5°**, **0.358→0.579m**;
+    course pass 0 (large path/heading error).
+  - reverse flat: 4/4 strict *course* passes both ON/OFF;
+    turn-stop flat: **2/4→3/4** strict course passes.
+  The matched ON condition is promising **but not automatically
+  better on every other metric or a guarantee against sideways
+  drift**.
+- [!] **Servo-duty flag:** simulated shaft torque exceeded
+  the configured nominal **0.638 N·m continuous** reference
+  for roughly **74–78% of scored servo samples**, with
+  per-world peak reaching the configured **1.913 N·m**
+  limit in representative modes. These are *simulation* actuator
+  outputs, not motor current, temperature, reliable torque duty
+  for physical hardware or a safe transfer criterion. Before
+  real deployment, address actuator realism and effort/heat.
+
+### Committed AFTER this archive — unexecuted diagnostic/pilot branch
+
+- [~] `emu/directional.py::diagnose_contact_stride_gate` now
+  records per-foot genuine contact fraction, liftoffs,
+  touchdowns, airborne duration, toe clearance, swing travel,
+  body displacement, **specific strict rejection reasons**
+  and unchanged strict stride score. Hooked into read-only
+  `evaluate_trace_arrays` outputs, with focused unit test.
+- [~] `emu/ppo.py` read-only evaluation trace now records
+  actual foot-vs-named-obstacle **collision contact pairs**
+  separately from flat-plane support. This does **not**
+  touch policy observations, training rewards or neural weights.
+- [~] `scripts/v5018_champion_step_pilot.py` builds
+  independent XML course copies with an off-course box flat
+  control, **real 5mm/10mm raised boxes**, preserved 232-input
+  sensor/actuation protocol and frozen actor. Uses the already
+  defined **world-fixed no-detour scorer**, and requires far-side
+  genuine foot support; step contacts and course failures
+  are recorded explicitly. **No policy terrain training.**
+- [~] `scripts/run_v5018_gait_and_step_pilot.sh` batches
+  targeted Python checks, four repeated 0°/10° heading
+  ON/OFF exams with new stride forensics, and ten frozen
+  flat/5/10mm step experiments across seeds/gains, then
+  `scripts/v5018_summarize_gait_and_step.py` writes a
+  compact report and archive. **Committed; no local GPU
+  execution evidence yet.** A zero-crossing result is valid
+  research evidence and must not be presented as PASS on
+  obstacle traversal.
 
 ### Next branch-only implementation (committed, not yet verified by WSL)
 
@@ -401,41 +475,34 @@ flat/step/contact variant in a fresh subprocess. These are
 - **P6:** Physical MuJoCo/WASM challenge courses, full-sensor consistency, preserve v5017 joystick/navigation/mobile.
 - **P7:** Independent validation/scoreboard and reviewed PR; **approval required** before main/showcase changes.
 
-## Next user-run: targeted champion heading + 232 PPO evidence
+## Next user-run: stride forensics and read-only discrete-step pilot
 
-After the frozen P0 campaign archive was **fully preserved**, the following
-starts the next independent read-only baseline experiment on the
-**updated branch** (not a rerun of the 2048-world P0 campaign):
+The previous physical slope/heading archive is complete and preserved;
+the two-target regression message mismatch was subsequently patched.
+Do **not** rerun those full frozen-champion tests to repair an exception
+message. The next branch-only experiment is:
 
 ```bash
 cd ~/emu-v5018
 git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_frozen_champion_baseline.sh
+bash scripts/run_v5018_gait_and_step_pilot.sh
 ```
 
-Outputs are in `~/robot_lab/emu_exams/v5018_heading_YYYYMMDD_HHMMSS/`
-with `stages.tsv`, per-case controller OFF/ON reports, summary
-and matching `.tar.gz`; send the archive. This is
-**frozen-policy evaluation only**, with a small 232 PPO gradient smoke,
-no prolonged training. It covers the user's observed 10° viewer
-slope capability in a **different infinite inclined-plane test**,
-which must be labelled accordingly.
+This starts new read-only simulations in
+`~/robot_lab/emu_exams/v5018_gait_step_YYYYMMDD_HHMMSS/`
+and creates a compressed `.tar.gz`. Upload the archive.
+It produces actual reason-level contact-stride diagnostics and
+compares frozen 232 actor traversal on flat, 5mm, 10mm physical
+step courses with heading ON/OFF and two seeds. **No PPO terrain
+updates and no actor schema/reward change.** Trial pass means
+the execution completed, while `crossing_success_worlds`
+reports whether EMU truly crossed.
 
-The original 20 Oct P0 campaign used
-`bash scripts/run_v5018_p0_campaign.sh`. **Do not rerun that
-full campaign simply to resolve two stale tests.**
-Targeted regression execution will establish whether the fixes
-actually work. Preserve all source SHA/checkpoints and external
-archives. Runtime GPU OOM can require smaller independent exam
-world counts in a new output root, not silent protocol editing.
-
-**Post-exam engineering decision:** confirm at least a modest,
-repeatable flat/10° heading-and-walking baseline; then close
-remaining P0B **dynamic** servo-clearance, limb-occluded scanner
-footprints and identical six-servo MJX/CPU/WASM trajectory gap
-before wiring true stepped terrain and corrected support into
-P1. At present, the required ray/primitive family and 2048-world
-contact workloads are promising, but a terrain-trained actor,
-true crossing and safe hardware remain **unproved**.
+After evidence review: decide whether the zero strict gait
+passes come from physics/foot contact vs scorer thresholds,
+then repair/validate terrain-relative support and challenge
+contacts before designing the rolling profile and P1 train
+curriculum. Dynamic motor under-load clearance and realistic
+moving-leg sensor occlusion remain P0B blockers.
