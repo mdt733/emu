@@ -70,7 +70,10 @@ echo "Results folder: $OUT"
 # Full tests are intentional: do not silently substitute a subset of the
 # 78 Python test cases that previously disclosed the stale 220-input examiner.
 run py_compile python -m compileall -q "$ROOT/scripts"
-run python_tests python -m pytest -q "$ROOT/tests"
+# pytest must run with repository as CWD: tests import the project-local
+# scripts.smoke_training_lifecycle namespace, which is absent from sys.path
+# when launched from the external archive directory.
+run python_tests bash -c 'cd "$1" && exec "$2" -m pytest -q tests' _ "$ROOT" "$ROOT/.venv/bin/python"
 run npm_ci npm --prefix "$ROOT/emu/viewer_src" ci
 run npm_tests npm --prefix "$ROOT/emu/viewer_src" test
 run npm_build npm --prefix "$ROOT/emu/viewer_src" run build
