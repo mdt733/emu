@@ -954,6 +954,10 @@ def test_v5018_stride_diagnostics_identifies_strict_gait_rejection_without_chang
     assert [p['qualifying_touchdowns'] for p in diagnostic['per_foot']] == [1,1]
     assert all(p['longest_completed_airborne_frames'] == 5
                for p in diagnostic['per_foot'])
+    assert all(p['completed_airborne_events'][0]['airborne_frames'] == 5
+               for p in diagnostic['per_foot'])
+    assert all(p['airborne_event_quantiles_mm']['torso_progress']['median'] > 20
+               for p in diagnostic['per_foot'])
 
     # Keep the same contact/liftoff geometry but erase the required foot
     # relocation: the physical score MUST reject that candidate touchdown.
@@ -971,3 +975,26 @@ def test_v5018_stride_diagnostics_identifies_strict_gait_rejection_without_chang
     assert fast['per_foot'][0]['touchdown_rejections_nonexclusive'][
         'airborne_under_3_frames'] == 1
     assert fast['strict_completed_stride_pairs'] == 0
+
+
+def test_v5018_step_pilot_xml_yaw_and_declared_height(tmp_path):
+    """Tests the new static obstacle course without importing JAX/CUDA."""
+    import xml.etree.ElementTree as ET
+    from emu.contracts import ROBOT_XML
+    from scripts.v5018_champion_step_pilot import collidable_course
+
+    for height_mm in (0, 5, 10, 15, 20):
+        for yaw in (-30., 0., 30.):
+            path=collidable_course(ROBOT_XML,tmp_path/'course.xml',
+                                  height_mm,yaw_deg=yaw)
+            root=ET.parse(path).getroot()
+            obstacle=root.find(".//geom[@name='v5018_obstacle_step']")
+            assert obstacle is not None
+            assert float(obstacle.attrib['euler'].split()[2]) == yaw
+            assert float(obstacle.attrib['size'].split()[2]) > 0
+            assert float(obstacle.attrib['pos'].split()[0]) == (
+                5. if height_mm == 0 else .20)
+    with pytest.raises(ValueError, match='-35'):
+        collidable_course(ROBOT_XML,tmp_path/'course.xml',10,yaw_deg=40.)
+    with pytest.raises(ValueError, match='declared'):
+        collidable_course(ROBOT_XML,tmp_path/'course.xml',22,yaw_deg=0.)
