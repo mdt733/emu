@@ -824,6 +824,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_type = 'exported_actor'
         source_training_commit = export['source'].get('git_commit')
         source_actor_sha = export['source'].get('actor_sha256')
+        observation_schema = export['observation_schema']
+        sensor_settings = (export['sensor_contract'] or {}).get('settings') or {}
     else:
         cfg=TrainingConfig.load(run_dir/'training_config.json')
         checkpoint=run_dir/'checkpoints/final.pkl'
@@ -837,8 +839,15 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_type = 'schema7_checkpoint'
         source_training_commit = (saved['meta'].get('source_provenance') or {}).get('git_commit')
         source_actor_sha = None
-    if int(np.asarray(params['pi'][0]['w']).shape[0]) != OBS_DIM:
-        raise ValueError('this examiner supports only the 220-input actor contract')
+        from .contracts import OBS_SCHEMA_LEGACY
+        observation_schema = getattr(cfg, 'observation_schema', OBS_SCHEMA_LEGACY)
+        sensor_settings = {}
+    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_DIM, SENSOR_OBS_DIM
+    if observation_schema not in (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR):
+        raise ValueError('unsupported directional examiner observation schema')
+    required_obs_dim = SENSOR_OBS_DIM if observation_schema == OBS_SCHEMA_SENSOR else OBS_DIM
+    if int(np.asarray(params['pi'][0]['w']).shape[0]) != required_obs_dim:
+        raise ValueError('actor width does not match directional examiner observation contract')
     configure_jax(device)
     import jax
     import jax.numpy as jnp
@@ -854,7 +863,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         phase_speed_gain=cfg.phase_speed_gain,
         attitude_profile=cfg.attitude_profile,
         pitch_command_max_deg=cfg.pitch_command_max_deg,
-        sensor_noise_scale=0.,open_frontier=False,
+        observation_schema=observation_schema,
+        sensor_noise_scale=float(sensor_settings.get('sensor_noise_scale', 0.)),
+        **{k: v for k, v in sensor_settings.items() if k != 'sensor_noise_scale'},
+        open_frontier=False,
         combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
     )
     # Shared, nonrandom MJX gravity field. No robot XML modifications.
@@ -865,6 +877,9 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
     env.gravity_unit_world=jnp.tile(
         jnp.asarray(actual_gravity/np.linalg.norm(actual_gravity))[None,:],
         (int(worlds),1))
+    if run_dir.is_file() and observation_schema == OBS_SCHEMA_SENSOR:
+        if env.sensor_contract != export['sensor_contract']:
+            raise ValueError('directional examiner sensor contract differs from exported actor')
     trainer=make_trainer(
         env,seed=int(seed),lr=PPO_LR,rollout=ROLLOUT_STEPS,
         epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
