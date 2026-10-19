@@ -14,6 +14,18 @@ Branch: `feature/v5018-terrain-awareness`. P0A **partial**, P0B pending. No meas
 - [ ] Confirm CUDA-13 JAX plugin/device, driver, doctor, Node/npm, viewer build, GPU VRAM; user's pasted output proves only Python dependency installation and partial test suite.
 - [ ] Capture results from `scripts/v5018_terrain_spike.py`.
 
+### P0A v2 measured GPU results (user JSON; 20 Oct 2026)
+- [x] Python **3.13.16**, MuJoCo **3.16.0**, JAX **0.12.0**, device **cuda:0**.
+- [x] All **5/5 constrained sphere-foot collision cases passed** with matching intended CPU and MJX contact geom labels: ground, raised box, lower plane, rotated ramp and capsule log.
+- [x] Final CPU/MJX ball-centre Z discrepancy: 0.000394–0.000590 **mm** (maximum ~0.59 micrometres). This is **not** a full trajectory or multi-contact force solver check.
+- [x] CPU support contact-force magnitudes: ~0.0981 N for level cases, ~0.10004 N for tilted slab; consistent with 10 g test sphere supporting gravity, **not yet measured MJX force equality**.
+- [x] CPU `mj_ray` versus JAX analytic static-plane/oriented-box intersection: first-hit distances match within **0.000026 mm** over the recorded valid rays; tested top/flat/diagonal and step-up/-down risers. JAX **capsule** ray was explicitly unimplemented in v2, so the `log_top` row's `pass=true` indicates CPU observation only; it does not assert a JAX comparison.
+- [x] Optional **2-world** same-topology MJX batch: both positions produced the intended result, step z=0.04763332 m and flat z=0.01763340 m. This is *different ball placement in one static shared course*, **not per-world heterogeneous terrain geometry**.
+- [~] Added P0A **v3 unexecuted** JAX capsule ray/cylinder+spherical-end intersection with CPU comparison, horizontal log-side occlusion ray; output `v5018_p0a_spike_v3_results.json`.
+- [~] Added **unexecuted full EMU GPU benchmark** `scripts/v5018_batch_benchmark.py`: compares native `sim2real_232` EMU environment stepping on existing flat model versus same robot with a real collidable box step, in isolated subprocesses; per-size JSON records compiler+first run, measured steady state env-steps/s, available allocator peak, optional contact counts, and failure reason. **It does not measure PPO gradient/update FPS nor prove obstacle traversal.**
+- [ ] Run v3 and batch benchmark on local 8GB GPU; inspect any new validation failures. Only then consider larger environments and P0 exit.
+- [ ] Test moving/impact contact normal/force transfer; scanner footprint and camera/ToF coverage across body pitch, lateral walk and terrain riser occlusion; train-loop PPO scaling and browser engine transfer still blocked.
+
 ### P0A user-run results — initial minimal spike
 - [x] CPU MuJoCo 3.16.0 / MJX-JAX first fixture run produced five final ball-foot contact cases without reported exceptions (uploaded `v5018_p0a_spike_results.json`).
 - [x] Final centre-height deltas absolute max **0.00057742 mm** (0.57742 µm). This is final resting geometry agreement **only**; no trajectory/impulse/contact-force transfer proof and not evidence of GPU backend usage without device metadata.
@@ -50,5 +62,16 @@ python scripts/v5018_terrain_spike.py --batch
 
 If full suite fails again, keep the output. To finish dependency/viewer installation independently use `bash scripts/setup_wsl.sh --cuda13 --install-node --skip-tests` (clearly **not a test pass**), then run targeted tests with `python -m pytest -q tests/test_direction.py::test_protected_export_reader_refuses_contract_and_actor_tampering tests/test_physics.py::test_protected_sensor_champion_full_directional_exam_cpu`. Send GPU diagnostics, log and `v5018_p0a_spike_v2_results.json`.
 
-### Next
+### Next (newly committed probes)
+```bash
+cd ~/emu-v5018 && git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+python scripts/v5018_terrain_spike.py --batch
+python scripts/v5018_batch_benchmark.py --envs 256 512 --output emu_v5018_batch_256_512.json
+# Only if viable at 512, then run:
+python scripts/v5018_batch_benchmark.py --envs 1024 2048 --output emu_v5018_batch_1024_2048.json
+```
+Expected files: `v5018_p0a_spike_v3_results.json`, benchmark JSON(s), plus terminal errors if any. Run benchmark separately from training. Then address the remaining meaningful P0 gates: independent MJX contact impulses/forces, physically observable two-lane scanner coverage, per-world geometry/topology options, and browser engine comparison.
+
+### Prior next-step note
 Resolve any newly observed schema-2 exam failure without weakening hash/shape checks. Then build same-topology two-world MJX collidable fixtures and sensor-ray occlusion probe. Update only this checklist after each pass.
