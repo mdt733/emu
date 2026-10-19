@@ -92,16 +92,24 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
   const wy=sn*(pose.vx||0)+c*(pose.vy||0);
   const rate=Math.cos(near.tangent)*wy-Math.sin(near.tangent)*wx;
   const nominalSpeed=Math.max(.12,Math.hypot(motion.vx||0,motion.vy||0));
-  const intercept=clamp(Math.atan2(1.30*near.crossTrack+.24*rate,
+  // Anticipate lateral momentum: relax steering BEFORE crossing the line.
+  // This keeps the same 30-degree interception cap without zigzag chasing.
+  const predictedCrossTrack=near.crossTrack+.40*rate;
+  const intercept=clamp(Math.atan2(1.30*predictedCrossTrack,
     nominalSpeed+.20),-Math.PI/6,Math.PI/6);
   const desired=wrap(ahead.pose.heading-intercept);
   const angle=delta(desired,pose.heading);
   // Wider errors => slower forward (or reverse), never outright frozen.
-  const trackThrottle=clamp(1-.70*Math.abs(near.crossTrack)/.70,.28,1);
+  // Drift towards (or away from) the line calls for extra correction time.
+  const trackThrottle=clamp(1-.70*Math.max(
+    Math.abs(near.crossTrack),Math.abs(predictedCrossTrack))/.70,.22,1);
   const faceThrottle=clamp(1-.55*Math.abs(angle)/1.15,.35,1);
   const endThrottle=clamp((remaining+.08)/.65,.19,1);
   const throttle=trackThrottle*faceThrottle*endThrottle;
-  const yaw=clamp((motion.yaw||0)*throttle+1.65*angle,
+  const plannedYaw=(motion.yaw||0)*throttle;
+  // Measured yaw damping prevents continued turning past the route.
+  const measuredYaw=Number.isFinite(pose.yawRate)?pose.yawRate:plannedYaw;
+  const yaw=clamp(plannedYaw+1.65*angle-.50*(measuredYaw-plannedYaw),
     -maxYaw*.86,maxYaw*.86);
   const cmd={vx:(motion.vx||0)*throttle,
     vy:run.mode==='lateral'?(motion.vy||0)*throttle:0,

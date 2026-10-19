@@ -473,8 +473,16 @@ export class EmuBrowserSim {
     const o = this.torsoId * 3;
     const heading=this.actualHeading(),c=Math.cos(heading),s=Math.sin(heading);
     const wx=Number(this.data.qvel[0]),wy=Number(this.data.qvel[1]);
+    // MuJoCo freejoint angular qvel is body-local; turn it into an
+    // observed horizontal heading rate for navigation's yaw damping.
+    const R=this.bodyRotation(),q=this.data.qvel;
+    const ax=R[0]*q[3]+R[1]*q[4]+R[2]*q[5];
+    const ay=R[3]*q[3]+R[4]*q[4]+R[5]*q[5];
+    const az=R[6]*q[3]+R[7]*q[4]+R[8]*q[5];
+    const horizontal=Math.max(.01,R[0]*R[0]+R[3]*R[3]);
+    const yawRate=az-R[6]*(R[0]*ax+R[3]*ay)/horizontal;
     return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
-      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,
+      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,yawRate,
       fallen:this.isFallen()};
   }
 

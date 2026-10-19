@@ -467,3 +467,40 @@ test('perfect centreline progress never triggers the old lookahead replan bug',(
   assert.equal(nav.replans,0);
   assert.equal(nav.plannerError,null);
 });
+
+
+test('pose lattice is the default recommended route planner',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {fileURLToPath}=await import('node:url');
+  const html=readFileSync(fileURLToPath(new URL('../index.html',import.meta.url)),'utf8');
+  assert.match(html,/option value="grid" selected>Pose lattice/);
+  assert.equal(new GoalNavigator().plannerMode,'grid');
+});
+
+test('line tracking anticipates drift and slows down before the line crossing',async()=>{
+  const {buildRoutePath,trackRoutePath}=await import('../src/path-follower.js');
+  const path=buildRoutePath({start:{x:0,y:0,heading:0},steps:[
+    {x:1,y:0,heading:0,cmd:{vx:.8,vy:0,yaw:0}},
+    {x:2,y:0,heading:0,cmd:{vx:.8,vy:0,yaw:0}},
+    {x:4,y:0,heading:0,cmd:{vx:.8,vy:0,yaw:0}}
+  ]});
+  const pose={x:.5,y:0,heading:0,vx:.6,vy:0,yawRate:0};
+  const on=trackRoutePath(pose,path,0,0,limits);
+  const sliding=trackRoutePath({...pose,vy:.3},path,0,0,limits);
+  assert.ok(sliding.command.yaw<on.command.yaw-.05);
+  assert.ok(sliding.command.vx<on.command.vx);
+  assert.ok(Math.abs(sliding.headingError)<=Math.PI/6+1e-9);
+});
+
+test('yaw-rate damping avoids steering through the line with rotational momentum',async()=>{
+  const {buildRoutePath,trackRoutePath}=await import('../src/path-follower.js');
+  const path=buildRoutePath({start:{x:0,y:0,heading:0},steps:[
+    {x:1,y:0,heading:0,cmd:{vx:.6,vy:0,yaw:0}},
+    {x:2,y:0,heading:0,cmd:{vx:.6,vy:0,yaw:0}},
+    {x:4,y:0,heading:0,cmd:{vx:.6,vy:0,yaw:0}}
+  ]});
+  const pose={x:.5,y:.25,heading:0,vx:.5,vy:0};
+  const turningRight=trackRoutePath({...pose,yawRate:-.8},path,0,0,limits);
+  const turningLeft=trackRoutePath({...pose,yawRate:.8},path,0,0,limits);
+  assert.ok(turningRight.command.yaw>turningLeft.command.yaw+.35);
+});

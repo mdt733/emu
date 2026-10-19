@@ -119,6 +119,7 @@ function navigationUpdate(dt) {
   const degrees=n=>Math.round(n*180/Math.PI);
   $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
+  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · vx ${navLastCommand.vx.toFixed(2)} commanded / ${pose.vx.toFixed(2)} observed`;
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError

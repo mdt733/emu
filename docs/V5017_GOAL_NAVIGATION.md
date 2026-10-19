@@ -319,3 +319,25 @@ while actor inference remains 50 Hz. No new trained-motion-model calibration
 is mandatory: the controller uses the checkpoint's published command limits.
 Compare line tracking, S-curves, pivots, reverse approaches and obstacles in
 actual browser MuJoCo before merging to main.
+
+
+### Default pose lattice and cross-track overshoot damping
+
+The Pose lattice remains the preselected default, now explicitly labelled
+"recommended" in the viewer. The previous continuous-line follower was
+overshooting: it steered largely from instantaneous lateral error without
+fully accounting for lateral momentum and actual yaw-rate delay.
+
+The revised follower forecasts approximately 0.40 seconds of cross-track
+motion from measured ground velocity and begins straightening **before**
+crossing the planned line. The maximum intercept angle remains 30 degrees.
+Forward/reverse travel slows according to the larger of actual cross-track
+error or the short-horizon projected error, giving yaw control more time.
+A measured heading-rate damping term reduces steering when EMU is already
+turning towards the line. These are deliberately lightweight feedback
+corrections, not a new learned motion model or a calibration requirement.
+
+The navigation HUD exposes signed line deviation (metres) and substantial
+line-crossing count, ignoring tiny excursions under 4.5 cm. Evaluate
+comparable S-curve and displaced-start routes in full browser MuJoCo.
+The reference branch, policy, and PPO inference pipeline are unchanged.

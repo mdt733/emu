@@ -292,6 +292,7 @@ export class GoalNavigator {
     this.rng=makeRng(seed);this.active=false;
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
+    this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
     this.replans=0;this.reason='Not started';this.replanDelay=0;
     this.searchCooldown=0;this.failures=0;this.warmup=0;
@@ -333,6 +334,7 @@ export class GoalNavigator {
     this.generation++;this.pendingRequest=null;this.plannerError=null;
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
+    this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.warmup=0;this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
@@ -344,6 +346,7 @@ export class GoalNavigator {
     this.replanDelay=0;
     if(newMission){
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
+      this.crossTrack=0;this.crossings=0;this.crossSide=0;
     }
     this.reason=route.solved?'Following route':'Partial route · replanning';
   }
@@ -454,7 +457,13 @@ export class GoalNavigator {
     }else if(!finalApproach)this.stagnant+=delta;
     this.index=this.runIndex;
     this.replanDelay+=delta;
-    const offRoute=Math.abs(result?.crossTrack||0);
+    const signedCross=result?.mode==='pivot'?0:(result?.crossTrack||0);
+    this.crossTrack=signedCross;
+    // Hysteresis avoids treating each gait-induced wiggle as a crossing.
+    const side=Math.abs(signedCross)>.045?Math.sign(signedCross):0;
+    if(side&&this.crossSide&&side!==this.crossSide)this.crossings++;
+    if(side)this.crossSide=side;
+    const offRoute=Math.abs(signedCross);
     // Compare with the line, NOT distance to a far-ahead lookahead target.
     if(this.replanDelay>3.2&&!this.pendingRequest&&
        (offRoute>.80||!this.route.solved||(!finalApproach&&this.stagnant>6))){
@@ -484,6 +493,7 @@ export class GoalNavigator {
       distance:this.goal?distance(pose,this.goal):0,
       headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
+      crossTrack:this.crossTrack,crossings:this.crossings,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
       index:this.index,reason:this.reason};
