@@ -63,6 +63,6 @@ source .venv/bin/activate
 bash scripts/run_v5018_p0_campaign.sh
 ```
 
-The campaign saves logs, `stages.tsv` and JSON under `~/robot_lab/emu_experiments/v5018_p0_YYYYMMDD_HHMMSS/`, plus a matching `.tar.gz`. **Upload that archive** (including failures) for the next review. No training starts; the script never modifies main or the protected showcase. Do not run alongside another GPU training job.
+The campaign saves logs, `stages.tsv` and JSON under `~/robot_lab/emu_experiments/v5018_p0_YYYYMMDD_HHMMSS/`, plus a matching `.tar.gz`. **Upload that archive** (including failures) for the next review. No long training campaign starts (the GPU doctor does execute a small PPO-update smoke); the script never modifies main or the protected showcase. Do not run alongside another GPU training job.
 
 **Next implementation decision:** after local results, choose the simplest proven course primitive family and batch ceiling, then close remaining P0 gates before implementing terrain truth in P1.
