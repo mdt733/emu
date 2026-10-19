@@ -379,7 +379,6 @@ export class EmuBrowserSim {
     };
     this.command = { ...this.commandTarget };
     this.requestedYaw = this.commandTarget.yaw;
-    this.phaseOverride = Number(d.phase_rate_hz ?? 0);
     this.reset();
   }
 

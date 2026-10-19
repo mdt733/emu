@@ -102,3 +102,22 @@ mapping, handoff timeout, path tracking, arrivals and background Worker
 protocol. Full browser MuJoCo/WASM testing is needed to check actual gait
 wander, stability, touch behaviour and responsive layout. Never infer
 physical success from ideal kinematic tests alone.
+
+## Minimal viewer test contract (12 tests, one file)
+
+The browser viewer deliberately keeps just twelve core checks in
+`emu/viewer_src/tests/core.test.mjs`. They cover: policy formats and
+asset safety; physical terrain; sensor timing; manual yaw and command limits;
+one-demo startup and unchanged trained observations; visual-only joystick
+mirroring; 30-second manual/autonomy handoff; basic pose-lattice routes;
+obstacle keep-outs; continuous-line tracking, drift and manoeuvres;
+arrival/hold bookkeeping; and off-thread planner requests.
+
+These are the shared viewer's **baseline**, not invitations to grow dozens
+of narrowly overlapping tests. When replacing an implementation, update
+or replace one of the twelve rather than appending a new test. The installer
+still calls the same `npm test` command, which now runs this single file.
+
+Cleanup also removed a dangling assignment to `this.phaseOverride` from
+the MuJoCo viewer: the public cadence override slider was already removed,
+and the policy's automatic episode cadence is preserved.
