@@ -68,6 +68,7 @@ CASES = {
         "support": "log",
         "rays": [
             ("log_top", (0, 0, .25), (0, 0, -1), "log"),
+            ("log_side", (.10, 0, .018), (-1, 0, 0), "log"),
             ("off_log", (.10, 0, .25), (0, 0, -1), "ground"),
         ],
     },
@@ -104,55 +105,95 @@ def has_pair(pairs, name):
 
 
 def primitive_ray(model, data, origin, direction):
-    """JAX-compiled exact ray/plane and oriented-box intersections.
+    """JAX static-geometry nearest hit: plane, oriented box, capsule.
 
-    This intentionally excludes capsule/hfield/mesh; no oracle substitution.
-    Static geom poses are obtained from the SAME compiled MuJoCo geometry.
+    Matches the collision geometry's compiled MuJoCo world transforms.
+    Capsule is cylinder + spherical endpoints, not a fake height map.
+    Plane is mathematically infinite, exactly as a MuJoCo plane geom.
     """
     specs = []
+    supported = {int(mujoco.mjtGeom.mjGEOM_BOX),
+                 int(mujoco.mjtGeom.mjGEOM_PLANE),
+                 int(mujoco.mjtGeom.mjGEOM_CAPSULE)}
     for i in range(model.ngeom):
         typ = int(model.geom_type[i])
-        if typ not in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                       int(mujoco.mjtGeom.mjGEOM_PLANE)):
+        if typ not in supported or int(model.geom_bodyid[i]) != 0:
             continue
-        if int(model.geom_bodyid[i]) != 0:  # static terrain only
-            continue
-        specs.append((typ, int(i), np.asarray(data.geom_xpos[i]).copy(),
+        specs.append((typ, np.asarray(data.geom_xpos[i]).copy(),
                       np.asarray(data.geom_xmat[i]).reshape(3, 3).copy(),
                       np.asarray(model.geom_size[i]).copy()))
     if not specs:
         return None
-    o = jnp.asarray(origin, dtype=jnp.float32)
-    d = jnp.asarray(direction, dtype=jnp.float32)
+
     @jax.jit
     def intersect(p, v):
         hits = []
-        for typ, _, pos, rot, size in specs:
-            x = jnp.asarray(pos, dtype=jnp.float32)
-            R = jnp.asarray(rot, dtype=jnp.float32)
+        inf = jnp.asarray(jnp.inf, dtype=p.dtype)
+        for typ, pos, rot, size in specs:
+            x = jnp.asarray(pos, dtype=p.dtype)
+            R = jnp.asarray(rot, dtype=p.dtype)
+            half = jnp.asarray(size, dtype=p.dtype)
             if typ == int(mujoco.mjtGeom.mjGEOM_PLANE):
                 normal = R[:, 2]
                 denom = jnp.dot(v, normal)
                 t = jnp.dot(x - p, normal) / jnp.where(jnp.abs(denom) > 1e-8, denom, 1.)
-                valid = (jnp.abs(denom) > 1e-8) & (t >= 0)
-            else:
+                hit = jnp.where((jnp.abs(denom) > 1e-8) & (t >= 0), t, inf)
+            elif typ == int(mujoco.mjtGeom.mjGEOM_BOX):
                 lo = (p - x) @ R
                 ray = v @ R
-                half = jnp.asarray(size, dtype=jnp.float32)
                 parallel = jnp.abs(ray) < 1e-8
                 safe = jnp.where(parallel, 1., ray)
-                ta = (-half - lo) / safe
-                tb = (half - lo) / safe
-                near = jnp.where(parallel, -jnp.inf, jnp.minimum(ta, tb))
-                far = jnp.where(parallel, jnp.inf, jnp.maximum(ta, tb))
+                t0 = (-half - lo) / safe
+                t1 = (half - lo) / safe
+                near = jnp.where(parallel, -inf, jnp.minimum(t0, t1))
+                far = jnp.where(parallel, inf, jnp.maximum(t0, t1))
                 entry, leave = jnp.max(near), jnp.min(far)
                 t = jnp.where(entry >= 0, entry, leave)
-                inside = jnp.all(jnp.where(parallel, jnp.abs(lo) <= half, True))
-                valid = inside & (leave >= jnp.maximum(entry, 0.)) & (t >= 0.)
-            hits.append(jnp.where(valid, t, jnp.inf))
+                valid = (jnp.all(jnp.where(parallel, jnp.abs(lo) <= half, True))
+                         & (leave >= jnp.maximum(entry, 0.)) & (t >= 0))
+                hit = jnp.where(valid, t, inf)
+            else:
+                # MuJoCo capsule's local Z is its segment axis, and size[1]
+                # is the cylinder half-length (the two sphere centres).
+                axis = R[:, 2]
+                length = 2. * half[1]
+                A = x - half[1] * axis
+                m = p - A
+                md, nd = jnp.dot(m, axis), jnp.dot(v, axis)
+                perp_m = m - md * axis
+                perp_v = v - nd * axis
+                aa = jnp.dot(perp_v, perp_v)
+                bb = 2. * jnp.dot(perp_m, perp_v)
+                cc = jnp.dot(perp_m, perp_m) - half[0] ** 2
+                disc = bb ** 2 - 4. * aa * cc
+                denom = jnp.where(aa > 1e-10, 2. * aa, 1.)
+                roots = jnp.stack(((-bb - jnp.sqrt(jnp.maximum(0., disc))) / denom,
+                                   (-bb + jnp.sqrt(jnp.maximum(0., disc))) / denom))
+                axial = md + roots * nd
+                valid = ((aa > 1e-10) & (disc >= 0) & (roots >= 0)
+                         & (axial >= 0) & (axial <= length))
+                cyl_hit = jnp.min(jnp.where(valid, roots, inf))
+                # Both hemispherical ends. Using full spheres gives the same
+                # outer surface as the cylinder union (inside overlaps).
+                sph_hits = []
+                for C in (A, A + length * axis):
+                    oc = p - C
+                    sa = jnp.dot(v, v)
+                    sb = 2. * jnp.dot(oc, v)
+                    sc = jnp.dot(oc, oc) - half[0] ** 2
+                    sd = sb ** 2 - 4. * sa * sc
+                    sd_sqrt = jnp.sqrt(jnp.maximum(0., sd))
+                    safe_a = jnp.where(sa > 1e-10, sa, 1.)
+                    rt = jnp.stack(((-sb - sd_sqrt) / (2. * safe_a),
+                                    (-sb + sd_sqrt) / (2. * safe_a)))
+                    sph_hits.append(jnp.min(jnp.where(
+                        (sd >= 0) & (sa > 1e-10) & (rt >= 0), rt, inf)))
+                hit = jnp.minimum(cyl_hit, jnp.minimum(*sph_hits))
+            hits.append(hit)
         return jnp.min(jnp.stack(hits))
-    result = float(intersect(o, d))
-    return None if not np.isfinite(result) else result
+    hit = float(intersect(jnp.asarray(origin, dtype=jnp.float32),
+                          jnp.asarray(direction, dtype=jnp.float32)))
+    return hit if np.isfinite(hit) else None
 
 
 def ray_tests(model, data, rays):
@@ -164,10 +205,8 @@ def ray_tests(model, data, rays):
             model, data, np.asarray(org, dtype=np.float64),
             np.asarray(vec, dtype=np.float64), None, 1, foot_id, geomid))
         hit = model.geom(int(geomid[0])).name if dist >= 0 and geomid[0] >= 0 else None
-        # The capsule case has no JAX ray implementation in this spike. In
-        # particular, a far-floor plane hit cannot replace a nearer log hit.
         analytic = primitive_ray(model, data, org, vec)
-        applicable = expected != "log"
+        applicable = True
         delta_mm = (1000. * abs(analytic - dist)
                     if applicable and analytic is not None and dist >= 0 else None)
         result = {"name": name, "expected": expected, "cpu_hit": hit,
@@ -281,14 +320,14 @@ def main():
         print("batch:", json.dumps(batch))
     payload = {"environment": info, "cases": results, "batch": batch,
                "limitations": ["z-only constrained sphere fixture, not robot gait",
-                               "capsule/log ray not yet JAX-implemented",
-                               "no JAX heightfield rays",
+                               "capsule/log ray comparison requires independent validation",
+                               "no JAX heightfield rays; only plane/box/capsule",
                                "no train-loop throughput or VRAM measurement",
                                "same-topology pair is not randomized obstacle geometry"]}
-    with open("v5018_p0a_spike_v2_results.json", "w", encoding="utf-8") as f:
+    with open("v5018_p0a_spike_v3_results.json", "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     if not all(r.get("pass") for r in results) or (args.batch and not batch.get("pass")):
-        raise SystemExit("P0A v2 INCOMPLETE: inspect JSON failure(s); no gate pass")
+        raise SystemExit("P0A v3 INCOMPLETE: inspect JSON failure(s); no gate pass")
 
 
 if __name__ == "__main__":
