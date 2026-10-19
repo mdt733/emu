@@ -1,4 +1,167 @@
-# Install & operate EMU
+# EMU installation and operation
+
+> **v5018 feature-branch instructions (20 October 2026).** This section is
+> current for `feature/v5018-terrain-awareness`; earlier v5016 experimental
+> commands below remain as historical examples, **not** directions to run
+> v5018 terrain training. See [v5018 handover](V5018_HANDOVER.md) and the
+> [one living status/checklist](V5018_TERRAIN_PLAN.md).
+
+## A genuinely blank Ubuntu WSL2 (one copy/paste block)
+
+EMU has **two runtimes**: Python 3.13+ + JAX CUDA + MuJoCo/MJX for
+physics/learning, and Node.js 24 + npm + pinned MuJoCo/WASM + Three.js/Vite
+for the viewer. The Python virtual environment and nvm live in the normal
+WSL home directory, not in Windows system Python.
+
+Windows: first verify WSL2 and a recent NVIDIA **Windows** driver; run
+`wsl --update` in PowerShell if needed. Do **not** install Linux NVIDIA
+display drivers inside WSL. [NVIDIA's WSL instructions](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
+
+Open Ubuntu WSL as the normal user, **not sudo/root**, and paste:
+
+```bash
+set -e
+sudo apt-get update
+sudo apt-get install -y git curl ca-certificates
+
+# Dedicated branch clone. Never clone main and then run a v5018 campaign.
+cd "$HOME"
+git clone --branch feature/v5018-terrain-awareness --single-branch \
+  https://github.com/mdt733/emu.git emu-v5018
+cd "$HOME/emu-v5018"
+
+# Ubuntu packages, user-local uv/Python 3.13, .venv and pip,
+# nvm/Node 24/npm, JAX CUDA 13, editable EMU, locked viewer + tests.
+bash scripts/bootstrap_wsl_v5018.sh
+
+# Verify the active shell. setup sources nvm internally; source it again
+# in this login shell when you need npm yourself.
+source .venv/bin/activate
+export NVM_DIR="$HOME/.nvm"
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then source "$NVM_DIR/nvm.sh"; fi
+python --version
+python -c 'import jax,mujoco; from mujoco import mjx; print(jax.__version__,mujoco.__version__,jax.devices())'
+node --version
+npm --version
+nvidia-smi
+git branch --show-current
+git rev-parse HEAD
+```
+
+The bootstrapper installs Ubuntu packages via `sudo apt-get`, installs
+`uv` from its official installer if needed, obtains Python 3.13
+**without replacing Ubuntu's `/usr/bin/python3`**, creates/reuses
+`~/emu-v5018/.venv`, bootstraps `pip` even when uv's venv lacks it,
+then invokes `scripts/setup_wsl.sh --cuda13 --install-node`.
+That existing setup installs `jax[cuda13]` and `.[dev]`, installs
+Node 24 via pinned nvm, builds the viewer using `npm ci` and the
+committed lockfile, runs npm tests, the Python pytest suite, CLI plan and
+GPU/domain doctor. The GPU doctor checks the environment; the separate
+campaign below includes a small real PPO-update smoke. Full setup does
+**not** start a long training run.
+
+A `curl | sh` installer is convenient but executes upstream install
+code: inspect it or pin/verify a trusted version in controlled environments.
+The exact CUDA/JAX wheels may evolve; record the versions shown by your
+local run. Tested on the user's WSL: Python 3.13.16, JAX 0.12.0,
+MuJoCo 3.16.0, `cuda:0`. The browser dependency is pinned separately
+to **MuJoCo/WASM 3.15.0**; the engine gap is an open P0B measurement,
+not evidence of equivalence.
+
+### CPU-only mode and partial-install recovery
+
+Use `bash scripts/bootstrap_wsl_v5018.sh --cpu` if a GPU is unavailable;
+this cannot establish GPU feasibility. `--skip-tests` explicitly skips
+the Python regression suite **only**; it is *not* a successful regression
+or full P0 gate. It can finish the npm installation while diagnosing test
+failures. The first clean-WSL Python suite was **73 passed / 5 failed**
+because tests assumed an obsolete 220-input champion; the branch has
+compatibility patches, **not yet reverified with full pytest**.
+
+If `python` is missing, the OS default may expose only `python3`:
+activate `source .venv/bin/activate`. If Python is 3.12 or an old/forbidden
+`.venv` exists, do **not** overwrite another project's environment:
+inspect `ls -ld .venv` and use the dedicated v5018 clone and Python
+3.13 bootstrap. If `node` or `npm` disappear in a *new terminal*:
+
+```bash
+cd ~/emu-v5018
+source .venv/bin/activate
+export NVM_DIR="$HOME/.nvm"
+source "$NVM_DIR/nvm.sh"
+nvm use "$(cat .nvmrc)"
+node --version && npm --version
+```
+
+For GPU diagnostics run `nvidia-smi`, then
+`python -c 'import jax; print(jax.devices())'`. A host-driver/WSL
+GPU issue should be repaired on the Windows NVIDIA-driver side, not
+by installing another Linux driver. Optional `warp` import warnings
+do **not** by themselves mean MJX-JAX failed. If npm fails, preserve
+the complete error and check `node --version`, `npm --version`,
+`emu/viewer_src/package-lock.json`, and `npm --prefix emu/viewer_src ci`.
+Avoid changing the lockfile during a running test campaign.
+
+### Existing clone, tests and viewer
+
+**If the big P0 batch is currently running, leave its checkout and
+dependencies untouched until it finishes and its report archive is saved.**
+To update after it completes:
+
+```bash
+cd ~/emu-v5018
+git status --short
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/setup_wsl.sh --cuda13 --install-node
+# or, for a controlled quick check:
+bash scripts/check.sh
+```
+
+Local viewer: `emu viewer-build` then `emu viewer --help`
+(for available arguments); the local read-only server uses
+`http://127.0.0.1:8765/` and is **not remotely authenticated**.
+
+### The v5018 P0 experimental campaign and evidence
+
+```bash
+cd ~/emu-v5018
+source .venv/bin/activate
+bash scripts/run_v5018_p0_campaign.sh
+```
+
+This runs full Python regression; npm install, test and build;
+GPU doctor plus a bounded PPO smoke; stationary real collision and
+plane/box/capsule rays; headless MuJoCo/WASM CPU comparison;
+moving toe strikes and non-strike control; per-world MJX geom pose
+variation; two-lane forward scanner coverage; kinematic clearance;
+and isolated 256→512→1024→2048-world GPU environment stepping
+(flat / unloaded obstacle / real foot-contact stress). It is a
+**feasibility campaign, not long PPO terrain learning**.
+
+Each independent stage logs PASS/FAIL and continues; larger GPU sizes
+are skipped after a smaller failed size. Outputs include
+`stages.tsv`, per-stage logs, JSON files, and a `.tar.gz` outside Git
+at `~/robot_lab/emu_experiments/v5018_p0_YYYYMMDD_HHMMSS.tar.gz`.
+Save/upload the archive even if the script exits 1; **do not rerun
+the whole campaign automatically if a single stage fails**. Inspect
+`environment.txt` (branch, commit, GPU) to identify the exact source
+revision tested. A PASS means only the stated probe passed, not that
+the biped learned obstacle climbing.
+
+This feature branch uses **two frozen policy interfaces** (legacy
+55×4=220 and sim2real 58×4=232) with six actions. The current
+protected showcase champion is the 260,112,384-step **232-input**
+export (checkpoint schema 8). A new terrain observation interface is
+**not yet frozen**; `terrain_312` is only a hypothesis pending
+P2 scanner/bin experiments. Never modify a champion or resume old
+training checkpoints into a changed source/schema.
+
+---
+
+## Earlier general EMU / v5016 install and operation guidance (historical)
+
+# Historical general installation notes (prior to v5018)
 
 EMU has a Python JAX/MJX learning environment and a separate JavaScript MuJoCo/WebAssembly viewer. **GPU training requires a working NVIDIA driver exposed to WSL**; browser viewing does not.
 
@@ -39,7 +202,7 @@ emu ladder --stage plan
 
 For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu doctor --no-require-gpu --no-mjx-smoke`. The installer builds the viewer, not a long run.
 
-**The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
+**Historical Pitch15 interface only:** 220 observations → 6 actions, checkpoint schema 7. The protected current showcase is 232-input/checkpoint schema 8; see the v5018 instructions above. Do not resume across a changed source revision or reuse run roots with different environment counts.
 
 
 
