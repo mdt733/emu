@@ -695,6 +695,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
         limit = env.yaw_max_rad_s
 
+        # Evaluation-only geometry: a named physical course obstacle can be
+        # inspected for TRUE foot-contact pairs without giving that identity
+        # to the actor or changing a single PPO training observation/reward.
+        challenge_id = int(getattr(env, 'challenge_geom_id', -1))
+
         def record_state(es):
             data=es.data
             rotation=env._rotation_body_to_world(data)
@@ -705,13 +710,17 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             floor = int(env.ids['floor_geom'])
             floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
             floor_origin = data.geom_xpos[:,floor,:]
+            extra = (contact_pair_mask(
+                jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
+                challenge_id,tuple(int(x) for x in env.ids['foot_geoms']))
+                if challenge_id >= 0 else jnp.zeros_like(contacts))
             return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
-                    contacts,floor_normal,floor_origin)
+                    contacts,floor_normal,floor_origin,extra)
 
         def step(carry, inputs):
             es, ob, target, estimate, history_gyro = carry
             cmd, sensor_noise = inputs
-            xy,yaw,foot_xyz,contacts,floor_normal,floor_origin=record_state(es)
+            xy,yaw,foot_xyz,contacts,floor_normal,floor_origin,extra_contacts=record_state(es)
             raw_gyro=env._body_packets(es.data)[2][:,2]
             sampled_gyro=raw_gyro+bias+sensor_noise
             # Preserve an initial sample across the sensor's latency window.
@@ -752,6 +761,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                challenge_contact=extra_contacts,
                 floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
@@ -786,10 +796,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
-        last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
+        last_xy,last_yaw,last_foot,last_contacts,_,_,last_challenge=record_state(last)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,
+                    last_challenge_contact=last_challenge,
                     last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
                     last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
                     last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
