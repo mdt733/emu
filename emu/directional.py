@@ -970,3 +970,149 @@ def estimate_ground_plane(
         uphill_body=tuple(float(x) for x in uphill) if uphill is not None else None,
         triangle_area_m2=float(area),
     )
+
+
+@dataclass(frozen=True)
+class ObstacleCrossingGate:
+    """Frozen *scoring* geometry; never handed to a realistic-sensor actor.
+
+    All distances are along the world-fixed requested crossing axis from
+    `start_xy`. The real obstacle should span the entire allowed corridor
+    with margin; otherwise walking around an exposed end could still pass.
+    """
+    near_edge_m: float = 0.18
+    far_edge_m: float = 0.22
+    finish_m: float = 0.40
+    corridor_half_width_m: float = 0.12
+    foot_margin_m: float = 0.005
+    max_heading_error_deg: float = 80.
+    max_idle_frames: int = 60
+    min_runout_frames: int = 8
+    max_translation_per_frame_m: float = 0.060
+
+
+def examine_obstacle_crossing(
+    body_xy, foot_xy, support, heading_rad, *, start_xy,
+    course_axis_xy, requested_heading_rad,
+    fell=None, reset=None, gate: ObstacleCrossingGate = ObstacleCrossingGate(),
+):
+    """Read-only no-detour terrain crossing outcome, independent of PPO reward.
+
+    Time-aligned sampled physical arrays are [N,2], [N,2,2], [N,2],
+    [N]. `support` MUST be independently derived from genuine
+    load-bearing contact (not a foot-height threshold), and the inputs
+    MUST be one uninterrupted episode without post-reset states.
+    `requested_heading_rad` is the ORIGINAL operator heading, before any
+    optional P-controller correction. The evaluator may use oracle
+    collision/state truth; never add these values to the policy observation.
+
+    This only evaluates measured traces. It does not claim obstacle
+    collision is integrated into training or guarantee an actuator can
+    cross this challenge.
+    """
+    p = np.asarray(body_xy, dtype=np.float64)
+    feet = np.asarray(foot_xy, dtype=np.float64)
+    land = np.asarray(support)
+    head = np.asarray(heading_rad, dtype=np.float64)
+    n = len(p)
+    if n < 3 or p.shape != (n, 2) or feet.shape != (n, 2, 2) or (
+        land.shape != (n, 2)) or head.shape != (n,):
+        raise ValueError('expected aligned [N,2] torso, [N,2,2] feet, [N,2] support, [N] heading')
+    if land.dtype != np.bool_:
+        raise ValueError('support must contain independently observed boolean contacts')
+    origin = np.asarray(start_xy, dtype=np.float64)
+    axis = np.asarray(course_axis_xy, dtype=np.float64)
+    if origin.shape != (2,) or axis.shape != (2,) or not (
+        np.isfinite(origin).all() and np.isfinite(axis).all()):
+        raise ValueError('invalid world-fixed course coordinates')
+    length = float(np.linalg.norm(axis))
+    if length < 1e-8:
+        raise ValueError('course axis must be nonzero')
+    axis /= length
+    across = np.array([-axis[1], axis[0]])
+    if not (np.isfinite(p).all() and np.isfinite(feet).all() and
+            np.isfinite(head).all() and math.isfinite(requested_heading_rad)):
+        raise ValueError('nonfinite physical trace or requested heading')
+    g = gate
+    if not (0 <= g.near_edge_m < g.far_edge_m < g.finish_m and
+            g.corridor_half_width_m > 0 and g.foot_margin_m >= 0 and
+            0 < g.max_heading_error_deg <= 180 and
+            g.max_idle_frames >= 1 and g.min_runout_frames >= 1 and
+            g.max_translation_per_frame_m > 0):
+        raise ValueError('invalid immutable crossing test geometry')
+
+    along = (p-origin) @ axis
+    lateral = (p-origin) @ across
+    foot_along = (feet-origin) @ axis
+    foot_lateral = (feet-origin) @ across
+    error = np.arctan2(np.sin(head-requested_heading_rad),
+                       np.cos(head-requested_heading_rad))
+    max_error_deg = float(np.degrees(np.max(np.abs(error))))
+    # A robot that leaves and returns is still a detour. Only the torso
+    # defines the centreline corridor; normal ±80mm support stance is
+    # separately constrained to a wider physical foot envelope.
+    bypass = bool(np.any(np.abs(lateral) > g.corridor_half_width_m) or
+                  np.any(np.abs(foot_lateral) > g.corridor_half_width_m+.08))
+    inverted = bool(max_error_deg > g.max_heading_error_deg)
+    resets = bool(np.any(reset)) if reset is not None else False
+    falls = bool(np.any(fell)) if fell is not None else False
+    displacements = np.linalg.norm(np.diff(p,axis=0),axis=1)
+    teleported = bool(np.any(displacements > g.max_translation_per_frame_m))
+    idle = np.linalg.norm(np.diff(p,axis=0),axis=1) < 0.00025
+    idle_run = longest = 0
+    for waiting in idle:
+        idle_run = idle_run+1 if waiting else 0
+        longest = max(longest,idle_run)
+    stalled = longest > g.max_idle_frames
+
+    past = g.far_edge_m + g.foot_margin_m
+    passed_far = ((along >= past) & np.all(foot_along >= past,axis=1))
+    indices = np.flatnonzero(passed_far)
+    first = int(indices[0]) if len(indices) else None
+    # Once the torso and both feet are over the far edge, each foot must
+    # independently touch a genuinely supportive surface on the far side.
+    touched = [False,False]
+    if first is not None:
+        for side in range(2):
+            touched[side] = bool(np.any(
+                land[first:,side] & (foot_along[first:,side] >= past)))
+    runout = (n-1-first) if first is not None else 0
+    finished = bool(along[-1] >= g.finish_m and
+                    np.all(foot_along[-1] >= past) and
+                    runout >= g.min_runout_frames and all(touched))
+    reasons = []
+    if along[0] > g.near_edge_m-0.02:
+        reasons.append('not_spawned_before_obstacle')
+    if bypass:
+        reasons.append('corridor_detour')
+    if inverted:
+        reasons.append('heading_reversal')
+    if resets or falls:
+        reasons.append('fall_or_reset')
+    if teleported:
+        reasons.append('teleport_or_invalid_speed')
+    if stalled:
+        reasons.append('perpetual_hesitation')
+    if first is None:
+        reasons.append('no_torso_and_two_feet_crossing')
+    if first is not None and not all(touched):
+        reasons.append('missing_far_side_support')
+    if not finished:
+        reasons.append('no_stable_finish_and_runout')
+
+    return {
+        'crossing_pass': not reasons,
+        'rejection_reasons': reasons,
+        'first_two_feet_crossing_frame': first,
+        'final_signed_progress_m': float(along[-1] - along[0]),
+        'finish_line_progress_m': float(along[-1]),
+        'max_torso_lateral_deviation_m': float(np.max(np.abs(lateral))),
+        'max_heading_error_deg': max_error_deg,
+        'foot_supported_after_crossing': touched,
+        'runout_frames_after_crossing': runout,
+        'fell_or_reset': bool(falls or resets),
+        'corridor_detour': bypass,
+        'teleport': teleported,
+        'longest_stationary_interval_frames': int(longest),
+        'evaluator_kind': 'world_fixed_crossing_v1; no NN observations changed',
+    }
