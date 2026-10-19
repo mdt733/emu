@@ -803,3 +803,36 @@ def test_optical_flow_gyro_compensation_and_explicit_dropouts():
     assert missing['velocity_confidence'][0]==0.
     np.testing.assert_array_equal(missing['velocity_body_xy_mps'][0],[0,0])
     assert bool(missing['velocity_valid'][1])
+
+
+def test_v5018_read_only_exam_allows_10deg_real_plane_but_not_training_or_tilted_gravity(tmp_path):
+    """The user's already demonstrated 10-degree viewer grade deserves a real
+    frozen-policy physical test without broadening historical training knobs."""
+    from emu.evaluation import validate_request, exam_gravity
+    from emu.environment import contact_plane_quaternion
+
+    artifact = tmp_path / 'frozen.emupolicy'
+    artifact.write_text('not inspected by request validator', encoding='utf-8')
+    kwargs = dict(run_dir=artifact, output=tmp_path / 'ten_degree',
+                  worlds=4, horizon=350, settle_frames=25,
+                  angle_deg=10., direction='uphill',
+                  speed=.10, lateral=0., yaw_rate=0.)
+    source, output, reference_gravity = validate_request(
+        **kwargs, contact_slope=True)
+    assert source == artifact.resolve()
+    assert output == (tmp_path/'ten_degree').resolve()
+    assert reference_gravity.shape == (3,)
+    assert reference_gravity[0] < 0.
+    assert np.linalg.norm(reference_gravity) == pytest.approx(9.81, abs=1e-5)
+    quat = contact_plane_quaternion(10., max_angle_deg=12.)
+    assert quat.shape == (4,)
+    assert np.isfinite(quat).all()
+
+    with pytest.raises(ValueError, match='angle'):
+        validate_request(**kwargs, contact_slope=False)
+    with pytest.raises(ValueError, match='contact slope'):
+        contact_plane_quaternion(10.)  # historical 5-degree training cap
+    with pytest.raises(ValueError, match='angle'):
+        validate_request(**{**kwargs, 'angle_deg': 12.1}, contact_slope=True)
+    with pytest.raises(ValueError, match='angle'):
+        exam_gravity(10., 'uphill')  # historical gravity-equivalent cap
