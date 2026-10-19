@@ -13,31 +13,87 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 BASE="$HOME/robot_lab/emu_exams"
 mkdir -p "$BASE"
-OUT="$BASE/v5018_frontier_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$OUT"
-printf 'stage\tstatus\texit_code\n' > "$OUT/stages.tsv"
+# --resume preserves every completed stage AND its original source revision.
+# Never silently re-run the earlier good 10-degree GPU examinations.
+if [[ "${1:-}" == "--resume" ]]; then
+  [[ $# == 2 ]] || { echo "Usage: $0 [--resume EXISTING_OUTPUT_DIR]" >&2; exit 2; }
+  OUT="$(realpath "$2")"
+  case "$OUT" in
+    "$BASE"/v5018_frontier_*) ;;
+    *) echo "Refusing resume outside $BASE/v5018_frontier_*" >&2; exit 2 ;;
+  esac
+  [[ -d "$OUT" && -s "$OUT/stages.tsv" && -s "$OUT/environment.txt" ]] || {
+    echo "Existing campaign directory/stages/environment missing: $OUT" >&2
+    exit 2
+  }
+  current_policy="$(sha256sum "$ROOT/showcase/champion.emupolicy" | cut -d' ' -f1)"
+  grep -Fq "$current_policy" "$OUT/environment.txt" || {
+    echo "Protected champion policy hash differs from original campaign; refusing resume" >&2
+    exit 2
+  }
+  printf '%s\t%s\t%s\n' "$(date -Is)" "$(git -C "$ROOT" rev-parse HEAD)" "resume_after_runner_bugfix" >> "$OUT/revision_history.tsv"
+  echo "Resuming saved campaign: $OUT"
+  echo "Original execution commit remains recorded in environment.txt; resumed tests use the CURRENT commit." | tee -a "$OUT/campaign.log"
+else
+  [[ $# == 0 ]] || { echo "Usage: $0 [--resume EXISTING_OUTPUT_DIR]" >&2; exit 2; }
+  OUT="$BASE/v5018_frontier_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$OUT"
+  printf 'stage\tstatus\texit_code\n' > "$OUT/stages.tsv"
+  {
+    echo "Study: frozen 232-input champion real-step orientation/speed/height frontier"
+    date -Is
+    git -C "$ROOT" rev-parse HEAD
+    git -C "$ROOT" status --short
+    sha256sum "$ROOT/showcase/champion.emupolicy"
+    python -c 'import jax,mujoco;print("JAX",jax.__version__,"MuJoCo",mujoco.__version__,"devices",jax.devices())'
+    nvidia-smi --query-gpu=name,memory.total,memory.used,driver_version --format=csv,noheader 2>&1 || true
+  } | tee "$OUT/environment.txt"
+  printf '%s\t%s\t%s\n' "$(date -Is)" "$(git -C "$ROOT" rev-parse HEAD)" "original_campaign_start" >> "$OUT/revision_history.tsv"
+fi
+
+# Archive even if an unexpected shell error aborts the run. The original
+# unarchived directory remains untouched, including old successful stages.
+archive_on_exit() {
+  local status="$?"
+  trap - EXIT
+  if tar -czf "$OUT.tar.gz" -C "$BASE" "$(basename "$OUT")"; then
+    echo "Saved results archive: $OUT.tar.gz (script exit $status)"
+  else
+    echo "WARNING: could not archive $OUT; preserve raw results directory" >&2
+  fi
+}
+trap archive_on_exit EXIT
+
+already_completed() {
+  local stage="$1"
+  [[ -f "$OUT/$stage.log" ]] || return 1
+  awk -F '\t' -v name="$stage" '$1 == name && $2 == "PASS" { ok=1 } END { exit !ok }' "$OUT/stages.tsv" || return 1
+  # Only skip if the corresponding artifact exists. A prior log and
+  # incorrectly marked exit code must not hide missing outputs.
+  case "$stage" in
+    stride_*) [[ -f "$OUT/$stage/heading_comparison.json" ]] ;;
+    step_*) [[ -f "$OUT/$stage.json" ]] ;;
+    aggregate_reports) [[ -f "$OUT/v5018_gait_and_step_summary.json" ]] ;;
+    *) return 0 ;;
+  esac
+}
 
 run() {
- local stage="$1"; shift
- echo "========== $stage ==========" | tee -a "$OUT/campaign.log"
- (cd "$ROOT" && "$@") 2>&1 | tee "$OUT/$stage.log"
- local code="${PIPESTATUS[0]}"
- if [[ "$code" == 0 ]]; then
-   printf '%s\tPASS\t0\n' "$stage" >> "$OUT/stages.tsv"
- else
-   printf '%s\tFAIL\t%s\n' "$stage" "$code" >> "$OUT/stages.tsv"
- fi
- echo "$stage exit=$code" | tee -a "$OUT/campaign.log"
+  local stage="$1"; shift
+  if already_completed "$stage"; then
+    echo "SKIP completed stage: $stage (saved evidence retained)" | tee -a "$OUT/campaign.log"
+    return 0
+  fi
+  echo "========== $stage ==========" | tee -a "$OUT/campaign.log"
+  (cd "$ROOT" && "$@") 2>&1 | tee "$OUT/$stage.log"
+  local code="${PIPESTATUS[0]}"
+  if [[ "$code" == 0 ]]; then
+    printf '%s\tPASS\t0\n' "$stage" >> "$OUT/stages.tsv"
+  else
+    printf '%s\tFAIL\t%s\n' "$stage" "$code" >> "$OUT/stages.tsv"
+  fi
+  echo "$stage exit=$code" | tee -a "$OUT/campaign.log"
 }
-{
- echo "Study: frozen 232-input champion real-step orientation/speed/height frontier"
- date -Is
- git -C "$ROOT" rev-parse HEAD
- git -C "$ROOT" status --short
- sha256sum "$ROOT/showcase/champion.emupolicy"
- python -c 'import jax,mujoco;print("JAX",jax.__version__,"MuJoCo",mujoco.__version__,"devices",jax.devices())'
- nvidia-smi --query-gpu=name,memory.total,memory.used,driver_version --format=csv,noheader 2>&1 || true
-} | tee "$OUT/environment.txt"
 
 run targeted_python_tests python -m pytest -q \
  tests/test_direction.py::test_v5018_stride_diagnostics_identifies_strict_gait_rejection_without_changing_pass \
@@ -69,7 +125,7 @@ step() {
   if [[ "$kp" == 0 ]]; then mode=off; fi
   local code_speed="${speed/./p}"
   local code_yaw="${yaw/-/m}"
-  code_yaw="${code_y/+/p}"
+  code_yaw="${code_yaw/+/p}"
   local stage="step_${h}mm_yaw${code_y}_speed${code_speed}_${mode}_seed${seed}"
   run "$stage" python "$ROOT/scripts/v5018_champion_step_pilot.py" \
     --height-mm "$h" --step-yaw-deg "$yaw" --speed "$speed" \
@@ -103,8 +159,7 @@ run aggregate_reports python "$ROOT/scripts/v5018_summarize_gait_and_step.py" "$
 
 echo "================== SUMMARY =================="
 cat "$OUT/stages.tsv"
-tar -czf "$OUT.tar.gz" -C "$BASE" "$(basename "$OUT")"
-echo "Archive: $OUT.tar.gz"
+echo "Archive will be finalized on exit: $OUT.tar.gz"
 echo "Records: $OUT"
 if grep -q $'\tFAIL\t' "$OUT/stages.tsv"; then
   echo "Some research stages failed; preserve the archive and diagnose separately."
