@@ -452,6 +452,10 @@ def diagnose_contact_stride_gate(body_xy, feet_xyz, contacts, *,
                    'toe_clearance_under_4mm': 0,
                    'foot_relocation_under_12mm': 0,
                    'body_motion_under_25mm': 0}
+        # Each completed real-contact airborne interval is retained for
+        # physical diagnostic plots and *candidate* gait classifications.
+        # No threshold is changed by recording these events.
+        observed_events = []
         start = None
         for k in range(max(1, settle_frames), n):
             if contacts_side[k-1] and not contacts_side[k]:
@@ -477,6 +481,15 @@ def diagnose_contact_stride_gate(body_xy, feet_xyz, contacts, *,
                     }
                     for name, bad in flags.items():
                         rejects[name] += int(bad)
+                    observed_events.append({
+                        'liftoff_frame': int(start),
+                        'touchdown_frame': int(k),
+                        'airborne_frames': int(air),
+                        'peak_clearance_mm': peak*1000.,
+                        'foot_displacement_mm': foot_path*1000.,
+                        'torso_displacement_mm': body_path*1000.,
+                        'strict_qualified': not any(flags.values()),
+                    })
                     qualifying += int(not any(flags.values()))
                 start = None
         per_foot.append({
@@ -491,6 +504,18 @@ def diagnose_contact_stride_gate(body_xy, feet_xyz, contacts, *,
             'max_foot_relocation_during_air_m': max_swing,
             'max_body_translation_during_air_m': max_body,
             'touchdown_rejections_nonexclusive': rejects,
+            'completed_airborne_events': observed_events,
+            'airborne_event_quantiles_mm': {
+                name: ({'p10': float(np.percentile(values, 10)),
+                        'median': float(np.median(values)),
+                        'p90': float(np.percentile(values, 90))}
+                       if len(values) else None)
+                for name, values in (
+                    ('torso_progress', [v['torso_displacement_mm'] for v in observed_events]),
+                    ('swing_foot_travel', [v['foot_displacement_mm'] for v in observed_events]),
+                    ('toe_clearance', [v['peak_clearance_mm'] for v in observed_events]),
+                )
+            },
         })
     return {
         'strict_completed_stride_pairs': int(strict_pairs),
