@@ -202,41 +202,165 @@ it isn't a certified held-out test result or physical hardware proof.
 
 ## What is measured and verified
 
-### Fresh WSL baseline
-- [x] Python **3.13.16**, MuJoCo/MJX **3.16.0**, JAX **0.12.0**, device **cuda:0**, from user-run v3 JSON.
-- [x] Initial clean install ran 78 Python tests: **73 passed, 5 failed, 24 warnings in 428.56 s**. All five failures traced to stale 120M/220-input protected policy assumptions; actual immutable showcase is 260,112,384-step **232-input schema-2** policy with checkpoint schema 8.
-- [~] Branch has reader + examiner support for both 220/232 and corrected test fixtures with schema/fingerprint validation. **The corrected full test suite has not been rerun and is not a PASS.**
-- [x] Showcase's embedded robot XML byte-for-byte matched the repository model during inspection. Its weights and `showcase/` have not changed.
+### P0 campaign — user-run archive at 08:18 AEDT, 20 October 2026
 
-- [x] Existing showcase policy was **reported by the user** to ascend/descend slopes of approximately 10° in the MuJoCo/WASM viewer. This is practical viewer experience; a controlled 10° held-out MJX/CPU exam and command-following retention threshold are **not yet measured**. Don't start the terrain curriculum by declaring mild slopes unlearned.
-- [~] A gyro-integrated heading-hold P-controller exists in earlier EMU code; matched frozen-champion heading ON/OFF slope/directional exams, no-detour corridor and anti-cheat crossing rewards are **design requirements**, not implemented/validated terrain success.
-- [~] Current branch has new `scripts/bootstrap_wsl_v5018.sh` and updated `docs/INSTALL.md` for fresh Ubuntu; the bootstrap script is **committed but not yet rerun clean-room**, so documentation does not constitute an installation PASS.
-- [!] User currently awaits the big `run_v5018_p0_campaign.sh` results. No uploaded stage archive exists in this conversation as of the 20 Oct documentation pass. **Do not re-run or `git pull` on that actively running source checkout** until its existing archive is preserved. Later doc-only commits cannot retroactively change the tested SHA.
+**Source actually tested:** `6a32841c73042ffa380d197e953f31b196f60857`,
+`feature/v5018-terrain-awareness`. **Archive:**
+`v5018_p0_20261020_081806.tar.gz`, including `environment.txt`,
+`stages.tsv`, JSON and per-stage logs. Do **not** claim the later
+documentation/test changes were present during this frozen-source run.
 
-### Collidable contact and ray physics (user-run v3 JSON)
-- [x] **5/5** contact cases with correct CPU and MJX geom pairs: flat, 30 mm raised box, 30 mm real lower landing, tilted box, low capsule log. CPU/MJX final centre-Z maximum discrepancy **0.000590 mm** (0.59 µm). This is constrained-ball resting position evidence, not gait/dynamic load agreement.
-- [x] **12/12** CPU `mj_ray` versus JAX plane/oriented-box/capsule first-hit distances matched within **0.000046 mm**. Includes actual step faces and both log top and log side. This uses collision primitives; no oracle heightfield shortcut. These rays still have idealized static extrinsics; sensor calibration/occlusion by robot limbs unmeasured.
-- [x] CPU contact support magnitudes near 0.0981 N for the 10 g sphere (incline ~0.1000 N). **MJX force equivalence is unmeasured.**
-- [x] Two spheres at separate X positions in the **same shared terrain topology** landed correctly on raised step and floor. **This does not establish varying geometry between worlds.**
+- [x] **12/13 campaign stages had successful exit codes**. PASS:
+  Python syntax compilation, npm ci, **12/12 browser tests**,
+  Vite production build, GPU doctor/PPO 220-input smoke, v3
+  static contact/rays, headless WASM/CPU comparison, moving impacts,
+  actual per-world `geom_pos` variance, scanner coverage, clearance
+  *kinematics* script and contact-loaded 256→2048 GPU stepping.
+  The **only failed campaign stage** was full Python regression.
+  NOTE: individual probe PASS != completion of hard P0 gates.
+- [!] Full Python suite at tested SHA: **76 passed, 2 failed, 60
+  warnings in 637.80 s**. Both failures are identified:
+  1. `tests/test_learning.py::test_training_config_roundtrip` imports
+     `scripts.smoke_training_lifecycle`, but the campaign launched pytest
+     with CWD outside the repo, hiding local `scripts` from the import path.
+  2. `tests/test_learning.py::test_v5016_schema8_viewer_bundle_roundtrip`
+     still expected schema-2/232 examiner loading to **raise**, even after
+     examiner support had been deliberately added. This was a stale
+     assertion, **not rejected sensor policy data**.
+  [~] Fixed the script's pytest CWD and changed the schema-2 test
+  to assert successful roundtrip plus *rejecting tampered measurement
+  clocks*. These fixes are **committed after the archive and have not yet
+  been executed**. No 78/78 claim until rerun.
+- [x] GPU environment: NVIDIA RTX 4060 Ti **8188 MiB**, Windows
+  driver **610.88**, JAX **0.12.0**, MuJoCo/MJX **3.16.0**,
+  Python **3.13.16**, `cuda:0`; Node **24.22.0**,
+  npm **11.19.1**. Initial `nvidia-smi` used **1820 MiB**.
+  JAX's `bytes_limit` **6,440,353,792** and allocator peak are
+  allocator scope, **NOT complete host+GPU memory accounting**.
+- [x] `emu doctor --v5015-smoke --domain-smoke` reported genuine
+  4-world 220-input PPO optimizer update + 11 fields, 8-world MJX
+  reset/step and randomization pass. **A dedicated 232-input PPO update
+  is still unrun**; next campaign uses `--v5016-smoke`.
 
-### Full EMU MJX GPU *stepping* (user-run 256/512 JSON)
-- [x] Native `sim2real_232` EMU environment completed **256** and **512** worlds on GPU in isolated subprocesses:
-  - 256 flat: **9,541 env-steps/s**; step geometry present: **9,717 env-steps/s**
-  - 512 flat: **15,290 env-steps/s**; step geometry present: **16,690 env-steps/s**
-- [!] Both configurations reported **zero contacts with the inserted step at the last frame**; these results only establish overhead of geometry presence in short 8-frame sequences, **not collision-loaded throughput**. Step and flat rewards matched; reward is not yet terrain-relative. The small apparent speed advantage is noise, not a physics optimization claim.
-- [x] Reported XLA allocator peak ~201.4 MB in all cases, `bytes_limit=6,440,353,792` bytes. This is **not** total VRAM usage and does not prove 2048-world training fits.
-- [ ] Quantify 1024 and 2048-world GPU stepping, **actual obstacle foot contacts**, VRAM and *PPO update* FPS independently.
+### Exact geometry, ray and impact evidence
 
-## Implemented in feature branch; **not yet executed**
+- [x] Constrained-ball five surface contacts flat/30mm step-up/true
+  30mm step-down/tilted ramp/capsule log agree CPU–MJX within
+  **0.000590 mm** final centre height. Not gait or load-bearing
+  force equivalence.
+- [x] All **12** idealized JAX analytic static-primitive first-hit
+  range comparisons agree with CPU MuJoCo `mj_ray`, worst
+  **0.000046 mm**, including vertical step risers and both log
+  top/side. This is *not* an actual mounted ToF module.
+- [x] **4/4** constrained moving ball-foot impact probes: slow,
+  fast toe strike, negative (high-clearance) control, and
+  vertical touchdown. CPU/MJX first impact **same 5-ms frame**,
+  maximum full-position trajectory mismatch **0.00221 mm**.
+  CPU impact-force magnitudes and integrated force proxy are
+  recorded, but **MJX physical force equality was not measured**.
+  Dynamic multibody balance, passive shins and load-bearing gait
+  remain unproven.
+- [x] Actually varying **static box position per MJX world**
+  using batched `geom_pos` passes: elevated/floor sphere heights
+  swap correctly. First compile+run **2.495 s**; second same-shape
+  call **0.352 s**. Does not prove arbitrary geometry dimensions,
+  topology or many-course throughput.
+- [x] Headless WASM **3.15.0** vs CPU MuJoCo **3.16.0**:
+  all five vertical-slider fixtures pass, resting-Z differences
+  at numerical-roundoff scale (`<2e-11 mm` reported). **Not**
+  six-servo trajectory/policy/browser parity.
+- [!] The dynamic moving-contact log contains initial JAX
+  allocation failures attempting **6.00, 5.40, 4.86, 4.37 GiB**
+  preallocations; JAX recovered and all probes produced valid
+  results. Avoid misreporting these recoverable warnings as a
+  completed memory feasibility proof or as fatal test failures.
 
-- [~] `scripts/v5018_dynamic_contact.py`: four genuine time-resolved moving-sphere controls (slow/fast step-face strikes, high-clearance no-hit control, vertical onto-top hit), first-impact timing, CPU impulse proxy, MJX contact flags. Constrained slider, no learned gait.
-- [~] `scripts/v5018_per_world_terrain.py`: vary actual `geom_pos` on two MJX worlds with identical collision topology; swap positions without changing compiled shape; CPU references. If unsupported, choose a small static course bank. Does not prove arbitrary mesh topology is cheap.
-- [~] `scripts/v5018_scanner_coverage.py`: CPU MuJoCo-first-hit two-lane forward scan over 3 chassis heights × 3 pitches × 3 rolls × 2 lanes and two beam proposals, with valid-range, riser/top hazard labels and first-detection lead. **Candidate beams only**, no physical module claim, and currently no articulated leg self-occlusion/noise.
-- [~] `scripts/v5018_clearance_envelope.py`: exploratory robot.xml FK of actuated joints, forward reach and rising foot relative to support under optimistic no-load speed limits; **not a dynamic clearance envelope or servo torque proof**.
-- [~] `scripts/v5018_batch_benchmark.py` now includes an added **'contact'** mode: a shallow 5 mm pad deliberately under the right ball foot, requiring true contact samples, and the earlier 'flat'/'step' controls; tests 256→512→1024→2048 while capacity allows. All three use the full robot environment; **not PPO update throughput or walk-over success**.
-- [~] `emu/viewer_src/scripts/v5018_wasm_contact.mjs`: headless actual MuJoCo/WASM 3.15.0 five-fixture final-height comparison to the CPU 3.16.0 JSON, preliminary engine-gap evidence only (not full browser/actor trajectory).
-- [x] Pinned the viewer's `@mujoco/mujoco` in **package.json and package-lock.json to 3.15.0**. This preserves the previous resolved wasm release and prevents future implicit `latest` drift; npm runtime regression remains untested.
-- [~] `scripts/run_v5018_p0_campaign.sh`: a **single local sequential campaign**: Python syntax/full regression, npm ci/tests/build, GPU doctor with a small real PPO-update smoke, v3 ray/contact, WASM check, moving impacts, heterogeneous-position MJX, sensor scanner, clearance FK, and 256→2048 native GPU benchmarks. Independent steps continue after failures; GPU batch escalation stops at first failing size. The script logs every exit and creates a compressed archive outside the source tree. **No campaign stages run by assistant** (local runtime lacks MuJoCo and network access).
+### Full 232-input robot, measured GPU environment-stepping throughput
+
+All 12 batch rows were reported PASS at the frozen source SHA.
+5 repeats of 8 control frames each, 256→2048 worlds; each
+flat/step/contact variant in a fresh subprocess. These are
+**simulation environment steps/sec, NOT PPO training/update FPS**.
+
+| Worlds | Flat FPS | Step ahead FPS (0 foot hits) | Shallow 5mm contact stress FPS |
+|---:|---:|---:|---:|
+| 256 | 8,190 | 5,248 | 5,197 |
+| 512 | 9,787 | 10,373 | 8,201 |
+| 1,024 | 16,666 | 15,150 | 19,556 |
+| 2,048 | **25,799** | **23,383** | **24,533** |
+
+- [x] The inserted *shallow contact pad* actually touched
+  ball feet in **2,026 / 4,051 / 8,110 / 16,240**
+  world-frame samples in the final repeat at
+  256/512/1024/2048 worlds, respectively. The 2048 contact
+  stress was approximately **4.9% slower** than flat in this
+  noisy short-run comparison. The *step ahead* had **zero**
+  contacts; its numbers only measure geometry-presence overhead.
+- [x] Reported XLA allocator peak for 2048 worlds **221–224 MB**,
+  but **must not be mistaken for GPU physical memory consumption**.
+  Full real PPO backward pass with actual complex courses and
+  memory margins is still required. The apparent anomalous cases
+  where contact is faster than flat are short-run timing
+  variability, **not an optimization discovery**.
+- [!] Current reward and swing/stance metrics still use legacy
+  flat-plane conventions. Positive reward here is **not**
+  evidence of an obstacle learnt or crossed.
+
+### Preliminary sensor footprint and mechanical reach
+
+- [x] In idealized static CPU geometric scans across 3 body
+  heights × 3 pitch × 3 roll × 2 lanes = **54 cases per design**:
+  single 45° beam: **54/54 detected**, minimum **136 mm**
+  first-detection lead (median **257 mm**); three beams
+  28°/43°/58°: **54/54 detected**, minimum **208 mm**
+  (median **364 mm**). Single-beam design had **3/54
+  cases without step-face hits** even though it saw the top;
+  three-angle design had some invalid/out-of-range beams
+  (~93.2% mean valid-ray fraction). **No moving-leg
+  occlusion, realistic beam footprint, noise, gyro/flow drift,
+  timestamp error or dropout**. `any_detection` cannot certify
+  correct step height or safe foothold preview.
+- [x] Exploratory torso-fixed leg forward-kinematics sampler,
+  2,500 poses per nominal unloaded speed window, found
+  forward-advancing ≥25mm joint poses with observed
+  **77/166/215/216 mm** maximum right-ball lift relative
+  to the nominal left foot for 0.08/0.16/0.32/0.60s.
+  **IMPORTANT: these are unconstrained optimistic kinematic
+  samples, NOT achievable stepping heights or safe obstacles.**
+  The model omits torque under load, stability, self-collision,
+  passive shin movement, battery response and servo lag.
+  Do **not** select a 100mm obstacle from these numbers.
+- [x] User reports existing showcase champion visibly walks
+  up and down ~10° slopes in the browser viewer. This is
+  valuable experience to **preserve**, not a matched physical
+  retained-skill exam. The normal examiner had a historical
+  5° cap. [~] Branch now has **opt-in read-only 10°/12°**
+  inclined-plane test allowance without broadening the
+  production/training 5° limit; awaiting local execution.
+
+### Next branch-only implementation (committed, not yet verified by WSL)
+
+- [~] Fixed the two pytest regressions **after** this archive.
+- [~] `scripts/run_v5018_frozen_champion_baseline.sh` now
+  schedules corrected targeted pytest, real **232-input PPO**
+  smoke and matched frozen-champion
+  **heading P-controller OFF/ON** 0° flat, real 10° uphill,
+  real 10° downhill, cross-left 10° (seeds 1701, 1702),
+  plus flat reverse and turn-stop. All independent outcomes,
+  hash-identified, no actor modification or long training.
+  This command is **not yet executed**.
+- [~] Added pure `emu/directional.py::examine_obstacle_crossing`
+  no-detour/two-foot-support evaluator and adversarial unit
+  examples (turn-around, backtracking, bypass, hover, long stall,
+  reset/teleport). **Only a scorer contract, not wired into
+  training or P1 terrain rewards.** Its new tests have not
+  yet been run, and P1 integration remains gated on P0.
+- [~] `scripts/bootstrap_wsl_v5018.sh` installs a blank Ubuntu
+  WSL Python 3.13 via uv, CUDA JAX, pinned npm/Node;
+  committed but **not separately rerun clean-room**.
+- [x] `@mujoco/mujoco` viewer pinned to npm package **3.15.0**
+  in manifest and lock; actual npm CI, **12 tests**, build
+  and minimal WASM fixture executed PASS in this archive.
 
 ## P0 blocking gates before schema freeze or PPO terrain training
 - [ ] Check *moving* collisions/toe strikes and actual contact/support force in MJX against CPU, not merely final sphere poses.
@@ -257,15 +381,41 @@ it isn't a certified held-out test result or physical hardware proof.
 - **P6:** Physical MuJoCo/WASM challenge courses, full-sensor consistency, preserve v5017 joystick/navigation/mobile.
 - **P7:** Independent validation/scoreboard and reviewed PR; **approval required** before main/showcase changes.
 
-## Run the combined local campaign
+## Next user-run: targeted champion heading + 232 PPO evidence
+
+After the frozen P0 campaign archive was **fully preserved**, the following
+starts the next independent read-only baseline experiment on the
+**updated branch** (not a rerun of the 2048-world P0 campaign):
 
 ```bash
 cd ~/emu-v5018
+git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_p0_campaign.sh
+bash scripts/run_v5018_frozen_champion_baseline.sh
 ```
 
-For a **future new campaign after the current run ends**, the command above starts a fresh experiment; don't run a second copy concurrently. The campaign saves logs, `stages.tsv` and JSON under `~/robot_lab/emu_experiments/v5018_p0_YYYYMMDD_HHMMSS/`, plus a matching `.tar.gz`. **Upload that archive** (including failures) for the next review. No long training campaign starts (the GPU doctor does execute a small PPO-update smoke); the script never modifies main or the protected showcase. Do not run alongside another GPU training job.
+Outputs are in `~/robot_lab/emu_exams/v5018_heading_YYYYMMDD_HHMMSS/`
+with `stages.tsv`, per-case controller OFF/ON reports, summary
+and matching `.tar.gz`; send the archive. This is
+**frozen-policy evaluation only**, with a small 232 PPO gradient smoke,
+no prolonged training. It covers the user's observed 10° viewer
+slope capability in a **different infinite inclined-plane test**,
+which must be labelled accordingly.
 
-**Next implementation decision:** after local results, choose the simplest proven course primitive family and batch ceiling, then close remaining P0 gates before implementing terrain truth in P1.
+The original 20 Oct P0 campaign used
+`bash scripts/run_v5018_p0_campaign.sh`. **Do not rerun that
+full campaign simply to resolve two stale tests.**
+Targeted regression execution will establish whether the fixes
+actually work. Preserve all source SHA/checkpoints and external
+archives. Runtime GPU OOM can require smaller independent exam
+world counts in a new output root, not silent protocol editing.
+
+**Post-exam engineering decision:** confirm at least a modest,
+repeatable flat/10° heading-and-walking baseline; then close
+remaining P0B **dynamic** servo-clearance, limb-occluded scanner
+footprints and identical six-servo MJX/CPU/WASM trajectory gap
+before wiring true stepped terrain and corrected support into
+P1. At present, the required ray/primitive family and 2048-world
+contact workloads are promising, but a terrain-trained actor,
+true crossing and safe hardware remain **unproved**.
