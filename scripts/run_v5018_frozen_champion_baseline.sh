@@ -59,7 +59,9 @@ run corrected_contracts python -m pytest -q \
  tests/test_learning.py::test_training_config_roundtrip \
  tests/test_learning.py::test_v5016_schema8_viewer_bundle_roundtrip \
  tests/test_direction.py::test_protected_export_reader_refuses_contract_and_actor_tampering \
- tests/test_direction.py::test_v5018_read_only_exam_allows_10deg_real_plane_but_not_training_or_tilted_gravity
+ tests/test_direction.py::test_v5018_read_only_exam_allows_10deg_real_plane_but_not_training_or_tilted_gravity \
+ tests/test_direction.py::test_v5018_crossing_gate_accepts_only_supported_world_fixed_crossings \
+ tests/test_direction.py::test_v5018_crossing_gate_rejects_incomplete_or_fabricated_support
 
 # The large P0 batch only ran the 220-input PPO smoke. Explicitly compile
 # and run the *232-input* opt-in PPO/update smoke before frozen exams.
