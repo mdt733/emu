@@ -98,114 +98,105 @@ grade that capability** rather than starting slopes at 1° as though
 nothing was learned. Viewer observation is meaningful, not a measured
 held-out contact-based training or hardware result.
 
-## The 20 Oct big campaign is finished — next continuation
+## Current tested evidence and next continuation
 
-**Provenance:** the uploaded `v5018_p0_20261020_081806.tar.gz`
-was created at **08:18 AEDT on 20 Oct** from branch commit
-`6a32841c73042ffa380d197e953f31b196f60857`. It is a real
-user-run GPU/CPU/WASM report. The subsequent documentation and
-test fixes are **later commits** and cannot be credited as tested.
+**First large P0 archive:**
+`v5018_p0_20261020_081806.tar.gz`, *tested commit*
+`6a32841c73042ffa380d197e953f31b196f60857`.
+**12/13 stages exited zero**, with one old Python regression stage
+76/78 tests passed and two stale/runner issues subsequently patched
+on the feature branch. Physically collidable plane/box/capsule
+contact/raycast checks passed, including both log-side and riser
+rays, moving ball-foot impacts, per-world obstacle pose variation,
+static WASM/CPU comparison, 12 browser tests and 2048-world actual
+foot-contact-loaded GPU **environment stepping** at approximately
+24,533 env-steps/s. **Not PPO training FPS, proof of locomotion
+over obstacles or real-hardware safety.**
 
-**Summary:** **12/13 campaign stages completed successfully**.
-Python suite **76/78 passed**, with two failures: Python tests
-were run outside the repository and could not import local
-`scripts.smoke_training_lifecycle`; an older test still expected
-the schema-2/232 exported policy to be refused by the examiner.
-Both have source fixes committed; updated regressions still require
-a local targeted run. Browser npm ci, 12/12 Node tests, Vite
-build, GPU doctor and actual 220-input PPO gradient smoke
-passed. The real **232-input** PPO update still needs its
-own smoke.
+**Second frozen-champion archive:**
+`v5018_heading_20261020_090712.tar.gz`, *tested commit*
+`d525ab662990405bc2ab6c8cd3e12cf14cdb60a7`,
+protected champion SHA-256
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+**11/12 independent stages exited zero**; the lone failure was a
+zero-course-axis exception message assertion, fixed on feature branch
+*after the run*. The previously missing **real 232-input PPO update
+smoke PASSED** (2 worlds, 2-frame rollout, one optimizer update).
+All **80/80** frozen-champion 350-frame simulator trajectories
+survived on matched real-plane flat/10° grades, reverse and turn
+courses, with outer heading hold OFF/ON. **None of those
+80 trajectories met the strict contact-qualified walking pass**,
+including flat, even though measurable locomotion occurred. This
+is NOT yet proof the actor doesn't walk; investigate the
+contact event detector and genuine swing-foot lift/path.
 
-**Physics:** all 5 stationary ball-foot collision cases and
-12 JAX-primitive vs CPU ray intersections passed; all 4
-moving toe/landing/clearance probes agreed on collision
-timing to the same 5ms step, with max position-trajectory
-difference about **0.0022 mm**. CPU versus headless
-MuJoCo/WASM ball-foot resting positions all passed;
-actual six-servo actor/browser trajectories remain untested.
-Batched MJX `geom_pos` changed actual box position per world
-correctly without recompilation on the same shape.
+Across matched seeds, OFF→ON `kp=.75` mean heading error:
+flat **12.5→3.7°**, 10° uphill **20.2→3.9°**,
+10° downhill **40.4→6.1°**, 10° cross-left **64.3→24.5°**.
+Heading P helps orientation but **no 10° run passed the strict
+course examiner**. The user previously saw 10° ascent/descent in
+the viewer; the simulator survival and visual observation are
+compatible with the new, more demanding failure on precise
+heading/progress/contact-qualified walking.
 
-**GPU:** real 232-input EMU `2048`-world
-**environment stepping** hit ~25,799 steps/s flat,
-~23,383 with forward step geom present (zero obstacle
-contacts), ~24,533 with *real ball-foot contacts* on a
-5mm pad (16,240 contact world-frames in the final
-8-frame repeat). Roughly **4.9% contact-stress
-slowdown** in this short noisy benchmark. This is
-**NOT PPO training FPS**, complete engine parity, full
-contact-force validation or a robot obstacle-crossing proof.
-The dynamic probe emitted recoverable JAX GPU preallocation
-OOM warnings but subsequently passed. Physical VRAM is
-not the same as JAX allocator's reported ~224MB peak.
+**Hardware-realism concern:** some frozen-policy trials
+spent **74–78%** of sampled servo channels above the *simulated*
+0.638 Nm nominal continuous torque reference, sometimes
+reaching the configured 1.913 Nm limit. This is a simulation
+effort warning **not a measured winding temperature/current
+or safe hardware duty cycle**. No physical hardware run is
+authorized by this work.
 
-**Scanners and mechanics:** 54/54 idealized static
-visibility conditions detected a test step for each of
-single-45° and three-zone beam configurations, with minimum
-lead 136mm and 208mm respectively. This does **NOT**
-address moving-leg occlusion, real ToF footprint/noise,
-timestamp drift/dropout or lane coverage under dynamic
-gait. A fixed-torso speed-limited random FK experiment
-recorded large potential relative swing-foot rises
-but ignored torque/support/safety; **do not choose obstacle
-heights from these numbers**.
+**New branch code after the heading archive (NOT YET RUN):**
+- Corrected the exception-message unit assertion.
+- Kept the existing conservative walking score intact and
+  added **reason-level diagnostic counts** for liftoff,
+  touchdown, airborne time, clearance, foot relocation and
+  torso progress in the read-only course evaluator, plus
+  focused synthetic tests.
+- Added a named obstacle-contact mask to
+  `ppo.evaluate_trace` for evaluation ONLY; actor input,
+  checkpoint shape, policy weights and reward functions
+  are unchanged.
+- Implemented an independent frozen-policy
+  `scripts/v5018_champion_step_pilot.py` that copies
+  the robot XML, adds physically collidable **5mm or 10mm**
+  steps (plus an off-course-box flat control), and scores
+  genuine 2-foot-plus-torso course completion inside a
+  world-fixed corridor, with actual ball-to-obstacle
+  contacts recorded. No training or auto-promotion.
+- Batched these into
+  `scripts/run_v5018_gait_and_step_pilot.sh`: target the
+  previous regression, collect exact stride rejection
+  evidence on flat/10° grades, run frozen actor ON/OFF
+  through small steps across two seeds, and generate a
+  `.tar.gz` and compact summary.
 
-**Branch changes after archive (all UNVERIFIED locally):**
-- Fixed the stale 232 actor loader roundtrip test, added
-  sensor timing tamper rejection, and made campaign
-  Python pytest run from the repository root.
-- Opted the read-only directional examiner into up to
-  **12° of actual inclined contact plane** while keeping
-  all existing training and gravity-equivalent slope caps
-  at 5° by default. This makes a first quantitative
-  10° retention exam possible.
-- Added independent
-  `scripts/run_v5018_frozen_champion_baseline.sh`:
-  corrected targeted regression checks, true 232-input
-  PPO gradient smoke, and matched frozen-champion heading
-  correction **OFF/ON** on flat, 10° up/down/cross
-  inclines (seeds 1701/1702) plus flat reverse/turn tests.
-  Writes a shareable archive outside Git; no long training.
-- Added a **pure evaluator** in
-  `emu/directional.py::examine_obstacle_crossing` and
-  adversarial unit tests. It scores signed forward
-  progress, fixed world corridor, both ball feet and
-  torso beyond the far edge, real subsequent foothold
-  support, completion runout, direction, and no
-  detours/falls/resets/teleports/long stalling.
-  **This is NOT integrated into PPO training or actual
-  step environment yet**, and the added unit tests
-  remain to be executed.
-
-**Next run on the current feature branch:**
+**NEXT USER-RUN after current branch update:**
 
 ```bash
 cd ~/emu-v5018
+git status --short
 git pull --ff-only origin feature/v5018-terrain-awareness
 source .venv/bin/activate
-bash scripts/run_v5018_frozen_champion_baseline.sh
+bash scripts/run_v5018_gait_and_step_pilot.sh
 ```
 
-The `~/robot_lab/emu_exams/v5018_heading_*.tar.gz`
-will include fresh post-fix targeted test results and
-the frozen actor's 10° physical heading comparison.
-**Upload it** to continue; do not spend another ten minutes
-rerunning the whole P0 campaign just to test two stale cases.
-The original command for a new full terrain feasibility
-campaign, if specifically necessary, remains
-`bash scripts/run_v5018_p0_campaign.sh`.
+Output: `~/robot_lab/emu_exams/v5018_gait_step_YYYYMMDD_HHMMSS.tar.gz`.
+Send that archive, even if a new probe fails. The new scripts
+are committed, not yet WSL-tested. **Do not rerun either
+previous big campaign** just to address a stale test message.
+The live detailed evidence and next gate status remain
+exclusively in `docs/V5018_TERRAIN_PLAN.md`.
 
-**Still blocking P0 completion:** realistic servo force
-and dynamic clearance under load, attached forward scanner
-occlusion/dropout/optical-flow motion compensation, 232
-PPO update and six-servo CPU/MJX/WASM command/contact parity,
-plus true collision/terrain-relative support and rewards
-before any terrain learning. The P0 primitive feasibility
-and GPU batch evidence are promising but do not close
-the entire gate. The **only authoritative up-to-date gate
-status and all detailed numbers** are in
-`docs/V5018_TERRAIN_PLAN.md`.
+**Still open:** dynamic servo under-load clearance, attached
+forward scanner moving-leg occlusion/dropout/odometry and
+full six-servo MJX–CPU–WASM commanded trajectory equivalence.
+The new step experiment is a **frozen-policy baseline**, not
+a newly trained terrain controller. The 220/232 exports are
+preserved; `terrain_312` is not frozen. No changes to main,
+showcase, Pages or a running GPU training process without
+explicit permission.
 
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
@@ -271,25 +262,31 @@ vertical slice → P4 reward/curriculum anti-cheat audit → P5 short
 matched GPU arms → P6 browser parity/challenge course → P7 release
 evidence and user-approved PR.**
 
-## Fresh-chat prompt (paste as-is)
+## Fresh-chat prompt
 
-> Continue EMU v5018 on `feature/v5018-terrain-awareness` in
-> https://github.com/mdt733/emu. Read
-> `docs/V5018_HANDOVER.md`, `docs/V5018_TERRAIN_PLAN.md` and
-> `docs/INSTALL.md` from the **current branch** first; inspect actual
-> branch HEAD, source and the newest test archive. The only living
-> checklist is `docs/V5018_TERRAIN_PLAN.md`. Work/test/commit/push
-> **only on this feature branch**; leave `main`, released champion,
-> Pages and any active WSL training untouched. The previous P0 v3
-> contact/ray probe passed; 256/512 environment-step benchmark passed
-> **without obstacle contacts**. The subsequent combined P0A/P0B
-> campaign was running; its results must be checked before any gate
-> promotion. Preserve the existing 220/232 actor and the viewer's
-> user-observed 10° slope ability. Next: interpret the campaign's
-> stage logs, fix actual failures, finish P0 gates, then build a
-> corridor/no-detour physical crossing evaluator with matched heading
-> assist ON/OFF before terrain training. Treat reward/scanner/PPO
-> success as hypotheses until physically measured. Update the one
-> branch checklist after each substantive pass and never claim
-> an unexecuted test passed. Do not ask me to repeat information
-> already captured in this handover.
+> Continue EMU v5018 exclusively on `feature/v5018-terrain-awareness`
+> at https://github.com/mdt733/emu. Read the actual
+> `docs/V5018_HANDOVER.md`, `docs/V5018_TERRAIN_PLAN.md`,
+> and `docs/INSTALL.md` from the *current feature-branch HEAD*.
+> The 20 Oct 08:18 big P0 and 09:07 frozen-champion heading
+> archives have been reviewed. Physical primitive collisions/rays
+> work at up to 2048 EMU GPU environments, but these are
+> NOT verified terrain walking; the frozen 232 champion's
+> 80 tests all survived while strict gait-qualified passes
+> remained zero, and heading P (.75) markedly reduced yaw
+> error. A real 232 PPO smoke passed. The currently
+> committed next test is
+> `bash scripts/run_v5018_gait_and_step_pilot.sh`,
+> producing strict stride-rejection diagnostics plus true
+> 0/5/10mm box-step no-detour exam JSON. No output has
+> been reviewed for this new script yet; interpret real
+> crossing scores rather than script exit status.
+> User observed 10° viewer slope capability; preserve it
+> while diagnosing actual controlled gait. Keep source
+> SHA and champion hash in every archive. Update only
+> the ONE living checklist `docs/V5018_TERRAIN_PLAN.md`.
+> Work/commit only on feature branch: never alter main,
+> showcase, Pages, or active training; do not freeze
+> terrain_312 until physical forward scanner studies;
+> do not claim unexecuted tests passed.
+
