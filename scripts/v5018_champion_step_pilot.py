@@ -197,9 +197,12 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                                          for r in per_world),
             'step_contact_world_frames':sum(
                 int(r.get('physical_step_contact_world_frames',0)) for r in per_world),
-            'mean_signed_progress_m':float(np.mean([
-                r['final_signed_progress_m'] for r in per_world
-                if 'final_signed_progress_m' in r])),
+            'mean_signed_progress_m':(
+                float(np.mean([
+                    r['final_signed_progress_m'] for r in per_world
+                    if 'final_signed_progress_m' in r]))
+                if any('final_signed_progress_m' in r for r in per_world)
+                else None),
             'per_world':per_world,
             'limitations':[
                 'World position and obstacle dimensions are fixed in this pilot.',
