@@ -586,6 +586,7 @@ def one_run_config(args) -> TrainingConfig:
     if box_height >= 0 and (grade != 0 or terrain_radius != 0):
         raise ValueError('v5018 P1 box course cannot mix with inclined/random terrain')
     adaptive_limit=int(getattr(args, 'terrain_height_ceiling_mm', 0))
+    adaptive_flat=bool(getattr(args, 'terrain_height_flat_control',False))
     exposure=float(getattr(args, 'terrain_height_exposure', .60))
     edge=float(getattr(args, 'terrain_height_edge_fraction', .35))
     grow=float(getattr(args, 'terrain_height_growth_mm', 1.))
@@ -602,7 +603,9 @@ def one_run_config(args) -> TrainingConfig:
     if not (.05 <= exposure <= .95 and .05 <= edge <= .95 and
             .1 <= grow <= 3. and 0. < initial <= 15.):
         raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
-    if adaptive_limit and (box_height >= 0 or grade > 0 or terrain_radius > 0 or
+    if adaptive_flat and adaptive_limit:
+        raise ValueError('adaptive flat control must have zero height ceiling')
+    if (adaptive_limit or adaptive_flat) and (box_height >= 0 or grade > 0 or terrain_radius > 0 or
                            args.profile != 'sim2real' or not sensor_actor):
         raise ValueError('adaptive terrain requires sim2real + sensor actor and no static box/slopes')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
@@ -610,6 +613,7 @@ def one_run_config(args) -> TrainingConfig:
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,terrain_box_height_mm=box_height,
                    terrain_height_safety_m=adaptive_limit / 1000.,
+                   terrain_adaptive_flat_control=adaptive_flat,
                    terrain_height_initial_m=min(initial, adaptive_limit if adaptive_limit else initial) / 1000.,
                    terrain_height_exposure=exposure,
                    terrain_height_edge_fraction=edge,
