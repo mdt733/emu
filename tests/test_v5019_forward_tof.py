@@ -88,6 +88,8 @@ def test_historical_232_manifest_unchanged_and_new_280_distinct():
     assert "forward_model_revision" not in old
     assert OBS_DIM == 220 and SENSOR_OBS_DIM == 232 and PREVIEW_OBS_DIM == 280
     assert len(PREVIEW_OBS_FIELDS) == 70
+    assert all(x.startswith("forward_range_") for x in PREVIEW_OBS_FIELDS[58:64])
+    assert all(x.startswith("forward_valid_") for x in PREVIEW_OBS_FIELDS[64:70])
     visible = sensor_observation_contract(schema=OBS_SCHEMA_PREVIEW)
     masked = sensor_observation_contract(schema=OBS_SCHEMA_PREVIEW, preview_masked=True)
     assert visible["sha256"] != masked["sha256"] != old["sha256"]
@@ -119,6 +121,11 @@ def test_jax_six_ray_shape_and_two_world_actor_packets():
         params = env.params_array({"frontier_terrain_height_m":.05})
         st, obs = env.reset(params)
         assert obs.shape == (2,280)
+        # A visible preview must actually fill the input slots before PPO
+        # starts; shape-only acceptance would miss twelve always-zero inputs.
+        obs_host = np.asarray(jax.device_get(obs))
+        assert np.any(obs_host[:, -12:-6] > 0.)
+        assert np.any(obs_host[:, -6:] > 0.)
         out = env.step(st, jnp.zeros((2,6),dtype=jnp.float32), params)
         assert out.obs.shape == (2,280)
         assert np.asarray(jax.device_get(out.obs)).shape == (2,280)
