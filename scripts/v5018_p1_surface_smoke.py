@@ -146,7 +146,6 @@ def main():
         # kinematics near the obstacle, without introducing a trained actor.
         step=collidable_course(Path(ROBOT_XML),Path(tmp)/'step.xml',10)
         challenge=EmuMJXEnv(str(step),terrain_contact_mode='box_surface',**base)
-        params=challenge.params_array({})
         state,_=challenge.reset({})
         q=state.data.qpos
         # Shift base horizontally above box. This is a PROBE fixture only:
@@ -157,10 +156,13 @@ def main():
         # MuJoCo 3.16 removed/does not expose Data._replace.
         d=state.data.replace(qpos=q)
         d=challenge.forward_batched(challenge.mjx_model,d)
-        from emu.environment import CONTROL_DT
         zeros=jnp.zeros((args.worlds,6),dtype=jnp.float32)
+        # This test TELEPORTS the base solely to probe collision geometry.
+        # Its "previous foot" must refer to the same translated pose:
+        # otherwise slip=(0.20m/0.02s) is a fabricated 10m/s stance.
+        settled_foot_positions=d.xpos[:,challenge.foot_bodies,:]
         m=challenge._metrics(d,state.task,zeros,state.prev_action,
-                             state.phase,state.prev_foot_pos)
+                             state.phase,settled_foot_positions)
         if not np.all(np.isfinite(np.asarray(m['height']))):
             raise RuntimeError('active terrain height is not finite')
         active=np.asarray(m['terrain_geometry_active'])
@@ -172,9 +174,28 @@ def main():
             val=np.asarray(m[name])
             if val.shape!=(args.worlds,) or not np.isfinite(val).all():
                 raise RuntimeError(f'Invalid terrain metric {name}: {val}')
+        # A coordinate in the box footprint is NOT proof that the foot
+        # actually touched the box. Record genuinely paired MJX contact
+        # candidates separately before any claim about physics support.
+        top=np.asarray(m['terrain_top_contact_fraction'])
+        riser=np.asarray(m['terrain_riser_contact_fraction'])
+        pair_contact=top+riser
         report['near_box_geometry_active_worlds']=int(np.sum(active>.5))
+        report['worlds_with_box_contact_pair']=int(np.sum(pair_contact>0))
+        report['top_contact_candidate_fraction_per_world']=top.tolist()
+        report['riser_contact_fraction_per_world']=riser.tolist()
+        report['terrain_support_fraction_per_world']=np.asarray(
+            m['support']).tolist()
+        report['terrain_stance_slip_per_world']=np.asarray(
+            m['stance_slip']).tolist()
+        report['terrain_signed_min_toe_gap_per_world']=np.asarray(
+            m['terrain_min_signed_toe_clearance']).tolist()
         report['new_metrics_finite']=True
         report['terrain_box_sha256']=hashlib.sha256(step.read_bytes()).hexdigest()
+        if not np.any(pair_contact>0):
+            stop_with_report(
+                'Robot was over the obstacle but no REAL sphere/box MJX '
+                'contact pair was observed; cannot certify active P1 collision')
 
     report['status']='PASS'
     args.output.parent.mkdir(parents=True,exist_ok=True)
