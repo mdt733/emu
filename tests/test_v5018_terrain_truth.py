@@ -172,3 +172,22 @@ def test_horizontal_normal_alone_does_not_prove_contact_at_top_face():
     jit_result=jax.jit(lambda:box_surface_truth(jnp,**args))()
     assert not bool(np.asarray(jit_result['foot_top_contact_candidate'])[0,0])
     assert bool(np.asarray(jit_result['foot_riser_contact'])[0,0])
+
+
+def test_close_but_positive_contact_gap_is_not_stance_support():
+    # Another old false-positive: MuJoCo's collision candidate buffer can
+    # report a pair within +2mm before it is actually touching.
+    # With zero geom margin/gap, positive signed separation has no
+    # load-bearing contact force. It must not earn support/slip credit.
+    x=fixture()
+    x['contact_distance'][0,0]=+.001
+    x['contact_distance'][0,1]=+.001
+    x['contact_distance'][1,0]=+.001
+    y=box_surface_truth(np,**x)
+    assert not bool(np.any(y['foot_supported_candidate']))
+    assert y['support_fraction'].tolist()==[0.,0.]
+    assert not bool(np.any(y['foot_top_contact_candidate']))
+    assert not bool(np.any(y['foot_floor_contact_candidate']))
+    # Exact geometric touching may still be a candidate (NOT force).
+    x=fixture()
+    assert bool(box_surface_truth(np,**x)['foot_top_contact_candidate'][0,0])
