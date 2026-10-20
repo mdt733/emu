@@ -26,7 +26,7 @@ from emu.terrain import collidable_course
 
 def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         horizon: int, output: Path, *, step_yaw_deg: float = 0.,
-        speed_m_s: float = .10):
+        speed_m_s: float = .10, policy_file: Path | None = None):
     # configure_jax before importing jax directly
     from emu.ppo import configure_jax, require_backend
     configure_jax('cuda')
@@ -43,12 +43,17 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
     from emu.evaluation import evaluate_trace_arrays
     require_backend(False)
 
-    policy = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    default_policy = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    policy = default_policy if policy_file is None else Path(policy_file).expanduser().resolve()
+    if not policy.is_file():
+        raise FileNotFoundError(f'policy file does not exist: {policy}')
     actor, normalizer, export = load_exported_actor_for_exam(policy)
     if export['observation_schema'] != OBS_SCHEMA_SENSOR:
         raise ValueError('pilot requires the immutable schema-2 232 actor')
-    if export['source']['step'] != 260112384:
+    if policy_file is None and export['source']['step'] != 260112384:
         raise ValueError('unexpected protected policy training lineage')
+    # Explicit --policy accepts independent 232-input research exports;
+    # they must still prove the exact sensor contract inside this examiner.
     settings = export['sensor_contract']['settings']
 
     with tempfile.TemporaryDirectory(prefix='emu5018_pilot_') as tmp:
@@ -191,7 +196,7 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             })
             per_world.append(result)
         result = {
-            'schema':1, 'study':'read_only_frozen_champion_low_step_pilot',
+            'schema':1, 'study':'read_only_low_step_policy_exam',
             'step_height_mm':height_mm,
             'flat_control_off_course_box':height_mm==0,
             'worlds':worlds,'horizon':horizon,'seed':seed,
@@ -252,6 +257,8 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20],required=True)
+    p.add_argument('--policy',type=Path,default=None,
+                   help='optional independent 232-input .emupolicy; default protected 260M frozen champion')
     p.add_argument('--step-yaw-deg',type=float,default=0.)
     p.add_argument('--speed',type=float,default=.10)
     p.add_argument('--heading-kp',type=float,choices=[0.,.75],required=True)
@@ -267,7 +274,7 @@ def main():
     if not math.isfinite(a.speed) or not .05<=a.speed<=.18:
         p.error('physical pilot speed must be between .05 and .18 m/s')
     run(a.height_mm,a.heading_kp,a.seed,a.worlds,a.horizon,a.output,
-        step_yaw_deg=a.step_yaw_deg,speed_m_s=a.speed)
+        step_yaw_deg=a.step_yaw_deg,speed_m_s=a.speed,policy_file=a.policy)
 
 
 if __name__ == '__main__':
