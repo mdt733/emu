@@ -1,6 +1,6 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
+**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1 single-box code committed, local GPU acceptance pending; P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
@@ -989,39 +989,46 @@ optional cold-start full PPO lifecycle proof is
 `scripts/run_v5018_cold_start_acceptance.sh` (also not yet run);
 it does not need the champion.
 
-## Next engineering work — terrain truth with two equal training paths
+## Next engineering work — validate P1, then expand carefully
 
-The 34/34 frontier and 5/5 focused gait-v2/10mm repeat campaigns
-have finished. **Do not repeat either GPU batch.** The
-optional `scripts/run_v5018_cold_start_acceptance.sh`
-is now available, **committed but not yet run on WSL**.
-It tests *one-update lifecycle*, not 20M-step walking, for
-220 and 232 actors completely without a pretrained policy.
-This does not need to interrupt the current experimental
-champion-based work.
+The 34/34 frontier and 5/5 gait-v2/10mm repeat campaigns
+are complete. **Do not repeat those runs.** The first
+bounded P1 contact-geometry implementation is now committed
+(see the 13:08 implementation section above), **but it has not
+been validated on the user's GPU**.
 
-**Next actual code pass:** add an opt-in actual-collision
-terrain-surface/support and reward-only height/stance-slip
-measurement path. Prove the old flat-world *reward outputs*
-remain numerically unchanged at default mode, and that
-real 5/10/20mm boxes distinguish top load-bearing contacts
-from vertical riser/side contacts and free-swing clearance.
-The teacher can use simulator truth, but it must not leak
-into either deployable 220/232 actor observation. Audit the
-frozen champion on flat vs collidable step with unchanged
-instructions and archive matched source/policy identities.
+**Immediate gate:** execute
+`bash scripts/run_v5018_p1_terrain_acceptance.sh`.
+If flat reward parity or physical top/riser JAX probes fail,
+repair the exact defect on this feature branch and keep
+the strict flat-control and no-leakage requirements.
+Then independently test the frozen champion using the
+same obstacle XML with terrain-mode OFF and ON; verify
+reward/support/clearance diagnostics, physical toe/box
+contact geometry and direction following, while
+holding policy/commands/seed fixed.
 
-Then test real moving-leg forward-beam occlusion, hit type,
-sample delay/dropout and motion compensation before deciding
-terrain memory size. The first PPO terrain branch may use
-the frozen champion for research **only if input schema is
-compatible and no secret terrain truth is supplied**;
-the official training system must also create the same
-network from fresh random seed and progress through
-capability-based lessons on flat, slopes and obstacles.
+**Next engineering pass:** extend terrain physics from a
+single fixed box to genuine floor/step-down, ramps and
+capsule logs with per-world geometry where supported.
+Correct body-low and fall proxies relative to local
+support geometry, then model the forward-looking
+ToF ray path through moving legs and add plausible
+foot/terrain visibility confidence, acquisition cadence,
+latency, dropout and flow compensation. Neither
+privileged height nor box ID may become an actor input
+without a simulated, actually measurable sensor path.
 
-**Current open gates:** dynamic under-load actuator
-clearance/power, sensor occlusion/timing, identical actual
-six-servo CPU–MJX–WASM trajectory parity. New
-terrain observation dimension/schema remains UNFROZEN;
-do not treat a proposed 312-input actor as implemented.
+**Eventually** compare controlled warm-start research
+arms against a separately accepted, from-zero
+random-network foundation + curriculum path. The
+new 220/232 no-champion lifecycle script exists but
+its real WSL PPO smoke remains unexecuted.
+Do not make terrain learning require it or a
+private checkpoint.
+
+**Still blocked:** motor thermal/torque load under
+real contact; scanner occlusion/timing; CPU–MJX–WASM
+six-servo contact equivalence; automatic terrain
+difficulty progression; a frozen/deployable expanded
+observation schema. No `main` or champion changes.
