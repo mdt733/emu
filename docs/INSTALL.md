@@ -122,6 +122,89 @@ Local viewer: `emu viewer-build` then `emu viewer --help`
 (for available arguments); the local read-only server uses
 `http://127.0.0.1:8765/` and is **not remotely authenticated**.
 
+### v5018 physical challenge-ring viewer (feature branch only)
+
+**After pulling `feature/v5018-terrain-awareness`**, the
+viewer has a separate *physical MuJoCo/WASM* course option,
+not just graphical obstacles. Keep Node 24 from nvm,
+the pinned `@mujoco/mujoco` 3.15.0 package and the
+existing `package-lock.json`; do not use the browser
+as evidence of Python/MJX force equivalence.
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+export NVM_DIR="$HOME/.nvm"
+[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+
+# Capture reproducible syntax/Node, MuJoCo-WASM real physical
+# box+capsule collision, Vite build and local viewer install:
+bash scripts/run_v5018_viewer_course_acceptance.sh
+
+# Then serve a COPY of the protected 260M champion read-only:
+emu viewer showcase/champion.emupolicy --no-open
+# Open http://127.0.0.1:8765/ in your Windows browser.
+```
+
+Viewer settings drawer → Terrain → **Challenge ring**.
+Obstacles are exactly on the original 4m circle:
+green 5mm, blue 10mm, amber 15mm,
+pink 20mm; orange capsule logs are **experimental**
+and no trained-log skill is claimed. The selected
+step tier is **manual**, not a fabricated learned
+capability inferred from training step count.
+The floating labels and coloured station halos
+are render-only; the small physical boxes/logs
+beneath them are collidable MuJoCo geometry.
+
+In Demo controls choose **Random destinations** for the
+old behaviour, or **Challenge circuit** to visit
+each station's entry and far-side exit waypoints
+around the ring, reusing exactly the existing
+pose planner and six-servo neural commands.
+Manual touch/WASD still overrides autonomy.
+This circuit is an informal demonstration—not
+the strict world-fixed no-detour physical exam.
+
+**Local live training:** after you have an actual
+trainer *currently publishing validated checkpoint
+files* to an explicit run root:
+
+```bash
+emu viewer --live --root "/absolute/path/to/that/existing/run/root" --no-open
+```
+
+The existing local viewer polls for **completed validated**
+checkpoints and replays their exported policies in the
+browser. It **does not follow MJX GPU world positions
+frame-by-frame**, does not act on the PPO training job
+and does not require the protected champion to exist.
+Live autoswap preserves selected terrain and demo mode
+where the model/observer contracts permit it.
+Never expose the unauthenticated local-only viewer
+port publicly. The changed UI is **not published on
+GitHub Pages** until separately approved.
+
+**Independent v5018 P1 code test:** the new opt-in
+`terrain_contact_mode='box_surface'` on the
+Python/MJX simulator has separate acceptance:
+
+```bash
+bash scripts/run_v5018_p1_terrain_acceptance.sh
+```
+
+In the user's 20 Oct 13:45 archived first attempt,
+12 fast Python tests passed but actual CUDA/MJX
+**bitwise actor-observation equality failed**.
+The subsequent instrumentation adds per-frame,
+per-channel difference logging and allows ONLY
+tiny float32 actor-observation numerical tolerance
+while keeping scalar reward equality exact.
+This is **not verified by a rerun yet**;
+keep the new P1 and browser acceptance archives
+distinct so one failure doesn't conceal another.
+
 ### The v5018 P0 experimental campaign and evidence
 
 ```bash
