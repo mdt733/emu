@@ -585,7 +585,7 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     box_raw=getattr(args,'terrain_box_height_mm',None)
     box_height=-1 if box_raw is None else box_raw
-    if type(box_height) is not int or box_height not in (-1,0,5,10):
+    if type(box_height) is not int or box_height not in (-1,0,5,10,15,20,30,40,50):
         raise ValueError('v5018 terrain box height must be absent, 0, 5 or 10mm')
     if box_height >= 0 and (args.profile != 'sim2real' or not sensor_actor):
         raise ValueError('terrain box PPO research requires sim2real and --sensor-actor')
