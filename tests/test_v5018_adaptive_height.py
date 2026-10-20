@@ -28,7 +28,8 @@ def test_continuous_birth_height_has_flat_interior_and_edge():
 
 
 def test_physical_frontier_never_advances_from_no_contact_or_reward():
-    evidence = dict(terrain_edge_exposure=.20, terrain_edge_crossing=.6,
+    evidence = dict(terrain_edge_exposure=.20, terrain_edge_completed_fraction=.01,
+                    terrain_edge_crossing=.6,
                     terrain_edge_fall_rate=.08, terrain_edge_contact=.01)
     upper = .08
     new, why = next_height_frontier(upper, evidence, safety_m=.15, growth_m=.001)
