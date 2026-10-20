@@ -50,7 +50,7 @@ test('step boxes and experimental capsule logs are physical worldbody MuJoCo geo
   assert.equal((out.match(/name="viewer_challenge_log_/g)||[]).length,2);
   assert.match(out,/type="box"/);
   assert.match(out,/type="capsule"/);
-  assert.match(out,/fromto="[^"]+" size="0.010"/);
+  assert.match(out,/fromto="[^"]+"\\s+size="0\\.010"/);
   assert.match(visibleChallengeLabel(course),/unproven logs/);
   assert.match(out,/friction="1\.5/);
   // Original physical floor is still present, unlike the park heightfield.
