@@ -478,7 +478,9 @@ export class GoalNavigator {
     // Standing while waiting avoids making an asynchronous plan stale.
     if(!this.goal){
       if(this.pendingRequest){
-        this.reason='Background route search';
+        this.reason=this.circuitWaypoints
+          ? 'Circuit · planning fixed waypoint'
+          : 'Background random-target search';
         apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
       if(this.searchCooldown>0){
