@@ -90,7 +90,7 @@ export function challengeProbe(station,groundHeightAt=()=>0,part='top'){
     if(part==='ramp') {forward=.30;topOffset=station.heightMm/1000*(.68-.30)/(.68+.06);}
     else forward=-.20;
   }else if(station.kind==='step_down'){
-    if(part==='ramp') {forward=-.30;topOffset=station.heightMm/1000*(.30+.68)/(.68+.06);}
+    if(part==='ramp') {forward=-.30;topOffset=station.heightMm/1000*(-.30+.68)/(.68+.06);}
     else forward=.20;
   }else if(station.kind==='log'){
     topOffset=station.heightMm/1000; // cylinder centre is buried at ground Z
