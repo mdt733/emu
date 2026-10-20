@@ -231,6 +231,13 @@ def next_height_frontier(current_m: float, row: dict, *, safety_m: float,
         except (ValueError, TypeError, KeyError):
             return None
     exposure = measured('terrain_edge_exposure')
+    completed = measured('terrain_edge_completed_fraction')
+    # PPO rollouts contain many frames from the same episode. A single
+    # lucky terminal must not promote a physical frontier. At 1024 worlds
+    # and 32 control frames, this requires at least ~7 completed edge
+    # episodes before a height decision; all sparse/unknown data holds.
+    if completed is None or completed < .0002:
+        return current_m, 'hold_insufficient_completed_episodes'
     arrival = measured('terrain_edge_crossing')
     falls = measured('terrain_edge_fall_rate')
     contact = measured('terrain_edge_contact')
