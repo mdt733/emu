@@ -288,6 +288,8 @@ export class EmuBrowserSim {
     }
     this.arenaCircle.geometry.dispose();
     this.arenaCircle.material.dispose();
+    this.circuitPath.geometry.dispose();
+    this.circuitPath.material.dispose();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
@@ -569,6 +571,18 @@ export class EmuBrowserSim {
                                    opacity:.46,depthWrite:false}));
     this.arenaCircle.renderOrder=7;
     this.scene.add(this.arenaCircle);
+    // Entire planned obstacle circuit is visible *before* the first
+    // asynchronous waypoint is found. Unlike the single-leg routeLine,
+    // this makes it impossible to mistake the circle for random targets.
+    this.circuitPath=new THREE.LineLoop(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color:0x19e9c9,transparent:true,opacity:.95,
+        depthWrite:false,depthTest:true,
+      }));
+    this.circuitPath.renderOrder=8;
+    this.circuitPath.visible=false;
+    this.scene.add(this.circuitPath);
     this.navGoalSeen=null;this.navRouteSeen=null;
     this.clearNavigationOverlay();
   }
@@ -579,6 +593,20 @@ export class EmuBrowserSim {
     this.routeLine.visible=false;
     this.arenaCircle.visible=false;
     this.navGoalSeen=null;this.navRouteSeen=null;
+  }
+
+  setChallengeCircuitOverlay(waypoints=null){
+    if(!waypoints?.length){
+      this.circuitPath.visible=false;
+      return;
+    }
+    // Waypoints follow the same real collision-backed park heights as
+    // the robot, with modest Z lift so the guide stays visible in grass.
+    const points=waypoints.map(p=>new THREE.Vector3(
+      p.x,p.y,this.terrainHeightAt(p.x,p.y)+.07));
+    this.circuitPath.geometry.dispose();
+    this.circuitPath.geometry=new THREE.BufferGeometry().setFromPoints(points);
+    this.circuitPath.visible=true;
   }
 
   setNavigationOverlay(goal,route) {
