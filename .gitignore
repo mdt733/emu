@@ -40,3 +40,11 @@ __pycache__/
 /emu/viewer_src/public/
 /showcase/preview/
 !/showcase/champion.emupolicy
+
+# v5018 one-off local measurement JSON generated in the checkout by early
+# feasibility probes. Ignore, NEVER delete/move existing user results.
+# Raw experiments should normally be written to ~/robot_lab/emu_exams/.
+# Untracked raw JSON previously marked the source checkout "dirty" and
+# blocked the reproducible cold-start emu train entrypoint.
+/emu_v5018_batch_*.json
+/v5018_p0a_spike*_results.json
