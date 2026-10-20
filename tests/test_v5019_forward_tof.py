@@ -15,10 +15,15 @@ from emu.contracts import (
 from emu.training_config import TrainingConfig, training_sensor_contract
 
 
-def rays(x, *, height=.0, rotated=False):
+def rays(x, *, height=.0, rotated=False, yaw_deg=0., pitch_deg=0.):
     n = len(x)
     torso = np.column_stack((np.asarray(x), np.zeros(n), np.full(n,.2584)))
-    rotation = np.tile(np.eye(3), (n,1,1))
+    yaw, pitch = np.deg2rad([yaw_deg, pitch_deg])
+    rz = np.array([[np.cos(yaw),-np.sin(yaw),0.],
+                   [np.sin(yaw), np.cos(yaw),0.],[0.,0.,1.]])
+    ry = np.array([[np.cos(pitch),0.,np.sin(pitch)],
+                   [0.,1.,0.],[-np.sin(pitch),0.,np.cos(pitch)]])
+    rotation = np.tile(rz @ ry, (n,1,1))
     floor = np.zeros((n,3))
     normal = np.tile(np.asarray((0.,0.,1.)), (n,1))
     if height:
@@ -37,14 +42,28 @@ def rays(x, *, height=.0, rotated=False):
 def test_measured_six_beam_shapes_and_far_obstacle_is_not_oracle():
     assert len(FORWARD_MOUNTS_BODY_M) == 6
     assert len(FORWARD_DIRECTIONS_BODY) == 6
-    flat, valid = rays([0.,.04])
+    flat, valid = rays([-.20,.04])
     assert flat.shape == valid.shape == (2,6)
     assert valid.all()
-    far, far_valid = rays([0.,.04], height=.05)
+    far, far_valid = rays([-.20,.04], height=.05)
     assert far_valid.all()
     assert np.allclose(far[0], flat[0], atol=1e-5)
-    # World 2 has stepped forward; now the long beam strikes a 50mm top.
+    # The far world is out of view; at the approach, the outer ray
+    # now detects an obstacle before it reaches the feet.
     assert np.any(far[1] < flat[1] - .015), (far, flat)
+
+
+def test_forward_preview_survives_heading_and_body_pitch():
+    # Regression for the original 15cm beam: at even +5deg one nominal
+    # long ray stopped seeing a 40mm step in the +X course. All combinations
+    # below need at least one *actual physical first-hit* ray, not guessed
+    # proximity or reward logic.
+    for yaw in (-10.,0.,10.):
+        for pitch in (-10.,0.,10.):
+            flat, valid = rays([.04], yaw_deg=yaw, pitch_deg=pitch)
+            step, seen = rays([.04], height=.04, yaw_deg=yaw, pitch_deg=pitch)
+            assert valid.any() and seen.any()
+            assert np.any((flat - step) > .010), (yaw,pitch,flat,step)
 
 
 def test_height_is_inverted_from_ranges_not_known_box_height():
