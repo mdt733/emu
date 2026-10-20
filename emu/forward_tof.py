@@ -27,6 +27,7 @@ FORWARD_MIN_RANGE_M = .035
 FORWARD_MAX_RANGE_M = .60
 FORWARD_NOISE_STD_M = .0015
 FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
+FORWARD_NOISE_RANGE_FACTOR = .5  # sigma rises gently with slant range
 FORWARD_PROFILE_CLIP_M = .15
 FORWARD_MODEL_REVISION = "two_three_zone_raw_slant_ranges_plane_box_v2"
 
@@ -86,7 +87,9 @@ def first_hit_ranges(xp, torso_xyz, body_rotation, floor_origin, floor_normal,
         box_t = xp.where(valid, entry, xp.inf)
         plane_t = xp.minimum(plane_t, box_t)
 
-    ranges = plane_t if errors_m is None else plane_t + xp.asarray(errors_m)
+    ranges = (plane_t if errors_m is None else plane_t + xp.asarray(errors_m) *
+              (1. + FORWARD_NOISE_RANGE_FACTOR *
+               xp.clip(plane_t / FORWARD_MAX_RANGE_M, 0., 1.)))
     valid = (xp.isfinite(ranges) & (ranges >= FORWARD_MIN_RANGE_M) &
              (ranges <= FORWARD_MAX_RANGE_M))
     return xp.where(valid, ranges, 0.), valid
