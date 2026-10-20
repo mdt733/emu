@@ -2180,48 +2180,74 @@ class EmuMJXEnv(TaskSampler):
                 (history[:, 1:, ...], value[:, None, ...]), axis=1),
             state.samples, latest)
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
-            # The spatial memory is advanced on EVERY control frame from
-            # flow+gyro measurements, NOT simulator qvel or exact root pose.
-            temp = RollingSensorState(
-                queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s,
-                state.terrain_heights, state.terrain_confidences,
-                state.last_inserted_scan)
-            gravity_body, _, _ = self._body_packets(data)
-            measured = self._sensor_readout(temp,gravity_body)
-            vx = measured['velocity_body_xy_mps'][:,0]
-            vy = measured['velocity_body_xy_mps'][:,1]
-            yaw = measured['measured_gyro_body_rad_s'][:,2]
-            flow_conf = measured['velocity_confidence']
-            heights, conf = advance_map(
-                jnp, state.terrain_heights, state.terrain_confidences,
-                vx, vy, yaw, flow_conf)
-            tf = HISTORY_LEN-1-self.tof_delay_frames
-            delayed = queued
-            tripod_ranges = delayed.tof_ranges_m[:,tf,:]
-            tripod_fit = fit_tripod_ground(
-                jnp, tripod_ranges, gravity_body)
-            tripod_valid = (tripod_fit['valid'] &
-                            jnp.all(delayed.tof_beam_valid[:,tf,:],axis=1))
-            mx, mh, mvalid = measured_height_and_x(
-                jnp, delayed.forward_ranges_m[:,tf,:],
-                delayed.forward_valid[:,tf,:], tripod_ranges,
-                tripod_fit['ground_normal_body'],tripod_valid,
-                mounts_body=FORWARD_MOUNTS_BODY_M,
-                beams_body=FORWARD_DIRECTIONS_BODY,
-                tripod_mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
-                tripod_beams_body=TOF_TRIPOD_BEAMS_BODY)
-            # A held 25Hz sample must be inserted EXACTLY ONCE, even
-            # though the 50Hz JAX policy runs between acquisitions.
-            seq=step-delayed.tof_age_frames[:,tf]-self.tof_delay_frames
-            fresh = seq != state.last_inserted_scan
-            # Compensate the delayed camera sample's forward position.
-            age_s=self.tof_delay_frames*CONTROL_DT
-            mx=mx-(vx[:,None]-yaw[:,None]*jnp.asarray((-.05,.05))[None,:])*age_s
-            heights, conf=insert_measurement(
-                jnp,heights,conf,mx,mh,mvalid & fresh[:,None])
+            # The learned actor gets a 2x51 V-shaped rolling spatial memory.
+            # Transport uses only measured optical-flow + IMU, not MuJoCo qvel.
+            gravity=self._preview_imu_gravity(data,task,phase)
+            temp=RollingSensorState(
+                queued,state.gyro_bias_rad_s,raw.gyro_body_rad_s,
+                state.terrain_heights,state.terrain_confidences,
+                state.apex_x_m,state.last_inserted_scan)
+            measured=self._sensor_readout(temp,gravity)
+            vx=measured['velocity_body_xy_mps'][:,0]
+            vy=measured['velocity_body_xy_mps'][:,1]
+            yaw=measured['measured_gyro_body_rad_s'][:,2]
+            motion_conf=measured['velocity_confidence']
+            can_shift=motion_conf>.10
+            vdx=jnp.where(can_shift,vx,0.)
+            vdy=jnp.where(can_shift,vy,0.)
+
+            tf=HISTORY_LEN-1-self.tof_delay_frames
+            snapshot=PreviewSensorSample(
+                queued.tof_ranges_m[:,tf,:],
+                queued.tof_beam_valid[:,tf,:],
+                queued.flow_rad_s[:,tf,:],
+                queued.flow_valid[:,tf],
+                queued.gyro_body_rad_s[:,tf,:],
+                queued.forward_ranges_m[:,tf,:],
+                queued.forward_valid[:,tf,:],
+                queued.tof_age_frames[:,tf],
+                queued.flow_age_frames[:,tf])
+            mx,my,mh,ok,rx,ry,rok=self._preview_measurements(
+                snapshot,gravity)
+            # A held ToF frame is deposited only once, despite PPO at 50Hz.
+            seq=step-snapshot.tof_age_frames-self.tof_delay_frames
+            fresh=seq!=state.last_inserted_scan
+            # Move delayed sensor footprints into current body coordinates.
+            # p_current ~= R(-yaw*age) (p_measured - v_xy*age).
+            age_s=float(self.tof_delay_frames)*CONTROL_DT
+            def compensate(x,y):
+                theta=yaw*age_s
+                ca=jnp.cos(theta)
+                sn=jnp.sin(theta)
+                dx=x-vdx[:,None]*age_s
+                dy=y-vdy[:,None]*age_s
+                return ca[:,None]*dx+sn[:,None]*dy, (
+                    -sn[:,None]*dx+ca[:,None]*dy)
+            mx,my=compensate(mx,my)
+            rx2,ry2=compensate(rx[:,None],ry[:,None])
+            rx=rx2[:,0]
+            ry=ry2[:,0]
+            # The V's rear junction is an ACTUAL rear ToF ground-hit
+            # footprint, not a magic fixed -5cm world coordinate.
+            apex=jnp.where(rok & fresh,rx,state.apex_x_m)
+            heights,conf=advance_map(
+                jnp,state.terrain_heights,state.terrain_confidences,
+                vx,vy,yaw,motion_conf,
+                old_apex_x_m=state.apex_x_m,new_apex_x_m=apex)
+            heights,conf=insert_measurement(
+                jnp,heights,conf,mx,mh,ok & fresh[:,None],
+                sample_y_m=my,apex_x_m=apex)
+            # Rear ToF closes both arms of the V; a shared physical anchor.
+            rear_x=jnp.stack((rx,rx),axis=1)
+            rear_y=jnp.stack((ry,ry),axis=1)
+            rear_ok=jnp.stack((rok&fresh,rok&fresh),axis=1)
+            heights,conf=insert_measurement(
+                jnp,heights,conf,rear_x,jnp.zeros_like(rear_x),rear_ok,
+                sample_y_m=rear_y,apex_x_m=apex)
             return RollingSensorState(
                 queued,state.gyro_bias_rad_s,raw.gyro_body_rad_s,
-                heights,conf,seq)
+                heights,conf,apex,
+                jnp.where(fresh,seq,state.last_inserted_scan))
         return SensorState(queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s)
 
     def _sensor_readout(self, state, gravity_body):
