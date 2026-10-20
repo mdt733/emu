@@ -19,8 +19,11 @@ import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
 from .terrain import box_surface_truth, adaptive_height_sample
-from .forward_tof import (first_hit_ranges,
-                          FORWARD_NOISE_STD_M, FORWARD_QUANTIZATION_M)
+from .forward_tof import (first_hit_ranges, FORWARD_NOISE_STD_M,
+                          FORWARD_QUANTIZATION_M, FORWARD_MOUNTS_BODY_M,
+                          FORWARD_DIRECTIONS_BODY)
+from .rolling_tof import (empty_map, advance_map, insert_measurement,
+                          readout as rolling_readout, measured_height_and_x)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
@@ -166,6 +169,20 @@ class SensorState(NamedTuple):
     samples: SensorSample
     gyro_bias_rad_s: Any
     current_gyro_body_rad_s: Any
+
+
+class RollingSensorState(NamedTuple):
+    """Only schema-9 owns these extra measured-map fields.
+
+    Original 232 sensor-state pytree is unchanged, preserving checkpoint
+    compatibility with the running v5018 research and saved schema-8 runs.
+    """
+    samples: SensorSample
+    gyro_bias_rad_s: Any
+    current_gyro_body_rad_s: Any
+    terrain_heights: Any
+    terrain_confidences: Any
+    last_inserted_scan: Any
 
 
 class PhysicalFrame(NamedTuple):
@@ -2007,8 +2024,9 @@ class EmuMJXEnv(TaskSampler):
             data, range_errors_m=scale[:, None] * 0.0015 * noise[:, :3],
             flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
             gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
-        # Versioned 280-input actor only. Render six first-hit physical rays
-        # independently of rewards/terrain governor. Legacy and 232 policies
+        # Schema-9: TWO independently measured first-hit rays, one per
+        # lane. The rolling map reconstructs spatial history from these.
+        # Do not change the original schema-8 raw sensor state and RNG path.
         # retain their original sensor packet values and random key streams.
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
             R = self._rotation_body_to_world(data)
@@ -2018,7 +2036,7 @@ class EmuMJXEnv(TaskSampler):
             floor_normal = jnp.reshape(
                 data.geom_xmat[:,floor_id], (self.num_envs,3,3))[:,:,2]
             noise = jax.vmap(lambda k: jax.random.normal(
-                jax.random.fold_in(k, 5021), (6,), dtype=jnp.float32))(keys)
+                jax.random.fold_in(k, 5021), (2,), dtype=jnp.float32))(keys)
             ray_kwargs = {}
             if self.terrain_contact_mode == 'box_surface':
                 box_id = self.terrain_box_geom_id
@@ -2055,6 +2073,11 @@ class EmuMJXEnv(TaskSampler):
         samples = jax.tree_util.tree_map(
             lambda a: jnp.repeat(a[:, None, ...], HISTORY_LEN, axis=1),
             sample)
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            z, conf = empty_map(jnp,self.num_envs)
+            return RollingSensorState(samples, bias, sample.gyro_body_rad_s,
+                                      z, conf,
+                                      jnp.full((self.num_envs,),-1,dtype=jnp.int32))
         return SensorState(samples, bias, sample.gyro_body_rad_s)
 
     def _advance_sensor_state(self, state, data, task, phase, keys, age_frames):
@@ -2078,11 +2101,11 @@ class EmuMJXEnv(TaskSampler):
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
         tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
-        # A spatial module with 3 zones per side: acquisition cadence and
-        # one-frame delay match the tripod, with separate per-ray dropouts.
+        # Two single spots; cadence and latency match downward tripod.
+        # Independent dropout is applied per real ray, not per map sample.
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
             failed = jax.vmap(lambda k: jax.random.uniform(
-                jax.random.fold_in(k, 5022), (6,)))(keys) < self.tof_dropout_prob
+                jax.random.fold_in(k, 5022), (2,)))(keys) < self.tof_dropout_prob
             fwd_ok = raw.forward_valid & ~failed
         else:
             fwd_ok = raw.forward_valid
