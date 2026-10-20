@@ -78,7 +78,7 @@ function syncGoalMode() {
   navigator.setCircuitWaypoints(circuit);
   sim?.setChallengeCircuitOverlay(circuit);
   $('demoRouteNote').textContent = circuit
-    ? `Following ${circuit.length} fixed waypoints around the circle: approach → cross → arc. Demo only; no certified crossing score.`
+    ? `Following ${circuit.length} halfway-between-obstacles waypoints anticlockwise, with a planned crossing between each. Demo only.`
     : 'Random pose targets within the arena. Steering uses the existing neural policy.';
   $('navNext').textContent=circuit?'Next circuit waypoint':'New random destination';
   navCommandClock=Infinity;
@@ -384,7 +384,7 @@ function displayCourseControls() {
     $('challengeDescription').textContent=
       visibleChallengeLabel(sim?.navigationChallengeCourse()||{
         tierMm:Number(challengeTier.value),logs:challengeLogs.checked})+
-      ' · Same physical grass park + real trees, with a flat obstacle lane. Challenge circuit starts automatically; Random can be chosen in Demo controls.';
+      ' · Uneven physical grass park, real trees, double-width angled steps, ramps and half-buried logs. Anticlockwise circuit starts automatically; Random remains selectable.';
   }
 }
 function updateTerrain() {
