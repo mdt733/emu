@@ -892,6 +892,103 @@ When P1+P2 are ready, keep a separate cold-start path
 through the *same* terrain curriculum, with baseline gait
 gates before obstacle progression.
 
+## 20 Oct 13:08 onward — P1 terrain-surface truth, feature implementation (GPU UNVERIFIED)
+
+**User instruction:** continue using the protected 260M frozen champion as a
+research benchmark, but keep every training/physics improvement capable of
+cold-start learning from a brand-new seeded actor; keep this living checklist
+and `docs/V5018_HANDOVER.md` updated on the branch.
+
+**What is committed to `feature/v5018-terrain-awareness` (NOT `main`):**
+
+- [~] New `emu/terrain.py::box_surface_truth` is one small, pure NumPy/JAX
+  contact+geometry measurement module for a single fixed, yawed
+  worldbody box and two real 18mm sphere foot geoms. It uses real
+  MuJoCo/MJX `contact.geom1/geom2/dist` geometry-pair evidence,
+  box local coordinates (actual `geom_xpos/xmat`),
+  foot radius and near-top geometry checks. Distinguishes:
+  **real floor-pair contact**, **box TOP contact candidate**,
+  **riser/side contact**, and unsupported free swing. Side contact
+  never counts as top support. Computes signed ball-bottom gap
+  (negative below top), true per-surface tangential stance motion,
+  terrain-relative body height, foot support fraction, and swing
+  clearance. Contact pair/geometry is **not actual solver normal
+  force/impulse**; the top flag is a *conservative support candidate*.
+- [~] `emu/environment.py::EmuMJXEnv` has the last-argument opt-in
+  `terrain_contact_mode='box_surface'` (default **`legacy`**)
+  and `terrain_box_geom='v5018_obstacle_step'`. Constructor fails
+  closed on a nonexistent/non-box, moving or non-horizontal
+  obstacle and incompatible real-floor slopes. The opt-in
+  reward/physical proxy consumes real top/floor support, box-relative
+  height/clearance and tangential slip while preserving exact
+  legacy measurements in worlds with **no box contact or footprint
+  overlap**. This is *reward-only and diagnostics-only*, not an
+  extra actor channel. Explicit sensor inputs and actor/network
+  schemas remain **220/232 unchanged**; old `training_reward()`
+  coefficients/arithmetic, PPO, doctor, policy and showcase untouched.
+- [~] Added `terrain_geometry_active`, top/riser/floor candidate
+  fractions, foot overlap and signed minimum toe gap to opt-in
+  telemetry; these quantities are NOT fed into `_base_obs`.
+  Body-low soft proxy still uses original floor geometry, and
+  current forward ToF/flow estimation still assumes a single
+  floor plane—**not yet a deployable obstacle preview**.
+- [~] New synthetic physics tests in
+  `tests/test_v5018_terrain_truth.py`: top vs riser,
+  a ghost support with no contact pair, signed negative toe gap,
+  genuine tangent slip, yawed footprint exclusion, and JAX/JIT
+  parity. New `scripts/v5018_p1_surface_smoke.py` performs
+  **actual GPU/MJX** comparison with the SAME off-course-box
+  XML and seed: legacy versus box opt-in must produce
+  **bitwise-identical** scalar rewards and 232 actor
+  observations for three steps, then a 10mm box probe
+  must activate finite physically relative diagnostics.
+  **Neither this GPU smoke nor the new tests has yet been
+  executed in the user's WSL.**
+- [~] One fail-fast archive-producing driver
+  `scripts/run_v5018_p1_terrain_acceptance.sh` invokes
+  syntax, terrain JIT unit tests, the newly committed
+  220/232 cold-start contract, historical float32 reward
+  regression and actual four-world GPU/MJX parity/active-box
+  tests. The entire script is an *experimental acceptance
+  request*, not evidence of passing. All outputs go to
+  `~/robot_lab/emu_exams/` away from Git and pretrained
+  champion files.
+
+**Important constraints deliberately still open:**
+
+- This geometry pass is **one yawed immovable box on a level
+  floor**, not an arbitrary course-bank, log/capsule, sloped
+  floor + box stack or per-world adaptive geometry.
+- "Top support candidate" requires a near-zero true
+  contact-pair distance and sphere centred plausibly
+  above the face, but no normal-force magnitude, support
+  impulse, heat or actuator capability was measured.
+- Default mode is legacy and the opt-in is not yet
+  exposed by `emu train`: do **NOT** claim terrain PPO
+  training or cold-start obstacle competency.
+- Real moving-leg sensor occlusion/latency, per-world
+  obstacle pose GPU throughput, CPU–MJX–WASM full
+  six-servo parity and hardware servo safety remain
+  blockers before P1 teaching or schema freeze.
+
+**Next user WSL acceptance, optional while no GPU training is running:**
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_p1_terrain_acceptance.sh
+```
+
+Expected new evidence path:
+`~/robot_lab/emu_exams/v5018_p1_terrain_YYYYMMDD_HHMMSS.tar.gz`.
+Review ALL failures and diagnostics before enlarging the
+terrain curriculum; do not interpret the *test script exiting*
+as proof of a trained terrain-crossing brain. The separate
+optional cold-start full PPO lifecycle proof is
+`scripts/run_v5018_cold_start_acceptance.sh` (also not yet run);
+it does not need the champion.
+
 ## Next engineering work — terrain truth with two equal training paths
 
 The 34/34 frontier and 5/5 focused gait-v2/10mm repeat campaigns
