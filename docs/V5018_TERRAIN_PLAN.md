@@ -792,7 +792,124 @@ observations, PPO reward, `main`, `showcase` or Pages changed.
   visibility and confidence on actual moving gait
   without privileged terrain heights in the actor.
 
-## Next execution — focused parity and gait-v2 acceptance
+## 20 Oct 12:48 — focused gait-v2 and byte-identical repeat PASS
+
+**Uploaded evidence:** `v5018_gaitv2_acceptance_20261020_124851.tar.gz`
+(user's WSL, **tested source commit
+`622d515b352abae67b0065b643912f151c4afa78`**).
+Protected showcase actor SHA-256 unchanged:
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+
+- [x] **5/5 stages PASS:** 4/4 focused synthetic and original XML
+  hash tests (0.14s); matched real flat and real 10° uphill
+  directional OFF/ON evaluations; genuine 10mm collision
+  step course at seeds 1701+1702.
+  **No policy learning or weight transfer occurred.**
+- [x] All four flat worlds recorded genuine alternating
+  physical-contact gait-v2 candidate pairs, unlike
+  strict historical v1 (zero everywhere). OFF: **8,1,7,8
+  =24 total**; ON: **2,2,9,8 =21 total**.
+  Flat **course passes 3/4** under each heading mode.
+  This is a diagnostic candidate, NOT automatic gait-v2
+  certification or a rewritten historical v1 result.
+- [!] Real 10° uphill has **0/4 course passes and
+  0/4 v2 alternating-pair positives** in BOTH heading
+  modes. The trace still shows measured positive
+  forward displacement and actual contacts, but
+  fewer qualifying forward foot relocations, frequent
+  backward foot motion and weak uphill command
+  execution. A flat-gait fix does NOT solve uphill.
+- [x] Original zero-yaw 10mm XML SHA-256 was restored
+  to `f5ca6525a5d2ef8e608121d88fb613b5cc56e92b76bbbacba1b895ad17d0b754`.
+  Both seeds **1701 and 1702 reproduced 3/4**
+  fixed-world obstacle crossings; exactly the original
+  09:49 pilot scores, with per-world success
+  seed1701 [yes,no,yes,yes], seed1702
+  [no,yes,yes,yes]. All 8 robot worlds
+  physically contacted the obstacle. This is
+  useful *input-contract-controlled repeatability*
+  evidence, not a universal proof of determinism.
+- [x] Existing foundational cold-start capability
+  was audited: `emu train` without `--resume`
+  and with a fresh external run directory uses
+  `make_trainer(...).make_initial_state()`,
+  draws weights from JAX seed, initializes optimiser,
+  normalizer, teacher and physical worlds without
+  reading the showcase actor. Supports 220-input
+  legacy and `--sensor-actor` 232-input pathways.
+  **This is source-path verification, not a new
+  clean-room multi-million-step training result.**
+- [~] Following user direction, committed
+  `tests/test_v5018_cold_start_contract.py` asserting
+  empty-parent training setup for BOTH 220/232 and
+  opt-in sim2real, and optional
+  `scripts/run_v5018_cold_start_acceptance.sh`
+  which builds fresh 220/232 models, runs ONE
+  actual PPO update, saves a checkpoint and
+  exports a newly trained actor to a *scratch
+  directory*. Both new assets are **not yet
+  WSL-executed**, and do not read or overwrite the
+  protected champion. Newly generated local
+  root-level probe JSONs are `.gitignore`d,
+  **not deleted**, to prevent untracked diagnostic
+  files blocking clean-source `emu train`.
+
+### Permanent requirement: ability to build a new brain from nothing
+
+**The protected 260M policy is a reference for fast experiments,
+never a required ingredient in the finished EMU system.**
+
+1. **Cold**: fresh random actor/value networks + fresh observation
+   normalization + a fresh curriculum/capability field, with
+   independently chosen seed, no checkpoint, no showcase file
+   and no preloaded terrain oracle. Start on easy flat-ground
+   walking/command tracking (including heading/scorer exams),
+   expand into previously measured slopes and low obstacles
+   **only as held-out capability improves**.
+2. **Warm**: optional compatible exact-checkpoint continuation
+   for short R&D contests. If future terrain schema adds
+   channels (e.g. a measured 312-input choice), warm-start
+   must explicitly transfer compatible encoder layers
+   and initialise new inputs safely; **never** direct-resume
+   incompatible 232 weights and optimizer as if schemas
+   matched. Evaluate warm and cold **independently**.
+3. **Acceptance for every new observation schema**:
+   brand-new-policy init → real PPO update → finite outputs →
+   checkpoint/resume/normalizer → independently validated
+   held-out walking progression → export → actual browser
+   inference, **without a champion file**. Repeat both
+   cold and warm paths in CI/local smoke. A one-update
+   smoke checks lifecycle only, not learned walking.
+4. **Release must not depend on a private foundation
+   .pkl, archived .emupolicy, existing runs or hardcoded
+   trained policy paths**. Showcase examples remain
+   optional inference demos, never required for learning.
+
+**Next engineering work still uses the frozen champion** for
+quick controlled terrain/contact experiments; don't waste
+training millions just to change a physics measurement.
+When P1+P2 are ready, keep a separate cold-start path
+through the *same* terrain curriculum, with baseline gait
+gates before obstacle progression.
+
+## Next engineering work — terrain truth without breaking cold-start
+
+The 5/5 focused gait-v2/10mm repeatability campaign is **complete**.
+Do not rerun the frozen frontier or repeatability exams. A
+future optional fresh-from-zero lifecycle check exists at
+`scripts/run_v5018_cold_start_acceptance.sh`; **not run
+yet**, and not required to interrupt current branch work.
+
+Next build an OPT-IN physically correct collidable-terrain
+support/swing-clearance/stance-slip measurement path with
+strict flat-control exact reward parity, independent support
+truth from actual ball-foot collision, and conservative
+toe clearance relative to top, side and lower-floor
+geometry. Verify no oracle heights leak into deployable
+observations. Add held-out directional/obstacle exams
+and moving-leg ToF occlusion/latency before starting
+terrain learning. Keep a first-class cold-start curriculum
+and a separate controlled warm-start research arm.
 
 The full 34/34 frontier campaign is **complete**. Do not rerun
 28 GPU course variants. A NEW self-contained read-only
