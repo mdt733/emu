@@ -58,6 +58,8 @@ run source_syntax python -m py_compile emu/terrain.py emu/environment.py emu/ppo
   scripts/v5018_p1_surface_smoke.py scripts/v5018_p1_dynamic_reward_audit.py
 run adversarial_top_vs_riser_and_normal_tests python -m pytest -q \
   tests/test_v5018_terrain_truth.py
+run moving_trace_accounting_and_reset_guards python -m pytest -q \
+  tests/test_v5018_p1_dynamic_audit.py
 # Bounded initial actual-MJX test: same XML, 3-frame scalar reward and
 # actor input equality, then actual contact normals at a controlled pose.
 run mjx_static_real_contact_and_flat_parity python scripts/v5018_p1_surface_smoke.py \
