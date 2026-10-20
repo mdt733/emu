@@ -7,7 +7,7 @@
 // 260M-policy crossings. Capsule-log WALKING has not been established.
 // Selected tier is a viewer demonstration request, NOT an automatically
 // measured level unlocked by training.
-export const CHALLENGE_RADIUS_M = 3.12;
+export const CHALLENGE_RADIUS_M = 4; // exactly the 4m existing navigation circle
 export const CHALLENGE_COUNT = 8;
 export const CHALLENGE_TIERS_MM = Object.freeze([0,5,10,15,20]);
 export const CHALLENGE_PALETTE = Object.freeze({
@@ -28,7 +28,7 @@ export function generateChallengeCourse({tierMm=10,logs=false,
                                          count=CHALLENGE_COUNT}={}){
   if(!CHALLENGE_TIERS_MM.includes(tierMm))
     throw new Error('Challenge difficulty must be 0, 5, 10, 15 or 20 mm');
-  numberRange(radius,2.7,3.5,'Challenge ring radius');
+  numberRange(radius,2.7,4.2,'Challenge ring radius');
   if(!Number.isInteger(count)||count<4||count>12)
     throw new Error('Challenge station count must be 4–12');
   const unlocked=CHALLENGE_TIERS_MM.filter(h=>h>0&&h<=tierMm);
