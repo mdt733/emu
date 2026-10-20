@@ -266,6 +266,16 @@ def main(argv=None) -> int:
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
     q.add_argument('--terrain-box-height-mm',type=int,choices=[0,5,10],default=None,
                    help='v5018 isolated real-MJX step research: 0mm off-course control or 5/10mm step; sim2real + sensor actor only')
+    q.add_argument('--terrain-height-ceiling-mm',type=int,default=0,
+                   help='adaptive per-episode real steps 0..150mm; 0=off; sim2real sensor actor only')
+    q.add_argument('--terrain-height-exposure',type=float,default=.60,
+                   help='fraction of births on variable-height obstacle, rest on flat rehearsal')
+    q.add_argument('--terrain-height-edge-fraction',type=float,default=.35,
+                   help='fraction of obstacle births near the earned height frontier')
+    q.add_argument('--terrain-height-growth-mm',type=float,default=1.0,
+                   help='physical height growth per qualified rollout, millimetres')
+    q.add_argument('--terrain-height-initial-mm',type=float,default=3.0,
+                   help='initial adaptive obstacle upper height, millimetres')
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
