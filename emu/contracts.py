@@ -64,9 +64,9 @@ SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
 # Six measured slant ranges plus six validity flags, per 20ms frame: 280.
 OBS_SCHEMA_PREVIEW = "forward_tof_280"
 PREVIEW_RANGE_FIELDS = tuple(
-    f"forward_range_{side}_{cm}cm_m" for side in ("right", "left") for cm in (5,10,15))
+    f"forward_range_{side}_{cm}cm_m" for side in ("right", "left") for cm in (5,12,22))
 PREVIEW_VALID_FIELDS = tuple(
-    f"forward_valid_{side}_{cm}cm" for side in ("right", "left") for cm in (5,10,15))
+    f"forward_valid_{side}_{cm}cm" for side in ("right", "left") for cm in (5,12,22))
 PREVIEW_OBS_FIELDS = SENSOR_OBS_FIELDS + PREVIEW_RANGE_FIELDS + PREVIEW_VALID_FIELDS
 PREVIEW_BASE_OBS_DIM = len(PREVIEW_OBS_FIELDS)
 PREVIEW_OBS_DIM = PREVIEW_BASE_OBS_DIM * HISTORY_LEN
