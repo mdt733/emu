@@ -25,7 +25,7 @@ BOX_FOOTPRINT_TOLERANCE_M = 0.003
 def box_surface_truth(
     xp, *,
     foot_xyz, previous_foot_xyz, torso_xyz,
-    floor_foot_signed, floor_torso_signed, floor_normal,
+    floor_foot_signed, floor_torso_signed, floor_normal, floor_origin,
     box_center, box_rotation, box_half_size,
     contact_geom1, contact_geom2, contact_distance,
     contact_frame, contact_position,
@@ -35,8 +35,9 @@ def box_surface_truth(
     """Classify observed sphere/plane/box geometry and actual contact pairs.
 
     Arrays have leading world dimension N. Foot geometry is [N,2,3];
-    floor_foot_signed [N,2], floor_torso_signed [N], normals [N,3],
-    rotation [N,3,3], contact arrays [N,C]. Supports yawed static boxes,
+    floor_foot_signed [N,2], floor_torso_signed [N], floor normals
+    and floor origins [N,3], rotation [N,3,3], contact arrays [N,C].
+    Supports yawed static boxes,
     with a near-vertical top normal; the caller must reject tilting boxes.
 
     Signed clearance is *ball bottom* above the underlying support
@@ -118,8 +119,22 @@ def box_surface_truth(
     torso_local = xp.einsum('ni,nij->nj', torso_delta, box_rotation)
     torso_above_box = ((xp.abs(torso_local[:, 0]) <= half[0]) &
                        (xp.abs(torso_local[:, 1]) <= half[1]))
-    torso_signed = xp.where(
-        torso_above_box, torso_local[:, 2] - half[2], floor_torso_signed)
+    # Root issue 3: body-over-obstacle XY is NOT body-on-elevated-support.
+    # The old implementation lowered torso height reward by box height
+    # simply because the torso projection was over the step, even with
+    # BOTH feet still on flat ground. Conversely a foot on top after the
+    # torso moved past the tiny box did not alter body-height reference.
+    # Instead compute support-surface elevation from genuine feet with
+    # top-facing contact vs flat floor; support-count weighting is
+    # transparent but NOT contact-force/impulse weighting.
+    surface_top_center = box_center + top_normal * half[2]
+    box_height_above_floor = xp.sum(
+        (surface_top_center - floor_origin) * floor_normal, axis=-1)
+    supporting_feet = xp.sum(supported.astype(foot_xyz.dtype), axis=1)
+    top_feet = xp.sum(on_top.astype(foot_xyz.dtype), axis=1)
+    top_support_fraction = top_feet / xp.maximum(1., supporting_feet)
+    support_reference_elevation = box_height_above_floor * top_support_fraction
+    torso_signed = floor_torso_signed - support_reference_elevation
 
     # Tangential slip uses each genuine supported contact's own surface
     # normal and full 3-D velocity: a moving foot dragging down a riser
@@ -136,6 +151,7 @@ def box_surface_truth(
 
     return {
         'torso_height': torso_signed,
+        'support_reference_elevation_m': support_reference_elevation,
         'foot_center_signed': foot_surface_signed,
         'toe_clearance_signed': toe_clearance,
         'foot_top_contact_candidate': on_top,
