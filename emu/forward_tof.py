@@ -1,25 +1,25 @@
-"""v5019 forward ToF: two virtual 3-zone modules, 5/12/22cm footprints per lane.
+"""v5019 forward ToF: two physically plausible single-beam modules, one per lane.
 
 This module owns the sensor *forward model* and optional diagnostic inverse, not
 training rewards, terrain curriculum, or oracle actor features. It treats a
-ray as a calibrated narrow beam; two single-point ToF chips could NOT deliver
-these six simultaneous zones. The eventual physical hardware must be two
-multi-zone modules (or an explicitly timed scan) with measured extrinsics.
+ray as a calibrated narrow beam on each side. A time-based spatial map combines
+one far-return per side with optical-flow/IMU motion, not six simultaneous
+beams. The physical hardware extrinsics remain provisional.
 
 The first-hit model handles a real MuJoCo plane and a rotated collidable box,
 including the near riser. MJX does not have a suitable general raycast for
 this vectorized training path; no collision support is inferred from hfields.
 Robot self-occlusion, surface reflectance and dynamic movers remain unsupported.
-The deployable 280-input actor receives RAW range + validity, not an oracle
-height or a ground-plane-dependent cooked height. The inverse below is only
-for optional diagnosis; it is never used for the actor packet.
+The new policy receives four spatial samples per side from a measured
+rolling map; the raw ranges remain in the acquisition queue. Ground-relative
+samples are only inserted when the measured tripod-plane estimate is valid.
 """
 from __future__ import annotations
 
 import math
 
 FORWARD_LANES_Y_M = (-.05, .05)              # right, left
-FORWARD_LOOKAHEAD_X_M = (.05, .12, .22)      # footprint from torso origin
+FORWARD_LOOKAHEAD_X_M = (.20,)              # one far-floor aim point per side
 FORWARD_MOUNT_X_M = .035
 FORWARD_MOUNT_Z_M = -.025
 FORWARD_NOMINAL_DEPTH_M = .2334
@@ -29,9 +29,9 @@ FORWARD_NOISE_STD_M = .0015
 FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
 FORWARD_NOISE_RANGE_FACTOR = .5  # sigma rises gently with slant range
 FORWARD_PROFILE_CLIP_M = .15
-FORWARD_MODEL_REVISION = "two_three_zone_raw_slant_ranges_plane_box_v3"
+FORWARD_MODEL_REVISION = "two_single_ray_farlook_for_rolling_map_v4"
 
-# Explicit six-channel lane-major order; document geometry in the manifest.
+# Exactly TWO physical beams, right/left, both nominally 20cm ahead.
 FORWARD_MOUNTS_BODY_M = tuple(
     (FORWARD_MOUNT_X_M, side, FORWARD_MOUNT_Z_M)
     for side in FORWARD_LANES_Y_M for x in FORWARD_LOOKAHEAD_X_M
@@ -47,7 +47,7 @@ FORWARD_DIRECTIONS_BODY = tuple(
 def first_hit_ranges(xp, torso_xyz, body_rotation, floor_origin, floor_normal,
                      *, box_center=None, box_rotation=None, box_half_size=None,
                      errors_m=None):
-    """Return six noisy first-hit lengths and validity, shape [worlds,6].
+    """Return two noisy first-hit lengths and validity, shape [worlds,2].
 
     Ground truth is permitted ONLY to synthesize range returns. An optional
     MuJoCo box intersects actual 3D rays (top, front or side) before the floor.
