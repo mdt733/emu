@@ -840,10 +840,16 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_actor_sha = export['source'].get('actor_sha256')
         observation_schema = export['observation_schema']
         sensor_settings = (export['sensor_contract'] or {}).get('settings') or {}
+        forward_preview_masked = bool(
+            (export['sensor_contract'] or {}).get('forward_masked',False))
     else:
         cfg=TrainingConfig.load(run_dir/'training_config.json')
         checkpoint=run_dir/'checkpoints/final.pkl'
-        saved=load_checkpoint(checkpoint,validate=True)
+        from .training_config import training_sensor_contract
+        saved=load_checkpoint(
+            checkpoint, validate=True,
+            expected_observation_schema=cfg.observation_schema,
+            expected_sensor_contract=training_sensor_contract(cfg))
         params=saved['state']['params']
         norm=saved['obs_norm']
         actor_std = np.sqrt(np.asarray(norm['var']))
@@ -856,10 +862,14 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         from .contracts import OBS_SCHEMA_LEGACY
         observation_schema = getattr(cfg, 'observation_schema', OBS_SCHEMA_LEGACY)
         sensor_settings = {}
-    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_DIM, SENSOR_OBS_DIM
-    if observation_schema not in (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR):
+        forward_preview_masked = cfg.forward_preview_masked
+    from .contracts import (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW,
+                            OBS_DIM, SENSOR_OBS_DIM, PREVIEW_OBS_DIM)
+    if observation_schema not in (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
         raise ValueError('unsupported directional examiner observation schema')
-    required_obs_dim = SENSOR_OBS_DIM if observation_schema == OBS_SCHEMA_SENSOR else OBS_DIM
+    required_obs_dim = (PREVIEW_OBS_DIM if observation_schema == OBS_SCHEMA_PREVIEW
+                        else SENSOR_OBS_DIM if observation_schema == OBS_SCHEMA_SENSOR
+                        else OBS_DIM)
     if int(np.asarray(params['pi'][0]['w']).shape[0]) != required_obs_dim:
         raise ValueError('actor width does not match directional examiner observation contract')
     configure_jax(device)
@@ -879,6 +889,7 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         attitude_profile=cfg.attitude_profile,
         pitch_command_max_deg=cfg.pitch_command_max_deg,
         observation_schema=observation_schema,
+        forward_preview_masked=forward_preview_masked,
         sensor_noise_scale=float(sensor_settings.get('sensor_noise_scale', 0.)),
         **{k: v for k, v in sensor_settings.items() if k != 'sensor_noise_scale'},
         open_frontier=False,
@@ -892,7 +903,7 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
     env.gravity_unit_world=jnp.tile(
         jnp.asarray(actual_gravity/np.linalg.norm(actual_gravity))[None,:],
         (int(worlds),1))
-    if run_dir.is_file() and observation_schema == OBS_SCHEMA_SENSOR:
+    if run_dir.is_file() and observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
         if env.sensor_contract != export['sensor_contract']:
             raise ValueError('directional examiner sensor contract differs from exported actor')
     trainer=make_trainer(
