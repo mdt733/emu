@@ -132,6 +132,15 @@ def main():
         report['off_course_obs_bitwise_identical']=all(v==0 for v in obs_diffs)
         report['off_course_obs_max_abs_difference']=max(obs_diffs)
         report['off_course_obs_float32_equivalent']=True
+        # Save independent flat-parity evidence BEFORE the next stage.
+        # If MJX's API, contact allocation, or active-box test crashes,
+        # the archive still proves exactly which gate was completed.
+        report['status']='FLAT_PARITY_PASS_ACTIVE_BOX_PENDING'
+        args.output.parent.mkdir(parents=True,exist_ok=True)
+        args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+        print('PASS: 3-frame exact flat reward, actor float32 parity;',
+              'max observation difference =',
+              report['off_course_obs_max_abs_difference'],flush=True)
 
         # Physical model contains a real 10mm box. Recompute MuJoCo/MJX
         # kinematics near the obstacle, without introducing a trained actor.
@@ -143,7 +152,10 @@ def main():
         # Shift base horizontally above box. This is a PROBE fixture only:
         # not a valid gait, not a reported policy movement or PPO action.
         q=q.at[:,0].set(.20)
-        d=state.data._replace(qpos=q)
+        # mjx.Data is a Flax/JAX pytree with .replace(), unlike our
+        # EnvState NamedTuple which correctly uses ._replace().
+        # MuJoCo 3.16 removed/does not expose Data._replace.
+        d=state.data.replace(qpos=q)
         d=challenge.forward_batched(challenge.mjx_model,d)
         from emu.environment import CONTROL_DT
         zeros=jnp.zeros((args.worlds,6),dtype=jnp.float32)
@@ -164,6 +176,7 @@ def main():
         report['new_metrics_finite']=True
         report['terrain_box_sha256']=hashlib.sha256(step.read_bytes()).hexdigest()
 
+    report['status']='PASS'
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(report,indent=2))
