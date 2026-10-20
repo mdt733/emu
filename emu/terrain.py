@@ -169,3 +169,53 @@ def box_surface_truth(
         # but it MUST NOT be interpreted as MuJoCo solver penetration.
         'min_toe_clearance_signed': xp.min(toe_clearance, axis=1),
     }
+
+
+def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0.):
+    """Write the reproducible real MuJoCo course used by v5018 crossing exams.
+
+    The 0mm control retains the same box geom, parked 5m off course. The
+    routine refuses to overwrite an existing DIFFERENT course (important for
+    checkpoint lineage and independent reproduction).
+    """
+    import math
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+
+    if height_mm not in (0, 5, 10, 15, 20):
+        raise ValueError('only declared 0, 5, 10, 15 or 20 mm pilot steps')
+    if not math.isfinite(yaw_deg) or abs(yaw_deg) > 35:
+        raise ValueError('bounded step yaw is -35 through +35 degrees')
+    tree = ET.parse(Path(robot_source))
+    world = tree.getroot().find('worldbody')
+    if world is None:
+        raise ValueError('canonical robot is missing worldbody')
+    h = height_mm / 1000.
+    x = .20 if height_mm else 5.
+    thickness = h / 2. if h else .0025
+    attributes = {
+        'name': 'v5018_obstacle_step', 'type': 'box',
+        'pos': f'{x} 0 {thickness}',
+        'size': f'.04 .20 {thickness}',
+        'friction': '1.5 .005 .0001',
+    }
+    if yaw_deg != 0.:
+        attributes['euler'] = f'0 0 {yaw_deg}'
+    ET.SubElement(world, 'geom', attributes)
+    # Render to memory first; never damage an existing run's course file.
+    return _write_reproducible_course(tree, Path(dest))
+
+
+def _write_reproducible_course(tree, dest):
+    from io import StringIO
+    content = StringIO()
+    tree.write(content, encoding='unicode', xml_declaration=True)
+    encoded = content.getvalue().encode('utf-8')
+    if dest.exists():
+        if not dest.is_file() or dest.read_bytes() != encoded:
+            raise RuntimeError(f'Course file differs from declared geometry: {dest}')
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open('xb') as out:
+        out.write(encoded)
+    return dest
