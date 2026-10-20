@@ -1,5 +1,23 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
+## 21 October 04:52–05:xx AEDT — code audit after first overnight preflight abort
+
+**Reported WSL run:** `v5018_height_envelope_20261021_045010` aborted BEFORE starting 25M training. Mandatory focused preflight had 25 PASSED, 1 FAILED. `tests/test_v5018_adaptive_height.py:103` used exact float32-vs-float64 equality (`array([.2,.2],dtype=float32) == array([.2,.2])`); matching physical positions were already true, but the assertion failed. GitHub Actions on the previous source corroborated **130 passed, 1 failed** in full suite. Fix is tolerance-based `np.allclose(...,atol=1e-6,rtol=0)`. The `warp` optional import warning isn't causal. Original aborted experiment contains NO new PPO foundation and should not be resumed from updated Git source.
+
+**Additional code audit fixes on feature branch, not yet established as GPU-PPO proven:**
+
+- Previously the 25M flat foundation had `frontier_terrain_height_m=0`. External full-checkpoint forks copied that zero over the adaptive arm's 3mm constructor setting: no nonflat births -> no contact -> curriculum stuck forever. External flat→height forks now seed the initial nonzero frontier ONCE, while `--resume auto` preserves previously earned height.
+- Previous baseline used **fixed static box XML** while adaptive arms used a **movable mocap box**. That confounded A/B comparisons by MJX solver topology and geom placement. All six arms now share the **same adaptive mocap XML**; `--terrain-height-flat-control` parks the exact box 5m away with zero height samples.
+- Previous governor computed crossing fraction from every POST-crossing rollout frame, diluting or repeating evidence. New episode-local crossing/contact latches record **one** final outcome per completed edge episode; only an upright supported corridor crossing, actual foot-box contact, no eventual fall, and sustained stepping qualifies. `results.py` divides success/contact/falls by **completed edge episodes**, not all edge frames. Missing/low counts cannot expand height.
+- The fixed +X obstacle was formerly presented to reverse/turning commands, and the bonus paid +X forward displacement even when the command wanted reverse. Now a step is born only for compatible forward/lane commands; the progress reward is gated to the same class. Other commands remain part of training on flat ground.
+- New height advancement additionally requires a minimum fraction of genuinely completed edge episodes so a single lucky terminal cannot unlock larger risers.
+
+**Unresolved / do not claim proven:** The CPU/MJX smoke verified variable geom poses but not a full GPU 1024-world PPO training update with real variable-height foot-box collision pairs. Source features still have no forward lookahead ToF. Even if the code completes 115M steps, lack of obstacle preview may fundamentally limit learning. Physical effort/servo peak checks must remain visible, and the 150mm height cap is not proven ability. The branch CI status may still be pending at the time of reading. Avoid repeated full test reruns; one focused post-audit smoke is sufficient for the user to decide whether to run.
+
+**Retry policy:** After pulling NEW feature source, START A FRESH CAMPAIGN ROOT using `bash scripts/run_v5018_height_envelope.sh --run`, not `--resume` with the old 20261021_045010 root (which pins previous commit). No tmux.
+
+---
+
 ## 20 Oct 23:00 AEDT — continuous obstacle-height study (replaces 20M fixed 5/10mm overnight plan)
 
 User asks: NO tmux, 25M random-start gait foundation, then multiple matched physical obstacle-height experiments. 10mm alone is negligible; grow height as its own earned dimension alongside vx/vy/yaw/resilience.
