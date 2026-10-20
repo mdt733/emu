@@ -965,6 +965,59 @@ This does **not** establish
 real MuJoCo robot walking or
 browser rendering success.
 
+**Deep source audit expanded after the initial normal fix
+(ALL corrections still awaiting WSL/MJX validation):**
+
+- True support now requires **signed
+  `contact.dist <= 0`**, not just a
+  near-geometry pair at **+1mm/+2mm**
+  positive separation. This is valid
+  for the canonical *zero-margin and
+  zero-gap* model; box_surface
+  constructor rejects unsupported
+  nonzero margin/gap semantics.
+  Nonnegative normal-force magnitude
+  is still not measured—do NOT call
+  a near-zero candidate load-bearing.
+- Previous terrain body-height reward
+  followed the torso's XY footprint,
+  even when both feet were still on
+  floor. That also missed actual
+  high-step support when the torso
+  moved off the box footprint.
+  New scalar `support_reference_elevation_m`
+  is the physical raised-surface
+  elevation averaged over the
+  actually classified supporting
+  feet. It is not load weighted.
+  The legacy flat height remains
+  exactly unchanged in default
+  mode. Opt-in teacher-only
+  `terrain_support_reference_elevation_m`
+  exposes this choice for audit.
+- The new adversarial terrain
+  suite has **11 tests** (six
+  previously run, five new and
+  UNRUN in user's WSL). The moving
+  P1 trace suite has **two new
+  CPU tests** for foot-vs-world
+  frame counting and excluding
+  post-terminal contamination.
+  The deep driver executes all
+  these before engaging MJX/CUDA.
+- The dynamic audit now logs
+  support-surface height as well
+  as top/riser normals and
+  reward/action/physical trajectory
+  divergence, and uses distinct
+  world-contact-frame vs
+  foot-contact-frame counters.
+  The research-only `ppo.evaluate_trace`
+  flag defaults OFF, so existing
+  training, old scoreboards and
+  232 actor observations are
+  untouched.
+
 **NEXT TWO INDEPENDENT WSL RUNS**,
 current feature-branch HEAD only:
 
@@ -1112,6 +1165,12 @@ evidence and user-approved PR.**
 > contact from pair + foot-centre
 > XY/Z alone; a riser near
 > a step CORNER can satisfy it.
+> Further bugs: +1mm contact
+> candidates were treated as
+> support despite zero margin;
+> body-height reward followed
+> TORSO XY instead of actual
+> supporting FOOT contact.
 > New source demands true contact
 > frame NORMAL aligned with top
 > plus real contact point ON
