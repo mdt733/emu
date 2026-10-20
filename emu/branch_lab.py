@@ -585,10 +585,30 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('terrain box PPO research requires sim2real and --sensor-actor')
     if box_height >= 0 and (grade != 0 or terrain_radius != 0):
         raise ValueError('v5018 P1 box course cannot mix with inclined/random terrain')
+    adaptive_limit=int(getattr(args, 'terrain_height_ceiling_mm', 0))
+    exposure=float(getattr(args, 'terrain_height_exposure', .60))
+    edge=float(getattr(args, 'terrain_height_edge_fraction', .35))
+    grow=float(getattr(args, 'terrain_height_growth_mm', 1.))
+    initial=float(getattr(args, 'terrain_height_initial_mm', 3.))
+    if not 0 <= adaptive_limit <= 150:
+        raise ValueError('adaptive terrain height safety must be 0..150mm')
+    if not all(math.isfinite(x) for x in (exposure, edge, grow, initial)):
+        raise ValueError('nonfinite adaptive terrain setting')
+    if not (.05 <= exposure <= .95 and .05 <= edge <= .95 and
+            .1 <= grow <= 3. and 0. < initial <= 15.):
+        raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
+    if adaptive_limit and (box_height >= 0 or grade > 0 or terrain_radius > 0 or
+                           args.profile != 'sim2real' or not sensor_actor):
+        raise ValueError('adaptive terrain requires sim2real + sensor actor and no static box/slopes')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,terrain_box_height_mm=box_height,
+                   terrain_height_safety_m=adaptive_limit / 1000.,
+                   terrain_height_initial_m=min(initial, adaptive_limit if adaptive_limit else initial) / 1000.,
+                   terrain_height_exposure=exposure,
+                   terrain_height_edge_fraction=edge,
+                   terrain_height_growth_m=grow / 1000.,
                    domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
