@@ -46,6 +46,7 @@ class RegimeParams:
     frontier_combo_radius: float = 1.00
     frontier_transition_hold_s: float = 0.90
     frontier_ramp_steps: float = 4.0
+    frontier_terrain_height_m: float = 0.003
 
 
 class RegimeGovernor:
@@ -108,7 +109,10 @@ class RegimeGovernor:
                  open_frontier: bool = False, frontier_vx_hi_safety: float = 1.0,
                  frontier_vx_lo_safety: float = 0.45, frontier_vy_safety: float = 0.45,
                  frontier_yaw_safety: float = 3.0, frontier_combo_safety: float = 1.60,
-                 frontier_push_safety_n: float = 3.0):
+                 frontier_push_safety_n: float = 3.0,
+                 terrain_height_safety_m: float = 0.0,
+                 terrain_height_initial_m: float = 0.003,
+                 terrain_height_growth_m: float = 0.001):
         self.params = RegimeParams()
         if regime_command_frac is not None:
             self.params.regime_command_frac = float(regime_command_frac)
@@ -145,6 +149,10 @@ class RegimeGovernor:
         self.frontier_yaw_safety = max(self.FRONTIER_FLOOR_YAW, float(frontier_yaw_safety))
         self.frontier_combo_safety = max(self.FRONTIER_FLOOR_COMBO, float(frontier_combo_safety))
         self.frontier_push_safety_n = max(0.70, float(frontier_push_safety_n))
+        self.terrain_height_safety_m = max(0.0, float(terrain_height_safety_m))
+        self.terrain_height_growth_m = float(terrain_height_growth_m)
+        self.params.frontier_terrain_height_m = (min(terrain_height_initial_m, self.terrain_height_safety_m)
+                                                   if self.terrain_height_safety_m > 0. else 0.)
 
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
@@ -589,6 +597,20 @@ class RegimeGovernor:
             'frontier_event_yaw': frontier_events.get('yaw','off'),
             'global_retreat': global_retreat,
         }
+        if self.terrain_height_safety_m > 0.:
+            from .terrain import next_height_frontier
+            new_h, decision = next_height_frontier(
+                self.params.frontier_terrain_height_m, row,
+                safety_m=self.terrain_height_safety_m,
+                growth_m=self.terrain_height_growth_m)
+            if kl_ok_to_expand or new_h <= self.params.frontier_terrain_height_m:
+                self.params.frontier_terrain_height_m = new_h
+            else:
+                decision = 'hold_kl_stress'
+            report['terrain_frontier_event'] = decision
+        else:
+            report['terrain_frontier_event'] = 'off'
+        report['frontier_terrain_height_m'] = self.params.frontier_terrain_height_m
         return report
 
 
