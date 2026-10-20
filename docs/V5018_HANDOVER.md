@@ -574,6 +574,158 @@ gate checklist:** `docs/V5018_TERRAIN_PLAN.md`.
 Do not copy this prose into another parallel
 progress tracker.
 
+## 20 Oct 13:45 — P1 failure reviewed; challenge-ring viewer implemented
+
+**User's latest actual WSL test, source SHA
+`d683aa4f9dfa69bed53e2067886bae938a6ddfad`:**
+uploaded archive `v5018_p1_terrain_20261020_134537.tar.gz`.
+Python 3.13.16, JAX 0.12.0, MuJoCo 3.16.0,
+RTX 4060 Ti 8GB; robot.xml SHA-256
+`c1af72485e83de277efa1914a476519cebbebdc2beb1f03a10c475c9fadf3a64`.
+**P1 syntax PASS, 6/6 true-terrain NumPy/JAX tests
+PASS, 6/6 legacy/220+232 cold-start contract tests PASS.**
+The independent GPU/MJX reward-parity stage **FAILED**:
+`v5018_p1_surface_smoke.py` raised
+`box off-course changed actor observations` while
+comparing exact float32 actor observations.
+This was a bitwise equality assertion with
+NO printed numerical discrepancy. A previous
+scalar reward equality check passed on the
+frame leading to the exception, but the rest
+of the three-frame experiment and active 10mm
+contact probe did not finish. **DO NOT claim
+P1 real GPU validated**.
+
+The feature branch smoke has since been
+modified (UNRUN in WSL) to record observation
+world/frame/channel/difference and reject
+material discrepancy. It still insists on
+**exact scalar reward equality** and only
+permits tiny `atol=2e-6, rtol=3e-6`
+float32 differences in separately compiled
+GPU actor observations. This is an
+**unverified diagnosis**, not evidence
+of a solved numerical physics discrepancy.
+
+**Viewer request:** existing autonomous demo
+draws a circle and chooses random destinations.
+User requests coloured physical obstacles
+lining that exact circle plus a second
+autonomous demo that travels ordered waypoints
+through every challenge, and live viewing
+of the learning progression if possible.
+
+**Committed viewer source changes (NOT yet
+executed by Node/Vite/WASM/real browser):**
+
+- New `emu/viewer_src/src/challenge-course.js`
+  generates eight deterministic stations
+  exactly on the EXISTING 4m circle radius;
+  each step is a real collidable MuJoCo
+  worldbody BOX, tier-selected 0/5/10/
+  15/20mm and colour coded green/blue/
+  amber/magenta. Optional orange CAPSULE
+  logs are clearly experimental:
+  no trained log-crossing claim.
+  Each station produces tangential ENTRY
+  and opposite-side CROSSING waypoints
+  with an unambiguous world course;
+  16 ordered waypoints total.
+- `terrain.js` supports
+  `withTerrain(xml,'course')`, retains
+  real floor and clean physical geometry,
+  leaving original flat/ramp/radial
+  heightfield park untouched.
+- `sim.js` mounts course XML in the real
+  browser MuJoCo/WASM solver, while
+  floating coloured names and station
+  halos are purely render-only visual
+  aids for tiny obstacles; all are
+  re-created on changes of policy/terrain,
+  disposed appropriately. Compatible
+  actor hot-swaps preserve selected world.
+- `main.js`, `index.html`, CSS show
+  dropdowns in the existing mobile
+  settings drawer: Terrain→Challenge
+  ring; obstacle tier; optional log;
+  **Demo route → random destinations or
+  challenge circuit**. Circuit is an
+  *autonomous movement demo* using the
+  SAME normal policy action pipeline,
+  not a privileged teleport or a
+  terrain-crossing capability exam.
+- `goal-navigation.js`, `goal-worker.js`,
+  and `goal-planner-client.js` use
+  existing background A* for exact
+  caller-chosen circuit targets, never
+  replace them with random points,
+  and reset stale routes when the
+  robot resets / human takes the sticks.
+- New `tests/challenge-course.test.mjs`
+  verifies physical XML, colours, circle,
+  ordered entry/exit stations, async
+  target request and UI wiring. The new
+  `scripts/v5018_wasm_challenge_smoke.mjs`
+  probes actual pinned browser MuJoCo
+  3.15 static step/log contact and
+  writes a JSON report; the setup is
+  deliberately a constrained falling
+  sphere, not six-servo validation.
+- New fail-fast
+  `scripts/run_v5018_viewer_course_acceptance.sh`
+  installs locked npm deps, runs all
+  viewer tests, tests actual WASM
+  collision, Vite build and
+  `emu viewer-build`, and archives
+  `~/robot_lab/emu_exams/v5018_viewer_course_*.tar.gz`.
+  An isolated pure JS generated-course
+  check passed all 0–20mm levels,
+  and a V8 parse check passed modified
+  main/sim/terrain/nav modules; these
+  are **not the full npm/WASM/browser
+  end-to-end acceptance**.
+
+**Two independent next commands from a
+healthy WSL checkout:**
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_p1_terrain_acceptance.sh
+bash scripts/run_v5018_viewer_course_acceptance.sh
+```
+
+If P1 still fails, do NOT allow that
+failure to obscure independent Node/WASM
+course results; the two stage runners
+each produce an archive. For a
+local static-policy demonstration after
+successful browser build:
+
+```bash
+emu viewer showcase/champion.emupolicy --no-open
+# Open http://127.0.0.1:8765/ and choose Challenge ring.
+```
+
+To watch real learning **only if a current
+trainer is saving validated checkpoints**,
+use `emu viewer --live --root
+/path/to/existing/training/run --no-open`.
+It polls saved checkpoints; **not live
+MJX GPU positions** and does not
+interfere with PPO training. No new
+training lineage was started here.
+
+**Status:** v5018 source branch only;
+`main`, protected champion, public Pages
+untouched. No terrain-related PPO training
+or frozen new actor schema introduced.
+Continue honoring the fully independent
+fresh-random-brain cold-start requirement.
+The living detailed status is in
+`docs/V5018_TERRAIN_PLAN.md`.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -641,65 +793,77 @@ evidence and user-approved PR.**
 ## Fresh-chat prompt
 
 > Continue EMU v5018 **only on**
-> `feature/v5018-terrain-awareness` of
-> https://github.com/mdt733/emu.
-> Read current `docs/V5018_HANDOVER.md`,
-> `docs/V5018_TERRAIN_PLAN.md` and
-> `docs/INSTALL.md` BEFORE edits.
-> The sole authoritative dated checklist is
-> `docs/V5018_TERRAIN_PLAN.md`.
-> The full frozen 232 champion 260M
-> physical frontier 20 Oct was 34/34
-> execution passes, with 20mm box
-> crossings 3/8 and dominant lateral
-> detours. The follow-up
-> `v5018_gaitv2_acceptance_20261020_124851.tar.gz`
-> 5/5 stages passed; candidate gait-v2
-> detects 24 OFF / 21 ON real alternating
-> contact-supported step pairs across
-> four flat worlds, but 10° uphill 0
-> v2 pairs and 0 course passes.
-> The original 10mm identical XML
-> reproduced 3/4 in BOTH old seeds.
-> User REQUIRES genuine independent
-> new random brain cold-start; 260M
-> champion is a convenient research
-> reference only. Added cold-start
-> contract tests and optional fresh
-> PPO lifecycle script for 220 and
-> 232 actors, **not yet WSL-tested**.
-> The latest AFTERNOON P1 pass added
-> pure `emu/terrain.py` contact +
-> geometry top-vs-riser truth and
-> opt-in `EmuMJXEnv(terrain_contact_mode=
-> 'box_surface')` with active-box
-> reward-only corrected support,
-> height, signed foot clearance and
-> tangent slip; per-world gate keeps
-> exact flat legacy measurement math
-> outside obstacle proximity, and
-> never changes 220/232 actor input
-> or weights. Box mode supports one
-> fixed yawed box on level floor ONLY.
-> Synthetic tests, 4-world real-MJX
-> bitwise flat reward parity probe,
-> and `scripts/run_v5018_p1_terrain_acceptance.sh`
-> are COMMITTED but **NOT YET RUN
-> ON USER'S GPU**. NEXT: pull feature,
-> run that script, review its archive,
-> fix targeted failures. After successful
-> P1 acceptance, extend real support
-> truth to stepped-down floors, ramps,
-> logs and realistic occluded/delayed
-> forward ToF/flow; never leak
-> simulator terrain oracle into actor.
-> Keep cold-start and compatible
-> warm-start on the SAME training
-> system, but do NOT freeze
-> `terrain_312` or embark on big
-> terrain PPO until load/sensors/
-> CPU-MJX-WASM gates advance.
-> NEVER change main, protected
-> champion, Pages or a running
-> GPU training lineage without
-> explicit approval.
+> `feature/v5018-terrain-awareness`
+> at https://github.com/mdt733/emu.
+> Read from current feature HEAD:
+> `docs/V5018_HANDOVER.md`,
+> `docs/V5018_TERRAIN_PLAN.md`
+> and `docs/INSTALL.md`.
+> Preserve ONE authoritative progress
+> record: V5018_TERRAIN_PLAN.
+> Existing 260M protected champion is
+> a convenient reference, but all
+> learning systems MUST support
+> genuine zero-pretrained-policy,
+> fresh 220/232 random initialization.
+> Completed prior GPU frontiers:
+> 34/34 stage obstacle experiment
+> with 5/10/15/20mm physical steps
+> and strong heading/cross-track
+> effects; 5/5 gait-v2/10mm
+> repeatability study. No
+> claim of reliable 20mm traversal.
+> Most recent user P1 archive
+> `v5018_p1_terrain_20261020_134537.tar.gz`
+> (tested source `d683aa4...`):
+> syntax passed, new JAX terrain
+> tests 6/6 passed, cold-start and
+> historical reward tests 6/6
+> passed; **ACTUAL CUDA/MJX
+> FLOAT32 ACTOR OBS BITWISE PARITY
+> FAILED**, numerical difference
+> was not printed. Source update
+> after archive added per-channel
+> numeric diagnostics and tiny
+> float32 rounding tolerance, with
+> bitwise scalar REWARD parity
+> maintained; NOT WSL-tested.
+> User also requested visual
+> feature demonstrations.
+> Viewer feature code now has an
+> eight-station collidable
+> 5–20mm+optional experimental
+> log course on the existing
+> exact 4m navigation circle,
+> colour-coded labels, and
+> Random / Circuit waypoint
+> demo routes passing from
+> entry to exit across the
+> physical obstacles, using
+> the original neural policy
+> and background pose planner.
+> Public/local/live policy
+> viewer modes share controls.
+> New Node test, headless pinned
+> MuJoCo/WASM contact probe,
+> viewer-build acceptance script
+> committed but NEVER executed
+> by user's WSL or full browser.
+> NEXT WSL RUNS independently:
+> `bash scripts/run_v5018_p1_terrain_acceptance.sh`
+> and
+> `bash scripts/run_v5018_viewer_course_acceptance.sh`.
+> Review archives; only then
+> claim actual P1 GPU parity
+> and browser WASM success.
+> Live browser can poll
+> COMPLETED validated training
+> checkpoint policies, not
+> GPU frame-by-frame mirroring.
+> The challenge circuit is a
+> DEMO, not the strict exam;
+> no terrain NN learning
+> started or schema frozen.
+> Never modify main, showcase,
+> public Pages or ongoing
+> training without approval.
