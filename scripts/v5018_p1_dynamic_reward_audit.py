@@ -192,20 +192,37 @@ def main():
         dx=np.linalg.norm(
             np.asarray(old['position_xy'])-np.asarray(new['position_xy']),
             axis=-1)
-        action_diff=np.max(
+        # PPO evaluate_trace records mlp()'s UNCLIPPED actor mean.
+        # The environment receives clip(mean,-1,+1), so a reported raw
+        # difference >2 is NEVER a delivered actuator command difference.
+        raw_action_diff=np.max(
             np.abs(old['actor_action']-new['actor_action']),axis=-1)
+        delivered_old=np.clip(old['actor_action'],-1.,1.)
+        delivered_new=np.clip(new['actor_action'],-1.,1.)
+        clipped_action_diff=np.max(
+            np.abs(delivered_old-delivered_new),axis=-1)
         rewards=np.abs(old['reward_scalar']-new['reward_scalar'])
+        # Both are closed-loop rollouts, not a matched-physics counterfactual.
+        # Different compiled reward graphs can produce tiny floating-point
+        # perturbations, amplified by recurrent contact and feedback.
+        # Without terminals, a reward number itself cannot control the actor.
         report['matched_rollout_comparison']={
+            'comparison_type':'same_seed_independent_closed_loop_rollouts',
+            'NOT_a_same_physical_state_reward_counterfactual':True,
             'max_world_xy_divergence_m':float(np.max(dx)),
-            'max_actor_action_difference':float(np.max(action_diff)),
+            'max_raw_actor_mean_difference':float(np.max(raw_action_diff)),
+            'max_applied_clipped_action_difference':float(np.max(clipped_action_diff)),
             'max_reward_difference':float(np.max(rewards)),
             'total_frames_with_reward_change':int(np.count_nonzero(rewards>1e-7)),
             'first_frame_xy_diverges_gt_1mm':(
                 int(np.flatnonzero(np.any(dx>.001,axis=1))[0])
                 if np.any(dx>.001) else None),
-            'first_frame_actor_diff_gt_1e-4':(
-                int(np.flatnonzero(np.any(action_diff>1e-4,axis=1))[0])
-                if np.any(action_diff>1e-4) else None),
+            'first_frame_raw_actor_mean_diff_gt_1e-4':(
+                int(np.flatnonzero(np.any(raw_action_diff>1e-4,axis=1))[0])
+                if np.any(raw_action_diff>1e-4) else None),
+            'first_frame_applied_action_diff_gt_1e-4':(
+                int(np.flatnonzero(np.any(clipped_action_diff>1e-4,axis=1))[0])
+                if np.any(clipped_action_diff>1e-4) else None),
             'first_frame_reward_diff_gt_1e-6':(
                 int(np.flatnonzero(np.any(rewards>1e-6,axis=1))[0])
                 if np.any(rewards>1e-6) else None),
