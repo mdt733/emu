@@ -590,10 +590,15 @@ def one_run_config(args) -> TrainingConfig:
     edge=float(getattr(args, 'terrain_height_edge_fraction', .35))
     grow=float(getattr(args, 'terrain_height_growth_mm', 1.))
     initial=float(getattr(args, 'terrain_height_initial_mm', 3.))
+    terrain_reward=float(getattr(args, 'terrain_progress_weight', 0.))
     if not 0 <= adaptive_limit <= 150:
         raise ValueError('adaptive terrain height safety must be 0..150mm')
-    if not all(math.isfinite(x) for x in (exposure, edge, grow, initial)):
+    if not all(math.isfinite(x) for x in (exposure, edge, grow, initial, terrain_reward)):
         raise ValueError('nonfinite adaptive terrain setting')
+    if not 0. <= terrain_reward <= .10:
+        raise ValueError('terrain-progress-weight must be [0,.10]')
+    if terrain_reward and not adaptive_limit:
+        raise ValueError('terrain progress teaching requires adaptive real step terrain')
     if not (.05 <= exposure <= .95 and .05 <= edge <= .95 and
             .1 <= grow <= 3. and 0. < initial <= 15.):
         raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
@@ -609,6 +614,7 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_height_exposure=exposure,
                    terrain_height_edge_fraction=edge,
                    terrain_height_growth_m=grow / 1000.,
+                   terrain_progress_weight=terrain_reward,
                    domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
