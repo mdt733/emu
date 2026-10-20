@@ -32,7 +32,7 @@ MANIFEST = "height_envelope_manifest.json"
 # environment steps with the SAME RNG seed / actor / optimizer / normalizer.
 # A parameter in each row is a real intervention, not a promotional label.
 ARMS = {
-    "flat_control": dict(fixed_box_mm=0),
+    "flat_control": dict(flat_control=True),
     "height_cautious": dict(limit_mm=80, exposure=.45, edge=.25,
                             growth_mm=.6, initial_mm=3., progress=0.),
     "height_balanced": dict(limit_mm=120, exposure=.60, edge=.35,
@@ -82,8 +82,8 @@ def assert_args(args):
 
 def branch_args(arm: str) -> list[str]:
     hypothesis = ARMS[arm]
-    if "fixed_box_mm" in hypothesis:
-        return ["--terrain-box-height-mm", str(hypothesis["fixed_box_mm"])]
+    if hypothesis.get("flat_control"):
+        return ["--terrain-height-flat-control"]
     return [
         "--terrain-height-ceiling-mm", str(hypothesis["limit_mm"]),
         "--terrain-height-exposure", str(hypothesis["exposure"]),
