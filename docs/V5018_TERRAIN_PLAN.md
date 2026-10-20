@@ -1,5 +1,42 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
+## 20 Oct ~22:00 AEDT — new cold-start **overnight** terrain experiment (branch source; WSL CUDA UNTESTED)
+
+### Uploaded 21:20 pilot: facts, not just green process exits
+
+The user's `v5018_step_ppo_20261020_212010.tar.gz` was fully inspected. The 17/17 stages exited zero; the 14 targeted Python tests passed, both 256-world × 8,192-step 232-input policies started from random weights and saved full checkpoints / exported valid `.emupolicy` files. Source commit **`449358fbba98f69a07a22c5c9908cf91a095c089`**, JAX 0.12.0, MuJoCo 3.16.0, RTX 4060 Ti 8GB. Protected 260M policy SHA-256 remained `d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+
+Important distinction: **0/48** held-out fixed-course crossing successes across 0mm/5mm-trained policies, tested on 0/5/10mm at two exam seeds and 4 worlds each. Both PPO training reports had approximately **96.2%** episode fall rate and **zero actual foot–box contact** in the recorded PPO rollouts; the 5mm robot had ~7.3% terrain-geometry proximity/overlap but no true foot-box pair. The evaluated frozen new actors frequently terminated near 0.22m progress. No trained obstacle competence is demonstrated. Those 8,192 steps represent only one gradient batch, not useful learning. The final fixed-eval stage consumed ~408–434s **per model** plus ~126–132s capability-cloud evaluation, making tiny repeated runs expensive.
+
+### New resumable research campaign
+
+The next source changes implement a **source-only, NOT WSL-validated** overnight launcher: `scripts/run_v5018_overnight.sh`. This continues no previously saved policy; two independent seeds generate 232-input networks and PPO normalizers **from RANDOM initial weights**. Each foundation uses 20M absolute env-steps, 1024 envs (PPO rounds to a complete update), `--profile foundation --sensor-actor --pitch-deg 8`. Each seed has its own root and checkpoint. If held-out core survival after foundation is <35%, skip terrain forks for that seed rather than teach an unstable body to collide with steps.
+
+When a foundation qualifies, launch two *matched* downstream forks, each loading that fresh foundation's full PPO state/optimizer/normalizer/curriculum, not the 260M champion export. The `sim2real` + sensor actor + 8° setting are identical; the sole physical experiment dimension is `--terrain-box-height-mm 0` (same box geometry far away) versus `5` (real shallow obstacle). Advance each arm +2.1M absolute env-steps. Export both, score independently on real 0mm and 5mm held-out courses (seed 1701). New CLI and runner preserve exact git source, step target, environment count and generated-course SHA.
+
+**Extension gate:** 5mm arm must have **nonzero training foot–box collision pairs**, held-out core survival >=35%, last logged servo-over-nominal fraction <85% and no major flat course crossing regression versus 0mm arm. If ALL pass, extend **BOTH arms** by +6M steps and re-test on 0/5/10mm with new held-out seeds 1702/1703; do not compare unequal learning budgets. Only if the 5mm extension has at least one independent *actual crossing* (not merely rising PPO reward/contact) and at least matches the control's 5mm crossing count, permit a 10mm follow-on (+2.1M), again scored on 0/5/10mm. These gates are provisional safety/evidence checks, not universal success thresholds; record every skip.
+
+Resume invokes `--resume --root ORIGINAL_PATH` with EXACT original config/feature source; it never picks a different run silently. Reconstructs each actual stage and uses same-run validated checkpoint recovery when available. Every stage saves its process exit separately from physical score. Archives exclude large `.pkl`/`.emupolicy` and stay in `~/robot_lab/emu_experiments` (actual checkpoints remain there). Test scripts cover plan/step alignment, config refusal, missing data semantics, step promotion gates, scorer consistency, and evidence exclusion. GitHub Actions CPU/Node checks have also been enabled on **feature branch only**; they must pass before user relies on this runner.
+
+**User WSL command (do NOT run while another GPU experiment is active):**
+
+```bash
+cd ~/emu-v5018
+git status --short
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+python -m pytest -q tests/test_v5018_overnight_campaign.py tests/test_v5018_terrain_training.py tests/test_v5018_cold_start_contract.py tests/test_direction.py::test_v5018_step_pilot_xml_yaw_and_declared_height
+bash scripts/run_v5018_overnight.sh --self-test
+bash scripts/run_v5018_overnight.sh                # only inspect plan
+bash scripts/run_v5018_overnight.sh --run          # starts overnight CUDA experiment
+```
+
+**Resuming a stopped campaign:** get the exact root from its first log, then `bash scripts/run_v5018_overnight.sh --resume --root "$HOME/robot_lab/emu_experiments/v5018_overnight_ACTUAL_TIMESTAMP"`. Do not use a fabricated timestamp. Keep WSL and Windows awake while the experiment runs; detaching a terminal alone will not prevent OS sleep.
+
+**Scientific limits:** This trains BLIND 232-input terrain-contact policies, not a forward ToF-preview network, and does not prove physically load-bearing step support or safety/servo temperatures. Detailed A/B/C legal rolling-map comparison remains gated on the P2 sensor work. 5/10mm boxes are isolated lab challenges, not the complete 80cm mixed-obstacle browser ring; the current real browser mixed course still requires its own Node/WASM/visual acceptance. No main/showcase/Pages promotion.
+
+---
+
 ## 20 Oct — opt-in collidable-box PPO plumbing (COMMITTED, GPU NOT YET TESTED)
 
 **Scope:** First real integration of the independently examined box-step geometry into the ordinary PPO training environment. This is a blind obstacle-control experiment, NOT yet learned terrain awareness. No changes to the 220/232 actor interfaces, default XML, PPO coefficients, published champion or Pages.
