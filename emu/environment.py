@@ -1205,7 +1205,7 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('adaptive step height requires real box-surface physics')
         self.terrain_height_exposure = float(terrain_height_exposure)
         self.terrain_height_edge_fraction = float(terrain_height_edge_fraction)
-         if not (.05 <= self.terrain_height_exposure <= .95 and
+        if not (.05 <= self.terrain_height_exposure <= .95 and
                 .05 <= self.terrain_height_edge_fraction <= .95):
             raise ValueError('invalid adaptive terrain birth distribution')
         self.terrain_mocap_id = -1
