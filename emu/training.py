@@ -157,7 +157,7 @@ def train(args: TrainingConfig) -> int:
         from .terrain import collidable_course
         training_xml = collidable_course(
             ROBOT_XML, run_dir / 'v5018_training_course.xml',
-            args.terrain_box_height_mm)
+            args.terrain_box_height_mm, immutable=True)
         course_sha256 = hashlib.sha256(training_xml.read_bytes()).hexdigest()
         env_options['terrain_contact_mode'] = 'box_surface'
         print(f'{LOG_PREFIX} v5018 P1 REAL BOX course={args.terrain_box_height_mm}mm '
