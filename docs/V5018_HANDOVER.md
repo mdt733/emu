@@ -8,6 +8,164 @@
 > [`docs/INSTALL.md`](INSTALL.md), first section, and
 > `scripts/bootstrap_wsl_v5018.sh`.
 
+## Current next action — midpoint circuit on an uneven, mixed-obstacle ring (20 Oct evening)
+
+**Newest user preference:**
+"Keep the current system of going to waypoints,
+but put the waypoints halfway between the obstacles
+sequentially; make sure the direction stays the same."
+This is in addition to the preceding request for
+**double-width, angled, step-up/step-down, half-buried
+logs, locally sampled non-flat ground**, and
+restoration of grassy forest scenery.
+
+Current **feature branch has source edits** for all
+these requirements; the new source is **NOT YET
+VALIDATED in WSL/npm/MuJoCo-WASM or a real browser**.
+The old successful 18/18 Node and 6/6 WASM
+archive is from earlier code and is NOT proof
+for the rebuilt mixed course.
+
+**Implementation layout:**
+
+- `emu/viewer_src/src/challenge-course.js`:
+  eight stations on existing radius-4m circle.
+  **Eight actual goal poses** lie at midpoint
+  angle between adjacent obstacle centres,
+  with heading tangent to the SAME
+  anti-clockwise direction throughout
+  (including the final→first wrap).
+  Every subsequent goal contains a
+  `via` descriptor for the obstacle
+  between it and the prior gap. This
+  is a route-shaping control point
+  **NOT a stop/arrival goal**.
+- `emu/viewer_src/src/goal-navigation.js`:
+  `planCircuitLeg` routes current gap →
+  obstacle via → next gap using the
+  **existing A* pose-lattice**. A
+  forward-motion step at the via
+  prevents a parking stop ON a step;
+  post-obstacle replans don't steer
+  backward; timeout retry keeps
+  the SAME next gap instead of
+  skipping a challenge. The
+  Worker `goal-worker.js` handles
+  this plan for existing target/replan
+  requests. Random mode remains
+  unchanged and manual sticks override.
+- `challenge-course.js`: **80cm wide**
+  obstacles (formerly 40cm); yaw
+  offsets `0,+15,-15,+25,-25,+10,-10,+20°`
+  independent of fixed CCW robot
+  route direction; two basic sharp
+  steps, two sharp rise/gentle ramp
+  downhill complexes, two reversed
+  gentle uphill/abrupt step-down
+  complexes, two half-buried capsule
+  logs when enabled (explicitly
+  **experimental**). Heights 5–20mm
+  are mixed under the selected ceiling.
+  A step-down here is the REVERSE
+  traversal of an up-step module,
+  not a pit artificially cut into
+  MuJoCo's solid hfield.
+- `emu/viewer_src/src/terrain.js`
+  still combines a physical park
+  heightfield/visible grass and 17
+  trees with true MuJoCo obstacle
+  geoms, but NO LONGER FLATTENS
+  the radius-4m band. The actual
+  seeded uneven terrain outside
+  the 2m spawn flat region remains.
+  Obstacle height is computed from
+  park.sampleHeight at centre/
+  plateau/ramp endpoints/log ends
+  instead of world absolute Z=0.
+  The physical half-buried log
+  centreline follows ground elevation.
+- `emu/viewer_src/src/sim.js`:
+  same existing controller, shows
+  obstacle-type labels, grass/trees,
+  and a visible teal loop passing
+  THROUGH each physical challenge
+  via and MIDWAY stop, not a shortcut
+  across the ring's inside.
+  Half-buried experimental logs
+  enabled by default in the viewer,
+  explicitly toggleable. No
+  robot-policy change or trainer
+  input/oracle data leakage.
+- `main.js` still automatically
+  selects `demoMode=circuit`
+  on user selecting challenge terrain;
+  no silent fallback to random.
+  HUD says eight between-obstacle
+  waypoints anticlockwise. User
+  can deliberately select Random.
+  Public Pages have NOT been deployed.
+- `emu/viewer_src/tests/challenge-course.test.mjs`
+  now asserts eight midpoint goals,
+  CCW direction and wrap, real
+  A* path-shaping via, width/angles,
+  all four obstacle families and
+  ground-relative geometry. Headless
+  `v5018_wasm_challenge_smoke.mjs`
+  covers 11 contact probes including
+  sloped physical hfield and both
+  ramp families. Full Node and WASM
+  tests are **PENDING**, not passed.
+  Isolated local V8 source checks
+  parsed changed modules, generated
+  12 challenge geoms on uneven
+  physical ground (4m sample
+  heights ~30.6–36.4mm), and
+  solved initial gap plus eight
+  circle legs (including wrap);
+  those checks do not substitute
+  for genuine MuJoCo/WASM or
+  interactive browser validation.
+
+**Immediate WSL action (don't repeat any
+large previous 34-stage GPU campaign):**
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_viewer_course_acceptance.sh
+```
+
+This stage driver collects Node, WASM
+collision, Vite and local viewer
+installation evidence in a fresh
+`~/robot_lab/emu_exams/v5018_viewer_course_*.tar.gz`.
+Send that archive for **real** fixes;
+don't replace an unexpected failure
+with relaxed tests. After PASS,
+run `emu viewer showcase/champion.emupolicy --no-open`
+and hard refresh
+`http://127.0.0.1:8765/`.
+Observe CCW gap→obstacle→gap
+routing on a real robot,
+station signs and mixed hfield.
+Actual six-servo crossing success
+is NOT established by planning alone.
+
+Everything remains on approved
+`feature/v5018-terrain-awareness`;
+NEVER touch main, protected
+`showcase/champion.emupolicy`,
+GitHub Pages or training lineages
+without user approval. The
+complete system MUST still be
+capable of training from random
+weights/normalizer/teacher with
+zero old brain files. The sole
+authoritative full P0–P7
+progress checklist is
+`docs/V5018_TERRAIN_PLAN.md`.
+
 ## The project and non-negotiable boundary
 
 - Repository: https://github.com/mdt733/emu
@@ -1233,107 +1391,128 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 ONLY on
+> Continue EMU v5018 STRICTLY
+> on the feature branch
 > `feature/v5018-terrain-awareness`
-> from https://github.com/mdt733/emu.
-> First read current
-> `docs/V5018_HANDOVER.md`,
+> at https://github.com/mdt733/emu.
+> Start with CURRENT HEAD of
+> `docs/V5018_HANDOVER.md`
+> (especially its newest
+> "Current next action" section),
 > `docs/V5018_TERRAIN_PLAN.md`
+> (ONE canonical progress tracker)
 > and `docs/INSTALL.md`.
-> TERRAIN_PLAN is the sole
-> living stage/gate checklist.
-> Protect main, public Pages,
-> protected 260M 232-input
-> showcase champion and active
-> training unless explicitly
-> approved. A fresh random
-> actor/normaliser/optimizer/
-> curriculum with no pretrained
-> brain remains MANDATORY
-> independent capability.
 >
-> LATEST USER RESULT FILES
-> (BOTH REAL WSL, source commit
-> `f01507344589...`):
-> `v5018_p1_deep_20261020_181914.tar.gz`
-> **ALL 5/5 stage PASS**:
-> 11/11 adversarial support tests,
-> 2/2 trace tests,
-> 3-frame exact flat reward and
-> 232 actor-observation parity,
-> real 4-world static 10mm
-> contact, and 240-frame
-> frozen 260M **MOVING** 10mm
-> legacy-vs-box_surface A/B.
-> Actual new trace has 388
-> contact world-frames, 421
-> contact-foot frames, 60 onsets,
-> 116 top-normal candidate frames,
-> 272 riser-normal candidate frames.
-> Mean support 0.691 new vs
-> 0.889 legacy. All 4 worlds
-> survived 240 frames.
-> HOWEVER independent actor
-> trajectories diverged:
-> max XY 7.09cm, raw
-> UNCLIPPED actor network
-> mean differs up to 5.91
-> (NOT motor command!).
-> Reward difference first
-> frame 39, actor raw mean
-> difference frame 41,
-> XY >1mm frame 84.
-> Because no resets and reward
-> doesn't enter actor,
-> do NOT claim new reward
-> causes improved motor gait.
-> Same-STATE physics reward
-> counterfactual is NEXT.
+> Protected 260M/232 policy
+> `showcase/champion.emupolicy`
+> is an optional read-only
+> experimental reference only.
+> Production system MUST still
+> create a new actor from random
+> seed with no earlier policy.
+> Do not edit main, showcase,
+> public GitHub Pages or running
+> training jobs without approval.
 >
-> `v5018_viewer_course_20261020_181856.tar.gz`
-> **ALL 8/8 stage PASS**:
-> 18/18 Node tests,
-> physical WASM flat +
-> 5,10,15,20mm steps +
-> capsule log all 6/6 PASS,
-> Vite built successfully and
-> emu/webviewer_dist installed
-> in local feature checkout.
-> Pin MuJoCo/WASM 3.15;
-> the actual collision spheres
-> settle 0.37mm flat and
-> ~0.79mm below nominal atop
-> obstacles. NO actual human
-> browser screenshot, working
-> full robot circuit or live
-> hot-swap run is documented.
-> The original legacy viewer
-> assertion forbidding demoMode
-> has been corrected.
+> The existing 4m physical
+> grass/tree Viewer Challenge
+> Ring was observed by the user
+> missing scenery and failing
+> to follow obstacle challenges.
+> Those problems were addressed
+> on the feature branch: combine
+> grass and real forest, and
+> select circuit instead of
+> random targets automatically.
+> User further requested
+> double-width (80cm) mixed
+> angled obstacles, step-up +
+> gently sloping ramp-down,
+> reverse ramp-up + step-down,
+> half-buried logs and locally
+> sampled RANDOM ground height.
+> Most recently user clarified:
+> keep existing waypoint
+> navigator but use ONE goal
+> HALFWAY BETWEEN every pair
+> of obstacle centres, in
+> SAME CCW direction forever.
+> Feature branch now has
+> exactly eight midpoint
+> destinations with CCW tangent
+> headings, and a separate
+> obstacle-centre VIA used
+> internally by the existing
+> A* Worker, never as extra
+> parking goals. Replan/timeout
+> guards prevent backwards
+> returns or silent skips.
+> The visible teal circuit
+> passes centres AND gap goals,
+> unlike straight chord bypasses.
 >
-> All real-user tests above ran
-> on source `f0150734...`;
-> the post-result optional
-> dynamic-audit raw vs clipped
-> action logging update is
-> committed but NOT yet WSL
-> tested. Read current feature
-> HEAD, not old summaries.
+> 8 mixed physical MuJoCo
+> stations use yaw offsets
+> `0,15,-15,25,-25,10,-10,20°`
+> and double-width boxes.
+> Step-up/down composites
+> use true yawed tilted MuJoCo
+> boxes, logs bury the capsule
+> centreline in local hfield.
+> Radius-4m annulus is NO LONGER
+> flattened, preserving the
+> original seeded park hfield.
+> Tree trunks stay off lane.
 >
-> NEXT: verify visual viewer
-> on Windows/mobile, try real
-> champion crossing the
-> challenge route. For P1
-> teachable reward, compare
-> legacy and new scoring on
-> IDENTICAL actual moving
-> physics frames; don't
-> confuse two free-running
-> closed-loop simulations
-> with a causal experiment.
-> Then test solver impulse/
-> true foot load, ToF occlusion
-> and eventually cold-start
-> terrain PPO only after gate.
-> Never merge or deploy
-> without explicit approval.
+> New course source was
+> checked with isolated V8
+> pure geometry/planner smoke:
+> parsed JS modules,
+> generated 12 collision
+> geoms, 17 trees, nonflat
+> station Z, and solved all
+> eight CCW crossing legs
+> plus centre-to-initial-gap.
+> **Full npm tests, real MuJoCo
+> WASM tilted-ramp collisions,
+> Vite build and browser UI
+> for the NEW code are still
+> UNRUN on user WSL.**
+> Earlier viewer 8/8 and
+> deep physics P1 5/5 were
+> actual USER-RUN acceptances
+> for OLDER branch source;
+> do NOT recycle as proof of
+> current viewer geometry.
+>
+> NEXT EXACT WSL COMMAND:
+> `bash scripts/run_v5018_viewer_course_acceptance.sh`
+> after `git pull --ff-only origin
+> feature/v5018-terrain-awareness`
+> in `~/emu-v5018` and
+> activating `.venv`.
+> Inspect the generated
+> `~/robot_lab/emu_exams/
+> v5018_viewer_course_*.tar.gz`
+> including all stage failures
+> and physical WASM JSON;
+> diagnose root causes on
+> branch, never fake tests.
+> Then run
+> `emu viewer
+> showcase/champion.emupolicy
+> --no-open` and check
+> `http://127.0.0.1:8765/`
+> with hard refresh.
+> This is a VISUAL DEMO,
+> not held-out terrain-walking
+> or motor-load certification.
+>
+> Next real learning work
+> remains common-trajectory
+> P1 reward scoring and true
+> contact reaction/sensor
+> occlusion before long PPO.
+> Keep source compact, docs
+> and emergency handover up
+> to date after each run.
