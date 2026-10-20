@@ -117,6 +117,24 @@ def summarize_crossings(paths: list[Path]) -> dict:
     }
 
 
+def extension_eligible(step_metrics: dict, baseline_flat_crossings: int,
+                       step_flat_crossings: int) -> tuple[bool, str]:
+    """Physical-contact/flat-retention gate; never reward-only progression."""
+    contact = step_metrics.get("max_logged_box_foot_contact_fraction")
+    core = step_metrics.get("last_core_survival")
+    overload = step_metrics.get("last_servo_over_rated_frac")
+    allowed = (
+        contact is not None and contact > 0
+        and core is not None and core >= .35
+        and overload is not None and overload < .85
+        and step_flat_crossings >= max(0, baseline_flat_crossings - 1)
+    )
+    reason = (f"contact={contact}, core_survival={core}, "
+              f"overload={overload}, step_flat={step_flat_crossings}, "
+              f"baseline_flat={baseline_flat_crossings}")
+    return allowed, reason
+
+
 def git(*args: str) -> str:
     return subprocess.check_output(["git", "-C", str(ROOT), *args],
                                    text=True, stderr=subprocess.PIPE).strip()
@@ -254,8 +272,7 @@ def archive(root: Path) -> None:
                 continue
             if path.stat().st_size > 20_000_000:
                 continue
-            tar.add(path, arcname=str(root.name / path.relative_to(root)) if False else
-                    str(Path(root.name) / path.relative_to(root)))
+            tar.add(path, arcname=str(Path(root.name) / path.relative_to(root)))
     os.replace(tmp, dest)
     print(f"\nEvidence archive (no giant checkpoints/policies): {dest}", flush=True)
 
@@ -412,17 +429,8 @@ def main(argv=None) -> int:
 
             baseline_flat = children[0]["score"]["by_height_mm"].get("0", {}).get("passed", 0)
             step_flat = children[5]["score"]["by_height_mm"].get("0", {}).get("passed", 0)
-            step_contact = children[5]["metrics"].get("max_logged_box_foot_contact_fraction")
-            step_survival = children[5]["metrics"].get("last_core_survival")
-            step_overload = children[5]["metrics"].get("last_servo_over_rated_frac")
-            extended = (
-                step_contact is not None and step_contact > 0
-                and step_survival is not None and step_survival >= .35
-                and step_overload is not None and step_overload < .85
-                and step_flat >= max(0, baseline_flat - 1)
-            )
-            reason = (f"contact={step_contact}, core_survival={step_survival}, "
-                      f"overload={step_overload}, step_flat={step_flat}, baseline_flat={baseline_flat}")
+            extended, reason = extension_eligible(
+                children[5]["metrics"], baseline_flat, step_flat)
             if not extended:
                 log_stage(root, f"{label}_extensions", "SKIP", 0, reason)
                 print("Extensions SKIPPED, insufficient physical contact/retention evidence:", reason)
