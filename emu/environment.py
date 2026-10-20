@@ -2007,11 +2007,39 @@ class EmuMJXEnv(TaskSampler):
             data, range_errors_m=scale[:, None] * 0.0015 * noise[:, :3],
             flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
             gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
+        # Versioned 280-input actor only. Render six first-hit physical rays
+        # independently of rewards/terrain governor. Legacy and 232 policies
+        # retain their original sensor packet values and random key streams.
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            R = self._rotation_body_to_world(data)
+            torso = data.xpos[:, self.torso_id, :]
+            floor_id = int(self.ids['floor_geom'])
+            floor_origin = data.geom_xpos[:,floor_id,:]
+            floor_normal = jnp.reshape(
+                data.geom_xmat[:,floor_id], (self.num_envs,3,3))[:,:,2]
+            noise = jax.vmap(lambda k: jax.random.normal(
+                jax.random.fold_in(k, 5021), (6,), dtype=jnp.float32))(keys)
+            ray_kwargs = {}
+            if self.terrain_contact_mode == 'box_surface':
+                box_id = self.terrain_box_geom_id
+                ray_kwargs = dict(
+                    box_center=data.geom_xpos[:,box_id,:],
+                    box_rotation=jnp.reshape(
+                        data.geom_xmat[:,box_id], (self.num_envs,3,3)),
+                    box_half_size=self.terrain_box_half_size)
+            forward_ranges, forward_valid = first_hit_ranges(
+                jnp, torso, R, floor_origin, floor_normal,
+                errors_m=scale[:,None] * FORWARD_NOISE_STD_M * noise,
+                **ray_kwargs)
+        else:
+            forward_ranges = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
+            forward_valid = jnp.zeros((self.num_envs,6),dtype=bool)
         ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         return SensorSample(
             probe['tof_ranges_m'], probe['tof_beam_valid'],
             probe['flow_rad_s'], probe['flow_return_valid'],
-            probe['measured_gyro_body_rad_s'], ages, ages)
+            probe['measured_gyro_body_rad_s'], forward_ranges,
+            forward_valid, ages, ages)
 
     def _initial_sensor_state(self, data, task, phase, keys):
         """Start an episode with a real first sample, not fabricated flat data."""
@@ -2046,12 +2074,22 @@ class EmuMJXEnv(TaskSampler):
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
         tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
+        # A spatial module with 3 zones per side: acquisition cadence and
+        # one-frame delay match the tripod, with separate per-ray dropouts.
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            failed = jax.vmap(lambda k: jax.random.uniform(
+                jax.random.fold_in(k, 5022), (6,)))(keys) < self.tof_dropout_prob
+            fwd_ok = raw.forward_valid & ~failed
+        else:
+            fwd_ok = raw.forward_valid
         latest = SensorSample(
             jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
             jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
             jnp.where(flow_due, flow_valid, old.flow_valid),
             jnp.where(flow_due[:, None], raw.gyro_body_rad_s, old.gyro_body_rad_s),
+            jnp.where(tof_due[:,None], jnp.where(fwd_ok, raw.forward_ranges_m, 0.), old.forward_ranges_m),
+            jnp.where(tof_due[:,None], fwd_ok, old.forward_valid),
             jnp.where(tof_due, 0, old.tof_age_frames + 1),
             jnp.where(flow_due, 0, old.flow_age_frames + 1))
         queued = jax.tree_util.tree_map(
@@ -2092,7 +2130,18 @@ class EmuMJXEnv(TaskSampler):
         grade_freshness = jnp.clip(
             1. - 0.25 * tof_age.astype(jnp.float32) /
             self.tof_period_frames, .25, 1.)
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            profile, pvalid = relative_height_profile(
+                jnp,
+                s.forward_ranges_m[:,tf,:],
+                s.forward_valid[:,tf,:],
+                ranges, ground['ground_normal_body'], ground_valid)
+        else:
+            profile = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
+            pvalid = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
         return dict(
+            forward_profile_height_m=profile,
+            forward_profile_valid=pvalid,
             measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
             velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
             velocity_confidence=estimate['velocity_confidence'] * freshness,
