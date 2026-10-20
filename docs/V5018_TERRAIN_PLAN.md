@@ -1,6 +1,6 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1 synthetic tests PASS (12/12); new 14:43 real-MJX flat reward and observations pass 3-frame gate; active 10mm probe hit a known MJX Data._replace API error, now fixed on branch but NOT yet user-rerun; challenge-ring viewer Node/WASM acceptance still pending; P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
+**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial. P1 real GPU 15:44 four-stage narrow smoke PASS, including exact flat parity and controlled 10mm contact. ROOT-CAUSE audit found top-support classifier did not check actual contact normal/point; correction + real-motion A/B code COMMITTED but NOT WSL tested. Viewer 16/17 Node tests passed; sole failure was obsolete core assertion forbidding new `demoMode`; corrected on branch, WASM/build still UNTESTED. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
@@ -1204,20 +1204,187 @@ Archive was read directly; 4 stages logged with 3 PASS and last FAIL.
   obstacle frontier or make a release claim from
   only the off-course comparison.
 
-## Immediate next gates — real GPU parity and actual viewer collision
+## 20 Oct 15:44 — narrow P1 PASS and root-cause audit of misleading metrics
 
-**P1 flat-control gate now has a bounded successful
-three-frame real CUDA run**, with both scalar reward
-equality and actor-observation comparison surviving
-the reported checks. The 10mm **active-contact
-gate remains NOT YET COMPLETED** because a test-only
-MJX Data API mismatch stopped the previous run.
-That call has been fixed, the two gates now save
-independent evidence and the 10mm probe requires
-actual geom-pair contact (not a picture or torso
-overlap). Re-run the small P1 acceptance on the
-feature branch and inspect `mjx_surface_truth.json`
-and stage logs before any P1 promotion.
+### Actual new user evidence (not inferred)
+
+**Source tested:** `0f7f02b2eadb78ac8816d60f07619bde37463c77`
+on `feature/v5018-terrain-awareness`.
+P1 archive named
+`v5018_p1_terrain_20261020_154411.tar.gz` by runner;
+user pasted complete console output. RTX4060Ti 8188MiB,
+Python3.13.16, JAX0.12.0, MuJoCo3.16.0,
+`emu/robot.xml` SHA-256
+`c1af72485e83de277efa1914a476519cebbebdc2beb1f03a10c475c9fadf3a64`.
+
+- [x] **4/4 runner stages PASS**: syntax, terrain NumPy/JAX
+  **6/6**, cold-start/old reward contracts **6/6**,
+  actual four-world GPU/MJX `actual_mjx_reward_parity`.
+- [x] **Three true CUDA frames** of *off-course box* produced
+  **bitwise identical old and new reward and all 232 actor
+  observations** (`max difference=0`); correct identical
+  XML SHA `cbc81bde...`.
+- [x] Controlled 10mm contact fixture verified four geometrically
+  targeted sphere poses (4–17nm target error),
+  `terrain_geometry_active` in **4/4** and box–foot
+  near-contact pairs in **4/4**; old 10mm course XML
+  SHA `f5ca6525...`. All four reported
+  top-contact fraction **1.0**, riser fraction **0.0**,
+  support fraction **1.0**, stance slip **0.0**,
+  and signed minimum toe gap approx **−1mm**.
+- [!] These values do **NOT** demonstrate correctly learned
+  stepping or stable load-bearing contact. The experiment
+  *forcibly teleports* an unloaded robot so its right-foot
+  sphere sits 1mm inside a stationary box, while it
+  deliberately sets previous foot pose EQUAL to the
+  translated current pose. Therefore **0 slip is
+  guaranteed by construction** and 1.0 support merely
+  reflects both ball geoms contacting or nearly contacting
+  the box in this artificial state. It does not measure
+  natural stride transitions, contact normal impulse,
+  joint power, or dynamic falling/catching under motion.
+
+### Actual viewer evidence (separate attached WSL console)
+
+**Viewer run:** `v5018_viewer_course_20261020_154330.tar.gz`,
+same source/unchanged champion SHA-256
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`;
+Node24.22/npm11.19.1.
+- [x] source, Worker and course-module syntax stages PASS,
+  `npm ci` PASS; browser Node test stage **16/17** passed.
+- [!] The ONE failed test
+  `tests/core.test.mjs::viewer starts in lattice demo without obsolete controls...`
+  contained a **historical assertion**
+  `assert.doesNotMatch(html,/id="demoMode"|.../)`.
+  That prohibition was added before the deliberate 2026
+  Random/Circuit mode and is now contradictory.
+  This is a **test-contract conflict**, not evidence
+  of defective MuJoCo collider physics. Fail-fast runner
+  stopped **before** headless WASM collision/build/install
+  so browser runtime and rendering are still UNVERIFIED.
+- [~] Updated that exact old core test to require **random
+  selected by default, the circuit option, one existing
+  neural actor/planner, and no obsolete advanced actor
+  mutation controls**. Added a stronger *actual lattice*
+  test requiring routes across every station's real
+  projected box footprint. Isolated current source-level
+  lattice execution with normal speed limits verified
+  **8/8** routes solved and intersected their respective
+  obstacle footprint. Still **no WASM or rendered browser
+  result yet**. `esbuild` install script warning did not
+  fail `npm ci`, and should not be mistaken for the
+  actual test failure.
+
+### Root defect found in P1 support classification
+
+**This is substantive and not fixed by changing a test threshold.**
+
+Previous `emu/terrain.py::box_surface_truth` called any
+near-zero box/foot geom-pair a potential **top** support
+when foot XY and sphere centre Z were close to the
+raised surface. It did **NOT** consult the real collision
+**normal** or the **contact point**. At a step edge,
+a sphere pressing into the **vertical riser** can have
+the same box-pair ID, near-top Z and XY footprint as a
+true landing on the horizontal face. Thus a horizontal
+collision could incorrectly award top support, affecting
+actual PPO `support`, `height`, `swing_clearance`,
+`stance_slip` and reward/termination. The four-world
+stationary forced-top smoke cannot falsify that case.
+
+- [~] Changed opt-in `box_surface_truth` to consume
+  `data.contact.frame` and `data.contact.pos`.
+  Uses MuJoCo frame's FIRST row (world-space normal),
+  tests `|dot(normal,box_top_normal)| >= .88`
+  regardless of contact geom ordering, and separately
+  requires contact position within **4mm of the true
+  top plane**, within the rotated box face's XY
+  bounds. Invalid side/riser pairs remain reported
+  as riser but **cannot** earn top support.
+  Contact pair + geometry and normal remain *support
+  candidates*, NOT measured positive normal force.
+- [~] Added adversarial NumPy/JAX tests for (a)
+  near-top sphere with **horizontal** collision
+  normal, (b) vertical normal with contact point
+  NOT on the box top, and (c) reversed valid
+  normal orientation. Now `tests/test_v5018_terrain_truth.py`
+  contains 8 tests (previous 6). Tests and actual
+  MuJoCo/JAX classification after this code
+  change have **NOT BEEN RUN on user WSL**.
+- [~] Added a STATIC OPTIONAL
+  `record_terrain_truth=False` flag to
+  `emu/ppo.py::evaluate_trace`, default unchanged.
+  Only when true, adds *read-only* per-control-frame
+  scalar reward, frozen actor action, real
+  support, top/riser/floor fractions, signed toe
+  clearance, and physical geometry activation to
+  the exam trace. **No actor input channels,
+  policy weights, base PPO training recipe or
+  default evaluate_trace fields change**.
+- [~] New `scripts/v5018_p1_dynamic_reward_audit.py`
+  and `scripts/run_v5018_p1_deep_audit.sh`.
+  Uses the **unchanged 260M 232-input** frozen champion
+  as an OPTIONAL controlled research reference,
+  real 10mm collidable XML, four active MJX worlds,
+  one moving run with historical metrics and one
+  with opt-in terrain physics; same operator command,
+  seed, heading correction and sensor contract.
+  Records genuine contact ONSETS, repeated real
+  box contact world/foot frames, top vs riser candidate
+  frames, physical support/gaps, actor-action/
+  reward differences and time of any trajectory/
+  terminal divergence. Requires actual contact
+  during MOVEMENT before concluding success.
+  This audit does **not** perform an RL update and
+  does not modify or require a brain for cold-start
+  learning. **NOT yet tested on the user's GPU.**
+- [ ] Do not promote reward changes for terrain
+  learning until these 8 new adversarial
+  tests, actual normal/point MJX contact smoke,
+  and moving frozen-actor A/B dynamic audit
+  pass and their evidence is reviewed. A
+  stationary near-zero collision score is
+  necessary but **insufficient**.
+
+### Next two INDEPENDENT WSL acceptance commands
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_viewer_course_acceptance.sh
+bash scripts/run_v5018_p1_deep_audit.sh
+```
+
+Viewer: validates all Node tests, pinned actual WASM 3.15
+sphere collisions, browser bundle and local installation;
+course was NOT merged to public Pages.
+P1: validates real contact normals/point, flat parity,
+and actual moving 260M champion over 10mm in matched
+read-only legacy/terrain scoring.
+Both scripts archive to `~/robot_lab/emu_exams/`
+and stop with partial results when a gate fails.
+Use the fresh archived failure evidence, never fill
+in missing results or report unexecuted success.
+
+## Immediate next gates — move beyond an artificial P1 contact
+
+**P1 old four-stage smoke is now 4/4 PASS,
+but not sufficient for physical support certification.**
+The new code adds actual contact-normal/top-point
+classification, adversarial false-top cases, and a
+genuine MOVING frozen-policy A/B rollout. Run the
+bounded `scripts/run_v5018_p1_deep_audit.sh`
+to test that real physics supports the intended
+classification and to quantify true actor/reward/
+trajectory divergence. Do **not** replace this
+with another forced stationary top contact test.
+
+The independent viewer contract was repaired; run
+`scripts/run_v5018_viewer_course_acceptance.sh`
+to learn the *actual* WASM/Node status. The 16/17
+old result did NOT execute any WASM collision or
+Vite packaging; no UI or Pages validation claim yet.
 
 **Viewer gate is separately UNVERIFIED on Node/WASM.**
 The eight-station circle and two demo modes have been
