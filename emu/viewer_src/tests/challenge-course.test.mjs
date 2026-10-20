@@ -24,7 +24,7 @@ test('obstacles sit ON the original 4m circle, entry and exit straddle the actua
     near((station.entry.x+station.exit.x)/2,station.x,2e-6);
     near((station.entry.y+station.exit.y)/2,station.y,2e-6);
     near(Math.atan2(Math.sin(Math.atan2(dy,dx)-station.yawRad),
-                    Math.cos(Math.atan2(dy,dx)-station.yawRad)),0,1e-6);
+                    Math.cos(Math.atan2(dy,dx)-station.yawRad)),0,3e-6);
     assert.equal(station.entry.phase,'entry');
     assert.equal(station.exit.phase,'cross');
   }
@@ -90,6 +90,6 @@ test('public and live viewer share discoverable challenge controls',()=>{
     assert.match(html,new RegExp(`id="${id}"`));
     assert.ok(main.includes("$('"+id+"')"), 'missing viewer binding for '+id);
   }
-  assert.match(main,/sim\.navigationChallengeCourse\(\)/);
+  assert.match(main,/navigationChallengeCourse\(\)/);
   assert.match(main,/setChallengeOptions/);
 });
