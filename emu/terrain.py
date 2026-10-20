@@ -171,12 +171,12 @@ def box_surface_truth(
     }
 
 
-def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0.):
+def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0., immutable: bool = False):
     """Write the reproducible real MuJoCo course used by v5018 crossing exams.
 
-    The 0mm control retains the same box geom, parked 5m off course. The
-    routine refuses to overwrite an existing DIFFERENT course (important for
-    checkpoint lineage and independent reproduction).
+    The 0mm control retains the same box geom, parked 5m off course.
+    Training enables immutable=True: mismatched existing run geometry fails
+    closed. The historical examiner keeps reusing temporary output paths.
     """
     import math
     from pathlib import Path
@@ -203,17 +203,21 @@ def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0.
         attributes['euler'] = f'0 0 {yaw_deg}'
     ET.SubElement(world, 'geom', attributes)
     # Render to memory first; never damage an existing run's course file.
-    return _write_reproducible_course(tree, Path(dest))
+    return _write_reproducible_course(tree, Path(dest), immutable=immutable)
 
 
-def _write_reproducible_course(tree, dest):
+def _write_reproducible_course(tree, dest, *, immutable):
     from io import StringIO
     content = StringIO()
     tree.write(content, encoding='unicode', xml_declaration=True)
     encoded = content.getvalue().encode('utf-8')
     if dest.exists():
-        if not dest.is_file() or dest.read_bytes() != encoded:
-            raise RuntimeError(f'Course file differs from declared geometry: {dest}')
+        if not dest.is_file():
+            raise RuntimeError(f'Course target is not a file: {dest}')
+        if dest.read_bytes() != encoded:
+            if immutable:
+                raise RuntimeError(f'Course file differs from declared geometry: {dest}')
+            dest.write_bytes(encoded)
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open('xb') as out:
