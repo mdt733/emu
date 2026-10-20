@@ -1185,8 +1185,11 @@ class EmuMJXEnv(TaskSampler):
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
         if self.terrain_contact_mode == 'box_surface':
-            if self.contact_slope_deg > 0 or real_floor_domain:
-                raise ValueError('box_surface P1 only supports a flat floor; real slopes require a separate test')
+            if self.contact_slope_deg > 0 or (self.domain_config.enabled and
+                                               self.domain_config.terrain_radius > 0):
+                raise ValueError(
+                    'box_surface P1 requires zero real or gravity-equivalent '
+                    'terrain randomization; sloped-floor-plus-box needs its own tests')
             box_id = mujoco.mj_name2id(
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,terrain_box_geom)
             if box_id < 0 or self.mj_model.geom_type[box_id] != mujoco.mjtGeom.mjGEOM_BOX:
