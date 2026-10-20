@@ -999,6 +999,19 @@ def test_v5018_step_pilot_xml_yaw_and_declared_height(tmp_path):
             assert float(obstacle.attrib['size'].split()[2]) > 0
             assert float(obstacle.attrib['pos'].split()[0]) == (
                 5. if height_mm == 0 else .20)
+    # Exact robot.xml is unchanged since the successful 09:49 pilot.
+    # Straight-course XML must match independent user-run course hashes,
+    # not merely be geometrically equivalent at a glance.
+    import hashlib
+    archived_0949_course_hashes = {
+        0: 'cbc81bde11ed0451954c76ec8b3f69c94ff8f61fbc18a5093e4e78087a925468',
+        5: '7968b1172cb0cbe42f1d70272e5facdd02dd18ddbbb24deffaaceff78c6c52a1',
+        10: 'f5ca6525a5d2ef8e608121d88fb613b5cc56e92b76bbbacba1b895ad17d0b754',
+    }
+    for h, expected_sha in archived_0949_course_hashes.items():
+        course=collidable_course(ROBOT_XML,tmp_path/'course.xml',h,yaw_deg=0.)
+        assert hashlib.sha256(course.read_bytes()).hexdigest() == expected_sha
+
     with pytest.raises(ValueError, match='-35'):
         collidable_course(ROBOT_XML,tmp_path/'course.xml',10,yaw_deg=40.)
     with pytest.raises(ValueError, match='declared'):
