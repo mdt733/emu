@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .terrain import box_surface_truth
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
@@ -1072,7 +1073,9 @@ class EmuMJXEnv(TaskSampler):
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
                  gyro_bias_std_rad_s: float = 0.015,
-                 contact_slope_exam_limit_deg: float = 5.0):
+                 contact_slope_exam_limit_deg: float = 5.0,
+                 terrain_contact_mode: str = 'legacy',
+                 terrain_box_geom: str = 'v5018_obstacle_step'):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1169,8 +1172,41 @@ class EmuMJXEnv(TaskSampler):
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
+        # Research-only opt-in P1 geometry truth. Legacy is the exact
+        # historical floor-distance reward path and remains the default.
+        # This geometric metadata is for teacher/scoring ONLY; no actor
+        # input, policy weight, checkpoint schema or sensor clock changes.
+        if terrain_contact_mode not in ('legacy', 'box_surface'):
+            raise ValueError("terrain_contact_mode must be 'legacy' or 'box_surface'")
+        self.terrain_contact_mode = terrain_contact_mode
+        self.terrain_box_geom_id = -1
+        self.terrain_box_half_size = None
+        self.terrain_foot_radius_m = None
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
+        if self.terrain_contact_mode == 'box_surface':
+            if self.contact_slope_deg > 0 or real_floor_domain:
+                raise ValueError('box_surface P1 only supports a flat floor; real slopes require a separate test')
+            box_id = mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,terrain_box_geom)
+            if box_id < 0 or self.mj_model.geom_type[box_id] != mujoco.mjtGeom.mjGEOM_BOX:
+                raise ValueError(f'box_surface requires a real named box geom: {terrain_box_geom}')
+            if int(self.mj_model.geom_bodyid[box_id]) != 0:
+                raise ValueError('box_surface currently requires an immovable worldbody box')
+            rot=np.zeros(9,dtype=np.float64)
+            mujoco.mju_quat2Mat(rot,self.mj_model.geom_quat[box_id])
+            if rot[8] < 0.99:
+                raise ValueError('box_surface supports a nearly horizontal top (yaw rotations) only')
+            foot_ids = self.ids['foot_geoms']
+            radii = np.asarray(self.mj_model.geom_size[foot_ids,0],dtype=float)
+            if not np.allclose(radii,radii[0],rtol=0.,atol=1e-6) or radii[0]<=0:
+                raise ValueError('box_surface requires two equal-radius sphere feet')
+            if any(self.mj_model.geom_type[i] != mujoco.mjtGeom.mjGEOM_SPHERE for i in foot_ids):
+                raise ValueError('box_surface requires the real foot geoms to be spheres')
+            self.terrain_box_geom_id=int(box_id)
+            self.terrain_box_half_size=jnp.asarray(
+                self.mj_model.geom_size[box_id],dtype=jnp.float32)
+            self.terrain_foot_radius_m=float(radii[0])
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
@@ -2007,6 +2043,32 @@ class EmuMJXEnv(TaskSampler):
         # uphill foot can be incorrectly rewarded as a swing foot.
         height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
         foot_ground_distance = self._floor_signed_heights(data,foot_pos)
+        terrain_truth = None
+        if self.terrain_contact_mode == 'box_surface':
+            # Both terrain top geometry and *real MJX foot/geom contact
+            # pairs* are required for support. A riser touch earns none.
+            floor_id=int(self.ids['floor_geom'])
+            bid=self.terrain_box_geom_id
+            terrain_truth=box_surface_truth(
+                jnp,foot_xyz=foot_pos,
+                previous_foot_xyz=prev_foot_pos,
+                torso_xyz=data.xpos[:,self.torso_id,:],
+                floor_foot_signed=foot_ground_distance,
+                floor_torso_signed=height,
+                floor_normal=data.geom_xmat[:,floor_id,:,2],
+                box_center=data.geom_xpos[:,bid,:],
+                box_rotation=data.geom_xmat[:,bid,:,:],
+                box_half_size=self.terrain_box_half_size,
+                contact_geom1=data.contact.geom1,
+                contact_geom2=data.contact.geom2,
+                contact_distance=data.contact.dist,
+                floor_geom_id=floor_id,box_geom_id=bid,
+                foot_geom_ids=tuple(int(i) for i in self.ids['foot_geoms']),
+                foot_radius_m=self.terrain_foot_radius_m,
+                control_dt=CONTROL_DT)
+            # Privileged reward/diagnostic heights only, NEVER _base_obs().
+            height=terrain_truth['torso_height']
+            foot_ground_distance=terrain_truth['foot_center_signed']
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -2035,6 +2097,10 @@ class EmuMJXEnv(TaskSampler):
         # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
+        if terrain_truth is not None:
+            # Unlike the old floor-height proxy, this never rewards a
+            # vertical box face as a grounded foot.
+            support = terrain_truth['support_fraction']
         bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
@@ -2045,6 +2111,8 @@ class EmuMJXEnv(TaskSampler):
         low_height_soft = (height < 0.130).astype(jnp.float32)
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
         swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
+        if terrain_truth is not None:
+            swing_clearance = terrain_truth['swing_clearance']
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
@@ -2067,6 +2135,10 @@ class EmuMJXEnv(TaskSampler):
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
         stance_w = jnp.clip((0.040 - foot_ground_distance) / 0.020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
+        if terrain_truth is not None:
+            # Compute full 3-D tangential foot motion against the plane
+            # actually touched. Never treat a sliding riser touch as stance.
+            stance_slip = terrain_truth['stance_slip']
         # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
         fall_tilt = gravity_z < 0.35
@@ -2130,6 +2202,17 @@ class EmuMJXEnv(TaskSampler):
             'action_delta_norm': action_delta,
             'joint_limit_pressure': joint_pressure,
             'scissor_pressure': scissor,
+            **({} if terrain_truth is None else {
+                'terrain_top_contact_fraction':jnp.mean(
+                    terrain_truth['foot_top_contact_candidate'].astype(jnp.float32),axis=1),
+                'terrain_riser_contact_fraction':jnp.mean(
+                    terrain_truth['foot_riser_contact'].astype(jnp.float32),axis=1),
+                'terrain_floor_contact_fraction':jnp.mean(
+                    terrain_truth['foot_floor_contact_candidate'].astype(jnp.float32),axis=1),
+                'terrain_min_signed_toe_clearance':terrain_truth['min_toe_clearance_signed'],
+                'terrain_foot_footprint_fraction':jnp.mean(
+                    terrain_truth['foot_in_box_footprint'].astype(jnp.float32),axis=1),
+            }),
             **servo_effort,
             **spring_energy,
         }
