@@ -84,6 +84,7 @@ def summarize_crossings(paths: list[Path]) -> dict:
     per_course = {}
     reasons = Counter()
     progresses = []
+    overload_samples = []
     for path in paths:
         if not path.is_file():
             continue
@@ -96,7 +97,9 @@ def summarize_crossings(paths: list[Path]) -> dict:
         if count != int(doc.get("crossing_success_worlds", -1)):
             raise RuntimeError(f"Contradictory crossing score: {path}")
         key = str(doc["step_height_mm"])
-        item = per_course.setdefault(key, {"passed": 0, "worlds": 0, "box_contact_frames": 0})
+        item = per_course.setdefault(key, {"passed": 0, "worlds": 0, "box_contact_frames": 0,
+                                           "servo_over_nominal_samples": 0,
+                                           "servo_over_nominal_sum": 0.})
         item["passed"] += count
         item["worlds"] += n
         item["box_contact_frames"] += int(doc.get("step_contact_world_frames", 0))
@@ -104,13 +107,34 @@ def summarize_crossings(paths: list[Path]) -> dict:
             reasons.update(row.get("rejection_reasons", []))
             if row.get("final_signed_progress_m") is not None:
                 progresses.append(float(row["final_signed_progress_m"]))
+            # The held-out examiner returns an approximate servo overload
+            # fraction, not electrical power or calibrated thermal stress.
+            # Preserve missing as UNKNOWN rather than pretending zero cost.
+            over = row.get("servo_above_nominal_continuous_frac")
+            if over is not None:
+                try:
+                    over = float(over)
+                except (TypeError, ValueError):
+                    over = float("nan")
+                if math.isfinite(over) and 0. <= over <= 1.:
+                    item["servo_over_nominal_sum"] += over
+                    item["servo_over_nominal_samples"] += 1
+                    overload_samples.append(over)
         trials += n
         passed += count
         box_frames += int(doc.get("step_contact_world_frames", 0))
     return {
         "evaluated_worlds": trials, "actual_crossings": passed,
         "step_contact_world_frames": box_frames,
-        "by_height_mm": per_course,
+        "by_height_mm": {
+            h: {**x, "mean_servo_over_nominal_continuous_frac": (
+                x["servo_over_nominal_sum"]/x["servo_over_nominal_samples"]
+                if x["servo_over_nominal_samples"] else None)}
+            for h, x in per_course.items()
+        },
+        "mean_servo_over_nominal_continuous_frac": (
+            sum(overload_samples)/len(overload_samples)
+            if overload_samples else None),
         "mean_signed_progress_m": (sum(progresses)/len(progresses) if progresses else None),
         "reject_reasons": dict(reasons),
         "NOT_a_PPO_reward_metric": True,
