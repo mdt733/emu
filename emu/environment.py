@@ -2156,7 +2156,7 @@ class EmuMJXEnv(TaskSampler):
             # obstacle as a completed step crossing.
             edge = ((task[:, T.terrain_height_m] > 0.) &
                     (task[:, T.terrain_height_m] >= .70 *
-                     jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m]))))
+                     jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m])))
             far = data.xpos[:, self.torso_id, 0] >= .42
             feet_far = jnp.all(foot_pos[:, :, 0] >= .28, axis=1)
             supported = terrain_truth['support_fraction'] >= .25
