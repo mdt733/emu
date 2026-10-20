@@ -135,6 +135,12 @@ class RegimeGovernor:
         self._falls_ema = {k: 0.0 for k in self.fall_ema}
         self._episodes_ema = {k: 0.0 for k in self.fall_ema}
         self._updates_done_total = 0
+        # Physical height lessons are sparse because a fixed +X riser is
+        # only appropriate for forward-corridor commands. Accumulate real
+        # COMPLETED edge episodes across on-policy rollouts; never infer
+        # height skill from reward, contact frames, or one lucky sample.
+        self.terrain_edge_evidence = dict(episodes=0., crossings=0.,
+                                          contacts=0., falls=0.)
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -167,6 +173,7 @@ class RegimeGovernor:
             '_updates_done_total': self._updates_done_total,
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
+            'terrain_edge_evidence': dict(self.terrain_edge_evidence),
         }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
@@ -174,6 +181,7 @@ class RegimeGovernor:
             'params', 'competence', 'core_competence', 'best_len', 'core_bad_streak',
             'fall_ema', '_falls_ema', '_episodes_ema', '_updates_done_total',
             'frontier_precision_ema', 'frontier_bad_streak',
+            'terrain_edge_evidence',
         }
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
@@ -189,6 +197,13 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
+        if (not isinstance(d['terrain_edge_evidence'], dict) or
+            set(d['terrain_edge_evidence']) != {'episodes','crossings','contacts','falls'}):
+            raise ValueError('terrain edge evidence state keys mismatch')
+        for key, value in d['terrain_edge_evidence'].items():
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0:
+                raise ValueError(f'invalid terrain edge evidence {key}={value!r}')
+        self.terrain_edge_evidence = dict(d['terrain_edge_evidence'])
         self.params = RegimeParams(**d['params'])
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -599,14 +614,57 @@ class RegimeGovernor:
         }
         if self.terrain_height_safety_m > 0.:
             from .terrain import next_height_frontier
-            new_h, decision = next_height_frontier(
-                self.params.frontier_terrain_height_m, row,
-                safety_m=self.terrain_height_safety_m,
-                growth_m=self.terrain_height_growth_m)
-            if kl_ok_to_expand or new_h <= self.params.frontier_terrain_height_m:
+            # Rollout rates are ratios among completed edge episodes;
+            # pool the corresponding integer counts until statistically
+            # meaningful. A JAX policy's long healthy episodes can span
+            # twenty 32-frame PPO updates, so per-update min-count tests
+            # otherwise prevent growth forever.
+            trials = max(0., float(row.get('terrain_edge_done_count', 0.)))
+            crossing = float(row.get('terrain_edge_crossing', -1.))
+            contact = float(row.get('terrain_edge_contact', -1.))
+            fallen = float(row.get('terrain_edge_fall_rate', -1.))
+            if (math.isfinite(trials) and trials > 0. and
+                all(math.isfinite(v) and 0. <= v <= 1.
+                    for v in (crossing, contact, fallen))):
+                evidence = self.terrain_edge_evidence
+                evidence['episodes'] += trials
+                evidence['crossings'] += trials * crossing
+                evidence['contacts'] += trials * contact
+                evidence['falls'] += trials * fallen
+            report['terrain_edge_pooled_episodes'] = self.terrain_edge_evidence['episodes']
+            if self.terrain_edge_evidence['episodes'] >= 8.:
+                e = self.terrain_edge_evidence
+                n = e['episodes']
+                pooled_row = {
+                    'terrain_edge_exposure': 1.0,  # all recorded trials ARE real edge births
+                    'terrain_edge_done_count': n,
+                    'terrain_edge_crossing': e['crossings']/n,
+                    'terrain_edge_contact': e['contacts']/n,
+                    'terrain_edge_fall_rate': e['falls']/n,
+                }
+                new_h, decision = next_height_frontier(
+                    self.params.frontier_terrain_height_m, pooled_row,
+                    safety_m=self.terrain_height_safety_m,
+                    growth_m=self.terrain_height_growth_m)
+                current = self.params.frontier_terrain_height_m
+                if new_h > current and (global_retreat or not kl_ok_to_expand):
+                    decision = 'hold_global_retreat' if global_retreat else 'hold_kl_stress'
+                    new_h = current
+                elif new_h > current:
+                    # Like the core curriculum, new axes share a bounded
+                    # expansion budget rather than all pushing full speed.
+                    other_expansions = sum(
+                        str(v).startswith('expand') for v in frontier_events.values())
+                    other_expansions += sum(
+                        str(v).startswith('push') for v in events.values())
+                    if other_expansions:
+                        new_h = current + (new_h-current)/(1 + other_expansions)
+                        decision = 'expand_crossing_shared_budget'
                 self.params.frontier_terrain_height_m = new_h
+                self.terrain_edge_evidence = dict(episodes=0.,crossings=0.,
+                                                  contacts=0.,falls=0.)
             else:
-                decision = 'hold_kl_stress'
+                decision = 'collect_completed_edge_episodes'
             report['terrain_frontier_event'] = decision
         else:
             report['terrain_frontier_event'] = 'off'
