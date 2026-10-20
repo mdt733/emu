@@ -108,6 +108,8 @@ def box_surface_truth(
         'foot_riser_contact': riser_or_side,
         'foot_supported_candidate': supported,
         'foot_in_box_footprint': footprint,
+        'torso_over_box_footprint': torso_above_box,
+        'box_contact_any':xp.any(box_pairs,axis=1),
         'support_fraction': xp.mean(weights, axis=1),
         'stance_slip': slip,
         'swing_clearance': xp.maximum(
