@@ -39,6 +39,7 @@ def fixture():
         foot_xyz=foot,previous_foot_xyz=prev,torso_xyz=torso,
         floor_foot_signed=foot[:,:,2],floor_torso_signed=torso[:,2],
         floor_normal=floor_normal,
+        floor_origin=np.zeros((2,3),dtype=np.float32),
         box_center=box,box_rotation=rot,
         box_half_size=np.array([.04,.20,.01],np.float32),
         contact_geom1=geom1,contact_geom2=geom2,contact_distance=dist,
@@ -191,3 +192,44 @@ def test_close_but_positive_contact_gap_is_not_stance_support():
     # Exact geometric touching may still be a candidate (NOT force).
     x=fixture()
     assert bool(box_surface_truth(np,**x)['foot_top_contact_candidate'][0,0])
+
+
+def test_torso_over_box_does_not_reduce_body_height_without_top_support():
+    x=fixture()
+    # Put both feet genuinely on the flat FLOOR outside obstacle while the
+    # TORSO remains directly above the physical 20mm box footprint.
+    x['foot_xyz'][0,:,:]=[[.10,-.12,.018],[.30,.12,.018]]
+    x['contact_geom1'][0,:2]=0
+    x['contact_geom2'][0,:2]=[3,4]
+    x['contact_position'][0,:2,:]=[[.10,-.12,0.],[.30,.12,0.]]
+    x['contact_frame'][0,:2,:3]=[0.,0.,1.]
+    y=box_surface_truth(np,**x)
+    assert bool(y['torso_over_box_footprint'][0])
+    assert float(y['support_fraction'][0])==1.
+    assert not bool(y['foot_top_contact_candidate'][0].any())
+    np.testing.assert_allclose(y['support_reference_elevation_m'][0],0.)
+    np.testing.assert_allclose(y['torso_height'][0],.27,atol=2e-6)
+
+
+def test_torso_past_box_still_respects_supporting_foot_and_mixed_stance():
+    x=fixture()
+    # The RIGHT sphere is still supported atop the box even though its
+    # torso has translated beyond the 40mm footprint. No reward jump.
+    x['torso_xyz'][0,:2]=[.45,0.]
+    y=box_surface_truth(np,**x)
+    assert not bool(y['torso_over_box_footprint'][0])
+    np.testing.assert_allclose(
+        y['support_reference_elevation_m'][0],.020,atol=2e-6)
+    np.testing.assert_allclose(y['torso_height'][0],.25,atol=2e-6)
+
+    # One true foot on box + one supporting foot on level floor is a
+    # transparent 50/50 height reference, not an XY torso switch.
+    x['contact_geom1'][0,1]=0
+    x['foot_xyz'][0,1,:]=[.10,.12,.018]
+    x['contact_position'][0,1,:]=[.10,.12,0.]
+    x['contact_frame'][0,1,:3]=[0.,0.,1.]
+    y=box_surface_truth(np,**x)
+    assert float(y['support_fraction'][0])==1.
+    np.testing.assert_allclose(
+        y['support_reference_elevation_m'][0],.010,atol=2e-6)
+    np.testing.assert_allclose(y['torso_height'][0],.26,atol=2e-6)
