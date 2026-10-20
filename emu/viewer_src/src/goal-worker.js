@@ -4,9 +4,11 @@ import {sampleGoal,planPoseRoute} from './goal-navigation.js';
 const random=makeRng(5017);
 self.onmessage=event=>{
   const {id,kind,pose,limits,trees=[],goal}=event.data||{};
-  if(!Number.isSafeInteger(id)||!['next','replan'].includes(kind))return;
+  if(!Number.isSafeInteger(id)||!['next','replan','target'].includes(kind))return;
   try{
-    if(kind==='replan'){
+    if(kind==='replan'||kind==='target'){
+      // Target mode is a caller-selected physical course waypoint; unlike
+      // random exploration it must NOT be replaced with a random destination.
       self.postMessage({id,kind,goal,
         route:planPoseRoute(pose,goal,limits,trees,{maxNodes:6500})});
       return;
