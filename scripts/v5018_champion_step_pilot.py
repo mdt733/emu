@@ -22,36 +22,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 
-def collidable_course(robot_source: Path, dest: Path, height_mm: int,
-                     *, yaw_deg: float = 0.) -> Path:
-    if height_mm not in (0, 5, 10, 15, 20):
-        raise ValueError('only declared 0, 5, 10, 15 or 20 mm pilot steps')
-    if not math.isfinite(yaw_deg) or abs(yaw_deg) > 35:
-        raise ValueError('bounded step yaw is -35 through +35 degrees')
-    tree = ET.parse(robot_source)
-    world = tree.getroot().find('worldbody')
-    if world is None:
-        raise ValueError('canonical robot is missing worldbody')
-    h = height_mm / 1000.
-    # Flat control retains an identically typed box well beyond the course.
-    x = .20 if height_mm else 5.
-    thickness = h / 2. if h else .0025
-    attributes = {
-        'name': 'v5018_obstacle_step', 'type': 'box',
-        'pos': f'{x} 0 {thickness}',
-        'size': f'.04 .20 {thickness}',
-        'friction': '1.5 .005 .0001',
-    }
-    # Do not gratuitously change the byte-level baseline geometry: an
-    # explicit zero Euler attribute altered the compiled-course input hash
-    # between otherwise nominally identical experiments. Keep the original
-    # canonical straight-course XML for reproducibility comparisons.
-    if yaw_deg != 0.:
-        attributes['euler'] = f'0 0 {yaw_deg}'
-    ET.SubElement(world, 'geom', attributes)
-    tree.write(dest,encoding='unicode',xml_declaration=True)
-    return dest
-
+from emu.terrain import collidable_course
 
 def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         horizon: int, output: Path, *, step_yaw_deg: float = 0.,
