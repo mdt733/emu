@@ -150,6 +150,18 @@ def train(args: TrainingConfig) -> int:
     training_xml = ROBOT_XML
     env_options = env_kwargs_from_args(args)
     course_sha256 = None
+    if args.terrain_height_safety_m > 0.:
+        import hashlib
+        from .terrain import adaptive_height_course
+        training_xml = adaptive_height_course(
+            ROBOT_XML, run_dir / 'v5018_adaptive_course.xml', immutable=True)
+        course_sha256 = hashlib.sha256(training_xml.read_bytes()).hexdigest()
+        env_options.update(
+            terrain_contact_mode='box_surface', terrain_adaptive=True,
+            terrain_height_exposure=args.terrain_height_exposure,
+            terrain_height_edge_fraction=args.terrain_height_edge_fraction)
+        print(f'{LOG_PREFIX} v5018 ADAPTIVE REAL STEP ceiling={args.terrain_height_safety_m:.3f}m '
+              f'physical_course_sha256={course_sha256}',flush=True)
     if args.terrain_box_height_mm >= 0:
         # One exact physical XML fixture for the examiner AND the learner.
         # Course identity is recorded beside the full learning-state lineage.
@@ -209,7 +221,10 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_hi_safety=args.frontier_vx_hi_safety,
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
-                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n)
+                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
+                              terrain_height_safety_m=args.terrain_height_safety_m,
+                              terrain_height_initial_m=args.terrain_height_initial_m,
+                              terrain_height_growth_m=args.terrain_height_growth_m)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
