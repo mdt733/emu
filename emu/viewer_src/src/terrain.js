@@ -1,5 +1,6 @@
 // Browser-only landscape: one continuous MuJoCo heightfield for collision
 // and one matching Three.js triangle mesh for appearance. No training changes.
+import {challengeCourseXml,generateChallengeCourse} from './challenge-course.js';
 export const GENTLE_SLOPE_DEGREES = 1;
 export const COURSE_START_X = 0.85;
 export const PARK_FLAT_RADIUS_M = 2;
@@ -133,10 +134,17 @@ function parkXml(park) {
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|viewer_challenge_/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
+  if(mode==='course'){
+    // Collision is genuine browser MuJoCo worldbody geoms, not an overlay.
+    // Leave the original flat plane and robot physical XML intact.
+    const course=options.course||generateChallengeCourse(options);
+    return robotXml.replace('</worldbody>',
+                            challengeCourseXml(course)+'\n</worldbody>');
+  }
   if(mode!=='park')throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
   const {asset,geometry}=parkXml(park);
@@ -172,7 +180,8 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
       gx=Math.tan(Math.PI/180);
     else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
       gx=-Math.tan(Math.PI/180);
-  } else if(mode!=='flat') throw new Error('Unknown terrain mode');
+  } else if(mode!=='flat'&&mode!=='course')
+    throw new Error('Unknown terrain mode');
   const grade=Math.hypot(gx,gy);
   const degrees=Math.atan(grade)*180/Math.PI;
   const relative=Math.atan2(Math.sin(Math.atan2(gy,gx)-robotHeading),
