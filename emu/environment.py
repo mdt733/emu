@@ -2049,8 +2049,9 @@ class EmuMJXEnv(TaskSampler):
         terrain_truth = None
         terrain_active = None
         if self.terrain_contact_mode == 'box_surface':
-            # Both terrain top geometry and *real MJX foot/geom contact
-            # pairs* are required for support. A riser touch earns none.
+            # Require real MJX contact pairs with TOP-facing normal and
+            # contact point ON the box top; side/riser touch earns no top
+            # support even if the ball centre is already near top height.
             floor_id=int(self.ids['floor_geom'])
             bid=self.terrain_box_geom_id
             terrain_truth=box_surface_truth(
@@ -2068,6 +2069,8 @@ class EmuMJXEnv(TaskSampler):
                 contact_geom1=data.contact.geom1,
                 contact_geom2=data.contact.geom2,
                 contact_distance=data.contact.dist,
+                contact_frame=data.contact.frame,
+                contact_position=data.contact.pos,
                 floor_geom_id=floor_id,box_geom_id=bid,
                 foot_geom_ids=tuple(int(i) for i in self.ids['foot_geoms']),
                 foot_radius_m=self.terrain_foot_radius_m,
