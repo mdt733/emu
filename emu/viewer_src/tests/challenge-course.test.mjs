@@ -106,6 +106,48 @@ test('real pose lattice routes actually cut across each collidable challenge foo
   }
 });
 
+test('all 24 successive circuit waypoints admit real planned routes with physical park trees',()=>{
+  const course=generateChallengeCourse({tierMm:20,logs:true});
+  const park=generateTerrainPark({maxDegrees:10,trees:true,challengeRing:true});
+  const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5};
+  let start={x:0,y:0,heading:0};
+  for(const [index,target] of course.waypoints.entries()){
+    const route=planPoseRoute(start,target,limits,park.trees,{maxNodes:6500});
+    assert.ok(route?.solved,
+      'course destination '+index+' '+target.phase+' is unsolvable with physical forest');
+    // Planning must not silently choose a random point as a substitute.
+    const last=route.steps.at(-1);
+    near(last.x,target.x,1e-6);
+    near(last.y,target.y,1e-6);
+    start=target;
+  }
+});
+
+test('circuit worker receives ordered explicit goals, not new random missions',async()=>{
+  const navigator=new GoalNavigator();
+  const course=generateChallengeCourse({tierMm:10});
+  const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5};
+  const posted=[];
+  navigator.useBackgroundPlanner(async req=>{
+    posted.push(req);
+    return {goal:req.goal,route:planPoseRoute(req.pose,req.goal,req.limits,req.trees)};
+  });
+  navigator.active=true;
+  navigator.setCircuitWaypoints(course.waypoints);
+  const origin={x:0,y:0,heading:0};
+  navigator.nextGoal(origin,limits,[]);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(posted[0].kind,'target');
+  assert.equal(navigator.goal?.label,course.waypoints[0].label);
+  assert.equal(navigator.circuitNextIndex,1);
+  navigator.nextGoal(course.waypoints[0],limits,[]);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(posted[1].kind,'target');
+  assert.equal(navigator.goal?.label,course.waypoints[1].label);
+  assert.equal(navigator.circuitNextIndex,2);
+  assert.deepEqual(posted.map(p=>p.kind),['target','target']);
+});
+
 test('circuit demo requests fixed targets from worker, without random substitutions',async()=>{
   const navigator=new GoalNavigator();
   const course=generateChallengeCourse({tierMm:10});
