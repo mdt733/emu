@@ -78,7 +78,7 @@ function syncGoalMode() {
   navigator.setCircuitWaypoints(circuit);
   sim?.setChallengeCircuitOverlay(circuit);
   $('demoRouteNote').textContent = circuit
-    ? 'Approach → cross each obstacle in order. Route progress is a DEMO, not a certified crossing score.'
+    ? `Following ${circuit.length} fixed waypoints around the circle: approach → cross → arc. Demo only; no certified crossing score.`
     : 'Random pose targets within the arena. Steering uses the existing neural policy.';
   $('navNext').textContent=circuit?'Next circuit waypoint':'New random destination';
   navCommandClock=Infinity;
@@ -384,7 +384,7 @@ function displayCourseControls() {
     $('challengeDescription').textContent=
       visibleChallengeLabel(sim?.navigationChallengeCourse()||{
         tierMm:Number(challengeTier.value),logs:challengeLogs.checked})+
-      ' · Coloured MuJoCo collision geoms, not decoration. Pilot evidence is not a universal gait guarantee.';
+      ' · Same physical grass park + real trees, with a flat obstacle lane. Challenge circuit starts automatically; Random can be chosen in Demo controls.';
   }
 }
 function updateTerrain() {
@@ -586,7 +586,9 @@ function startDemo(){
   left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
   sim.setHeadingHold(headingHoldToggle.checked);
-  $('demoKind').textContent='Finding next destination…';
+  $('demoKind').textContent=demoMode.value==='circuit'
+    ? 'Starting the ordered challenge circuit…'
+    : 'Finding next random destination…';
   updateStickLabels();
 }
 $('liveDemo').addEventListener('change',()=>{
@@ -670,7 +672,9 @@ async function startShowcaseFeed() {
   $('liveNote').textContent = manifest.trained
     ? 'Static, published policy — no training server required'
     : 'Demo fixture: explore the controls, not the walking performance';
-  $('demoKind').textContent = demoActive ? 'Finding next destination…' : 'Manual control';
+  $('demoKind').textContent = demoActive
+    ? (demoMode.value==='circuit'?'Following challenge circuit…':'Finding next random destination…')
+    : 'Manual control';
   sim.autoReset = autoResetToggle.checked || demoActive;
   syncGoalMode();
   return true;
