@@ -80,6 +80,7 @@ export class EmuBrowserSim {
     this.treeCrowns = null;
     this.park = null;
     this.course = null;
+    this.challengeGroup = null; // render-only labels; collisions are in MuJoCo
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
@@ -250,6 +251,17 @@ export class EmuBrowserSim {
     }
     this.park = null;
     this.course = null;
+    if(this.challengeGroup){
+      this.scene.remove(this.challengeGroup);
+      this.challengeGroup.traverse(o=>{
+        o.geometry?.dispose?.();
+        if(o.material){
+          o.material.map?.dispose?.();
+          o.material.dispose?.();
+        }
+      });
+      this.challengeGroup=null;
+    }
     // Terrain geometry moved; rebuild guide heights on the next nav tick.
     this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
@@ -369,6 +381,10 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
+    if(this.course){
+      this.challengeGroup=this.makeChallengeMarkers(this.course);
+      this.scene.add(this.challengeGroup);
+    }
     if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
@@ -576,6 +592,43 @@ export class EmuBrowserSim {
     for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
       mesh.visible=true;
     this.navGoalSeen=goal;this.navRouteSeen=route;
+  }
+
+  makeChallengeMarkers(course) {
+    // Real tiny 5–20mm obstacles are easy to miss from the 4m orbit camera.
+    // Coloured rings and floating labels are *visual aids*, never colliders.
+    const group=new THREE.Group();
+    for(const obstacle of course.stations){
+      if(obstacle.kind==='open')continue;
+      const rgb=obstacle.color;
+      const ring=new THREE.Mesh(
+        new THREE.RingGeometry(.23,.265,36),
+        new THREE.MeshBasicMaterial({color:rgb,transparent:true,
+          opacity:.68,side:THREE.DoubleSide,depthWrite:false}));
+      ring.position.set(obstacle.x,obstacle.y,.012);
+      ring.renderOrder=9;
+      group.add(ring);
+      const canvas=document.createElement('canvas');
+      canvas.width=256;canvas.height=80;
+      const ctx=canvas.getContext('2d');
+      if(!ctx)continue;
+      ctx.fillStyle='#0d1725';
+      ctx.fillRect(0,0,256,80);
+      ctx.strokeStyle='#'+rgb.toString(16).padStart(6,'0');
+      ctx.lineWidth=7;ctx.strokeRect(3,3,250,74);
+      ctx.fillStyle='#ffffff';
+      ctx.textAlign='center';
+      ctx.font='bold 30px sans-serif';
+      ctx.fillText(obstacle.kind==='log'?'LOG · TRIAL':obstacle.heightMm+' mm STEP',128,50);
+      const texture=new THREE.CanvasTexture(canvas);
+      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({
+        map:texture,depthTest:false,depthWrite:false,transparent:true}));
+      sprite.position.set(obstacle.x,obstacle.y,.31);
+      sprite.scale.set(.55,.18,1);
+      sprite.renderOrder=12;
+      group.add(sprite);
+    }
+    return group;
   }
 
   canSwapPolicy(next) {
