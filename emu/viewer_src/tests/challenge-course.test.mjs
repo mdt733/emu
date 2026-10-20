@@ -4,7 +4,8 @@ import {readFileSync} from 'node:fs';
 import {CHALLENGE_RADIUS_M,CHALLENGE_PALETTE,
   generateChallengeCourse,challengeCourseXml,visibleChallengeLabel
 } from '../src/challenge-course.js';
-import {withTerrain,surfaceSlope} from '../src/terrain.js';
+import {withTerrain,surfaceSlope,generateTerrainPark} from '../src/terrain.js';
+import {defaultDemoModeForTerrain,waypointsForDemoMode} from '../src/demo-mode.js';
 import {ARENA_RADIUS_M,GoalNavigator,planPoseRoute} from '../src/goal-navigation.js';
 
 const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 0.05" /></worldbody></mujoco>';
@@ -14,7 +15,9 @@ test('obstacles sit ON the original 4m circle, entry and exit straddle the actua
   assert.equal(CHALLENGE_RADIUS_M,ARENA_RADIUS_M);
   const c=generateChallengeCourse({tierMm:20});
   assert.equal(c.stations.length,8);
-  assert.equal(c.waypoints.length,16);
+  assert.equal(c.waypoints.length,24);
+  assert.deepEqual(c.waypoints.slice(0,3).map(w=>w.phase),
+    ['entry','cross','ring']);
   for(const station of c.stations){
     near(Math.hypot(station.x,station.y),4);
     const dx=station.exit.x-station.entry.x;
@@ -27,6 +30,8 @@ test('obstacles sit ON the original 4m circle, entry and exit straddle the actua
                     Math.cos(Math.atan2(dy,dx)-station.yawRad)),0,3e-6);
     assert.equal(station.entry.phase,'entry');
     assert.equal(station.exit.phase,'cross');
+    assert.equal(station.arc.phase,'ring');
+    near(Math.hypot(station.arc.x,station.arc.y),4,1e-6);
   }
 });
 test('viewer difficulty is an explicit selection, not a fictitious trained/unlocked skill',()=>{
@@ -53,13 +58,30 @@ test('step boxes and experimental capsule logs are physical worldbody MuJoCo geo
   assert.match(out,/fromto="[^"]+"\s+size="0\.010"/);
   assert.match(visibleChallengeLabel(course),/unproven logs/);
   assert.match(out,/friction="1\.5/);
-  // Original physical floor is still present, unlike the park heightfield.
-  assert.match(out,/name="floor"/);
+  // CHALLENGE MUST KEEP all physical park terrain, scenery and trees.
+  // The old viewer mode removed these and left a bare flat plane.
+  assert.match(out,/<geom name="viewer_park_ground" type="hfield"/);
+  assert.match(out,/viewer_park_hfield/);
+  assert.match(out,/viewer_tree_trunk_0/);
+  assert.doesNotMatch(out,/name="floor"/);
   assert.throws(()=>withTerrain(out,'course',{course}),/already inserted/);
   // Old modes still work unchanged.
   assert.equal(withTerrain(xml,'flat'),xml);
   assert.match(withTerrain(xml,'ramp'),/viewer_ramp_up/);
-  assert.equal(surfaceSlope('course',null,0,0).flat,true);
+  assert.equal(surfaceSlope('course',null,0,0).supported,false);
+  const park=generateTerrainPark({maxDegrees:10,challengeRing:true});
+  assert.equal(surfaceSlope('course',park,0,0).degrees,0);
+  for(const obstacle of course.stations){
+    near(park.sampleHeight(obstacle.x,obstacle.y),0,1e-6);
+    assert.ok(park.trees.every(tree=>
+      Math.abs(Math.hypot(tree.x,tree.y)-4)>=1.08),
+      'tree trunk is planted in the challenge corridor');
+  }
+  assert.ok(park.trees.length>=5,'challenge ring must retain a forest');
+  assert.ok(park.heights.some(h=>h>.025),
+    'hills beyond the flat ring must remain actual physics');
+  const parkXml=withTerrain(xml,'park',{park:generateTerrainPark({maxDegrees:10})});
+  assert.match(parkXml,/viewer_park_hfield/);
 });
 test('real pose lattice routes actually cut across each collidable challenge footprint',()=>{
   const course=generateChallengeCourse({tierMm:20,logs:true});
@@ -116,3 +138,27 @@ test('public and live viewer share discoverable challenge controls',()=>{
   assert.match(main,/navigationChallengeCourse\(\)/);
   assert.match(main,/setChallengeOptions/);
 });
+
+test('terrain switch defaults to actual circuit, but manual random mode remains selectable',()=>{
+  assert.equal(defaultDemoModeForTerrain('park'),'random');
+  assert.equal(defaultDemoModeForTerrain('course'),'circuit');
+  assert.equal(defaultDemoModeForTerrain('flat'),'random');
+  const course=generateChallengeCourse({tierMm:10});
+  assert.equal(waypointsForDemoMode('circuit',course).length,24);
+  assert.equal(waypointsForDemoMode('random',course),null);
+  assert.throws(()=>waypointsForDemoMode('circuit',null),/without a valid physical course/);
+  const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+  assert.match(main,/demoMode\.value=defaultDemoModeForTerrain\(terrainMode\.value\)/);
+  assert.match(main,/navigator\.setCircuitWaypoints\(circuit\)/);
+  assert.match(main,/sim\?\.setChallengeCircuitOverlay\(circuit\)/);
+});
+
+test('forest and grass are loaded in both park and physical challenge modes',()=>{
+  const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
+  assert.match(sim,/this\.terrainMode==='park'\|\|this\.terrainMode==='course'/);
+  assert.match(sim,/challengeRing:this\.terrainMode==='course'/);
+  assert.match(sim,/createParkSurface\(THREE,this\.park,this\.grassTexture\)/);
+  assert.match(sim,/createTreeCrowns\(THREE,this\.park\.trees\)/);
+  assert.match(sim,/setChallengeCircuitOverlay\(waypoints=null\)/);
+});
+
