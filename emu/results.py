@@ -960,6 +960,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         row['terrain_edge_contact'] = contact / edge_done if edge_done > 0 else -1.
         row['terrain_edge_fall_rate'] = edge_falls / edge_done if edge_done > 0 else -1.
         row['terrain_edge_completed_fraction'] = edge_done
+        # Count actual terminal edge EPISODES; the governor pools this
+        # numerator across updates. Fraction alone hides sparse trials.
+        row['terrain_edge_done_count'] = float(np.sum(np.asarray(metrics['terrain_edge_done'])))
         row['terrain_height_birth_m'] = mean_metric(metrics, 'terrain_height_birth_m')
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
