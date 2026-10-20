@@ -1,6 +1,6 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial. P1 real GPU 15:44 four-stage narrow smoke PASS, including exact flat parity and controlled 10mm contact. ROOT-CAUSE audit identified three coupled reward-truth defects: top-vs-riser contact normal/point, positive-gap false support, and torso-XY instead of foot-support height; all corrected behind opt-in mode, with 11+2 fast tests and real-motion A/B code COMMITTED but NOT WSL tested. Viewer 16/17 Node tests passed; sole failure was obsolete core assertion forbidding new `demoMode`; corrected on branch, WASM/build still UNTESTED. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
+**Last evidence review:** 20 October 2026, 18:19 AEDT. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
@@ -1404,6 +1404,174 @@ Both scripts archive to `~/robot_lab/emu_exams/`
 and stop with partial results when a gate fails.
 Use the fresh archived failure evidence, never fill
 in missing results or report unexecuted success.
+
+## 20 Oct 18:18–18:19 — two independent ACTUAL USER ARCHIVES RECEIVED
+
+**Source verified in both archives:** Git commit
+`f01507344589ee22f54f5ca6d1588b7e6582ae76`,
+branch `feature/v5018-terrain-awareness`, canonical
+robot SHA `c1af72485e83de277efa1914a476519cebbebdc2beb1f03a10c475c9fadf3a64`,
+protected champion SHA
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+No files were mutated by the acceptance runners.
+
+### P1 deep MJX archive — 5/5 stages PASS
+
+File: `v5018_p1_deep_20261020_181914.tar.gz`,
+real Python3.13.16/JAX0.12.0/MuJoCo3.16.0 CUDA
+RTX4060Ti GPU with ~2.87GiB used at start.
+
+- [x] syntax; **11/11 adversarial terrain-truth
+  tests** (including positive-gap, real normal/point
+  and torso-vs-foot reference), **2/2 moving-trace
+  accounting/reset tests**.
+- [x] `mjx_static_real_contact_and_flat_parity`:
+  all 232 actor inputs and scalar rewards **bitwise
+  equal for three flat control frames**; exact
+  comparison difference **0**. Four-world artificially
+  imposed 10mm top contact was recognised;
+  support-reference elevation **10mm**.
+  Its zero slip is imposed by the fixture, not gait.
+- [x] `mjx_frozen_actor_moving_step_ab`: real
+  immutable 260,112,384-step 232 actor, 4 MJX
+  worlds, **240 control frames**, 0.10m/s vx,
+  heading P gain 0.75, seed 1701, actual
+  collidable **10mm** box. No PPO update and
+  no terminal reset during the 240 frames.
+  **Legacy** total: 394 world-frames with
+  box contact, 425 contacting foot-frames,
+  59 contact onsets.
+  **Corrected P1** total: 388 world-frames,
+  421 foot-frames and 60 contact onsets;
+  396 terrain-active world-frames; 116 frames
+  with top-normal candidates and **272**
+  with riser-normal candidates. Per-world
+  contacts legacy `131/90/105/68`,
+  corrected `131/87/102/68`.
+- [x] The corrected contact classifier is actually
+  reacting to moving foot/step encounters,
+  not simply tallying a manufactured stationary
+  collision. Mean of per-world `support`:
+  **0.889 legacy vs 0.691 corrected**;
+  mean `swing_clearance`:
+  **12.47mm legacy vs 9.73mm corrected**.
+  Mean per-world reference elevation for the
+  box-surface run **~1.17mm**,
+  maximum per-world support elevation **10mm**.
+  Many contacts are risers, so do not
+  interpret these results as reliably
+  walking OVER the step.
+- [!] **Important causal-comparison limitation:**
+  the two datasets are independent closed-loop
+  simulations, not two rewards evaluated on
+  the SAME measured physical trajectory.
+  First reward mismatch at frame 39,
+  first RAW actor network output mismatch
+  above 1e-4 at frame 41, first XY mismatch
+  above 1mm at frame 84. Maximum XY
+  divergence **0.0709m**, maximum scalar
+  reward difference **1.373**, and
+  **693/960** world-frames with a changed
+  reward. The reported max actor output
+  difference **5.9076** is the **unclipped
+  actor network mean** from `ppo.evaluate_trace`,
+  NOT an actual servo/command difference:
+  environment clips actions to [-1,+1].
+  Since no episodes terminated during
+  this experiment and scalar reward isn't
+  fed to the actor, the large positional
+  divergence is NOT proof that different
+  reward values caused new behaviour.
+  Different compiled numerical graphs or
+  feedback amplification are possible,
+  but **unproven**; a common-trajectory
+  /same-state counterfactual is needed
+  before concluding effect size.
+- [~] Source audit after reading archive:
+  the optional moving audit was clarified
+  to compute both **raw actor mean** and
+  **clipped command** discrepancies and
+  to label its independent-closed-loop
+  causal limitation. **These new fields
+  are NOT present in the above user
+  archive and are NOT WSL tested**.
+- [ ] Physical force/impulse support,
+  6-servo contact parity and actual
+  course gate success NOT established.
+  Normal/point and distance are better
+  contact *candidates*, not positive
+  load-bearing contact-force measurements.
+
+### Viewer obstacle-course archive — 8/8 stages PASS
+
+File: `v5018_viewer_course_20261020_181856.tar.gz`,
+Node **24.22.0**, npm **11.19.1**,
+`@mujoco/mujoco` pinned **3.15.0**,
+Vite **7.3.7**.
+
+- [x] three source syntax checks, npm clean install,
+  all **18/18** Node tests (including new real
+  lattice footprint-crossing and updated Random/
+  Circuit UI contract), actual pinned-WASM
+  collision probe for **floor, steps 5/10/15/20mm
+  and experimental capsule log** (all **6/6**),
+  production Vite build and local `emu viewer-build`
+  install. **8/8 stage PASS**.
+- [x] Physics fixture reported exactly one
+  sphere contact in each WASM scene, with
+  equilibrium sphere-height error
+  **0.37mm** on flat and **~0.79mm**
+  on each 5–20mm step/log. These are
+  numerical contact constraints with
+  acceptable stated **4mm test tolerance**;
+  they are NOT precise CPU–MJX–WASM
+  six-servo equivalence or reliable
+  walking through the ring.
+- [x] The local build was installed to
+  `emu/webviewer_dist` in user's
+  feature checkout. This does NOT
+  publish Pages or overwrite the
+  frozen showcase policy.
+- [!] npm emitted nonblocking
+  `esbuild@0.28.2` install-scripts
+  approval warning; Vite also warned
+  of a **737.68kB** uncompressed
+  application JS chunk and externalized
+  `module` import, but the build
+  itself PASSED. Do not confuse
+  warnings with errors.
+- [ ] No real interactive desktop/mobile
+  screenshot, policy navigating the full
+  ring, or local `--live` checkpoint
+  hot-swap run is in the archive.
+  These remain manual browser-acceptance
+  gates, not a prerequisite for
+  claiming headless WASM stage success.
+
+### Updated next meaningful engineering gates
+
+1. **Visual browser check** of physical
+   station colours, height labels, arena
+   camera and Random/Circuit controls
+   from `emu viewer showcase/champion.emupolicy --no-open`;
+   test manual handoff and actual crossing
+   progress. Strict no-detour physical
+   crossing remains a separate scored exam.
+2. **Same-state reward counterfactual:**
+   use ONE frozen physical MJX trajectory,
+   evaluate legacy vs corrected terrain
+   scoring against the IDENTICAL physics
+   frame/action, and report per-term deltas
+   without independent actor divergence.
+   Keep the from-zero policy lifecycle.
+3. Extend physical support semantics with
+   actual solver impulse/normal reaction,
+   contact persistence, edge and mixed
+   surface evaluation before teaching
+   terrain reward to fresh PPO.
+4. No 312-input freeze or large obstacle
+   curriculum yet; maintain opt-in
+   mode and protect champion/Pages/main.
 
 ## Immediate next gates — move beyond an artificial P1 contact
 
