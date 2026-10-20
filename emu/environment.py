@@ -119,6 +119,11 @@ class EnvState(NamedTuple):
     # "has this episode shown a sustained pattern of stepping", which a
     # real gait clears easily and true freezing does not.
     ep_step_evidence_sum: Any
+    # Cumulative obstacle facts are EPISODE-local. A step crossed in one
+    # control frame must not be forgotten by the terminal-scoring callback,
+    # and fifty post-crossing frames must not count as fifty successes.
+    ep_terrain_crossed: Any
+    ep_terrain_contacted: Any
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1522,6 +1527,14 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        if self.terrain_adaptive:
+            ep_terrain_crossed = jnp.maximum(
+                state.ep_terrain_crossed, metrics['terrain_crossed_this_frame'])
+            ep_terrain_contacted = jnp.maximum(
+                state.ep_terrain_contacted, metrics['terrain_box_foot_contact_any'])
+        else:
+            ep_terrain_crossed = state.ep_terrain_crossed
+            ep_terrain_contacted = state.ep_terrain_contacted
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1544,6 +1557,7 @@ class EmuMJXEnv(TaskSampler):
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
+                           ep_terrain_crossed, ep_terrain_contacted,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
@@ -1577,10 +1591,16 @@ class EmuMJXEnv(TaskSampler):
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             **({} if not self.terrain_adaptive else {
+                # These are PER-EPISODE outcomes emitted at terminal, not
+                # repeated frame scores or opportunistic reward signals.
+                'terrain_edge_crossing': (done.astype(jnp.float32) *
+                                          metrics['terrain_edge_mask'] *
+                                          ep_terrain_crossed * ep_terrain_contacted),
                 'terrain_edge_fell': (terminal_fail.astype(jnp.float32) * metrics['terrain_edge_mask']),
                 'terrain_edge_done': (done.astype(jnp.float32) * metrics['terrain_edge_mask']),
-                'terrain_edge_contact': (metrics['terrain_box_foot_contact_any'] *
-                                          metrics['terrain_edge_mask']),
+                'terrain_edge_contact': (done.astype(jnp.float32) *
+                                          metrics['terrain_edge_mask'] *
+                                          ep_terrain_contacted),
             }),
             'episode_timeout': timeout.astype(jnp.float32),
             'episode_vx_mean': ep_vx_sum / denom,
@@ -1871,6 +1891,7 @@ class EmuMJXEnv(TaskSampler):
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+                         zeros, zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
@@ -2159,9 +2180,11 @@ class EmuMJXEnv(TaskSampler):
                      jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m])))
             far = data.xpos[:, self.torso_id, 0] >= .42
             feet_far = jnp.all(foot_pos[:, :, 0] >= .28, axis=1)
+            in_lane = ((jnp.abs(data.xpos[:,self.torso_id,1]) < .10) &
+                       jnp.all(jnp.abs(foot_pos[:,:,1]) < .12,axis=1))
             supported = terrain_truth['support_fraction'] >= .25
             upright = -projected_gravity[:, 2] >= .8
-            terrain_edge_crossing = (edge & far & feet_far & supported & upright)
+            terrain_edge_crossing = (edge & far & feet_far & in_lane & supported & upright)
             height=jnp.where(terrain_active,terrain_truth['torso_height'],height)
             foot_ground_distance=jnp.where(
                 terrain_active[:,None],terrain_truth['foot_center_signed'],
@@ -2306,7 +2329,7 @@ class EmuMJXEnv(TaskSampler):
             **({} if terrain_truth is None else {
                 'terrain_geometry_active':terrain_active.astype(jnp.float32),
                 'terrain_edge_mask':edge.astype(jnp.float32),
-                'terrain_edge_crossing':terrain_edge_crossing.astype(jnp.float32),
+                'terrain_crossed_this_frame':terrain_edge_crossing.astype(jnp.float32),
                 'terrain_support_reference_elevation_m':terrain_truth[
                     'support_reference_elevation_m'],
                 'terrain_top_contact_fraction':jnp.mean(
