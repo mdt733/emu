@@ -650,7 +650,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
-                       gyro_delay_frames=0):
+                       gyro_delay_frames=0, record_terrain_truth=False):
         """Read-only matched course exam with explicit time-varying commands.
 
         The operator schedule drives reset, policy observation and the
@@ -788,6 +788,26 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
                 spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
                 shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
+                **({
+                    # Optional P1 ground-truth research telemetry. The
+                    # EXISTING actor graph, policy_obs, NN outputs, reward,
+                    # and default evaluate_trace return keys are unchanged.
+                    # These simulator-only values never enter policy input.
+                    'reward_scalar':out.reward,
+                    'actor_action':mean,
+                    'terrain_geometry_active':out.metrics.get(
+                        'terrain_geometry_active',jnp.zeros_like(out.reward)),
+                    'terrain_top_contact_fraction':out.metrics.get(
+                        'terrain_top_contact_fraction',jnp.zeros_like(out.reward)),
+                    'terrain_riser_contact_fraction':out.metrics.get(
+                        'terrain_riser_contact_fraction',jnp.zeros_like(out.reward)),
+                    'terrain_floor_contact_fraction':out.metrics.get(
+                        'terrain_floor_contact_fraction',jnp.zeros_like(out.reward)),
+                    'terrain_signed_toe_gap':out.metrics.get(
+                        'terrain_min_signed_toe_clearance',jnp.zeros_like(out.reward)),
+                    'contact_support':out.metrics['support'],
+                    'swing_clearance':out.metrics['swing_clearance'],
+                } if record_terrain_truth else {}),
                 done=out.done,fell=out.metrics['episode_fell'])
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
@@ -810,7 +830,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
-    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
+    # The final flag is a STATIC, read-only evaluation specialization:
+    # normal training/exam rollout has precisely its old signature/fields.
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11,12))
 
     def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
                           stable_steps=10, recovery_not_before=0):
