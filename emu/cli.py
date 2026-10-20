@@ -264,6 +264,8 @@ def main(argv=None) -> int:
                    help='opt-in shared real incline 0..5 degrees, sim2real only')
     q.add_argument('--contact-terrain-radius',type=float,default=0.0,
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
+    q.add_argument('--terrain-box-height-mm',type=int,choices=[0,5,10],default=None,
+                   help='v5018 isolated real-MJX step research: 0mm off-course control or 5/10mm step; sim2real + sensor actor only')
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
