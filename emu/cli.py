@@ -283,7 +283,7 @@ def main(argv=None) -> int:
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
     q.add_argument('--forward-preview',action='store_true',
-                   help='v5019 opt-in 280-input two-lane 3-zone ToF profile (preserves 220/232 policies)')
+                   help='v5019 opt-in 296-input two-lane rolling ToF/optical-flow profile (preserves 220/232)')
     q.add_argument('--forward-preview-masked',action='store_true',
                    help='same 280-input sensor geometry/timing with profile+validity channels zeroed (controlled baseline)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
