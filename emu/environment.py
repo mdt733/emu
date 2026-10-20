@@ -2044,6 +2044,7 @@ class EmuMJXEnv(TaskSampler):
         height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
         foot_ground_distance = self._floor_signed_heights(data,foot_pos)
         terrain_truth = None
+        terrain_active = None
         if self.terrain_contact_mode == 'box_surface':
             # Both terrain top geometry and *real MJX foot/geom contact
             # pairs* are required for support. A riser touch earns none.
@@ -2068,9 +2069,17 @@ class EmuMJXEnv(TaskSampler):
                 foot_geom_ids=tuple(int(i) for i in self.ids['foot_geoms']),
                 foot_radius_m=self.terrain_foot_radius_m,
                 control_dt=CONTROL_DT)
+            # Preserve EXACT old flat economics for every world outside
+            # the challenge footprint. One active foot/torso/box contact
+            # opts this world into physical terrain truth.
+            terrain_active=(jnp.any(terrain_truth['foot_in_box_footprint'],axis=1) |
+                            terrain_truth['torso_over_box_footprint'] |
+                            terrain_truth['box_contact_any'])
             # Privileged reward/diagnostic heights only, NEVER _base_obs().
-            height=terrain_truth['torso_height']
-            foot_ground_distance=terrain_truth['foot_center_signed']
+            height=jnp.where(terrain_active,terrain_truth['torso_height'],height)
+            foot_ground_distance=jnp.where(
+                terrain_active[:,None],terrain_truth['foot_center_signed'],
+                foot_ground_distance)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -2102,7 +2111,8 @@ class EmuMJXEnv(TaskSampler):
         if terrain_truth is not None:
             # Unlike the old floor-height proxy, this never rewards a
             # vertical box face as a grounded foot.
-            support = terrain_truth['support_fraction']
+            support = jnp.where(
+                terrain_active,terrain_truth['support_fraction'],support)
         bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
@@ -2114,7 +2124,8 @@ class EmuMJXEnv(TaskSampler):
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
         swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
         if terrain_truth is not None:
-            swing_clearance = terrain_truth['swing_clearance']
+            swing_clearance = jnp.where(
+                terrain_active,terrain_truth['swing_clearance'],swing_clearance)
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
@@ -2140,7 +2151,8 @@ class EmuMJXEnv(TaskSampler):
         if terrain_truth is not None:
             # Compute full 3-D tangential foot motion against the plane
             # actually touched. Never treat a sliding riser touch as stance.
-            stance_slip = terrain_truth['stance_slip']
+            stance_slip = jnp.where(
+                terrain_active,terrain_truth['stance_slip'],stance_slip)
         # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
         fall_tilt = gravity_z < 0.35
@@ -2205,6 +2217,7 @@ class EmuMJXEnv(TaskSampler):
             'joint_limit_pressure': joint_pressure,
             'scissor_pressure': scissor,
             **({} if terrain_truth is None else {
+                'terrain_geometry_active':terrain_active.astype(jnp.float32),
                 'terrain_top_contact_fraction':jnp.mean(
                     terrain_truth['foot_top_contact_candidate'].astype(jnp.float32),axis=1),
                 'terrain_riser_contact_fraction':jnp.mean(
