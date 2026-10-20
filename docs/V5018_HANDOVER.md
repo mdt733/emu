@@ -1,5 +1,15 @@
 # EMU v5018 — clean restart / handover
 
+## 21 Oct 04:52 — overnight preflight abort / code audit
+
+User's first `v5018_height_envelope_20261021_045010` run aborted *before training* at 25/26 preflight assertions, because test line 103 used exact NumPy float32/float64 comparison for a 0.2m X coordinate: the actual MJX obstacle pose matched. GitHub CI previous code also saw 130/131 checks pass with only that precision assertion. Fixed to tolerance-based compare. `warp` import warnings are optional, not the failing cause.
+
+More serious issues found in source review and fixed on feature branch: (1) 25M flat ancestor handed adaptive forks frontier=0 forever; now explicitly seed 3mm once for external parent only, preserving same-run resume, (2) off-course fixed-box baseline had DIFFERENT physics topology; now exact same mocap model and a parked box via `--terrain-height-flat-control`, (3) crossing was improperly measured by raw per-frame averages; now episode-local once-only crossed/contact flags, terminal survival and sustained stepping, with denominator completed edge episodes and minimum episode evidence, (4) reward could pay forward against reverse commands; step births and bonus now require compatible +X commands, (5) candidate ranking no longer treats wall-contact frame counts as stronger evidence than actual progress. Files: `emu/{terrain,environment,curriculum,training,training_config,results,rewards,branch_lab,cli,contracts}.py`, `scripts/v5018_{overnight_campaign,height_envelope_campaign}.py`. See `docs/V5018_TERRAIN_PLAN.md` audit section.
+
+NO CPU/GPU run was launched by assistant. A real PPO run with moving MJX obstacle still unverified; latest CI needs to pass. Source revision changed: previous abort root cannot be `--resume`d using updated code. Start a NEW `--run` root after code pull and a focused physical check. No tmux. No main/showcase/Pages changes.
+
+---
+
 ## 20 Oct 23:00 — NEW 25M + continuous obstacle-height plan
 
 User: NO tmux; static 10mm is negligible. On `feature/v5018-terrain-awareness`, new `scripts/run_v5018_height_envelope.sh` (plan only by default, `--run` explicit) replaces old 20M/5mm plan: 25M truly random 232-input full-PPO gait foundation; SIX matched +10M physical height-envelope forks; TWO evidence-ranked +15M continuation finalists. **115M combined**, not one 115M brain. Actual per-world, per-birth MuJoCo mocap box height sampled continuously from 0 to earned maximum, research safety up to 150mm; height grows/retreats in governor alongside vx/vy/yaw/push. Original 232 actor input still lacks forward-looking ToF profile! Distinct control versus bounded progress-reward teaching arms. Held-out independent physical 0/20/40/80/120/150mm crossing exams, preservation of gait.
