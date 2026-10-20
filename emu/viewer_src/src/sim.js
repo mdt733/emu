@@ -114,7 +114,7 @@ export class EmuBrowserSim {
     this.terrainMaxDegrees = 10;
     this.parkTreesEnabled = true;
     this.challengeTierMm = 10; // opt-in viewer tier, NOT a trained capability rating
-    this.challengeLogs = false;
+    this.challengeLogs = true; // explicit experimental half-buried logs, toggleable
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
@@ -662,7 +662,14 @@ export class EmuBrowserSim {
       ctx.fillStyle='#ffffff';
       ctx.textAlign='center';
       ctx.font='bold 30px sans-serif';
-      ctx.fillText(obstacle.kind==='log'?'LOG · TRIAL':obstacle.heightMm+' mm STEP',128,50);
+      const name={
+        step:'STEP',step_up:'STEP UP',step_down:'STEP DOWN',
+        log:'BURIED LOG',open:'OPEN',
+      }[obstacle.kind]||'CHALLENGE';
+      ctx.font='bold 25px sans-serif';
+      ctx.fillText(name,128,36);
+      ctx.font='bold 20px sans-serif';
+      ctx.fillText(obstacle.heightMm+' mm',128,61);
       const texture=new THREE.CanvasTexture(canvas);
       const sprite=new THREE.Sprite(new THREE.SpriteMaterial({
         map:texture,depthTest:false,depthWrite:false,transparent:true}));
