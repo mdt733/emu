@@ -1,5 +1,15 @@
 # EMU v5018 — clean restart / handover
 
+## Latest 20 Oct evening: overnight cold-start trainer committed (WSL tests PENDING)
+
+The uploaded `v5018_step_ppo_20261020_212010.tar.gz` is **17/17 successful process stages, but 0/48 actual crossing successes** across two 8,192-step-from-zero policies and six evaluated model×course cells. Actual PPO foot–obstacle contacts were zero, and both new policies fell in ~96.2% of training episodes. Treat the short run as *PPO plumbing validated*, not step learning.
+
+Feature branch now includes `scripts/run_v5018_overnight.sh` (plan-only default; `--run` explicitly starts real GPU training), driver `scripts/v5018_overnight_campaign.py`, pure pytest acceptance, and a feature-branch-only GitHub Actions trigger. **Fresh 20M 232-input foundations at independent seeds 733/734**, then matched full-checkpoint 0mm/5mm terrain forks; extend both matched arms only if foot–box collisions plus basic held-out flat/servo gates pass. Allow 10mm only if actual independent 5mm crossing succeeds. This is a blind obstacle PPO baseline, NOT a trained forward ToF preview. All new overnight source is committed but has not been run on user's GPU. The runner supports explicit `--resume --root ACTUAL_PATH`, archives small evidence without exporting huge checkpoints, and does not touch old runs or champion.
+
+To start, see the TOP of `docs/V5018_TERRAIN_PLAN.md` for tested pilot results, prerequisites, WSL commands and detailed gates. Keep Windows/WSL awake. No main, protected champion or Pages changes.
+
+---
+
 ## New physical-box PPO branch hook — 20 Oct (source-only, NOT GPU validated)
 
 The approved feature branch now offers `emu train --terrain-box-height-mm 0|5|10 --profile sim2real --sensor-actor` with an exact, physically collidable worldbody step. Zero is a topologically comparable box 5m away from the course; 5/10mm place it in the forward corridor. Flag omission keeps historical training untouched. The actual generated training XML is immutable in each run root and its SHA256 is recorded in `run_meta.json`.
