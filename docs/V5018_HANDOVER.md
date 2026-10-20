@@ -390,6 +390,97 @@ freezing `terrain_312` or attempting long
 terrain teaching. The full 34-case frontier
 is ALREADY complete; do not run it again.
 
+## New 12:48 gait-v2 evidence and cold-start architecture decision
+
+**Uploaded and verified:** `v5018_gaitv2_acceptance_20261020_124851.tar.gz`,
+exact tested source `622d515b352abae67b0065b643912f151c4afa78`,
+protected champion SHA-256
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`
+unchanged. **All five executable stages passed**: 4/4
+synthetic/XML-hash regression tests, flat and 10°
+uphill heading OFF/ON examinations, and 10mm
+box pilot seed1701/1702.
+
+- **Flat:** conservative official v1 qualified 0 strides;
+  separately versioned research-only gait-v2 reports
+  `[8,1,7,8]` candidate alternating pairs heading
+  OFF and `[2,2,9,8]` heading ON in four worlds
+  each. Course passes **3/4 OFF, 3/4 ON**.
+  This agrees with observed genuine short stepping.
+  **Do not silently replace historical v1 scores** or
+  declare hardware-safe gait from these proxies.
+- **Real 10° uphill:** both modes had **0/4
+  course passes and 0/4 v2 candidate-pair positives**.
+  Measured progress was nonzero; forward foot
+  relocation and directional tracking were deficient.
+  The new metric is not a magic fix for slope performance.
+- **10mm independent repeat:** identical
+  original XML SHA-256
+  `f5ca6525a5d2ef8e608121d88fb613b5cc56e92b76bbbacba1b895ad17d0b754`;
+  both seeds reproduced their original **3/4**
+  crossing rates and identical per-world success
+  masks. This controls one critical XML input;
+  not proof of deterministic training across GPUs.
+
+**New explicit user requirement:** keep the
+project capable of learning from **absolutely
+nothing**—random initial weights, fresh
+normalizer/optimizer/teacher/capability field,
+new seed, zero prior brain files—even as
+short research experiments continue using
+the frozen 260M champion. The champion remains
+a convenient research control, **never a required
+dependency, initialisation assumption, or
+part of the future production training recipe**.
+
+Code audit confirmed the current standalone
+`emu train --profile foundation --sensor-actor
+--run-dir NEW_ROOT --steps N --envs W --seed S`
+already goes through `make_initial_state` with
+random JAX seeded network and no parent when
+`--resume` is absent. Likewise the 220 legacy
+path is supported. New safeguards committed
+AFTER the 12:48 archive (not WSL executed):
+
+- `tests/test_v5018_cold_start_contract.py`:
+  empty-run initialization of both 220 and 232
+  profiles and sim2real opt-in, with no
+  checkpoint load or implicit champion dependency.
+- `scripts/run_v5018_cold_start_acceptance.sh`:
+  OPTIONAL, bounded 8-world/256-environment-step
+  fresh PPO-update, new checkpoint and
+  `.emupolicy` export **for BOTH actor schemas**,
+  with scratch results outside Git. It does not
+  read the champion, is not a training plan, and
+  is not proof of learning how to walk.
+- `.gitignore` now ignores the four *existing*
+  root-level early v5018 probe JSONs so Git's
+  clean-provenance gate doesn't reject fresh
+  `emu train`; **files are not deleted**.
+- The living `docs/V5018_TERRAIN_PLAN.md` now
+  requires every future new schema/terrain
+  curriculum to pass BOTH actual cold-start
+  PPO→checkpoint→export→browser and optional
+  warm-init compatibility smoke. A future
+  312-style actor remains provisional and
+  **not implemented**.
+
+**Next substantive development:** no need
+for another 34-course frontier run. Build
+opt-in collision-truth, terrain-relative
+support/foot-clearance/stance-slip metrics
+with EXACT legacy flat reward equivalence;
+then mount/occlude and timestamp physical
+lookahead rays and test estimator output.
+Continue quick experiments against the
+frozen brain where useful, but teach
+newcomer networks flat/basic
+walking before terrain, using a
+capability-gated curriculum. Never make
+future training rely on a previous trained
+policy. `main`, protected showcase and
+Pages remain unchanged.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -456,47 +547,58 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 strictly on `feature/v5018-terrain-awareness`
-> at https://github.com/mdt733/emu. Read
+> Continue EMU v5018 **only on**
+> `feature/v5018-terrain-awareness` of
+> https://github.com/mdt733/emu. First read
 > `docs/V5018_HANDOVER.md`,
 > `docs/V5018_TERRAIN_PLAN.md` and
-> `docs/INSTALL.md` from the CURRENT Git feature branch.
-> Four 20 October archives now include a completed
-> **34/34-stage obstacle frontier** (last user upload
-> `v5018_frontier_20261020_102641.tar(1).gz`).
-> The frozen 232 260M actor with heading P ON
-> crossed 5mm 5/8, 10mm 4/8, 15mm 6/8,
-> 20mm 3/8 in matched straight two-seed tests;
-> +25° 10mm 7/8 vs -25° 3/8. 59/112
-> course trials detoured outside ±12cm corridor.
-> Actual physical sphere/box contacts occurred.
-> Historical 0/80 gait passes were an overly
-> strict *per-single-swing 25mm torso-travel*
-> gate: 393 genuine flat-ground contact-backed
-> airborne events had median 11–12mm torso
-> travel and 24–26mm foot travel.
-> A new research-only v2 alternating stride
-> detector is now on branch, not WSL tested
-> or official: it scores original operator
-> net progress over a supported two-foot pair.
-> Previous 10mm seed1701 changed 3/4→1/4
-> across non-identical XML input hashes;
-> zero-yaw XML was restored byte-identically
-> with archived SHA-256 regression tests.
-> NEXT COMMAND: `bash scripts/run_v5018_gaitv2_acceptance.sh`
-> on the current feature branch; this is a small
-> synthetic/flat/10°/10mm repeat suite, not
-> all 28 frontier trials. Its source and
-> physical outcomes remain UNTESTED on WSL.
-> Then build physically truthful P1 terrain
-> reward-only support and clearance and
-> realistic forward range sensing, keeping
-> policy inputs legal; no long PPO until
-> moving-leg occlusion, actuator limits and
+> `docs/INSTALL.md` from current HEAD.
+> The single living status checklist is
+> `docs/V5018_TERRAIN_PLAN.md`. The
+> 20 October user-run obstacle frontier
+> completed 34/34 stages; frozen 260M
+> 232-input champion crossed matched
+> 5/10/15/20mm obstacles in 5/8,
+> 4/8, 6/8, 3/8 P-on worlds, with
+> lateral course detours the dominant
+> failure. 10mm at ±25° had 7/8 vs
+> 3/8 outcomes. The subsequent
+> `v5018_gaitv2_acceptance_20261020_124851.tar.gz`
+> (tested source `622d515b`) finished
+> **5/5 stages**. Experimental gait-v2
+> reports 24 OFF/21 ON alternating
+> supported pairs on four flat worlds,
+> versus 0 official historical v1,
+> but 10° uphill remains 0 v2
+> and 0 course passes. A byte-identical
+> original 10mm XML hash reproduces
+> 3/4 crossings in both prior seeds.
+> **New permanent user requirement:**
+> champion is useful for fast R&D,
+> but the system MUST start entirely
+> from scratch without ANY prior
+> policy/checkpoint/foundation brain.
+> From-zero 220 and 232 training paths
+> exist and were source-audited; new
+> cold-start unit test and optional
+> real-PPO life-cycle script are
+> committed but NOT YET WSL-VERIFIED.
+> For a new terrain schema, test both
+> random cold-start and separately
+> controlled compatible warm-start;
+> never demand the champion.
+> NEXT CODE PASS: opt-in physically
+> correct step/ground support,
+> clearance and stance-slip from
+> real collision geometry; guarantee
+> exact old flat reward parity and
+> legal actor sensors, then evaluate
+> moving-leg forward scanner
+> occlusion/latency. No big PPO until
+> sensor, motor load and six-servo
 > CPU/MJX/WASM parity gates advance.
-> Source SHA and actor hash must accompany
-> every report. Keep the ONE living checklist
-> `docs/V5018_TERRAIN_PLAN.md` current.
-> NEVER modify main, champion, Pages, or
-> active running training without explicit
-> user approval.
+> Preserve 220/232 compatibility;
+> terrain_312 is NOT frozen.
+> Never change `main`, showcase
+> champion, Pages, or an ongoing
+> training process without approval.
