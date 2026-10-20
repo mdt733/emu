@@ -301,6 +301,7 @@ TASK_FIELDS = (
     "sensor_scale",        # observation corruption scale; never an actor channel
     "field_taught",        # teacher-only provenance; never actor/reward input
     "terrain_height_m",    # measured physical obstacle lesson; NEVER actor input
+    "terrain_birth_frontier_m",  # immutable exposure reference, governor may change
 )
 T = SimpleNamespace(**{name: i for i, name in enumerate(TASK_FIELDS)})
 TASK_DIM = len(TASK_FIELDS)
@@ -579,7 +580,7 @@ class TaskSampler:
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
                     steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
                     is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32),
-                    obstacle_height]
+                    obstacle_height, params[P.frontier_terrain_height_m]]
             assert len(cols) == TASK_DIM, f"task vector has {len(cols)} columns, TASK_DIM says {TASK_DIM}"
             return jnp.asarray(cols, dtype=jnp.float32)
         return jax.vmap(one)(keys)
@@ -1198,8 +1199,7 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('adaptive step height requires real box-surface physics')
         self.terrain_height_exposure = float(terrain_height_exposure)
         self.terrain_height_edge_fraction = float(terrain_height_edge_fraction)
-        self.terrain_height_initial_m_for_edge = .003
-        if not (.05 <= self.terrain_height_exposure <= .95 and
+         if not (.05 <= self.terrain_height_exposure <= .95 and
                 .05 <= self.terrain_height_edge_fraction <= .95):
             raise ValueError('invalid adaptive terrain birth distribution')
         self.terrain_mocap_id = -1
@@ -1218,8 +1218,8 @@ class EmuMJXEnv(TaskSampler):
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,terrain_box_geom)
             if box_id < 0 or self.mj_model.geom_type[box_id] != mujoco.mjtGeom.mjGEOM_BOX:
                 raise ValueError(f'box_surface requires a real named box geom: {terrain_box_geom}')
-            if int(self.mj_model.geom_bodyid[box_id]) != 0:
-                raise ValueError('box_surface currently requires an immovable worldbody box')
+            if int(self.mj_model.geom_bodyid[box_id]) != 0 and not self.terrain_adaptive:
+                raise ValueError('box_surface requires worldbody box unless adaptive mocap mode')
             rot=np.zeros(9,dtype=np.float64)
             mujoco.mju_quat2Mat(rot,self.mj_model.geom_quat[box_id])
             if rot[8] < 0.99:
@@ -2141,7 +2141,7 @@ class EmuMJXEnv(TaskSampler):
             # obstacle as a completed step crossing.
             edge = ((task[:, T.terrain_height_m] > 0.) &
                     (task[:, T.terrain_height_m] >= .70 *
-                     jnp.maximum(.0001, self.terrain_height_initial_m_for_edge)))
+                     jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m]))))
             far = data.xpos[:, self.torso_id, 0] >= .42
             feet_far = jnp.all(foot_pos[:, :, 0] >= .28, axis=1)
             supported = terrain_truth['support_fraction'] >= .25
