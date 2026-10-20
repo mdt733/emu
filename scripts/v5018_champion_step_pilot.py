@@ -36,12 +36,19 @@ def collidable_course(robot_source: Path, dest: Path, height_mm: int,
     # Flat control retains an identically typed box well beyond the course.
     x = .20 if height_mm else 5.
     thickness = h / 2. if h else .0025
-    ET.SubElement(world, 'geom', {
+    attributes = {
         'name': 'v5018_obstacle_step', 'type': 'box',
-        'pos': f'{x} 0 {thickness}', 'euler': f'0 0 {yaw_deg}',
+        'pos': f'{x} 0 {thickness}',
         'size': f'.04 .20 {thickness}',
         'friction': '1.5 .005 .0001',
-    })
+    }
+    # Do not gratuitously change the byte-level baseline geometry: an
+    # explicit zero Euler attribute altered the compiled-course input hash
+    # between otherwise nominally identical experiments. Keep the original
+    # canonical straight-course XML for reproducibility comparisons.
+    if yaw_deg != 0.:
+        attributes['euler'] = f'0 0 {yaw_deg}'
+    ET.SubElement(world, 'geom', attributes)
     tree.write(dest,encoding='unicode',xml_declaration=True)
     return dest
 
