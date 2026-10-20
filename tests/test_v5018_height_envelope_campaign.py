@@ -38,7 +38,7 @@ def test_separate_hypotheses_include_real_terrain():
     for name in ARMS:
         flags = branch_args(name)
         if name == "flat_control":
-            assert flags == ["--terrain-box-height-mm", "0"]
+            assert flags == ["--terrain-height-flat-control"]
         else:
             assert "--terrain-height-ceiling-mm" in flags
             assert "--terrain-height-exposure" in flags
