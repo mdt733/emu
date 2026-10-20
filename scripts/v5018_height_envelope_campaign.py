@@ -17,6 +17,9 @@ import subprocess
 import sys
 from datetime import datetime
 
+# Allow direct script invocation and python -m execution alike.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from scripts.v5018_overnight_campaign import (
     BRANCH, ROOT, DEFAULT_BASE, preflight, run_command, archive,
     validated_checkpoint, export_one, exam, summarize_crossings, summarize_training,
@@ -58,7 +61,7 @@ def config(args):
         exam_horizon=args.exam_horizon,
         pitch_deg=8.,
         arms=ARMS,
-        screen_heights=SCREEN_HEIGHTS, final_heights=FINAL_HEIGHTS,
+        screen_heights=list(SCREEN_HEIGHTS), final_heights=list(FINAL_HEIGHTS),
     )
 
 
@@ -216,7 +219,7 @@ def main(argv=None):
                                    args.final_increment, args.envs)
 
     if args.self_test:
-        assert foundation_target >= 25_000_000 if args.foundation_steps == 25_000_000 else True
+        assert foundation_target >= args.foundation_steps
         assert len(ARMS) == 6 and "flat_control" in ARMS
         assert branch_args("height_guided")[-1] == ".04"
         print("v5018 continuous-height campaign static contract: PASS")
