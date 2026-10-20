@@ -335,6 +335,17 @@ export class GoalNavigator {
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.requestPlan=null;this.pendingRequest=null;
     this.generation=0;this.plannerError=null;
+    this.circuitWaypoints=null;
+    this.circuitNextIndex=0;
+  }
+  // This is a display/demo route, NOT a physical crossing examiner.
+  // Every station contributes an entry and a far-side exit waypoint.
+  setCircuitWaypoints(waypoints=null){
+    if(waypoints!==null&&(!Array.isArray(waypoints)||
+       waypoints.length<2||waypoints.some(p=>![p.x,p.y,p.heading].every(Number.isFinite))))
+      throw new Error('Circuit requires finite entry/exit navigation poses');
+    this.circuitWaypoints=waypoints?waypoints.map(p=>({...p})):null;
+    this.reset();
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -357,7 +368,9 @@ export class GoalNavigator {
         this.plannerError=String(error?.message||error);
         this.reason='Planner error · walking safely';
         this.searchCooldown=2.0;
-        if(payload.kind==='next'){this.goal=null;this.route=null;this.path=null;}
+        if(payload.kind==='next'||payload.kind==='target'){
+          this.goal=null;this.route=null;this.path=null;
+        }
       }
     }).finally(()=>{
       if(generation===this.generation&&this.pendingRequest===promise)
@@ -367,6 +380,7 @@ export class GoalNavigator {
   }
   reset(){
     this.generation++;this.pendingRequest=null;this.plannerError=null;
+    this.circuitNextIndex=0;
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
@@ -409,6 +423,29 @@ export class GoalNavigator {
     return true;
   }
   nextGoal(pose,limits,trees=[]){
+    if(this.circuitWaypoints?.length){
+      const index=this.circuitNextIndex%this.circuitWaypoints.length;
+      const goal={...this.circuitWaypoints[index]};
+      const accept=result=>{
+        if(result?.goal&&result?.route?.solved){
+          this.acceptRoute(pose,result.goal,result.route,{newMission:true});
+          this.circuitNextIndex=(index+1)%this.circuitWaypoints.length;
+          this.reason='Circuit · '+(goal.label||'approach target');
+        }else{
+          this.goal=null;this.route=null;this.path=null;
+          this.reason='Circuit path unavailable · retrying';
+          this.searchCooldown=1.5;
+        }
+      };
+      if(this.requestPlan){
+        this.reason='Planning circuit station '+(index+1);
+        return this.queuePlan({kind:'target',
+          pose:{x:pose.x,y:pose.y,heading:pose.heading},
+          goal,limits,trees},accept);
+      }
+      accept({goal,route:planPoseRoute(pose,goal,limits,trees)});
+      return Boolean(this.goal);
+    }
     if(this.requestPlan){
       this.reason='Planning next target in background…';
       return this.queuePlan({
@@ -571,6 +608,9 @@ export class GoalNavigator {
       plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
-      index:this.index,reason:this.reason};
+      index:this.index,reason:this.reason,
+      circuit:Boolean(this.circuitWaypoints),
+      circuitNextIndex:this.circuitNextIndex,
+      circuitLength:this.circuitWaypoints?.length||0};
   }
 }
