@@ -268,6 +268,8 @@ def main(argv=None) -> int:
                    help='v5018 isolated real-MJX step research: 0mm off-course control or 5/10mm step; sim2real + sensor actor only')
     q.add_argument('--terrain-height-ceiling-mm',type=int,default=0,
                    help='adaptive per-episode real steps 0..150mm; 0=off; sim2real sensor actor only')
+    q.add_argument('--terrain-height-flat-control',action='store_true',
+                   help='same adaptive mocap geometry, box always off course; matched flat PPO control')
     q.add_argument('--terrain-height-exposure',type=float,default=.60,
                    help='fraction of births on variable-height obstacle, rest on flat rehearsal')
     q.add_argument('--terrain-height-edge-fraction',type=float,default=.35,
