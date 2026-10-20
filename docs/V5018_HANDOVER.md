@@ -355,17 +355,40 @@ a versioned alternative on fresh traces.
   hash lock remain to be executed on WSL.
 
 **NEXT DEVELOPMENT GATE:** Instead of launching
-another massive 28-course GPU study, validate
-the research gait-v2 and byte-identical
-zero-yaw XML with targeted CPU pytest and
-a small frozen-policy flat/10mm repeat.
-Then finish P0B motor-load/scan occlusion
-and implement an **opt-in, physically
-correct P1 support/height/stance-slip metric
-path** for collidable terrain. Preserve
-original flat reward and actor contracts and
-do not freeze `terrain_312` or embark on
-long PPO training prematurely.
+another massive 28-course GPU study, run the
+committed and still **unexecuted**
+`scripts/run_v5018_gaitv2_acceptance.sh`:
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_gaitv2_acceptance.sh
+```
+
+It first validates the gait-v2 anti-cheat synthetic
+tests and original 0/5/10mm exact XML SHA-256 hashes,
+then uses the frozen 232 actor in only **two**
+matched OFF/ON 0°/10° read-only directional
+exams and two 10mm seed1701/1702 repeats.
+Reports source/actor hash and old official
+v1 vs *new research-only* v2 gait diagnostics;
+does not change v1 pass, PPO or any reward.
+Output archive:
+`~/robot_lab/emu_exams/v5018_gaitv2_acceptance_*.tar.gz`.
+If the foundational tests fail, it SKIPS all GPU
+runs and archives diagnostics.
+
+After evidence review, stage an **opt-in
+physically correct P1 support/height/stance-slip
+reward-only path** for collidable terrain,
+and test exact old flat reward parity before
+bounded PPO updates. Finish P0B motor-under-load
+and moving-leg ToF occlusion/latency/dropout
+and six-servo CPU/MJX/WASM parity before
+freezing `terrain_312` or attempting long
+terrain teaching. The full 34-case frontier
+is ALREADY complete; do not run it again.
 
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
@@ -459,9 +482,12 @@ evidence and user-approved PR.**
 > Previous 10mm seed1701 changed 3/4→1/4
 > across non-identical XML input hashes;
 > zero-yaw XML was restored byte-identically
-> with SHA-256 regression tests awaiting
-> WSL execution. Do a focused regression
-> and one frozen repeat, not all 28 trials.
+> with archived SHA-256 regression tests.
+> NEXT COMMAND: `bash scripts/run_v5018_gaitv2_acceptance.sh`
+> on the current feature branch; this is a small
+> synthetic/flat/10°/10mm repeat suite, not
+> all 28 frontier trials. Its source and
+> physical outcomes remain UNTESTED on WSL.
 > Then build physically truthful P1 terrain
 > reward-only support and clearance and
 > realistic forward range sensing, keeping
