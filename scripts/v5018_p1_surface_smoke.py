@@ -148,14 +148,36 @@ def main():
         challenge=EmuMJXEnv(str(step),terrain_contact_mode='box_surface',**base)
         state,_=challenge.reset({})
         q=state.data.qpos
-        # Shift base horizontally above box. This is a PROBE fixture only:
-        # not a valid gait, not a reported policy movement or PPO action.
-        q=q.at[:,0].set(.20)
+        # Create a reproducible, TRUE right-foot/box-top contact fixture:
+        # move the entire floating torso just enough that the right ball
+        # centre lies 1mm INSIDE the real 10mm surface, not merely that
+        # the torso's XY projection happens to be over the obstacle.
+        # Compute from actual MJX geom poses in EACH randomized world.
+        # This is a teleport-only contact probe, NOT a feasible gait,
+        # and it must never be used as a locomotion success score.
+        right_geom=int(challenge.ids['foot_geoms'][0])
+        box_geom=challenge.terrain_box_geom_id
+        sphere_xyz=state.data.geom_xpos[:,right_geom,:]
+        box_xyz=state.data.geom_xpos[:,box_geom,:]
+        box_top_z=box_xyz[:,2]+challenge.terrain_box_half_size[2]
+        contact_target=jnp.stack(
+            (box_xyz[:,0],box_xyz[:,1],
+             box_top_z+challenge.terrain_foot_radius_m-.001),axis=1)
+        translation=contact_target-sphere_xyz
+        q=q.at[:,0:3].add(translation)
         # mjx.Data is a Flax/JAX pytree with .replace(), unlike our
         # EnvState NamedTuple which correctly uses ._replace().
-        # MuJoCo 3.16 removed/does not expose Data._replace.
         d=state.data.replace(qpos=q)
         d=challenge.forward_batched(challenge.mjx_model,d)
+        actual_sphere_xyz=np.asarray(d.geom_xpos[:,right_geom,:])
+        target_xyz=np.asarray(contact_target)
+        probe_target_gap=np.linalg.norm(
+            actual_sphere_xyz-target_xyz,axis=1)
+        if not np.isfinite(probe_target_gap).all() or np.any(probe_target_gap>1e-3):
+            stop_with_report(
+                'Actual MJX foot geom did not reach the controlled 10mm '
+                f'box-contact fixture: displacement error={probe_target_gap.tolist()}')
+        report['controlled_contact_target_gap_m']=probe_target_gap.tolist()
         zeros=jnp.zeros((args.worlds,6),dtype=jnp.float32)
         # This test TELEPORTS the base solely to probe collision geometry.
         # Its "previous foot" must refer to the same translated pose:
