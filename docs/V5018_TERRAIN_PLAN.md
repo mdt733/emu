@@ -892,62 +892,39 @@ When P1+P2 are ready, keep a separate cold-start path
 through the *same* terrain curriculum, with baseline gait
 gates before obstacle progression.
 
-## Next engineering work — terrain truth without breaking cold-start
+## Next engineering work — terrain truth with two equal training paths
 
-The 5/5 focused gait-v2/10mm repeatability campaign is **complete**.
-Do not rerun the frozen frontier or repeatability exams. A
-future optional fresh-from-zero lifecycle check exists at
-`scripts/run_v5018_cold_start_acceptance.sh`; **not run
-yet**, and not required to interrupt current branch work.
+The 34/34 frontier and 5/5 focused gait-v2/10mm repeat campaigns
+have finished. **Do not repeat either GPU batch.** The
+optional `scripts/run_v5018_cold_start_acceptance.sh`
+is now available, **committed but not yet run on WSL**.
+It tests *one-update lifecycle*, not 20M-step walking, for
+220 and 232 actors completely without a pretrained policy.
+This does not need to interrupt the current experimental
+champion-based work.
 
-Next build an OPT-IN physically correct collidable-terrain
-support/swing-clearance/stance-slip measurement path with
-strict flat-control exact reward parity, independent support
-truth from actual ball-foot collision, and conservative
-toe clearance relative to top, side and lower-floor
-geometry. Verify no oracle heights leak into deployable
-observations. Add held-out directional/obstacle exams
-and moving-leg ToF occlusion/latency before starting
-terrain learning. Keep a first-class cold-start curriculum
-and a separate controlled warm-start research arm.
+**Next actual code pass:** add an opt-in actual-collision
+terrain-surface/support and reward-only height/stance-slip
+measurement path. Prove the old flat-world *reward outputs*
+remain numerically unchanged at default mode, and that
+real 5/10/20mm boxes distinguish top load-bearing contacts
+from vertical riser/side contacts and free-swing clearance.
+The teacher can use simulator truth, but it must not leak
+into either deployable 220/232 actor observation. Audit the
+frozen champion on flat vs collidable step with unchanged
+instructions and archive matched source/policy identities.
 
-The full 34/34 frontier campaign is **complete**. Do not rerun
-28 GPU course variants. A NEW self-contained read-only
-`scripts/run_v5018_gaitv2_acceptance.sh` has been
-committed **after that archive** but not executed on WSL.
-It runs, in sequence:
+Then test real moving-leg forward-beam occlusion, hit type,
+sample delay/dropout and motion compensation before deciding
+terrain memory size. The first PPO terrain branch may use
+the frozen champion for research **only if input schema is
+compatible and no secret terrain truth is supplied**;
+the official training system must also create the same
+network from fresh random seed and progress through
+capability-based lessons on flat, slopes and obstacles.
 
-1. New gait-v2 *negative and positive* synthetic cases, old
-   v1 regression, and the exact 0/5/10mm original-course
-   **SHA-256 tests**. Failures here STOP GPU exams.
-2. Frozen 232 champion, matched flat 0° and real 10°
-   uphill `kp=.75` OFF/ON exam, comparing official
-   v1 vs **research-only** v2 pairs on fresh true-contact traces.
-3. Two original 10mm step-course reruns (seeds
-   1701/1702, `kp=.75`, 0.10m/s), after test-confirmed
-   byte-identical 09:49 XML, to probe the earlier
-   `3/4→1/4` inconsistency.
-4. Automatically writes `summary.json`, per-stage logs,
-   immutable champion/source SHA evidence, and an archive
-   under `~/robot_lab/emu_exams/v5018_gaitv2_acceptance_*.tar.gz`.
-   Do not use PASS exit codes as gait/crossing certification.
-
-```bash
-cd ~/emu-v5018
-git pull --ff-only origin feature/v5018-terrain-awareness
-source .venv/bin/activate
-bash scripts/run_v5018_gaitv2_acceptance.sh
-```
-
-**No actor weights, training reward, champion or showcase change.**
-Then stage P1 as an opt-in *physics-truth and reward-only*
-terrain support/height/slip path, with exact old flat reward
-parity and a bounded one-step PPO smoke BEFORE any
-large GPU teaching. A real ToF estimator/actor schema
-must not be substituted with oracle ground heights.
-
-**Current open gates:** dynamic under-load servo
-clearance/energy, moving-leg sensor occlusion and
-latency/dropout, and six-servo CPU–MJX–WASM commanded
-trajectory parity. `terrain_312` and production PPO
-terrain promotion remain blocked.
+**Current open gates:** dynamic under-load actuator
+clearance/power, sensor occlusion/timing, identical actual
+six-servo CPU–MJX–WASM trajectory parity. New
+terrain observation dimension/schema remains UNFROZEN;
+do not treat a proposed 312-input actor as implemented.
