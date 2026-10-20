@@ -151,7 +151,7 @@ def train(args: TrainingConfig) -> int:
     training_xml = ROBOT_XML
     env_options = env_kwargs_from_args(args)
     course_sha256 = None
-    if args.terrain_height_safety_m > 0.:
+    if args.terrain_height_safety_m > 0. or args.terrain_adaptive_flat_control:
         import hashlib
         from .terrain import adaptive_height_course
         training_xml = adaptive_height_course(
