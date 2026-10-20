@@ -1,4 +1,4 @@
-"""v5019 forward ToF: two virtual 3-zone modules, 5/10/15cm footprints per lane.
+"""v5019 forward ToF: two virtual 3-zone modules, 5/12/22cm footprints per lane.
 
 This module owns the sensor *forward model* and optional diagnostic inverse, not
 training rewards, terrain curriculum, or oracle actor features. It treats a
@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 
 FORWARD_LANES_Y_M = (-.05, .05)              # right, left
-FORWARD_LOOKAHEAD_X_M = (.05, .10, .15)      # footprint from torso origin
+FORWARD_LOOKAHEAD_X_M = (.05, .12, .22)      # footprint from torso origin
 FORWARD_MOUNT_X_M = .035
 FORWARD_MOUNT_Z_M = -.025
 FORWARD_NOMINAL_DEPTH_M = .2334
@@ -29,7 +29,7 @@ FORWARD_NOISE_STD_M = .0015
 FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
 FORWARD_NOISE_RANGE_FACTOR = .5  # sigma rises gently with slant range
 FORWARD_PROFILE_CLIP_M = .15
-FORWARD_MODEL_REVISION = "two_three_zone_raw_slant_ranges_plane_box_v2"
+FORWARD_MODEL_REVISION = "two_three_zone_raw_slant_ranges_plane_box_v3"
 
 # Explicit six-channel lane-major order; document geometry in the manifest.
 FORWARD_MOUNTS_BODY_M = tuple(
