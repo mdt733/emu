@@ -64,6 +64,9 @@ def terrain_progress_payment(metrics, *, xp, weight: float):
     eligible = ((metrics['terrain_height_birth_m'] > 0.) &
                 (metrics['terrain_course_x'] >= -.05) &
                 (metrics['terrain_course_x'] <= .42) &
+                (metrics['cmd_vx'] >= .07) &
+                (xp.abs(metrics['cmd_vy']) <= .08) &
+                (xp.abs(metrics['cmd_yaw']) <= .50) &
                 (metrics['support'] >= .25) &
                 (metrics['gravity_z'] > .80) &
                 (metrics['terminal'] < .5))
