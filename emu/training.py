@@ -238,6 +238,22 @@ def train(args: TrainingConfig) -> int:
         try:
             governor.load_state_dict(resumed_payload['curriculum_state'])
             health.load_state_dict(resumed_payload['health_state'])
+            # External 25M FLAT foundation fork: the complete parent teacher
+            # rightly had no terrain height frontier (zero). Without explicit
+            # opt-in seeding here the new adaptive arm inherits ZERO forever:
+            # 100% flat births, no edge exposure, no way to earn the first step.
+            # Same-run 'auto' resume MUST retain its already-earned height.
+            external_parent = str(args.resume).lower() != 'auto'
+            if (external_parent and args.terrain_height_safety_m > 0. and
+                governor.params.frontier_terrain_height_m <= 0.):
+                initial = min(args.terrain_height_initial_m,
+                              args.terrain_height_safety_m)
+                governor.params.frontier_terrain_height_m = initial
+                print(f"{LOG_PREFIX} v5018 seeded adaptive height frontier "
+                      f"from flat parent: {initial*1000.:.1f}mm", flush=True)
+            if governor.params.frontier_terrain_height_m > args.terrain_height_safety_m and (
+                args.terrain_height_safety_m > 0. or args.terrain_adaptive_flat_control):
+                raise RuntimeError('resumed height frontier exceeds configured physical ceiling')
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
                   f"kl_history={len(health.kl_stress_history)}, collapse_streak={health.stepping_collapse_streak}).", flush=True)
