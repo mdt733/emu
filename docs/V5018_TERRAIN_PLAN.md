@@ -1,5 +1,45 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
+## 20 Oct — opt-in collidable-box PPO plumbing (COMMITTED, GPU NOT YET TESTED)
+
+**Scope:** First real integration of the independently examined box-step geometry into the ordinary PPO training environment. This is a blind obstacle-control experiment, NOT yet learned terrain awareness. No changes to the 220/232 actor interfaces, default XML, PPO coefficients, published champion or Pages.
+
+- New `emu train --terrain-box-height-mm 0|5|10` (only with `--profile sim2real --sensor-actor`). An omitted flag keeps the historical `robot.xml` exactly. Height 0 retains the same named box, 5m off-course; 5/10mm place an 80mm-deep, 400mm-wide collidable box at x=0.20m.
+- The frozen examiner and trainer now use one `emu.terrain.collidable_course` generator. Original fixture XML hashes must remain identical. Training uses immutable run-local `v5018_training_course.xml`; a changed file fails closed; `run_meta.json` records course SHA256.
+- Box + slope/randomized terrain, legacy 220 input, and non-sim2real combinations fail before CUDA. The opt-in existing `box_surface` reward measurements are from physical contacts; top support remains a geometry candidate, not a proven positive solver force. Reward weights and curriculum remain unchanged. The 232-input actor's tripod sensors do NOT look forward through the box. Do not claim anticipation.
+- `scripts/v5018_champion_step_pilot.py --policy PATH` now examines an independent compatible 232-input exported actor, preserving the protected 260M default. New `tests/test_v5018_terrain_training.py` covers config gating, immutable/generated XML, defaults and optional CPU MuJoCo compile. These source changes have NOT passed a real WSL/npm/CUDA test in this conversation.
+
+### Tiny WSL acceptance — mechanics and PPO wiring, NOT policy-quality training
+
+```bash
+cd ~/emu-v5018
+git status --short
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+python -m pytest -q tests/test_v5018_terrain_training.py tests/test_direction.py::test_v5018_step_pilot_xml_yaw_and_declared_height
+bash scripts/run_v5018_p1_deep_audit.sh
+mkdir -p "$HOME/robot_lab/emu_experiments"
+OUT="$HOME/robot_lab/emu_experiments/v5018_step_ppo_$(date +%Y%m%d_%H%M%S)"
+# Plan only first (no GPU or checkpoint writes):
+for H in 0 5; do
+  emu train --run-dir "$OUT/height_${H}mm" --steps 8192 --envs 256 --seed 733 --device cuda --profile sim2real --sensor-actor --terrain-box-height-mm "$H" --plan
+done
+# Only when tests passed and no competing GPU training is running:
+set -o pipefail
+for H in 0 5; do
+  emu train --run-dir "$OUT/height_${H}mm" --steps 8192 --envs 256 --seed 733 --device cuda --profile sim2real --sensor-actor --terrain-box-height-mm "$H" 2>&1 | tee "$OUT-height_${H}mm.log" || break
+done
+```
+
+Each arm uses a fresh, separate root. Read run logs, final checkpoint identity, `training_config.json`, `run_meta.json`, actual `v5018_training_course.xml`, contact/servo metrics and error codes. Send the logs and metadata; preserve original checkpoints outside Git. 8192 total environment-steps is only a bounded PPO compile/update/save check. It cannot establish learned crossing.
+
+After a meaningful trained candidate exists, export its validated actual checkpoint with `emu export-policy CHECKPOINT_PATH OUTPUT.emupolicy`, then use `--policy OUTPUT.emupolicy` on held-out 0/5/10mm read-only step exams plus original flat/10° slope exams. Compare fixed seeds, heading correction and contact-qualified crossing; don't choose a winner from PPO reward.
+
+**Still gated:** The protected 260M `.emupolicy` is an *actor export*, not a resumable full PPO checkpoint; `emu train --resume` enforces full state and same-source provenance. A safe explicit policy-weight/normalizer transplant is future work. Forward range/occlusion/latency model, 3/5/8-bin comparison and any new observation schema remain unimplemented, as do a certified positive solver-force top-contact test and new crossing outcome reward. Viewer last-ring geometry still awaits fresh Node/WASM/interactive acceptance.
+
+---
+
 **Last evidence review:** 20 October 2026, ~20:11 AEDT (user-defined course geometry and waypoint refinement; current feature source awaiting WSL/browser acceptance). **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
 
 ## 20 Oct evening — eight half-gap waypoints, continuous CCW movement, mixed obstacles (UNTESTED on WSL)
