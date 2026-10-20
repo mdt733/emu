@@ -78,6 +78,10 @@ test('step boxes and experimental capsule logs are physical worldbody MuJoCo geo
       'tree trunk is planted in the challenge corridor');
   }
   assert.ok(park.trees.length>=5,'challenge ring must retain a forest');
+  assert.ok(park.trees.some(t=>Math.hypot(t.x,t.y)<3),
+    'whole-arena camera must actually see an inner grove, not only far trees');
+  assert.ok(park.trees.some(t=>Math.hypot(t.x,t.y)>5),
+    'outer forest must also remain');
   assert.ok(park.heights.some(h=>h>.025),
     'hills beyond the flat ring must remain actual physics');
   const parkXml=withTerrain(xml,'park',{park:generateTerrainPark({maxDegrees:10})});
