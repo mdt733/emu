@@ -1604,7 +1604,8 @@ class EmuMJXEnv(TaskSampler):
                 'terrain_edge_crossing': (done.astype(jnp.float32) *
                                           (1. - terminal_fail.astype(jnp.float32)) *
                                           metrics['terrain_edge_mask'] *
-                                          ep_terrain_crossed * ep_terrain_contacted),
+                                          ep_terrain_crossed * ep_terrain_contacted *
+                                          (ep_step_evidence_sum / jnp.maximum(ep_len, 1.) >= .12)),
                 'terrain_edge_fell': (terminal_fail.astype(jnp.float32) * metrics['terrain_edge_mask']),
                 'terrain_edge_done': (done.astype(jnp.float32) * metrics['terrain_edge_mask']),
                 'terrain_edge_contact': (done.astype(jnp.float32) *
