@@ -159,6 +159,17 @@ class SensorSample(NamedTuple):
     flow_rad_s: Any
     flow_valid: Any
     gyro_body_rad_s: Any
+    tof_age_frames: Any
+    flow_age_frames: Any
+
+
+class PreviewSensorSample(NamedTuple):
+    """Schema-9-only two-ray payload; never reinterpret schema-8 samples."""
+    tof_ranges_m: Any
+    tof_beam_valid: Any
+    flow_rad_s: Any
+    flow_valid: Any
+    gyro_body_rad_s: Any
     forward_ranges_m: Any
     forward_valid: Any
     tof_age_frames: Any
@@ -178,7 +189,7 @@ class RollingSensorState(NamedTuple):
     Original 232 sensor-state pytree is unchanged, preserving checkpoint
     compatibility with the running v5018 research and saved schema-8 runs.
     """
-    samples: SensorSample
+    samples: PreviewSensorSample
     gyro_bias_rad_s: Any
     current_gyro_body_rad_s: Any
     terrain_heights: Any
@@ -2058,11 +2069,16 @@ class EmuMJXEnv(TaskSampler):
             forward_ranges = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
             forward_valid = jnp.zeros((self.num_envs,6),dtype=bool)
         ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            return PreviewSensorSample(
+                probe['tof_ranges_m'], probe['tof_beam_valid'],
+                probe['flow_rad_s'], probe['flow_return_valid'],
+                probe['measured_gyro_body_rad_s'],
+                forward_ranges, forward_valid, ages, ages)
         return SensorSample(
             probe['tof_ranges_m'], probe['tof_beam_valid'],
             probe['flow_rad_s'], probe['flow_return_valid'],
-            probe['measured_gyro_body_rad_s'], forward_ranges,
-            forward_valid, ages, ages)
+            probe['measured_gyro_body_rad_s'], ages, ages)
 
     def _initial_sensor_state(self, data, task, phase, keys):
         """Start an episode with a real first sample, not fabricated flat data."""
