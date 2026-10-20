@@ -534,7 +534,7 @@ from .contracts import source_repo_root
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
 from .training_config import TrainingConfig, foundation_config, mature_config, training_sensor_contract
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -565,7 +565,13 @@ def one_run_config(args) -> TrainingConfig:
     grade=float(getattr(args,'contact_slope_deg',0.0))
     if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
         raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
-    sensor_actor = bool(getattr(args, 'sensor_actor', False))
+    preview_actor = bool(getattr(args, 'forward_preview', False))
+    preview_masked = bool(getattr(args, 'forward_preview_masked', False))
+    if preview_masked and not preview_actor:
+        raise ValueError('--forward-preview-masked requires --forward-preview')
+    if preview_actor and args.profile not in ('foundation', 'sim2real'):
+        raise ValueError('--forward-preview requires foundation or sim2real')
+    sensor_actor = bool(getattr(args, 'sensor_actor', False) or preview_actor)
     if sensor_actor and args.profile not in ('foundation', 'sim2real'):
         raise ValueError('--sensor-actor requires --profile foundation or sim2real')
     if grade > 0 and args.profile != 'sim2real':
@@ -609,7 +615,9 @@ def one_run_config(args) -> TrainingConfig:
                            args.profile != 'sim2real' or not sensor_actor):
         raise ValueError('adaptive terrain requires sim2real + sensor actor and no static box/slopes')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
+                   observation_schema=(OBS_SCHEMA_PREVIEW if preview_actor else
+                                       OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
+                   forward_preview_masked=preview_masked,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,terrain_box_height_mm=box_height,
                    terrain_height_safety_m=adaptive_limit / 1000.,
