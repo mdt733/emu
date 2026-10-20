@@ -197,8 +197,10 @@ def validated_checkpoint(run_dir: Path, expected_steps: int, envs: int) -> Path:
         raise RuntimeError("Checkpoint root has wrong target steps/envs")
     if data.get("source_provenance", {}).get("git_commit") != git("rev-parse", "HEAD"):
         raise RuntimeError("Run/checkpoint source provenance mismatch")
-    if cfg.get("terrain_box_height_mm", -1) >= 0:
-        xml = run_dir / "v5018_training_course.xml"
+    if cfg.get("terrain_box_height_mm", -1) >= 0 or cfg.get("terrain_height_safety_m", 0.) > 0.:
+        xml = run_dir / ("v5018_adaptive_course.xml"
+                         if cfg.get("terrain_height_safety_m", 0.) > 0.
+                         else "v5018_training_course.xml")
         if not xml.is_file() or hashlib.sha256(xml.read_bytes()).hexdigest() != data.get("terrain_course_sha256"):
             raise RuntimeError("Training course XML/hash mismatch")
     return ck
