@@ -2118,24 +2118,27 @@ class EmuMJXEnv(TaskSampler):
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
         tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
-        # Two single spots; cadence and latency match downward tripod.
-        # Independent dropout is applied per real ray, not per map sample.
-        if self.observation_schema == OBS_SCHEMA_PREVIEW:
-            failed = jax.vmap(lambda k: jax.random.uniform(
-                jax.random.fold_in(k, 5022), (2,)))(keys) < self.tof_dropout_prob
-            fwd_ok = raw.forward_valid & ~failed
-        else:
-            fwd_ok = raw.forward_valid
-        latest = SensorSample(
+        # Keep the schema-8 sample packet bit-for-bit structurally compatible.
+        shared = (
             jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
             jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
             jnp.where(flow_due, flow_valid, old.flow_valid),
             jnp.where(flow_due[:, None], raw.gyro_body_rad_s, old.gyro_body_rad_s),
-            jnp.where(tof_due[:,None], jnp.where(fwd_ok, raw.forward_ranges_m, 0.), old.forward_ranges_m),
-            jnp.where(tof_due[:,None], fwd_ok, old.forward_valid),
-            jnp.where(tof_due, 0, old.tof_age_frames + 1),
-            jnp.where(flow_due, 0, old.flow_age_frames + 1))
+        )
+        ages = (jnp.where(tof_due, 0, old.tof_age_frames + 1),
+                jnp.where(flow_due, 0, old.flow_age_frames + 1))
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            failed = jax.vmap(lambda k: jax.random.uniform(
+                jax.random.fold_in(k, 5022), (2,)))(keys) < self.tof_dropout_prob
+            fwd_ok = raw.forward_valid & ~failed
+            latest = PreviewSensorSample(
+                *shared,
+                jnp.where(tof_due[:,None], jnp.where(fwd_ok, raw.forward_ranges_m, 0.), old.forward_ranges_m),
+                jnp.where(tof_due[:,None], fwd_ok, old.forward_valid),
+                *ages)
+        else:
+            latest = SensorSample(*shared, *ages)
         queued = jax.tree_util.tree_map(
             lambda history, value: jnp.concatenate(
                 (history[:, 1:, ...], value[:, None, ...]), axis=1),
