@@ -481,6 +481,99 @@ future training rely on a previous trained
 policy. `main`, protected showcase and
 Pages remain unchanged.
 
+## 20 Oct afternoon — P1 actual terrain truth implementation (NOT GPU run)
+
+The user explicitly said **"Get into it"** and reminded us to
+keep both the living checklist and fresh-chat handover current.
+Work was done **only on `feature/v5018-terrain-awareness`**,
+not on main, protected `showcase/champion.emupolicy` or Pages.
+The 260M brain is a **reference for experiments**, never a
+required training foundation. The cold-start tests and optional
+one-update 220/232 fresh-policy lifecycle checker are retained.
+
+**Code changes now on the branch:**
+
+- `emu/terrain.py`: small pure NumPy/JAX physics-truth component,
+  `box_surface_truth()`, handles a single fixed real yaw-rotated
+  worldbody box above a plane. Combines *true geom-pair*
+  near-contact evidence with contact geometry. Separates
+  floor contact, conservative box-top contact candidates,
+  vertical riser/side touch, unsupported feet. Reports
+  body height relative to top when above it, signed
+  ball-bottom top clearance, 3D contact-tangent stance
+  motion and support fraction. A contact pair is NOT
+  a measured normal force or physically proven load.
+- `emu/environment.py`: new opt-in env args
+  `terrain_contact_mode='legacy'|'box_surface'`
+  (default legacy) and
+  `terrain_box_geom='v5018_obstacle_step'`.
+  Invalid/missing/moving/non-horizontal boxes and real
+  inclined collision planes are rejected rather than
+  incorrectly scored. Near the physical box, use
+  top/floor contact support and corrected body/foot
+  heights/clearance/slip for the existing reward.
+  OUTSIDE its footprint/contact, a per-world mask
+  preserves exact old legacy scalar economics.
+  No changes to `_base_obs`, 220/232 policy
+  shapes, PPO code, trained checkpoint or reward
+  coefficients. Teacher-only `terrain_*` metrics
+  are exposed ONLY as eval/rollout diagnostics.
+- `tests/test_v5018_terrain_truth.py`: independent
+  pure top-vs-riser, no-pair ghost stance, below-top
+  signed gap, genuine tangent slip, yaw footprint
+  and JAX-JIT/numpy agreement checks.
+- `scripts/v5018_p1_surface_smoke.py`: actual
+  JAX/MJX same-XML 4-world 0mm off-course flat
+  control compares **bit-for-bit** old/new PPO
+  rewards and identical 232 actor observations
+  for three steps. Then a separate true 10mm
+  geometry probe must activate finite terrain
+  relative metrics without importing any policy.
+- `scripts/run_v5018_p1_terrain_acceptance.sh`:
+  independent fail-fast syntax, new physical-truth,
+  cold-start regression and historical float32
+  reward regression; then actual CUDA/MJX smoke.
+  Writes all logs and errors to fresh
+  `~/robot_lab/emu_exams/v5018_p1_terrain_*.tar.gz`.
+  **NEW CODE UNTESTED IN THE USER'S WSL** at this
+  handover; do not state PASS until archive arrives.
+
+**Exact next WSL command after pulling branch:**
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_p1_terrain_acceptance.sh
+```
+
+If it fails, fix the exact failing case and rerun a
+**targeted** smoke rather than the finished 34-stage
+frontier or 5-stage gait-v2/repeatability campaigns.
+
+**Strict remaining limits:** this first measurement
+supports only ONE static yawed box on a level floor.
+No normal impulse, actual electrical motor effort,
+body-low terrain termination, steps DOWN, ramps,
+logs, arbitrary per-world obstacle pose, full
+six-servo browser parity or moving-leg forward-ray
+occlusion has been proven or implemented in P1.
+The legacy forward range estimator still assumes a
+floor plane and is **not** a terrain preview for the
+actor. `terrain_312` remains a hypothetical
+future schema, not a frozen contract.
+The new branch mode is deliberately **not yet
+offered by public `emu train`** until it survives
+the flat/riser/MJX gates and a clearly scoped
+curriculum. The full future product must always
+be teachable from new random weights without
+a prior checkpoint.
+
+**Authoritative current implementation status and
+gate checklist:** `docs/V5018_TERRAIN_PLAN.md`.
+Do not copy this prose into another parallel
+progress tracker.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -549,56 +642,64 @@ evidence and user-approved PR.**
 
 > Continue EMU v5018 **only on**
 > `feature/v5018-terrain-awareness` of
-> https://github.com/mdt733/emu. First read
-> `docs/V5018_HANDOVER.md`,
+> https://github.com/mdt733/emu.
+> Read current `docs/V5018_HANDOVER.md`,
 > `docs/V5018_TERRAIN_PLAN.md` and
-> `docs/INSTALL.md` from current HEAD.
-> The single living status checklist is
-> `docs/V5018_TERRAIN_PLAN.md`. The
-> 20 October user-run obstacle frontier
-> completed 34/34 stages; frozen 260M
-> 232-input champion crossed matched
-> 5/10/15/20mm obstacles in 5/8,
-> 4/8, 6/8, 3/8 P-on worlds, with
-> lateral course detours the dominant
-> failure. 10mm at ±25° had 7/8 vs
-> 3/8 outcomes. The subsequent
+> `docs/INSTALL.md` BEFORE edits.
+> The sole authoritative dated checklist is
+> `docs/V5018_TERRAIN_PLAN.md`.
+> The full frozen 232 champion 260M
+> physical frontier 20 Oct was 34/34
+> execution passes, with 20mm box
+> crossings 3/8 and dominant lateral
+> detours. The follow-up
 > `v5018_gaitv2_acceptance_20261020_124851.tar.gz`
-> (tested source `622d515b`) finished
-> **5/5 stages**. Experimental gait-v2
-> reports 24 OFF/21 ON alternating
-> supported pairs on four flat worlds,
-> versus 0 official historical v1,
-> but 10° uphill remains 0 v2
-> and 0 course passes. A byte-identical
-> original 10mm XML hash reproduces
-> 3/4 crossings in both prior seeds.
-> **New permanent user requirement:**
-> champion is useful for fast R&D,
-> but the system MUST start entirely
-> from scratch without ANY prior
-> policy/checkpoint/foundation brain.
-> From-zero 220 and 232 training paths
-> exist and were source-audited; new
-> cold-start unit test and optional
-> real-PPO life-cycle script are
-> committed but NOT YET WSL-VERIFIED.
-> For a new terrain schema, test both
-> random cold-start and separately
-> controlled compatible warm-start;
-> never demand the champion.
-> NEXT CODE PASS: opt-in physically
-> correct step/ground support,
-> clearance and stance-slip from
-> real collision geometry; guarantee
-> exact old flat reward parity and
-> legal actor sensors, then evaluate
-> moving-leg forward scanner
-> occlusion/latency. No big PPO until
-> sensor, motor load and six-servo
-> CPU/MJX/WASM parity gates advance.
-> Preserve 220/232 compatibility;
-> terrain_312 is NOT frozen.
-> Never change `main`, showcase
-> champion, Pages, or an ongoing
-> training process without approval.
+> 5/5 stages passed; candidate gait-v2
+> detects 24 OFF / 21 ON real alternating
+> contact-supported step pairs across
+> four flat worlds, but 10° uphill 0
+> v2 pairs and 0 course passes.
+> The original 10mm identical XML
+> reproduced 3/4 in BOTH old seeds.
+> User REQUIRES genuine independent
+> new random brain cold-start; 260M
+> champion is a convenient research
+> reference only. Added cold-start
+> contract tests and optional fresh
+> PPO lifecycle script for 220 and
+> 232 actors, **not yet WSL-tested**.
+> The latest AFTERNOON P1 pass added
+> pure `emu/terrain.py` contact +
+> geometry top-vs-riser truth and
+> opt-in `EmuMJXEnv(terrain_contact_mode=
+> 'box_surface')` with active-box
+> reward-only corrected support,
+> height, signed foot clearance and
+> tangent slip; per-world gate keeps
+> exact flat legacy measurement math
+> outside obstacle proximity, and
+> never changes 220/232 actor input
+> or weights. Box mode supports one
+> fixed yawed box on level floor ONLY.
+> Synthetic tests, 4-world real-MJX
+> bitwise flat reward parity probe,
+> and `scripts/run_v5018_p1_terrain_acceptance.sh`
+> are COMMITTED but **NOT YET RUN
+> ON USER'S GPU**. NEXT: pull feature,
+> run that script, review its archive,
+> fix targeted failures. After successful
+> P1 acceptance, extend real support
+> truth to stepped-down floors, ramps,
+> logs and realistic occluded/delayed
+> forward ToF/flow; never leak
+> simulator terrain oracle into actor.
+> Keep cold-start and compatible
+> warm-start on the SAME training
+> system, but do NOT freeze
+> `terrain_312` or embark on big
+> terrain PPO until load/sensors/
+> CPU-MJX-WASM gates advance.
+> NEVER change main, protected
+> champion, Pages or a running
+> GPU training lineage without
+> explicit approval.
