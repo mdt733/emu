@@ -1,7 +1,8 @@
 // EMU v5018 obstacle demonstrations: a REAL MuJoCo collision course, not a
 // texture or fake hologram. The learning/exam environment remains independent.
-// The flat floor is deliberately retained so shallow box heights mean the
-// same thing as the GPU 0/5/10/15/20 mm pilot.
+// The existing park's physical grass heightfield remains. A gently flat
+// annular lane centres each 5–20mm obstacle at the correct ground-relative
+// height; trees are kept elsewhere but excluded from the route corridor.
 //
 // Historical evidence: 5/10/15/20 mm shallow BOX courses had some frozen
 // 260M-policy crossings. Capsule-log WALKING has not been established.
