@@ -208,7 +208,7 @@ def main():
         # Meaningful: at least one true contact in MOVING simulation, and
         # measurement activates as the policy actually interacts with step.
         box_contacts=sum(
-            q['actual_box_contact_frames']
+            q['actual_box_contact_world_frames']
             for q in report['box_surface']['worlds'])
         active=sum(
             q['terrain_active_frames']
