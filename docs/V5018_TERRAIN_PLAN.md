@@ -1307,10 +1307,48 @@ stationary forced-top smoke cannot falsify that case.
   near-top sphere with **horizontal** collision
   normal, (b) vertical normal with contact point
   NOT on the box top, and (c) reversed valid
-  normal orientation. Now `tests/test_v5018_terrain_truth.py`
-  contains 8 tests (previous 6). Tests and actual
-  MuJoCo/JAX classification after this code
-  change have **NOT BEEN RUN on user WSL**.
+  normal orientation. New tests also reject a
+  **+1mm separated** geom-pair (no touching under
+  zero-margin physics), torso-over-box with both
+  feet supported on the flat floor, and one
+  box-supported foot after the torso moves
+  PAST the box footprint. The terrain suite
+  now contains **11 tests** (six prior,
+  five new); none of the new ones have
+  been executed in user WSL yet.
+- [~] Further PHYSICS root causes addressed on the branch:
+  (a) A MuJoCo pair within **+2mm positive
+  separation** was previously treated as a
+  supported stance even though the canonical
+  geom margin is zero. The new P1 contact
+  candidate requires `contact.dist <= 0`
+  before using frame/point normals. The
+  opt-in constructor fails closed on nonzero
+  floor/foot/box margins or gaps, rather
+  than silently applying the wrong rule.
+  Still a candidate, NOT measured
+  normal impulse/torque.
+  (b) The old `torso_height` reference
+  subtracted obstacle elevation whenever
+  the **torso XY** crossed its 40mm strip,
+  even if BOTH feet supported only flat
+  ground; it also ignored a raised
+  supported foot once torso XY passed
+  beyond that strip. The corrected
+  height reference weights the genuine
+  classified support-surface elevations
+  under the feet (equal count, NOT
+  load-weighted), with
+  `terrain_support_reference_elevation_m`
+  separately reported. This does not
+  affect default legacy reward.
+- [~] Also added two CPU reporting tests in
+  `tests/test_v5018_p1_dynamic_audit.py`,
+  confirming that two contacting feet in
+  one world-frame count as **one time
+  frame**, and that post-reset contacts
+  cannot fabricate pre-fall progress.
+  Both tests are UNEXECUTED in WSL.
 - [~] Added a STATIC OPTIONAL
   `record_terrain_truth=False` flag to
   `emu/ppo.py::evaluate_trace`, default unchanged.
