@@ -171,6 +171,79 @@ def box_surface_truth(
     }
 
 
+# v5018 adaptive-height research: fixed-shape box whose top moves with a
+# per-episode MuJoCo mocap body. Avoid changing MJX geom_size/topology
+# under JIT; every batched world gets an independently sampled height.
+TERRAIN_FRONTIER_MAX_M = 0.150
+TERRAIN_BOX_HALF_HEIGHT_M = 0.075
+
+
+def adaptive_height_course(robot_source, dest, *, immutable: bool = True):
+    """Build a fixed-topology course with a per-world movable step.
+
+    No geom size or angle changes at runtime. Birth-time mocap_pos sets the
+    top height in [0,150mm], x=0.20m or x=5m for flat rehearsal.
+    Requires a CPU/MJX collision smoke before using the training campaign.
+    """
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(Path(robot_source))
+    world = tree.getroot().find('worldbody')
+    if world is None:
+        raise ValueError('canonical robot is missing worldbody')
+    mocap = ET.SubElement(world, 'body', {
+        'name': 'v5018_course_mocap', 'mocap': 'true', 'pos': '5 0 0'})
+    ET.SubElement(mocap, 'geom', {
+        'name': 'v5018_obstacle_step', 'type': 'box',
+        'pos': f'0 0 {-TERRAIN_BOX_HALF_HEIGHT_M}',
+        'size': f'.04 .20 {TERRAIN_BOX_HALF_HEIGHT_M}',
+        'friction': '1.5 .005 .0001'})
+    return _write_reproducible_course(tree, Path(dest), immutable=immutable)
+
+
+def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60, edge_fraction=.35):
+    """Flat rehearsal + continuous interior samples + a frontier-height tail.
+
+    The upper_m input is learned by the governor; NOT an actor channel.
+    """
+    high = xp.clip(upper_m, 0., TERRAIN_FRONTIER_MAX_M)
+    exposure = xp.clip(exposure, 0., 1.)
+    frac = xp.where(uniform < edge_fraction, .72 + .28 * uniform / xp.maximum(edge_fraction, 1.e-6),
+                    (uniform - edge_fraction) / xp.maximum(1.-edge_fraction, 1.e-6))
+    return xp.where(selection < exposure, high * frac, 0.)
+
+
+def next_height_frontier(current_m: float, row: dict, *, safety_m: float,
+                         growth_m: float = .001, min_exposure: float = .005):
+    """Evidence-gated advancement/retreat of physical step difficulty.
+
+    Contact alone does not earn growth. Require completed crossing samples,
+    acceptable falls and actual exposure; absent readings cannot expand.
+    """
+    import math
+    if not 0 <= current_m <= safety_m <= TERRAIN_FRONTIER_MAX_M:
+        raise ValueError('invalid terrain physical frontier bounds')
+    def measured(key):
+        try:
+            v = float(row[key])
+            return v if math.isfinite(v) and v >= 0. else None
+        except (ValueError, TypeError, KeyError):
+            return None
+    exposure = measured('terrain_edge_exposure')
+    arrival = measured('terrain_edge_crossing')
+    falls = measured('terrain_edge_fall_rate')
+    contact = measured('terrain_edge_contact')
+    if exposure is None or exposure < min_exposure:
+        return current_m, 'hold_no_edge_coverage'
+    if arrival is None or falls is None or contact is None:
+        return current_m, 'hold_missing_physical_evidence'
+    if arrival >= .25 and falls <= .35 and contact >= .0002:
+        return min(safety_m, current_m + growth_m), 'expand_measured_crossing'
+    if falls >= .65 and (contact >= .0002 or exposure >= .02):
+        return max(.001, current_m - 2 * growth_m), 'retreat_sustained_falls'
+    return current_m, 'hold_unproven'
+
 def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0., immutable: bool = False):
     """Write the reproducible real MuJoCo course used by v5018 crossing exams.
 
