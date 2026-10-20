@@ -177,6 +177,12 @@ class TrainingConfig:
     # robot.xml; 0 = same box off-course; 5/10 = real low step in path.
     # Never silently substitute browser demonstration geoms for GPU lessons.
     terrain_box_height_mm: int = -1
+    # Opt-in maximum of continuous per-episode step heights; off by default.
+    terrain_height_safety_m: float = 0.0
+    terrain_height_initial_m: float = 0.003
+    terrain_height_exposure: float = 0.60
+    terrain_height_edge_fraction: float = 0.35
+    terrain_height_growth_m: float = 0.001
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -230,7 +236,9 @@ class TrainingConfig:
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
-                    'terrain_box_height_mm'}
+                    'terrain_box_height_mm', 'terrain_height_safety_m',
+                    'terrain_height_initial_m', 'terrain_height_exposure',
+                    'terrain_height_edge_fraction', 'terrain_height_growth_m'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -242,7 +250,8 @@ class TrainingConfig:
 # normalisation) are otherwise modifiable via TrainingConfig fields.
 IMMUTABLE_RUN_FIELDS = frozenset({
     'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
-    'terrain_box_height_mm',
+    'terrain_box_height_mm', 'terrain_height_safety_m', 'terrain_height_initial_m',
+    'terrain_height_exposure', 'terrain_height_edge_fraction', 'terrain_height_growth_m',
 })
 
 
