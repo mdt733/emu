@@ -52,6 +52,14 @@ def main():
                        'physically correct top/side pair classification is a candidate, not normal-force ground reaction',
                        'moving-leg ToF occlusion and six-servo CPU/WASM parity remain unverified']
     }
+    def stop_with_report(message):
+        # A failing GPU gate still needs a machine-readable evidence artifact.
+        report['status']='FAIL'
+        report['failure']=str(message)
+        args.output.parent.mkdir(parents=True,exist_ok=True)
+        args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+        raise RuntimeError(message)
+
     with tempfile.TemporaryDirectory(prefix='emu_v5018_terrain_') as tmp:
         flat=collidable_course(Path(ROBOT_XML),Path(tmp)/'flat.xml',0)
         model_sha=hashlib.sha256(flat.read_bytes()).hexdigest()
@@ -66,7 +74,7 @@ def main():
         obs0=np.asarray(ob0)
         obs1=np.asarray(ob1)
         if not np.array_equal(obs0,obs1):
-            raise RuntimeError('box off-course changed initial deployable actor observation')
+            stop_with_report('box off-course changed initial deployable actor observation')
         assert baseline.obs_dim==terrain.obs_dim==232
 
         # Six explicit actuator outputs are identical across conditions.
@@ -80,7 +88,7 @@ def main():
             old_reward=np.asarray(a.reward)
             new_reward=np.asarray(b.reward)
             if not np.array_equal(old_reward,new_reward):
-                raise RuntimeError(
+                stop_with_report(
                     f'flat 0mm legacy reward parity violated: {old_reward.tolist()} vs {new_reward.tolist()}')
             # Two separately compiled XLA kernels may round different
             # floating-point intermediates on CUDA. Diagnose differences
@@ -90,7 +98,7 @@ def main():
             obs_terrain=np.asarray(b.obs)
             delta=np.abs(obs_legacy.astype(np.float64)-obs_terrain.astype(np.float64))
             if not np.isfinite(delta).all():
-                raise RuntimeError('off-course actor observations contain nonfinite values')
+                stop_with_report('off-course actor observations contain nonfinite values')
             maximum=float(delta.max(initial=0.))
             obs_diffs.append(maximum)
             exact=bool(np.array_equal(obs_legacy,obs_terrain))
@@ -108,14 +116,14 @@ def main():
             # Keep an extremely narrow float32 numerical allowance,
             # not an adjustable metric or relaxed reward comparator.
             if not np.allclose(obs_legacy,obs_terrain,rtol=3e-6,atol=2e-6):
-                raise RuntimeError(
+                stop_with_report(
                     f'off-course actor observation drift exceeds float32 '
                     f'rounding budget at frame {frame_index+1}; '
                     f'max_abs_difference={maximum:.9g}; '
                     f'first offender in report/stdout')
             active=np.asarray(b.metrics.get('terrain_geometry_active'))
             if np.any(active!=0):
-                raise RuntimeError('off-course control unexpectedly activated box truth')
+                stop_with_report('off-course control unexpectedly activated box truth')
             reward_diffs.append(float(np.max(np.abs(old_reward-new_reward))))
             s0,s1=a.state,b.state
         report['flat_legacy_reward_exact_frames']=3
@@ -145,7 +153,7 @@ def main():
             raise RuntimeError('active terrain height is not finite')
         active=np.asarray(m['terrain_geometry_active'])
         if not np.any(active>0):
-            raise RuntimeError('physical obstacle failed to activate terrain-relative metric')
+            stop_with_report('physical obstacle failed to activate terrain-relative metric')
         for name in ('support','stance_slip','swing_clearance','height',
                      'terrain_top_contact_fraction','terrain_riser_contact_fraction',
                      'terrain_min_signed_toe_clearance'):
