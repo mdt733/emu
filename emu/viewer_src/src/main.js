@@ -6,6 +6,7 @@ import { EmuBrowserSim } from './sim.js';
 import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
+import { visibleChallengeLabel } from './challenge-course.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -24,6 +25,9 @@ const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
 const treesToggle = $('treesToggle');
+const challengeTier = $('challengeTier');
+const challengeLogs = $('challengeLogs');
+const demoMode = $('demoMode');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
@@ -62,7 +66,15 @@ const goalDemoActive = () => demoActive;
 function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
-  navigator.reset();
+  // Always reset the target sequence after terrain change, actor swap,
+  // fall/reset or manual handoff. No stale route may cross removed terrain.
+  const circuit=demoMode.value==='circuit'
+    ? sim?.navigationChallengeCourse()?.waypoints||null : null;
+  navigator.setCircuitWaypoints(circuit);
+  $('demoRouteNote').textContent = circuit
+    ? 'Approach → cross each obstacle in order. Route progress is a DEMO, not a certified crossing score.'
+    : 'Random pose targets within the arena. Steering uses the existing neural policy.';
+  $('navNext').textContent=circuit?'Next waypoint':'New destination';
   navCommandClock=Infinity;
   navCommandUpdates=0;
   navLastCommand={vx:0,vy:0,yaw:0};
@@ -113,7 +125,9 @@ function navigationUpdate(dt) {
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
-  $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
+  $('navHudTitle').textContent=state.circuit && state.goal?.label
+    ? `CIRCUIT · ${state.goal.label}`
+    : `TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
@@ -254,7 +268,9 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
+    sim.setChallengeOptions(Number(challengeTier.value),challengeLogs.checked);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    displayCourseControls();
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -345,16 +361,61 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.textContent = cameraLabel(cameraMode);
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
+function displayCourseControls() {
+  const isCourse=terrainMode.value==='course';
+  $('challengeControls').hidden=!isCourse;
+  $('parkSlopeControls').hidden=terrainMode.value!=='park';
+  treesToggle.closest('label').hidden=terrainMode.value!=='park';
+  if(isCourse){
+    $('challengeDescription').textContent=
+      visibleChallengeLabel(sim?.navigationChallengeCourse()||{
+        tierMm:Number(challengeTier.value),logs:challengeLogs.checked})+
+      ' · Coloured MuJoCo collision geoms, not decoration. Pilot evidence is not a universal gait guarantee.';
+  }
+}
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
+  if(terrainMode.value!=='course' && demoMode.value==='circuit')
+    demoMode.value='random'; // circuit has physical checkpoints only in course
+  displayCourseControls();
   if (!sim) return;
-  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
-  catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
+  try {
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    syncGoalMode();
+    updateStickLabels();
+  } catch(err) {
+    terrainMode.value='flat';
+    sim.setTerrainMode('flat');
+    demoMode.value='random';
+    displayCourseControls();
+    syncGoalMode();
+    setStatus(`Terrain unavailable: ${err.message}`,'error');
+  }
 }
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
-treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+challengeTier.addEventListener('change',()=>{
+  if(sim)try{
+    sim.setChallengeOptions(Number(challengeTier.value),challengeLogs.checked);
+    syncGoalMode(); displayCourseControls();
+  }catch(err){setStatus(`Challenge unavailable: ${err.message}`,'error');}
+  else displayCourseControls();
+});
+challengeLogs.addEventListener('change',()=>{
+  if(sim)try{
+    sim.setChallengeOptions(Number(challengeTier.value),challengeLogs.checked);
+    syncGoalMode(); displayCourseControls();
+  }catch(err){setStatus(`Challenge unavailable: ${err.message}`,'error');}
+  else displayCourseControls();
+});
+demoMode.addEventListener('change',()=>{
+  if(demoMode.value==='circuit'&&terrainMode.value!=='course'){
+    terrainMode.value='course';
+    updateTerrain();
+  }else syncGoalMode();
+});
+treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);syncGoalMode();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
@@ -628,5 +689,6 @@ async function startViewerFeed() {
 }
 
 applyHeadingGain();
+displayCourseControls();
 startViewerFeed();
 requestAnimationFrame(frame);
