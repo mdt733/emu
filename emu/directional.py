@@ -866,6 +866,24 @@ def evaluate_trace_arrays(trace, gravity_world, *, dt=.02, settle_frames=25,
         result['stride_gate_diagnostics'] = diagnose_contact_stride_gate(
             pos,feet,contacts,settle_frames=settle_frames,
             foot_clearance_m=foot_clearance)
+        # Research-only v2 uses the ORIGINAL operator command's cumulative
+        # world course axis. This is NOT a replacement for the historical v1
+        # walking score, and may be unscorable for an intentional stop/turn.
+        desired_yaw=head[0]+np.concatenate(([0.],
+                            np.cumsum(commands[:,2]*dt)))
+        course_motion=np.column_stack((
+            np.cos(desired_yaw[:-1])*commands[:,0]-
+            np.sin(desired_yaw[:-1])*commands[:,1],
+            np.sin(desired_yaw[:-1])*commands[:,0]+
+            np.cos(desired_yaw[:-1])*commands[:,1],
+        ))
+        course_direction=np.sum(course_motion[settle_frames:],axis=0)
+        result['gait_v2_research_only']=(
+            diagnose_alternating_contact_pairs_v2(
+                pos,feet,contacts,settle_frames=settle_frames,
+                foot_clearance_m=foot_clearance,
+                course_axis_xy=course_direction)
+            if np.linalg.norm(course_direction)>1e-6 else None)
         # The grading function rejects early terminations. The stride count
         # stays reported but cannot override an invalid course or fall.
         course = examine_course(pos,head,commands,dt=dt,
