@@ -274,35 +274,98 @@ are from `c6a5dab...`; first resume recorded
 `cad93f94...`; new step experiments will be
 from a later commit. Preserve all three source identities.
 
-**NEXT USER-RUN (when not sharing GPU with other training):**
+**Completed frontier archive (20 October, 11:43–12:05):**
+`v5018_frontier_20261020_102641.tar(1).gz` has 34/34
+successful stage executions: four targeted tests and four
+flat/10° heading exams from original commit `c6a5dab...`,
+plus 28 real physical 0–20mm, ±25° face, speed and
+heading-OFF/ON course variants from the later resumed commit
+`69daa3d253cf92d0e3c40fbc060d54c4cbb549cf`,
+and an aggregate report. Revision history is embedded;
+**this is mixed-commit evidence**. Champion SHA-256 remains
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+All evidence is independently recorded with its source.
 
-```bash
-cd ~/emu-v5018
-git status --short
-git pull --ff-only origin feature/v5018-terrain-awareness
-source .venv/bin/activate
-bash scripts/run_v5018_obstacle_frontier.sh --resume \
-  ~/robot_lab/emu_exams/v5018_frontier_20261020_102641
-```
+**Read-only objective results:** 49/112 fixed-world
+course crossings across all variants (includes flat
+8/20); 41/92 physical obstacle trials passed. For
+straight 0.10m/s heading P-ON, *matched seed 1701/1702*:
+flat 4/8, 5mm 5/8, 10mm 4/8, **15mm 6/8** and
+**20mm 3/8**. One 20mm world fell/reset with a
+heading reversal; no policy terrain training took
+place. At 10mm face yaw +25° passed **7/8**,
+yaw -25° passed **3/8**, a suggestive left/right
+asymmetry. At 0.07m/s, both 5/10mm step courses
+scored 0/4; at 0.14m/s, 5mm 2/4 and 10mm 3/4
+(one seed). Fixed 7s/finish constraints may
+confound the low-speed result.
 
-The script resumes a `~/robot_lab/emu_exams/v5018_frontier_*.tar.gz`
-containing per-experiment source/actor identities, exact stride
-displacement and crossing logs and JSON. Upload the archive even
-if some stages fail. **Do not rerun the previous three complete
-batches.** The sole authoritative historical measurements
-and gates are in `docs/V5018_TERRAIN_PLAN.md`.
+**Major bottleneck:** **59/112** total worlds left
+the allowed ±12cm lateral corridor; of 63 failed
+worlds, 59 reported that reason (fail causes
+can overlap). Heading P helps yaw pointing but
+cannot hold lateral track by itself. Crucially,
+course crossing proves movement of torso+both
+feet with valid subsequent support; it does
+NOT establish low-impulse, high-clearance,
+torque-efficient deliberate step-over motion.
+At 20mm, many foot-in-step-XY samples had ball
+bottom below box top; side-face contact or
+contact solver details need analysis.
 
-**Still P0B blockers:** dynamic, torque-limited true swing
-clearance and hardware energy budget; realistic moving-leg
-forward-scan occlusion/dropout/IMU+flow drift; identical actual
-six-servo contact course CPU/MJX/WASM transfer. P1 training
-physics has not yet been corrected for terrain-relative support,
-swing, stance slip and reward. The current 0/5/10 crossing
-pilot demonstrates partial pre-existing physical obstacle
-capability, **not a trained terrain-aware 312-input actor**.
-Do not advance P1 learning or promote a champion based on these
-small samples. Preserve the existing 220/232 interface, main,
-the showcase, Pages and any ongoing GPU run.
+**Historical "no real steps" alarm is now
+well explained:** Four-world flat trace OFF
+reported 196 genuine contact-bounded airborne
+intervals; ON 197. Median torso travel **11.9mm
+OFF / 11.2mm ON** during one swing, while
+median foot travel ~25.6/23.7mm and
+clearance ~15mm. **Zero out of all 393**
+events reached the historical requirement of
+25mm torso travel during a SINGLE swing,
+even though 351/393 had ≥3 airborne frames,
+≥4mm clearance and ≥12mm relocated foot.
+Do not rewrite old results: keep old v1
+walker scoreboard immutable and evaluate
+a versioned alternative on fresh traces.
+
+**New feature-branch code AFTER completed frontier
+(not WSL tested):**
+- `emu/directional.py` research-only v2
+  `diagnose_alternating_contact_pairs_v2` and
+  `gait_v2_research_only` JSON for original operator
+  signed progress over TWO alternating supported
+  foot intervals, checking true takeoff/landing,
+  opposite-foot support, 3-frame air, 4mm
+  clearance and 12mm forward foot relocation.
+  Does NOT change original course/walking pass
+  or policy/reward.
+- `scripts/v5018_champion_step_pilot.py`
+  now **omits euler=0 0 0** for straight
+  courses, to preserve byte-identical original
+  09:49 step XML; focused tests assert all
+  three original 0/5/10mm XML SHA-256 values.
+  Earlier seed1701 10mm result drifted from
+  3/4 to 1/4 in the later frontier under a
+  different course XML hash. This is a
+  repeatability warning, *not evidence the
+  zero-Euler token caused the policy difference*.
+- Added synthetic v2 tests rejecting sideways
+  walking, missing opposite-foot support, and
+  backward foot relocation. These and XML
+  hash lock remain to be executed on WSL.
+
+**NEXT DEVELOPMENT GATE:** Instead of launching
+another massive 28-course GPU study, validate
+the research gait-v2 and byte-identical
+zero-yaw XML with targeted CPU pytest and
+a small frozen-policy flat/10mm repeat.
+Then finish P0B motor-load/scan occlusion
+and implement an **opt-in, physically
+correct P1 support/height/stance-slip metric
+path** for collidable terrain. Preserve
+original flat reward and actor contracts and
+do not freeze `terrain_312` or embark on
+long PPO training prematurely.
 
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
@@ -371,42 +434,43 @@ evidence and user-approved PR.**
 ## Fresh-chat prompt
 
 > Continue EMU v5018 strictly on `feature/v5018-terrain-awareness`
-> at https://github.com/mdt733/emu. Read the actual
-> `docs/V5018_HANDOVER.md`, `docs/V5018_TERRAIN_PLAN.md`,
-> and `docs/INSTALL.md` from the CURRENT feature-branch
-> Git HEAD. Three 20 October archives were reviewed:
-> 08:18 P0A GPU/contact probes, 09:07 frozen 232 champion
-> heading 10° physical-plane ON/OFF, 09:49 real 0/5/10mm
-> obstacle crossing/stride diagnostics. Current physical
-> frozen policy actually crossed 5mm (5/8) and 10mm (6/8)
-> box obstacles with heading P ON, 0/4 OFF each seed1701,
-> using no-detour objective world-fixed course scoring;
-> many failed solely on lateral corridor drift. These
-> are small frozen-policy tests and do not prove a terrain
-> NN preview or true high-foot stepping. Strict gait
-> qualification remains zero on flat because the 25mm
-> per-airborne-interval torso travel threshold rejects
-> nearly all genuine touchdown cycles. Do NOT relax
-> the score without quantitative per-event evidence.
-> The first frontier run (10:26 AEDT, original commit
-> `c6a5dab`) passed 4/4 Python tests and four flat/10°
-> heading OFF/ON diagnostics, then stopped on a Bash
-> `code_y` variable typo. A first resume at 10:43 on
-> `cad93f94` correctly skipped all five stages and
-> archived the results, but another stale `code_y` in
-> the filename stopped it before ANY frontier step cases.
-> The latest feature fix eliminates both variable
-> references, adds a 180-case no-GPU naming preflight,
-> and logs unexpected runner stderr. Execute:
-> `bash scripts/run_v5018_obstacle_frontier.sh --resume
-> ~/robot_lab/emu_exams/v5018_frontier_20261020_102641`
-> after pulling feature branch, and send its new archive.
-> Both early attempts collected ZERO new height/angle/
-> speed experiments; preserve revision_history.tsv.
-> Update the ONE authoritative living checklist
-> `docs/V5018_TERRAIN_PLAN.md`. Keep experimental
-> source/actor SHA evidence. Never change main, champion,
-> GitHub Pages or a running training process. Avoid
-> premature terrain_312 freeze or huge PPO runs before
-> physically correct terrain-referenced metrics,
-> realistic forward sensors and hardware load constraints.
+> at https://github.com/mdt733/emu. Read
+> `docs/V5018_HANDOVER.md`,
+> `docs/V5018_TERRAIN_PLAN.md` and
+> `docs/INSTALL.md` from the CURRENT Git feature branch.
+> Four 20 October archives now include a completed
+> **34/34-stage obstacle frontier** (last user upload
+> `v5018_frontier_20261020_102641.tar(1).gz`).
+> The frozen 232 260M actor with heading P ON
+> crossed 5mm 5/8, 10mm 4/8, 15mm 6/8,
+> 20mm 3/8 in matched straight two-seed tests;
+> +25° 10mm 7/8 vs -25° 3/8. 59/112
+> course trials detoured outside ±12cm corridor.
+> Actual physical sphere/box contacts occurred.
+> Historical 0/80 gait passes were an overly
+> strict *per-single-swing 25mm torso-travel*
+> gate: 393 genuine flat-ground contact-backed
+> airborne events had median 11–12mm torso
+> travel and 24–26mm foot travel.
+> A new research-only v2 alternating stride
+> detector is now on branch, not WSL tested
+> or official: it scores original operator
+> net progress over a supported two-foot pair.
+> Previous 10mm seed1701 changed 3/4→1/4
+> across non-identical XML input hashes;
+> zero-yaw XML was restored byte-identically
+> with SHA-256 regression tests awaiting
+> WSL execution. Do a focused regression
+> and one frozen repeat, not all 28 trials.
+> Then build physically truthful P1 terrain
+> reward-only support and clearance and
+> realistic forward range sensing, keeping
+> policy inputs legal; no long PPO until
+> moving-leg occlusion, actuator limits and
+> CPU/MJX/WASM parity gates advance.
+> Source SHA and actor hash must accompany
+> every report. Keep the ONE living checklist
+> `docs/V5018_TERRAIN_PLAN.md` current.
+> NEVER modify main, champion, Pages, or
+> active running training without explicit
+> user approval.
