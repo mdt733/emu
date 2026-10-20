@@ -353,7 +353,7 @@ export class EmuBrowserSim {
     const next=Boolean(enabled);
     if (next===this.parkTreesEnabled) return;
     this.parkTreesEnabled=next;
-    if(this.terrainMode==='park')this.loadModel();
+    if(this.terrainMode==='park'||this.terrainMode==='course')this.loadModel();
   }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
@@ -376,8 +376,12 @@ export class EmuBrowserSim {
 
   loadModel() {
     this.disposeModel();
-    this.park = this.terrainMode==='park'
-      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
+    this.park = (this.terrainMode==='park'||this.terrainMode==='course')
+      ? generateTerrainPark({
+          maxDegrees:this.terrainMaxDegrees,
+          trees:this.parkTreesEnabled,
+          challengeRing:this.terrainMode==='course',
+        })
       : null;
     this.course = this.terrainMode==='course'
       ? generateChallengeCourse({
@@ -511,7 +515,8 @@ export class EmuBrowserSim {
   }
 
   navigationTrees() {
-    return this.terrainMode==='park' && this.parkTreesEnabled
+    return (this.terrainMode==='park'||this.terrainMode==='course')
+      && this.parkTreesEnabled
       ? this.park?.trees || [] : [];
   }
 
@@ -540,7 +545,8 @@ export class EmuBrowserSim {
   }
 
   terrainHeightAt(x,y) {
-    return this.terrainMode==='park' && this.park ? this.park.sampleHeight(x,y) : 0;
+    return (this.terrainMode==='park'||this.terrainMode==='course')
+      && this.park ? this.park.sampleHeight(x,y) : 0;
   }
 
   createNavigationGuides() {
@@ -613,7 +619,8 @@ export class EmuBrowserSim {
         new THREE.RingGeometry(.23,.265,36),
         new THREE.MeshBasicMaterial({color:rgb,transparent:true,
           opacity:.68,side:THREE.DoubleSide,depthWrite:false}));
-      ring.position.set(obstacle.x,obstacle.y,.012);
+      ring.position.set(obstacle.x,obstacle.y,
+        this.terrainHeightAt(obstacle.x,obstacle.y)+.022);
       ring.renderOrder=9;
       group.add(ring);
       const canvas=document.createElement('canvas');
@@ -631,7 +638,8 @@ export class EmuBrowserSim {
       const texture=new THREE.CanvasTexture(canvas);
       const sprite=new THREE.Sprite(new THREE.SpriteMaterial({
         map:texture,depthTest:false,depthWrite:false,transparent:true}));
-      sprite.position.set(obstacle.x,obstacle.y,.31);
+      sprite.position.set(obstacle.x,obstacle.y,
+        this.terrainHeightAt(obstacle.x,obstacle.y)+.31);
       sprite.scale.set(.55,.18,1);
       sprite.renderOrder=12;
       group.add(sprite);
@@ -748,7 +756,8 @@ export class EmuBrowserSim {
     // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
     const gyro=Array.from(this.data.qvel.slice(3,6));
     const heightAt=(x,y)=>{
-      if(this.terrainMode==='park'&&this.park) return this.park.sampleHeight(x,y);
+      if((this.terrainMode==='park'||this.terrainMode==='course')&&this.park)
+        return this.park.sampleHeight(x,y);
       if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
         if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
         if(x>1.65&&x<2.17)return .015;
@@ -985,7 +994,8 @@ export class EmuBrowserSim {
     this.chaseHeading = first ? heading
       : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
     const terrainAt = (x, y) =>
-      this.terrainMode === 'park' && this.park ? this.park.sampleHeight(x, y) : 0;
+      (this.terrainMode === 'park' || this.terrainMode === 'course') && this.park
+        ? this.park.sampleHeight(x, y) : 0;
     const desired = chasePose(torso, this.chaseHeading, terrainAt);
     const position = new THREE.Vector3(...desired.position);
     const target = new THREE.Vector3(...desired.target);
