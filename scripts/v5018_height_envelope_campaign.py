@@ -126,12 +126,39 @@ def inspect_actor(root: Path, label: str, checkpoint: Path,
     # source/checkpoint weights are touched. A complete final checkpoint is
     # identified before export, not by a stale stage exit code.
     actor = export_one(root, label, checkpoint)
+    # Read-only report files are cacheable ONLY for this exact exported actor
+    # and held-out scenario. A resume can re-export from a newer/corrected
+    # checkpoint: reusing an old JSON would silently promote the wrong model.
+    policy_sha = hashlib.sha256(actor.read_bytes()).hexdigest()
     files = []
     for seed in seeds:
         for height in heights:
             tag = f"{label}_height{height:03d}_seed{seed}"
             path = root / (tag + ".json")
-            if not path.exists():
+            valid = False
+            if path.exists():
+                try:
+                    cached = json.loads(path.read_text(encoding="utf-8"))
+                    valid = (
+                        cached.get("source_policy_sha256") == policy_sha
+                        and cached.get("step_height_mm") == height
+                        and cached.get("seed") == seed
+                        and cached.get("worlds") == args.exam_worlds
+                        and cached.get("horizon") == args.exam_horizon
+                        and cached.get("heading_kp") == .75
+                        and cached.get("requested_body_vx_m_s") == .10
+                        and cached.get("step_yaw_deg") == 0.
+                    )
+                except (OSError, ValueError, TypeError):
+                    valid = False
+            if not valid:
+                if path.exists():
+                    # Keep the old evidence intact rather than silently
+                    # overwriting a different actor's physical examination.
+                    archived = path.with_suffix(".superseded.json")
+                    if archived.exists():
+                        raise RuntimeError(f"Two stale exam reports: {path}; manually archive before retrying")
+                    path.rename(archived)
                 exam(root, tag, actor, height=height, seed=seed,
                      worlds=args.exam_worlds, horizon=args.exam_horizon)
             files.append(path)
