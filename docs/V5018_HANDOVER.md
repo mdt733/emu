@@ -1,5 +1,17 @@
 # EMU v5018 — clean restart / handover
 
+## New physical-box PPO branch hook — 20 Oct (source-only, NOT GPU validated)
+
+The approved feature branch now offers `emu train --terrain-box-height-mm 0|5|10 --profile sim2real --sensor-actor` with an exact, physically collidable worldbody step. Zero is a topologically comparable box 5m away from the course; 5/10mm place it in the forward corridor. Flag omission keeps historical training untouched. The actual generated training XML is immutable in each run root and its SHA256 is recorded in `run_meta.json`.
+
+Existing `terrain_contact_mode='box_surface'` is now used only in this opt-in experiment. The 232-input actor still has NO look-ahead obstacle measurements; this first A/B is a blind physical-contact/reward experiment, not terrain preview learning. Tests added but unexecuted here: `tests/test_v5018_terrain_training.py` and existing original-course SHA regression. The former frozen-policy crossing examiner accepts `--policy` for testing a new 232-input actor export.
+
+**Immediate user-side work:** first inspect the top of `docs/V5018_TERRAIN_PLAN.md`, run the listed pytest and separate P1 deep physics audit, then plan the matched 0mm and 5mm 256-world/8192-step GPU PPO gate. Preserve all logs and checkpoints. A test process exit of zero does NOT mean crossing success. Do not run beside other active GPU jobs. Last viewer course geometry still needs its separate WSL/interactive acceptance.
+
+The champion `.emupolicy` is NOT a resumable full optimizer checkpoint. No verified warm-start transplantation exists yet. New forward scanner, occlusion, timing, dropout and held-out physical learning evaluation remain next gated engineering tasks. No main, showcase, Pages or active run has been touched.
+
+---
+
 > **START HERE in a fresh chat.** This is an orientation document, **not a
 > second progress checklist**. All dated evidence, `[x]/[~]/[!]/[ ]`
 > statuses, acceptance gates, decisions and next work belong ONLY in
