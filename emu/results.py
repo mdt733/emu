@@ -953,8 +953,11 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         edge_done = mean_metric(metrics, 'terrain_edge_done')
         edge_falls = mean_metric(metrics, 'terrain_edge_fell')
         row['terrain_edge_exposure'] = exposure
-        row['terrain_edge_crossing'] = crossing / exposure if exposure > 0 else -1.
-        row['terrain_edge_contact'] = contact / exposure if exposure > 0 else -1.
+        # Outcomes are emitted once when an edge episode FINISHES.
+        # Dividing by all edge frames severely diluted true crossings;
+        # counting every post-crossing frame falsely inflated success.
+        row['terrain_edge_crossing'] = crossing / edge_done if edge_done > 0 else -1.
+        row['terrain_edge_contact'] = contact / edge_done if edge_done > 0 else -1.
         row['terrain_edge_fall_rate'] = edge_falls / edge_done if edge_done > 0 else -1.
         row['terrain_edge_completed_fraction'] = edge_done
         row['terrain_height_birth_m'] = mean_metric(metrics, 'terrain_height_birth_m')
