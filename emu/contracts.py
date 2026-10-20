@@ -138,7 +138,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             FORWARD_MOUNTS_BODY_M, FORWARD_DIRECTIONS_BODY,
             FORWARD_LOOKAHEAD_X_M, FORWARD_LANES_Y_M, FORWARD_MODEL_REVISION,
             FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M, FORWARD_NOISE_STD_M,
-            FORWARD_QUANTIZATION_M,
+            FORWARD_QUANTIZATION_M, FORWARD_NOISE_RANGE_FACTOR,
         )
         body.update(
             forward_model_revision=FORWARD_MODEL_REVISION,
@@ -149,6 +149,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             forward_range_limits_m=[FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M],
             forward_noise_std_m=FORWARD_NOISE_STD_M,
             forward_quantization_m=FORWARD_QUANTIZATION_M,
+            forward_noise_range_factor=FORWARD_NOISE_RANGE_FACTOR,
             forward_channel_semantics="raw_slant_range_m_plus_validity; body-attitude provided by existing fields",
             forward_masked=bool(preview_masked),
             forward_limitations="plane+box first hit; no leg occlusion, reflectance, hfield or capsule rays")
