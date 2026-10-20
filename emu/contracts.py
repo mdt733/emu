@@ -59,6 +59,17 @@ SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
 )
 SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
 SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+
+# v5019 opt-in forward terrain profile. 232 is NOT expanded in place.
+# Six heights plus six validity flags, per 20ms history frame: (58+12)*4=280.
+OBS_SCHEMA_PREVIEW = "forward_tof_280"
+PREVIEW_HEIGHT_FIELDS = tuple(
+    f"forward_height_{side}_{cm}cm" for side in ("right", "left") for cm in (5,10,15))
+PREVIEW_VALID_FIELDS = tuple(
+    f"forward_valid_{side}_{cm}cm" for side in ("right", "left") for cm in (5,10,15))
+PREVIEW_OBS_FIELDS = SENSOR_OBS_FIELDS + PREVIEW_HEIGHT_FIELDS + PREVIEW_VALID_FIELDS
+PREVIEW_BASE_OBS_DIM = len(PREVIEW_OBS_FIELDS)
+PREVIEW_OBS_DIM = PREVIEW_BASE_OBS_DIM * HISTORY_LEN
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -74,7 +85,9 @@ SENSOR_SETTINGS_DEFAULTS = {
 }
 
 
-def sensor_observation_contract(settings: dict | None = None) -> dict:
+def sensor_observation_contract(settings: dict | None = None, *,
+                                schema: str = OBS_SCHEMA_SENSOR,
+                                preview_masked: bool = False) -> dict:
     """Canonical, independently verifiable v5016 observation identity.
 
     Sensor mount geometry and fields are part of the meaning of a saved
@@ -104,10 +117,14 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
         x = values[key]
         if type(x) not in (int, float) or not math.isfinite(x) or x < 0:
             raise ValueError(f"invalid {key}")
+    if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
+        raise ValueError("unknown sensor observation schema")
+    if preview_masked and schema != OBS_SCHEMA_PREVIEW:
+        raise ValueError("forward masking requires 280-input profile schema")
     body = {
-        "schema": OBS_SCHEMA_SENSOR,
+        "schema": schema,
         "sensor_model_revision": SENSOR_MODEL_REVISION,
-        "base_fields": list(SENSOR_OBS_FIELDS),
+        "base_fields": list(PREVIEW_OBS_FIELDS if schema == OBS_SCHEMA_PREVIEW else SENSOR_OBS_FIELDS),
         "history_len": HISTORY_LEN,
         "action_dim": ACTION_DIM,
         "control_dt": CONTROL_DT,
@@ -116,6 +133,22 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
         "tof_range_limits_m": [TOF_MIN_RANGE_M, TOF_MAX_RANGE_M],
         "settings": values,
     }
+    if schema == OBS_SCHEMA_PREVIEW:
+        from .forward_tof import (
+            FORWARD_MOUNTS_BODY_M, FORWARD_DIRECTIONS_BODY,
+            FORWARD_LOOKAHEAD_X_M, FORWARD_LANES_Y_M, FORWARD_MODEL_REVISION,
+            FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M, FORWARD_NOISE_STD_M,
+        )
+        body.update(
+            forward_model_revision=FORWARD_MODEL_REVISION,
+            forward_mounts_body_m=[list(v) for v in FORWARD_MOUNTS_BODY_M],
+            forward_beams_body=[list(v) for v in FORWARD_DIRECTIONS_BODY],
+            forward_lookahead_m=list(FORWARD_LOOKAHEAD_X_M),
+            forward_lanes_y_m=list(FORWARD_LANES_Y_M),
+            forward_range_limits_m=[FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M],
+            forward_noise_std_m=FORWARD_NOISE_STD_M,
+            forward_masked=bool(preview_masked),
+            forward_limitations="plane+box first hit; no leg occlusion, reflectance, hfield or capsule rays")
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {**body, "sha256": digest}
 
@@ -123,6 +156,7 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
 OBS_FIELDS_BY_SCHEMA = {
     OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
     OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+    OBS_SCHEMA_PREVIEW: PREVIEW_OBS_FIELDS,
 }
 
 
