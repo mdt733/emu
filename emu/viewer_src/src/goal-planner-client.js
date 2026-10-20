@@ -35,7 +35,7 @@ export class GoalPlannerWorker {
   }
   request({kind,pose,limits,trees,goal}){
     if(this.disposed)return Promise.reject(new Error('Goal planner disposed'));
-    if(!['next','replan'].includes(kind))
+    if(!['next','replan','target'].includes(kind))
       return Promise.reject(new Error('Unknown route request'));
     const id=++this.nextId;
     return new Promise((resolve,reject)=>{
