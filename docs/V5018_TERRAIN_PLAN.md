@@ -1,5 +1,40 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
+## 20 Oct 23:00 AEDT — continuous obstacle-height study (replaces 20M fixed 5/10mm overnight plan)
+
+User asks: NO tmux, 25M random-start gait foundation, then multiple matched physical obstacle-height experiments. 10mm alone is negligible; grow height as its own earned dimension alongside vx/vy/yaw/resilience.
+
+**Implementation: source-only until fresh CI and WSL physical smoke pass.**
+
+- `emu/terrain.py`: `adaptive_height_course` adds a separate mocap body and a 0.15m-deep fixed-size box to a run-local immutable XML. `data.mocap_pos` sets exposed top in [0,150mm] **only at episode birth**; an inactive box sits at x=5m. The topologically identical model runs N independently sampled heights and avoids changing geom_size under JAX JIT. Tests verify MuJoCo/MJX top geometry.
+- `emu/curriculum.py` and `emu/contracts.py`: `frontier_terrain_height_m` added to teacher task packet, NOT to deployable 232 actor channels. Governed separately from vx, vy, yaw, acceleration and resilience. No forward ToF lookahead yet.
+- Obstacles sample continuous interior and near-frontier heights, with permanent flat rehearsal. Height expands only with real foot-box contact, foot-and-torso crossing, low falls and sufficient exposure; otherwise holds/retreats. A bonus for bounded upright, supported +X progress is OPTIONAL reward-only A/B (default 0).
+- Held-out actual collidable step examiner now permits 0,5,10,15,20,30,40,60,80,100,120,150mm, preserving the old 0..20mm generated XML hashes.
+
+**Current campaign** `bash scripts/run_v5018_height_envelope.sh` is PLAN-ONLY unless given --run. A single 25M cold-start 232-input full PPO foundation at seed 733, 1024 worlds, and 8-degree command pitch. SIX +10M equal-budget checkpoint forks: flat off-course box; cautious 80mm cap; balanced 120mm cap; edge-focused 150mm cap; balanced + bounded real-progress bonus; edge-focused + bonus. Frontiers start near 3mm; safety cap is NOT an achieved skill. Held-out no-detour 0/20/40/80/120mm crossing exams on seed 1701 with direct contact/flat gait proof. TWO physical-evidence-ranked +15M finalists then re-test 0/20/40/80/120/150mm on new seeds 1702 and 1703. Total nominal 25 + 6*10 + 2*15 = **115M environment steps**, not one policy. A 0-crossing ranking is labeled exploratory, not proof of ability.
+
+**WSL launch (NO TMUX):**
+
+```bash
+cd ~/emu-v5018
+git status --short
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+python -m pytest -q tests/test_v5018_adaptive_height.py tests/test_v5018_height_envelope_campaign.py tests/test_v5018_terrain_training.py
+bash scripts/run_v5018_height_envelope.sh --self-test
+bash scripts/run_v5018_height_envelope.sh  # plan, no GPU
+# Only once the CPU/MJX contract tests pass:
+nohup bash scripts/run_v5018_height_envelope.sh --run > "$HOME/v5018_height_overnight.log" 2>&1 < /dev/null &
+echo "PID: $!"
+tail -f "$HOME/v5018_height_overnight.log"
+```
+
+Keep WINDOWS awake; nohup does not stop host sleep/WSL termination. If interrupted, resume pinned original source and settings with `bash scripts/run_v5018_height_envelope.sh --resume --root ACTUAL_ROOT_FROM_LOG`. The campaign archives compact evidence (.tar.gz) outside Git; excludes raw optimizer .pkl and exported actor .emupolicy. No main, showcase or Pages updates permitted.
+
+**Critical scientific caveat:** 232-input current sensors do not see forward obstacles ahead of contact; this is a **blind reactive terrain baseline** until P2 ToF preview arrives. 150mm is a physical research ceiling, not demonstrated step competence. Real motor/contact stress and load-bearing must be separately validated. Stop if the new moving-box CPU/MJX smoke fails.
+
+---
+
 ## 20 Oct ~22:00 AEDT — new cold-start **overnight** terrain experiment (branch source; WSL CUDA UNTESTED)
 
 ### Uploaded 21:20 pilot: facts, not just green process exits
