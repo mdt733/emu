@@ -61,17 +61,11 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
   const pos=t=>-radius+t*cell;
   for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++){
     const x=pos(i),y=pos(j);
-    let height=parkHeight(x,y,maxDegrees,seed);
-    if(challengeRing){
-      // A flat, gently feathered ring is essential: otherwise a 5mm
-      // obstacle can be buried under 30mm of hillside. Real MuJoCo
-      // heightfield, grass mesh and the obstacle's base all use this
-      // same terrain. Keep the hills everywhere outside the corridor.
-      const fromRing=Math.abs(Math.hypot(x,y)-CHALLENGE_RADIUS_M);
-      const landscapeBlend=smoothstep((fromRing-.60)/.82);
-      height*=landscapeBlend;
-    }
-    heights[index(i,j)]=height;
+    // The challenge circle is OUTSIDE the spawn's 2m flat patch.
+    // Preserve the actual seeded random hfield there; the obstacle
+    // geoms sample the SAME final physical surface to set their Z.
+    // Do not flatten the whole ring merely to make a 5mm box tidy.
+    heights[index(i,j)]=parkHeight(x,y,maxDegrees,seed);
   }
 
   // Repeated one-sided projection: lower high spots until every grid edge
