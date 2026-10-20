@@ -1132,46 +1132,45 @@ The viewer updates from validated checkpoints at its
 existing polling interval; it does **not** control training
 or fabricate a brain.
 
-## Next engineering work — validate P1, then expand carefully
+## Immediate next gates — real GPU parity and actual viewer collision
 
-The 34/34 frontier and 5/5 gait-v2/10mm repeat campaigns
-are complete. **Do not repeat those runs.** The first
-bounded P1 contact-geometry implementation is now committed
-(see the 13:08 implementation section above), **but it has not
-been validated on the user's GPU**.
+**P1 gate remains FAILED in the first actual CUDA smoke.**
+The 12/12 fast Python suites passed. The subsequent
+per-channel observation-diff instrumentation was committed
+after that archive; it has NOT yet been rerun.
+**First priority** is re-execute only the bounded P1
+acceptance and capture whether the observed discrepancies
+fit the small float32 tolerance. Keep scalar reward
+bitwise parity strict and prove the same off-course actor
+trajectory does not acquire privileged geometry data.
 
-**Immediate gate:** execute
-`bash scripts/run_v5018_p1_terrain_acceptance.sh`.
-If flat reward parity or physical top/riser JAX probes fail,
-repair the exact defect on this feature branch and keep
-the strict flat-control and no-leakage requirements.
-Then independently test the frozen champion using the
-same obstacle XML with terrain-mode OFF and ON; verify
-reward/support/clearance diagnostics, physical toe/box
-contact geometry and direction following, while
-holding policy/commands/seed fixed.
+**Viewer gate is separately UNVERIFIED on Node/WASM.**
+The eight-station circle and two demo modes have been
+implemented on the feature branch, with pure source
+generation checks; launch
+`bash scripts/run_v5018_viewer_course_acceptance.sh`
+to validate Node, pinned MuJoCo/WASM geoms,
+original browser regressions and Vite output.
+Then visually verify in Windows/mobile that the
+tiny physical step shapes, coloured signage,
+random-goal and circuit routes are legible,
+and that manual input still interrupts autonomy.
+Use a current locally served policy or live
+**validated checkpoint replay**, not the PPO
+GPU simulation frame stream.
 
-**Next engineering pass:** extend terrain physics from a
-single fixed box to genuine floor/step-down, ramps and
-capsule logs with per-world geometry where supported.
-Correct body-low and fall proxies relative to local
-support geometry, then model the forward-looking
-ToF ray path through moving legs and add plausible
-foot/terrain visibility confidence, acquisition cadence,
-latency, dropout and flow compensation. Neither
-privileged height nor box ID may become an actor input
-without a simulated, actually measurable sensor path.
+**After those independent gates**, audit the
+frozen champion on the same 0/5/10mm real
+collidable geometry with old-vs-new reward
+metrics, held-out world-fixed crossing and
+servo limits. Then extend support truth beyond
+a single box, implement truly physical ToF
+ray occlusion and latency, and compare
+warm-start research against the independently
+cold-started foundation/curriculum path.
 
-**Eventually** compare controlled warm-start research
-arms against a separately accepted, from-zero
-random-network foundation + curriculum path. The
-new 220/232 no-champion lifecycle script exists but
-its real WSL PPO smoke remains unexecuted.
-Do not make terrain learning require it or a
-private checkpoint.
-
-**Still blocked:** motor thermal/torque load under
-real contact; scanner occlusion/timing; CPU–MJX–WASM
-six-servo contact equivalence; automatic terrain
-difficulty progression; a frozen/deployable expanded
-observation schema. No `main` or champion changes.
+**Do not** build a 312-input policy or begin
+large terrain PPO until servo load, dynamic
+contact forces, real forward scanning and
+six-servo CPU–MJX–WASM parity gates advance.
+No direct main/showcase/Pages changes.
