@@ -317,6 +317,52 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
+/** Keep ONE ordinary mission goal halfway between obstacles.
+ * The intermediate obstacle centre is only an A* route-shaping point, not
+ * another stop-and-park waypoint. Without it the chord connecting adjacent
+ * circle midpoints cuts INSIDE the ring and entirely misses the obstacle.
+ * Replanning after passing the obstacle must not steer backwards over it.
+ */
+export function planCircuitLeg(start,goal,limits,trees=[],options={}){
+  const via=goal?.via;
+  if(!via)return planPoseRoute(start,goal,limits,trees,options);
+  if(![via.x,via.y,via.heading].every(Number.isFinite))
+    throw new Error('Circuit crossing requires a finite obstacle-centre via pose');
+  const along=(start.x-via.x)*Math.cos(via.heading)+
+              (start.y-via.y)*Math.sin(via.heading);
+  // Already crossed the geometric gate? Finish towards the gap without
+  // sending the robot backwards to a now-behind obstacle.
+  if(along>.16)return planPoseRoute(start,goal,limits,trees,options);
+  const first=planPoseRoute(start,via,limits,trees,options);
+  if(!first?.solved)return null;
+  const second=planPoseRoute(via,goal,limits,trees,options);
+  if(!second?.solved)return null;
+  // A* gives every goal a terminal ZERO command. Here the obstacle-centre
+  // control point is not the goal: explicitly keep a forward traversal
+  // there so the path follower doesn't stop inside a step or log.
+  const crossing={
+    x:via.x,y:via.y,heading:via.heading,
+    cmd:{vx:Math.max(.10,Math.min(.20,Math.max(0,limits.vx_max||0))),
+         vy:0,yaw:0,pitch:0},
+    maneuver:'circuit forward crossing',dt:.02,profiled:true,
+    viaCrossing:true,
+  };
+  const steps=[
+    ...first.steps.slice(0,-1),crossing,
+    ...second.steps,
+  ];
+  return {
+    start:{x:start.x,y:start.y,heading:start.heading},
+    steps,solved:true,
+    estimatedSeconds:first.estimatedSeconds+second.estimatedSeconds,
+    expanded:first.expanded+second.expanded,
+    modes:[...new Set([...(first.modes||[]),...(second.modes||[]),
+                       'circuit forward crossing'])],
+    crossingStation:via.station,
+    obstacleVia:{...via},
+  };
+}
+
 export class GoalNavigator {
   constructor(seed=5017){
     this.rng=makeRng(seed);this.active=false;
@@ -337,13 +383,14 @@ export class GoalNavigator {
     this.generation=0;this.plannerError=null;
     this.circuitWaypoints=null;
     this.circuitNextIndex=0;
+    this.circuitStarted=false;
   }
-  // This is a display/demo route, NOT a physical crossing examiner.
-  // Every station contributes an entry and a far-side exit waypoint.
+  // Circuit goals are the gaps HALFWAY between obstacles in CCW order.
+  // Actual obstacle centres only shape the route, not extra goal stops.
   setCircuitWaypoints(waypoints=null){
     if(waypoints!==null&&(!Array.isArray(waypoints)||
        waypoints.length<2||waypoints.some(p=>![p.x,p.y,p.heading].every(Number.isFinite))))
-      throw new Error('Circuit requires finite entry/exit navigation poses');
+      throw new Error('Circuit requires finite halfway-between-obstacles goal poses');
     this.circuitWaypoints=waypoints?waypoints.map(p=>({...p})):null;
     this.reset();
   }
@@ -381,6 +428,7 @@ export class GoalNavigator {
   reset(){
     this.generation++;this.pendingRequest=null;this.plannerError=null;
     this.circuitNextIndex=0;
+    this.circuitStarted=false;
     this.goal=null;this.route=null;this.path=null;this.index=0;
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
@@ -426,11 +474,16 @@ export class GoalNavigator {
     if(this.circuitWaypoints?.length){
       const index=this.circuitNextIndex%this.circuitWaypoints.length;
       const goal={...this.circuitWaypoints[index]};
+      // First leg leaves the flat centre spawn and heads to the first
+      // between-obstacles gap. All later legs cross exactly one obstacle,
+      // including the wraparound from last gap back to the first gap.
+      if(!this.circuitStarted)delete goal.via;
       const accept=result=>{
         if(result?.goal&&result?.route?.solved){
           this.acceptRoute(pose,result.goal,result.route,{newMission:true});
           this.circuitNextIndex=(index+1)%this.circuitWaypoints.length;
-          this.reason='Circuit · '+(goal.label||'approach target');
+          this.circuitStarted=true;
+          this.reason='Circuit CCW · '+(goal.label||'gap target');
         }else{
           this.goal=null;this.route=null;this.path=null;
           this.reason='Circuit path unavailable · retrying';
@@ -438,12 +491,12 @@ export class GoalNavigator {
         }
       };
       if(this.requestPlan){
-        this.reason='Planning circuit station '+(index+1);
+        this.reason='Planning CCW gap '+(index+1);
         return this.queuePlan({kind:'target',
           pose:{x:pose.x,y:pose.y,heading:pose.heading},
           goal,limits,trees},accept);
       }
-      accept({goal,route:planPoseRoute(pose,goal,limits,trees)});
+      accept({goal,route:planCircuitLeg(pose,goal,limits,trees)});
       return Boolean(this.goal);
     }
     if(this.requestPlan){
@@ -496,7 +549,14 @@ export class GoalNavigator {
     if(this.elapsed>deadline){
       this.failures++;
       this.goal=null;this.route=null;this.path=null;
-      this.reason='Mission timed out · new goal';
+      this.reason=this.circuitWaypoints
+        ? 'Circuit gap timed out · retrying same gap'
+        : 'Mission timed out · new goal';
+      // A circuit timeout MUST NOT quietly skip an obstacle or
+      // reverse the requested CCW sequence. Retry its same gap target.
+      if(this.circuitWaypoints)
+        this.circuitNextIndex=(this.circuitNextIndex+
+          this.circuitWaypoints.length-1)%this.circuitWaypoints.length;
       apply({vx:0,vy:0,yaw:0,pitch:0});
       this.nextGoal(pose,limits,trees);
       return;
@@ -588,7 +648,7 @@ export class GoalNavigator {
           }
         });
       }else{
-        const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
+        const route=planCircuitLeg(pose,this.goal,limits,trees,{maxNodes:7500});
         if(route?.solved){
           this.acceptRoute(pose,this.goal,route);
           this.replans++;
@@ -613,6 +673,7 @@ export class GoalNavigator {
       index:this.index,reason:this.reason,
       circuit:Boolean(this.circuitWaypoints),
       circuitNextIndex:this.circuitNextIndex,
+      circuitDirection:'counterclockwise',
       circuitLength:this.circuitWaypoints?.length||0};
   }
 }
