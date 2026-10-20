@@ -2055,9 +2055,11 @@ class EmuMJXEnv(TaskSampler):
                 torso_xyz=data.xpos[:,self.torso_id,:],
                 floor_foot_signed=foot_ground_distance,
                 floor_torso_signed=height,
-                floor_normal=data.geom_xmat[:,floor_id,:,2],
+                floor_normal=jnp.reshape(
+                    data.geom_xmat[:,floor_id],(self.num_envs,3,3))[:,:,2],
                 box_center=data.geom_xpos[:,bid,:],
-                box_rotation=data.geom_xmat[:,bid,:,:],
+                box_rotation=jnp.reshape(
+                    data.geom_xmat[:,bid],(self.num_envs,3,3)),
                 box_half_size=self.terrain_box_half_size,
                 contact_geom1=data.contact.geom1,
                 contact_geom2=data.contact.geom2,
