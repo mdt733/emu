@@ -89,18 +89,28 @@ export function generateChallengeCourse({tierMm=10,logs=false,
 export function challengeProbe(station,groundHeightAt=()=>0,part='top'){
   if(typeof groundHeightAt!=='function')throw new Error('Missing terrain sampler');
   let forward=0,topOffset=station.heightMm/1000;
-  if(station.kind==='step_up'){
-    if(part==='ramp') {forward=.30;topOffset=station.heightMm/1000*(.68-.30)/(.68+.06);}
-    else forward=-.20;
-  }else if(station.kind==='step_down'){
-    if(part==='ramp') {forward=-.30;topOffset=station.heightMm/1000*(-.30+.68)/(.68+.06);}
-    else forward=.20;
-  }else if(station.kind==='log'){
-    topOffset=station.heightMm/1000; // cylinder centre is buried at ground Z
-  }else if(station.kind==='open')topOffset=0;
-  const p=worldPoint(station,forward);
-  return {x:fmt(p.x),y:fmt(p.y),
-          surfaceZ:groundHeightAt(p.x,p.y)+topOffset};
+  if(part==='ramp'&&(station.kind==='step_up'||station.kind==='step_down')){
+    // Probe the ACTUAL inclined box top, not terrain height at the probe
+    // plus an assumed vertical profile. The real ramp is a world-space
+    // straight plane through its two terrain-sampled endpoints.
+    const up=station.kind==='step_up',startX=up?-.06:-.68;
+    const endX=up?.68:.06;
+    forward=up?.30:-.30;
+    const start=worldPoint(station,startX),end=worldPoint(station,endX);
+    const startTop=groundHeightAt(start.x,start.y)+(up?station.heightMm/1000:0);
+    const endTop=groundHeightAt(end.x,end.y)+(up?0:station.heightMm/1000);
+    const fraction=(forward-startX)/(endX-startX);
+    const at=worldPoint(station,forward);
+    return {x:fmt(at.x),y:fmt(at.y),
+            surfaceZ:startTop+(endTop-startTop)*fraction};
+  }
+  if(station.kind==='step_up')forward=-.20;
+  else if(station.kind==='step_down')forward=.20;
+  else if(station.kind==='open')topOffset=0;
+  // Log centreline at ground Z exposes its UPPER SEMICIRCLE of radius h.
+  const at=worldPoint(station,forward);
+  return {x:fmt(at.x),y:fmt(at.y),
+          surfaceZ:groundHeightAt(at.x,at.y)+topOffset};
 }
 function boxXml(name,at,halfX,halfY,halfZ,topZ,yawDeg,color){
   const z=topZ-halfZ;
