@@ -41,7 +41,10 @@ export function generateChallengeCourse({tierMm=10,logs=false,
     const a=2*Math.PI*i/count;
     const heading=a+Math.PI/2; // fixed CCW NAVIGATION regardless of obstacle yaw
     const yawOffsetDeg=CHALLENGE_YAW_OFFSETS_DEG[i%CHALLENGE_YAW_OFFSETS_DEG.length];
-    const heightMm=available.length?available[i%available.length]:0;
+    // Lead with the selected frontier height, then interleave smaller
+    // previously tested heights instead of making EVERY station maximal.
+    const heightMm=available.length
+      ?available[available.length-1-(i%available.length)]:0;
     const family=stepKinds[i%stepKinds.length];
     const kind=heightMm===0?'open':
       family==='log'&&!logs?'step':family;
