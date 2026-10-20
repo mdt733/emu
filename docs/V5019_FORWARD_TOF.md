@@ -1,39 +1,28 @@
-# EMU v5019 — forward-looking ToF sensing
+# EMU v5019 — two single-point ToF sensors + optical-flow rolling terrain memory
 
-**Isolated branch:** feature/v5019-forward-tof-profile, from v5018 commit b5548aa177. Do not alter the ongoing v5018 overnight GPU run, protected champion, main, or published site.
+**Branch:** `feature/v5019-forward-tof-profile`, isolated from the active v5018 25M/fork campaign. Do NOT edit that running checkout or old checkpoints, main, champion or Pages.
 
-## Target: measure before climbing
+## User's concept, implemented as the v5019 contract
 
-The existing 220 and 232 actor schemas remain unchanged. The new opt-in forward_tof_280 schema adds six **raw slant ranges** (right 5/12/22cm nominal floor footprints, left 5/12/22cm) and six corresponding validity bits to each historical 58-element frame. Four frame histories make 280 inputs. Checkpoint schema 9 and exported policy schema 3 cannot silently be read as older policies.
+Two forward/downward **single-beam** ToF modules (right/left, body y = ±50mm) aim at a nominal **20cm** distance in front of the chassis. Each 25Hz sample is a real beam/riser/box/plane **first-hit** return, subject to time delay, dropout, range-dependent noise and 1mm provisional quantization.
 
-Two *three-zone* forward/downward narrow-beam modules are assumed, located ±50mm laterally and 35mm ahead of torso reference. A pair of single-point ToF chips cannot provide all six simultaneous rays; future physical sensor selection must match the model or use separately timed scans. All extrinsics are provisional, not confirmed CAD or hardware data.
+- Existing asynchronous tripod (3 downward ToF), optical flow and IMU remain. Delayed gyro-compensated optical-flow estimates **local forward and lateral velocity**, while measured IMU angular speed estimates yaw.
+- The sensor only gets *measured* slant distance and measured local tripod ground plane. It projects each return to a relative local height + actual along-body-X hit point. A riser hit can be closer than the far 20cm aim; it must land at its *observed* X rather than always being inserted at 20cm.
+- Fixed JAX **21×2 map**: 0,1,2...20cm on each side. Every 20ms the cached samples shift toward the feet using estimated motion. One new real return per lane is deposited on its actual observed location at the ToF update rate. Fractional-centimetre displacement uses confidence-weighted interpolation. An unmeasured gap keeps near-zero confidence; it is not filled with invented flat values.
+- Maps reset every new episode. Flow failure stops odometry and decays confidence. Yaw receives a side-specific displacement correction; yaw/lateral movement also decays confidence because two straight tracks cannot perfectly represent lateral reprojection or rotating views. Old measurements decay with age.
+- The **new actor contract is 296**, not 280: original 58 per frame + 2 sides × 4 sampled heights (0,5,10,15cm) + 8 confidence values = 74 per frame, over four history frames. Historical 220 and 232 schemas, old checkpoints and 6 servo outputs remain separate.
+- A matched `--forward-preview-masked` variant keeps the same physical world, map update, 296 input shape and optimizer settings but feeds zeroes in the 16 new NN slots. Once sighted weights exist, `--ablate-forward-preview` on the existing read-only physical crossing examiner masks those slots *without retraining the policy*.
 
-emu/forward_tof.py calculates first intersections of six rays with the actual MuJoCo floor plane and collidable box, including the front face. The actor receives raw noisy and quantized slant lengths and independent validity bits. Its existing gravity/gyro/downward tripod inputs supply body orientation and ground context. The optional inverse can derive relative heights for diagnostics, but is not on the actor path: losing the downward tripod estimate does not erase six otherwise-good forward beams. Unknown returns are **range 0 with validity 0**, never a measured flat floor. Range-dependent noise, provisional 1mm quantization, 25Hz acquisition, one-control-frame latency and independent ray dropout are fingerprinted.
+The map is *not* global SLAM, and internally synthesized heights are estimates from raw calibrated rays plus a noisy measured local plane; no true world terrain height, box size, global root pose, or true MuJoCo robot velocity enters the rolling actor map. Contact/reward teacher truth remains separate.
 
-**A/B control:** --forward-preview uses the full measured 280-channel actor; --forward-preview-masked keeps identical physical world, actor width and acquisition model but zeros the 12 preview values. No new reward shapers, adaptive governors, or six-arm campaigns have been introduced.
+## Practical limits
 
-## Minimal code ownership
+A narrow beam can miss the step during extreme body pitch/yaw. Rolling memory helps retain earlier valid observations but cannot create data that no beam ever measured. This is a **first-stage plane+box** model: no robot-leg occlusion, optical properties, multizone array FOV, hfield/log/capsule ray consistency, or confirmed real hardware mount. The current browser viewer still only generates older 220/232 actor observations; a 296 policy is **not interactive in-browser yet**.
 
-- emu/forward_tof.py: pure measured geometry forward/inverse.
-- emu/contracts.py and emu/ppo.py: 280 schema and normalization (raw ranges normalized, validity unnormalized).
-- emu/environment.py: sampled range → bounded delayed ring → raw slant range/validity → actor observation.
-- emu/training.py, emu/training_config.py, emu/branch_lab.py, emu/cli.py, emu/evaluation.py: opt-in single-run physics and 280 masked/visible contracts.
-- emu/checkpoint_io.py and emu/viewer_server.py: checkpoint schema9 and strict Python-side schema3 export/import, old schemas retained.
+At 0.5m/s and 20cm lookahead, maximum nominal warning is ~0.40 seconds; 25Hz measurement intervals can add up to 40ms waiting plus 20ms delivery delay, control smoothing and servo lag. At 0.1m/s 20cm corresponds to 2s. Actual scan hits under bounce/pitch or riser geometry change that window. The right response to missed obstacles is to measure physical beam coverage, not increase PPO budgets.
 
-## Deliberate limitations
+## Observable completion and no premature training
 
-This is a **first-stage isolated box+plane scanner**, not a general hfield/ramp/log ray engine. Self-occlusion by moving legs, reflectance, multipath and motion-compensated rolling scans are not yet implemented. The published browser's existing 220/232 observation generation does NOT reconstruct 280 channels, so schema3 Python export is not yet an interactive browser policy. No real hardware mount, real sensor class or step-crossing competence is proven.
+A known real collidable 20–50mm step must produce changed TWO measured ToF ranges and update 2×21 rolling map. After 5cm estimated forward motion, an original far 20cm sample should appear around the actor's 15cm channel with decaying positive confidence; before movement 0/5/10/15cm channels should remain *unknown*, not prefilled flat. 232 checkpoint sample structures must remain seven-field historical `SensorSample`, not silently switched to new schema-9 `PreviewSensorSample`.
 
-## Review without starting a training job
-
-From a separate local checkout of this feature branch, use `emu train --profile sim2real --forward-preview --terrain-box-height-mm 30 --run-dir "$HOME/robot_lab/emu_experiments/v5019_preview" --steps 5000000 --envs 1024 --device cuda --plan` to print a config **only**. Add --forward-preview-masked and a different run directory for the matching control plan. These are research configuration examples, **not instructions to run GPU training while v5018 is active**.
-
-Next: review actual ray intersections and two-world MJX observations, measure preview visibility as box enters the field of view, check real physical hardware sensor choices and compare masked vs visible 280-policy PPO only after current run results can inform gait feasibility. Keep the comparison small until it proves the sensory advantage.
-
-## Falsifiable sensory result, before training
-
-At least one of six 280-preview range fields **and** its validity must change when a 20–50mm collidable step enters a calibrated beam. The six visible fields must remain physically measurable even if the original three-downward-ToF planar estimator becomes invalid. Compare flat, shifted step approach and ±10° heading **and pitch**. The original 5/10/15cm angles lost a 40mm step under +5–10° pitch; the provisionally revised 5/12/22cm set saw the same physical step in the fixed-box numerical model at ±10° yaw and pitch. No claim that 5/12/22cm are exact hit footprints under bounce/pitch/yaw; they are nominal beam targets at body height 0.2584m.
-
-A 0.5m/s approach gives a nominal 0.44s preview at 22cm, **before** subtracting 25Hz sample scheduling (worst ~40ms), one 20ms delivery frame and actuation response. The beam/step first-hit location will also shift as the torso bounces. Therefore a forward range channel alone is not enough to guarantee EMU can react in time. At slower 0.1m/s this same 22cm nominal separation is 2.2s.
-
-When a trained 280-policy exists, run the same no-detour physical examiner with its original observations and `--ablate-forward-preview` (new **read-only** frozen-actor counterfactual) and compare flat ground, held-out 20/30/40mm steps, command velocity tracking, fall rate, and simulated servo effort. An unchanged crossing result after ablation is evidence the policy is not using the forward preview effectively; it does not justify another height-governor redesign.
+The feature includes pure sensor/map checks and an optional two-world MJX reset/step, plus strict 296 policy checkpoint/export/exam handling. **This does not prove a trained robot can climb or that its simulated sensing matches installed hardware.** Keep training curriculum/reward/governors frozen; wait for v5018 physical run results. Then compare ONE reasonable pair of equally trained 296-input masked and sighted policies on held-out step heights, flat retention, yaw ±10°, velocity tracking and simulated servo stress; additionally freeze a sighted policy and test zero-ablation. No further experimental campaign layers until that result exists.
