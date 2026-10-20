@@ -797,6 +797,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     'actor_action':mean,
                     'terrain_geometry_active':out.metrics.get(
                         'terrain_geometry_active',jnp.zeros_like(out.reward)),
+                    'terrain_support_reference_elevation_m':out.metrics.get(
+                        'terrain_support_reference_elevation_m',
+                        jnp.zeros_like(out.reward)),
                     'terrain_top_contact_fraction':out.metrics.get(
                         'terrain_top_contact_fraction',jnp.zeros_like(out.reward)),
                     'terrain_riser_contact_fraction':out.metrics.get(
