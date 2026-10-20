@@ -4,7 +4,7 @@
 
 ## Target: measure before climbing
 
-The existing 220 and 232 actor schemas remain unchanged. The new opt-in forward_tof_280 schema adds six **raw slant ranges** (right 5/10/15cm nominal floor footprints, left 5/10/15cm) and six corresponding validity bits to each historical 58-element frame. Four frame histories make 280 inputs. Checkpoint schema 9 and exported policy schema 3 cannot silently be read as older policies.
+The existing 220 and 232 actor schemas remain unchanged. The new opt-in forward_tof_280 schema adds six **raw slant ranges** (right 5/12/22cm nominal floor footprints, left 5/12/22cm) and six corresponding validity bits to each historical 58-element frame. Four frame histories make 280 inputs. Checkpoint schema 9 and exported policy schema 3 cannot silently be read as older policies.
 
 Two *three-zone* forward/downward narrow-beam modules are assumed, located ±50mm laterally and 35mm ahead of torso reference. A pair of single-point ToF chips cannot provide all six simultaneous rays; future physical sensor selection must match the model or use separately timed scans. All extrinsics are provisional, not confirmed CAD or hardware data.
 
@@ -32,8 +32,8 @@ Next: review actual ray intersections and two-world MJX observations, measure pr
 
 ## Falsifiable sensory result, before training
 
-At least one of six 280-preview range fields **and** its validity must change when a 20–50mm collidable step enters a calibrated beam. The six visible fields must remain physically measurable even if the original three-downward-ToF planar estimator becomes invalid. Compare flat, shifted step approach and ±10° heading. No claim that 5/10/15cm are exact hit footprints under bounce/pitch/yaw; they are nominal beam targets at body height 0.2584m.
+At least one of six 280-preview range fields **and** its validity must change when a 20–50mm collidable step enters a calibrated beam. The six visible fields must remain physically measurable even if the original three-downward-ToF planar estimator becomes invalid. Compare flat, shifted step approach and ±10° heading **and pitch**. The original 5/10/15cm angles lost a 40mm step under +5–10° pitch; the provisionally revised 5/12/22cm set saw the same physical step in the fixed-box numerical model at ±10° yaw and pitch. No claim that 5/12/22cm are exact hit footprints under bounce/pitch/yaw; they are nominal beam targets at body height 0.2584m.
 
-A 0.5m/s approach gives at most 0.30s preview at 15cm, **before** subtracting 25Hz sample scheduling (worst ~40ms), one 20ms delivery frame and actuation response. The beam/step first-hit location will also shift as the torso bounces. Therefore a forward range channel alone is not enough to guarantee EMU can react in time. At slower 0.1m/s this same 15cm nominal separation is 1.5s.
+A 0.5m/s approach gives a nominal 0.44s preview at 22cm, **before** subtracting 25Hz sample scheduling (worst ~40ms), one 20ms delivery frame and actuation response. The beam/step first-hit location will also shift as the torso bounces. Therefore a forward range channel alone is not enough to guarantee EMU can react in time. At slower 0.1m/s this same 22cm nominal separation is 2.2s.
 
 When a trained 280-policy exists, run the same no-detour physical examiner with its original observations and `--ablate-forward-preview` (new **read-only** frozen-actor counterfactual) and compare flat ground, held-out 20/30/40mm steps, command velocity tracking, fall rate, and simulated servo effort. An unchanged crossing result after ablation is evidence the policy is not using the forward preview effectively; it does not justify another height-governor redesign.
