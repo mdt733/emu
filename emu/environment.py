@@ -19,8 +19,8 @@ import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
 from .terrain import box_surface_truth, adaptive_height_sample
-from .forward_tof import (first_hit_ranges, relative_height_profile,
-                          FORWARD_NOISE_STD_M)
+from .forward_tof import (first_hit_ranges,
+                          FORWARD_NOISE_STD_M, FORWARD_QUANTIZATION_M)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
@@ -2031,6 +2031,10 @@ class EmuMJXEnv(TaskSampler):
                 jnp, torso, R, floor_origin, floor_normal,
                 errors_m=scale[:,None] * FORWARD_NOISE_STD_M * noise,
                 **ray_kwargs)
+            forward_ranges = jnp.where(
+                forward_valid,
+                jnp.round(forward_ranges / FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
+                0.)
         else:
             forward_ranges = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
             forward_valid = jnp.zeros((self.num_envs,6),dtype=bool)
@@ -2130,17 +2134,17 @@ class EmuMJXEnv(TaskSampler):
         grade_freshness = jnp.clip(
             1. - 0.25 * tof_age.astype(jnp.float32) /
             self.tof_period_frames, .25, 1.)
+        # Preview has its OWN validity: do not require all three downward
+        # tripod returns. These are independently observable raw slant ranges
+        # and the actor already receives body attitude + measured tripod state.
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
-            profile, pvalid = relative_height_profile(
-                jnp,
-                s.forward_ranges_m[:,tf,:],
-                s.forward_valid[:,tf,:],
-                ranges, ground['ground_normal_body'], ground_valid)
+            profile = s.forward_ranges_m[:,tf,:]
+            pvalid = s.forward_valid[:,tf,:].astype(jnp.float32)
         else:
             profile = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
             pvalid = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
         return dict(
-            forward_profile_height_m=profile,
+            forward_profile_range_m=profile,
             forward_profile_valid=pvalid,
             measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
             velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
@@ -2476,7 +2480,7 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
             if self.observation_schema == OBS_SCHEMA_PREVIEW:
-                preview = jnp.concatenate((sensor['forward_profile_height_m'],
+                preview = jnp.concatenate((sensor['forward_profile_range_m'],
                                            sensor['forward_profile_valid']), axis=1)
                 if self.forward_preview_masked:
                     preview = jnp.zeros_like(preview)
