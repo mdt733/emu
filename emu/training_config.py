@@ -18,7 +18,7 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -113,11 +113,13 @@ def training_sensor_contract(config) -> dict | None:
     """Shared checkpoint/evaluator identity of the simulated sensor package."""
     if config.observation_schema == OBS_SCHEMA_LEGACY:
         return None
-    if config.observation_schema != OBS_SCHEMA_SENSOR:
+    if config.observation_schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
         raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
     settings = dict(SENSOR_SETTINGS_DEFAULTS)
     settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
-    return sensor_observation_contract(settings)
+    return sensor_observation_contract(
+        settings, schema=config.observation_schema,
+        preview_masked=bool(config.forward_preview_masked))
 
 
 def doctrine_dict() -> dict[str, object]:
@@ -134,7 +136,8 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
-    observation_schema: str = OBS_SCHEMA_LEGACY  # explicitly opt in to sim2real_232
+    observation_schema: str = OBS_SCHEMA_LEGACY  # explicit 220/232/280
+    forward_preview_masked: bool = False  # same 280 physical rays, all 12 actor values masked for A/B
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only a ladder arm with an explicit override changes them. Rollout length,
@@ -242,7 +245,7 @@ class TrainingConfig:
                     'terrain_adaptive_flat_control',
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
-                    'terrain_progress_weight'}
+                    'terrain_progress_weight', 'forward_preview_masked'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -257,7 +260,7 @@ IMMUTABLE_RUN_FIELDS = frozenset({
     'terrain_box_height_mm', 'terrain_height_safety_m', 'terrain_height_initial_m',
     'terrain_adaptive_flat_control', 'terrain_height_exposure',
     'terrain_height_edge_fraction', 'terrain_height_growth_m',
-    'terrain_progress_weight',
+    'terrain_progress_weight', 'forward_preview_masked',
 })
 
 
