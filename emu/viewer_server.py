@@ -299,8 +299,9 @@ from .contracts import (
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
     OBS_DIM,
-    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW,
     SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
+    PREVIEW_OBS_DIM, PREVIEW_BASE_OBS_DIM, PREVIEW_OBS_FIELDS,
     sensor_observation_contract,
     SIM_DT,
 )
@@ -342,26 +343,29 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     source = bundle.get('source') or {}
     training = bundle.get('training') or {}
     schema_id = bundle.get('schema')
-    if bundle.get('format') != FORMAT or schema_id not in (SCHEMA, 2):
-        raise ValueError('not a supported EMU schema-1/2 exported actor')
-    is_sensor = schema_id == 2
-    expected_dim = SENSOR_OBS_DIM if is_sensor else OBS_DIM
-    expected_base = SENSOR_BASE_OBS_DIM if is_sensor else BASE_OBS_DIM
-    expected_fields = SENSOR_OBS_FIELDS if is_sensor else BASE_OBS_FIELDS
-    expected_schema = OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY
+    if bundle.get('format') != FORMAT or schema_id not in (SCHEMA, 2, 3):
+        raise ValueError('not a supported EMU schema-1/2/3 exported actor')
+    is_preview = schema_id == 3
+    is_sensor = schema_id in (2,3)
+    expected_dim = PREVIEW_OBS_DIM if is_preview else SENSOR_OBS_DIM if is_sensor else OBS_DIM
+    expected_base = PREVIEW_BASE_OBS_DIM if is_preview else SENSOR_BASE_OBS_DIM if is_sensor else BASE_OBS_DIM
+    expected_fields = PREVIEW_OBS_FIELDS if is_preview else SENSOR_OBS_FIELDS if is_sensor else BASE_OBS_FIELDS
+    expected_schema = OBS_SCHEMA_PREVIEW if is_preview else OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY
     if is_sensor:
         # The manifest must match the locally reconstructed authoritative
         # contract. A self-consistent but malicious serialized hash is not
         # evidence of compatible physical sensors or clocks.
         manifest = observation.get('sensor_contract')
         if not isinstance(manifest, dict):
-            raise ValueError('missing schema-2 sensor contract')
+            raise ValueError('missing schema-2/3 sensor contract')
         try:
-            expected_manifest = sensor_observation_contract(manifest.get('settings'))
+            expected_manifest = sensor_observation_contract(
+                manifest.get('settings'), schema=expected_schema,
+                preview_masked=bool(manifest.get('forward_masked',False)))
         except (ValueError, TypeError) as exc:
-            raise ValueError('invalid schema-2 sensor settings') from exc
+            raise ValueError('invalid schema-2/3 sensor settings') from exc
         if manifest != expected_manifest:
-            raise ValueError('schema-2 sensor contract mismatch')
+            raise ValueError('sensor contract geometry/timing/fingerprint mismatch')
     elif observation.get('sensor_contract') is not None:
         raise ValueError('legacy policy unexpectedly declares a sensor contract')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
@@ -387,7 +391,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if (source.get('robot_model_sha256') != model_hash or
         bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
         raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
-    expected_checkpoint = 8 if is_sensor else 7
+    expected_checkpoint = 9 if is_preview else 8 if is_sensor else 7
     if source.get('checkpoint_schema') != expected_checkpoint or type(source.get('step')) is not int:
         raise ValueError('export checkpoint schema/provenance incompatible with actor')
     if training.get('attitude_profile') not in ('v5014','v5015'):
@@ -581,14 +585,17 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     # cross the versioned schema-8 gate before any browser export takes place.
     unverified = load_checkpoint(checkpoint, validate=False)
     meta_hint = unverified.get('meta') or {}
-    is_sensor = meta_hint.get('observation_schema') == OBS_SCHEMA_SENSOR
+    schema = meta_hint.get('observation_schema', OBS_SCHEMA_LEGACY)
+    is_preview = schema == OBS_SCHEMA_PREVIEW
+    is_sensor = schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW)
     if is_sensor:
         contract = meta_hint.get('sensor_contract')
         payload = load_checkpoint(
-            checkpoint, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            checkpoint, expected_observation_schema=schema,
             expected_sensor_contract=contract)
-        obs_dim, base_dim = SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM
-        obs_fields = SENSOR_OBS_FIELDS
+        obs_dim, base_dim = ((PREVIEW_OBS_DIM, PREVIEW_BASE_OBS_DIM)
+                             if is_preview else (SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM))
+        obs_fields = PREVIEW_OBS_FIELDS if is_preview else SENSOR_OBS_FIELDS
     else:
         payload = load_checkpoint(checkpoint)
         contract = None
@@ -648,7 +655,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": 2 if is_sensor else SCHEMA,
+        "schema": 3 if is_preview else 2 if is_sensor else SCHEMA,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -695,7 +702,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
             "normalize_mask": _f32_blob(build_obs_norm_mask(
-                OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY)),
+                schema)),
         },
         "control": {
             "sim_dt": SIM_DT,
