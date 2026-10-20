@@ -606,6 +606,10 @@ float32 differences in separately compiled
 GPU actor observations. This is an
 **unverified diagnosis**, not evidence
 of a solved numerical physics discrepancy.
+The updated diagnostic script writes a
+machine-readable failure JSON as well as
+the offending numeric channel to stdout
+even if the next GPU attempt fails.
 
 **Viewer request:** existing autonomous demo
 draws a circle and chooses random destinations.
@@ -642,8 +646,13 @@ executed by Node/Vite/WASM/real browser):**
   halos are purely render-only visual
   aids for tiny obstacles; all are
   re-created on changes of policy/terrain,
-  disposed appropriately. Compatible
-  actor hot-swaps preserve selected world.
+  disposed appropriately. A new
+  **View: arena** camera preset frames
+  the whole 4m challenge circle and
+  auto-activates when course mode is selected
+  from orbit; render-only, no policy changes.
+  Compatible actor hot-swaps preserve
+  selected terrain and demo mode.
 - `main.js`, `index.html`, CSS show
   dropdowns in the existing mobile
   settings drawer: Terrain→Challenge
