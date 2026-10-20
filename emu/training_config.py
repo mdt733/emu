@@ -183,6 +183,7 @@ class TrainingConfig:
     terrain_height_exposure: float = 0.60
     terrain_height_edge_fraction: float = 0.35
     terrain_height_growth_m: float = 0.001
+    terrain_progress_weight: float = 0.0  # optional reward-only physical forward clearance coaching
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -238,7 +239,8 @@ class TrainingConfig:
                     'domain_terrain_mode', 'observation_schema',
                     'terrain_box_height_mm', 'terrain_height_safety_m',
                     'terrain_height_initial_m', 'terrain_height_exposure',
-                    'terrain_height_edge_fraction', 'terrain_height_growth_m'}
+                    'terrain_height_edge_fraction', 'terrain_height_growth_m',
+                    'terrain_progress_weight'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -252,6 +254,7 @@ IMMUTABLE_RUN_FIELDS = frozenset({
     'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
     'terrain_box_height_mm', 'terrain_height_safety_m', 'terrain_height_initial_m',
     'terrain_height_exposure', 'terrain_height_edge_fraction', 'terrain_height_growth_m',
+    'terrain_progress_weight',
 })
 
 
