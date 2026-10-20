@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 import numpy as np
 
-from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
 from .terrain import box_surface_truth, adaptive_height_sample
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
@@ -1090,7 +1090,8 @@ class EmuMJXEnv(TaskSampler):
                  terrain_box_geom: str = 'v5018_obstacle_step',
                  terrain_adaptive: bool = False,
                  terrain_height_exposure: float = .60,
-                 terrain_height_edge_fraction: float = .35):
+                 terrain_height_edge_fraction: float = .35,
+                 terrain_progress_weight: float = 0.):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1193,6 +1194,11 @@ class EmuMJXEnv(TaskSampler):
         # input, policy weight, checkpoint schema or sensor clock changes.
         if terrain_contact_mode not in ('legacy', 'box_surface'):
             raise ValueError("terrain_contact_mode must be 'legacy' or 'box_surface'")
+        if not (0. <= terrain_progress_weight <= .10):
+            raise ValueError('terrain progress coaching must be [0,.10]')
+        if terrain_progress_weight and not terrain_adaptive:
+            raise ValueError('terrain coaching requires adaptive physical terrain')
+        self.terrain_progress_weight = float(terrain_progress_weight)
         self.terrain_contact_mode = terrain_contact_mode
         self.terrain_adaptive = bool(terrain_adaptive)
         if self.terrain_adaptive and terrain_contact_mode != 'box_surface':
@@ -1485,11 +1491,20 @@ class EmuMJXEnv(TaskSampler):
         # ramp_frac tracks command-change difficulty. Real episode age is
         # ep_len; step_i is deliberately staggered for timeout diversity.
         metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
-                  'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
+                  'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac,
+                  'terrain_forward_delta_m': (data.xpos[:,self.torso_id,0] -
+                                              state.data.xpos[:,self.torso_id,0]),
+                  'terrain_course_x': data.xpos[:,self.torso_id,0]}
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
             motor_guidance_weight=self.motor_guidance_weight)
+        # Reward-only physically supported step approach: optional matched
+        # research arm. Never promotes a frontier without independent crossing.
+        terrain_payment = terrain_progress_payment(
+            metrics, xp=jnp, weight=self.terrain_progress_weight)
+        reward = reward + terrain_payment
+        terms = {**terms, 'terrain_progress': terrain_payment}
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
