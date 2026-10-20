@@ -1,6 +1,6 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1 synthetic tests PASS (12/12 across two suites); MJX real-GPU observation parity FAIL, diagnostic fix awaiting rerun; viewer ring work committed and unverified in WSL; P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
+**Last evidence review:** 20 October 2026. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A partial / P0B partial; P1 synthetic tests PASS (12/12); new 14:43 real-MJX flat reward and observations pass 3-frame gate; active 10mm probe hit a known MJX Data._replace API error, now fixed on branch but NOT yet user-rerun; challenge-ring viewer Node/WASM acceptance still pending; P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide, not a second progress log. [INSTALL.md](INSTALL.md) is the reproducible setup reference.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
@@ -1136,17 +1136,80 @@ The viewer updates from validated checkpoints at its
 existing polling interval; it does **not** control training
 or fabricate a brain.
 
+## 20 Oct 14:43 — second P1 CUDA/MJX run, fixed harness API
+
+**Actual user-run uploaded evidence:** `v5018_p1_terrain_20261020_144341.tar.gz`;
+**tested source commit**
+`b93f0cf3d250deee2a39a38f164f96e3d58972b3`,
+Python3.13.16/JAX0.12.0/MuJoCo3.16.0 CUDA RTX4060Ti,
+same robot XML SHA-256
+`c1af72485e83de277efa1914a476519cebbebdc2beb1f03a10c475c9fadf3a64`.
+Archive was read directly; 4 stages logged with 3 PASS and last FAIL.
+
+- [x] Python syntax PASS; terrain truth **6/6 PASS**; older
+  reward + independent random-weight 220/232 setup
+  **6/6 PASS** again. Not evidence of a complete cold-trained
+  walking brain.
+- [x] The real four-world zero-height **FLAT-control**
+  legacy-vs-opt-in CUDA rollout completed all **three
+  physics control frames** without triggering **exact
+  scalar reward mismatch** or the strict tiny-precision
+  actor observation gate. There were no printed
+  `NOTE: off-course observation difference` diagnostics;
+  this is consistent with bitwise identity in this run,
+  but there is no successful machine-readable
+  `mjx_surface_truth.json` because it was written only
+  at the very end. No privileged geometry activation
+  was detected off-course in those frames.
+- [!] The NEXT, independent 10mm active obstacle
+  **probe DID NOT RUN**: `state.data._replace(qpos=q)`
+  raised `AttributeError: 'Data' object has no attribute
+  '_replace'. Did you mean: 'replace'?` in MuJoCo 3.16
+  `DataJAX`. This is a test-script API error, **not
+  evidence of a failed physical-contact model**.
+  It is different from the previous first-run
+  observation assertion failure.
+- [~] Fixed script on feature branch:
+  `state.data.replace(qpos=q)`, matching the existing
+  legitimate MJX `data.replace(...)` calls in
+  `emu/environment.py`; preserved `EnvState._replace`
+  (NamedTuple) elsewhere, unchanged.
+  Persist exact 3-frame flat-parity report *before*
+  running the separate 10mm active probe, so even an
+  unexpected later exception preserves the completed
+  flat comparison's numeric differences and SHA.
+  The teleport-only probe now uses the **translated
+  prior foot positions** to prevent an artificial
+  0.20m/0.02s stance-slip penalty, captures top/riser
+  contact-pair candidate fractions, support, signed
+  toe gap, and requires **at least one real
+  sphere/box MJX contact pair** rather than mistaking
+  torso XY-overlap for physical contact.
+  This tightened probe may legitimately FAIL if
+  the test pose does not create physical contact;
+  diagnose that instead of weakening the definition.
+  **The new source changes have NOT been run on WSL.**
+- [ ] Immediate next gate: re-run
+  `bash scripts/run_v5018_p1_terrain_acceptance.sh`
+  on latest feature HEAD, upload the fresh archived
+  JSON and logs. Do not rerun the finished 34-stage
+  obstacle frontier or make a release claim from
+  only the off-course comparison.
+
 ## Immediate next gates — real GPU parity and actual viewer collision
 
-**P1 gate remains FAILED in the first actual CUDA smoke.**
-The 12/12 fast Python suites passed. The subsequent
-per-channel observation-diff instrumentation was committed
-after that archive; it has NOT yet been rerun.
-**First priority** is re-execute only the bounded P1
-acceptance and capture whether the observed discrepancies
-fit the small float32 tolerance. Keep scalar reward
-bitwise parity strict and prove the same off-course actor
-trajectory does not acquire privileged geometry data.
+**P1 flat-control gate now has a bounded successful
+three-frame real CUDA run**, with both scalar reward
+equality and actor-observation comparison surviving
+the reported checks. The 10mm **active-contact
+gate remains NOT YET COMPLETED** because a test-only
+MJX Data API mismatch stopped the previous run.
+That call has been fixed, the two gates now save
+independent evidence and the 10mm probe requires
+actual geom-pair contact (not a picture or torso
+overlap). Re-run the small P1 acceptance on the
+feature branch and inspect `mjx_surface_truth.json`
+and stage logs before any P1 promotion.
 
 **Viewer gate is separately UNVERIFIED on Node/WASM.**
 The eight-station circle and two demo modes have been
