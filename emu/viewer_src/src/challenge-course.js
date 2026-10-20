@@ -61,23 +61,32 @@ export function generateChallengeCourse({tierMm=10,logs=false,
   return {tierMm,logs:Boolean(logs),radius,count,stations,
           waypoints:stations.flatMap(s=>[s.entry,s.exit])};
 }
-export function challengeCourseXml(course){
+export function challengeCourseXml(course,{groundHeightAt=()=>0}={}){
   if(!course||!Array.isArray(course.stations))
     throw new Error('Missing physical challenge stations');
+  if(typeof groundHeightAt!=='function')
+    throw new Error('Challenge ground height sampler must be a function');
   const chunks=[];
   for(const s of course.stations){
     if(s.kind==='open')continue;
+    const terrainZ=groundHeightAt(s.x,s.y);
+    if(!Number.isFinite(terrainZ))
+      throw new Error('Challenge ground sampler returned nonfinite height');
     if(s.kind==='step'){
       const halfHeight=s.heightMm/2000;
       chunks.push(`<geom name="viewer_challenge_step_${s.index}" type="box"
-        pos="${s.x} ${s.y} ${fmt(halfHeight)}"
+        pos="${s.x} ${s.y} ${fmt(terrainZ+halfHeight)}"
         size="0.04 0.20 ${fmt(halfHeight)}"
         euler="0 0 ${fmt(s.yawRad*180/Math.PI)}"
         friction="1.5 0.005 0.0001" rgba="${s.rgba}" />`);
     }else{
       const a=s.yawRad, ux=-Math.sin(a),uy=Math.cos(a); // across the path
-      const p1=[fmt(s.x-ux*0.20),fmt(s.y-uy*0.20),0.010];
-      const p2=[fmt(s.x+ux*0.20),fmt(s.y+uy*0.20),0.010];
+      // The flat challenge corridor shares an actual heightfield with
+      // the grassy park; position the capsule at terrain elevation.
+      const p1=[fmt(s.x-ux*0.20),fmt(s.y-uy*0.20),
+                fmt(groundHeightAt(s.x-ux*0.20,s.y-uy*0.20)+.010)];
+      const p2=[fmt(s.x+ux*0.20),fmt(s.y+uy*0.20),
+                fmt(groundHeightAt(s.x+ux*0.20,s.y+uy*0.20)+.010)];
       chunks.push(`<geom name="viewer_challenge_log_${s.index}"
         type="capsule" fromto="${p1.join(' ')} ${p2.join(' ')}"
         size="0.010" friction="1.5 0.005 0.0001"
