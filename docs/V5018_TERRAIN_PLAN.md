@@ -795,21 +795,42 @@ observations, PPO reward, `main`, `showcase` or Pages changed.
 ## Next execution — focused parity and gait-v2 acceptance
 
 The full 34/34 frontier campaign is **complete**. Do not rerun
-28 GPU course variants just to validate research-only evaluation
-changes. The next local acceptance should run only:
-1. the new synthetic gait-v2 negative/positive tests;
-2. exact 0/5/10mm zero-yaw pilot XML SHA-256 parity test;
-3. one frozen flat/10° read-only directional run to
-   inspect v1 vs diagnostic v2 stride classifications;
-4. one 10mm seed1701 reproduction with byte-identical
-   pilot XML to test the earlier 3/4 vs 1/4 discrepancy.
-No actor weights, base rewards, champion or showcase
-must change. Any new P1 MJX physics path must be
-opt-in and controlled against the same flat model before
-larger GPU learning.
+28 GPU course variants. A NEW self-contained read-only
+`scripts/run_v5018_gaitv2_acceptance.sh` has been
+committed **after that archive** but not executed on WSL.
+It runs, in sequence:
 
-**Current branch risk:** P0B realistic dynamic
-load-limited servo/clearance, moving-leg sensor
-occlusion+latency/dropout, actual CPU–MJX–WASM
-six-servo parity are still open. All `terrain_312`
-and PPO-terrain promotion gates remain blocked.
+1. New gait-v2 *negative and positive* synthetic cases, old
+   v1 regression, and the exact 0/5/10mm original-course
+   **SHA-256 tests**. Failures here STOP GPU exams.
+2. Frozen 232 champion, matched flat 0° and real 10°
+   uphill `kp=.75` OFF/ON exam, comparing official
+   v1 vs **research-only** v2 pairs on fresh true-contact traces.
+3. Two original 10mm step-course reruns (seeds
+   1701/1702, `kp=.75`, 0.10m/s), after test-confirmed
+   byte-identical 09:49 XML, to probe the earlier
+   `3/4→1/4` inconsistency.
+4. Automatically writes `summary.json`, per-stage logs,
+   immutable champion/source SHA evidence, and an archive
+   under `~/robot_lab/emu_exams/v5018_gaitv2_acceptance_*.tar.gz`.
+   Do not use PASS exit codes as gait/crossing certification.
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_gaitv2_acceptance.sh
+```
+
+**No actor weights, training reward, champion or showcase change.**
+Then stage P1 as an opt-in *physics-truth and reward-only*
+terrain support/height/slip path, with exact old flat reward
+parity and a bounded one-step PPO smoke BEFORE any
+large GPU teaching. A real ToF estimator/actor schema
+must not be substituted with oracle ground heights.
+
+**Current open gates:** dynamic under-load servo
+clearance/energy, moving-leg sensor occlusion and
+latency/dropout, and six-servo CPU–MJX–WASM commanded
+trajectory parity. `terrain_312` and production PPO
+terrain promotion remain blocked.
