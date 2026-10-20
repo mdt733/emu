@@ -184,6 +184,11 @@ test('worker advances ordered midpoint destinations; failure never samples rando
   assert.equal(posted[0].goal.via,undefined);
   assert.equal(navigator.goal.label,course.waypoints[0].label);
   assert.equal(navigator.circuitNextIndex,1);
+  // The worker's Promise.finally clears its in-flight guard after the
+  // consumed route, as it should. Wait for that microtask before issuing
+  // an artificially immediate second goal request in this unit test.
+  for(let i=0;i<8&&navigator.pendingRequest;i++)await Promise.resolve();
+  assert.equal(navigator.pendingRequest,null);
   navigator.nextGoal(course.waypoints[0],limits,[]);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(posted[1].kind,'target');
