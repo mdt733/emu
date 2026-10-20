@@ -66,11 +66,19 @@ def box_surface_truth(
     box_top_centre_distance = local[..., 2] - half[2]
     top_gap = box_top_centre_distance - foot_radius_m
 
+    # Root issue 2: MJX may list nearby pairs even with POSITIVE
+    # separation within its broad contact buffer. Under our declared
+    # default zero-margin robot/box geom convention they are NOT exerting
+    # normal support. Pair presence alone (the former 2mm tolerance)
+    # must never become teacher stance credit. Signed distance <= 0 is
+    # a prerequisite, still NOT proof of positive normal FORCE.
+    touching_distance = xp.where(
+        contact_distance <= 0., contact_distance, xp.inf)
     floor_pairs = contact_pair_mask(
-        xp, contact_geom1, contact_geom2, contact_distance,
+        xp, contact_geom1, contact_geom2, touching_distance,
         floor_geom_id, foot_geom_ids)
     box_pairs = contact_pair_mask(
-        xp, contact_geom1, contact_geom2, contact_distance,
+        xp, contact_geom1, contact_geom2, touching_distance,
         box_geom_id, foot_geom_ids)
     # CRITICAL: proximity and near-top sphere-centre Z are NOT a proof of
     # contact with the horizontal face. On a box edge a sphere can collide
@@ -93,7 +101,7 @@ def box_surface_truth(
     # Reuse the exact pair+distance semantics, but reject invalid
     # normal/location candidates by replacing their distance with +inf.
     top_distance = xp.where(
-        normal_is_top & top_surface_point, contact_distance, xp.inf)
+        normal_is_top & top_surface_point, touching_distance, xp.inf)
     top_pairs = contact_pair_mask(
         xp, contact_geom1, contact_geom2, top_distance,
         box_geom_id, foot_geom_ids)
