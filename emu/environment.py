@@ -1201,6 +1201,17 @@ class EmuMJXEnv(TaskSampler):
             if rot[8] < 0.99:
                 raise ValueError('box_surface supports a nearly horizontal top (yaw rotations) only')
             foot_ids = self.ids['foot_geoms']
+            # P1 teacher supports only the current zero-margin contact
+            # doctrine: positive collision distance is NOT supporting
+            # contact. A future nonzero contact margin needs an explicitly
+            # separate active-force test and cannot inherit this scorer.
+            checked_geoms=[int(self.ids['floor_geom']),int(box_id),
+                           *(int(i) for i in foot_ids)]
+            if (np.any(np.abs(self.mj_model.geom_margin[checked_geoms])>1e-9) or
+                np.any(np.abs(self.mj_model.geom_gap[checked_geoms])>1e-9)):
+                raise ValueError(
+                    'box_surface requires zero contact margin and gap for '
+                    'signed-distance contact support semantics')
             radii = np.asarray(self.mj_model.geom_size[foot_ids,0],dtype=float)
             if not np.allclose(radii,radii[0],rtol=0.,atol=1e-6) or radii[0]<=0:
                 raise ValueError('box_surface requires two equal-radius sphere feet')
