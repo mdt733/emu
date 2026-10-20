@@ -779,21 +779,27 @@ YET WSL/GPU TESTED):**
    *before* active 10mm tests start, so
    any subsequent exception cannot erase
    completed evidence.
-3. Treat instant torso relocation as a
-   diagnostic fixture, not gait motion:
-   start stance-slip history at the
-   **translated** foot positions to avoid
-   a fake 10m/s slip signal.
+3. Use the actual per-world MJX
+   right-foot sphere `geom_xpos`
+   and physical box pose to relocate
+   the free root: sphere is placed
+   **1mm into the real 10mm box top**
+   and tested after `mjx.forward`
+   to within 1mm. It is a controlled
+   CONTACT FIXTURE, NOT a plausible
+   walk or stepping demonstration.
+   The post-translation foot position
+   is the slip reference, preventing
+   a fabricated ~10m/s teleport-slip.
 4. Log actual MJX foot/box **geometry
    contact-pair candidates**, top/riser
    fractions, supported stance and
    signed toe gap. Require at least one
    box/foot pair, not just torso XY
    overlap, before claiming real active
-   obstacle collision evidence. A failing
-   contact fixture is a test setup to
-   investigate, not a reason to invent
-   a pass.
+   obstacle collision evidence. A missing
+   contact must be diagnosed, never
+   awarded as a fabricated success.
 5. Update the sole living status
    checklist `docs/V5018_TERRAIN_PLAN.md`.
    Public/Pages, main, champion and
@@ -931,7 +937,11 @@ evidence and user-approved PR.**
 > fixed; active collision requires
 > REAL foot/box geometry-pair
 > evidence and logs top/riser
-> fractions. Re-run ONLY
+> fractions. The diagnostic puts
+> the right foot ball 1mm into
+> the real 10mm top from actual
+> per-world geom poses; NOT gait.
+> Re-run ONLY
 > `bash scripts/run_v5018_p1_terrain_acceptance.sh`
 > and review fresh archive.
 >
