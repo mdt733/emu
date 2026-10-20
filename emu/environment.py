@@ -582,6 +582,14 @@ class TaskSampler:
                 if self.terrain_adaptive else jnp.asarray(0., dtype=jnp.float32))
             # Preserve flat rehearsal across all command regimes.
             obstacle_height = jnp.where(is_athletic, 0., obstacle_height)
+            # This lab's obstacle is fixed on WORLD +X. Challenging a
+            # fast reverse-turning learner with that geometry teaches
+            # evasion/falling, not height negotiation. Retain all commands
+            # as flat practice; teach the +X riser in matched forward
+            # corridors until more general routes are introduced.
+            reachable_course = ((vx >= .07) & (jnp.abs(vy) <= .08) &
+                                (jnp.abs(yaw) <= .50))
+            obstacle_height = jnp.where(reachable_course, obstacle_height, 0.)
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
                     steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
                     is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32),
