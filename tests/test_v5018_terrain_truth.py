@@ -25,6 +25,16 @@ def fixture():
     geom1=np.array([[7,7,-1],[0,-1,-1]],dtype=np.int32)
     geom2=np.array([[3,4,-1],[3,-1,-1]],dtype=np.int32)
     dist=np.array([[0.,0.,1.],[0.,1.,1.]],dtype=np.float32)
+    # Real MuJoCo/MJX contact frame has 9 values per contact: the FIRST
+    # three encode the surface normal in world axes. The two feet share
+    # the box geom ID but only foot0 touches the horizontal top.
+    contact_frame=np.zeros((2,3,9),dtype=np.float32)
+    contact_frame[:,:,2]=1.0   # normal along +Z for top/floor by default
+    contact_frame[0,1,:3]=[1.,0.,0.]   # the other foot touches a RISER
+    contact_position=np.array([
+        [[.20,0.,.020],[.160,.05,.010],[0.,0.,0.]],
+        [[-.10,-.08,0.],[0.,0.,0.],[0.,0.,0.]],
+    ],dtype=np.float32)
     return dict(
         foot_xyz=foot,previous_foot_xyz=prev,torso_xyz=torso,
         floor_foot_signed=foot[:,:,2],floor_torso_signed=torso[:,2],
@@ -32,6 +42,7 @@ def fixture():
         box_center=box,box_rotation=rot,
         box_half_size=np.array([.04,.20,.01],np.float32),
         contact_geom1=geom1,contact_geom2=geom2,contact_distance=dist,
+        contact_frame=contact_frame,contact_position=contact_position,
         floor_geom_id=0,box_geom_id=7,foot_geom_ids=(3,4),
         foot_radius_m=.018,control_dt=.020)
 
@@ -123,3 +134,41 @@ def test_invalid_foot_radius_or_clock_cannot_produce_reward():
     x['foot_radius_m']=0.
     with pytest.raises(ValueError,match='positive'):
         box_surface_truth(np,**x)
+
+
+def test_vertical_riser_contact_near_top_height_is_not_load_bearing():
+    # Root cause: the earlier algorithm accepted a foot near top height
+    # and a box contact pair even if the actual solver normal was
+    # HORIZONTAL, meaning it was pushing sideways into an edge/riser.
+    x=fixture()
+    x['contact_frame'][0,0,:3]=[1.,0.,0.]
+    y=box_surface_truth(np,**x)
+    assert not bool(y['foot_top_contact_candidate'][0,0])
+    assert bool(y['foot_riser_contact'][0,0])
+    assert y['support_fraction'][0]==0.
+
+    # Reversing contact ordering can flip the normal; a genuine top
+    # contact remains top regardless of which geom is labelled geom1.
+    x=fixture()
+    x['contact_frame'][0,0,:3]=[0.,0.,-1.]
+    y=box_surface_truth(np,**x)
+    assert bool(y['foot_top_contact_candidate'][0,0])
+
+
+def test_horizontal_normal_alone_does_not_prove_contact_at_top_face():
+    x=fixture()
+    # Contact normal points vertical but the actual contact point is
+    # buried on a different face. Pair-only+height-only would mislabel.
+    x['contact_position'][0,0,2]=0.005
+    y=box_surface_truth(np,**x)
+    assert not bool(y['foot_top_contact_candidate'][0,0])
+    assert bool(y['foot_riser_contact'][0,0])
+
+    # JAX also rejects the fake positive without changing the actor.
+    import jax
+    import jax.numpy as jnp
+    args={k:jnp.asarray(v) if isinstance(v,np.ndarray) else v
+          for k,v in x.items()}
+    jit_result=jax.jit(lambda:box_surface_truth(jnp,**args))()
+    assert not bool(np.asarray(jit_result['foot_top_contact_candidate'])[0,0])
+    assert bool(np.asarray(jit_result['foot_riser_contact'])[0,0])
