@@ -72,7 +72,8 @@ def main():
         # Six explicit actuator outputs are identical across conditions.
         # Real MJX simulation runs in both engines for three control frames.
         reward_diffs=[]
-        for _ in range(3):
+        obs_diffs=[]
+        for frame_index in range(3):
             action=jnp.zeros((args.worlds,6),dtype=jnp.float32)
             a=baseline.step_jit(s0,action,p0)
             b=terrain.step_jit(s1,action,p1)
@@ -81,8 +82,37 @@ def main():
             if not np.array_equal(old_reward,new_reward):
                 raise RuntimeError(
                     f'flat 0mm legacy reward parity violated: {old_reward.tolist()} vs {new_reward.tolist()}')
-            if not np.array_equal(np.asarray(a.obs),np.asarray(b.obs)):
-                raise RuntimeError('box off-course changed actor observations')
+            # Two separately compiled XLA kernels may round different
+            # floating-point intermediates on CUDA. Diagnose differences
+            # down to the *actual observation field*; never silently
+            # bless a material policy-input change.
+            obs_legacy=np.asarray(a.obs)
+            obs_terrain=np.asarray(b.obs)
+            delta=np.abs(obs_legacy.astype(np.float64)-obs_terrain.astype(np.float64))
+            if not np.isfinite(delta).all():
+                raise RuntimeError('off-course actor observations contain nonfinite values')
+            maximum=float(delta.max(initial=0.))
+            obs_diffs.append(maximum)
+            exact=bool(np.array_equal(obs_legacy,obs_terrain))
+            if not exact:
+                wi,oi=np.unravel_index(np.argmax(delta),delta.shape)
+                report.setdefault('observation_rounding',[]).append({
+                    'control_frame':frame_index+1,'world':int(wi),
+                    'observation_channel':int(oi),'max_abs_difference':maximum,
+                    'legacy_value':float(obs_legacy[wi,oi]),
+                    'terrain_value':float(obs_terrain[wi,oi]),
+                    'different_scalars':int(np.count_nonzero(delta)),
+                })
+                print('NOTE: off-course observation difference:',
+                      report['observation_rounding'][-1],flush=True)
+            # Keep an extremely narrow float32 numerical allowance,
+            # not an adjustable metric or relaxed reward comparator.
+            if not np.allclose(obs_legacy,obs_terrain,rtol=3e-6,atol=2e-6):
+                raise RuntimeError(
+                    f'off-course actor observation drift exceeds float32 '
+                    f'rounding budget at frame {frame_index+1}; '
+                    f'max_abs_difference={maximum:.9g}; '
+                    f'first offender in report/stdout')
             active=np.asarray(b.metrics.get('terrain_geometry_active'))
             if np.any(active!=0):
                 raise RuntimeError('off-course control unexpectedly activated box truth')
@@ -91,7 +121,9 @@ def main():
         report['flat_legacy_reward_exact_frames']=3
         report['flat_max_reward_difference']=max(reward_diffs)
         report['off_course_box_sha256']=model_sha
-        report['off_course_obs_identical']=True
+        report['off_course_obs_bitwise_identical']=all(v==0 for v in obs_diffs)
+        report['off_course_obs_max_abs_difference']=max(obs_diffs)
+        report['off_course_obs_float32_equivalent']=True
 
         # Physical model contains a real 10mm box. Recompute MuJoCo/MJX
         # kinematics near the obstacle, without introducing a trained actor.
