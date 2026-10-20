@@ -31,14 +31,15 @@ const demoMode = $('demoMode');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
-const cameraModes = ['orbit', 'chase', 'raw', 'level'];
+const cameraModes = ['orbit', 'overview', 'chase', 'raw', 'level'];
 let cameraMode = 'orbit';
 function cameraLabel(mode) {
-  return {orbit:'View: orbit', chase:'View: chase',
+  return {orbit:'View: orbit', overview:'View: arena', chase:'View: chase',
           raw:'View: POV', level:'View: level POV'}[mode];
 }
 function cameraDescription(mode) {
-  return {orbit:'orbit camera', chase:'third-person chase camera behind and above robot',
+  return {orbit:'orbit camera', overview:'whole challenge ring overview',
+          chase:'third-person chase camera behind and above robot',
           raw:'raw chassis POV', level:'visually levelled POV'}[mode];
 }
 const dropOverlay = $('dropOverlay');
@@ -271,6 +272,11 @@ async function activatePolicy(index) {
     sim.setChallengeOptions(Number(challengeTier.value),challengeLogs.checked);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     displayCourseControls();
+    if(terrainMode.value==='course' && cameraMode==='orbit'){
+      cameraMode='overview';
+      sim.setCameraMode(cameraMode);
+      cameraBtn.textContent=cameraLabel(cameraMode);
+    }
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -382,6 +388,13 @@ function updateTerrain() {
   if (!sim) return;
   try {
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    if(terrainMode.value==='course' && cameraMode==='orbit'){
+      cameraMode='overview';
+      sim.setCameraMode(cameraMode);
+      cameraBtn.textContent=cameraLabel(cameraMode);
+      cameraBtn.setAttribute('aria-label',
+                             'Camera: '+cameraDescription(cameraMode));
+    }
     syncGoalMode();
     updateStickLabels();
   } catch(err) {
