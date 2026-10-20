@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real]
+    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real, feature/v5018-terrain-awareness]
   workflow_dispatch:
 
 permissions:
@@ -34,7 +34,7 @@ jobs:
           node-version-file: .nvmrc
       - name: Compile
         run: python -m compileall -q emu tests
-      - name: Run 16 Python checks
+      - name: Run Python checks
         run: python -m pytest -q tests
       - name: Smoke public doctor CLI (CPU-only)
         run: emu doctor --no-require-gpu --no-mjx-smoke
