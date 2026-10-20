@@ -735,6 +735,93 @@ fresh-random-brain cold-start requirement.
 The living detailed status is in
 `docs/V5018_TERRAIN_PLAN.md`.
 
+## 20 October 14:43 — newest P1 MJX probe result and next correction
+
+**Second user-run P1 archive:**
+`v5018_p1_terrain_20261020_144341.tar.gz`,
+tested Git SHA **`b93f0cf3d250deee2a39a38f164f96e3d58972b3`**;
+Python 3.13.16/JAX 0.12.0/MuJoCo 3.16.0 on
+RTX 4060 Ti CUDA, unchanged `robot.xml` SHA
+`c1af72485e83de277efa1914a476519cebbebdc2beb1f03a10c475c9fadf3a64`.
+
+**Observed:** syntax PASS, terrain truth **6/6** PASS,
+legacy/cold-start **6/6** PASS. Crucially the
+four-world **three-control-frame exact flat-reward
+comparison and float32 deployable actor-observation
+checks now completed**; no scalar reward error,
+off-course terrain activation, or numeric
+observation-warning message printed. Therefore
+this 3-frame flat parity gate is substantially
+better grounded than the older 13:45 failing
+archive. There is no archived parity JSON from
+that run because the script only wrote it on
+full success.
+
+**What interrupted next:** active 10mm box
+probe called `state.data._replace(qpos=q)`.
+In MuJoCo3.16/MJX `Data` is NOT a
+NamedTuple; it exposes `replace(qpos=...)`.
+The error was `AttributeError: Data object
+has no attribute '_replace'` at
+`scripts/v5018_p1_surface_smoke.py:146`.
+**Not a model/physics failure.** Normal
+EMU `EmuMJXEnv` code already uses
+`data.replace()` everywhere else.
+
+**Fixes committed AFTER the archive (NOT
+YET WSL/GPU TESTED):**
+1. Change the exact line to
+   `state.data.replace(qpos=q)` (the
+   correct installed MJX Data API).
+2. Write successful 3-frame flat-parity
+   status and full numeric drift
+   details to `mjx_surface_truth.json`
+   *before* active 10mm tests start, so
+   any subsequent exception cannot erase
+   completed evidence.
+3. Treat instant torso relocation as a
+   diagnostic fixture, not gait motion:
+   start stance-slip history at the
+   **translated** foot positions to avoid
+   a fake 10m/s slip signal.
+4. Log actual MJX foot/box **geometry
+   contact-pair candidates**, top/riser
+   fractions, supported stance and
+   signed toe gap. Require at least one
+   box/foot pair, not just torso XY
+   overlap, before claiming real active
+   obstacle collision evidence. A failing
+   contact fixture is a test setup to
+   investigate, not a reason to invent
+   a pass.
+5. Update the sole living status
+   checklist `docs/V5018_TERRAIN_PLAN.md`.
+   Public/Pages, main, champion and
+   220/232 from-zero learning path
+   untouched.
+
+**Next WSL step:** pull latest
+`feature/v5018-terrain-awareness`,
+then run **only** the bounded P1 test
+(or the separate viewer acceptance),
+not the old 34-case campaign:
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_p1_terrain_acceptance.sh
+```
+
+**Independent viewer validation** remains
+`bash scripts/run_v5018_viewer_course_acceptance.sh`
+for the coloured real-box/log 4m ring,
+ordered circuit route, pinned WASM collision
+and Vite build. This has not yet been
+validated by WSL/browser. Browser live
+mode polls completed validated policies,
+not live GPU robot positions.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -801,78 +888,79 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 **only on**
+> Continue EMU v5018 STRICTLY on
 > `feature/v5018-terrain-awareness`
 > at https://github.com/mdt733/emu.
-> Read from current feature HEAD:
+> FIRST read current HEAD of
 > `docs/V5018_HANDOVER.md`,
 > `docs/V5018_TERRAIN_PLAN.md`
-> and `docs/INSTALL.md`.
-> Preserve ONE authoritative progress
-> record: V5018_TERRAIN_PLAN.
-> Existing 260M protected champion is
-> a convenient reference, but all
-> learning systems MUST support
-> genuine zero-pretrained-policy,
-> fresh 220/232 random initialization.
-> Completed prior GPU frontiers:
-> 34/34 stage obstacle experiment
-> with 5/10/15/20mm physical steps
-> and strong heading/cross-track
-> effects; 5/5 gait-v2/10mm
-> repeatability study. No
-> claim of reliable 20mm traversal.
-> Most recent user P1 archive
-> `v5018_p1_terrain_20261020_134537.tar.gz`
-> (tested source `d683aa4...`):
-> syntax passed, new JAX terrain
-> tests 6/6 passed, cold-start and
-> historical reward tests 6/6
-> passed; **ACTUAL CUDA/MJX
-> FLOAT32 ACTOR OBS BITWISE PARITY
-> FAILED**, numerical difference
-> was not printed. Source update
-> after archive added per-channel
-> numeric diagnostics and tiny
-> float32 rounding tolerance, with
-> bitwise scalar REWARD parity
-> maintained; NOT WSL-tested.
-> User also requested visual
-> feature demonstrations.
-> Viewer feature code now has an
-> eight-station collidable
-> 5–20mm+optional experimental
-> log course on the existing
-> exact 4m navigation circle,
-> colour-coded labels, and
-> Random / Circuit waypoint
-> demo routes passing from
-> entry to exit across the
-> physical obstacles, using
-> the original neural policy
-> and background pose planner.
-> Public/local/live policy
-> viewer modes share controls.
-> New Node test, headless pinned
-> MuJoCo/WASM contact probe,
-> viewer-build acceptance script
-> committed but NEVER executed
-> by user's WSL or full browser.
-> NEXT WSL RUNS independently:
+> and `docs/INSTALL.md`. The
+> TERRAIN_PLAN is the ONE canonical
+> date/gate status checklist.
+> Preserve genuine from-zero
+> actor initialisation and future
+> terrain curriculum; the protected
+> 260M 232 actor is OPTIONAL research
+> material, never required for
+> learning. Never edit main,
+> protected showcase or Pages
+> without explicit user consent.
+>
+> Most recent P1 GPU archive
+> `v5018_p1_terrain_20261020_144341.tar.gz`
+> ran source `b93f0cf3...`.
+> Syntax PASS, synthetic terrain
+> 6/6 PASS, legacy and 220/232
+> cold-start contracts 6/6 PASS.
+> Four-world **3-frame CUDA
+> off-course FLAT scalar rewards
+> match bitwise**, 232 actor
+> observations satisfy strict
+> numerical gate (no printed
+> difference). The NEXT 10mm
+> active collision probe DID NOT
+> run because its test harness
+> called MJX Data.`_replace`
+> instead of .`replace`.
+> That API error has NOW BEEN
+> FIXED ON THE FEATURE BRANCH,
+> but no post-fix WSL run yet.
+> Flat reward parity report
+> is now saved before active-box
+> probe; teleport-only slip
+> fixed; active collision requires
+> REAL foot/box geometry-pair
+> evidence and logs top/riser
+> fractions. Re-run ONLY
 > `bash scripts/run_v5018_p1_terrain_acceptance.sh`
-> and
+> and review fresh archive.
+>
+> Viewer source also includes
+> selectable eight-station physical
+> box/log obstacle course on the
+> existing exact 4m circle,
+> bright step-height signs, arena
+> camera, and Random / Challenge
+> circuit sequential waypoints.
+> It reuses the standard actor
+> and background planner. Its
+> Node tests, pinned WASM
+> physical collisions and
+> production browser build
+> are **STILL awaiting WSL**:
 > `bash scripts/run_v5018_viewer_course_acceptance.sh`.
-> Review archives; only then
-> claim actual P1 GPU parity
-> and browser WASM success.
-> Live browser can poll
-> COMPLETED validated training
-> checkpoint policies, not
-> GPU frame-by-frame mirroring.
-> The challenge circuit is a
-> DEMO, not the strict exam;
-> no terrain NN learning
-> started or schema frozen.
-> Never modify main, showcase,
-> public Pages or ongoing
-> training without approval.
+> Local `emu viewer --live`
+> observes completed validated
+> checkpoint replay, NOT every
+> live MJX GPU simulation frame.
+> The circuit is an informal demo,
+> not strict world-fixed crossing.
+>
+> Do not freeze a new 312-input
+> actor or start major terrain
+> PPO until dynamic motor load,
+> true sensor occlusion/latency
+> and full CPU–MJX–WASM six-servo
+> equivalence pass. Keep docs and
+> handover refreshed when
+> the next archive arrives.
