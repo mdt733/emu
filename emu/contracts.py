@@ -166,6 +166,7 @@ TASK_PARAM_FIELDS: tuple[tuple[str, float], ...] = (
     ("frontier_combo_radius", 1.0),
     ("frontier_transition_hold_s", 0.90),
     ("frontier_ramp_steps", 4.0),
+    ("frontier_terrain_height_m", 0.003),
     ("probe_cmd_vx", float("nan")),
     ("probe_cmd_vy", float("nan")),
     ("probe_cmd_yaw", float("nan")),
