@@ -1602,6 +1602,7 @@ class EmuMJXEnv(TaskSampler):
                 # These are PER-EPISODE outcomes emitted at terminal, not
                 # repeated frame scores or opportunistic reward signals.
                 'terrain_edge_crossing': (done.astype(jnp.float32) *
+                                          (1. - terminal_fail.astype(jnp.float32)) *
                                           metrics['terrain_edge_mask'] *
                                           ep_terrain_crossed * ep_terrain_contacted),
                 'terrain_edge_fell': (terminal_fail.astype(jnp.float32) * metrics['terrain_edge_mask']),
