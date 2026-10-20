@@ -68,10 +68,28 @@ export function generateChallengeCourse({tierMm=10,logs=false,
       },
     });
   }
-  return {tierMm,logs:Boolean(logs),radius,count,stations,
-          // A visible continuous circular set of route targets:
-          // approach -> OVER obstacle -> follow the curved ring segment.
-          waypoints:stations.flatMap(s=>[s.entry,s.exit,s.arc])};
+  // The actual AUTONOMOUS GOALS belong halfway between each pair of
+  // obstacles, not on an obstacle, just before it, or on its far side.
+  // Keep the original anticlockwise station order and tangent headings.
+  // A via pose at each obstacle is a ROUTE SHAPING CONTROL POINT only:
+  // the navigator still stops/advances solely at these 8 gap waypoints.
+  const waypoints=stations.map((station,i)=>{
+    const gapAngle=2*Math.PI*(i+.5)/count;
+    const next=(i+1)%count;
+    return {
+      x:fmt(radius*Math.cos(gapAngle)),
+      y:fmt(radius*Math.sin(gapAngle)),
+      heading:gapAngle+Math.PI/2,
+      station:i,phase:'between',
+      label:`Between obstacles ${i+1} and ${next+1}`,
+      // The previous gap -> this gap crosses obstacle i. Its centre
+      // and original CCW heading guide the normal lattice planner;
+      // it is NOT an intermediate parking obligation.
+      via:{x:station.x,y:station.y,heading:station.yawRad,
+           station:i,kind:station.kind},
+    };
+  });
+  return {tierMm,logs:Boolean(logs),radius,count,stations,waypoints};
 }
 export function challengeCourseXml(course,{groundHeightAt=()=>0}={}){
   if(!course||!Array.isArray(course.stations))
