@@ -7,6 +7,7 @@ import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
 import { visibleChallengeLabel } from './challenge-course.js';
+import { defaultDemoModeForTerrain, waypointsForDemoMode } from './demo-mode.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -69,13 +70,17 @@ function syncGoalMode() {
   navigator.active=enabled;
   // Always reset the target sequence after terrain change, actor swap,
   // fall/reset or manual handoff. No stale route may cross removed terrain.
-  const circuit=demoMode.value==='circuit'
-    ? sim?.navigationChallengeCourse()?.waypoints||null : null;
+  // Never let a missing course silently resurrect the old RANDOM
+  // target worker while the UI claims we're following the circuit.
+  const circuit=sim
+    ? waypointsForDemoMode(demoMode.value,sim.navigationChallengeCourse())
+    : null;
   navigator.setCircuitWaypoints(circuit);
+  sim?.setChallengeCircuitOverlay(circuit);
   $('demoRouteNote').textContent = circuit
     ? 'Approach → cross each obstacle in order. Route progress is a DEMO, not a certified crossing score.'
     : 'Random pose targets within the arena. Steering uses the existing neural policy.';
-  $('navNext').textContent=circuit?'Next waypoint':'New destination';
+  $('navNext').textContent=circuit?'Next circuit waypoint':'New random destination';
   navCommandClock=Infinity;
   navCommandUpdates=0;
   navLastCommand={vx:0,vy:0,yaw:0};
@@ -130,6 +135,8 @@ function navigationUpdate(dt) {
     ? `CIRCUIT · ${state.goal.label}`
     : `TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
+  if(state.circuit) $('navHudInfo').textContent+=
+    ` · circuit waypoint ${state.circuitNextIndex||state.circuitLength}/${state.circuitLength}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
   $('navEstimate').textContent=state.plannerError
@@ -370,8 +377,9 @@ cameraBtn.addEventListener('click', () => {
 function displayCourseControls() {
   const isCourse=terrainMode.value==='course';
   $('challengeControls').hidden=!isCourse;
-  $('parkSlopeControls').hidden=terrainMode.value!=='park';
-  treesToggle.closest('label').hidden=terrainMode.value!=='park';
+  const parkScenery=terrainMode.value==='park'||isCourse;
+  $('parkSlopeControls').hidden=!parkScenery;
+  treesToggle.closest('label').hidden=!parkScenery;
   if(isCourse){
     $('challengeDescription').textContent=
       visibleChallengeLabel(sim?.navigationChallengeCourse()||{
@@ -381,7 +389,7 @@ function displayCourseControls() {
 }
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
-  treesToggle.disabled = terrainMode.value!=='park';
+  treesToggle.disabled = terrainMode.value!=='park'&&terrainMode.value!=='course';
   if(terrainMode.value!=='course' && demoMode.value==='circuit')
     demoMode.value='random'; // circuit has physical checkpoints only in course
   displayCourseControls();
@@ -406,7 +414,13 @@ function updateTerrain() {
     setStatus(`Terrain unavailable: ${err.message}`,'error');
   }
 }
-terrainMode.addEventListener('change',updateTerrain);
+terrainMode.addEventListener('change',()=>{
+  // Selecting a new terrain is an explicit request for its *corresponding*
+  // demonstration. Previously switching to Challenge ring silently kept
+  // random targets, making the circuit appear completely broken.
+  demoMode.value=defaultDemoModeForTerrain(terrainMode.value);
+  updateTerrain();
+});
 terrainMax.addEventListener('change',updateTerrain);
 challengeTier.addEventListener('change',()=>{
   if(sim)try{
