@@ -9,6 +9,7 @@ import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
+import {generateChallengeCourse} from './challenge-course.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -78,6 +79,7 @@ export class EmuBrowserSim {
     this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
+    this.course = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
@@ -110,6 +112,8 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.parkTreesEnabled = true;
+    this.challengeTierMm = 10; // opt-in viewer tier, NOT a trained capability rating
+    this.challengeLogs = false;
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
@@ -245,6 +249,7 @@ export class EmuBrowserSim {
       this.treeCrowns = null;
     }
     this.park = null;
+    this.course = null;
     // Terrain geometry moved; rebuild guide heights on the next nav tick.
     this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
@@ -306,7 +311,7 @@ export class EmuBrowserSim {
   }
 
   setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
-    if (!['flat','ramp','park'].includes(mode)) throw new Error('Unknown terrain');
+    if (!['flat','ramp','park','course'].includes(mode)) throw new Error('Unknown terrain');
     const degrees = Number(maximum);
     if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
     if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
@@ -315,6 +320,15 @@ export class EmuBrowserSim {
     this.loadModel(); // rebuilds only browser MuJoCo contacts
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setChallengeOptions(tierMm=this.challengeTierMm,logs=this.challengeLogs){
+    const tier=Number(tierMm);
+    if(![0,5,10,15,20].includes(tier))throw new Error('Unknown challenge difficulty');
+    const enabled=Boolean(logs);
+    if(tier===this.challengeTierMm&&enabled===this.challengeLogs)return;
+    this.challengeTierMm=tier;this.challengeLogs=enabled;
+    if(this.terrainMode==='course')this.loadModel(); // MuJoCo collision rebuilt
+  }
+  navigationChallengeCourse(){return this.terrainMode==='course'?this.course:null;}
   setTreesEnabled(enabled) {
     const next=Boolean(enabled);
     if (next===this.parkTreesEnabled) return;
@@ -345,7 +359,11 @@ export class EmuBrowserSim {
     this.park = this.terrainMode==='park'
       ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
       : null;
-    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park});
+    this.course = this.terrainMode==='course'
+      ? generateChallengeCourse({
+          tierMm:this.challengeTierMm,logs:this.challengeLogs}) : null;
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,
+                            {park:this.park,course:this.course});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
