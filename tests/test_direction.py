@@ -990,7 +990,12 @@ def test_v5018_step_pilot_xml_yaw_and_declared_height(tmp_path):
             root=ET.parse(path).getroot()
             obstacle=root.find(".//geom[@name='v5018_obstacle_step']")
             assert obstacle is not None
-            assert float(obstacle.attrib['euler'].split()[2]) == yaw
+            if yaw == 0.:
+                # Same literal course geometry as the original successful
+                # shallow-step pilot; avoid zero-Euler hash drift.
+                assert 'euler' not in obstacle.attrib
+            else:
+                assert float(obstacle.attrib['euler'].split()[2]) == yaw
             assert float(obstacle.attrib['size'].split()[2]) > 0
             assert float(obstacle.attrib['pos'].split()[0]) == (
                 5. if height_mm == 0 else .20)
