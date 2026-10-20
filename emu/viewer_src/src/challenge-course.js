@@ -56,10 +56,21 @@ export function generateChallengeCourse({tierMm=10,logs=false,
              label:`Approach station ${i+1}: ${name}`,station:i,phase:'entry'},
       exit:{x:fmt(cx+ux*0.47),y:fmt(cy+uy*0.47),heading:tangent,
             label:`Cross station ${i+1}: ${name}`,station:i,phase:'cross'},
+      // Keep inter-station travel around the CIRCUMFERENCE rather than
+      // allowing a single shortest-path chord to cut through the park.
+      arc:{
+        x:fmt(radius*Math.cos(a+Math.PI/count)),
+        y:fmt(radius*Math.sin(a+Math.PI/count)),
+        heading:tangent+Math.PI/count,
+        label:`Follow ring towards station ${((i+1)%count)+1}`,
+        station:i,phase:'ring',
+      },
     });
   }
   return {tierMm,logs:Boolean(logs),radius,count,stations,
-          waypoints:stations.flatMap(s=>[s.entry,s.exit])};
+          // A visible continuous circular set of route targets:
+          // approach -> OVER obstacle -> follow the curved ring segment.
+          waypoints:stations.flatMap(s=>[s.entry,s.exit,s.arc])};
 }
 export function challengeCourseXml(course,{groundHeightAt=()=>0}={}){
   if(!course||!Array.isArray(course.stations))
