@@ -53,7 +53,7 @@ def summarise_trace(trace, *, horizon, worlds):
         records.append({
             'world':int(w),'frames_to_first_terminal':valid,
             'terminal_before_horizon':bool(first_reset.size),
-            'actual_box_contact_frames':int(np.count_nonzero(br)),
+            'actual_box_contact_world_frames':int(np.count_nonzero(np.any(br,axis=-1))),
             'actual_box_foot_contact_frames':int(np.count_nonzero(br)),
             'box_contact_onsets':int(np.count_nonzero(onset[:valid,w])),
             'terrain_active_frames':int(np.count_nonzero(active>.5)),
@@ -176,7 +176,7 @@ def main():
             traces[mode]=arr
             report[mode]={'worlds':summary}
             print(f'P1 dynamic {mode}: contact frames',
-                  [q['actual_box_contact_frames'] for q in summary],
+                  [q['actual_box_contact_world_frames'] for q in summary],
                   'top',[q['top_normal_contact_frames'] for q in summary],
                   'riser',[q['riser_normal_contact_frames'] for q in summary],
                   flush=True)
