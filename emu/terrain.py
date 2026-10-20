@@ -261,7 +261,7 @@ def collidable_course(robot_source, dest, height_mm: int, *, yaw_deg: float = 0.
     from pathlib import Path
     import xml.etree.ElementTree as ET
 
-    if type(height_mm) is not int or height_mm not in (0, 5, 10, 15, 20, 30, 40, 60, 80, 100, 120, 150):
+    if type(height_mm) is not int or height_mm not in (0, 5, 10, 15, 20, 30, 40, 50, 60, 80, 100, 120, 150):
         raise ValueError('exam height must be a declared 0..150mm real step')
     if not math.isfinite(yaw_deg) or abs(yaw_deg) > 35:
         raise ValueError('bounded step yaw is -35 through +35 degrees')
