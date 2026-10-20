@@ -256,7 +256,7 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20],required=True)
+    p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20,30,40,60,80,100,120,150],required=True)
     p.add_argument('--policy',type=Path,default=None,
                    help='optional independent 232-input .emupolicy; default protected 260M frozen champion')
     p.add_argument('--step-yaw-deg',type=float,default=0.)
