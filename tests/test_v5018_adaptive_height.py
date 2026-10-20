@@ -100,7 +100,7 @@ def test_two_world_mjx_birth_positions_are_independent(tmp_path):
     h = np.asarray(jax.device_get(state.task[:, T.terrain_height_m]))
     pos = np.asarray(jax.device_get(state.data.mocap_pos[:, env.terrain_mocap_id, :]))
     assert np.allclose(pos[:, 2], h)
-    assert np.all(pos[:, 0] == np.where(h > 0., .20, 5.))
+    assert np.allclose(pos[:, 0], np.where(h > 0., .20, 5.), rtol=0., atol=1e-6)
     gtop = np.asarray(jax.device_get(state.data.geom_xpos[:, env.terrain_box_geom_id, 2]))
     gtop = gtop + TERRAIN_BOX_HALF_HEIGHT_M
     assert np.allclose(gtop, h, atol=1e-5)
