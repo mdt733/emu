@@ -2242,6 +2242,10 @@ class EmuMJXEnv(TaskSampler):
                     terrain_truth['foot_top_contact_candidate'].astype(jnp.float32),axis=1),
                 'terrain_riser_contact_fraction':jnp.mean(
                     terrain_truth['foot_riser_contact'].astype(jnp.float32),axis=1),
+                # Actual sphere-foot/box collision-pair incidence, not mere
+                # torso proximity or a positive-distance MJX candidate.
+                'terrain_box_foot_contact_any':terrain_truth[
+                    'box_contact_any'].astype(jnp.float32),
                 'terrain_floor_contact_fraction':jnp.mean(
                     terrain_truth['foot_floor_contact_candidate'].astype(jnp.float32),axis=1),
                 'terrain_min_signed_toe_clearance':terrain_truth['min_toe_clearance_signed'],
