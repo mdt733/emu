@@ -1,6 +1,6 @@
 // Browser-only landscape: one continuous MuJoCo heightfield for collision
 // and one matching Three.js triangle mesh for appearance. No training changes.
-import {challengeCourseXml,generateChallengeCourse} from './challenge-course.js';
+import {challengeCourseXml,generateChallengeCourse,CHALLENGE_RADIUS_M} from './challenge-course.js';
 export const GENTLE_SLOPE_DEGREES = 1;
 export const COURSE_START_X = 0.85;
 export const PARK_FLAT_RADIUS_M = 2;
@@ -50,7 +50,7 @@ export function parkHeight(x,y,maximum=PARK_MAX_DEGREES,seed=733) {
 // spawn flat and preventing cliffs between radial difficulty bands.
 export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
                                      radius=PARK_RADIUS_M,resolution=PARK_GRID,
-                                     trees=true}={}) {
+                                     trees=true,challengeRing=false}={}) {
   if(!Number.isFinite(maxDegrees)||maxDegrees<1||maxDegrees>20)
     throw new Error('Terrain maximum must be 1–20 degrees');
   if(!Number.isInteger(resolution)||resolution<17||resolution>257||resolution%2!==1)
@@ -59,8 +59,20 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
   const heights=new Float32Array(resolution*resolution);
   const index=(i,j)=>j*resolution+i;
   const pos=t=>-radius+t*cell;
-  for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++)
-    heights[index(i,j)]=parkHeight(pos(i),pos(j),maxDegrees,seed);
+  for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++){
+    const x=pos(i),y=pos(j);
+    let height=parkHeight(x,y,maxDegrees,seed);
+    if(challengeRing){
+      // A flat, gently feathered ring is essential: otherwise a 5mm
+      // obstacle can be buried under 30mm of hillside. Real MuJoCo
+      // heightfield, grass mesh and the obstacle's base all use this
+      // same terrain. Keep the hills everywhere outside the corridor.
+      const fromRing=Math.abs(Math.hypot(x,y)-CHALLENGE_RADIUS_M);
+      const landscapeBlend=smoothstep((fromRing-.60)/.82);
+      height*=landscapeBlend;
+    }
+    heights[index(i,j)]=height;
+  }
 
   // Repeated one-sided projection: lower high spots until every grid edge
   // respects a conservative local gradient bound, including diagonals.
@@ -101,6 +113,9 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
       const direction=random()*Math.PI*2;
       const distance=3.5+Math.sqrt(random())*(radius-4.15);
       const x=Math.cos(direction)*distance,y=Math.sin(direction)*distance;
+      // Preserve the forest, but don't plant trunks on the lesson track
+      // or where the robot approaches/lands beside a shallow step.
+      if(challengeRing && Math.abs(distance-CHALLENGE_RADIUS_M)<1.08)continue;
       if(treeList.some(t=>Math.hypot(x-t.x,y-t.y)<1.55))continue;
       const trunkHeight=1.05+random()*0.85;
       treeList.push({x,y,z:sampleHeight(x,y),trunkHeight,
@@ -110,7 +125,7 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
     }
   }
   return {radius,resolution,cell,heights,maxHeight:maximum,trees:treeList,sampleHeight,
-          maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
+          maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed,challengeRing};
 }
 
 function parkXml(park) {
@@ -138,23 +153,23 @@ export function withTerrain(robotXml,mode='flat',options={}) {
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
-  if(mode==='course'){
-    // Collision is genuine browser MuJoCo worldbody geoms, not an overlay.
-    // Leave the original flat plane and robot physical XML intact.
-    const course=options.course||generateChallengeCourse(options);
-    return robotXml.replace('</worldbody>',
-                            challengeCourseXml(course)+'\n</worldbody>');
-  }
-  if(mode!=='park')throw new Error('Unknown terrain mode');
-  const park=options.park||generateTerrainPark(options);
+  if(mode!=='park'&&mode!=='course')throw new Error('Unknown terrain mode');
+  // Challenge mode is the PARK plus actual collidable obstacle geometry,
+  // not a replacement for the forest/grass. The park owns all ground
+  // collision, and the original plane is removed exactly once.
+  const course=mode==='course'
+    ? options.course||generateChallengeCourse(options) : null;
+  const park=options.park||generateTerrainPark({
+    ...options,challengeRing:mode==='course'});
   const {asset,geometry}=parkXml(park);
+  const challenge=course?challengeCourseXml(course,{groundHeightAt:park.sampleHeight}):'';
   // The source floor must not overlap the hfield at the spawn point: that
   // would double contacts and compromise the 120M actor's apparent walking.
   let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
   if(xml===robotXml)throw new Error('Expected the named MuJoCo floor plane');
   if(xml.includes('</asset>'))xml=xml.replace('</asset>',asset+'\n</asset>');
   else xml=xml.replace('<worldbody>','<asset>'+asset+'</asset>\n<worldbody>');
-  return xml.replace('</worldbody>',geometry+'\n</worldbody>');
+  return xml.replace('</worldbody>',geometry+(challenge?'\n'+challenge:'')+'\n</worldbody>');
 }
 export const withGentleCourse=xml=>withTerrain(xml,'ramp');
 
@@ -166,7 +181,7 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
   if (![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
-  if(mode==='park') {
+  if(mode==='park'||mode==='course') {
     if(!park||Math.abs(x)>=park.radius||Math.abs(y)>=park.radius)
       return {supported:false,degrees:0,arrowDegrees:0};
     const delta=Math.max(park.cell*0.5,0.05);
@@ -180,7 +195,7 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
       gx=Math.tan(Math.PI/180);
     else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
       gx=-Math.tan(Math.PI/180);
-  } else if(mode!=='flat'&&mode!=='course')
+  } else if(mode!=='flat')
     throw new Error('Unknown terrain mode');
   const grade=Math.hypot(gx,gy);
   const degrees=Math.atan(grade)*180/Math.PI;
