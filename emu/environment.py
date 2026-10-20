@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
-from .terrain import box_surface_truth
+from .terrain import box_surface_truth, adaptive_height_sample
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
@@ -300,6 +300,7 @@ TASK_FIELDS = (
     "athletic_rehearsal",  # teacher-only full-envelope rehearsal tag
     "sensor_scale",        # observation corruption scale; never an actor channel
     "field_taught",        # teacher-only provenance; never actor/reward input
+    "terrain_height_m",    # measured physical obstacle lesson; NEVER actor input
 )
 T = SimpleNamespace(**{name: i for i, name in enumerate(TASK_FIELDS)})
 TASK_DIM = len(TASK_FIELDS)
@@ -449,7 +450,7 @@ class TaskSampler:
             # sharing one across quantities.
             # Keep split arity stable so deleting a dead task feature does not
             # reshuffle unrelated stochastic streams under the same seed.
-            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, _reserved, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
+            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, k_terrain, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
             u = jax.random.uniform(k_regime, ())
             regime = jnp.sum(u > regime_cdf).astype(jnp.float32)
             # Full-envelope rehearsal preserves the proven athletic distribution
@@ -566,9 +567,19 @@ class TaskSampler:
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
             vy = jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], vy)
             yaw = jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], yaw)
+            obstacle_height = (adaptive_height_sample(
+                jnp, params[P.frontier_terrain_height_m],
+                jax.random.uniform(k_terrain, ()),
+                jax.random.uniform(jax.random.fold_in(k_terrain, 5018), ()),
+                exposure=self.terrain_height_exposure,
+                edge_fraction=self.terrain_height_edge_fraction)
+                if self.terrain_adaptive else jnp.asarray(0., dtype=jnp.float32))
+            # Preserve flat rehearsal across all command regimes.
+            obstacle_height = jnp.where(is_athletic, 0., obstacle_height)
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
                     steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
-                    is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32)]
+                    is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32),
+                    obstacle_height]
             assert len(cols) == TASK_DIM, f"task vector has {len(cols)} columns, TASK_DIM says {TASK_DIM}"
             return jnp.asarray(cols, dtype=jnp.float32)
         return jax.vmap(one)(keys)
@@ -1075,7 +1086,10 @@ class EmuMJXEnv(TaskSampler):
                  gyro_bias_std_rad_s: float = 0.015,
                  contact_slope_exam_limit_deg: float = 5.0,
                  terrain_contact_mode: str = 'legacy',
-                 terrain_box_geom: str = 'v5018_obstacle_step'):
+                 terrain_box_geom: str = 'v5018_obstacle_step',
+                 terrain_adaptive: bool = False,
+                 terrain_height_exposure: float = .60,
+                 terrain_height_edge_fraction: float = .35):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1179,6 +1193,16 @@ class EmuMJXEnv(TaskSampler):
         if terrain_contact_mode not in ('legacy', 'box_surface'):
             raise ValueError("terrain_contact_mode must be 'legacy' or 'box_surface'")
         self.terrain_contact_mode = terrain_contact_mode
+        self.terrain_adaptive = bool(terrain_adaptive)
+        if self.terrain_adaptive and terrain_contact_mode != 'box_surface':
+            raise ValueError('adaptive step height requires real box-surface physics')
+        self.terrain_height_exposure = float(terrain_height_exposure)
+        self.terrain_height_edge_fraction = float(terrain_height_edge_fraction)
+        self.terrain_height_initial_m_for_edge = .003
+        if not (.05 <= self.terrain_height_exposure <= .95 and
+                .05 <= self.terrain_height_edge_fraction <= .95):
+            raise ValueError('invalid adaptive terrain birth distribution')
+        self.terrain_mocap_id = -1
         self.terrain_box_geom_id = -1
         self.terrain_box_half_size = None
         self.terrain_foot_radius_m = None
@@ -1218,6 +1242,11 @@ class EmuMJXEnv(TaskSampler):
             if any(self.mj_model.geom_type[i] != mujoco.mjtGeom.mjGEOM_SPHERE for i in foot_ids):
                 raise ValueError('box_surface requires the real foot geoms to be spheres')
             self.terrain_box_geom_id=int(box_id)
+            if self.terrain_adaptive:
+                bodyid = int(self.mj_model.geom_bodyid[box_id])
+                self.terrain_mocap_id = int(self.mj_model.body_mocapid[bodyid])
+                if self.terrain_mocap_id < 0 or self.mj_model.nmocap != 1:
+                    raise ValueError('adaptive terrain requires one mocap obstacle body')
             self.terrain_box_half_size=jnp.asarray(
                 self.mj_model.geom_size[box_id],dtype=jnp.float32)
             self.terrain_foot_radius_m=float(radii[0])
@@ -1532,6 +1561,12 @@ class EmuMJXEnv(TaskSampler):
             'episode_length': ep_len,
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
+            **({} if not self.terrain_adaptive else {
+                'terrain_edge_fell': (terminal_fail.astype(jnp.float32) * metrics['terrain_edge_mask']),
+                'terrain_edge_done': (done.astype(jnp.float32) * metrics['terrain_edge_mask']),
+                'terrain_edge_contact': (metrics['terrain_box_foot_contact_any'] *
+                                          metrics['terrain_edge_mask']),
+            }),
             'episode_timeout': timeout.astype(jnp.float32),
             'episode_vx_mean': ep_vx_sum / denom,
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
@@ -1791,6 +1826,13 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
+        if self.terrain_adaptive:
+            # MJX contact geometry follows data.mocap_pos without mutating
+            # model geom sizes, solver topology, or other worlds. Never move
+            # the obstacle MID-episode: this occurs only at spawn/reset.
+            h = task[:, T.terrain_height_m]
+            origin = jnp.stack([jnp.where(h > 0., .20, 5.), jnp.zeros_like(h), h], axis=1)
+            data = data.replace(mocap_pos=data.mocap_pos.at[:, self.terrain_mocap_id, :].set(origin))
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
@@ -2094,6 +2136,17 @@ class EmuMJXEnv(TaskSampler):
                             terrain_truth['torso_over_box_footprint'] |
                             terrain_truth['box_contact_any'])
             # Privileged reward/diagnostic heights only, NEVER _base_obs().
+            # A measurable edge task counts only worlds born with a physical
+            # step near their earned ceiling. We do NOT treat a skim of the
+            # obstacle as a completed step crossing.
+            edge = ((task[:, T.terrain_height_m] > 0.) &
+                    (task[:, T.terrain_height_m] >= .70 *
+                     jnp.maximum(.0001, self.terrain_height_initial_m_for_edge)))
+            far = data.xpos[:, self.torso_id, 0] >= .42
+            feet_far = jnp.all(foot_pos[:, :, 0] >= .28, axis=1)
+            supported = terrain_truth['support_fraction'] >= .25
+            upright = -projected_gravity[:, 2] >= .8
+            terrain_edge_crossing = (edge & far & feet_far & supported & upright)
             height=jnp.where(terrain_active,terrain_truth['torso_height'],height)
             foot_ground_distance=jnp.where(
                 terrain_active[:,None],terrain_truth['foot_center_signed'],
@@ -2202,6 +2255,7 @@ class EmuMJXEnv(TaskSampler):
             'regime_transition': jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5).astype(jnp.float32),
             'regime_resilience': (task[:, T.regime] > 1.5).astype(jnp.float32),
             'athletic_rehearsal': task[:, T.athletic_rehearsal],
+            'terrain_height_birth_m': task[:, T.terrain_height_m],
             'field_taught': task[:, T.field_taught],
             'regime_steady_frontier': jnp.logical_and(task[:, T.regime] < 0.5, task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
             'regime_transition_frontier': jnp.logical_and(jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5), task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
@@ -2236,6 +2290,8 @@ class EmuMJXEnv(TaskSampler):
             'scissor_pressure': scissor,
             **({} if terrain_truth is None else {
                 'terrain_geometry_active':terrain_active.astype(jnp.float32),
+                'terrain_edge_mask':edge.astype(jnp.float32),
+                'terrain_edge_crossing':terrain_edge_crossing.astype(jnp.float32),
                 'terrain_support_reference_elevation_m':terrain_truth[
                     'support_reference_elevation_m'],
                 'terrain_top_contact_fraction':jnp.mean(
