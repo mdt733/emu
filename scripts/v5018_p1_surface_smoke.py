@@ -61,10 +61,10 @@ def main():
         terrain=EmuMJXEnv(str(flat),terrain_contact_mode='box_surface',**base)
         p0=baseline.params_array({})
         p1=terrain.params_array({})
-        s0=baseline.reset({})
-        s1=terrain.reset({})
-        obs0=np.asarray(baseline.obs(s0))
-        obs1=np.asarray(terrain.obs(s1))
+        s0,ob0=baseline.reset({})
+        s1,ob1=terrain.reset({})
+        obs0=np.asarray(ob0)
+        obs1=np.asarray(ob1)
         if not np.array_equal(obs0,obs1):
             raise RuntimeError('box off-course changed initial deployable actor observation')
         assert baseline.obs_dim==terrain.obs_dim==232
@@ -98,7 +98,7 @@ def main():
         step=collidable_course(Path(ROBOT_XML),Path(tmp)/'step.xml',10)
         challenge=EmuMJXEnv(str(step),terrain_contact_mode='box_surface',**base)
         params=challenge.params_array({})
-        state=challenge.reset({})
+        state,_=challenge.reset({})
         q=state.data.qpos
         # Shift base horizontally above box. This is a PROBE fixture only:
         # not a valid gait, not a reported policy movement or PPO action.
