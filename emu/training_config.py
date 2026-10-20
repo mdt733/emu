@@ -179,6 +179,7 @@ class TrainingConfig:
     terrain_box_height_mm: int = -1
     # Opt-in maximum of continuous per-episode step heights; off by default.
     terrain_height_safety_m: float = 0.0
+    terrain_adaptive_flat_control: bool = False
     terrain_height_initial_m: float = 0.003
     terrain_height_exposure: float = 0.60
     terrain_height_edge_fraction: float = 0.35
@@ -238,6 +239,7 @@ class TrainingConfig:
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
                     'terrain_box_height_mm', 'terrain_height_safety_m',
+                    'terrain_adaptive_flat_control',
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
                     'terrain_progress_weight'}
@@ -253,7 +255,8 @@ class TrainingConfig:
 IMMUTABLE_RUN_FIELDS = frozenset({
     'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
     'terrain_box_height_mm', 'terrain_height_safety_m', 'terrain_height_initial_m',
-    'terrain_height_exposure', 'terrain_height_edge_fraction', 'terrain_height_growth_m',
+    'terrain_adaptive_flat_control', 'terrain_height_exposure',
+    'terrain_height_edge_fraction', 'terrain_height_growth_m',
     'terrain_progress_weight',
 })
 
