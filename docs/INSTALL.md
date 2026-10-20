@@ -6,6 +6,75 @@
 > v5018 terrain training. See [v5018 handover](V5018_HANDOVER.md) and the
 > [one living status/checklist](V5018_TERRAIN_PLAN.md).
 
+## v5018 current Challenge Ring rebuild — 20 Oct evening (not yet WSL-accepted)
+
+The user refined the viewer demonstration to **one
+waypoint exactly halfway between each pair of
+physical obstacles**, visited in order around
+the 4m circle **anticlockwise**. The existing
+GoalNavigator and pose-lattice Worker still
+produce all motion commands; obstacle centres
+are used only as intermediate ROUTE shaping
+points, never additional stopping/arrival goals.
+
+The ring now retains 17 trees and the seeded
+real uneven 4m park hfield **without flattening
+an annulus**. Each challenge sits at its locally
+sampled physical ground Z. Obstacles are **80cm
+wide** (twice the original full width),
+have yaw offsets of up to 25°, and mix sharp
+steps, short step-up/long gentle ramp-down,
+reversed ramp-up/sharp step-down, and
+half-buried capsule logs (experimental).
+Mixed heights are capped by the selected
+5/10/15/20mm tier; logs are toggleable.
+
+**These are newly committed feature-branch
+source changes and NOT yet verified by
+this user's browser or pinned MuJoCo/WASM.**
+Previous viewer success applied to earlier
+source, not this mixed 8-gap course.
+
+On the approved feature branch, run:
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+
+# Node + real browser MuJoCo/WASM uneven hfield/ramp/log
+# collision tests, Vite production build and local installation.
+bash scripts/run_v5018_viewer_course_acceptance.sh
+
+# If all stages pass, serve the read-only 260M reference policy.
+emu viewer showcase/champion.emupolicy --no-open
+```
+
+Open `http://127.0.0.1:8765/` on Windows,
+use **Ctrl+Shift+R** to bypass any old
+browser bundle, select **Park + challenge ring**,
+verify Demo route automatically says
+**Challenge circuit** rather than Random,
+and watch the teal line go through
+each obstacle between the eight
+mid-gap destination waypoints.
+Obstacle yaw varies, but the robot's
+intended course direction does not.
+Manual joysticks remain available.
+Note any actual slips, missed obstacle
+crossings, visual offsets or freezes;
+the headless test alone cannot certify
+full biped locomotion.
+
+The acceptance script saves a timestamped
+`~/robot_lab/emu_exams/v5018_viewer_course_*.tar.gz`;
+upload that complete archive when asking
+for debugging. No edit to `main`,
+public Pages, champion policy or
+ongoing GPU jobs is required.
+The from-scratch training path stays
+independent of trained reference weights.
+
 ## A genuinely blank Ubuntu WSL2 (one copy/paste block)
 
 EMU has **two runtimes**: Python 3.13+ + JAX CUDA + MuJoCo/MJX for
