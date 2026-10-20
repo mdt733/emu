@@ -5,7 +5,7 @@ import {CHALLENGE_RADIUS_M,CHALLENGE_PALETTE,
   generateChallengeCourse,challengeCourseXml,visibleChallengeLabel
 } from '../src/challenge-course.js';
 import {withTerrain,surfaceSlope} from '../src/terrain.js';
-import {ARENA_RADIUS_M,GoalNavigator} from '../src/goal-navigation.js';
+import {ARENA_RADIUS_M,GoalNavigator,planPoseRoute} from '../src/goal-navigation.js';
 
 const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 0.05" /></worldbody></mujoco>';
 const near=(a,b,tol=1e-6)=>assert.ok(Math.abs(a-b)<=tol, `${a} != ${b}`);
@@ -61,6 +61,29 @@ test('step boxes and experimental capsule logs are physical worldbody MuJoCo geo
   assert.match(withTerrain(xml,'ramp'),/viewer_ramp_up/);
   assert.equal(surfaceSlope('course',null,0,0).flat,true);
 });
+test('real pose lattice routes actually cut across each collidable challenge footprint',()=>{
+  const course=generateChallengeCourse({tierMm:20,logs:true});
+  const limits={vx_min:-.2,vx_max:.6,vy_abs:.2,yaw_abs:1.5};
+  for(const s of course.stations){
+    const route=planPoseRoute(s.entry,s.exit,limits,[],{maxNodes:6500});
+    assert.ok(route?.solved,'unsolved circuit crossing for station '+s.index);
+    const points=[s.entry,...route.steps];
+    let touchesFootprint=false;
+    for(let i=1;i<points.length;i++){
+      for(let sub=0;sub<=20;sub++){
+        const fraction=sub/20;
+        const x=points[i-1].x+(points[i].x-points[i-1].x)*fraction;
+        const y=points[i-1].y+(points[i].y-points[i-1].y)*fraction;
+        const dx=x-s.x,dy=y-s.y;
+        const localX=Math.cos(s.yawRad)*dx+Math.sin(s.yawRad)*dy;
+        const localY=-Math.sin(s.yawRad)*dx+Math.cos(s.yawRad)*dy;
+        if(Math.abs(localX)<.039&&Math.abs(localY)<.195)touchesFootprint=true;
+      }
+    }
+    assert.ok(touchesFootprint,'planner detoured AROUND rather than OVER station '+s.index);
+  }
+});
+
 test('circuit demo requests fixed targets from worker, without random substitutions',async()=>{
   const navigator=new GoalNavigator();
   const course=generateChallengeCourse({tierMm:10});
