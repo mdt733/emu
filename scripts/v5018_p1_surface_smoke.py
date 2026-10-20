@@ -208,6 +208,8 @@ def main():
         report['riser_contact_fraction_per_world']=riser.tolist()
         report['terrain_support_fraction_per_world']=np.asarray(
             m['support']).tolist()
+        report['terrain_support_reference_elevation_m_per_world']=np.asarray(
+            m['terrain_support_reference_elevation_m']).tolist()
         report['terrain_stance_slip_per_world']=np.asarray(
             m['stance_slip']).tolist()
         report['terrain_signed_min_toe_gap_per_world']=np.asarray(
