@@ -51,6 +51,25 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
+def terrain_progress_payment(metrics, *, xp, weight: float):
+    """Bounded opt-in reward-only forward progress across a real obstacle.
+
+    Only pays actual positive world-X displacement while a physical step
+    episode is active, supported and upright. No oracle height/distance is
+    written into actor observations. This is coaching, NOT course success.
+    """
+    if weight <= 0.:
+        return xp.zeros_like(metrics['terminal'])
+    dx = xp.clip(metrics['terrain_forward_delta_m'], 0., .012)
+    eligible = ((metrics['terrain_height_birth_m'] > 0.) &
+                (metrics['terrain_course_x'] >= -.05) &
+                (metrics['terrain_course_x'] <= .42) &
+                (metrics['support'] >= .25) &
+                (metrics['gravity_z'] > .80) &
+                (metrics['terminal'] < .5))
+    return weight * xp.clip(dx / .012, 0., 1.) * eligible.astype(dx.dtype)
+
+
 def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
