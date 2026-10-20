@@ -173,6 +173,11 @@ class TrainingConfig:
     # The historical tilted-gravity terrain randomizer remains separate.
     contact_slope_deg: float = 0.0
 
+    # v5018 isolated physical-box research only. -1 = historical exact
+    # robot.xml; 0 = same box off-course; 5/10 = real low step in path.
+    # Never silently substitute browser demonstration geoms for GPU lessons.
+    terrain_box_height_mm: int = -1
+
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
     pitch_command_max_deg: float = 8.0214
@@ -224,7 +229,8 @@ class TrainingConfig:
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode', 'observation_schema'}
+                    'domain_terrain_mode', 'observation_schema',
+                    'terrain_box_height_mm'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -236,6 +242,7 @@ class TrainingConfig:
 # normalisation) are otherwise modifiable via TrainingConfig fields.
 IMMUTABLE_RUN_FIELDS = frozenset({
     'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
+    'terrain_box_height_mm',
 })
 
 
