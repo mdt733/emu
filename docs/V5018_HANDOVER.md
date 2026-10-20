@@ -1055,6 +1055,118 @@ remain unchanged.
 Detailed canonical status:
 `docs/V5018_TERRAIN_PLAN.md`.
 
+## 20 Oct 18:18–18:19 — BOTH LATEST USER ARCHIVES VERIFIED
+
+**This supersedes the older 15:44 P1 and 16/17 Node-failure
+reports below.** Both independent acceptance suites have NOW
+RUN on WSL and PASSED at test source commit
+`f01507344589ee22f54f5ca6d1588b7e6582ae76`
+on `feature/v5018-terrain-awareness`.
+No main, public showcase/Pages or champion changes.
+
+**P1 GPU actual archive:**
+`v5018_p1_deep_20261020_181914.tar.gz`
+(RTX4060Ti/JAX0.12/MuJoCo3.16/Python3.13).
+**5/5 stage PASS**:
+- syntax PASS; **11/11** adversarial contact tests PASS;
+  **2/2** trace/reset accounting tests PASS;
+  exact three-frame 232-actor and scalar-reward
+  FLAT parity still zero difference and four
+  controlled 10mm contact candidate checks PASS;
+- frozen REAL MOVING actor 240 frames, 4 GPU
+  worlds at 0.10m/s, same seed 1701/policy;
+  independently ran legacy vs corrected
+  box-surface support measurements. Champion
+  `showcase/champion.emupolicy` SHA
+  `d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`;
+  no PPO training/actor updates. All worlds
+  survived the 240-frame exam;
+- OLD trace: 394 box-contact world-frames,
+  425 foot-contact frames, 59 onsets.
+  NEW: 388 world-frames, 421 foot-frames,
+  60 onsets, 396 terrain-active world-frames,
+  **116 top-normal and 272 riser-normal
+  candidate world-frames**.
+  Top/riser can overlap during one frame;
+  neither measures positive support force.
+  Mean support 0.889 old vs 0.691 new.
+  Mean swing clearance 12.47mm old vs
+  9.73mm new. Average support reference
+  elevation about 1.17mm (max 10mm).
+- **Causal caveat:** Two INDEPENDENT closed-loop
+  runs diverged. First scalar reward difference
+  frame 39; first RAW network output difference
+  frame 41; first XY difference >1mm frame 84;
+  eventual max XY displacement **7.09cm**,
+  max reward difference 1.373 and
+  693/960 world-frames reward differs.
+  Reported max `actor_action` delta **5.908**
+  is an **UNCLIPPED `mlp(pi)` mean**, not
+  applied servo action: env clips to [-1,1].
+  Crucially there were NO terminal/reset
+  events; scalar reward itself is not fed
+  into policy. This does NOT establish that
+  scoring changed actual motor behaviour;
+  independent JAX graph numerical variation
+  and feedback amplification are possible,
+  but require same-state reward and
+  clipped-command tests before attributing
+  a causal difference.
+- After reading the archive, changed
+  `scripts/v5018_p1_dynamic_reward_audit.py`
+  to clearly label closed-loop limitation
+  and report **separate clipped action
+  differences**. Those added values have
+  NOT yet been run; do NOT state a 5.9
+  delivered actuator difference.
+
+**Viewer real user archive:**
+`v5018_viewer_course_20261020_181856.tar.gz`.
+**8/8 stages PASS**:
+- 3 source syntax checks and `npm ci`;
+- **18/18 Node tests PASS**, including
+  Random/Circuit compatibility and
+  generated routes that cross all eight
+  real obstacle footprints;
+- **6/6 actual MuJoCo/WASM 3.15.0
+  headless sphere contact fixtures PASS**:
+  flat + real collidable boxes
+  5/10/15/20mm + capsule log.
+  Final sphere centre distance from
+  nominal contact at equilibrium
+  0.37mm flat and ~0.79mm on raised
+  obstacles/log; 4mm accepted tolerance.
+  Not a six-servo locomotion parity exam;
+- Vite 7.3.7 production bundle and
+  installed `emu/webviewer_dist`
+  inside local feature checkout, PASS.
+  esbuild postinstall warning and
+  737.68kB app JS chunk warning did
+  not prevent successful build.
+  **No real visual browser session,
+  real-policy complete obstacle circuit,
+  smartphone UI screenshot or --live
+  hot-swap trace was supplied**.
+  Do NOT claim those yet.
+
+**Actual next work:** Real browser screenshot/
+manual steering and looping challenge route;
+then an honest **same physical-frame**
+counterfactual that scores two reward
+systems on ONE actual moving MJX trace
+without letting independently compiled
+policy/physics rollouts drift. Follow
+with solver constraint reaction/normal
+force vs geometry-pair support, real
+step crossing examiner and physical
+sensor occlusion. 312-input terrain NN
+still uncommitted; keep true from-zero
+cold-start and small source files.
+
+**Canonical exhaustive stage/table evidence,
+uncertainties and 18:19 next-step checklist:**
+`docs/V5018_TERRAIN_PLAN.md`.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -1121,106 +1233,107 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 strictly on
+> Continue EMU v5018 ONLY on
 > `feature/v5018-terrain-awareness`
-> at https://github.com/mdt733/emu.
-> Read CURRENT branch
-> `docs/V5018_TERRAIN_PLAN.md`,
-> `docs/V5018_HANDOVER.md` and
-> `docs/INSTALL.md` first.
-> Preserve ONE living checklist
-> TERRAIN_PLAN. Never touch main,
-> the published 260M 232-input
-> champion, Pages or an active
-> training process without user
-> approval. Champion is OPTIONAL
-> for research; the full learning
-> system MUST also build from
-> random network/optimizer/
-> normalizer/curriculum without
-> ANY earlier brain or private
-> .pkl. The 220/232 contracts
-> are unchanged, terrain_312
-> remains UNDECIDED.
+> from https://github.com/mdt733/emu.
+> First read current
+> `docs/V5018_HANDOVER.md`,
+> `docs/V5018_TERRAIN_PLAN.md`
+> and `docs/INSTALL.md`.
+> TERRAIN_PLAN is the sole
+> living stage/gate checklist.
+> Protect main, public Pages,
+> protected 260M 232-input
+> showcase champion and active
+> training unless explicitly
+> approved. A fresh random
+> actor/normaliser/optimizer/
+> curriculum with no pretrained
+> brain remains MANDATORY
+> independent capability.
 >
-> Important actual P1 evidence:
-> 20 Oct 15:44 source `0f7f02b2`.
-> All FOUR P1 narrow stages PASS;
-> 3 control frames old-vs-opt-in
-> flat scalar reward + 232 actor
-> observations bitwise MATCH,
-> 6/6 original terrain tests,
-> 6/6 cold-start/reward tests,
-> and four-world forced 10mm
-> *stationary* foot/box geom
-> near-contact PASS. But top
-> fractions 1 and slip 0 came
-> from artificially placing the
-> foot 1mm INSIDE box and
-> setting previous foot position
-> equal to current. Not proof
-> of dynamic supported stepping.
-> ROOT DEFECT FOUND AFTER RUN:
-> terrain.py classified BOX TOP
-> contact from pair + foot-centre
-> XY/Z alone; a riser near
-> a step CORNER can satisfy it.
-> Further bugs: +1mm contact
-> candidates were treated as
-> support despite zero margin;
-> body-height reward followed
-> TORSO XY instead of actual
-> supporting FOOT contact.
-> New source demands true contact
-> frame NORMAL aligned with top
-> plus real contact point ON
-> the top face; adversarial
-> false-top tests and a
-> research-only moving-champion
-> read-only A/B course audit
-> were added, NOT YET RUN
-> on user GPU.
+> LATEST USER RESULT FILES
+> (BOTH REAL WSL, source commit
+> `f01507344589...`):
+> `v5018_p1_deep_20261020_181914.tar.gz`
+> **ALL 5/5 stage PASS**:
+> 11/11 adversarial support tests,
+> 2/2 trace tests,
+> 3-frame exact flat reward and
+> 232 actor-observation parity,
+> real 4-world static 10mm
+> contact, and 240-frame
+> frozen 260M **MOVING** 10mm
+> legacy-vs-box_surface A/B.
+> Actual new trace has 388
+> contact world-frames, 421
+> contact-foot frames, 60 onsets,
+> 116 top-normal candidate frames,
+> 272 riser-normal candidate frames.
+> Mean support 0.691 new vs
+> 0.889 legacy. All 4 worlds
+> survived 240 frames.
+> HOWEVER independent actor
+> trajectories diverged:
+> max XY 7.09cm, raw
+> UNCLIPPED actor network
+> mean differs up to 5.91
+> (NOT motor command!).
+> Reward difference first
+> frame 39, actor raw mean
+> difference frame 41,
+> XY >1mm frame 84.
+> Because no resets and reward
+> doesn't enter actor,
+> do NOT claim new reward
+> causes improved motor gait.
+> Same-STATE physics reward
+> counterfactual is NEXT.
 >
-> Separate viewer console at
-> 15:43 on same source:
-> syntax and npm ci PASS,
-> Node tests 16/17; 1 FAIL
-> due to old core.test
-> mistakenly FORBIDDING
-> id="demoMode" even though the
-> user explicitly wants Random
-> vs Challenge circuit modes.
-> This was corrected to assert
-> both modes + single planner
-> and actor unchanged. All 8
-> actual source-level lattice
-> station crossing paths have
-> been demonstrated in isolated
-> V8 tests to intersect real
-> obstacle footprint. NO WSL
-> WASM collision/build/browser
-> result yet: old fail-fast
-> stopped before those stages.
+> `v5018_viewer_course_20261020_181856.tar.gz`
+> **ALL 8/8 stage PASS**:
+> 18/18 Node tests,
+> physical WASM flat +
+> 5,10,15,20mm steps +
+> capsule log all 6/6 PASS,
+> Vite built successfully and
+> emu/webviewer_dist installed
+> in local feature checkout.
+> Pin MuJoCo/WASM 3.15;
+> the actual collision spheres
+> settle 0.37mm flat and
+> ~0.79mm below nominal atop
+> obstacles. NO actual human
+> browser screenshot, working
+> full robot circuit or live
+> hot-swap run is documented.
+> The original legacy viewer
+> assertion forbidding demoMode
+> has been corrected.
 >
-> NEXT RUNS after pulling current
-> feature HEAD:
-> `bash scripts/run_v5018_viewer_course_acceptance.sh`
-> and
-> `bash scripts/run_v5018_p1_deep_audit.sh`.
-> The P1 deep runner tests
-> real normal+contact point
-> semantics, flat reward parity
-> and TWO actual MOVING 260M
-> read-only 10mm MJX A/B
-> rollouts; it is NOT a PPO
-> training run. Archive partial
-> failure JSON; do not report
-> success before WSL evidence.
-> Live browser still polls
-> completed validated policies,
-> not every training GPU world
-> frame. Challenge circuit is
-> navigation demo, NOT held-out
-> strict crossing certification.
-> Keep docs and handover current
-> after each new archive.
+> All real-user tests above ran
+> on source `f0150734...`;
+> the post-result optional
+> dynamic-audit raw vs clipped
+> action logging update is
+> committed but NOT yet WSL
+> tested. Read current feature
+> HEAD, not old summaries.
+>
+> NEXT: verify visual viewer
+> on Windows/mobile, try real
+> champion crossing the
+> challenge route. For P1
+> teachable reward, compare
+> legacy and new scoring on
+> IDENTICAL actual moving
+> physics frames; don't
+> confuse two free-running
+> closed-loop simulations
+> with a causal experiment.
+> Then test solver impulse/
+> true foot load, ToF occlusion
+> and eventually cold-start
+> terrain PPO only after gate.
+> Never merge or deploy
+> without explicit approval.
