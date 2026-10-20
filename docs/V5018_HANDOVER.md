@@ -1,5 +1,13 @@
 # EMU v5018 — clean restart / handover
 
+## 20 Oct 23:00 — NEW 25M + continuous obstacle-height plan
+
+User: NO tmux; static 10mm is negligible. On `feature/v5018-terrain-awareness`, new `scripts/run_v5018_height_envelope.sh` (plan only by default, `--run` explicit) replaces old 20M/5mm plan: 25M truly random 232-input full-PPO gait foundation; SIX matched +10M physical height-envelope forks; TWO evidence-ranked +15M continuation finalists. **115M combined**, not one 115M brain. Actual per-world, per-birth MuJoCo mocap box height sampled continuously from 0 to earned maximum, research safety up to 150mm; height grows/retreats in governor alongside vx/vy/yaw/push. Original 232 actor input still lacks forward-looking ToF profile! Distinct control versus bounded progress-reward teaching arms. Held-out independent physical 0/20/40/80/120/150mm crossing exams, preservation of gait.
+
+WSL: `git pull --ff-only origin feature/v5018-terrain-awareness`, activate .venv, `python -m pytest -q tests/test_v5018_adaptive_height.py tests/test_v5018_height_envelope_campaign.py`, `bash scripts/run_v5018_height_envelope.sh` (plan), and ONLY after physical smoke passes `nohup bash scripts/run_v5018_height_envelope.sh --run > "$HOME/v5018_height_overnight.log" 2>&1 < /dev/null &`. Keep Windows awake. Save raw checkpoints outside Git and preserve champion. See `docs/V5018_TERRAIN_PLAN.md` top for exact design, resume and caveats. Older fixed 5mm/10mm overnight runner remains historical.
+
+---
+
 ## Latest 20 Oct evening: overnight cold-start trainer committed (WSL tests PENDING)
 
 The uploaded `v5018_step_ppo_20261020_212010.tar.gz` is **17/17 successful process stages, but 0/48 actual crossing successes** across two 8,192-step-from-zero policies and six evaluated model×course cells. Actual PPO foot–obstacle contacts were zero, and both new policies fell in ~96.2% of training episodes. Treat the short run as *PPO plumbing validated*, not step learning.
