@@ -828,6 +828,180 @@ validated by WSL/browser. Browser live
 mode polls completed validated policies,
 not live GPU robot positions.
 
+## 20 October 15:44 — root-cause physics and viewer audit (UNTESTED new branch fixes)
+
+**Actual user's latest successful P1 log:**
+at branch commit `0f7f02b2eadb78ac8816d60f07619bde37463c77`,
+four stages all PASS: syntax; terrain NumPy/JAX tests
+**6/6**, old reward and independent 220/232 cold-start
+contracts **6/6**; true CUDA 4-world **3-frame** flat
+reward and all 232 observations **bitwise identical**
+(max difference 0); controlled 10mm box contact
+pair present **4/4**, geometry active 4/4, top
+contact fraction 1.0, riser 0.0, support 1.0,
+slip 0.0, signed min toe gap ~-1mm.
+10mm course XML SHA `f5ca6525...`.
+This proves the NARROW test passed and does
+not prove terrain PPO or real stepping.
+
+**Critical diagnostic root cause:** that
+test TELEPORTS the free root so a foot is
+deliberately 1mm inside the box, resets the
+previous foot position to the new position,
+then immediately reads the collision field.
+Zero slip is **by construction**; synthetic
+geometry proximity, even with a contact-pair,
+is not normal load-bearing support or a
+moving footfall. More dangerously, the code
+used ONLY contact geom-pair and ball-centre
+XY/Z to decide **top vs riser**. A foot
+pressing against a step corner/riser can
+have a near-top ball centre and the same
+pair as a valid top landing. That could
+silently credit wrong `support`,
+`swing_clearance`, `stance_slip`, body
+height and reward.
+
+**New branch corrective work AFTER 15:44
+(NOT YET EXECUTED IN WSL):**
+
+1. `emu/terrain.py::box_surface_truth`
+   now requires TRUE contact `frame`
+   normal (first 3 float components)
+   vertical relative to box top
+   (abs cosine >= .88), and TRUE
+   contact `pos` within 4mm of
+   the horizontal top face/within
+   rotated footprint. Geom pair,
+   near-zero distance and ball centre
+   Z alone no longer earn top
+   support. Reversed normal sign
+   is allowed because MuJoCo can
+   swap contact geom order.
+   No positive contact impulse
+   was measured; still a
+   conservative support candidate.
+2. `emu/environment.py` passes real
+   MJX `contact.frame` and `contact.pos`
+   to the pure classifier; never
+   passes these privileged truths
+   to a 220/232 actor.
+3. New tests in
+   `tests/test_v5018_terrain_truth.py`
+   cover an actual adversarial
+   *near-top horizontal riser normal*
+   and a vertical normal whose
+   contact position is not on top.
+   There are now 8 tests, NOT
+   WSL-rerun.
+4. `emu/ppo.py::evaluate_trace`
+   gained a STATIC OPTIONAL
+   `record_terrain_truth=False`
+   research diagnostic. Default
+   exam behavior/fields and all
+   actor weights/inputs remain
+   unchanged. The new tracing
+   option logs frame-wise physical
+   top/riser/floor candidate
+   fractions, contact-active masks,
+   scalar rewards and frozen
+   actions during real moving MJX
+   rollouts.
+5. New `scripts/v5018_p1_dynamic_reward_audit.py`
+   and fail-fast
+   `scripts/run_v5018_p1_deep_audit.sh`
+   actually execute the same
+   immutable 260M 232 frozen actor
+   twice on REAL 10mm MJX course,
+   heading=.75, 0.10m/s, seed1701,
+   4 worlds/240 control frames.
+   Compare legacy-vs-opt-in top/
+   riser/contact transitions,
+   support/gaps, actor action,
+   scalar reward, pose and
+   terminal divergence. This
+   DOES NOT train and is optional
+   research only: from-zero
+   learning remains a strict
+   independent path. **No GPU
+   test for this new code has run**.
+
+**Separate real viewer user run,
+source commit `0f7f02b2...`:**
+attached `Pasted text(20261020-044353).txt`
+contains direct console from
+`bash scripts/run_v5018_viewer_course_acceptance.sh`.
+Source syntax 3 stages PASS,
+npm ci PASS, browser Node tests
+**16/17 PASS**. The only
+failure at `emu/viewer_src/tests/core.test.mjs:111`
+was a **stale legacy assertion**
+`doesNotMatch(...id="demoMode"...)`.
+It erroneously prohibited the
+new deliberate Random/Circuit
+selection. Because of fail-fast,
+**actual WASM collisions, browser
+build and viewer installation
+DID NOT RUN**; those status
+are UNKNOWN, not passing.
+
+**Viewer branch fix (NOT WSL rerun):**
+the old core test now explicitly
+requires the new random-default
+and circuit modes and forbids
+only obsolete multi-planner/
+advanced-actor controls. Added
+a geometry-aware pure Node test:
+real existing pose-lattice
+must solve routes through all
+8 challenge obstacle footprints,
+not merely accept their waypoint
+strings. The exact source-level
+lattice was executed in a V8
+smoke and **8/8** obstacle
+approach-to-exit routes both
+solved and crossed box-XY.
+This does **not** establish
+real MuJoCo robot walking or
+browser rendering success.
+
+**NEXT TWO INDEPENDENT WSL RUNS**,
+current feature-branch HEAD only:
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_viewer_course_acceptance.sh
+bash scripts/run_v5018_p1_deep_audit.sh
+```
+
+Both write archives in
+`~/robot_lab/emu_exams/`.
+Viewer checks true pinned MuJoCo
+3.15 WASM step/log colliders,
+Node and Vite build. Physics
+runs new 8 adversarial tests,
+true box contact-normal probe,
+then a REAL moving 232 frozen
+reference (not teleport-only)
+on opt-in vs legacy reward
+metrics. Send BOTH archived
+logs/JSON, including failures.
+**Do not re-run 34/34 frontier,
+do not train from scratch just
+to verify this research fix,
+and never modify main, Pages,
+protected showcase or active
+GPU training.** The actor's
+220/232 schema, new-policy
+cold-start obligation and
+unevaluated future 312 contract
+remain unchanged.
+
+Detailed canonical status:
+`docs/V5018_TERRAIN_PLAN.md`.
+
 ## Challenge curriculum / anti-cheat design, clarified with the user
 
 **Heading and command following come before giving crossing credit.**
@@ -894,83 +1068,100 @@ evidence and user-approved PR.**
 
 ## Fresh-chat prompt
 
-> Continue EMU v5018 STRICTLY on
+> Continue EMU v5018 strictly on
 > `feature/v5018-terrain-awareness`
 > at https://github.com/mdt733/emu.
-> FIRST read current HEAD of
-> `docs/V5018_HANDOVER.md`,
-> `docs/V5018_TERRAIN_PLAN.md`
-> and `docs/INSTALL.md`. The
-> TERRAIN_PLAN is the ONE canonical
-> date/gate status checklist.
-> Preserve genuine from-zero
-> actor initialisation and future
-> terrain curriculum; the protected
-> 260M 232 actor is OPTIONAL research
-> material, never required for
-> learning. Never edit main,
-> protected showcase or Pages
-> without explicit user consent.
+> Read CURRENT branch
+> `docs/V5018_TERRAIN_PLAN.md`,
+> `docs/V5018_HANDOVER.md` and
+> `docs/INSTALL.md` first.
+> Preserve ONE living checklist
+> TERRAIN_PLAN. Never touch main,
+> the published 260M 232-input
+> champion, Pages or an active
+> training process without user
+> approval. Champion is OPTIONAL
+> for research; the full learning
+> system MUST also build from
+> random network/optimizer/
+> normalizer/curriculum without
+> ANY earlier brain or private
+> .pkl. The 220/232 contracts
+> are unchanged, terrain_312
+> remains UNDECIDED.
 >
-> Most recent P1 GPU archive
-> `v5018_p1_terrain_20261020_144341.tar.gz`
-> ran source `b93f0cf3...`.
-> Syntax PASS, synthetic terrain
-> 6/6 PASS, legacy and 220/232
-> cold-start contracts 6/6 PASS.
-> Four-world **3-frame CUDA
-> off-course FLAT scalar rewards
-> match bitwise**, 232 actor
-> observations satisfy strict
-> numerical gate (no printed
-> difference). The NEXT 10mm
-> active collision probe DID NOT
-> run because its test harness
-> called MJX Data.`_replace`
-> instead of .`replace`.
-> That API error has NOW BEEN
-> FIXED ON THE FEATURE BRANCH,
-> but no post-fix WSL run yet.
-> Flat reward parity report
-> is now saved before active-box
-> probe; teleport-only slip
-> fixed; active collision requires
-> REAL foot/box geometry-pair
-> evidence and logs top/riser
-> fractions. The diagnostic puts
-> the right foot ball 1mm into
-> the real 10mm top from actual
-> per-world geom poses; NOT gait.
-> Re-run ONLY
-> `bash scripts/run_v5018_p1_terrain_acceptance.sh`
-> and review fresh archive.
+> Important actual P1 evidence:
+> 20 Oct 15:44 source `0f7f02b2`.
+> All FOUR P1 narrow stages PASS;
+> 3 control frames old-vs-opt-in
+> flat scalar reward + 232 actor
+> observations bitwise MATCH,
+> 6/6 original terrain tests,
+> 6/6 cold-start/reward tests,
+> and four-world forced 10mm
+> *stationary* foot/box geom
+> near-contact PASS. But top
+> fractions 1 and slip 0 came
+> from artificially placing the
+> foot 1mm INSIDE box and
+> setting previous foot position
+> equal to current. Not proof
+> of dynamic supported stepping.
+> ROOT DEFECT FOUND AFTER RUN:
+> terrain.py classified BOX TOP
+> contact from pair + foot-centre
+> XY/Z alone; a riser near
+> a step CORNER can satisfy it.
+> New source demands true contact
+> frame NORMAL aligned with top
+> plus real contact point ON
+> the top face; adversarial
+> false-top tests and a
+> research-only moving-champion
+> read-only A/B course audit
+> were added, NOT YET RUN
+> on user GPU.
 >
-> Viewer source also includes
-> selectable eight-station physical
-> box/log obstacle course on the
-> existing exact 4m circle,
-> bright step-height signs, arena
-> camera, and Random / Challenge
-> circuit sequential waypoints.
-> It reuses the standard actor
-> and background planner. Its
-> Node tests, pinned WASM
-> physical collisions and
-> production browser build
-> are **STILL awaiting WSL**:
-> `bash scripts/run_v5018_viewer_course_acceptance.sh`.
-> Local `emu viewer --live`
-> observes completed validated
-> checkpoint replay, NOT every
-> live MJX GPU simulation frame.
-> The circuit is an informal demo,
-> not strict world-fixed crossing.
+> Separate viewer console at
+> 15:43 on same source:
+> syntax and npm ci PASS,
+> Node tests 16/17; 1 FAIL
+> due to old core.test
+> mistakenly FORBIDDING
+> id="demoMode" even though the
+> user explicitly wants Random
+> vs Challenge circuit modes.
+> This was corrected to assert
+> both modes + single planner
+> and actor unchanged. All 8
+> actual source-level lattice
+> station crossing paths have
+> been demonstrated in isolated
+> V8 tests to intersect real
+> obstacle footprint. NO WSL
+> WASM collision/build/browser
+> result yet: old fail-fast
+> stopped before those stages.
 >
-> Do not freeze a new 312-input
-> actor or start major terrain
-> PPO until dynamic motor load,
-> true sensor occlusion/latency
-> and full CPU–MJX–WASM six-servo
-> equivalence pass. Keep docs and
-> handover refreshed when
-> the next archive arrives.
+> NEXT RUNS after pulling current
+> feature HEAD:
+> `bash scripts/run_v5018_viewer_course_acceptance.sh`
+> and
+> `bash scripts/run_v5018_p1_deep_audit.sh`.
+> The P1 deep runner tests
+> real normal+contact point
+> semantics, flat reward parity
+> and TWO actual MOVING 260M
+> read-only 10mm MJX A/B
+> rollouts; it is NOT a PPO
+> training run. Archive partial
+> failure JSON; do not report
+> success before WSL evidence.
+> Live browser still polls
+> completed validated policies,
+> not every training GPU world
+> frame. Challenge circuit is
+> navigation demo, NOT held-out
+> strict crossing certification.
+> Keep docs and handover current
+> after each new archive.
