@@ -141,16 +141,23 @@ def sensor_observation_contract(settings: dict | None = None, *,
             FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M, FORWARD_NOISE_STD_M,
             FORWARD_QUANTIZATION_M, FORWARD_NOISE_RANGE_FACTOR,
         )
-        from .rolling_tof import (GRID_CELLS, GRID_SPACING_M, GRID_LOOKAHEAD_M,
-                                  LANES_Y_M, OUTPUT_SAMPLE_INDICES, SENSOR_MAP_REVISION,
-                                  CONFIDENCE_TIME_S)
+        from .rolling_tof import (
+            GRID_CELLS, GRID_SPACING_M, GRID_START_M, GRID_LOOKAHEAD_M,
+            FRONT_LANES_Y_M, REAR_REFERENCE_X_M, FORWARD_REFERENCE_X_M,
+            OUTPUT_SAMPLE_X_M, OUTPUT_SAMPLE_INDICES, SENSOR_MAP_REVISION,
+            CONFIDENCE_TIME_S, CROSS_TRACK_SIGMA_M)
         body.update(
             rolling_model_revision=SENSOR_MAP_REVISION,
             rolling_cells_per_lane=GRID_CELLS,
             rolling_spacing_m=GRID_SPACING_M,
+            rolling_start_m=GRID_START_M,
             rolling_lookahead_m=GRID_LOOKAHEAD_M,
-            rolling_lanes_y_m=list(LANES_Y_M),
-            rolling_actor_indices_cm=list(OUTPUT_SAMPLE_INDICES),
+            rolling_front_lanes_y_m=list(FRONT_LANES_Y_M),
+            rolling_rear_reference_x_m=REAR_REFERENCE_X_M,
+            rolling_forward_reference_x_m=FORWARD_REFERENCE_X_M,
+            rolling_actor_sample_x_m=list(OUTPUT_SAMPLE_X_M),
+            rolling_actor_indices=list(OUTPUT_SAMPLE_INDICES),
+            rolling_cross_track_sigma_m=CROSS_TRACK_SIGMA_M,
             rolling_confidence_decay_s=CONFIDENCE_TIME_S,
             forward_model_revision=FORWARD_MODEL_REVISION,
             forward_mounts_body_m=[list(v) for v in FORWARD_MOUNTS_BODY_M],
@@ -161,7 +168,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             forward_noise_std_m=FORWARD_NOISE_STD_M,
             forward_quantization_m=FORWARD_QUANTIZATION_M,
             forward_noise_range_factor=FORWARD_NOISE_RANGE_FACTOR,
-            forward_channel_semantics="flow-advected 2x21cm measured height/confidence spatial buffers; eight samples exposed",
+            forward_channel_semantics="flow+gyro-advected 2x51 V tracks, rear tripod ToF anchored, five heights/confidences per side",
             forward_masked=bool(preview_masked),
             forward_limitations="plane+box first hit; no leg occlusion, reflectance, hfield or capsule rays")
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
