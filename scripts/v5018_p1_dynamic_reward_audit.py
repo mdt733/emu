@@ -26,6 +26,7 @@ def summarise_trace(trace, *, horizon, worlds):
     arrays = {key:np.asarray(val) for key,val in trace.items() if key in {
         'reward_scalar','actor_action','position_xy','foot_xyz',
         'challenge_contact','floor_contact','terrain_geometry_active',
+        'terrain_support_reference_elevation_m',
         'terrain_top_contact_fraction','terrain_riser_contact_fraction',
         'terrain_floor_contact_fraction','terrain_signed_toe_gap',
         'contact_support','swing_clearance','done','fell'}}
@@ -66,6 +67,10 @@ def summarise_trace(trace, *, horizon, worlds):
                 arrays['position_xy'][0,w,0]),
             'mean_support_fraction':float(
                 np.mean(arrays['contact_support'][:valid,w])),
+            'mean_support_reference_elevation_m':float(
+                np.mean(arrays['terrain_support_reference_elevation_m'][:valid,w])),
+            'max_support_reference_elevation_m':float(
+                np.max(arrays['terrain_support_reference_elevation_m'][:valid,w])),
             'mean_swing_clearance_m':float(
                 np.mean(arrays['swing_clearance'][:valid,w])),
             'minimum_signed_toe_gap_m':float(
