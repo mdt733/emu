@@ -30,7 +30,7 @@ from .environment import EmuMJXEnv
 from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .curriculum import CapabilityField
 from .curriculum import record_capability_cloud_exam
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, SENSOR_OBS_DIM, PREVIEW_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -92,6 +92,7 @@ def env_kwargs_from_args(args) -> dict:
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
+        forward_preview_masked=args.forward_preview_masked,
         open_frontier=args.open_frontier,
         combo_mix_frac=args.combo_mix_frac, combo_probe_frac=args.combo_probe_frac,
         recovery_tilt_max_deg=RECOVERY_TILT_MAX_DEG,
@@ -137,8 +138,10 @@ def train(args: TrainingConfig) -> int:
     # Schema/physical sensor meaning is part of the learning state; never
     # confuse the legacy Pitch15 actor with a 232-channel learner.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM
-    obs_meta = (dict(checkpoint_schema=8, observation_schema=OBS_SCHEMA_SENSOR,
+    obs_dim = (PREVIEW_OBS_DIM if args.observation_schema == OBS_SCHEMA_PREVIEW
+               else SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
+    obs_meta = (dict(checkpoint_schema=9 if args.observation_schema == OBS_SCHEMA_PREVIEW else 8,
+                     observation_schema=args.observation_schema,
                      sensor_contract=sensor_contract, obs_dim=obs_dim)
                 if sensor_contract is not None else {})
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
@@ -208,6 +211,7 @@ def train(args: TrainingConfig) -> int:
                     attitude_profile=args.attitude_profile,
                     pitch_command_max_deg=args.pitch_command_max_deg,
                     sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
+                    forward_preview_masked=args.forward_preview_masked,
                     open_frontier=False, combo_mix_frac=0.0)
         cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
