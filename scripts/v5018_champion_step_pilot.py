@@ -26,7 +26,8 @@ from emu.terrain import collidable_course
 
 def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         horizon: int, output: Path, *, step_yaw_deg: float = 0.,
-        speed_m_s: float = .10, policy_file: Path | None = None):
+        speed_m_s: float = .10, policy_file: Path | None = None,
+        ablate_forward_preview: bool = False):
     # configure_jax before importing jax directly
     from emu.ppo import configure_jax, require_backend
     configure_jax('cuda')
@@ -51,6 +52,11 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
     actor, normalizer, export = load_exported_actor_for_exam(policy)
     if export['observation_schema'] not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
         raise ValueError('pilot requires immutable 232 or 280 sensor actor')
+    if ablate_forward_preview:
+        if export['observation_schema'] != OBS_SCHEMA_PREVIEW:
+            raise ValueError('forward zero-ablation requires a trained 280-input policy')
+        if export['sensor_contract'].get('forward_masked'):
+            raise ValueError('policy was already trained with preview masked')
     if policy_file is None and export['source']['step'] != 260112384:
         raise ValueError('unexpected protected policy training lineage')
     # Explicit --policy accepts independent 232/280 research exports;
@@ -76,6 +82,14 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             **settings)
         if env.sensor_contract != export['sensor_contract']:
             raise ValueError('course sensor contract does not match champion')
+        if ablate_forward_preview:
+            # Deliberate READ-ONLY counterfactual at inference: the ORIGINAL
+            # exported training sensor manifest is fully checked above.
+            # Change only what the frozen actor observes, never its weights,
+            # geometry, other 58 channels, actual sensor acquisition or noise.
+            # The environment's source sensor_contract remains original for
+            # provenance; do not serialize an ablated policy as deployable.
+            env.forward_preview_masked = True
         geom_id = mujoco.mj_name2id(
             env.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'v5018_obstacle_step')
         if geom_id < 0:
@@ -214,6 +228,7 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             'heading_kp':heading_kp,
             'source_commit_not_rewritten':export['source'].get('git_commit'),
             'source_policy_sha256':export['artifact_sha256'],
+            'counterfactual_zero_forward_profile':bool(ablate_forward_preview),
             'world_xml_sha256':course_sha,
             'simulator_versions':{
                 'jax':jax.__version__,'mujoco':mujoco.__version__,
@@ -253,6 +268,7 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         print(json.dumps({
             'step_height_mm':height_mm,'heading_kp':heading_kp,
             'step_yaw_deg':step_yaw_deg,'requested_speed_m_s':speed_m_s,
+            'counterfactual_zero_forward_profile':bool(ablate_forward_preview),
             'seed':seed,'pass_experiment_executed':True,
             'actual_crossing_success_worlds':result['crossing_success_worlds'],
             'worlds':worlds,
@@ -267,6 +283,8 @@ def main():
     p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20,30,40,50,60,80,100,120,150],required=True)
     p.add_argument('--policy',type=Path,default=None,
                    help='optional independent 232/280-input .emupolicy; default protected 260M frozen champion')
+    p.add_argument('--ablate-forward-preview',action='store_true',
+                   help='read-only 280-input policy counterfactual: zero all 12 preview channels only, unchanged actor and physics')
     p.add_argument('--step-yaw-deg',type=float,default=0.)
     p.add_argument('--speed',type=float,default=.10)
     p.add_argument('--heading-kp',type=float,choices=[0.,.75],required=True)
@@ -282,7 +300,8 @@ def main():
     if not math.isfinite(a.speed) or not .05<=a.speed<=.18:
         p.error('physical pilot speed must be between .05 and .18 m/s')
     run(a.height_mm,a.heading_kp,a.seed,a.worlds,a.horizon,a.output,
-        step_yaw_deg=a.step_yaw_deg,speed_m_s=a.speed,policy_file=a.policy)
+        step_yaw_deg=a.step_yaw_deg,speed_m_s=a.speed,policy_file=a.policy,
+        ablate_forward_preview=a.ablate_forward_preview)
 
 
 if __name__ == '__main__':
