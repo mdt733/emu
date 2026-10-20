@@ -274,6 +274,8 @@ def main(argv=None) -> int:
                    help='fraction of obstacle births near the earned height frontier')
     q.add_argument('--terrain-height-growth-mm',type=float,default=1.0,
                    help='physical height growth per qualified rollout, millimetres')
+    q.add_argument('--terrain-progress-weight',type=float,default=0.,
+                   help='opt-in bounded reward-only obstacle approach/crossing coaching [0,0.10]')
     q.add_argument('--terrain-height-initial-mm',type=float,default=3.0,
                    help='initial adaptive obstacle upper height, millimetres')
     q.add_argument('--sensor-actor',action='store_true',
