@@ -186,24 +186,66 @@ Never expose the unauthenticated local-only viewer
 port publicly. The changed UI is **not published on
 GitHub Pages** until separately approved.
 
-**Independent v5018 P1 code test:** the new opt-in
-`terrain_contact_mode='box_surface'` on the
-Python/MJX simulator has separate acceptance:
+**Independent v5018 P1 physics validation:** the
+opt-in `terrain_contact_mode='box_surface'` on
+Python/MJX needs MORE than a stationary
+sphere-in-box pass. The user's last 20 Oct
+15:44 four-stage original smoke PASSED, proving
+three CUDA flat-reward/232-observation frames
+were BITWISE identical and the 10mm forced
+contact was detected in all 4 worlds.
+**That does not validate a walking supported step.**
+
+A subsequent root-cause review found:
+(1) a near-top RISER pair could be counted
+as TOP support without the actual contact
+normal and contact position; (2) a
+positive-gap broad-phase candidate could
+earn support despite zero geom margin;
+(3) body-height reward switched based on
+TORSO XY overlap rather than the real
+supporting FEET. Corrections to all three
+and 11 terrain/2 trace CPU regression
+tests are committed **but have NOT yet
+been WSL/GPU executed**.
+
+The NEXT dedicated physics acceptance is:
 
 ```bash
-bash scripts/run_v5018_p1_terrain_acceptance.sh
+bash scripts/run_v5018_p1_deep_audit.sh
 ```
 
-In the user's 20 Oct 13:45 archived first attempt,
-12 fast Python tests passed but actual CUDA/MJX
-**bitwise actor-observation equality failed**.
-The subsequent instrumentation adds per-frame,
-per-channel difference logging and allows ONLY
-tiny float32 actor-observation numerical tolerance
-while keeping scalar reward equality exact.
-This is **not verified by a rerun yet**;
-keep the new P1 and browser acceptance archives
-distinct so one failure doesn't conceal another.
+It runs fast adverse-contact tests, repeats
+the flat-reward/MJX 10mm contact gate, then
+executes TWO true moving 260M frozen-policy
+MJX 10mm trajectories (legacy/terrain
+reward-only), reporting foot contact
+transitions, top/riser normals,
+support-height references, rewards,
+actions and any termination drift. The
+260M brain is READ ONLY research material,
+not a prerequisite for fresh training.
+This run does not train or change
+the 220/232 actor contract.
+
+Keep that archive SEPARATE from:
+
+```bash
+bash scripts/run_v5018_viewer_course_acceptance.sh
+```
+
+The viewer's 15:43 test run was **16/17
+Node tests**, failing only because an
+old core.test explicitly forbade
+`demoMode`—the new, intentionally added
+Random/Circuit selector. The obsolete
+assertion was repaired and the geometry
+test expanded to require eight actual
+lattice paths to intersect the obstacle
+footprints, but WASM collision and Vite
+build remain **UNTESTED** until rerun.
+Both independent scripts archive under
+`~/robot_lab/emu_exams/`.
 
 ### The v5018 P0 experimental campaign and evidence
 
