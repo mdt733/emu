@@ -100,15 +100,23 @@ test('manual axes and heading hold obey the trained command envelope',()=>{
   assert.ok(Math.abs(target-heading)<.04);
 });
 
-// 5. This is a single public product, not a menu of abandoned demos.
-test('viewer starts in lattice demo without obsolete controls or actor changes',()=>{
+// 5. One proven planner with TWO demo destinations: random or the
+// v5018 physical course circuit. Old discarded multi-planner and advanced
+// actor-mutation controls must remain absent. Do not accidentally prohibit
+// the new, deliberately supported demoMode dropdown.
+test('viewer defaults to random lattice demo and selects an ordered challenge circuit without changing actor',()=>{
   const html=sourceText('../index.html');
   const main=sourceText('../src/main.js');
   const sim=sourceText('../src/sim.js');
   const worker=sourceText('../src/goal-worker.js');
   assert.match(html,/id="liveDemo" type="checkbox" checked/);
   assert.match(main,/let demoActive = true/);
-  assert.doesNotMatch(html,/id="demoMode"|id="navPlanner"|Advanced commands|heightCmd|phaseCmd/);
+  assert.match(html,/id="demoMode"/);
+  assert.match(html,/<option value="random" selected>/);
+  assert.match(html,/<option value="circuit">/);
+  assert.match(main,/navigator\.setCircuitWaypoints\(circuit\)/);
+  assert.match(worker,/kind==='replan'\|\|kind==='target'/);
+  assert.doesNotMatch(html,/id="navPlanner"|Advanced commands|heightCmd|phaseCmd/);
   assert.doesNotMatch(sim,/setAdvanced\(|phaseOverride|viewerPitchLimitRad/);
   for(const f of ['this.command.height','this.command.roll',
                   'this.command.step_height','this.phase'])
