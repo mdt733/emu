@@ -33,7 +33,8 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
     import jax
     import jax.numpy as jnp
     import mujoco
-    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR
+    from emu.contracts import (ROBOT_XML, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW,
+                               SENSOR_OBS_DIM, PREVIEW_OBS_DIM)
     from emu.viewer_server import load_exported_actor_for_exam
     from emu.environment import EmuMJXEnv
     from emu.ppo import make_trainer
@@ -48,11 +49,11 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
     if not policy.is_file():
         raise FileNotFoundError(f'policy file does not exist: {policy}')
     actor, normalizer, export = load_exported_actor_for_exam(policy)
-    if export['observation_schema'] != OBS_SCHEMA_SENSOR:
-        raise ValueError('pilot requires the immutable schema-2 232 actor')
+    if export['observation_schema'] not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
+        raise ValueError('pilot requires immutable 232 or 280 sensor actor')
     if policy_file is None and export['source']['step'] != 260112384:
         raise ValueError('unexpected protected policy training lineage')
-    # Explicit --policy accepts independent 232-input research exports;
+    # Explicit --policy accepts independent 232/280 research exports;
     # they must still prove the exact sensor contract inside this examiner.
     settings = export['sensor_contract']['settings']
 
@@ -68,7 +69,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             phase_speed_gain=float(export['control']['phase_speed_gain']),
             attitude_profile=export['training']['attitude_profile'],
             pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
-            observation_schema=OBS_SCHEMA_SENSOR,open_frontier=False,
+            observation_schema=export['observation_schema'],
+            forward_preview_masked=bool(export['sensor_contract'].get('forward_masked',False)),
+            open_frontier=False,
             combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
             **settings)
         if env.sensor_contract != export['sensor_contract']:
@@ -100,8 +103,10 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
             jax.random.PRNGKey(seed),horizon,float(heading_kp),
             None,schedule,0.,0.,0))
         expected_obs = env.obs_dim
-        if expected_obs != 232:
-            raise ValueError(f'pilot actor observation changed to {expected_obs}')
+        required = (PREVIEW_OBS_DIM if export['observation_schema'] == OBS_SCHEMA_PREVIEW
+                    else SENSOR_OBS_DIM)
+        if expected_obs != required:
+            raise ValueError(f'pilot actor observation changed to {expected_obs}, expected {required}')
 
         original = evaluate_trace_arrays(
             trace,np.tile(np.asarray([0.,0.,-9.81]),(worlds,1)),
@@ -233,7 +238,10 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
                 'Obstacle orientation is explicit; robot is still initially heading +X.',
                 'The ball-bottom/top footprint metric is diagnostic, not a solver penetration estimate.',
                 'No sample-by-sample normal force or collision impulse agreement measured.',
-                'Policy has existing 232 sensor inputs, no preview profile.',
+                ('Schema-3 policy has physical six-ray forward ToF profile; '
+                 'box and plane only, no self-occlusion or general hfield rays.'
+                 if export['observation_schema'] == OBS_SCHEMA_PREVIEW
+                 else 'Schema-2 policy has only down-looking tripod, no forward preview.'),
                 'Actuator behaviour uses simulated MuJoCo model only.',
                 'Crossing success is independent of frozen policy reward.',
                 'Flat control parks identical obstacle box off the course.',
@@ -256,9 +264,9 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20,30,40,60,80,100,120,150],required=True)
+    p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20,30,40,50,60,80,100,120,150],required=True)
     p.add_argument('--policy',type=Path,default=None,
-                   help='optional independent 232-input .emupolicy; default protected 260M frozen champion')
+                   help='optional independent 232/280-input .emupolicy; default protected 260M frozen champion')
     p.add_argument('--step-yaw-deg',type=float,default=0.)
     p.add_argument('--speed',type=float,default=.10)
     p.add_argument('--heading-kp',type=float,choices=[0.,.75],required=True)
