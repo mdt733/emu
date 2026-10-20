@@ -413,6 +413,109 @@ def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
     return pairs
 
 
+def diagnose_alternating_contact_pairs_v2(
+    body_xy, feet_xyz, contacts, *, course_axis_xy,
+    settle_frames=0, foot_clearance_m=None,
+    min_air_frames=3, min_swing_m=.012, min_clearance_m=.004,
+    min_pair_progress_m=.025,
+):
+    """EXPERIMENTAL gait candidate, never the historical pass/fail score.
+
+    Historical v1 required 25 mm *body travel per airborne foot swing*;
+    real frozen 260M flat walking measured a median ~11-12 mm per swing.
+    This proposed v2 instead requires (1) *actual* takeoff and touchdown,
+    (2) sustained leg clearance and forward foot relocation, (3) the
+    opposite foot having genuine contact during swing, and (4) 25 mm of
+    NET signed progress along the ORIGINAL commanded world course across
+    a completed right/left pair. Course/fall/corridor checks remain separate.
+
+    The report is diagnostic-only pending controls for false footsteps,
+    foot slip, hopping, failure/termination and seed reproducibility.
+    It does not mutate the old v1 score, observations, PPO or weights.
+    """
+    body=np.asarray(body_xy,dtype=float)
+    feet=np.asarray(feet_xyz,dtype=float)
+    ct=np.asarray(contacts)
+    axis=np.asarray(course_axis_xy,dtype=float)
+    n=len(body)
+    if n<3 or body.shape!=(n,2) or feet.shape!=(n,2,3) or ct.shape!=(n,2):
+        raise ValueError('expected aligned [N,2] torso, [N,2,3] feet, [N,2] contacts')
+    if ct.dtype != np.bool_ or not 0<=settle_frames<n:
+        raise ValueError('boolean contact truth and valid settle period required')
+    if axis.shape!=(2,) or not np.isfinite(axis).all() or np.linalg.norm(axis)<1e-8:
+        raise ValueError('nonzero world-fixed original-command course axis required')
+    axis=axis/np.linalg.norm(axis)
+    clearance=(np.asarray(foot_clearance_m,dtype=float)
+               if foot_clearance_m is not None else feet[:,:,2]-.018)
+    if clearance.shape!=(n,2) or not all(np.isfinite(v).all()
+            for v in (body,feet,clearance)):
+        raise ValueError('invalid finite physical trace or ball clearance')
+    if not (min_air_frames>=1 and min_swing_m>=0 and min_clearance_m>=0
+            and min_pair_progress_m>0):
+        raise ValueError('invalid candidate gait calibration thresholds')
+
+    starts=[None,None]
+    event_rejections=dict(short_air=0, low_clearance=0,
+                          little_foot_relocation=0,
+                          backwards_foot_swing=0, no_opposite_foot_support=0)
+    events=[]
+    for k in range(max(1,settle_frames),n):
+        for foot in (0,1):
+            if ct[k-1,foot] and not ct[k,foot]:
+                starts[foot]=k-1
+            elif not ct[k-1,foot] and ct[k,foot]:
+                start=starts[foot]
+                starts[foot]=None
+                if start is None:continue
+                airborne_frames=k-start-1
+                clearance_peak=float(np.max(clearance[start+1:k,foot])) if airborne_frames else 0.
+                swing_delta=feet[k,foot,:2]-feet[start,foot,:2]
+                relocation=float(np.linalg.norm(swing_delta))
+                along=float(swing_delta @ axis)
+                opposite_supported=bool(np.any(ct[start+1:k,1-foot]))
+                tests={
+                    'short_air':airborne_frames<min_air_frames,
+                    'low_clearance':clearance_peak<min_clearance_m,
+                    'little_foot_relocation':relocation<min_swing_m,
+                    'backwards_foot_swing':along<.003,
+                    'no_opposite_foot_support':not opposite_supported,
+                }
+                for name,reject in tests.items():
+                    event_rejections[name]+=int(reject)
+                if not any(tests.values()):
+                    events.append((int(start),int(k),int(foot)))
+    # The ordered pair must provide *net signed forward progress*, not
+    # summed absolute path lengths or sideways body travel.
+    pairs=0
+    candidates=[]
+    previous=None
+    for event in events:
+        if previous is not None and previous[2]!=event[2]:
+            progress_m=float((body[event[1]]-body[previous[0]]) @ axis)
+            candidates.append({
+                'first_liftoff_frame':previous[0],
+                'second_touchdown_frame':event[1],
+                'signed_progress_mm':progress_m*1000.,
+                'qualified':progress_m>=min_pair_progress_m,
+            })
+            if progress_m>=min_pair_progress_m:
+                pairs+=1
+                previous=None
+                continue
+        previous=event
+    return {
+        'candidate_alternating_pairs_v2':int(pairs),
+        'eligible_contact_touchdowns':int(len(events)),
+        'candidate_pair_trials':int(len(candidates)),
+        'pair_progress_requirement_mm':min_pair_progress_m*1000.,
+        'event_rejections_nonexclusive':event_rejections,
+        'pair_events':candidates,
+        'status':'RESEARCH_ONLY_NOT_HISTORICAL_PASS',
+        'uses_actual_opposite_foot_contact':True,
+        'signed_course_axis_world_xy':axis.tolist(),
+    }
+
+
 def diagnose_contact_stride_gate(body_xy, feet_xyz, contacts, *,
                                  settle_frames=0, foot_clearance_m=None):
     """Explain the existing conservative walking test without relaxing it.
