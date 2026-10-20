@@ -194,6 +194,7 @@ class RollingSensorState(NamedTuple):
     current_gyro_body_rad_s: Any
     terrain_heights: Any
     terrain_confidences: Any
+    apex_x_m: Any            # measured rear-ToF ground footprint shifts with pitch
     last_inserted_scan: Any
 
 
@@ -2066,8 +2067,8 @@ class EmuMJXEnv(TaskSampler):
                 jnp.round(forward_ranges / FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
                 0.)
         else:
-            forward_ranges = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
-            forward_valid = jnp.zeros((self.num_envs,6),dtype=bool)
+            forward_ranges = jnp.zeros((self.num_envs,2),dtype=jnp.float32)
+            forward_valid = jnp.zeros((self.num_envs,2),dtype=bool)
         ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
             return PreviewSensorSample(
@@ -2079,6 +2080,30 @@ class EmuMJXEnv(TaskSampler):
             probe['tof_ranges_m'], probe['tof_beam_valid'],
             probe['flow_rad_s'], probe['flow_return_valid'],
             probe['measured_gyro_body_rad_s'], ages, ages)
+
+    def _preview_imu_gravity(self, data, task, phase):
+        """The same noisy gravity measurement as _base_obs, not exact pose."""
+        jnp=self.jnp
+        g, _, _ = self._body_packets(data)
+        n0=jnp.sin(1.73*phase + 0.6180339*self.env_index)
+        n1=jnp.sin(2.31*phase + 1.4142136*self.env_index + .7)
+        scale=jnp.where(task[:,T.sensor_scale]>=0.,
+                        task[:,T.sensor_scale],self.sensor_noise_scale)
+        return g + scale[:,None]*.008*jnp.stack((n0,n1,-.5*n0),axis=1)
+
+    def _preview_measurements(self, snapshot, gravity):
+        """Only raw ToF packet + measured IMU calibrations enter V tracks."""
+        jnp=self.jnp
+        ground=fit_tripod_ground(jnp,snapshot.tof_ranges_m,gravity)
+        tripod_ok=(ground['valid'] & jnp.all(snapshot.tof_beam_valid,axis=1))
+        return measured_height_and_x(
+            jnp,snapshot.forward_ranges_m,snapshot.forward_valid,
+            snapshot.tof_ranges_m,ground['ground_normal_body'],tripod_ok,
+            mounts_body=FORWARD_MOUNTS_BODY_M,
+            beams_body=FORWARD_DIRECTIONS_BODY,
+            tripod_mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+            tripod_beams_body=TOF_TRIPOD_BEAMS_BODY,
+            gravity_body=gravity,include_rear=True)
 
     def _initial_sensor_state(self, data, task, phase, keys):
         """Start an episode with a real first sample, not fabricated flat data."""
@@ -2092,9 +2117,20 @@ class EmuMJXEnv(TaskSampler):
             sample)
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
             z, conf = empty_map(jnp,self.num_envs)
-            return RollingSensorState(samples, bias, sample.gyro_body_rad_s,
-                                      z, conf,
-                                      jnp.full((self.num_envs,),-1,dtype=jnp.int32))
+            grav=self._preview_imu_gravity(data,task,phase)
+            mx,my,mh,ok,rx,ry,rok=self._preview_measurements(sample,grav)
+            apex=jnp.where(rok,rx,jnp.full_like(rx,-.04))
+            z,conf=insert_measurement(
+                jnp,z,conf,mx,mh,ok,sample_y_m=my,apex_x_m=apex)
+            rear_x=jnp.stack((rx,rx),axis=1)
+            rear_y=jnp.stack((ry,ry),axis=1)
+            rear_valid=jnp.stack((rok,rok),axis=1)
+            z,conf=insert_measurement(
+                jnp,z,conf,rear_x,jnp.zeros_like(rear_x),rear_valid,
+                sample_y_m=rear_y,apex_x_m=apex)
+            return RollingSensorState(
+                samples,bias,sample.gyro_body_rad_s,z,conf,apex,
+                jnp.zeros((self.num_envs,),dtype=jnp.int32))
         return SensorState(samples, bias, sample.gyro_body_rad_s)
 
     def _advance_sensor_state(self, state, data, task, phase, keys, age_frames):
