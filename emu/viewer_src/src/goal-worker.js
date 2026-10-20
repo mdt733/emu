@@ -1,6 +1,6 @@
 // One navigation mode: pose-lattice A* in a background Worker.
 import {makeRng} from './rng.js';
-import {sampleGoal,planPoseRoute} from './goal-navigation.js';
+import {sampleGoal,planPoseRoute,planCircuitLeg} from './goal-navigation.js';
 const random=makeRng(5017);
 self.onmessage=event=>{
   const {id,kind,pose,limits,trees=[],goal}=event.data||{};
@@ -10,7 +10,7 @@ self.onmessage=event=>{
       // Target mode is a caller-selected physical course waypoint; unlike
       // random exploration it must NOT be replaced with a random destination.
       self.postMessage({id,kind,goal,
-        route:planPoseRoute(pose,goal,limits,trees,{maxNodes:6500})});
+        route:planCircuitLeg(pose,goal,limits,trees,{maxNodes:6500})});
       return;
     }
     let result=null;
