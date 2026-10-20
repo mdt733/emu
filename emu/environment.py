@@ -2123,6 +2123,49 @@ class EmuMJXEnv(TaskSampler):
             lambda history, value: jnp.concatenate(
                 (history[:, 1:, ...], value[:, None, ...]), axis=1),
             state.samples, latest)
+        if self.observation_schema == OBS_SCHEMA_PREVIEW:
+            # The spatial memory is advanced on EVERY control frame from
+            # flow+gyro measurements, NOT simulator qvel or exact root pose.
+            temp = RollingSensorState(
+                queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s,
+                state.terrain_heights, state.terrain_confidences,
+                state.last_inserted_scan)
+            gravity_body, _, _ = self._body_packets(data)
+            measured = self._sensor_readout(temp,gravity_body)
+            vx = measured['velocity_body_xy_mps'][:,0]
+            vy = measured['velocity_body_xy_mps'][:,1]
+            yaw = measured['measured_gyro_body_rad_s'][:,2]
+            flow_conf = measured['velocity_confidence']
+            heights, conf = advance_map(
+                jnp, state.terrain_heights, state.terrain_confidences,
+                vx, vy, yaw, flow_conf)
+            tf = HISTORY_LEN-1-self.tof_delay_frames
+            delayed = queued
+            tripod_ranges = delayed.tof_ranges_m[:,tf,:]
+            tripod_fit = fit_tripod_ground(
+                jnp, tripod_ranges, gravity_body)
+            tripod_valid = (tripod_fit['valid'] &
+                            jnp.all(delayed.tof_beam_valid[:,tf,:],axis=1))
+            mx, mh, mvalid = measured_height_and_x(
+                jnp, delayed.forward_ranges_m[:,tf,:],
+                delayed.forward_valid[:,tf,:], tripod_ranges,
+                tripod_fit['ground_normal_body'],tripod_valid,
+                mounts_body=FORWARD_MOUNTS_BODY_M,
+                beams_body=FORWARD_DIRECTIONS_BODY,
+                tripod_mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                tripod_beams_body=TOF_TRIPOD_BEAMS_BODY)
+            # A held 25Hz sample must be inserted EXACTLY ONCE, even
+            # though the 50Hz JAX policy runs between acquisitions.
+            seq=step-delayed.tof_age_frames[:,tf]-self.tof_delay_frames
+            fresh = seq != state.last_inserted_scan
+            # Compensate the delayed camera sample's forward position.
+            age_s=self.tof_delay_frames*CONTROL_DT
+            mx=mx-(vx[:,None]-yaw[:,None]*jnp.asarray((-.05,.05))[None,:])*age_s
+            heights, conf=insert_measurement(
+                jnp,heights,conf,mx,mh,mvalid & fresh[:,None])
+            return RollingSensorState(
+                queued,state.gyro_bias_rad_s,raw.gyro_body_rad_s,
+                heights,conf,seq)
         return SensorState(queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s)
 
     def _sensor_readout(self, state, gravity_body):
@@ -2157,18 +2200,15 @@ class EmuMJXEnv(TaskSampler):
         grade_freshness = jnp.clip(
             1. - 0.25 * tof_age.astype(jnp.float32) /
             self.tof_period_frames, .25, 1.)
-        # Preview has its OWN validity: do not require all three downward
-        # tripod returns. These are independently observable raw slant ranges
-        # and the actor already receives body attitude + measured tripod state.
         if self.observation_schema == OBS_SCHEMA_PREVIEW:
-            profile = s.forward_ranges_m[:,tf,:]
-            pvalid = s.forward_valid[:,tf,:].astype(jnp.float32)
+            profile, pvalid = rolling_readout(
+                jnp, state.terrain_heights,state.terrain_confidences)
         else:
-            profile = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
-            pvalid = jnp.zeros((self.num_envs,6),dtype=jnp.float32)
+            profile = jnp.zeros((self.num_envs,8),dtype=jnp.float32)
+            pvalid = jnp.zeros((self.num_envs,8),dtype=jnp.float32)
         return dict(
-            forward_profile_range_m=profile,
-            forward_profile_valid=pvalid,
+            rolling_terrain_height_m=profile,
+            rolling_terrain_confidence=pvalid,
             measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
             velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
             velocity_confidence=estimate['velocity_confidence'] * freshness,
@@ -2503,8 +2543,8 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
             if self.observation_schema == OBS_SCHEMA_PREVIEW:
-                preview = jnp.concatenate((sensor['forward_profile_range_m'],
-                                           sensor['forward_profile_valid']), axis=1)
+                preview = jnp.concatenate((sensor['rolling_terrain_height_m'],
+                                           sensor['rolling_terrain_confidence']), axis=1)
                 if self.forward_preview_masked:
                     preview = jnp.zeros_like(preview)
                 base = jnp.concatenate((base, preview), axis=1)
