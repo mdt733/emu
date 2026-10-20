@@ -1060,7 +1060,11 @@ random-goal navigation and **read-only live policy loading**.
   retains it on compatible policy hot-swap / rebuilds it
   for incompatible policies, and adds visible station rings
   and floating coloured labels (render-only annotations,
-  not surrogate collision).
+  not surrogate collision). A new **View: arena** camera
+  preset frames the whole 4m ring and auto-selects when the
+  user switches from orbit to the challenge course; it is
+  render-only and does not change the robot's policy, IMU,
+  collision or command targets.
 - [~] The public/local/live `main.js` and `index.html`
   offer **Terrain → Challenge ring**, **step height**
   and **optional capsule log** settings, and a demo selector
