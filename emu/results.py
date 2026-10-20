@@ -935,6 +935,17 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # Research-only actual physical obstacle statistics, conditional on the
+    # opted-in box-contact environment. These are REPORTS, not actor inputs
+    # or reward payments. A zero foot/box collision means the PPO rollout
+    # has not demonstrated contact-loaded stepping, regardless of reward.
+    for terrain_key in (
+        'terrain_geometry_active', 'terrain_box_foot_contact_any',
+        'terrain_top_contact_fraction', 'terrain_riser_contact_fraction',
+        'terrain_floor_contact_fraction', 'terrain_foot_footprint_fraction',
+    ):
+        if terrain_key in metrics:
+            row[terrain_key] = mean_metric(metrics, terrain_key)
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
     # transition_*_err = mean |vel - cmd| over the steps that were MID-RAMP;
