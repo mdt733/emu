@@ -70,7 +70,12 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
     base_decay = xp.exp(-dt_s/CONFIDENCE_TIME_S)
     turn_decay = xp.clip(1.- xp.abs(yaw) * dt_s * 2., 0., 1.)
     side_decay = xp.clip(1.- xp.abs(vy) * dt_s * 15., 0., 1.)
-    uncertainty = xp.clip(flow_ok,0.,1.) * turn_decay[:,:,None] * side_decay[:,:,None]
+    # Measurement confidence is NOT a per-frame survival probability:
+    # multiplying, e.g., 0.6 flow-confidence on all 50Hz updates would
+    # erase the map after a few frames (0.6**25 ~= 0). Apply a modest
+    # uncertainty penalty once per timestep instead.
+    flow_decay = 0.96 + 0.04 * xp.clip(flow_ok,0.,1.)
+    uncertainty = flow_decay * turn_decay[:,:,None] * side_decay[:,:,None]
     confidence = xp.where(keep, denominator*base_decay*uncertainty,0.)
     return xp.where(keep,value,0.), confidence
 
@@ -87,13 +92,16 @@ def insert_measurement(xp, heights, confidences, sample_x_m,
     grid_x = xp.arange(GRID_CELLS,dtype=xp.float32)*GRID_SPACING_M
     measured_x = xp.asarray(sample_x_m)
     measured_height = xp.asarray(sample_height_m)
+    # Calibrated 20cm hits may round to 0.200000003 in float32;
+    # accept 0.5mm tolerance, clamp the deposition, reject true outliers.
     valid = (xp.asarray(sample_valid) &
              xp.isfinite(measured_height) &
              xp.isfinite(measured_x) &
-             (measured_x >= 0.) &
-             (measured_x <= GRID_LOOKAHEAD_M))
+             (measured_x >= -.0005) &
+             (measured_x <= GRID_LOOKAHEAD_M+.0005))
+    clipped_x = xp.clip(measured_x,0.,GRID_LOOKAHEAD_M)
     weights = xp.clip(1.-xp.abs(
-        grid_x[None,None,:]-measured_x[:,:,None])/GRID_SPACING_M,0.,1.)
+        grid_x[None,None,:]-clipped_x[:,:,None])/GRID_SPACING_M,0.,1.)
     weights = xp.where(valid[:,:,None], weights, 0.)
     old = xp.asarray(confidences)
     # New returns dominate old evidence at the observed location, never
