@@ -1178,16 +1178,24 @@ Archive was read directly; 4 stages logged with 3 PASS and last FAIL.
   running the separate 10mm active probe, so even an
   unexpected later exception preserves the completed
   flat comparison's numeric differences and SHA.
-  The teleport-only probe now uses the **translated
-  prior foot positions** to prevent an artificial
-  0.20m/0.02s stance-slip penalty, captures top/riser
-  contact-pair candidate fractions, support, signed
-  toe gap, and requires **at least one real
-  sphere/box MJX contact pair** rather than mistaking
-  torso XY-overlap for physical contact.
-  This tightened probe may legitimately FAIL if
-  the test pose does not create physical contact;
-  diagnose that instead of weakening the definition.
+  The teleport-only probe now computes the actual
+  right-foot sphere and static box pose *per world*,
+  translates the free root so that the foot lies
+  **1mm into the real 10mm box TOP**, and checks
+  that the re-forwarded foot pose matches the
+  requested fixture to within 1mm. Its
+  **post-translation foot position** is used as
+  the previous foot position to avoid a fabricated
+  ~10m/s stance-slip penalty. The report captures
+  top/riser contact-pair candidate fractions,
+  supported stance, signed toe gap, and requires
+  **at least one real sphere/box MJX contact
+  pair**; torso XY-overlap alone is NOT enough.
+  This is a collision diagnostic pose, absolutely
+  **not** proof of physically feasible robot
+  stepping. If real MJX contact allocation still
+  reports none, investigate the contact model
+  rather than relaxing the requirement.
   **The new source changes have NOT been run on WSL.**
 - [ ] Immediate next gate: re-run
   `bash scripts/run_v5018_p1_terrain_acceptance.sh`
