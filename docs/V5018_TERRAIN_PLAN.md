@@ -1,6 +1,160 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026, 19:02 AEDT (interactive viewer feedback; new source fixes pending WSL acceptance). **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
+**Last evidence review:** 20 October 2026, ~20:11 AEDT (user-defined course geometry and waypoint refinement; current feature source awaiting WSL/browser acceptance). **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
+
+## 20 Oct evening — eight half-gap waypoints, continuous CCW movement, mixed obstacles (UNTESTED on WSL)
+
+**Latest user instruction:** retain the existing destination/waypoint
+navigation system, but place goals **halfway between neighbouring
+obstacles** in their existing circle order, never reversing
+the traversal direction. This refines the user's preceding
+request for wider angled step bars, step-ups, step-downs,
+half-buried logs and real local uneven park terrain.
+
+### Actual feature-branch implementation (source committed, not yet browser/WASM tested)
+
+- [~] **Eight gap destinations**, not 24 intermediate stopping goals:
+  `generateChallengeCourse().waypoints` now contains precisely
+  one pose at polar angle `2π(i+½)/8`, radius 4m,
+  with CCW heading `angle+π/2`. The final → first
+  transition wraps in the **same anticlockwise direction**.
+  The navigator's original arrivals/dwell, Worker-backed
+  pose-lattice planner, human override and six-servo
+  command pipeline are retained.
+- [~] **Real passage through challenges:** a straight
+  midpoint-to-midpoint chord would miss the obstacle
+  by roughly 0.30m radially. Each subsequent leg
+  therefore uses the intervening obstacle centre as
+  an **INTERNAL route-shaping via**, not an additional
+  navigation/parking goal. The real A* planner solves
+  both sides; its route includes one positively driven
+  forward crossing point and terminates only at the
+  next midway gap. The initial leg goes from spawn
+  to the first gap without a forced centre-crossing.
+  On crossing/replanning after the obstacle, the
+  via is dropped rather than driving backwards.
+  Timed-out circuit missions retry the SAME gap
+  instead of silently skipping ahead. Ordinary
+  Random destinations never receive a via.
+- [~] The visible teal `circuitPath` now joins
+  alternating obstacle centres and between-obstacle
+  destinations; it is NOT a misleading polygon
+  of straight midpoint chords. The actual driver
+  may deviate and is not guaranteed to complete
+  a ring until real visual tests. Heading remains
+  ring-tangent CCW even when the obstacle's own
+  yaw is rotated.
+- [~] **80cm full-width** collidable barriers
+  (previously 40cm) and deterministic obstacle
+  yaw offsets in degrees
+  `[0,+15,-15,+25,-25,+10,-10,+20]`.
+  Eight stations now include two each of
+  **basic sharp step**, **sharp step-up plus
+  long gentle ramp DOWN**, **gentle ramp UP
+  plus sharp step-down** (the true reverse
+  geometry; no impossible pit dug through
+  a solid MuJoCo heightfield), and **half-buried
+  capsule log**. Logs are default-enabled
+  only in viewer challenge mode, are
+  toggleable and explicitly unproven.
+  All coloured labels name the actual family
+  and nominal height; tier controls 5/10/15/20mm
+  frontier upper bound and mixes smaller challenges.
+- [~] **Actual seeded variable ground**, not
+  flattened ring: the park `Float32Array`
+  hfield retains its height distribution beyond
+  the central 2m flat spawn region at the
+  4m circle. The browser's physical hfield,
+  visual grass triangles, trees, local ground
+  height scanner and obstacle Z agree on the
+  SAME sampled final surface. Flat step-bar
+  top uses the centre ground + nominal height;
+  composite plateau uses local plateau ground;
+  sloped ramp endpoints use actual separate
+  local elevations; log centreline uses sampled
+  surface height at BOTH ends so approximately
+  HALF of the capsule radius is buried.
+  Natural hills can change effective difficulty
+  across any given 80cm span; a 5mm bar
+  is not an isolated flat-lab 5mm obstacle.
+- [~] Mixed-course browser tests now verify:
+  exactly eight halfway goals in strictly
+  CCW heading order including wraparound;
+  double-width and varying yaw; actual XML
+  box/ramp/log collision geoms; nonflat
+  hfield and locally-seated height; a
+  buried capsule log; trees within sight
+  but outside walking lane; internal
+  crossing via exactly once per leg;
+  initial spawn-to-gap and post-crossing
+  replan without backward return; and
+  strict fixed Worker targets without
+  random fallback. Updated headless
+  WASM test now includes **11 physical
+  probes** (flat, 5/10/15/20mm step
+  bars, both step/ramp families'
+  top and ramp surfaces, half-buried log,
+  and nonflat hill). It reports actual
+  height error/contact per fixture.
+- [x] **Isolated source-level V8 checks**
+  successfully parsed all changed JS
+  modules, checked generated real
+  physical XML, found 12 obstacle geoms
+  (2 bars, 4 step-up pieces, 4 step-down
+  pieces, 2 logs), preserved 17 actual
+  trees and confirmed nonzero and varying
+  terrain height at the 4m stations
+  (~30.6–36.4mm for this seed). A real
+  A* route was found from spawn to the
+  first gap, through each of seven further
+  obstacle centres, and across the
+  last → first wraparound; no planned
+  crossing point stopped inside an
+  obstacle. This is source-level
+  evidence only, **not** Node/npm/MuJoCo
+  WASM collision or live robot traversal.
+- [ ] **UNTESTED on WSL in this latest source:**
+  full Node regression suite, combined
+  uneven hfield + tilted-box + log
+  MuJoCo/WASM compilation/contact,
+  Vite build and local viewer reinstall;
+  interactive Windows/mobile circle,
+  automatic switching to CCW circuit
+  and successful 8-station locomotion.
+  Former 8/8 acceptance applies ONLY
+  to older source `f0150734...`,
+  not the widened/angled/uneven build.
+
+**Next command after pulling current feature HEAD:**
+
+```bash
+cd ~/emu-v5018
+git pull --ff-only origin feature/v5018-terrain-awareness
+source .venv/bin/activate
+bash scripts/run_v5018_viewer_course_acceptance.sh
+```
+
+It archives to
+`~/robot_lab/emu_exams/v5018_viewer_course_*.tar.gz`
+and installs the local viewer only after
+Node + WASM tests pass. Then serve
+`emu viewer showcase/champion.emupolicy --no-open`
+and hard-refresh `http://127.0.0.1:8765/`
+with Ctrl+Shift+R. Select **Park + challenge ring**,
+confirm **Challenge circuit**, verify a single
+goal in each gap is visited CCW, and check
+grass/trees/terrain and collider signage.
+Any failed test should be diagnosed
+and fixed **on feature branch**, not
+disabled or treated as a visual-only
+misunderstanding.
+
+**Protected boundaries unchanged:** no
+edit or merge of `main`, protected champion,
+public Pages, actor/NN schema, PPO rewards
+or ongoing GPU training. Cold-start from
+no prior brain remains mandatory for
+future true terrain learning.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
