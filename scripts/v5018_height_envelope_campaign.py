@@ -179,7 +179,10 @@ def choose_finalists(scores: dict[str, dict], slots: int = 2) -> list[str]:
     pool = retained or candidates
     # No held-out crossing? Keep *exploratory* arms rather than wasting the
     # remaining night on a fake 0mm/10mm 'step success' celebration.
-    pool.sort(key=lambda c: (c[2] > 0, c[3], c[4], c[5], c[0]), reverse=True)
+    # If nobody actually crosses, prioritise demonstrable forward progress
+    # over the number of frames pushing against a riser. A policy stuck
+    # grinding its feet on the wall should NOT win on contact-frame volume.
+    pool.sort(key=lambda c: (c[2] > 0, c[3], c[5], c[4], c[0]), reverse=True)
     chosen = [c[0] for c in pool[:slots]]
     if len(chosen) < slots:
         raise RuntimeError("Not enough candidates for matched continuations")
