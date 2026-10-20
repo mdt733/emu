@@ -8,11 +8,18 @@ import {fileURLToPath} from 'node:url';
 import {writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {generateChallengeCourse} from '../src/challenge-course.js';
-import {withTerrain} from '../src/terrain.js';
+import {withTerrain,generateTerrainPark} from '../src/terrain.js';
 
 const wasmPath=fileURLToPath(new URL('../node_modules/@mujoco/mujoco/mujoco.wasm',import.meta.url));
 const mj=await loadMujoco({locateFile:path=>path.endsWith('.wasm')?wasmPath:path});
 const report=[];
+const park=generateTerrainPark({
+  maxDegrees:10,trees:true,challengeRing:true});
+const hillLocation=[
+  [7,0],[-7,0],[0,7],[0,-7],[6.4,3],[-6.4,3],[3,6.4]
+].find(([x,y])=>park.sampleHeight(x,y)>.025 &&
+  park.trees.every(t=>Math.hypot(x-t.x,y-t.y)>1.15));
+if(!hillLocation)throw new Error('Could not locate unobstructed, non-flat park hfield test point');
 const cases=[
   {tier:0,kind:'floor'},
   {tier:5,kind:'step'},
@@ -20,24 +27,33 @@ const cases=[
   {tier:15,kind:'step'},
   {tier:20,kind:'step'},
   {tier:10,kind:'log',logs:true},
+  {tier:10,kind:'hill'}, // proves the course retains actual NONFLAT park collision
 ];
 for(const fixture of cases){
   const course=generateChallengeCourse({
     tierMm:fixture.tier,logs:Boolean(fixture.logs)});
   const station=fixture.kind==='floor'?course.stations[0]
     :fixture.kind==='log'?course.stations[3]
+    :fixture.kind==='hill'?null
     :course.stations.find(s=>s.kind==='step'&&s.heightMm===fixture.tier);
-  if(!station)throw new Error('Missing selected physical obstacle station');
-  const x=station.x,y=station.y;
+  if(!station&&fixture.kind!=='hill')
+    throw new Error('Missing selected physical obstacle station');
+  const x=fixture.kind==='hill'?hillLocation[0]:station.x;
+  const y=fixture.kind==='hill'?hillLocation[1]:station.y;
+  const underlyingGroundHeight=park.sampleHeight(x,y);
   const base=`<mujoco><option timestep=".005" gravity="0 0 -9.81" />
     <worldbody>
       <geom name="floor" type="plane" size="5 5 .05" />
-      <body name="test_sphere" pos="${x} ${y} .12">
+      <body name="test_sphere" pos="${x} ${y} ${.12+underlyingGroundHeight}">
         <joint name="z_slide" type="slide" axis="0 0 1" />
         <geom name="ball" type="sphere" size=".018" mass=".01" />
       </body>
     </worldbody></mujoco>`;
-  const xml=withTerrain(base,'course',{course});
+  const xml=withTerrain(base,'course',{course,park});
+  if(!xml.includes('viewer_park_hfield')||
+     !xml.includes('viewer_park_ground')||
+     !xml.includes('viewer_tree_trunk_0'))
+    throw new Error('Challenge mode lost physical park/forest collision geometry');
   let model=null,data=null;
   let result;
   try{
@@ -45,19 +61,21 @@ for(const fixture of cases){
     if(!model)throw new Error('WASM did not compile collidable challenge XML');
     data=new mj.MjData(model);
     for(let i=0;i<260;i++)mj.mj_step(model,data);
-    const observed=.12+Number(data.qpos[0]);
-    const expected=.018+(fixture.kind==='floor'?0:
-      fixture.kind==='log' ? .020 : fixture.tier/1000);
+    const observed=.12+underlyingGroundHeight+Number(data.qpos[0]);
+    const expected=underlyingGroundHeight+.018+
+      (fixture.kind==='floor'||fixture.kind==='hill'?0:
+       fixture.kind==='log' ? .020 : fixture.tier/1000);
     const mismatch=Math.abs(observed-expected);
-    result={...fixture,station:station.index,
-      model_accepted:true,
+    result={...fixture,station:station?.index??null,
+      model_accepted:true,physical_park_height_m:underlyingGroundHeight,
+      retained_grass_hfield:true,retained_collision_trees:park.trees.length,
       final_sphere_centre_z_m:observed,
       expected_sphere_centre_z_m:expected,
       absolute_height_disagreement_mm:mismatch*1000,
       physical_contacts:Number(data.ncon??0),
       pass:Number.isFinite(observed)&&mismatch<.004};
   }catch(error){
-    result={...fixture,station:station.index,
+    result={...fixture,station:station?.index??null,
       pass:false,error:String(error?.stack||error)};
   }finally{data?.delete?.();model?.delete?.();}
   report.push(result);
@@ -67,6 +85,7 @@ const filename=resolve(process.argv[2]||'v5018_wasm_challenge_results.json');
 writeFileSync(filename,JSON.stringify({
   schema:1,study:'real_webassembly_step_and_log_collidable_ring',
   mujoco_runtime:'@mujoco/mujoco 3.15.0',
+  actual_grass_hfield:true,physical_tree_trunks:park.trees.length,
   actor_or_checkpoint_loaded:false,
   results:report,
   limitations:[
