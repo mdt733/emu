@@ -577,10 +577,19 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('per-world real contact terrain requires --profile sim2real')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
+    box_raw=getattr(args,'terrain_box_height_mm',None)
+    box_height=-1 if box_raw is None else box_raw
+    if type(box_height) is not int or box_height not in (-1,0,5,10):
+        raise ValueError('v5018 terrain box height must be absent, 0, 5 or 10mm')
+    if box_height >= 0 and (args.profile != 'sim2real' or not sensor_actor):
+        raise ValueError('terrain box PPO research requires sim2real and --sensor-actor')
+    if box_height >= 0 and (grade != 0 or terrain_radius != 0):
+        raise ValueError('v5018 P1 box course cannot mix with inclined/random terrain')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
-                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
+                   contact_slope_deg=grade,terrain_box_height_mm=box_height,
+                   domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
