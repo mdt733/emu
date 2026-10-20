@@ -1003,3 +1003,61 @@ def test_v5018_step_pilot_xml_yaw_and_declared_height(tmp_path):
         collidable_course(ROBOT_XML,tmp_path/'course.xml',10,yaw_deg=40.)
     with pytest.raises(ValueError, match='declared'):
         collidable_course(ROBOT_XML,tmp_path/'course.xml',22,yaw_deg=0.)
+
+
+def test_v5018_gait_v2_pairs_real_contacts_without_faking_long_single_swings():
+    from emu.directional import (
+        count_contact_strides, diagnose_alternating_contact_pairs_v2)
+
+    n=70
+    body=np.zeros((n,2))
+    body[:,0]=.0025*np.arange(n)  # 2.5mm/frame, only ~15mm per air interval
+    feet=np.zeros((n,2,3))
+    feet[:,:,2]=.018
+    contacts=np.ones((n,2),dtype=bool)
+    for foot,first,last in ((0,10,14),(1,23,27)):
+        contacts[first:last+1,foot]=False
+        feet[first:last+1,foot,2]=.029
+        feet[first+1:,foot,0]=.035
+    clearance=feet[:,:,2]-.018
+    old=count_contact_strides(
+        body,feet,contacts,settle_frames=3,foot_clearance_m=clearance)
+    assert old == 0  # fixed 25mm PER airborne event rejects genuine short steps
+    v2=diagnose_alternating_contact_pairs_v2(
+        body,feet,contacts,course_axis_xy=(1.,0.),
+        settle_frames=3,foot_clearance_m=clearance)
+    assert v2['candidate_alternating_pairs_v2']==1
+    assert v2['eligible_contact_touchdowns']==2
+    assert v2['pair_events'][0]['signed_progress_mm']>=25.
+    assert v2['status']=='RESEARCH_ONLY_NOT_HISTORICAL_PASS'
+
+    # Translating sideways cannot satisfy a world-fixed +X request.
+    sideways=body.copy()
+    sideways[:,0]=0.
+    sideways[:,1]=body[:,0]
+    v2_bad=diagnose_alternating_contact_pairs_v2(
+        sideways,feet,contacts,course_axis_xy=(1.,0.),settle_frames=3)
+    assert v2_bad['candidate_alternating_pairs_v2']==0
+    assert v2_bad['candidate_pair_trials']>0
+
+    # A gait cannot earn contact-supported credit while its other foot
+    # was also airborne for the entire first swing.
+    no_stance=contacts.copy()
+    no_stance[10:15,1]=False
+    v2_unstable=diagnose_alternating_contact_pairs_v2(
+        body,feet,no_stance,course_axis_xy=(1.,0.),settle_frames=3)
+    assert v2_unstable['candidate_alternating_pairs_v2']==0
+    assert v2_unstable['event_rejections_nonexclusive']['no_opposite_foot_support']>0
+
+    backward_swing=feet.copy()
+    backward_swing[10:,0,0]=-.035
+    v2_backwards=diagnose_alternating_contact_pairs_v2(
+        body,backward_swing,contacts,course_axis_xy=(1.,0.),settle_frames=3)
+    assert v2_backwards['candidate_alternating_pairs_v2']==0
+    assert v2_backwards['event_rejections_nonexclusive']['backwards_foot_swing']>0
+    with pytest.raises(ValueError,match='boolean contact'):
+        diagnose_alternating_contact_pairs_v2(
+            body,feet,contacts.astype(float),course_axis_xy=(1.,0.))
+    with pytest.raises(ValueError,match='world-fixed'):
+        diagnose_alternating_contact_pairs_v2(
+            body,feet,contacts,course_axis_xy=(0.,0.))
