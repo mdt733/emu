@@ -58,8 +58,26 @@
         <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
         <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
         <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option></select></label>
-        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
+        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="course">Challenge ring · physical obstacles</option></select></label>
+        <label id="parkSlopeControls">Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
+        <div id="challengeControls" class="challenge-controls" hidden>
+          <label>Step difficulty <select id="challengeTier">
+            <option value="0">Clear ring · no steps</option>
+            <option value="5">5 mm · verified pilot</option>
+            <option value="10" selected>Up to 10 mm · verified pilot</option>
+            <option value="15">Up to 15 mm · exploratory</option>
+            <option value="20">Up to 20 mm · exploratory</option>
+          </select></label>
+          <label><input id="challengeLogs" type="checkbox" /> Add capsule logs (unproven walking)</label>
+          <div class="challenge-legend" aria-label="Challenge colours">
+            <span><i style="background:#4cc78b"></i>5 mm</span>
+            <span><i style="background:#64a8f7"></i>10 mm</span>
+            <span><i style="background:#e6b45b"></i>15 mm</span>
+            <span><i style="background:#d986d1"></i>20 mm</span>
+            <span><i style="background:#f28e56"></i>Log (experimental)</span>
+          </div>
+          <p id="challengeDescription" class="challenge-description">Real box collisions; the viewer is a demonstration, not a held-out walking pass.</p>
+        </div>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
         <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
         <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
@@ -71,6 +89,11 @@
         <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
         <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
         <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
+        <label>Demo route <select id="demoMode">
+          <option value="random" selected>Random destinations inside circle</option>
+          <option value="circuit">Challenge circuit · cross each station</option>
+        </select></label>
+        <p id="demoRouteNote" class="challenge-description">Random pose targets; autonomous commands control the same policy as the joysticks.</p>
         <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
           <span>Pose lattice · position + facing</span></div>
         <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
