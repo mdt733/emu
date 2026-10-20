@@ -247,6 +247,78 @@ build remain **UNTESTED** until rerun.
 Both independent scripts archive under
 `~/robot_lab/emu_exams/`.
 
+### 20 Oct 18:19 actual acceptance results — and what to do next
+
+**Both independent WSL archives PASSED on feature commit
+`f01507344589ee22f54f5ca6d1588b7e6582ae76`:**
+
+- `v5018_viewer_course_20261020_181856.tar.gz`:
+  **8/8 stages** — 18/18 browser Node tests,
+  all six real MuJoCo/WASM floor/5/10/15/20mm
+  step/capsule-log static contact probes,
+  Vite production build and installed
+  `emu/webviewer_dist` PASS.
+  The headless fixtures test **sphere collisions**,
+  not the trained six-servo policy crossing
+  the full ring; browser UI still needs a
+  human visual pass.
+- `v5018_p1_deep_20261020_181914.tar.gz`:
+  **5/5 stages** — 11/11 terrain-truth tests,
+  2/2 trace accounting tests, exact 232-input
+  and scalar-reward three-frame CUDA flat
+  parity, 10mm contact and two genuine
+  read-only **moving** champion MJX traces
+  over 240 frames/4 worlds. The corrected
+  metric sees 116 top-normal and 272
+  riser-normal candidate world-frames and
+  real support changes. A full held-out
+  stepping capability has NOT been certified.
+  The two independently compiled closed-loop
+  runs diverged by up to 7.1cm, which is
+  **not a same-physical-frame causal reward
+  comparison**.
+
+The viewer is ready for the next **human visual check**
+in your Windows browser, using the
+locally installed Vite bundle:
+
+```bash
+cd ~/emu-v5018
+source .venv/bin/activate
+emu viewer showcase/champion.emupolicy --no-open
+# Open http://127.0.0.1:8765/
+```
+
+Settings → Terrain → **Challenge ring**
+and **View: arena**. Choose 10mm to
+see shallow green/blue steps; select
+Demo route → **Challenge circuit** to
+test entry/cross waypoints while the
+frozen actor receives ordinary joystick-
+equivalent movement commands. The route
+is a demo, not the strict crossing exam.
+Use manual joystick override, camera
+cycling and optionally the experimental
+orange logs to check UI/physics.
+No public GitHub Pages publishing has
+been performed.
+
+The live viewer can independently poll
+**completed, validated** checkpoint
+exports from an EXISTING training run
+(`emu viewer --live --root /existing/run --no-open`);
+it does not render every MJX training
+world or start new PPO training.
+
+**Next deep physics requirement:** score
+old/new rewards on the SAME moving MJX
+physical states, then evaluate solver
+normal reactions and course crossing
+before attempting major terrain PPO.
+A frozen champion is only an OPTIONAL
+research control: cold-start from
+random weights remains mandatory.
+
 ### The v5018 P0 experimental campaign and evidence
 
 ```bash
