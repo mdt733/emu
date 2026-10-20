@@ -108,6 +108,21 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
   };
   const treeList=[];
   if(trees) {
+    if(challengeRing){
+      // The original radial park's trees begin beyond 3.5m. Removing
+      // trees from the 4m ring otherwise pushes EVERY trunk outside the
+      // new arena camera and looks like we lost the forest again.
+      // A small inner grove is visible within the 4m course, but its
+      // trunks stay >1.5m inside the challenge and do not obstruct the
+      // eight crossing lanes (or the centre -> first-station approach).
+      for(const angle of [Math.PI/4,3*Math.PI/4,5*Math.PI/4,7*Math.PI/4]){
+        const x=2.25*Math.cos(angle),y=2.25*Math.sin(angle);
+        treeList.push({
+          x,y,z:sampleHeight(x,y),trunkHeight:1.38,
+          trunkRadius:.075,canopyRadius:.50,shade:.48,
+        });
+      }
+    }
     const random=rng32(seed+9041);
     for(let attempt=0;attempt<650&&treeList.length<17;attempt++){
       const direction=random()*Math.PI*2;
