@@ -47,7 +47,7 @@ for(const fixture of cases){
     for(let i=0;i<260;i++)mj.mj_step(model,data);
     const observed=.12+Number(data.qpos[0]);
     const expected=.018+(fixture.kind==='floor'?0:
-      fixture.kind==='log'?.020:fixture.tier/1000);
+      fixture.kind==='log' ? .020 : fixture.tier/1000);
     const mismatch=Math.abs(observed-expected);
     result={...fixture,station:station.index,
       model_accepted:true,
