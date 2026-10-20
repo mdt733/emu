@@ -602,7 +602,12 @@ export class EmuBrowserSim {
     }
     // Waypoints follow the same real collision-backed park heights as
     // the robot, with modest Z lift so the guide stays visible in grass.
-    const points=waypoints.map(p=>new THREE.Vector3(
+    // The destinations are BETWEEN obstacles, but the real route must
+    // CROSS each intervening obstacle. Draw both the internal crossing
+    // anchor and the gap destination; drawing only a chord of gap targets
+    // would misleadingly show a route cutting inside the ring.
+    const targets=waypoints.flatMap(goal=>[goal.via,goal].filter(Boolean));
+    const points=targets.map(p=>new THREE.Vector3(
       p.x,p.y,this.terrainHeightAt(p.x,p.y)+.07));
     this.circuitPath.geometry.dispose();
     this.circuitPath.geometry=new THREE.BufferGeometry().setFromPoints(points);
