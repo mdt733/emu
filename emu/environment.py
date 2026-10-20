@@ -2073,6 +2073,7 @@ class EmuMJXEnv(TaskSampler):
                 floor_torso_signed=height,
                 floor_normal=jnp.reshape(
                     data.geom_xmat[:,floor_id],(self.num_envs,3,3))[:,:,2],
+                floor_origin=data.geom_xpos[:,floor_id,:],
                 box_center=data.geom_xpos[:,bid,:],
                 box_rotation=jnp.reshape(
                     data.geom_xmat[:,bid],(self.num_envs,3,3)),
@@ -2235,6 +2236,8 @@ class EmuMJXEnv(TaskSampler):
             'scissor_pressure': scissor,
             **({} if terrain_truth is None else {
                 'terrain_geometry_active':terrain_active.astype(jnp.float32),
+                'terrain_support_reference_elevation_m':terrain_truth[
+                    'support_reference_elevation_m'],
                 'terrain_top_contact_fraction':jnp.mean(
                     terrain_truth['foot_top_contact_candidate'].astype(jnp.float32),axis=1),
                 'terrain_riser_contact_fraction':jnp.mean(
