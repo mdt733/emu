@@ -1,6 +1,6 @@
 # EMU v5018 — Terrain-Aware Stepping: living branch checklist
 
-**Last evidence review:** 20 October 2026, 18:19 AEDT. **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
+**Last evidence review:** 20 October 2026, 19:02 AEDT (interactive viewer feedback; new source fixes pending WSL acceptance). **Ref:** `feature/v5018-terrain-awareness`. **Status:** P0A/P0B partial; **P1 deep moving-MJX 5/5 stages PASS** (11/11 terrain + 2/2 trace tests, flat parity, controlled contact and real frozen-actor motion); **Viewer course 8/8 stages PASS** (18/18 Node tests, six WASM colliders, build + install). These are validated experiments, **not certified supported walking, motor loading, same-state reward superiority, or real-browser visual acceptance**. P2–P7 gated. **Never merge main, replace a champion or deploy GitHub Pages without explicit approval.** This is the **only tracked living v5018 progress/gate checklist**. The full reviewed master-plan acceptance criteria are condensed below; [V5018_HANDOVER.md](V5018_HANDOVER.md) is a stable, practical restart guide.
 
 ## Reviewed technical contract (source: master plan Review 2, 19 Oct 2026)
 
@@ -1573,6 +1573,147 @@ Vite **7.3.7**.
    curriculum yet; maintain opt-in
    mode and protect champion/Pages/main.
 
+## 20 Oct ~19:02 — actual desktop feedback: viewer circuit/scenery regression FIXED ON BRANCH
+
+**User directly observed two issues AFTER the previous 8/8
+headless viewer acceptance:** Challenge ring had **no grass or
+trees**, and selecting that terrain still produced random targets
+inside the circle instead of following the obstacle course.
+This real browser observation OVERRIDES any implication that
+the previous Node/WASM acceptance proved those UI behaviours.
+Prior 8/8 acceptance was for source
+`f01507344589ee22f54f5ca6d1588b7e6582ae76`,
+NOT the new fixes. The corrected viewer has **NOT
+yet been run in WSL or a browser**.
+
+### Confirmed source root causes
+
+- `terrain.js::withTerrain(mode='course')` **replaced**
+  the entire park with challenge boxes on a bare
+  original floor, while `sim.js::loadModel`
+  generated `this.park`, grass mesh and tree crowns
+  **only if** `mode==='park'`. That is why scenery
+  vanished; no rendering setting or texture bug.
+- `index.html` naturally defaults
+  `demoMode` to `random`; the
+  `terrainMode` dropdown's `change`
+  handler previously only rebuilt terrain,
+  **never selected the circuit**. Thus its
+  existing target worker legitimately kept
+  running `kind:'next'` random sampling.
+  A hidden/permissive fallback in the
+  initial mode wiring made this confusing
+  despite the `kind:'target'` worker itself
+  being implemented correctly.
+- The original 16-point circuit had only
+  approach/cross poses; the route planner
+  could chord through the interior between
+  stations, not keep a visually continuous
+  circuit along the ring.
+
+### Implemented branch-only correction (UNTESTED WSL)
+
+- [~] Challenge mode now **combines the
+  original actual MuJoCo hfield/grass mesh and
+  tree cylinders/canopies** with the
+  5/10/15/20mm boxes and optional real
+  capsule logs. The original colliding
+  `floor` plane is removed ONCE, as in
+  park mode; no duplicate ground colliders.
+  A gently feathered flat 4m annular track
+  prevents small boxes from being buried in
+  rising terrain. Physical box and capsule
+  z positions sample that SAME generated
+  park heightfield. The 10° outer hills
+  and real tree collisions remain.
+- [~] Forest generator retains 17 trees
+  in deterministic positions: four inner
+  grove trees at radius **2.25m**, visible
+  from the whole-arena camera, and 13
+  further trees outside the 4m lane.
+  No trunk lies within **1.08m radial**
+  distance of the obstacle circumference.
+  `sim.js` now creates park grass/trees in
+  BOTH park/course, and updates route
+  overlays, sensor height references,
+  terrain-slope indicator and obstacles'
+  3D signs using physical park elevation.
+  Tree switch and landscape slope control
+  remain available in challenge mode.
+- [~] New pure
+  `emu/viewer_src/src/demo-mode.js` makes
+  an **explicit terrain dropdown change
+  to Challenge ring select `circuit`**;
+  selecting other modes returns to
+  `random`. A user can still deliberately
+  select Random within the course. If the
+  UI specifies circuit but no valid course
+  is loaded, route setup now throws rather
+  than silently falling back to random.
+  Navigation uses the existing policy and
+  Worker `kind:'target'`, never a scripted
+  joint-action shortcut.
+- [~] Circuit expanded from 16 to
+  **24 ordered waypoints**: approach
+  each obstacle, cross its actual
+  footprint, then follow a midpoint
+  arc on the 4m circumference.
+  A persistent teal full-circuit line
+  is displayed in addition to the
+  immediate pose-lattice segment;
+  HUD explicitly labels circuit targets
+  and planning. The demo remains
+  **not** a held-out no-detour test.
+- [~] Browser tests now cover the real
+  combined XML heightfield and 17
+  collidable trees, visible inner grove,
+  no trunks obstructing the ring,
+  exact ground-relative obstacle height,
+  course selection auto-setting
+  circuit, manual random override,
+  missing-course fail-closed,
+  24 ordered worker targets and 24
+  physically tree-aware A* legs.
+  The pinned WASM smoke now includes
+  a **7th physical contact fixture on
+  a genuinely non-flat grassy hill**,
+  beyond flat/4 boxes/capsule log.
+- [x] An isolated pure-source V8 check
+  of the updated JS **PARSED 10/10
+  relevant modules**, generated true
+  park+hfield+17 trunks+6 boxes+2
+  capsule logs, found no duplicated
+  floor, preserved 4 visible inner
+  trees and 13 outer trees, and
+  **planned 24/24 successive circuit
+  legs** with physical park trees.
+  This is NOT real WASM collision
+  testing, rendering or an end-to-end
+  browser route execution.
+- [ ] **Mandatory next WSL run:**
+  `bash scripts/run_v5018_viewer_course_acceptance.sh`.
+  It rebuilds and INSTALLS the new
+  `webviewer_dist`, not just tests source.
+  Then start `emu viewer
+  showcase/champion.emupolicy --no-open`
+  and hard refresh `http://127.0.0.1:8765/`
+  (Ctrl+Shift+R) so the browser does not
+  reuse the old bundle. Manually verify
+  grass, tree crowns/trunks, station
+  markers, automatic **CIRCUIT**
+  heading/teal route, 24-waypoint
+  progression and manual joystick
+  handoff. Screenshots or logs of
+  failures are useful. The robot
+  may fail to complete the ring if
+  its locomotion capability is poor;
+  that is **not** a random-target bug.
+
+**Protected boundaries:** no main merge, Pages
+deployment, champion modification, actor schema
+change, PPO reward/training change or interruption
+of a running experiment.
+
 ## Immediate next gates — move beyond an artificial P1 contact
 
 **P1 old four-stage smoke is now 4/4 PASS,
@@ -1586,11 +1727,15 @@ classification and to quantify true actor/reward/
 trajectory divergence. Do **not** replace this
 with another forced stationary top contact test.
 
-The independent viewer contract was repaired; run
-`scripts/run_v5018_viewer_course_acceptance.sh`
-to learn the *actual* WASM/Node status. The 16/17
-old result did NOT execute any WASM collision or
-Vite packaging; no UI or Pages validation claim yet.
+The previous viewer source at `f0150734...` passed
+8/8 stages including WASM and Vite build, but a
+later **real browser test revealed** that course mode
+discarded park scenery and kept Random targets.
+New combined-grass/trees and auto-Circuit code has
+been committed, pure V8/source-route-checked,
+and MUST undergo a NEW Node+WASM+browser run.
+See the 19:02 entry above. Do not reuse an
+earlier green stage as evidence for this build.
 
 **Viewer gate is separately UNVERIFIED on Node/WASM.**
 The eight-station circle and two demo modes have been
