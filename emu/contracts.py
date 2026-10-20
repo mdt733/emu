@@ -61,13 +61,13 @@ SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
 SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
 
 # v5019 opt-in forward terrain profile. 232 is NOT expanded in place.
-# Six heights plus six validity flags, per 20ms history frame: (58+12)*4=280.
+# Six measured slant ranges plus six validity flags, per 20ms frame: 280.
 OBS_SCHEMA_PREVIEW = "forward_tof_280"
-PREVIEW_HEIGHT_FIELDS = tuple(
-    f"forward_height_{side}_{cm}cm" for side in ("right", "left") for cm in (5,10,15))
+PREVIEW_RANGE_FIELDS = tuple(
+    f"forward_range_{side}_{cm}cm_m" for side in ("right", "left") for cm in (5,10,15))
 PREVIEW_VALID_FIELDS = tuple(
     f"forward_valid_{side}_{cm}cm" for side in ("right", "left") for cm in (5,10,15))
-PREVIEW_OBS_FIELDS = SENSOR_OBS_FIELDS + PREVIEW_HEIGHT_FIELDS + PREVIEW_VALID_FIELDS
+PREVIEW_OBS_FIELDS = SENSOR_OBS_FIELDS + PREVIEW_RANGE_FIELDS + PREVIEW_VALID_FIELDS
 PREVIEW_BASE_OBS_DIM = len(PREVIEW_OBS_FIELDS)
 PREVIEW_OBS_DIM = PREVIEW_BASE_OBS_DIM * HISTORY_LEN
 # Observation schema identifies meanings, not merely array widths. A hash
@@ -138,6 +138,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             FORWARD_MOUNTS_BODY_M, FORWARD_DIRECTIONS_BODY,
             FORWARD_LOOKAHEAD_X_M, FORWARD_LANES_Y_M, FORWARD_MODEL_REVISION,
             FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M, FORWARD_NOISE_STD_M,
+            FORWARD_QUANTIZATION_M,
         )
         body.update(
             forward_model_revision=FORWARD_MODEL_REVISION,
@@ -147,6 +148,8 @@ def sensor_observation_contract(settings: dict | None = None, *,
             forward_lanes_y_m=list(FORWARD_LANES_Y_M),
             forward_range_limits_m=[FORWARD_MIN_RANGE_M, FORWARD_MAX_RANGE_M],
             forward_noise_std_m=FORWARD_NOISE_STD_M,
+            forward_quantization_m=FORWARD_QUANTIZATION_M,
+            forward_channel_semantics="raw_slant_range_m_plus_validity; body-attitude provided by existing fields",
             forward_masked=bool(preview_masked),
             forward_limitations="plane+box first hit; no leg occlusion, reflectance, hfield or capsule rays")
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
