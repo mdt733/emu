@@ -1,4 +1,4 @@
-"""Two V-shaped 46-cell (rear -5cm to front +40cm) measured terrain tracks.
+"""Two V-shaped 51-cell (rear -10cm to front +40cm) measured terrain tracks.
 
 At each control step, optical-flow vx/vy and IMU yaw advect a sparse map in
 the robot's gravity-levelled horizontal coordinate system. The two rays and
@@ -8,22 +8,22 @@ may enter the map's reconstruction. Unknown space keeps near-zero confidence.
 V apex = measured ground hit of rear ToF (nominal x=-4cm, y=0).
 Both paths spread to calibrated +/-5cm at nominal forward x=20cm and
 continue outward to 40cm. Pitch/torso-height change ray-hit positions, not
-the stored x-axis calibration. Four requested x locations per side feed PPO.
+the stored x-axis calibration. Five requested x locations (-5/0/5/10/15cm) per side feed PPO.
 """
 from __future__ import annotations
 
 GRID_SPACING_M = .01
-GRID_START_M = -.05
+GRID_START_M = -.10
 GRID_LOOKAHEAD_M = .40
-GRID_CELLS = 46                    # -5, -4, ..., 39, 40 cm
+GRID_CELLS = 51                    # -10, -9, ..., 39, 40 cm
 FORWARD_REFERENCE_X_M = .20        # where the two physical rays aim at neutral pose
 FRONT_LANES_Y_M = (-.05, .05)      # right, left
 REAR_REFERENCE_X_M = -.04
-OUTPUT_SAMPLE_X_M = (0., .05, .10, .15)
-OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20)
+OUTPUT_SAMPLE_X_M = (-.05, 0., .05, .10, .15)
+OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20, 25)
 CONFIDENCE_TIME_S = .60
 CROSS_TRACK_SIGMA_M = .023         # width of uncertainty around each scanned V arm
-SENSOR_MAP_REVISION = "rear_tof_anchored_2d_v_tracks_46x2_v3"
+SENSOR_MAP_REVISION = "rear_tof_anchored_2d_v_tracks_51x2_v4"
 
 
 def grid_positions(xp):
@@ -40,7 +40,8 @@ def v_track_y(xp, x_m, apex_x_m):
     x = xp.asarray(x_m)
     apex = xp.asarray(apex_x_m)
     slopes = xp.asarray(FRONT_LANES_Y_M, dtype=xp.float32)[None,:,None]
-    return slopes * ((x - apex) / xp.maximum(FORWARD_REFERENCE_X_M - apex, .08))
+    return slopes * (xp.maximum(x - apex, 0.) /
+                     xp.maximum(FORWARD_REFERENCE_X_M - apex, .08))
 
 
 def empty_map(xp, worlds: int):
@@ -98,7 +99,7 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
         amount=(1.-frac)*c0+frac*c1
         local_h=((1.-frac)*c0*h0+frac*c1*h1)/xp.maximum(amount,1e-8)
         arm_y=(xp.asarray(FRONT_LANES_Y_M[side],dtype=xp.float32) *
-               (back_x-apex_old)/xp.maximum(FORWARD_REFERENCE_X_M-apex_old,.08))
+               xp.maximum(back_x-apex_old,0.)/xp.maximum(FORWARD_REFERENCE_X_M-apex_old,.08))
         lateral=back_y-arm_y
         distance_weight=xp.exp(-.5*(lateral/CROSS_TRACK_SIGMA_M)**2)
         weighted=xp.where(in_bounds,amount*distance_weight,0.)
@@ -160,11 +161,11 @@ def insert_measurement(xp, heights, confidences, sample_x_m,
 
 
 def readout(xp, heights, confidences):
-    """Eight spatial terrain samples (0/5/10/15 cm per side), plus confidence."""
+    """Ten heights (-5/0/5/10/15cm per side), plus ten confidences."""
     idx=xp.asarray(OUTPUT_SAMPLE_INDICES)
     h=xp.take(heights,idx,axis=2)
     c=xp.take(confidences,idx,axis=2)
-    return h.reshape((heights.shape[0],8)),xp.clip(c.reshape((heights.shape[0],8)),0.,1.)
+    return h.reshape((heights.shape[0],10)),xp.clip(c.reshape((heights.shape[0],10)),0.,1.)
 
 
 def measured_height_and_x(xp, ranges, valid, tripod_ranges,
