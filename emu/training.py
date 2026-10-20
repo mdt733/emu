@@ -147,14 +147,31 @@ def train(args: TrainingConfig) -> int:
     if already_complete:
         return 0
 
+    training_xml = ROBOT_XML
+    env_options = env_kwargs_from_args(args)
+    course_sha256 = None
+    if args.terrain_box_height_mm >= 0:
+        # One exact physical XML fixture for the examiner AND the learner.
+        # Course identity is recorded beside the full learning-state lineage.
+        import hashlib
+        from .terrain import collidable_course
+        training_xml = collidable_course(
+            ROBOT_XML, run_dir / 'v5018_training_course.xml',
+            args.terrain_box_height_mm)
+        course_sha256 = hashlib.sha256(training_xml.read_bytes()).hexdigest()
+        env_options['terrain_contact_mode'] = 'box_surface'
+        print(f'{LOG_PREFIX} v5018 P1 REAL BOX course={args.terrain_box_height_mm}mm '
+              f'xml_sha256={course_sha256} (no actor lookahead; baseline only)', flush=True)
+
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
-            'resumed_from_step': resumed_step if resumed_payload is not None else None}
+            'resumed_from_step': resumed_step if resumed_payload is not None else None,
+            'terrain_course_sha256': course_sha256}
     write_json(run_dir / 'run_meta.json', meta)
     perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
 
-    env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
-                    max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
+    env = EmuMJXEnv(str(training_xml), num_envs=args.envs, seed=args.seed,
+                    max_episode_steps=MAX_EPISODE_STEPS, **env_options)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
