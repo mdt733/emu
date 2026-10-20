@@ -1,6 +1,6 @@
 """v5019 forward ToF: two virtual 3-zone modules, 5/10/15cm footprints per lane.
 
-This module owns the sensor *forward model* and inverse measurement, not
+This module owns the sensor *forward model* and optional diagnostic inverse, not
 training rewards, terrain curriculum, or oracle actor features. It treats a
 ray as a calibrated narrow beam; two single-point ToF chips could NOT deliver
 these six simultaneous zones. The eventual physical hardware must be two
@@ -10,6 +10,9 @@ The first-hit model handles a real MuJoCo plane and a rotated collidable box,
 including the near riser. MJX does not have a suitable general raycast for
 this vectorized training path; no collision support is inferred from hfields.
 Robot self-occlusion, surface reflectance and dynamic movers remain unsupported.
+The deployable 280-input actor receives RAW range + validity, not an oracle
+height or a ground-plane-dependent cooked height. The inverse below is only
+for optional diagnosis; it is never used for the actor packet.
 """
 from __future__ import annotations
 
@@ -23,8 +26,9 @@ FORWARD_NOMINAL_DEPTH_M = .2334
 FORWARD_MIN_RANGE_M = .035
 FORWARD_MAX_RANGE_M = .60
 FORWARD_NOISE_STD_M = .0015
+FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
 FORWARD_PROFILE_CLIP_M = .15
-FORWARD_MODEL_REVISION = "two_three_zone_narrow_rays_plane_box_v1"
+FORWARD_MODEL_REVISION = "two_three_zone_raw_slant_ranges_plane_box_v2"
 
 # Explicit six-channel lane-major order; document geometry in the manifest.
 FORWARD_MOUNTS_BODY_M = tuple(
