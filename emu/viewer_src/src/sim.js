@@ -94,7 +94,7 @@ export class EmuBrowserSim {
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
     this.controls.maxDistance = 11; // orbit can frame the full 4m mission arena
-    this.cameraMode = 'orbit'; // orbit | chase | raw | level
+    this.cameraMode = 'orbit'; // orbit | overview | chase | raw | level
     this.chaseReady = false;
     this.chaseHeading = 0;
     this.chaseTarget = new THREE.Vector3();
@@ -304,20 +304,28 @@ export class EmuBrowserSim {
   }
 
   setCameraMode(mode) {
-    if (!['orbit', 'chase', 'raw', 'level'].includes(mode)) throw new Error(`Unknown camera mode: ${mode}`);
+    if (!['orbit', 'overview', 'chase', 'raw', 'level'].includes(mode))
+      throw new Error(`Unknown camera mode: ${mode}`);
     if (mode === this.cameraMode) return;
     if (this.cameraMode === 'orbit') {
       this.orbitPosition.copy(this.camera.position);
       this.orbitTarget.copy(this.controls.target);
     }
     this.cameraMode = mode;
-    this.controls.enabled = mode === 'orbit';
+    this.controls.enabled = mode === 'orbit' || mode === 'overview';
     this.levelPoseValid = false;
     this.chaseReady = false;
     if (mode === 'orbit') {
       this.camera.position.copy(this.orbitPosition);
       this.controls.target.copy(this.orbitTarget);
       this.camera.up.set(0, 0, 1);
+      this.controls.update();
+    } else if (mode === 'overview') {
+      // Render-only whole 4m challenge circumference. No changes to the
+      // robot's heading, sensors, physics or neural policy inputs.
+      this.camera.up.set(0,0,1);
+      this.camera.position.set(-4.8,-6.8,5.7);
+      this.controls.target.set(0,0,.12);
       this.controls.update();
     }
   }
@@ -1025,7 +1033,8 @@ export class EmuBrowserSim {
 
   render(dt = 1 / 60) {
     this.refreshScene();
-    if (this.cameraMode === 'orbit') this.controls.update();
+    if (this.cameraMode === 'orbit' || this.cameraMode === 'overview')
+      this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
     this.renderer.render(this.scene, this.camera);
