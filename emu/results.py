@@ -946,6 +946,18 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     ):
         if terrain_key in metrics:
             row[terrain_key] = mean_metric(metrics, terrain_key)
+    if 'terrain_edge_mask' in metrics:
+        exposure = mean_metric(metrics, 'terrain_edge_mask')
+        crossing = mean_metric(metrics, 'terrain_edge_crossing')
+        contact = mean_metric(metrics, 'terrain_edge_contact')
+        edge_done = mean_metric(metrics, 'terrain_edge_done')
+        edge_falls = mean_metric(metrics, 'terrain_edge_fell')
+        row['terrain_edge_exposure'] = exposure
+        row['terrain_edge_crossing'] = crossing / exposure if exposure > 0 else -1.
+        row['terrain_edge_contact'] = contact / exposure if exposure > 0 else -1.
+        row['terrain_edge_fall_rate'] = edge_falls / edge_done if edge_done > 0 else -1.
+        row['terrain_edge_completed_fraction'] = edge_done
+        row['terrain_height_birth_m'] = mean_metric(metrics, 'terrain_height_birth_m')
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
     # transition_*_err = mean |vel - cmd| over the steps that were MID-RAMP;
