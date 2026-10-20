@@ -19,9 +19,11 @@ import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
 from .terrain import box_surface_truth, adaptive_height_sample
+from .forward_tof import (first_hit_ranges, relative_height_profile,
+                          FORWARD_NOISE_STD_M)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -153,6 +155,8 @@ class SensorSample(NamedTuple):
     flow_rad_s: Any
     flow_valid: Any
     gyro_body_rad_s: Any
+    forward_ranges_m: Any
+    forward_valid: Any
     tof_age_frames: Any
     flow_age_frames: Any
 
@@ -1104,7 +1108,8 @@ class EmuMJXEnv(TaskSampler):
                  terrain_adaptive: bool = False,
                  terrain_height_exposure: float = .60,
                  terrain_height_edge_fraction: float = .35,
-                 terrain_progress_weight: float = 0.):
+                 terrain_progress_weight: float = 0.,
+                 forward_preview_masked: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1122,6 +1127,9 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
         self.observation_schema = observation_schema
+        self.forward_preview_masked = bool(forward_preview_masked)
+        if self.forward_preview_masked and observation_schema != OBS_SCHEMA_PREVIEW:
+            raise ValueError('forward profile mask requires 280-input sensor contract')
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
         self.obs_dim = self.base_obs_dim * HISTORY_LEN
@@ -1157,7 +1165,9 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
+        }, schema=observation_schema,
+            preview_masked=self.forward_preview_masked)
+            if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW) else None)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1548,7 +1558,7 @@ class EmuMJXEnv(TaskSampler):
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW)
             else None)
         base = self._base_obs(data, task, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
@@ -1893,7 +1903,7 @@ class EmuMJXEnv(TaskSampler):
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
-                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
+                   if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW) else None)
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
@@ -2397,7 +2407,7 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema == OBS_SCHEMA_SENSOR:
+        if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
             # No direct access to simulated true velocity, floor normal or
             # even instantaneous raw ToF/flow readings: the persistent sensor
             # ring owns acquisition cadence, delay, dropout and gyro bias.
@@ -2416,6 +2426,12 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_sideways_grade_rad'],
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
+            if self.observation_schema == OBS_SCHEMA_PREVIEW:
+                preview = jnp.concatenate((sensor['forward_profile_height_m'],
+                                           sensor['forward_profile_valid']), axis=1)
+                if self.forward_preview_masked:
+                    preview = jnp.zeros_like(preview)
+                base = jnp.concatenate((base, preview), axis=1)
         assert base.shape[1] == self.base_obs_dim, (
             f"_base_obs produced {base.shape[1]} columns, "
             f"{self.observation_schema} requires {self.base_obs_dim}")
