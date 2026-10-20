@@ -624,47 +624,192 @@ Protected champion SHA-256 remained
   later source SHA in `revision_history.tsv` alongside
   the preserved original stages.
 
-## Next user-run: matched obstacle height/angle/speed frontier
+## 20 Oct 11:43–12:05 — completed frozen-champion frontier, review
 
-The first real 5/10mm pilot **succeeded**, and the source SHA plus
-full archive are preserved. **Do not rerun that entire completed batch.**
-The first and second frontier attempts were interrupted **after the
-same five successful test/stride stages**, before any new physical step
-variants ran; the first resume saved an archive but its second stale
-shell variable prevented reaching the first step case.
-**Resume that existing directory, rather than repeating them:**
+**Actual uploaded artifact:** `v5018_frontier_20261020_102641.tar(1).gz`
+(475 KB), containing `stages.tsv`, per-world physical step JSONs,
+four earlier directional exams, summary and revision history.
+**Completed status: all 34/34 stages have PASS execution codes.**
+Breakdown: 4/4 targeted Python tests, four read-only flat/10°
+heading/stride comparisons (from the **original** 10:26 commit
+`c6a5dab5b0ea9b7c6d34db2b6e85599ae015314a`),
+**28 distinct physical-course configurations**, and
+one aggregate summary. New step cases were executed after the
+final resume recorded at 11:43 AEDT with feature commit
+`69daa3d253cf92d0e3c40fbc060d54c4cbb549cf`;
+`cad93f94...` was an earlier aborted resume. This is a **mixed
+source-revision archive** and was NOT all executed on one commit.
 
-```bash
-cd ~/emu-v5018
-git pull --ff-only origin feature/v5018-terrain-awareness
-source .venv/bin/activate
-bash scripts/run_v5018_obstacle_frontier.sh --resume \
-  ~/robot_lab/emu_exams/v5018_frontier_20261020_102641
-```
+The 260M frozen-policy SHA-256 remains
+`d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862`.
+Every step used real MuJoCo/MJX contact boxes; no actor weights,
+observations, PPO reward, `main`, `showcase` or Pages changed.
 
-The archive will include source revision history: early diagnostic
-stages belong to the original tested commit, while resumed step
-experiments belong to the new bugfix commit. Compare each reported
-stage against its recorded source revision; this is a **resumed study,
-not a single-commit clean-room run**.
+### Objective crossing scoreboard (not walking gait certification)
 
-Produces
-`~/robot_lab/emu_exams/v5018_frontier_YYYYMMDD_HHMMSS.tar.gz`;
-upload the archive including failures. It executes tests for new
-diagnostic/probe code first, then independent GPU experiments. A
-script-execution PASS is **not** terrain-crossing success.
-The archive must distinguish 0mm control and
-physical box contacts, original operator world-axis travel,
-frozen policy hash, actual crossing rate, speed/approach
-orientation, foot-over-top geometry and contact-event
-distributions.
+- [x] **28/28 unique step configurations ran**, comprising **112
+  separate four-world trials**; **49/112** satisfied the physically
+  supported fixed-world corridor/finish gate, including **8/20
+  flat-control** trials. Physical-obstacle-only configurations
+  achieved **41/92**. This does not prove preview sensing or
+  collision-free high-stepping.
+- [x] For exactly matched straight course, `vx=.10m/s`,
+  heading P **ON**, seeds **1701+1702**, four worlds/seed:
 
-Following this evidence: decide whether the frozen champion's
-true short steps are missed by the strict examiner, calibrate
-the gait metric on physical contacts/swing mechanics without
-retroactive manipulation of results, then close P0B moving-
-leg occlusion/realistic scanner and dynamic motor-envelope
-questions. **Only after independent verification** wire
-terrain-relative support/swing/termination into P1 and
-run bounded PPO experiments. Preserve the 220/232 actor
-contracts; terrain_312 remains provisional.
+  | Real course | Fixed-world crossing success |
+  |---|---:|
+  | 0mm (identical off-course control box) | **4/8** |
+  | 5mm box step | **5/8** |
+  | 10mm box step | **4/8** |
+  | 15mm box step | **6/8** |
+  | 20mm box step | **3/8** |
+
+  The 20mm case included **one simulator fall/reset, one
+  heading reversal** and additional incomplete/detouring trials.
+  15mm >10mm here is **not monotonic learning**; a small,
+  variable set of stochastic contact/directional outcomes
+  cannot establish a mechanical height limit.
+- [x] At 10mm with **±25° box face yaw**, same
+  seed1701+1702 and heading P ON:
+  **+25° = 7/8, −25° = 3/8**.
+  For 5mm (one seed): +25° 2/4, −25° 3/4;
+  for 15mm (one seed): +25° 1/4, −25° 2/4.
+  Strong *observed* asymmetry at 10mm is worth targeted
+  left/right foot-timing and lateral-slip investigation;
+  8 trials per direction is not enough to certify asymmetry
+  across seeds/course lengths.
+- [x] At seed 1701, straight box, heading P ON,
+  changing ONLY operator vx:
+
+  | Requested vx | 0mm | 5mm | 10mm |
+  |---|---:|---:|---:|
+  | 0.07m/s | 2/4 | **0/4** | **0/4** |
+  | 0.10m/s | 1/4 | 2/4 | 1/4 |
+  | 0.14m/s | 2/4 | 2/4 | **3/4** |
+
+  At slower speed, 5/10mm misses often had
+  `no_stable_finish_and_runout`; this may reflect
+  fixed 7s/0.42m finish timing rather than inability
+  to contact a threshold. Compare fixed-distance/time-
+  normalized crossings before declaring slow gait unfit.
+- [!] **59/112 total trajectories violated the ±0.12m
+  lateral corridor**, accounting for **59 of the 63 failed
+  crossing worlds** (some also failed other criteria).
+  `no_stable_finish_and_runout` occurred 16 times;
+  `no_torso_and_two_feet_crossing` 5; heading reversal
+  once; fall/reset once. Fail reasons overlap.
+  This supports **lateral course-keeping as a major
+  constraint** at 0–15mm, not a general claim that feet
+  cannot reach these heights. Heading P corrects yaw but
+  does NOT guarantee lateral path control.
+- [x] Step-box actual ball-foot contact world-frames
+  occurred at every height. Across matched 2-seed
+  straight P-ON cases: 5mm **653**, 10mm **671**,
+  15mm **714**, 20mm **793**.
+  For 20mm, **335/780** foot-in-box-XY frames had
+  ball-bottom height >3mm **below the box top**.
+  These footprint probes are *not validated solver
+  penetration or load-bearing top-contact normals*:
+  they may include side-wall contacts or interpolation
+  effects. **Do not label every passing course a clean
+  toe-cleared step-over**.
+
+### Measured natural gait and the misleading historical gate
+
+- [x] The original four heading-diagnostic stages
+  from 10:26 are retained, with **actual per-touchdown
+  airborne event records** in the current archive.
+  At flat grade 0°, heading OFF: **196 real contact-
+  qualified airborne intervals** in four worlds;
+  heading ON: **197** intervals. All were strictly
+  below the historical **25mm torso travel PER SWING**
+  threshold, despite real liftoff and touchdown.
+- [x] Aggregate flat event p10/median/p90:
+  - OFF torso movement: **8.0/11.9/15.5mm**;
+    swing-foot travel **11.7/25.6/40.0mm**;
+    clearance **12.4/15.3/19.4mm**.
+  - ON torso movement: **7.6/11.2/15.0mm**;
+    swing-foot travel **11.8/23.7/37.6mm**;
+    clearance **12.5/15.4/19.4mm**.
+  - All 393 events had ≥3 airborne frames and
+    ≥4mm clearance. **351/393** also had
+    ≥12mm foot relocation. **0/393** had
+    ≥25mm torso movement during that one airborne
+    interval. Consequently the historical gait v1
+    is **incapable of crediting this actual short-step
+    gait on the measured flat run**, even though this
+    does not automatically establish non-slipping
+    or energy-efficient walking.
+- [~] Committed **separately versioned RESEARCH-ONLY**
+  `diagnose_alternating_contact_pairs_v2` to
+  `emu/directional.py`, requiring real takeoff and
+  touchdown, ≥3 airborne frames, ≥4mm clearance,
+  ≥12mm forward foot relocation, actual opposite-
+  foot support, and **≥25mm NET SIGNED operator-
+  course progress across an alternating two-foot
+  pair**, not during each single swing. Its output
+  lives alongside historical v1 in exam JSON but
+  **does not change official gait/course pass,
+  historical scoreboards, policy or PPO**. Focused
+  anti-sideways, anti-contact-free and negative-swing
+  unit tests were added, NOT YET RUN in WSL.
+
+### Reproducibility and next implementation controls
+
+- [!] Two nominally identical frozen-champion 10mm
+  seed1701 step pilot reports produced different
+  crossing scores: earlier **3/4** (09:49) versus
+  frontier **1/4** (11:43). Both used the same policy
+  SHA, nominal seed and 0.1m/s command, but the
+  **generated XML hashes differed** because the
+  later course included an explicit `euler="0 0 0"`
+  attribute absent in the original. Non-identical XML
+  artifacts mean these are **not** a clean repeatability
+  experiment. The cause of physical outcome variation
+  remains to be proven, not attributed definitively
+  to the zero-angle attribute.
+- [~] After frontier evidence, corrected
+  `scripts/v5018_champion_step_pilot.py`: at
+  **zero yaw**, omit the unused `euler` attribute
+  and preserve *byte-for-byte* original 09:49
+  course XML. Added tests requiring exact recorded
+  SHA-256 hashes for the original 0/5/10mm cases
+  (`cbc81bde...`, `7968b117...`, `f5ca6525...`).
+  **The new XML hashes/physics still await WSL
+  execution**; no reproducibility claim yet.
+- [ ] Before staging terrain-trained PPO, validate
+  `v2` with genuine course/fall/stance controls and
+  **physical support, foot-slip and energy metrics**;
+  inspect the ±25° asymmetry and corridor control.
+  Preserve the frozen actor and both the old and new
+  metrics in score reports.
+- [ ] P1 next: implement opt-in actual collision-
+  terrain-relative foot/torso/support/stance-slip
+  measurements, maintain existing 220/232 actor
+  observation contracts, and compare byte-for-byte
+  old flat reward path before enabling small real-step
+  training. Then test timestamped forward ray
+  visibility and confidence on actual moving gait
+  without privileged terrain heights in the actor.
+
+## Next execution — focused parity and gait-v2 acceptance
+
+The full 34/34 frontier campaign is **complete**. Do not rerun
+28 GPU course variants just to validate research-only evaluation
+changes. The next local acceptance should run only:
+1. the new synthetic gait-v2 negative/positive tests;
+2. exact 0/5/10mm zero-yaw pilot XML SHA-256 parity test;
+3. one frozen flat/10° read-only directional run to
+   inspect v1 vs diagnostic v2 stride classifications;
+4. one 10mm seed1701 reproduction with byte-identical
+   pilot XML to test the earlier 3/4 vs 1/4 discrepancy.
+No actor weights, base rewards, champion or showcase
+must change. Any new P1 MJX physics path must be
+opt-in and controlled against the same flat model before
+larger GPU learning.
+
+**Current branch risk:** P0B realistic dynamic
+load-limited servo/clearance, moving-leg sensor
+occlusion+latency/dropout, actual CPU–MJX–WASM
+six-servo parity are still open. All `terrain_312`
+and PPO-terrain promotion gates remain blocked.
