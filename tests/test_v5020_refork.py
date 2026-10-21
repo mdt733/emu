@@ -132,6 +132,65 @@ def test_probe_detects_repeated_100_percent_falls_and_spring_explosion(tmp_path)
     assert c.probe_health(p)["eligible"]
 
 
+
+def _write_probe_metrics(path, samples):
+    path.mkdir(exist_ok=True)
+    columns=["fall_rate","ep_len_mean","spring_potential_energy_j",
+             "servo_shaft_abs_power_w","episodes"]
+    with (path/"metrics.csv").open("w",newline="") as stream:
+        writer=csv.DictWriter(stream,fieldnames=columns)
+        writer.writeheader()
+        for fall, frames, spring, watts, count in samples:
+            writer.writerow(dict(zip(columns,(fall,frames,spring,watts,count))))
+
+
+def test_probe_recovers_from_early_collapse_without_suppressing_warnings(tmp_path):
+    sample=[(.99,20.,.8,5.,30.) for _ in range(5)]
+    sample += [(.20,400.,.8,5.,80.) for _ in range(15)]
+    _write_probe_metrics(tmp_path,sample)
+    health=c.probe_health(tmp_path)
+    assert health["eligible"],health["reasons"]
+    assert health["rows_checked"]==20
+    assert health["recent_window_rows"]==4
+    assert health["severe_collapse_windows"]>=3
+    assert health["warnings"]
+    assert health["total_completed_episodes"]==5*30+15*80
+
+
+def test_probe_fails_persistent_late_collapse_not_just_final_row(tmp_path):
+    sample=[(.15,480.,.9,6.,100.) for _ in range(15)]
+    sample += [(1.,15.,.9,6.,300.) for _ in range(5)]
+    _write_probe_metrics(tmp_path,sample)
+    health=c.probe_health(tmp_path)
+    assert not health["eligible"]
+    assert any("fall rate" in r for r in health["reasons"])
+    assert any("episode length" in r for r in health["reasons"])
+
+
+def test_probe_rejects_absurd_finite_power_or_energy_anywhere(tmp_path):
+    samples=[(.18,450.,.8,8.,30.) for _ in range(14)]
+    samples[1]=(.18,450.,.8,120000.,30.)
+    _write_probe_metrics(tmp_path,samples)
+    health=c.probe_health(tmp_path)
+    assert not health["eligible"]
+    assert any("shaft" in r for r in health["reasons"])
+    samples[1]=(.18,450.,2500000.,8.,30.)
+    _write_probe_metrics(tmp_path,samples)
+    health=c.probe_health(tmp_path)
+    assert not health["eligible"]
+    assert any("spring" in r for r in health["reasons"])
+
+
+def test_probe_invalid_episodes_and_nonfinite_data_are_not_good_news(tmp_path):
+    samples=[(.2,450.,.8,4.,0.),(.2,450.,.8,4.,2.)]
+    _write_probe_metrics(tmp_path,samples)
+    with pytest.raises(ValueError,match="insufficient completed"):
+        c.probe_health(tmp_path)
+    samples[1]=(.2,450.,float("nan"),4.,80.)
+    _write_probe_metrics(tmp_path,samples)
+    with pytest.raises(ValueError,match="nonfinite spring"):
+        c.probe_health(tmp_path)
+
 def test_heldout_score_rewards_real_steps_without_bypassing_survival_gates():
     assert c._score(_evidence(core=.03,hard=.0,slope=0.),
                     stage="walk40",name="dead")["eligible"] is False
