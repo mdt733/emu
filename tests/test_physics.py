@@ -480,7 +480,7 @@ def test_audit_ground_relative_environment_metrics_and_observation_cpu_mjx():
 def test_training_config_real_incline_is_real_mjx_geometry(tmp_path):
     import jax
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config
+    from emu.train_cli import one_run_config
     from emu.training import env_kwargs_from_args
     from emu.environment import EmuMJXEnv, DomainRandomizationConfig
     from emu.contracts import ROBOT_XML
