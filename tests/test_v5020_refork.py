@@ -239,3 +239,46 @@ def test_collapse_rejects_all_and_keeps_the_parent(tmp_path,monkeypatch):
     board=json.loads((root/"walk40"/"scoreboard.json").read_text())
     assert board["winner"] is None
     assert not any((root/"walk40"/a/"finish").exists() for a in c.WALK_ARMS)
+
+
+
+def test_step_frontier_is_earned_continuously_not_stopped_at_exam_heights():
+    from emu.terrain import next_height_frontier
+    good=dict(terrain_edge_exposure=.25,terrain_edge_done_count=16.,
+              terrain_edge_crossing=.60,terrain_edge_fall_rate=.12,
+              terrain_edge_contact=.30)
+    height=.003
+    for _ in range(40):
+        new,event=next_height_frontier(height,good,safety_m=.150,growth_m=.001)
+        assert event=="expand_measured_crossing"
+        assert new>height
+        height=new
+    assert height>.040  # 3mm -> over 40mm, no hardcoded 5mm stop
+    at_max,event=next_height_frontier(.150,good,safety_m=.150,growth_m=.001)
+    assert at_max==.150
+    bad={**good,"terrain_edge_crossing":0.,"terrain_edge_fall_rate":.80}
+    retreat,event=next_height_frontier(.050,bad,safety_m=.150,growth_m=.001)
+    assert retreat<.050
+    assert "retreat" in event
+
+
+def test_first_verified_crossing_reward_is_additive_and_opt_in():
+    import numpy as np
+    from emu.rewards import terrain_progress_payment
+    m={
+        "terminal":np.array([0.,0.]),
+        "terrain_forward_delta_m":np.array([.006,.006]),
+        "terrain_height_birth_m":np.array([.020,.020]),
+        "terrain_course_x":np.array([.25,.25]),
+        "cmd_vx":np.array([.20,.20]),
+        "cmd_vy":np.array([0.,0.]),
+        "cmd_yaw":np.array([0.,0.]),
+        "support":np.array([1.,1.]),
+        "gravity_z":np.array([1.,1.]),
+        "terrain_first_verified_crossing":np.array([1.,0.]),
+    }
+    w=.035
+    observed=terrain_progress_payment(m,xp=np,weight=w)
+    assert np.isclose(observed[1], w*.5)
+    assert np.isclose(observed[0],w*.5+4*w)
+    assert np.all(terrain_progress_payment(m,xp=np,weight=0.)==0.)
