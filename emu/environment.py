@@ -23,6 +23,7 @@ from .forward_tof import (first_hit_ranges, FORWARD_NOISE_STD_M,
                           FORWARD_QUANTIZATION_M, FORWARD_MOUNTS_BODY_M,
                           FORWARD_DIRECTIONS_BODY)
 from .rolling_tof import (empty_map, advance_map, insert_measurement,
+                          rebase_to_rear_measurement,
                           readout as rolling_readout, measured_height_and_x)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -2255,6 +2256,11 @@ class EmuMJXEnv(TaskSampler):
                 vx,vy,yaw,motion_conf,
                 old_apex_x_m=state.apex_x_m,new_apex_x_m=apex,
                 old_apex_y_m=state.apex_y_m,new_apex_y_m=apex_y)
+            # Once the rear probe reaches a previously mapped point,
+            # its measured local zero can correct the *relative datum*
+            # of the older V memory. No overlap means NO global correction.
+            heights,conf=rebase_to_rear_measurement(
+                jnp,heights,conf,rx,rok&fresh)
             heights,conf=insert_measurement(
                 jnp,heights,conf,mx,mh,ok & fresh[:,None],
                 sample_y_m=my,apex_x_m=apex,apex_y_m=apex_y)
