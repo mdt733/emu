@@ -39,7 +39,10 @@ parent=''
 case "$stage" in
   smoke)
     [[ "$arm" == sighted ]] || { echo 'Smoke is a single physical acceptance, not an A/B arm' >&2;exit 2; }
-    envs=64;dir="$root/smoke"
+    # A failed first compile leaves a source-pinned run_meta.json.
+    # Give each source revision its own smoke directory automatically,
+    # preserving failed logs without mixing checkpoint lineages.
+    envs=64;dir="$root/smokes/$(git rev-parse --short=12 HEAD)"
     opts=(--profile sim2real --steps 4096 --pitch-deg 12
       --contact-terrain-radius .20 --terrain-height-ceiling-mm 15
       --terrain-height-initial-mm 3 --terrain-varied-placement --terrain-height-exposure .65)
@@ -94,6 +97,12 @@ fi
 command -v emu >/dev/null || { echo 'Activate venv and pip install -e .' >&2;exit 1; }
 if [[ -n "$parent" && ! -f "$parent" && ! -f "$dir/checkpoints/latest.pkl" && ! -f "$dir/checkpoints/final.pkl" ]];then
   echo "Missing approved parent final checkpoint: $parent" >&2;exit 1
+fi
+if [[ "$stage" == smoke ]]; then
+  # On 8GB GPUs XLA's default ~75% reservation may fail to allocate
+  # even when the eventual JIT graph fits. Honor an explicit user setting.
+  export XLA_PYTHON_CLIENT_PREALLOCATE="${XLA_PYTHON_CLIENT_PREALLOCATE:-false}"
+  echo "GPU smoke: XLA_PYTHON_CLIENT_PREALLOCATE=$XLA_PYTHON_CLIENT_PREALLOCATE"
 fi
 echo 'Training in this foreground console. Ctrl+C stops; rerun with --run to resume stage.'
 exec "${cmd[@]}"
