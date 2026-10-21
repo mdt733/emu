@@ -239,6 +239,7 @@ def probe_health(probe_run: Path) -> dict:
     # Current telemetry includes these; older source-pinned research traces
     # may omit them. Do not manufacture a zero for missing optional data.
     optional = ("servo_shaft_abs_power_w", "servo_over_rated_frac",
+                "spring_potential_energy_peak_j", "servo_shaft_abs_power_peak_w",
                 "nan_grad_skips_total")
     def samples(key: str, *, mandatory: bool = True) -> list[float] | None:
         if not mandatory and key not in rows[0]:
@@ -263,9 +264,10 @@ def probe_health(probe_run: Path) -> dict:
         raise ValueError("fall_rate outside physical [0,1] range")
     if any(v < 0. for v in lengths + spring):
         raise ValueError("negative physical episode length or spring energy")
-    if readings["servo_shaft_abs_power_w"] is not None and any(
-            v < 0. for v in readings["servo_shaft_abs_power_w"]):
-        raise ValueError("negative absolute servo shaft power")
+    for key in ("servo_shaft_abs_power_w", "spring_potential_energy_peak_j",
+                "servo_shaft_abs_power_peak_w"):
+        if readings[key] is not None and any(v < 0. for v in readings[key]):
+            raise ValueError(f"negative physical measurement {key}")
     if readings["servo_over_rated_frac"] is not None and any(
             not 0. <= v <= 1. for v in readings["servo_over_rated_frac"]):
         raise ValueError("servo overload fraction outside [0,1]")
@@ -289,7 +291,8 @@ def probe_health(probe_run: Path) -> dict:
 
     fall = avg(recent_fall)
     length = avg(recent_len)
-    max_spring = max(spring)
+    spring_peak = readings["spring_potential_energy_peak_j"]
+    max_spring = max(max(spring), max(spring_peak) if spring_peak else 0.)
     severe_windows = sum(
         avg(falls[i:i + 3]) > .92 and avg(lengths[i:i + 3]) < 70.
         for i in range(max(0, len(rows) - 2))
@@ -306,8 +309,12 @@ def probe_health(probe_run: Path) -> dict:
     # ABSOLUTE mechanical-power diagnostic, not a battery-power estimate.
     # Typical healthy research screens are single-digit watts; 1000W is
     # orders of magnitude beyond a plausible reading for this robot.
-    max_power = (max(readings["servo_shaft_abs_power_w"])
-                 if readings["servo_shaft_abs_power_w"] is not None else None)
+    power_candidates = []
+    if readings["servo_shaft_abs_power_w"] is not None:
+        power_candidates += readings["servo_shaft_abs_power_w"]
+    if readings["servo_shaft_abs_power_peak_w"] is not None:
+        power_candidates += readings["servo_shaft_abs_power_peak_w"]
+    max_power = max(power_candidates) if power_candidates else None
     if max_power is not None and max_power > 1000.:
         reasons.append(f"unphysical mean shaft absolute power {max_power:.1f}W >1000W")
     if severe_windows and not reasons:
