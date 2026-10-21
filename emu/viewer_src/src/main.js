@@ -3,6 +3,7 @@ import { parsePolicy } from './policy.js';
 import { VirtualStick } from './joystick.js';
 import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
+import { TerrainMemoryPanel } from './terrain-memory-panel.js';
 import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
@@ -12,6 +13,7 @@ import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
+const terrainMemoryPanel = new TerrainMemoryPanel();
 const statusEl = $('status');
 const policyFile = $('policyFile');
 const policySelect = $('policySelect');
@@ -287,6 +289,8 @@ async function activatePolicy(index) {
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
+    sim.showTerrainRays = terrainMemoryPanel.enabled && terrainMemoryPanel.rays.checked;
+    sim.terrainMemoryFrozen = terrainMemoryPanel.freeze.checked;
     sim.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
     updateStickLabels();
 
@@ -448,6 +452,16 @@ headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
+const updateTerrainDiagnostic=()=>{
+  if(sim){
+    sim.showTerrainRays=terrainMemoryPanel.enabled && terrainMemoryPanel.rays.checked;
+    sim.terrainMemoryFrozen=terrainMemoryPanel.freeze.checked;
+  }
+};
+terrainMemoryPanel.toggle.addEventListener('click',updateTerrainDiagnostic);
+terrainMemoryPanel.close.addEventListener('click',updateTerrainDiagnostic);
+terrainMemoryPanel.rays.addEventListener('change',updateTerrainDiagnostic);
+terrainMemoryPanel.freeze.addEventListener('change',updateTerrainDiagnostic);
 const applyAppearance = () => {
   sim?.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
 };
@@ -555,6 +569,7 @@ function frame(ms) {
     sim.advance(dt);
     sim.render(dt);
     updateTelemetry(now, dt);
+    terrainMemoryPanel.draw(sim,ms);
   }
   }catch(error){
     console.error('Viewer frame error:',error);
