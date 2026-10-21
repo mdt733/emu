@@ -173,6 +173,45 @@ def insert_measurement(xp, heights, confidences, sample_x_m,
     return xp.where(fresh>0.,combined,0.),fresh
 
 
+def rebase_to_rear_measurement(xp, heights, confidences,
+                               rear_x_m, rear_sample_valid):
+    """Re-zero a trusted prior map when the rear ToF reaches scanned ground.
+
+    When the rear ray says "this location is now my zero-height reference"
+    and both V branches already remember the location, subtract the old
+    predicted height (with bounded gain) from ALL confident cells.
+    This is an observable relative reference correction, not an estimate
+    of absolute world height, nor a made-up reading inside an unknown gap.
+    """
+    h=xp.asarray(heights)
+    c=xp.clip(xp.asarray(confidences),0.,1.)
+    n=h.shape[0]
+    grid_index=(xp.asarray(rear_x_m)-GRID_START_M)/GRID_SPACING_M
+    inside=(grid_index>=0.)&(grid_index<=GRID_CELLS-1)
+    idx=xp.clip(grid_index,0.,GRID_CELLS-1)
+    lo=xp.floor(idx).astype(xp.int32)[:,None,None]
+    hi=xp.minimum(lo+1,GRID_CELLS-1)
+    alpha=(idx-xp.floor(idx))[:,None,None]
+    c0=xp.take_along_axis(c,lo,axis=2)
+    c1=xp.take_along_axis(c,hi,axis=2)
+    h0=xp.take_along_axis(h,lo,axis=2)
+    h1=xp.take_along_axis(h,hi,axis=2)
+    w0=(1.-alpha)*c0
+    w1=alpha*c1
+    line_weights=w0+w1
+    line_heights=(w0*h0+w1*h1)/xp.maximum(line_weights,1e-8)
+    # At the V apex the independent sides should BOTH support a local
+    # reference; refuse to re-zero globally on one stray toe-range.
+    supported=(xp.min(line_weights[:,:,0],axis=1)>.20)
+    weight=xp.clip(xp.mean(line_weights[:,:,0],axis=1),0.,1.)
+    residual=xp.mean(line_heights[:,:,0],axis=1)
+    good=(xp.asarray(rear_sample_valid)&inside&supported&
+          xp.isfinite(residual))
+    correction=xp.where(good,xp.clip(residual,-.08,.08)*weight,0.)
+    shifted=xp.where(c>1e-5,h-correction[:,None,None],0.)
+    return shifted,c
+
+
 def readout(xp, heights, confidences):
     """Ten heights (-5/0/5/10/15cm per side), plus ten confidences."""
     idx=xp.asarray(OUTPUT_SAMPLE_INDICES)
