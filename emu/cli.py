@@ -263,9 +263,11 @@ def main(argv=None) -> int:
     q.add_argument('--contact-slope-deg',type=float,default=0.0,
                    help='opt-in shared real incline 0..5 degrees, sim2real only')
     q.add_argument('--contact-terrain-radius',type=float,default=0.0,
-                   help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
+                   help='per-world true contact slopes (0..1, up to 5deg), sim2real or 312-input foundation')
     q.add_argument('--terrain-box-height-mm',type=int,choices=[0,5,10,15,20,30,40,50],default=None,
-                   help='v5018 isolated real-MJX step research: 0mm off-course control or 5/10mm step; sim2real + sensor actor only')
+                   help='physical fixed box 0/5/10/15/20/30/40/50mm; for variable heights use --terrain-height-ceiling-mm')
+    q.add_argument('--terrain-varied-placement',action='store_true',
+                   help='312-input adaptive MJX step: per-episode X/Y/heading randomization, no shape changes')
     q.add_argument('--terrain-height-ceiling-mm',type=int,default=0,
                    help='adaptive per-episode real steps 0..150mm; 0=off; sim2real sensor actor only')
     q.add_argument('--terrain-height-flat-control',action='store_true',
