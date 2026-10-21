@@ -104,8 +104,9 @@ Exit: one current tournament command and one authoritative scorer.
 
 - [ ] Remove old experiment commands no longer called from the current
       CLI, CI, source or a user-pinned run workflow.
-- [ ] Retire historical tournament-only modules and dead helpers, retaining
-      useful single-run protection and independent exam utilities.
+- [x] Retire historical v5015/v5016 tournament modules and dead ladder
+      configuration helpers. Keep protected single-run planning and resume
+      validation in `emu/train_cli.py`; keep independent exams.
 - [ ] Simplify doc navigation; avoid keeping multi-thousand-line old
       handovers as the front door. Avoid cosmetic line-count targets.
 - [ ] Replace version-by-version inline narration with current contracts,
@@ -136,11 +137,11 @@ The active five-arm prototype uses `open_frontier=False` in its
 uses an independent physical-height frontier for steps. This is known
 architectural debt, **not** a reason to enable every axis simultaneously.
 
-Historical `emu ladder` includes one-run code dependencies. It cannot
-be deleted until `emu train` has an independent implementation. Historical
-`campaign5016.py` is duplicated in the active research branch but still
-represented permanently on `main`; active old run checkpoints cannot be
-migrated silently to a new campaign recipe.
+The historical `emu ladder` was retired from this branch after the
+supported `emu train` entry point and validations were extracted into
+`emu/train_cli.py`. The duplicate v5016 Pinnacle runner was also retired
+from this experimental branch; its working reference is untouched on
+`main`. Old pinned run directories are not migrated to new recipes.
 
 An unverified clean-source requirement is present in the current refork
 coordinator. **Don't run training with altered code against an existing
