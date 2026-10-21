@@ -398,6 +398,18 @@ def main(argv=None) -> int:
         if args.run: argv.append('--run')
         if args.status: argv.append('--status')
         return lab(argv)
+    if args.cmd=='campaign-full5020':
+        from .campaign_full5020 import main as full
+        av=['--root',args.root,'--envs',str(args.envs),
+            '--screen-envs',str(args.screen_envs),
+            '--screen-horizon',str(args.screen_horizon),
+            '--seed',str(args.seed),'--device',args.device,
+            '--stop-after',args.stop_after]
+        if args.run: av.append('--run')
+        if args.status: av.append('--status')
+        if args.preflight: av.append('--preflight')
+        if args.skip_preflight: av.append('--skip-preflight')
+        return full(av)
     if args.cmd=='campaign-refork':
         from .campaign_refork import main as refork
         argv=['--root',args.root,'--envs',str(args.envs),
