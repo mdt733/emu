@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from emu.contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, ROBOT_XML
-from emu.branch_lab import one_run_config
+from emu.train_cli import one_run_config
 from emu.terrain import collidable_course
 from emu.training_config import TrainingConfig
 
