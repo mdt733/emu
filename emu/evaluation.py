@@ -490,8 +490,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 params,env.params_array(panels['real_step'][2]),
                 norm['mean'],obs_std,
                 jax.random.fold_in(key0,1771),int(horizon))
-            done,contact,cross=np.asarray(jax.device_get(evidence),dtype=np.float64)
-            out['course_20mm_done_count']=float(done)
+            attempts,contact,cross=np.asarray(jax.device_get(evidence),dtype=np.float64)
+            out['course_20mm_attempt_count']=float(attempts)
             out['course_20mm_contact_rate']=float(contact)
             out['course_20mm_crossing_rate']=float(cross)
         if sensor_contact_exam:
