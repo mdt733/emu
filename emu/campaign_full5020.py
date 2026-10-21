@@ -7,6 +7,7 @@ experiment root, source checkout or public showcase.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -49,7 +50,7 @@ def plan(*, envs:int, seed:int, screen_envs:int, horizon:int, stop_after:str)->d
                        "refork/results_bundle.zip","refork/walk40/scoreboard.md"]}
 
 
-def run(root:Path,*,envs:int,seed:int,screen_envs:int,horizon:int,
+def _run_locked(root:Path,*,envs:int,seed:int,screen_envs:int,horizon:int,
         device:str,stop_after:str,skip_preflight:bool=False)->None:
     if stop_after not in STAGES:
         raise ValueError(f"unsupported full campaign stop: {stop_after}")
@@ -76,6 +77,24 @@ def run(root:Path,*,envs:int,seed:int,screen_envs:int,horizon:int,
         except (OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
             print(f"[v5020 full] WARNING: refork report generation failed: {exc}",
                   flush=True)
+
+
+def run(root:Path,*,envs:int,seed:int,screen_envs:int,horizon:int,
+        device:str,stop_after:str,skip_preflight:bool=False)->None:
+    """Own one campaign-wide advisory lock, including the 20M foundation."""
+    root=root.expanduser().resolve()
+    repo=source_repo_root()
+    if root==Path.home().resolve() or (repo and (root==repo or repo in root.parents)):
+        raise RuntimeError("full campaign root must live outside Git and home root")
+    root.mkdir(parents=True,exist_ok=True)
+    with (root/".full-campaign.lock").open("a+") as lock:
+        try:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f"another v5020 full campaign already holds {root}") from exc
+        _run_locked(root,envs=envs,seed=seed,
+                    screen_envs=screen_envs,horizon=horizon,device=device,
+                    stop_after=stop_after,skip_preflight=skip_preflight)
 
 
 def main(argv=None)->int:
