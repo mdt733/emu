@@ -69,3 +69,18 @@ test('a frozen memory keeps its 2x51 values while rays continue measuring',()=>{
   assert.deepEqual([...m.heights[0]],old);
   assert.equal(m.beams.length,5);
 });
+
+
+test('schema-9 browser consumes 10 terrain heights + 10 confidence channels',()=>{
+  const map=new RollingTerrainDiagnostic();
+  map.insert(0,.05,-.038,.038,true);
+  map.insert(1,.05,.038,.012,true);
+  const samples=map.values();
+  const actor=[...samples.actorHeights,...samples.actorConfidence];
+  assert.equal(samples.actorHeights.length,10);
+  assert.equal(samples.actorConfidence.length,10);
+  assert.equal(actor.length,20);
+  assert.equal(actor[2],samples.actorHeights[2]);
+  assert.equal(actor[17],samples.actorConfidence[7]);
+  assert.ok(actor.some(v=>v>0));
+});
