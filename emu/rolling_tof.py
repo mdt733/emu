@@ -23,7 +23,8 @@ OUTPUT_SAMPLE_X_M = (-.05, 0., .05, .10, .15)
 OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20, 25)
 CONFIDENCE_TIME_S = .60
 CROSS_TRACK_SIGMA_M = .023         # width of uncertainty around each scanned V arm
-SENSOR_MAP_REVISION = "rear_2d_apex_tof_v_tracks_51x2_v5"
+INSERT_RADIUS_M = .020             # near-hit interpolation: 2cm footprint, never a large flat fill
+SENSOR_MAP_REVISION = "rear_2d_apex_tof_v_tracks_51x2_v6"
 
 
 def grid_positions(xp):
@@ -154,7 +155,7 @@ def insert_measurement(xp, heights, confidences, sample_x_m,
           if apex_x_m is None else xp.asarray(apex_x_m)[:,None,None])
     lane_x=xp.clip(mx,GRID_START_M,GRID_LOOKAHEAD_M)
     grid=grid_positions(xp)[None,None,:]
-    spatial_weight=xp.clip(1.-xp.abs(grid-lane_x[:,:,None])/GRID_SPACING_M,0.,1.)
+    spatial_weight=xp.clip(1.-xp.abs(grid-lane_x[:,:,None])/INSERT_RADIUS_M,0.,1.)
     if sample_y_m is not None:
         my=xp.asarray(sample_y_m)
         apex_y=(xp.zeros_like(apex) if apex_y_m is None
