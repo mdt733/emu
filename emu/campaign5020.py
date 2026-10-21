@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import hashlib
 import json
 import math
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from .branch_lab import _read, _save
+from .experiment_io import read_json as _read, save_json as _save, sha256_file as _sha
 from .checkpoint_io import (
     git_provenance, resolve_target_checkpoint, run_training, checkpoint_step,
 )
@@ -55,14 +54,6 @@ def plan(seed: int, envs: int, screen_envs: int, horizon: int) -> dict:
         "promotions": "held-out core/recovery/true contact slopes and real 20mm step outcomes",
         "safety": "one foreground GPU job, validated ancestor checkpoints, pinned source, stop if insufficient eligible finalists",
     }
-
-
-def _sha(path: Path) -> str:
-    h=hashlib.sha256()
-    with path.open("rb") as fd:
-        for block in iter(lambda: fd.read(1<<20), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 def config(run: Path, *, stage: str, arm: str | None,
