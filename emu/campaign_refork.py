@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .campaign5020 import _read, _save, _sha
 from .checkpoint_io import (checkpoint_step, git_provenance,
-                            load_checkpoint, resolve_target_checkpoint,
+                            resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import OBS_SCHEMA_PREVIEW, source_repo_root
 from .training_config import (TrainingConfig, foundation_config,
@@ -471,8 +471,10 @@ def main(argv=None) -> int:
     mode.add_argument("--status",action="store_true",help="read-only persisted winners and scoreboards")
     a=p.parse_args(argv)
     if a.status:
-        print(json.dumps({s:{"scoreboard":_read(a.root/s/"scoreboard.json"),
-                             "selection":_read(a.root/s/"selection.json")}
+        print(json.dumps({s:{"scoreboard":_read(a.root/s/"scoreboard.json")
+                                 if (a.root/s/"scoreboard.json").is_file() else None,
+                             "selection":_read(a.root/s/"selection.json")
+                                 if (a.root/s/"selection.json").is_file() else None}
                           for s in STAGES},indent=2))
         return 0
     if not a.run:
