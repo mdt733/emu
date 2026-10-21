@@ -594,6 +594,7 @@ import numpy as np
 
 from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
 from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME, MOTOR_PAYMENT_NAME
+from .scoring import terrain_edge_trials
 from .contracts import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
@@ -946,24 +947,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     ):
         if terrain_key in metrics:
             row[terrain_key] = mean_metric(metrics, terrain_key)
-    if 'terrain_edge_mask' in metrics:
-        exposure = mean_metric(metrics, 'terrain_edge_mask')
-        crossing = mean_metric(metrics, 'terrain_edge_crossing')
-        contact = mean_metric(metrics, 'terrain_edge_contact')
-        edge_done = mean_metric(metrics, 'terrain_edge_done')
-        edge_falls = mean_metric(metrics, 'terrain_edge_fell')
-        row['terrain_edge_exposure'] = exposure
-        # Outcomes are emitted once when an edge episode FINISHES.
-        # Dividing by all edge frames severely diluted true crossings;
-        # counting every post-crossing frame falsely inflated success.
-        row['terrain_edge_crossing'] = crossing / edge_done if edge_done > 0 else -1.
-        row['terrain_edge_contact'] = contact / edge_done if edge_done > 0 else -1.
-        row['terrain_edge_fall_rate'] = edge_falls / edge_done if edge_done > 0 else -1.
-        row['terrain_edge_completed_fraction'] = edge_done
-        # Count actual terminal edge EPISODES; the governor pools this
-        # numerator across updates. Fraction alone hides sparse trials.
-        row['terrain_edge_done_count'] = float(np.sum(np.asarray(metrics['terrain_edge_done'])))
-        row['terrain_height_birth_m'] = mean_metric(metrics, 'terrain_height_birth_m')
+    row.update(terrain_edge_trials(metrics))
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
     # transition_*_err = mean |vel - cmd| over the steps that were MID-RAMP;
