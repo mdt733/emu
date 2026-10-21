@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""The *one* training run: coordinate worlds, teacher, PPO and checkpoints.
+"""One training lineage: initialise/resume full learner, sample MJX rollouts,
+update PPO, review physical evidence, adjust curriculum and checkpoint.
 
-Read this file in order:
-
-1. `train(config)` restores (or starts) the learner and creates MJX worlds.
-2. PPO collects batches of real physics experience across `config.envs` worlds.
-3. Rollout metrics and independent exam snapshots describe what happened.
-4. Curriculum/health adjust the *next* task distribution and recovery policy.
-5. Durable logs and checkpoints preserve the policy and its learning state.
-6. The final checkpoint and report are published only after validation.
-
-Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-winning training strategy (see ladder_recipe.py / branch_lab.py).
-
-KNOWN DEBT: most of these stages still inhabit a long `train` body.
-See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
+This runner does not define rewards (rewards.py), physical truth
+(environment.py/results.py), frozen qualification (evaluation.py) or
+candidate promotion (campaign_refork.py). Source-commit and checkpoint
+contracts ensure a previous training run cannot silently change meaning.
 """
 from __future__ import annotations
 
