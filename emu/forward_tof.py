@@ -29,7 +29,7 @@ FORWARD_NOISE_STD_M = .0015
 FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
 FORWARD_NOISE_RANGE_FACTOR = .5  # sigma rises gently with slant range
 FORWARD_PROFILE_CLIP_M = .15
-FORWARD_MODEL_REVISION = "two_single_ray_farlook_for_rolling_map_v4"
+FORWARD_MODEL_REVISION = "two_far_rays_and_three_box_aware_downward_rays_v5"
 
 # Exactly TWO physical beams, right/left, both nominally 20cm ahead.
 FORWARD_MOUNTS_BODY_M = tuple(
@@ -46,15 +46,16 @@ FORWARD_DIRECTIONS_BODY = tuple(
 
 def first_hit_ranges(xp, torso_xyz, body_rotation, floor_origin, floor_normal,
                      *, box_center=None, box_rotation=None, box_half_size=None,
-                     errors_m=None):
-    """Return two noisy first-hit lengths and validity, shape [worlds,2].
+                     errors_m=None, mounts_body=FORWARD_MOUNTS_BODY_M,
+                     beams_body=FORWARD_DIRECTIONS_BODY):
+    """Return noisy first-hit ranges and validity, shape [worlds,ray_count].
 
     Ground truth is permitted ONLY to synthesize range returns. An optional
     MuJoCo box intersects actual 3D rays (top, front or side) before the floor.
     No actual floor normal, root pose, or box height is returned to the actor.
     """
-    mounts = xp.asarray(FORWARD_MOUNTS_BODY_M)
-    beams = xp.asarray(FORWARD_DIRECTIONS_BODY)
+    mounts = xp.asarray(mounts_body)
+    beams = xp.asarray(beams_body)
     origins = torso_xyz[:, None, :] + xp.einsum('nij,kj->nki', body_rotation, mounts)
     dirs = xp.einsum('nij,kj->nki', body_rotation, beams)
     normal = floor_normal
