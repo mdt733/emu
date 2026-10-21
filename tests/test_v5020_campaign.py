@@ -71,7 +71,7 @@ def test_result_rank_requires_measured_physical_course_and_slope():
     for panel in ("robust70","contact_slope"):
         p[f"screen_{panel}_step_evidence"]=.5
     p.update(course_20mm_crossing_rate=.25,course_20mm_contact_rate=.50,
-             course_20mm_done_count=20.)
+             course_20mm_attempt_count=20.)
     score=lab._score_arm(p,"balanced")
     assert score["eligible"] and score["course_20mm_crossing"]==.25
     assert lab._score_arm({**p,"course_20mm_done_count":0},"balanced")["eligible"] is False
