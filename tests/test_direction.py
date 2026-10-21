@@ -471,24 +471,31 @@ def test_public_sim2real_plan_resolves_common_pitch_30(tmp_path,capsys):
     assert not run.exists()
 
 
-def test_motor_guidance_keeps_historical_config_compatible_and_rejects_bad_arm(tmp_path):
+def test_motor_guidance_keeps_historical_config_compatible_and_validates_current_cli(tmp_path):
     import json
     from dataclasses import asdict
-    from emu.training_config import TrainingConfig, apply_experiment_knobs
+    from types import SimpleNamespace
+    from emu.train_cli import one_run_config
+    from emu.training_config import TrainingConfig
+
     old=asdict(TrainingConfig())
     old.pop('motor_guidance_weight')
-    p=tmp_path/'old_training_config.json'
-    p.write_text(json.dumps(old))
-    restored=TrainingConfig.load(p)
+    path=tmp_path/'old_training_config.json'
+    path.write_text(json.dumps(old))
+    restored=TrainingConfig.load(path)
     assert restored.motor_guidance_weight == 0.0
-    arm=apply_experiment_knobs(restored,(('motor_guidance_weight',.06),))
-    assert arm.motor_guidance_weight == pytest.approx(.06)
-    assert restored.motor_guidance_weight == 0.0
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',.25),))
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',-0.01),))
 
+    def cfg(weight):
+        return one_run_config(SimpleNamespace(
+            profile='foundation',run_dir=str(tmp_path/'run'),steps=2048,
+            envs=2,seed=733,device='cpu',pitch_deg=None,
+            motor_guidance_weight=weight))
+    assert cfg(.06).motor_guidance_weight == pytest.approx(.06)
+    assert restored.motor_guidance_weight == 0.0
+    with pytest.raises(ValueError,match='motor-guidance-weight'):
+        cfg(.25)
+    with pytest.raises(ValueError,match='motor-guidance-weight'):
+        cfg(-0.01)
 
 def test_passive_spring_accounting_at_stance_and_reset_boundary():
     """Stored energy is conservative geometry, not credited propulsion."""
