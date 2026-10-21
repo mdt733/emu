@@ -1,13 +1,11 @@
 # EMU · Learning to walk
 
-> **Working on v5018 terrain awareness?** Read the
-> [v5018 clean handover](docs/V5018_HANDOVER.md), the
-> [single living research/checklist](docs/V5018_TERRAIN_PLAN.md) and the
-> [fresh-WSL installation guide](docs/INSTALL.md).
-> Only `feature/v5018-terrain-awareness` is approved for this experiment;
-> `main`, the protected showcase policy and Pages are not to be changed.
-> For current experimental status and measured gate evidence, read
-> the sole living checklist; do not infer success from committed scripts.
+> **v5020 terrain/resilience branch laboratory:** [one-command 380M research campaign](docs/V5020_LAB.md)
+> on `feature/v5020-coldstart-terrain`. Start with `emu campaign5020` to see the
+> 20M shared 312-input foundation, four 80M forks, two 120M finalists and
+> 160M champion. Training requires `--run`; checkpoints and reports remain
+> outside Git. Legacy [v5018 terrain research](docs/V5018_HANDOVER.md) is preserved
+> for historical reference. Never update `main` or the published champion automatically.
 
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
