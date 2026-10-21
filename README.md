@@ -1,86 +1,111 @@
 # EMU · Learning to walk
 
-> **v5020 terrain/resilience branch laboratory:** [one-command 380M research campaign](docs/V5020_LAB.md)
-> on `feature/v5020-coldstart-terrain`. Start with `emu campaign5020` to see the
-> 20M shared 312-input foundation, four 80M forks, two 120M finalists and
-> 160M champion. Training requires `--run`; checkpoints and reports remain
-> outside Git. Legacy [v5018 terrain research](docs/V5018_HANDOVER.md) is preserved
-> for historical reference. Never update `main` or the published champion automatically.
+**Six actuators. Two feet. No scripted gait.** EMU studies how an unstable
+biped learns locomotion in thousands of parallel MuJoCo/MJX worlds.
 
+> **Two different states of the project:**
+>
+> - [`main`](https://github.com/mdt733/emu/tree/main) is the **untouched,
+>   proven reference**, with the approved 232-input v5016 Pinnacle 260M
+>   showcase. No experimental changes are automatically published there.
+> - [`feature/v5020-coldstart-terrain`](https://github.com/mdt733/emu/tree/feature/v5020-coldstart-terrain)
+>   is **experimental**: 312-input terrain sensing, real collidable steps,
+>   adaptive step height and the five-way Champion Ladder. Its source tests
+>   pass, but it has **not** produced a qualifying stronger trained policy.
+>
+> **Do not use the v5020 source to resume a run pinned to a different commit.**
+> Keep all checkpoints and training outputs outside the source checkout.
 
-**Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
+**[Interactive EMU Playground](https://mdt733.github.io/emu/)** ·
+**[Architecture](docs/EMU_ARCHITECTURE.md)** ·
+**[Install & run safely](docs/INSTALL.md)** ·
+**[Research findings](docs/RESEARCH_HISTORY.md)** ·
+**[Current cleanup checklist](docs/V5020_CLEANUP_PLAN.md)**
 
-**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
-
-## How it works
+## What the current research system does
 
 ```text
-robot.xml + environment.py       The actual robot, physics, contacts and commands
-        ↓
-rewards.py                       Which behaviours are useful? (and which are costly?)
-        ↓
-ppo.py + training.py             Many MJX worlds, experience, gradients, checkpoints
-        ↕
-curriculum.py                    What should this robot practise next?
-        ↕
-branch_lab.py                     Shared foundation → competing teaching strategies
-        ↓
-results.py                       How did it learn? Which branches really improved?
-
-             viewer_src/         Frozen .emupolicy, interactive MuJoCo/WASM;
-                 ↑               NEVER changes the trainer
-           export-policy
+robot.xml and environment.py   Physical biped, servo and contact simulation
+             │
+       2048/4096 MJX worlds    One shared actor, independent sampled lessons
+             │
+      ┌──────┴───────────┐
+      │                  │
+   rewards.py        results.py        Per-step payments vs physical episode facts
+      │                  │
+    ppo.py         curriculum.py       Gradient update vs evidence-driven teaching
+      └──────┬───────────┘
+             │
+       validated checkpoint
+             │
+   campaign_refork.py           Five 20M continuations of one common parent
+             │
+       evaluation.py            One independent exam for every frozen contender
+             │
+       choose ONE winner        Or stop and preserve the incumbent
+             │
+      repeat after 20M
 ```
 
-EMU supports two deliberately versioned actor contracts: **v5015/Pitch15: 55×4 = 220 observations**, and **v5016/sim2real: 58×4 = 232 observations** (ToF ground grades and optical-flow-derived velocity with measurement timing/bias). Both output six joint targets. A full checkpoint contains the learning state; a smaller `.emupolicy` contains browser inference weights and its exact observation contract. The protected showcase asset now holds the **approved v5016 Pinnacle 260,112,384-step, 232-input actor**. GitHub Pages may show an older deployment until the release-specific Pages workflow succeeds. A good-looking demo is not evidence of safe physical servos.
+The five teaching emphases are **General, Turning, Recovery, Efficiency and
+Steps**. These are *training continuations*, not five Git branches. The
+trained champion's complete checkpoint (network, optimiser, normaliser,
+governor, health, field) is the parent for the next five arms.
 
-## Start
+**Actor contracts are versioned, not interchangeable:** 220 (historical),
+232 (proven sim-to-real reference), and 312 (experimental rolling terrain
+preview) inputs; all have six action outputs. Training/teacher truth must
+not leak into deployable observations.
 
-On Linux/WSL2 with Python 3.13, Git and optionally an NVIDIA CUDA-capable GPU:
+The 312-input physical Steps specialist starts with small obstacles,
+then may earn harder heights from verified crossings. Its **current
+simulator geometry ceiling is 150mm**, not a certified capability claim.
+The independent examiner tests every contender at 5/10/20/40/80/150mm,
+in addition to general walking, recovery, slopes and mechanical effort.
+
+## Quick start
+
+Python 3.13+ and a suitable JAX/MuJoCo installation are required. For a
+**new WSL checkout** of the research source:
 
 ```bash
-git clone https://github.com/mdt733/emu.git
-cd emu
-bash scripts/setup_wsl.sh --cuda13 --install-node    # GPU / CUDA 13
+git clone --single-branch -b feature/v5020-coldstart-terrain \
+  https://github.com/mdt733/emu.git emu-v5020
+cd emu-v5020
+bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
+
 emu doctor --v5015-smoke --domain-smoke
-emu ladder --stage plan
+emu campaign-refork                         # READ-ONLY plan
+emu campaign-refork --status                # READ-ONLY status
+python -m pytest -q tests/test_v5020_refork.py tests/test_v5020_campaign.py
 ```
 
-For CPU-only inspection, omit `--cuda13` and run `emu doctor --no-require-gpu --no-mjx-smoke`. For tested GPU training, begin with a new root outside this repo:
+`bash scripts/setup_wsl.sh` performs installation and tests. Actual GPU
+training requires explicit `--run`, a validated 312-input foundation
+checkpoint, a clean pinned source revision, and a **new empty** output
+directory. See [current training instructions](docs/INSTALL.md).
+The default is to stop at the first 40M comparison, not launch an
+unexamined overnight campaign.
 
-```bash
-emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/my-study" --seed 733 --envs 2048 --device cuda
-emu ladder --stage auto --root "$HOME/robot_lab/emu_runs/my-study" --seed 733 --envs 2048 --device cuda --stop-after round1
-emu viewer --live --root "$HOME/robot_lab/emu_runs/my-study" --no-open
-```
+For the **existing proven demo**, stay on `main` or visit the public
+Playground. Neither source cleanup nor v5020 research modifies that policy.
 
-See [INSTALL.md](docs/INSTALL.md) for fresh Windows/WSL setup, GPU checkpoint acceptance, commands and troubleshooting. **Never mix source revisions or change a running campaign's configuration.**
+## Where to look
 
-## What the research found
-
-A shared **20M-step foundation** fed four matched 80M-step teaching experiments, then two 100M-step finalists and a 120M-step winner (320M aggregate training steps). **Pitch15** (a 15° chassis-pitch command teaching ceiling) ranked first on the common frozen-policy screen: 0.684 at 80M → 0.712 at 100M → **0.723 at 120M**. That historical 120M Pitch15 reference remains in Git history. The reviewed `showcase/champion.emupolicy` is now the **260M-step v5016 Pinnacle actor**. The public browser viewer uses pose-lattice goal navigation by default, and the release-specific Pages workflow publishes the pinned asset without training or changing its weights.
-
-**Important limitation:** final training telemetry reported **74.1% of servo samples over the configured rated-torque threshold**. The model is a *simulation demonstration*, not a hardware-safe controller; signed distance, complete strides, real motor currents and contact transfer still require further study.
-
-## Where things live
-
-Everything is under `emu/`. Read these files in this order:
-
-| Responsibility | Code |
+| Question | Current implementation |
 |---|---|
-| Physical robot, worlds, tasks, terrain | `robot.xml`, `environment.py` |
-| Eight transparent training payments | `rewards.py` |
-| Neural actor, PPO, JAX runtime | `ppo.py` |
-| One run's update loop and saving | `training.py` |
-| Curriculum, capability evidence and health | `curriculum.py` |
-| Shared foundation, experimental arms and promotions | `branch_lab.py` |
-| Fixed screens, gait, recovery and course examinations | `evaluation.py`, `directional.py` |
-| Rollout facts, learning narratives and comparison reports | `results.py` |
-| Local viewer, live watcher and policy export | `viewer_server.py`, `viewer_src/` |
+| What is physically happening? | `robot.xml`, `environment.py`, `terrain.py` |
+| What does the actor sense? | `contracts.py`, `forward_tof.py`, `rolling_tof.py` |
+| What actions are rewarded? | `rewards.py` |
+| How does PPO learn? | `ppo.py`, `training.py` |
+| What happened in the rollouts? | `results.py` |
+| How are lessons adjusted? | `curriculum.py` |
+| What can a frozen policy demonstrate? | `evaluation.py` |
+| How are champions selected? | `campaign_refork.py` |
+| Where are checkpoints and run identities guarded? | `checkpoint_io.py`, `experiment_io.py` |
+| Why did previous experiments fail or succeed? | `docs/RESEARCH_HISTORY.md` |
 
-Four support boundaries remain deliberately separate: `contracts.py` (actor/physics constants), `training_config.py` (all run knobs), `checkpoint_io.py` (complete validated learning state and recovery), and `cli.py` (one public command interface). `__init__.py` is Python packaging. The JavaScript/WASM viewer has its own locked dependencies.
-
-This reduces the package from 42 Python files to 15 **without pretending the learning maths got smaller**. Further true size reduction means analysing and cutting unnecessary behaviour, not merely moving functions.
-
-The only maintained long-form documentation is this front page, **[INSTALL](docs/INSTALL.md)**, **[HANDOVER](HANDOVER.md)** and **[PLAYGROUND](docs/PLAYGROUND.md)**. Older raw experiment artefacts live in Git history. The curated [research history](docs/RESEARCH_HISTORY.md) captures results, limitations and what to try next. Run `bash scripts/check.sh` before committing. Software tests don't replace a fresh CUDA acceptance and independent walking exams.
+Old experiment-specific source remains accessible through the repository's
+Git history. Current source comments should explain the current contract,
+not reproduce that history.
