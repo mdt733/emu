@@ -119,3 +119,101 @@ def test_public_cli_routes_to_v5020_plan_without_writing(tmp_path,capsys):
     p=json.loads(capsys.readouterr().out)
     assert p["total_environment_steps_all_arms"]==380_000_000
     assert not root.exists()
+
+
+def test_report_with_null_foundation_parent_is_safe(tmp_path):
+    """The original 20M foundation crashed in report writing after a valid save."""
+    from emu import results
+    root=tmp_path/"lab"
+    foundation=root/"foundation20"
+    foundation.mkdir(parents=True)
+    (root/"lab_context.json").write_text(json.dumps({
+        "seed":733,"envs":4096,"git_commit":"old-source"}))
+    (foundation/"lab_spec.json").write_text(json.dumps({
+        "stage":"foundation","parent":None,"target":20_000_000}))
+    (foundation/"training_config.json").write_text(json.dumps({
+        "steps":20_000_000,"domain_terrain_radius":.16}))
+    (foundation/"run_meta.json").write_text(json.dumps({
+        "source_provenance":{"git_commit":"old-source"}}))
+    assert results.collect(root)["runs"]["foundation20"]["parent"]=={}
+    written=results.write_report(root)
+    assert {x.name for x in written}=={
+        "results.md","results_data.json","results_bundle.zip"}
+    assert "Parent SHA-256: `unavailable`" in (root/"results.md").read_text()
+
+
+def test_312_input_parent_handoff_never_falls_back_to_legacy_schema(tmp_path,monkeypatch):
+    """The actual v5020 fork formerly crashed just printing '20M -> 80M'."""
+    from emu import campaign5020 as lab
+    root=tmp_path/"lab"
+    parent=root/"foundation20"/"checkpoints"/"final.pkl"
+    parent.parent.mkdir(parents=True)
+    parent.write_bytes(b"validated 312 actor fixture")
+    calls=[]
+    def strict_step(path,*,expected_observation_schema,expected_sensor_contract):
+        assert Path(path)==parent
+        assert expected_observation_schema==OBS_SCHEMA_PREVIEW
+        assert expected_sensor_contract is not None
+        calls.append("schema9-parent")
+        return 20_054_016
+    def done(run,target,envs,cfg):
+        calls.append("find-completed")
+        if "trained" in calls:
+            return run/"checkpoints"/"final.pkl",None
+        return None,None
+    def trained(cfg,*,provenance):
+        assert cfg.resume==str(parent)
+        assert cfg.observation_schema==OBS_SCHEMA_PREVIEW
+        calls.append("trained")
+    monkeypatch.setattr(lab,"checkpoint_step",strict_step)
+    monkeypatch.setattr(lab,"_completed",done)
+    monkeypatch.setattr(lab,"run_training",trained)
+    monkeypatch.setattr(lab,"verify_existing_phase_config",lambda *a:None)
+    cfg=lab.config(root/"round1"/"balanced",stage="round1",
+                   arm="balanced",seed=733,envs=4096,device="cuda")
+    ck=lab._stage_run(root,stage="round1",arm="balanced",parent=parent,
+       seed=733,envs=4096,device="cuda",
+       provenance={"commit":"fixed-source","available":True,"dirty":False})
+    assert ck==root/"round1"/"balanced"/"checkpoints"/"final.pkl"
+    assert "trained" in calls
+    assert calls.count("schema9-parent")>=2
+    spec=json.loads((root/"round1"/"balanced"/"lab_spec.json").read_text())
+    assert spec["parent"]["step"]==20_054_016
+    assert spec["config"]["observation_schema"]==OBS_SCHEMA_PREVIEW
+
+
+def test_full_lab_dag_promotes_two_then_one_without_trainer_side_effects(tmp_path,monkeypatch):
+    """Exercise orchestrator after foundation, through two scoreboards and winner."""
+    from emu import campaign5020 as lab
+    root=tmp_path/"lab"
+    visited=[]
+    def phase(root,*,stage,arm,parent,seed,envs,device,provenance):
+        if stage=="foundation":
+            assert parent is None
+        else:
+            assert parent is not None
+            assert parent.is_file()
+        checkpoint=(root/"foundation20" if stage=="foundation"
+                    else root/stage/arm)/"checkpoints"/"final.pkl"
+        checkpoint.parent.mkdir(parents=True,exist_ok=True)
+        checkpoint.write_text(f"{stage}/{arm or 'shared'}")
+        visited.append((stage,arm))
+        return checkpoint
+    def score(root,stage,names,**kwargs):
+        rows=[{"arm":arm,"eligible":True,"score":1.0-idx*.1}
+              for idx,arm in enumerate(names)]
+        board={"round":stage,"results":rows}
+        lab._save(root/f"{stage}_scoreboard.json",board)
+        return board
+    monkeypatch.setattr(lab,"git_provenance",lambda:{
+       "available":True,"commit":"fixed-source","dirty":False})
+    monkeypatch.setattr(lab,"_stage_run",phase)
+    monkeypatch.setattr(lab,"_screen",score)
+    monkeypatch.setattr(lab,"_report",lambda root:None)
+    lab.run(root,seed=733,envs=4096,screen_envs=32,horizon=300,
+            device="cuda",stop_after="round3")
+    assert [stage for stage,arm in visited].count("foundation")==1
+    assert [stage for stage,arm in visited].count("round1")==4
+    assert [stage for stage,arm in visited].count("round2")==2
+    assert [stage for stage,arm in visited].count("round3")==1
+    assert json.loads((root/"round3_selection.json").read_text())["selected"]==["balanced"]
