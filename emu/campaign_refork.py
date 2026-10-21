@@ -137,7 +137,6 @@ def config(run: Path, *, stage: str, arm: str, target: int,
                       terrain_height_growth_m=.001,
                       terrain_progress_weight=.035)
     return cfg
-    return cfg
 
 
 def _validated_step(path: Path, cfg: TrainingConfig) -> int:
