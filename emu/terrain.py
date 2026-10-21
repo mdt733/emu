@@ -1,15 +1,13 @@
-"""Terrain-relative *teacher truth*, not deployable robot perception.
+"""Physical terrain geometry and teacher-only contact/crossing evidence.
 
-P1 starts with a single stationary, horizontal-topped box under MuJoCo/MJX
-collision. This is an explicit bounded geometry contract, not an invented
-heightmap. Geometry and genuine foot/geom contact pairs are checked together:
-a sphere pushing on a vertical riser is NOT credited as a supported foot on
-the top. Both contact normal and actual contact point must match the top
-face; near-contact pairs alone are still NOT measured normal force.
+The current MJX course uses fixed-topology, per-world movable box geometry;
+actual height and placement can vary without changing JAX tensor shapes.
+Foot-on-riser collision is not box-top support, and a candidate contact
+pair is not proof of positive normal force.
 
-Only opt-in physics/reward evaluation may call this code. Never include its
-output in the 220/232 input vectors; forward ToF/flow needs its own noisy,
-delayed, occluded physical sensor model.
+These functions may supervise reward, curriculum and frozen exams.
+Actor observations are reconstructed solely from simulated physical sensors,
+never from privileged terrain height, world geometry or collision labels.
 """
 from __future__ import annotations
 
@@ -195,7 +193,7 @@ def box_surface_truth(
     }
 
 
-# v5018 adaptive-height research: fixed-shape box whose top moves with a
+# Fixed-shape box whose top moves with a
 # per-episode MuJoCo mocap body. Avoid changing MJX geom_size/topology
 # under JIT; every batched world gets an independently sampled height.
 TERRAIN_FRONTIER_MAX_M = 0.150
