@@ -136,8 +136,8 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
-    observation_schema: str = OBS_SCHEMA_LEGACY  # explicit 220/232/280
-    forward_preview_masked: bool = False  # same 280 physical rays, all 12 actor values masked for A/B
+    observation_schema: str = OBS_SCHEMA_LEGACY  # explicit 220/232/312
+    forward_preview_masked: bool = False  # same 312 V-memory model, all 20 terrain values masked for A/B
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only a ladder arm with an explicit override changes them. Rollout length,
@@ -180,6 +180,7 @@ class TrainingConfig:
     # robot.xml; 0 = same box off-course; 5/10 = real low step in path.
     # Never silently substitute browser demonstration geoms for GPU lessons.
     terrain_box_height_mm: int = -1
+    terrain_random_placement: bool = False  # 312-input adaptive course: vary step X/Y/yaw per birth
     # Opt-in maximum of continuous per-episode step heights; off by default.
     terrain_height_safety_m: float = 0.0
     terrain_adaptive_flat_control: bool = False
@@ -241,7 +242,7 @@ class TrainingConfig:
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
-                    'terrain_box_height_mm', 'terrain_height_safety_m',
+                    'terrain_box_height_mm', 'terrain_random_placement', 'terrain_height_safety_m',
                     'terrain_adaptive_flat_control',
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
@@ -257,7 +258,7 @@ class TrainingConfig:
 # normalisation) are otherwise modifiable via TrainingConfig fields.
 IMMUTABLE_RUN_FIELDS = frozenset({
     'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
-    'terrain_box_height_mm', 'terrain_height_safety_m', 'terrain_height_initial_m',
+    'terrain_box_height_mm', 'terrain_random_placement', 'terrain_height_safety_m', 'terrain_height_initial_m',
     'terrain_adaptive_flat_control', 'terrain_height_exposure',
     'terrain_height_edge_fraction', 'terrain_height_growth_m',
     'terrain_progress_weight', 'forward_preview_masked',
