@@ -13,7 +13,7 @@ or touch the published champion** without user approval and proven results.
    campaign that might still be used to reproduce existing research.
 3. Remove old code only after dependency search, importing tests and CLI
    compatibility implications have been resolved. Git history retains old code.
-4. Move historical context to [EXPERIMENT_HISTORY.md](EXPERIMENT_HISTORY.md)
+4. Move historical context to [RESEARCH_HISTORY.md](RESEARCH_HISTORY.md)
    and keep current source comments focused on current invariants and *why*.
 5. **No new Git feature branches. No touching `main`. No full GPU campaigns
    until we explicitly enter the acceptance stage.**
@@ -23,7 +23,7 @@ or touch the published champion** without user approval and proven results.
 - [x] Audit `main` against v5020 and document current responsibilities.
 - [x] Create [EMU_ARCHITECTURE.md](EMU_ARCHITECTURE.md).
 - [x] Summarise old learning results/failures in
-  [EXPERIMENT_HISTORY.md](EXPERIMENT_HISTORY.md).
+  [RESEARCH_HISTORY.md](RESEARCH_HISTORY.md).
 - [ ] Freeze a manifest of the local trained checkpoints, original run
       directories, source revisions and accessible result bundles.
       **Requires local run metadata**; not recoverable from Git alone.
