@@ -96,3 +96,16 @@ def test_success_cannot_appear_before_trial_completes():
     m["terrain_edge_crossing"][0,0]=1.
     with pytest.raises(ValueError,match="without completed trial"):
         terrain_edge_trials(m)
+
+
+
+def test_physical_peak_is_per_world_per_frame_not_a_misleading_mean():
+    from emu.results import physical_peak_metric
+    data={"spring_potential_energy_j":np.full((32,4096),.8)}
+    data["spring_potential_energy_j"][11,1337]=2500000.
+    peak=physical_peak_metric(data,"spring_potential_energy_j")
+    assert peak==2500000.
+    assert np.mean(data["spring_potential_energy_j"]) < 20.
+    assert physical_peak_metric({},"spring_potential_energy_j")==-1.
+    data["spring_potential_energy_j"][11,1337]=float("nan")
+    assert np.isnan(physical_peak_metric(data,"spring_potential_energy_j"))
