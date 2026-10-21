@@ -208,7 +208,11 @@ def rebase_to_rear_measurement(xp, heights, confidences,
     good=(xp.asarray(rear_sample_valid)&inside&supported&
           xp.isfinite(residual))
     correction=xp.where(good,xp.clip(residual,-.08,.08)*weight,0.)
-    shifted=xp.where(c>1e-5,h-correction[:,None,None],0.)
+    # Invalid/untrusted rear readings must be exact NO-OP, including the
+    # tiny low-confidence tails of earlier observations. A rebase may erase
+    # unsupported cells only when a genuine two-lane rear overlap exists.
+    shifted=xp.where(good[:,None,None],
+                     xp.where(c>1e-5,h-correction[:,None,None],0.), h)
     return shifted,c
 
 
