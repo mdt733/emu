@@ -94,7 +94,7 @@ emu viewer-build
   cd emu/viewer_src
   npm test
 )
-emu ladder --stage plan
+emu campaign-refork
 if [[ $SKIP_TESTS -eq 0 ]]; then
   python -m pytest -q
 else
@@ -103,4 +103,4 @@ fi
 if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
+printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu campaign-refork (plan only); consult docs/INSTALL.md and provide a validated 312-input foundation before --run\n'
