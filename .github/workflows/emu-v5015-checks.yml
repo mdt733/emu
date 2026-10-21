@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real, feature/v5018-terrain-awareness, feature/v5019-forward-tof-profile, feature/v5020-coldstart-terrain, feature/v5020-report-recovery]
+    branches: [develop/playground-attitude-terrain, feature/v5016-sim2real, feature/v5018-terrain-awareness, feature/v5019-forward-tof-profile, feature/v5020-coldstart-terrain, feature/v5020-report-recovery, feature/v5020-campaign-hardening]
   workflow_dispatch:
 
 permissions:
@@ -100,3 +100,21 @@ jobs:
           bash scripts/install_viewer_wsl.sh --self-test
       - name: Fresh Ubuntu CPU-only viewer install (no training)
         run: bash scripts/install_viewer_wsl.sh --destination "$RUNNER_TEMP/emu-viewer-cpu" --branch "${{ github.head_ref || 'main' }}" --no-launch
+
+  v5020-exam-preflight:
+    if: github.ref_name == 'feature/v5020-campaign-hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install minimal CPU MJX evaluator
+        run: python -m pip install -e ".[dev]"
+      - name: Compile actual 312-input step and contact slope promotion exams
+        env:
+          JAX_PLATFORM_NAME: cpu
+          XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+        run: emu campaign5020 --preflight --device cpu
