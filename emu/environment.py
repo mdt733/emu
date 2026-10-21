@@ -2462,10 +2462,20 @@ class EmuMJXEnv(TaskSampler):
             edge = ((task[:, T.terrain_height_m] > 0.) &
                     (task[:, T.terrain_height_m] >= .70 *
                      jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m])))
-            far = data.xpos[:, self.torso_id, 0] >= .42
-            feet_far = jnp.all(foot_pos[:, :, 0] >= .28, axis=1)
-            in_lane = ((jnp.abs(data.xpos[:,self.torso_id,1]) < .10) &
-                       jnp.all(jnp.abs(foot_pos[:,:,1]) < .12,axis=1))
+            # The old fixed course used absolute .42/.28 X thresholds.
+            # V5020 places/yaws the actual step independently in every
+            # world, so evaluate motion PAST the measured physical front edge
+            # instead of giving credit before reaching a farther obstacle.
+            box_c = data.geom_xpos[:,bid,:]
+            box_r = jnp.reshape(data.geom_xmat[:,bid],(self.num_envs,3,3))
+            extent_x = (jnp.abs(box_r[:,0,0])*self.terrain_box_half_size[0] +
+                        jnp.abs(box_r[:,0,1])*self.terrain_box_half_size[1])
+            box_front_x = box_c[:,0]+extent_x
+            far = data.xpos[:,self.torso_id,0] >= box_front_x+.18
+            feet_far = jnp.all(foot_pos[:,:,0] >= box_front_x+.04,axis=1)
+            lane_center_y = box_c[:,1]
+            in_lane = ((jnp.abs(data.xpos[:,self.torso_id,1]-lane_center_y)<.11) &
+                       jnp.all(jnp.abs(foot_pos[:,:,1]-lane_center_y[:,None])<.12,axis=1))
             supported = terrain_truth['support_fraction'] >= .25
             upright = -projected_gravity[:, 2] >= .8
             terrain_edge_crossing = (edge & far & feet_far & in_lane & supported & upright)
