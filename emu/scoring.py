@@ -39,6 +39,13 @@ def terrain_edge_trials(metrics: Mapping[str, Any]) -> dict[str, float]:
             raise ValueError(f"invalid terrain event shape/values: {key}")
     if np.any((done < 0.) | (done > 1.)):
         raise ValueError("completed episode flag outside [0,1]")
+    for key in ("terrain_edge_crossing", "terrain_edge_contact",
+                "terrain_edge_fell"):
+        flags=np.asarray(metrics[key],dtype=np.float64)
+        # Outcome events can only be reported for a completed trial.
+        # Incomplete episodes are not failures OR successes.
+        if np.any((flags < -1e-6) | (flags > done + 1e-6)):
+            raise ValueError(f"terrain outcome without completed trial: {key}")
     ended=mean("terrain_edge_done")
     row={
         "terrain_edge_exposure":mean("terrain_edge_mask"),
