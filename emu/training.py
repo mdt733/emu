@@ -88,6 +88,7 @@ def env_kwargs_from_args(args) -> dict:
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
         terrain_progress_weight=args.terrain_progress_weight,
+        terrain_random_placement=args.terrain_random_placement,
         contact_slope_deg=args.contact_slope_deg,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
@@ -177,7 +178,7 @@ def train(args: TrainingConfig) -> int:
         course_sha256 = hashlib.sha256(training_xml.read_bytes()).hexdigest()
         env_options['terrain_contact_mode'] = 'box_surface'
         print(f'{LOG_PREFIX} v5018 P1 REAL BOX course={args.terrain_box_height_mm}mm '
-              f'xml_sha256={course_sha256} (no actor lookahead; baseline only)', flush=True)
+              f'xml_sha256={course_sha256} (versioned physical course)', flush=True)
 
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
