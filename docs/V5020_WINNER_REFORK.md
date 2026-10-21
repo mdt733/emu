@@ -1,117 +1,133 @@
-# v5020 winner-refork campaign — preserve the good walker
+# v5020 — five-way winner-and-refork, with earned obstacle height
 
-This is a **new training campaign on the existing
-\`feature/v5020-coldstart-terrain\` integration Git branch**. It does not alter
-\`main\`, the GitHub Pages showcase or the historical \`emu campaign5020\`
-380M-step experiment. "Branches" here mean PPO checkpoint continuations,
-not Git branches.
+**One integration Git branch:** \`feature/v5020-coldstart-terrain\`.
+**Historical main/reference:** successful v5016 Pinnacle methodology.
+**Historical failed v5020 campaign:** unchanged; \`emu campaign5020\` remains reproducible.
 
-The design borrows the successful v5016 Pinnacle approach from \`main\`:
-start from one genuine sensor-trained actor, keep a **general walking
-control**, challenge its skills in small controlled variations, and compare
-policies only in independent physics. What we deliberately improve is winner
-reuse: **one** winner from four candidates becomes the ancestor for **all
-four** candidates in the next generation.
+We now make **five different learning strategies**, not five Git branches. All
+contenders start from the **same frozen schema-9, 312-input policy**, including
+actor, value network, optimiser, observation normaliser, governor, training
+health and capability field. At each 40M/60M/80M policy-step milestone we
+evaluate all five, promote **one qualified winner**, and refork its *entire*
+learning state into five new independent training continuations.
 
-## Actual generations
+## Five contenders, every generation
 
-| Generation | Policy target | Four experimental variants | New physical obstacles? |
-|---|---:|---|---|
-| walk40 | 40M | general, turns, recovery, efficiency | No |
-| walk60 | 60M | general, turns, recovery, efficiency | No |
-| walk80 | 80M | general, turns, recovery, efficiency | No |
-| terrain100 (opt-in) | 100M | flat_control, step3, step5, step5_efficiency | 0/3/5mm |
+| Contender | What it teaches |
+|---|---|
+| \`general\` | Main-style conservative level/general gait; no physical boxes |
+| \`turns\` | More mixed forward/lateral/yaw commands |
+| \`recovery\` | More disturbance pushes and recovery lessons |
+| \`efficiency\` | Mild servo mechanical-effort costs |
+| \`steps\` | Real collidable box steps **on level ground**, with an **earned continuously growing step-height frontier** |
 
-The actor is **312 inputs / six actions throughout**. Its ToF/optical-flow
-sensor contract and physical robot hash are validated at every checkpoint
-handoff. 20M is *not* a magical competence boundary: a validated **12–22M**
-foundation snapshot can be used, including an earlier healthier checkpoint
-from a run that deteriorated before its final 20M save.
+The 312-input sensor package remains identical across all five. **The steps
+arm does not have a prescribed 3mm, 5mm or 20mm final height.** It begins
+with a **3mm frontier** only when the parent has no previously earned one,
+and trains on a mixture of no-obstacle births, intermediate step heights and
+frontier-edge steps. Some episodes are flat to rehearse general walking;
+non-forward tasks are also flat because a box placed on global +X would
+otherwise train avoidance and falling instead of climbing.
 
-Each stage runs:
+The preexisting \`RegimeGovernor\` accumulates real *completed* episodes
+near the frontier and advances by up to **1mm per qualifying evidence batch**
+when true crossing, contact and fall criteria pass. Falls can retreat height;
+lack of evidence holds it still. The height field lives in the saved governor
+and transfers with whichever trained policy wins. The safety ceiling is
+**150mm** under the *current fixed-geometry MJX box contract*. That's an
+engineering limit, **not a target**: if real, independently replicated
+competence reaches it, the next research change can enlarge the collision
+geometry and carefully test heights beyond 150mm, perhaps eventually 200mm.
+Just lifting a numeric cap would not make the robot capable.
 
-1. Four independent 2M-environment-step **probe phases**, all warm-started
-   from the *same* frozen parent checkpoint.
-2. Each probe must show a mean recent fall rate at most 92%, mean episode
-   length at least 70 frames, and no logged mean spring potential above 50J.
-   Values are preliminary safety limits, not robotics performance claims.
-   A rejected probe **never trains its full stage**.
-3. Surviving probes finish their continuation to the stage's absolute
-   40/60/80/100M policy step boundary. The probe/finish phases have separate
-   immutable training directories to avoid mutating a training-config's
-   \`steps\` mid-run.
-4. Frozen candidates face **identical**, truly held-out locomotion tests:
-   easy core, disturbance recovery, command combinations, two *real-contact*
-   slope distributions, plus servo shaft-effort telemetry. **No obstacle
-   geom exists in the walking examiner.**
-5. The strongest **eligible** candidate becomes the one ancestor for the next
-   generation. The previous incumbent is evaluated on the same tests to
-   catch gross regression. If no candidate qualifies, **STOP** and preserve
-   the parent, rather than guessing or inventing a winner.
-6. Promotion is locked to exact checkpoint SHA-256 and saved scoreboard;
-   running again cannot quietly change the chosen ancestor.
+The optional \`terrain100\` generation is now **another five-way competition**
+from the 80M winner, not a special 3-versus-5mm shootout. The first launch
+still defaults to stopping at 40M for evidence review.
 
-No adaptive physical step can enter training until \`walk80\` has an eligible
-winner with >=80% core survival, >=5% hard recovery survival, >=10% real
-contact-slope survival and adequate stepping evidence. These floors should
-be revised only with measured training evidence, **before** locking a new
-campaign root. The first terrain generation uses a matched flat control and
-only 3–5mm step lessons. Its independent physical examiner checks a
-**genuine 5mm supported crossing**; a 20mm obstacle is *not* the first lesson
-any more.
+## Evaluation: the same physics for every contender
 
-## Why the old 20M-to-80M launch was unsafe
+We use *identical frozen-policy screens* for all five at each generation:
 
-The failed v5020 campaign inherited a poorly generalised 4096-world
-foundation and instantly combined: mature command envelopes, strong pushes,
-heavy combined command sampling, new graph teaching, real slopes and adaptive
-3–30mm physical boxes. Every branch reported near-immediate catastrophic
-falling. The new campaign retains true 312-channel sensing and light slopes
-from the start, but makes the first 20M continuation essentially the old
-foundation's **level/general locomotion** curriculum. It ramps command range,
-combined commands, disturbances and graph teaching conservatively between
-generations. Terrain training is a later, **separately gated** skill.
+- General/core survival, commands, posture, stepping evidence and recovery
+- Two real-contact slope distributions
+- Comparable shaft-effort, overload and action-smoothness measurements
+- **True collidable step crossings at 5, 10, 20, 40, 80 and 150mm**
 
-4096 worlds use only about 153 PPO updates per 20M versus about 305 at
-2048 worlds, with the existing 32-frame rollout. The governor's 70-update
-steady-only bootstrap therefore occupies proportionally more of 4096-world
-foundation. This coordinator deliberately **preserves the selected
-foundation's world count**. Changing world count should be a separate study;
-it is not a silent checkpoint migration.
+These 6 heights are **testing milestones**, not ceilings in the teaching
+distribution. All models—including \`general\`, which trained no boxes—are
+evaluated at every height. This preserves the ability of naturally agile
+walkers (such as the older 260M demo) to score obstacle competence even
+without explicit step lessons.
 
-## Inspect first; no GPU training
+The examiner requires a real box-foot contact and **supported, upright
+passage beyond the measured box**, with a matched seed and course geometry.
+Neither merely moving forward nor reporting a large training reward counts.
 
-Read-only plan:
+The step-grade score rewards crossings across the six heights (weighted
+towards 20–40mm, with credit also at 80–150mm). It contributes **25% of a
+positive, unnormalised score component**, but general locomotion, recovery,
+contact-slope survival, gait, posture and motor power remain important.
+The weights are fixed for everyone at every generation. Independent physical
+course results can therefore advantage the steps arm **without permitting
+a stumbling, stationary or unstable policy to win**.
+
+The step specialist also has a small **reward-only** training incentive:
+supported, upright progress in the obstacle corridor, and a single bonus
+when a previously contacted real obstacle is genuinely cleared the first
+time in an episode. This never adds privileged obstacle truth to actor
+observations; the sensor contract stays 312 inputs. The tournament never
+uses this PPO teaching payment as a measured crossing.
+
+## Guard rails after the failed 380M experiment
+
+Each contender first runs a 2M-step probe under its proposed lesson
+distribution. A probe is rejected if its recent mean fall rate exceeds 92%,
+mean episode length falls below 70 frames or logged mean spring energy exceeds
+50J. A failed probe **never trains the next 18M**. These thresholds flag gross
+collapse; they are not a guarantee of future health. For survivors, each
+20M continuation completes in a separate immutable training-config phase.
+
+At the 40M, 60M and 80M boundaries, every final policy faces the same
+frozen-policy tests and is rejected if its general locomotion fails the
+stage-specific core/recovery/contact-slope/gait/height gates. The parent
+checkpoint is also tested under the same conditions. If all contenders
+are rejected or regress badly against a qualified incumbent, the campaign
+**stops and preserves the parent** rather than selecting a false champion.
+
+One GPU subprocess runs at a time. \`flock\`, run/source identity, parent
+SHA-256, validated checkpoint schema and selection SHA checks enforce
+resumability. Existing output roots and old policy files are never
+reinterpreted under changed training source.
+
+## Read-only plan / tests
 
 \`\`\`bash
 cd ~/emu-v5020
 git switch feature/v5020-coldstart-terrain
-git pull --ff-only
+git fetch origin feature/v5020-coldstart-terrain
+git merge --ff-only origin/feature/v5020-coldstart-terrain
 source .venv/bin/activate
+
 emu campaign-refork
+python -m pytest -q tests/test_v5020_refork.py tests/test_v5020_campaign.py
 \`\`\`
 
-Read-only status, including before a campaign exists:
-
-\`\`\`bash
-emu campaign-refork --root ~/robot_lab/emu_runs/v5020_refork --status
-\`\`\`
-
-Inspect the existing foundation snapshots before deciding which to reuse:
+Inspect available foundation snapshots before choosing a parent:
 
 \`\`\`bash
 find ~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints \
   -maxdepth 1 -name '*.pkl' -printf '%f\n' | sort
 \`\`\`
 
-A final 20M policy **is not necessarily the best foundation**. Choose a
-validated snapshot from the actual independent locomotion evidence where
-possible; this coordinator does not pretend the best checkpoint can be
-selected merely by its highest step count.
+The input may be any compatible, **validated 12–22M foundation checkpoint**,
+including a healthy earlier snapshot. The completed 20M final is not
+automatically best.
 
-## Foreground GPU launch, only after smoke tests/CI
+## First GPU acceptance: STOP at 40M
 
-With the original **4096-world** foundation:
+**Only after Python CI and real MJX examiner smoke pass.** Example uses the
+4096-world foundation in the previous campaign and preserves that environment
+count for its descendants:
 
 \`\`\`bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
@@ -123,64 +139,34 @@ emu campaign-refork --run \
   --root ~/robot_lab/emu_runs/v5020_refork
 \`\`\`
 
-\`--stop-after walk40\` is an intentional first acceptance point. Inspect
-the four probes, the four independent score reports, and the actual winner
-before scheduling 60M or 80M; passing source tests alone is **not**
-evidence of learned locomotion.
+The first generation runs **five probes**, then only the survivors'
+continuations and frozen exams. Expect the five-arm 40M round to require
+more total environment steps than the previous four-arm proposal. Inspect
+\`walk40/scoreboard.json\`, \`walk40/scoreboard.md\` and the winner before
+using the same pinned commit/root to increase \`--stop-after\` to \`walk60\`,
+\`walk80\`, then optional \`terrain100\`.
 
-After a satisfactory 40M generation, use the **same arguments and source
-commit**, changing only \`--stop-after walk60\` (then \`walk80\`). All
-completed phases, probe verdicts and sealed selections are reused.
+Changing from the original 4096 training worlds to 2048 is a separate
+experiment and requires a 2048-world foundation checkpoint and fresh root.
+At equal aggregate environmental steps, 4096 worlds produce about half
+as many 32-frame PPO updates, so don't equate a 20M policy step counter with
+proof of curriculum maturity.
 
-After the 80M winner passes its distinct terrain-entry gate, the same
-command may be resumed with \`--stop-after terrain100\`. This first physical
-stage contains a matched no-step control and an actual collidable 5mm step
-exam. It does **not** imply 20mm or taller obstacle competence.
+## Implementation and verification
 
-If using a 2048-world foundation instead, change \`--envs\` to 2048 **and
-start in a different fresh root**. Input schema and environment count are
-both checked.
+- \`emu/campaign_refork.py\`: five-arm lineage, probe/finish separation,
+  score eligibility and single-winner promotion
+- \`emu/evaluation.py\`: frozen same-geometry, six-height MJX examination
+- \`emu/terrain.py\` and \`emu/curriculum.py\`: existing per-world adaptive
+  births, earned height growth, retreat and training-evidence pooling
+- \`emu/environment.py\` and \`emu/rewards.py\`: reward-only,
+  physically verified first crossing
+- \`tests/test_v5020_refork.py\`: five-arm recipes, capability/score gates,
+  probe aborts, DAG promotion, no altered sensor contract
+- \`tests/test_v5020_coldstart.py\`: actual MJX obstacle/crossing/efficiency
+  compilation smoke
 
-## Artifacts and safety
-
-\`\`\`text
-v5020_refork/
-  refork_context.json              # pinned SHA, source, actor count, examiner settings
-  walk40/
-    general/
-      probe/{training_config.json,metrics.csv,checkpoints/final.pkl}
-      probe_health.json
-      finish/{training_config.json,metrics.csv,checkpoints/final.pkl}
-    turns/... recovery/... efficiency/...
-    scoreboard.json                 # immutable SHA-verified examination verdict
-    scoreboard.md
-    selection.json                  # winner SHA, parent SHA and scoreboard SHA
-  walk60/                            # four new children of walk40 winner
-  walk80/                            # four new children of walk60 winner
-  terrain100/                        # only after walk80 qualification
-\`\`\`
-
-There is **one foreground GPU job at a time**, guarded by \`flock\`. No
-training weights are stored in Git, and no checkpoint is overwritten by
-another experiment. Training/process failures retain the last validated
-checkpoint for exact resume. Source changes during an active campaign are
-refused by \`refork_context.json\`: complete, stop, or create a **new**
-campaign root before changing the code.
-
-The 2M probe is designed to catch the kind of immediate collapse in the
-failed 80M tournament; it cannot guarantee later training stability.
-Physics-divergence diagnostics and finite-but-absurd spring-energy metrics
-remain an active research issue. A competent gait in the browser is also
-not a replacement for the real MJX examination.
-
-## Regression checks
-
-\`\`\`bash
-python -m pytest -q tests/test_v5020_refork.py tests/test_v5020_campaign.py
-\`\`\`
-
-These tests cover configuration/observation consistency, four candidates
-per generation, single-winner checkpoint lineage, early rejection, no
-unearned terrain entry, and safe plan/status before GPU work. The full
-repository/CI test suite and a small **real MJX** acceptance are also needed
-before an overnight run.
+The code and documentation are under review on the v5020 feature branch.
+No changes to \`main\` or the showcase, and no locally trained weights
+are written to Git. A clean source checkout and successful Python/real-MJX
+acceptance remain required before the next large run.
