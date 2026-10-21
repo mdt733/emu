@@ -805,10 +805,14 @@ export class EmuBrowserSim {
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
     // Even if the trained actor is still schema-1/2, update the V memory
     // entirely independently as a measured diagnostic (never policy input).
-    if(this.terrainMemoryActive) this.terrainMemory.update(
-      this.sensorPose(),this.sensorNoise,
-      (start,dir,max)=>this.raycastGroundAndObstacles(start,dir,max),
-      {freeze:this.terrainMemoryFrozen});
+    if(this.terrainMemoryActive){
+      const pose=this.sensorPose();
+      this.terrainMemory.update(
+        pose,this.sensorNoise,
+        (start,dir,max)=>this.raycastGroundAndObstacles(
+          start,dir,max,pose.heightAt),
+        {freeze:this.terrainMemoryFrozen});
+    }
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -838,8 +842,9 @@ export class EmuBrowserSim {
     ];
   }
 
-  raycastGroundAndObstacles(start,direction,max=.6) {
-    const surface=groundRayHit(start,direction,(x,y)=>this.terrainHeightAt(x,y),max);
+  raycastGroundAndObstacles(start,direction,max=.6,groundAt=null) {
+    const surface=groundRayHit(
+      start,direction,groundAt||((x,y)=>this.terrainHeightAt(x,y)),max);
     let closest=surface?.range ?? Infinity;
     if(this.scanColliderMeshes.length){
       this.scanRaycaster.set(new THREE.Vector3(...start),new THREE.Vector3(...direction));
