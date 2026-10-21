@@ -350,6 +350,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                   eval_phase_speed_gain: float | None = None,
                   sensor_contact_exam: bool = False,
                   v5020_physical_exam: bool = False,
+                  v5020_locomotion_exam: bool = False,
+                  physical_step_height_mm: int = 20,
                   course_root: Path | None = None,
                   key_by_path: bool = False, write_screen_files: bool = True
                   ) -> dict[str, dict[str, Any]]:
@@ -411,15 +413,13 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             combo_mix=.20,terrain_radius=.20)
         panels['gentle_slope'] = ('gentle_slope',1555,
             _screen_episode(.70,.65,.35,.70,(.45,.40,.15),.80))
-    if v5020_physical_exam:
+    # Main-style locomotion exams are deliberately independent of obstacle
+    # geometry. The 312-input actor is evaluated on flat/core, recovery and
+    # genuine contact slopes BEFORE the campaign permits obstacle lessons.
+    if v5020_locomotion_exam or v5020_physical_exam:
         from .contracts import OBS_SCHEMA_PREVIEW
-        from .terrain import adaptive_height_course
         if config.observation_schema != OBS_SCHEMA_PREVIEW:
-            raise ValueError('v5020 physical exam requires rolling_tof_312')
-        if course_root is None:
-            raise ValueError('physical step exam needs an explicit immutable course_root')
-        exam_path=Path(course_root).expanduser().resolve() / 'heldout_real_step_course.xml'
-        course=adaptive_height_course(ROBOT_XML,exam_path,immutable=True)
+            raise ValueError('v5020 locomotion exam requires rolling_tof_312')
         worlds['core'] = _screen_world(config,envs=envs,seed_offset=1661,
             limits=(.45,-.12,.14,.90),push_n=.70,
             sensor_scale=1.5,combo_mix=.10)
@@ -432,12 +432,20 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 combo_mix=.35,terrain_radius=radius,terrain_mode='contact')
             panels[suffix] = (suffix,salt,
                 _screen_episode(.65,.65,.45,.60,(.35,.40,.25),.75))
+    if v5020_physical_exam:
+        from .terrain import adaptive_height_course
+        if not 1 <= physical_step_height_mm <= 150:
+            raise ValueError('physical_step_height_mm must be 1..150')
+        if course_root is None:
+            raise ValueError('physical step exam needs an explicit immutable course_root')
+        exam_path=Path(course_root).expanduser().resolve() / 'heldout_real_step_course.xml'
+        course=adaptive_height_course(ROBOT_XML,exam_path,immutable=True)
         worlds['real_step'] = _screen_world(config,envs=envs,seed_offset=1771,
             limits=(.40,-.10,.12,.80),push_n=.35,sensor_scale=1.5,
             combo_mix=.05,terrain_radius=.22,terrain_mode='contact',
             course_path=course)
         course_episode=_screen_episode(.25,.25,.15,.25,(.65,.25,.10),.75)
-        course_episode.update(frontier_terrain_height_m=.020,
+        course_episode.update(frontier_terrain_height_m=physical_step_height_mm/1000.,
                               probe_cmd_vx=.20,probe_cmd_vy=0.,probe_cmd_yaw=0.)
         panels['real_step'] = ('real_step',1771,course_episode)
     if sensor_contact_exam:
@@ -477,6 +485,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             'eval_phase_speed_gain':config.phase_speed_gain,
             'sensor_contact_exam':bool(sensor_contact_exam),
             'v5020_physical_exam':bool(v5020_physical_exam),
+            'v5020_locomotion_exam':bool(v5020_locomotion_exam),
+            'physical_step_height_mm':physical_step_height_mm if v5020_physical_exam else None,
             'checkpoint_sha256':sha256_file(ck)}
         for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
@@ -492,10 +502,10 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 norm['mean'],obs_std,
                 jax.random.fold_in(key0,1771),int(horizon))
             attempts,contact,cross=np.asarray(jax.device_get(evidence),dtype=np.float64)
-            out['course_20mm_attempt_count']=float(attempts)
-            out['course_20mm_contact_rate']=float(contact)
-            out['course_20mm_crossing_rate']=float(cross)
-        if sensor_contact_exam or v5020_physical_exam:
+            out[f'course_{physical_step_height_mm}mm_attempt_count']=float(attempts)
+            out[f'course_{physical_step_height_mm}mm_contact_rate']=float(contact)
+            out[f'course_{physical_step_height_mm}mm_crossing_rate']=float(cross)
+        if sensor_contact_exam or v5020_physical_exam or v5020_locomotion_exam:
             # Common independent conditions for each arm, regardless of what
             # terrain/motor distribution it saw while learning.
             for world_name, salt, episode in (
