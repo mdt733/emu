@@ -199,7 +199,7 @@ def _score_arm(data: dict, name: str) -> dict:
     if core<.25: reasons.append("core survival <25%")
     if hard<.04: reasons.append("resilience survival <4%")
     if slope<.04: reasons.append("true-contact slope survival <4%")
-    if done<1: reasons.append("no completed real step-course episodes; cannot rank obstacle performance")
+    if attempts<1: reasons.append("no eligible real step-course births; cannot rank obstacle performance")
     if height>.065: reasons.append("mean chassis height shortfall >65mm")
     return {"arm":name,"eligible":not reasons,"reasons":reasons,
             "score":round(rank,6),"core":round(core,5),
