@@ -195,6 +195,7 @@ class RollingSensorState(NamedTuple):
     terrain_heights: Any
     terrain_confidences: Any
     apex_x_m: Any            # measured rear-ToF ground footprint shifts with pitch
+    apex_y_m: Any            # and roll/lateral geometry moves its V junction
     last_inserted_scan: Any
 
 
@@ -2120,16 +2121,18 @@ class EmuMJXEnv(TaskSampler):
             grav=self._preview_imu_gravity(data,task,phase)
             mx,my,mh,ok,rx,ry,rok=self._preview_measurements(sample,grav)
             apex=jnp.where(rok,rx,jnp.full_like(rx,-.04))
+            apex_y=jnp.where(rok,ry,jnp.zeros_like(ry))
             z,conf=insert_measurement(
-                jnp,z,conf,mx,mh,ok,sample_y_m=my,apex_x_m=apex)
+                jnp,z,conf,mx,mh,ok,sample_y_m=my,
+                apex_x_m=apex,apex_y_m=apex_y)
             rear_x=jnp.stack((rx,rx),axis=1)
             rear_y=jnp.stack((ry,ry),axis=1)
             rear_valid=jnp.stack((rok,rok),axis=1)
             z,conf=insert_measurement(
                 jnp,z,conf,rear_x,jnp.zeros_like(rear_x),rear_valid,
-                sample_y_m=rear_y,apex_x_m=apex)
+                sample_y_m=rear_y,apex_x_m=apex,apex_y_m=apex_y)
             return RollingSensorState(
-                samples,bias,sample.gyro_body_rad_s,z,conf,apex,
+                samples,bias,sample.gyro_body_rad_s,z,conf,apex,apex_y,
                 jnp.zeros((self.num_envs,),dtype=jnp.int32))
         return SensorState(samples, bias, sample.gyro_body_rad_s)
 
@@ -2186,7 +2189,7 @@ class EmuMJXEnv(TaskSampler):
             temp=RollingSensorState(
                 queued,state.gyro_bias_rad_s,raw.gyro_body_rad_s,
                 state.terrain_heights,state.terrain_confidences,
-                state.apex_x_m,state.last_inserted_scan)
+                state.apex_x_m,state.apex_y_m,state.last_inserted_scan)
             measured=self._sensor_readout(temp,gravity)
             vx=measured['velocity_body_xy_mps'][:,0]
             vy=measured['velocity_body_xy_mps'][:,1]
@@ -2230,23 +2233,25 @@ class EmuMJXEnv(TaskSampler):
             # The V's rear junction is an ACTUAL rear ToF ground-hit
             # footprint, not a magic fixed -5cm world coordinate.
             apex=jnp.where(rok & fresh,rx,state.apex_x_m)
+            apex_y=jnp.where(rok & fresh,ry,state.apex_y_m)
             heights,conf=advance_map(
                 jnp,state.terrain_heights,state.terrain_confidences,
                 vx,vy,yaw,motion_conf,
-                old_apex_x_m=state.apex_x_m,new_apex_x_m=apex)
+                old_apex_x_m=state.apex_x_m,new_apex_x_m=apex,
+                old_apex_y_m=state.apex_y_m,new_apex_y_m=apex_y)
             heights,conf=insert_measurement(
                 jnp,heights,conf,mx,mh,ok & fresh[:,None],
-                sample_y_m=my,apex_x_m=apex)
+                sample_y_m=my,apex_x_m=apex,apex_y_m=apex_y)
             # Rear ToF closes both arms of the V; a shared physical anchor.
             rear_x=jnp.stack((rx,rx),axis=1)
             rear_y=jnp.stack((ry,ry),axis=1)
             rear_ok=jnp.stack((rok&fresh,rok&fresh),axis=1)
             heights,conf=insert_measurement(
                 jnp,heights,conf,rear_x,jnp.zeros_like(rear_x),rear_ok,
-                sample_y_m=rear_y,apex_x_m=apex)
+                sample_y_m=rear_y,apex_x_m=apex,apex_y_m=apex_y)
             return RollingSensorState(
                 queued,state.gyro_bias_rad_s,raw.gyro_body_rad_s,
-                heights,conf,apex,
+                heights,conf,apex,apex_y,
                 jnp.where(fresh,seq,state.last_inserted_scan))
         return SensorState(queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s)
 
