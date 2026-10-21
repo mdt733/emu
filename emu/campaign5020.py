@@ -332,7 +332,7 @@ def _report(root: Path):
     try:
         for x in write_report(root):
             print(f"[v5020 lab] report: {x}",flush=True)
-    except (OSError,ValueError,TypeError,KeyError) as exc:
+    except (OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
         # A reporting failure is visible, but doesn't poison proven training.
         print(f"[v5020 lab] WARNING: offline report generation failed: {exc}",flush=True)
 
