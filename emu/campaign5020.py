@@ -206,7 +206,7 @@ def _score_arm(data: dict, name: str) -> dict:
             "hard_survival":round(hard,5),"growth_survival":round(growth,5),
             "gentle_slope_survival":round(slope,5),"real_slope_survival":round(slope,5),
             "course_20mm_crossing":round(step,5),"course_20mm_contact":round(touched,5),
-            "course_20mm_done":int(done),
+            "course_20mm_attempts":int(attempts),
             "motion_mae":round(motion,5),"height_shortfall_m":round(height,5),
             "step_evidence":round(gait,5)}
 
