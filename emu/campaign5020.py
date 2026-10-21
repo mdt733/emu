@@ -182,7 +182,7 @@ def _score_arm(data: dict, name: str) -> dict:
         slope=(val("screen_contact_slope_survival")+val("screen_contact_harder_survival"))/2
         step=val("course_20mm_crossing_rate")
         touched=val("course_20mm_contact_rate")
-        done=val("course_20mm_done_count")
+        attempts=val("course_20mm_attempt_count")
         motion=sum(val(f"screen_{p}_{axis}_mae") for p in ("robust70","growth140","contact_slope")
                    for axis in ("vx","vy","yaw"))/9
         height=sum(val(f"screen_{p}_height_shortfall_m")
