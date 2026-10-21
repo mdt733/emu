@@ -10,7 +10,8 @@ from emu.forward_tof import (
 from emu.rolling_tof import (
     GRID_CELLS, GRID_START_M, GRID_LOOKAHEAD_M, OUTPUT_SAMPLE_INDICES,
     SENSOR_MAP_REVISION, empty_map, advance_map, insert_measurement,
-    readout, v_track_y, measured_height_and_x)
+    readout, v_track_y, measured_height_and_x,
+    rebase_to_rear_measurement)
 from emu.contracts import (
     OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, OBS_DIM, SENSOR_OBS_DIM,
     PREVIEW_OBS_DIM, SENSOR_OBS_FIELDS, PREVIEW_OBS_FIELDS,
@@ -126,6 +127,25 @@ def test_rear_tof_seeds_both_arms_at_true_junction():
     assert confidence[0,0]>.1 and confidence[0,5]>.1  # -5cm sample near -4cm
     assert not confidence[0,4] and not confidence[0,9]   # +15cm stays unknown
     assert np.all(values==0.)  # this is a measured local zero, not a flat map
+
+
+def test_rear_tof_corrects_relative_datum_only_with_prior_support():
+    h,c=empty_map(np,1)
+    rear=np.asarray([[-.04,-.04]])
+    both=np.asarray([[True,True]])
+    h,c=insert_measurement(
+        np,h,c,rear,np.asarray([[.04,.04]]),both,
+        sample_y_m=np.zeros((1,2)),
+        apex_x_m=np.asarray([-.04]),apex_y_m=np.asarray([0.]))
+    adjusted,unchanged_c=rebase_to_rear_measurement(
+        np,h,c,np.asarray([-.04]),np.asarray([True]))
+    index=int(round((-.04-GRID_START_M)/.01))
+    assert h[0,0,index]>.03
+    assert abs(adjusted[0,0,index])<.01
+    assert np.array_equal(c,unchanged_c)
+    refused,_=rebase_to_rear_measurement(
+        np,h,c,np.asarray([-.04]),np.asarray([False]))
+    assert np.array_equal(refused,h)
 
 
 def test_new_scan_advects_toward_15cm_without_fabricated_flat():
