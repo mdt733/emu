@@ -158,7 +158,9 @@ def test_three_world_312_real_step_frozen_exams_compile(tmp_path):
         env,seed=733,lr=3e-4,rollout=2,epochs=1,minibatches=1)
     ep=_episode_config()
     params=env.params_array(ep)
-    state=trainer['make_initial_state'](params)
+    # make_initial_state consumes a task-parameter mapping, not the packed
+    # JAX array passed directly to frozen examiner methods below.
+    state=trainer['make_initial_state'](ep)
     norm_mean=jnp.zeros((312,),dtype=jnp.float32)
     norm_std=jnp.ones((312,),dtype=jnp.float32)
     key=jax.random.PRNGKey(1991)
