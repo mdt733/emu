@@ -65,7 +65,7 @@ export class RollingTerrainDiagnostic {
     this.frame=0;this.heights=[newTrack(),newTrack()];
     this.confidence=[newTrack(),newTrack()];
     this.apexX=V_APEX;this.apexY=0;this.beams=[];
-    this.lastScan=null;this.pending=null;
+    this.lastScan=null;this.pending=null;this.groundAge=999;
     this.motion={vx:0,vy:0,yaw:0,confidence:0};
     this.activeSamples=0;this.freeze=false;
     this.lastGroundValid=false;
@@ -129,13 +129,14 @@ export class RollingTerrainDiagnostic {
     });
     return {readings,gravity:w2b(pose.R,[0,0,-1])};
   }
-  project(snapshot) {
+  project(snapshot,currentGravity=null) {
     const a=snapshot.readings;
     const tripod=a.slice(2),valid=tripod.every(p=>p.valid);
     const ranges=tripod.map(p=>p.range);
-    const ground=inferTripod(ranges,snapshot.gravity);
+    const gravity=currentGravity||snapshot.gravity;
+    const ground=inferTripod(ranges,gravity);
     if(!valid||!ground.valid)return null;
-    const up=unit(times(snapshot.gravity,-1));
+    const up=unit(times(gravity,-1));
     const f=unit(sub([1,0,0],times(up,dot(up,[1,0,0]))));
     const side=cross(up,f);
     const rear=add(MOUNTS[2],times(DOWN,ranges[2]));
@@ -168,15 +169,31 @@ export class RollingTerrainDiagnostic {
     }
     // One 20ms control-frame latency: acquire on even frame, consume next.
     const ready=this.frame%2===1&&this.pending?this.pending:null;
-    const projected=ready?this.project(ready):null;
-    const motion=this.motionEstimate(pose,projected?.ground??this.lastScan?.ground,noisy);
+    const currentGravity=w2b(pose.R,[0,0,-1]);
+    const projected=ready?this.project(ready,currentGravity):null;
+    if(ready){
+      if(projected){this.lastScan=projected;this.groundAge=0;}
+      else {this.lastScan=null;this.groundAge=999;}
+    }else this.groundAge++;
+    const motion=this.motionEstimate(
+      pose,this.groundAge<=2?this.lastScan?.ground:null,noisy);
     this.motion=motion;
     this.lastGroundValid=Boolean(projected);
     if(freeze)return;
+    // The delivered range was captured one control frame earlier.
+    // Motion-compensate its MEASURED landing point to the current body frame;
+    // otherwise the V would lag a centimetre at brisk speeds.
+    const compensate=point=>{
+      if(!point)return null;
+      const t=motion.yaw*.02,c=Math.cos(t),si=Math.sin(t);
+      const px=point.x-motion.vx*.02,py=point.y-motion.vy*.02;
+      return {...point,x:c*px+si*py,y:-si*px+c*py};
+    };
+    const rear=projected?compensate(projected.rear):null;
+    const points=projected?projected.points.map(compensate):null;
     this.transport(.02,motion.vx,motion.vy,motion.yaw,motion.confidence,
-                   projected?.rear.x??this.apexX,projected?.rear.y??this.apexY);
+                   rear?.x??this.apexX,rear?.y??this.apexY);
     if(projected){
-      const {rear,points}=projected;
       // Rear ray defines zero reference shared across BOTH V branches.
       // When both lanes remember the rear patch, re-zero only on evidence.
       const left=interpolate(this.heights[0],this.confidence[0],rear.x);
@@ -191,7 +208,6 @@ export class RollingTerrainDiagnostic {
         if(pt)this.insert(lane,pt.x,pt.y,pt.height,true);
         this.insert(lane,rear.x,rear.y,0,true);
       }
-      this.lastScan=projected;
     }
     this.activeSamples=this.confidence.flatMap(x=>[...x]).filter(c=>c>.1).length;
   }
