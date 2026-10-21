@@ -22,10 +22,11 @@ from .checkpoint_io import (checkpoint_step, git_provenance,
                             resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import OBS_SCHEMA_PREVIEW, source_repo_root
+from .scoring import graded_step_score
 from .training_config import (TrainingConfig, foundation_config,
                               training_sensor_contract, verify_existing_phase_config)
 
-VERSION = "v5020-winner-refork-2"
+VERSION = "v5020-winner-refork-3"
 STAGES = ("walk40", "walk60", "walk80", "terrain100")
 TARGET = {"walk40": 40_000_000, "walk60": 60_000_000,
           "walk80": 80_000_000, "terrain100": 100_000_000}
@@ -272,12 +273,12 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
                  val("power_contact_slope_shaft_abs_power_w")) / 2
         overload = (val("power_robust_over_rated_frac") +
                     val("power_contact_slope_over_rated_frac")) / 2
-        crossings = [val(f"course_{mm}mm_crossing_rate") for mm in EXAM_HEIGHTS_MM]
-        attempts = [val(f"course_{mm}mm_attempt_count") for mm in EXAM_HEIGHTS_MM]
-        contact = [val(f"course_{mm}mm_contact_rate") for mm in EXAM_HEIGHTS_MM]
-        if any(n < 1 for n in attempts):
-            raise ValueError("no eligible physical obstacle births at a graded height")
-        step_score = sum(w * x for w, x in zip(EXAM_WEIGHTS, crossings))
+        # Shared measurement doctrine rejects upper-frontier mixes,
+        # insufficient physical attempts and impossible passage>contact.
+        step_score,step_trials=graded_step_score(
+            evidence, EXAM_HEIGHTS_MM, EXAM_WEIGHTS)
+        crossings=[t.crossing_rate for t in step_trials]
+        contact=[t.contact_rate for t in step_trials]
     except (KeyError, ValueError, TypeError) as exc:
         return {"arm": name, "eligible": False, "score": None,
                 "reasons": [f"invalid held-out evidence: {exc}"]}
@@ -311,6 +312,7 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
             "shaft_abs_power_w": round(power, 5),
             "overrated_frac": round(overload, 5),
             "graded_step_score": round(step_score, 5),
+            "step_attempts": {str(t.height_mm): t.attempts for t in step_trials},
             "step_crossings": {str(mm): round(x, 5)
                                for mm, x in zip(EXAM_HEIGHTS_MM, crossings)},
             "step_contacts": {str(mm): round(x, 5)
