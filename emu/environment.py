@@ -2067,6 +2067,24 @@ class EmuMJXEnv(TaskSampler):
                 forward_valid,
                 jnp.round(forward_ranges / FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
                 0.)
+            # Real obstacle first hits ALSO affect the rear and front
+            # downward tripod. Otherwise the V junction would see THROUGH
+            # a raised step (the historical 232 tripod intentionally retains
+            # its original flat-plane forward model).
+            tripod_ranges, tripod_valid = first_hit_ranges(
+                jnp, torso, R, floor_origin, floor_normal,
+                mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                beams_body=TOF_TRIPOD_BEAMS_BODY,
+                errors_m=scale[:,None]*.0015*
+                         jax.vmap(lambda k: jax.random.normal(
+                             jax.random.fold_in(k, 5016), (8,)))(keys)[:,:3],
+                **ray_kwargs)
+            measured_tripod = jnp.where(
+                tripod_valid,
+                jnp.round(tripod_ranges/FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
+                0.)
+            probe = dict(probe, tof_ranges_m=measured_tripod,
+                         tof_beam_valid=tripod_valid)
         else:
             forward_ranges = jnp.zeros((self.num_envs,2),dtype=jnp.float32)
             forward_valid = jnp.zeros((self.num_envs,2),dtype=bool)
