@@ -1,25 +1,13 @@
-"""The teaching reward, not a walking examination or energy budget.
+"""Per-step teaching payments for the active EMU actor.
 
-Reading order:
-  1. `training_reward` — the whole teaching decision in a few stages
-  2. `weighted_training_terms` — all eight amounts PPO is actually paid
-  3. Three score ingredients: command tracking, physical quality, gait activity
-  4. `apply_early_fall_penalty` — additional cost when an episode falls early
+Eight core weighted terms, the fall penalty and optional motor/terrain
+guidance modify PPO learning, not certified locomotion. Teacher-only
+MuJoCo facts may inform payments but never enter actor observations.
+An independent frozen-policy exam determines physical capability.
 
-The environment supplies **physical measurements**, including privileged
-simulator facts. These are used to TEACH and must not leak into the deployable
-actor's 220 observation inputs. Held-out exams independently judge actual
-course progress and walking, not the numerical teaching score.
-
-IMPORTANT: servo torque, shaft power and spring energy are *not* measured
-electrical consumption. The historical eight rewards are unchanged by default.
-A ninth, separately logged motor-cost payment is an OPT-IN v5016 hypothesis,
-enabled by motor_guidance_weight > 0. It uses bounded nominal-duty and
-simulated shaft-effort proxies only; it never assumes that mere spring cycling
-is beneficial. Change and evaluate this knob only in a matched experiment.
-
-Keep the existing reward arithmetic and left-to-right weighted addition
-unchanged so older training comparisons remain interpretable.
+Shaft power and spring energy are simulator proxies, not measured
+electrical draw or recovered power. Keep default payment arithmetic
+stable so before/after experiments remain comparable.
 """
 
 from .contracts import CONTROL_DT
@@ -40,7 +28,7 @@ REWARD_ONLY_METRICS = frozenset({
     'ramp_frac',
 })
 
-# Current v5015 reward doctrine; NO coefficient changes in Pass C.
+# Stable baseline reward constants: preserve values across matched studies.
 EARLY_FALL_BASE_PENALTY = 65.0
 EARLY_FALL_TIME_PENALTY = 0.10
 STEPPING_ACTIVITY_TARGET = 0.15
