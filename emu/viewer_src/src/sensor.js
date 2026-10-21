@@ -62,7 +62,8 @@ function gaussian(){
 
 export class SensorObserver {
   constructor(contract){
-    if(contract?.schema!=='sim2real_232')throw new Error('Sensor contract missing');
+    if(!['sim2real_232','rolling_tof_312'].includes(contract?.schema))
+      throw new Error('Supported sensor contract missing');
     this.settings=contract.settings;
     this.ring=[];
     this.frame=0;
