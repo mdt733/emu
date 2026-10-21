@@ -170,7 +170,7 @@ def doctor(args) -> int:
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(
         prog='emu', description=f'EMU {VERSION} — dynamically unstable biped RL',
-        epilog='One continuous run: emu train --help. Matched studies: emu ladder --stage plan.')
+        epilog='Single run: emu train --help. Current five-way study: emu campaign-refork (read-only plan).')
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
@@ -179,7 +179,7 @@ def main(argv=None) -> int:
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)'); q.add_argument('--v5016-smoke',action='store_true',help='compile the opt-in 232-input sensor MJX and one PPO update (no checkpoint/training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
     for ladder_command in ('ladder', 'lab5015'):
-        q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
+        q=sub.add_parser(ladder_command,help=('historical v5015 study (use campaign-refork for current v5020)'
                                              if ladder_command=='ladder'
                                              else argparse.SUPPRESS))
         q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
