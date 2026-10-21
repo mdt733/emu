@@ -352,6 +352,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                   v5020_physical_exam: bool = False,
                   v5020_locomotion_exam: bool = False,
                   physical_step_height_mm: int = 20,
+                  physical_step_heights_mm: tuple[int, ...] | None = None,
                   course_root: Path | None = None,
                   key_by_path: bool = False, write_screen_files: bool = True
                   ) -> dict[str, dict[str, Any]]:
@@ -434,8 +435,13 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 _screen_episode(.65,.65,.45,.60,(.35,.40,.25),.75))
     if v5020_physical_exam:
         from .terrain import adaptive_height_course
-        if not 1 <= physical_step_height_mm <= 150:
-            raise ValueError('physical_step_height_mm must be 1..150')
+        # All obstacle heights share one immutable, JIT-stable 150mm box;
+        # only the birth-time mocap position/teacher frontier changes.
+        heights = ((physical_step_height_mm,) if physical_step_heights_mm is None
+                   else tuple(physical_step_heights_mm))
+        if not heights or len(heights) != len(set(heights)) or any(
+                type(mm) is not int or not 1 <= mm <= 150 for mm in heights):
+            raise ValueError('physical-step exams require distinct integer heights from 1..150mm')
         if course_root is None:
             raise ValueError('physical step exam needs an explicit immutable course_root')
         exam_path=Path(course_root).expanduser().resolve() / 'heldout_real_step_course.xml'
@@ -445,7 +451,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             combo_mix=.05,terrain_radius=.22,terrain_mode='contact',
             course_path=course)
         course_episode=_screen_episode(.25,.25,.15,.25,(.65,.25,.10),.75)
-        course_episode.update(frontier_terrain_height_m=physical_step_height_mm/1000.,
+        course_episode.update(frontier_terrain_height_m=heights[0]/1000.,
                               probe_cmd_vx=.20,probe_cmd_vy=0.,probe_cmd_yaw=0.)
         panels['real_step'] = ('real_step',1771,course_episode)
     if sensor_contact_exam:
@@ -486,7 +492,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             'sensor_contact_exam':bool(sensor_contact_exam),
             'v5020_physical_exam':bool(v5020_physical_exam),
             'v5020_locomotion_exam':bool(v5020_locomotion_exam),
-            'physical_step_height_mm':physical_step_height_mm if v5020_physical_exam else None,
+            'physical_step_height_mm':physical_step_height_mm if v5020_physical_exam and physical_step_heights_mm is None else None,
+            'physical_step_heights_mm':list(heights) if v5020_physical_exam else [],
             'checkpoint_sha256':sha256_file(ck)}
         for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
@@ -497,14 +504,21 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             out.update({f'screen_{name}_{k}':float(v) for k,v in zip(SCREEN_FIELDS,vals)})
         if v5020_physical_exam:
             env,trainer=worlds['real_step']
-            evidence=trainer['evaluate_terrain_summary'](
-                params,env.params_array(panels['real_step'][2]),
-                norm['mean'],obs_std,
-                jax.random.fold_in(key0,1771),int(horizon))
-            attempts,contact,cross=np.asarray(jax.device_get(evidence),dtype=np.float64)
-            out[f'course_{physical_step_height_mm}mm_attempt_count']=float(attempts)
-            out[f'course_{physical_step_height_mm}mm_contact_rate']=float(contact)
-            out[f'course_{physical_step_height_mm}mm_crossing_rate']=float(cross)
+            for mm in heights:
+                # Matched RNG stream at each height for every contender;
+                # scaled random terrain births are still judged at their
+                # actual simulated collision height, never teacher rewards.
+                episode=dict(panels['real_step'][2],
+                             frontier_terrain_height_m=mm/1000.)
+                evidence=trainer['evaluate_terrain_summary'](
+                    params,env.params_array(episode),
+                    norm['mean'],obs_std,
+                    jax.random.fold_in(key0,1771),int(horizon))
+                attempts,contact,cross=np.asarray(
+                    jax.device_get(evidence),dtype=np.float64)
+                out[f'course_{mm}mm_attempt_count']=float(attempts)
+                out[f'course_{mm}mm_contact_rate']=float(contact)
+                out[f'course_{mm}mm_crossing_rate']=float(cross)
         if sensor_contact_exam or v5020_physical_exam or v5020_locomotion_exam:
             # Common independent conditions for each arm, regardless of what
             # terrain/motor distribution it saw while learning.
