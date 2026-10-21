@@ -121,7 +121,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
     if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
         raise ValueError("unknown sensor observation schema")
     if preview_masked and schema != OBS_SCHEMA_PREVIEW:
-        raise ValueError("forward masking requires 280-input profile schema")
+        raise ValueError("V-memory masking requires 312-input rolling ToF schema")
     body = {
         "schema": schema,
         "sensor_model_revision": SENSOR_MODEL_REVISION,
