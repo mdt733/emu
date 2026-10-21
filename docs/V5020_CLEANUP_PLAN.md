@@ -33,16 +33,24 @@ Exit: know exactly what can and cannot be removed.
 
 ## Pass 1 — explicit shared physical measurements
 
-- [ ] Audit `environment.py`, `results.py`, `rewards.py`, `terrain.py`
+- [x] Begin audit of `environment.py`, `results.py`, `rewards.py`, `terrain.py`
       and `evaluation.py` for duplicate definitions of support, contact,
       crossing, falls, tracking and motor effort.
-- [ ] Consolidate one canonical definition per physically measurable event,
+- [ ] Complete one canonical definition per physically measurable event,
       with precise episode counts, physical units, and missing-data semantics.
+- [x] Add adversarial completed-trial and exact-height tests; additional
+      foot-support adversaries remain pending.
 - [ ] Add adversarial tests for real box contact without crossing,
       crossing without foot support, one-time completion, and empty cohorts.
 - [ ] Confirm 220/232/312 actor contracts and baseline reward arithmetic
       remain unchanged.
 - [ ] Never share training samples with the frozen held-out examiner.
+
+Implemented first: `emu/scoring.py` owns completed training edge-trial
+accounting and frozen exact-height grading, with 8 minimum eligible births
+per tested height; the examiner creates true fixed 5/10/20/40/80/150mm
+obstacles rather than mixing shorter sampled heights. **The other physical
+facts and full GPU validation are still pending.**
 
 Exit: physical facts are identical across consumers, without reweighting PPO.
 
