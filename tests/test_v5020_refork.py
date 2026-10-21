@@ -14,7 +14,7 @@ from emu.training_config import training_sensor_contract
 
 
 def _evidence(core=.9, hard=.4, slope=.7, crossing=.2):
-    d = {}
+    d = {"physical_step_exact_height": True}
     for panel, survival in (
         ("core", core), ("resilience100", hard), ("robust70", hard),
         ("growth140", .4), ("growthcombo140", .4),
@@ -148,6 +148,15 @@ def test_heldout_score_rewards_real_steps_without_bypassing_survival_gates():
     missing=_evidence()
     del missing["course_80mm_crossing_rate"]
     assert not c._score(missing,stage="walk40",name="incomplete")["eligible"]
+    too_few=_evidence()
+    too_few["course_20mm_attempt_count"]=1.
+    assert not c._score(too_few,stage="walk40",name="no_trials")["eligible"]
+    impossible=_evidence()
+    impossible["course_20mm_contact_rate"]=0.
+    assert not c._score(impossible,stage="walk40",name="impossible")["eligible"]
+    mixed=_evidence()
+    mixed["physical_step_exact_height"]=False
+    assert not c._score(mixed,stage="walk40",name="mixed_heights")["eligible"]
     assert not c._terrain_entry_ok({"winner":"a","rows":[{"arm":"a",
         "eligible":True,"core":.81,"hard":.01,"slope":.2,"gait":.4}]})
 
