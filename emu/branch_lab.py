@@ -581,7 +581,7 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('--contact-terrain-radius must be in [0, 1]')
     if terrain_radius > 0 and args.profile != 'sim2real' and not (
             args.profile == 'foundation' and preview_actor):
-        raise ValueError('real contact slopes require sim2real or the 312-input foundation')
+        raise ValueError('--contact-terrain-radius requires --profile sim2real, or --profile foundation with --forward-preview (312-input)')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     box_raw=getattr(args,'terrain_box_height_mm',None)
