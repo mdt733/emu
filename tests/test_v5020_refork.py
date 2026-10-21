@@ -191,6 +191,30 @@ def test_probe_invalid_episodes_and_nonfinite_data_are_not_good_news(tmp_path):
     with pytest.raises(ValueError,match="nonfinite spring"):
         c.probe_health(tmp_path)
 
+
+def test_sparse_training_log_cannot_hide_a_single_world_physics_peak(tmp_path):
+    tmp_path.mkdir(exist_ok=True)
+    columns=("fall_rate","ep_len_mean","spring_potential_energy_j",
+             "servo_shaft_abs_power_w","spring_potential_energy_peak_j",
+             "servo_shaft_abs_power_peak_w","episodes")
+    healthy=[.20,450.,.8,4.,1.2,8.,64.]
+    rows=[healthy.copy() for _ in range(16)]
+    # Single world's extreme physical state is nearly invisible in the
+    # mean, but appears in the per-world peak accumulated by training.py.
+    rows[3][4]=2000000.
+    rows[6][5]=100000.
+    with (tmp_path/"metrics.csv").open("w",newline="") as stream:
+        w=csv.writer(stream)
+        w.writerow(columns)
+        w.writerows(rows)
+    result=c.probe_health(tmp_path)
+    assert not result["eligible"]
+    assert result["max_logged_spring_j"] == 2000000.
+    assert result["max_logged_shaft_abs_power_w"] == 100000.
+    assert any("spring" in reason for reason in result["reasons"])
+    assert any("shaft" in reason for reason in result["reasons"])
+
+
 def test_heldout_score_rewards_real_steps_without_bypassing_survival_gates():
     assert c._score(_evidence(core=.03,hard=.0,slope=0.),
                     stage="walk40",name="dead")["eligible"] is False
