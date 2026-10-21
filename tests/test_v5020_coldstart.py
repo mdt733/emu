@@ -137,3 +137,38 @@ def test_batched_box_crossing_geometry_is_jittable_with_64_worlds():
                        jnp.asarray(centres),jnp.asarray(rot),jnp.asarray(half))
         assert not bool(np.asarray(flags[2])[-1])
         assert np.asarray(flags[2])[:-1].all()
+
+
+def test_three_world_312_real_step_frozen_exams_compile(tmp_path):
+    """The tournament must JIT its REAL physical and motor screens before 80M."""
+    pytest.importorskip('jax')
+    import jax
+    import jax.numpy as jnp
+    from emu.ppo import make_trainer
+    terrain=DomainRandomizationConfig(
+        enabled=True,terrain_radius=.22,terrain_mode='contact')
+    env=EmuMJXEnv(
+        str(_course(tmp_path)),num_envs=3,seed=1771,
+        observation_schema=OBS_SCHEMA_PREVIEW,
+        terrain_contact_mode='box_surface',terrain_adaptive=True,
+        terrain_random_placement=True,
+        terrain_height_exposure=.95,terrain_height_edge_fraction=.80,
+        domain_config=terrain)
+    trainer=make_trainer(
+        env,seed=733,lr=3e-4,rollout=2,epochs=1,minibatches=1)
+    ep=_episode_config()
+    params=env.params_array(ep)
+    state=trainer['make_initial_state'](params)
+    norm_mean=jnp.zeros((312,),dtype=jnp.float32)
+    norm_std=jnp.ones((312,),dtype=jnp.float32)
+    key=jax.random.PRNGKey(1991)
+    course=trainer['evaluate_terrain_summary'](
+        state.params,params,norm_mean,norm_std,key,4)
+    power=trainer['evaluate_efficiency'](
+        state.params,params,norm_mean,norm_std,key,4)
+    assert course.shape==(3,)
+    assert power.shape==(5,)
+    assert np.isfinite(np.asarray(course)).all()
+    assert np.isfinite(np.asarray(power)).all()
+    assert 0<=float(course[0])<=3
+    assert 0<=float(course[1])<=1 and 0<=float(course[2])<=1
