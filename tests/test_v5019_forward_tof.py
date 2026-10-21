@@ -93,7 +93,9 @@ def test_gravity_projected_hit_distance_changes_with_pitch_and_chassis_height():
         assert good.any() and rear_ok.any()
         assert np.isfinite(x).all() and np.isfinite(rx).all()
         values.append(float(x[0,0]))
-    assert values[0] < values[1] < values[2], values
+    # The test uses the mathematical R_y convention: positive pitch
+    # points the boresight DOWN and moves its floor hit closer.
+    assert values[0] > values[1] > values[2], values
     (r,v),p,rot,fo,fn=_physical_ranges([0.],torso_z=.30)
     x,_,_,_,rx,_,_=_ground_hits(r,v,p,rot,fo,fn)
     assert float(x[0,0])>values[1]
