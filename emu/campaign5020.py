@@ -268,8 +268,30 @@ def _screen(root: Path, stage: str, names: list[str], *,
            "screen_envs":screen_envs,"screen_horizon":horizon,
            "score_version":VERSION,"results":rows}
     _save(root/f"{stage}_scoreboard.json",board)
-    from .results import write_scorecard
-    write_scorecard(root,board)
+    # The historical renderer says "v5015" and knows nothing about
+    # physical crossings. Give v5020 a truthful human-readable scoreboard.
+    lines=[f"# EMU v5020 {stage} — independent policy tournament", "",
+           f"Frozen policies at {ROUNDS[stage]:,} absolute steps. All arms "
+           f"examined with {screen_envs} worlds and {horizon} frames per test.",
+           "",
+           "Real 20mm step crossings require collidable foot contact, "
+           "real course completion and supported progress; rewards do not count.",
+           "The 20mm exam is a held-out probe, not a claim of maximum height.",
+           "",
+           "| Arm | Eligible | Score | Core | Recovery | True slopes | 20mm contact | 20mm crossing | Reasons |",
+           "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+    for row in rows:
+        lines.append(
+            f"| {row['arm']} | {row['eligible']} | {row['score']} | "
+            f"{row.get('core','—')} | {row.get('hard_survival','—')} | "
+            f"{row.get('real_slope_survival','—')} | "
+            f"{row.get('course_20mm_contact','—')} | "
+            f"{row.get('course_20mm_crossing','—')} | "
+            f"{', '.join(row['reasons'])} |")
+    scorecard=root/f"{stage}_scorecard.md"
+    temp=scorecard.with_name(scorecard.name+'.tmp')
+    temp.write_text("\n".join(lines)+"\n",encoding="utf-8")
+    temp.replace(scorecard)
     for row in rows:
         print(f"[v5020 lab] {stage} {row['arm']:15} eligible={row['eligible']} score={row['score']} reasons={row['reasons']}",flush=True)
     return board
