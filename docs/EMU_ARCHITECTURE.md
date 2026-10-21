@@ -142,7 +142,7 @@ realistic supported crossing must not count.
 `curriculum.py` → `evaluation.py` → `campaign_refork.py`.
 
 For historical versions, old experiment decisions and lessons, read
-[`EXPERIMENT_HISTORY.md`](EXPERIMENT_HISTORY.md), **not stale version-by-version
+[`RESEARCH_HISTORY.md`](RESEARCH_HISTORY.md), **not stale version-by-version
 stories embedded in current code comments**.
 
 For staged consolidation, see [`V5020_CLEANUP_PLAN.md`](V5020_CLEANUP_PLAN.md).
