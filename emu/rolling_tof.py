@@ -23,14 +23,14 @@ OUTPUT_SAMPLE_X_M = (-.05, 0., .05, .10, .15)
 OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20, 25)
 CONFIDENCE_TIME_S = .60
 CROSS_TRACK_SIGMA_M = .023         # width of uncertainty around each scanned V arm
-SENSOR_MAP_REVISION = "rear_tof_anchored_2d_v_tracks_51x2_v4"
+SENSOR_MAP_REVISION = "rear_2d_apex_tof_v_tracks_51x2_v5"
 
 
 def grid_positions(xp):
     return GRID_START_M + xp.arange(GRID_CELLS, dtype=xp.float32) * GRID_SPACING_M
 
 
-def v_track_y(xp, x_m, apex_x_m):
+def v_track_y(xp, x_m, apex_x_m, apex_y_m=None):
     """Left/right 2D path positions at body-relative, gravity-levelled x.
 
     apex_x may change as pitch, height and rear range change. The V is a
@@ -39,9 +39,10 @@ def v_track_y(xp, x_m, apex_x_m):
     """
     x = xp.asarray(x_m)
     apex = xp.asarray(apex_x_m)
-    slopes = xp.asarray(FRONT_LANES_Y_M, dtype=xp.float32)[None,:,None]
-    return slopes * (xp.maximum(x - apex, 0.) /
-                     xp.maximum(FORWARD_REFERENCE_X_M - apex, .08))
+    apex_y = xp.zeros_like(apex) if apex_y_m is None else xp.asarray(apex_y_m)
+    targets = xp.asarray(FRONT_LANES_Y_M, dtype=xp.float32)[None,:,None]
+    t = xp.maximum(x-apex,0.) / xp.maximum(FORWARD_REFERENCE_X_M-apex,.08)
+    return apex_y+(targets-apex_y)*t
 
 
 def empty_map(xp, worlds: int):
@@ -51,7 +52,8 @@ def empty_map(xp, worlds: int):
 
 def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
                 flow_confidence, *, dt_s: float = .02,
-                old_apex_x_m=None, new_apex_x_m=None):
+                old_apex_x_m=None, new_apex_x_m=None,
+                old_apex_y_m=None, new_apex_y_m=None):
     """Apply full 2D rigid-body motion to a V-shaped, sparsely measured map.
 
     Reverse-warp target NEW-body V points into the OLD-body V. This permits
@@ -78,7 +80,11 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
               if old_apex_x_m is None else xp.asarray(old_apex_x_m)[:,None,None])
     apex_new=(apex_old if new_apex_x_m is None
               else xp.asarray(new_apex_x_m)[:,None,None])
-    yy=v_track_y(xp,xx,apex_new)
+    old_apex_y=(xp.zeros_like(apex_old) if old_apex_y_m is None
+                else xp.asarray(old_apex_y_m)[:,None,None])
+    new_apex_y=(old_apex_y if new_apex_y_m is None
+                else xp.asarray(new_apex_y_m)[:,None,None])
+    yy=v_track_y(xp,xx,apex_new,new_apex_y)
     back_x=cs*xx - sn*yy + vx*dt_s
     back_y=sn*xx + cs*yy + vy*dt_s
     index=(back_x-GRID_START_M)/GRID_SPACING_M
@@ -90,6 +96,7 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
 
     sum_w=xp.zeros_like(back_x)
     sum_h=xp.zeros_like(back_x)
+    best_w=xp.zeros_like(back_x)
     for side in range(2):          # static loop, JAX-traceable
         c0=xp.take_along_axis(old_c[:,side:side+1,:],lo,axis=2)
         c1=xp.take_along_axis(old_c[:,side:side+1,:],hi,axis=2)
@@ -98,20 +105,23 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
         # Expose only evidence: no interpolation across two missing cells.
         amount=(1.-frac)*c0+frac*c1
         local_h=((1.-frac)*c0*h0+frac*c1*h1)/xp.maximum(amount,1e-8)
-        arm_y=(xp.asarray(FRONT_LANES_Y_M[side],dtype=xp.float32) *
-               xp.maximum(back_x-apex_old,0.)/xp.maximum(FORWARD_REFERENCE_X_M-apex_old,.08))
+        fraction=(xp.maximum(back_x-apex_old,0.) /
+                  xp.maximum(FORWARD_REFERENCE_X_M-apex_old,.08))
+        arm_y=(old_apex_y +
+               (xp.asarray(FRONT_LANES_Y_M[side],dtype=xp.float32)-old_apex_y)*fraction)
         lateral=back_y-arm_y
         distance_weight=xp.exp(-.5*(lateral/CROSS_TRACK_SIGMA_M)**2)
         weighted=xp.where(in_bounds,amount*distance_weight,0.)
         sum_w=sum_w+weighted
         sum_h=sum_h+weighted*local_h
+        best_w=xp.maximum(best_w,weighted)
 
     # With no confident source, zero the height *and* confidence.
     good=(sum_w>1e-4)&xp.isfinite(sum_h)
     candidate=sum_h/xp.maximum(sum_w,1e-8)
     # Do not inflate confidence just because BOTH almost-identical branches
     # overlap at the rear anchor.
-    support=xp.clip(sum_w,0.,1.)
+    support=xp.clip(best_w,0.,1.)
     base_decay=xp.exp(-dt_s/CONFIDENCE_TIME_S)
     turn_penalty=xp.clip(1.-xp.abs(yaw)[:,None,None]*dt_s,0.,1.)
     # Low flow quality reduces trust gradually, NOT by multiplication with
@@ -125,7 +135,7 @@ def advance_map(xp, heights, confidences, vx_body, vy_body, yaw_rad_s,
 def insert_measurement(xp, heights, confidences, sample_x_m,
                        sample_height_m, sample_valid, *,
                        sample_y_m=None, apex_x_m=None,
-                       measurement_confidence=None):
+                       apex_y_m=None, measurement_confidence=None):
     """Insert actual gravity-levelled 2D laser hit(s) in the V-memory.
 
     Each lane's measured hit is deposited only onto nearby 1cm X cells,
@@ -147,7 +157,9 @@ def insert_measurement(xp, heights, confidences, sample_x_m,
     spatial_weight=xp.clip(1.-xp.abs(grid-lane_x[:,:,None])/GRID_SPACING_M,0.,1.)
     if sample_y_m is not None:
         my=xp.asarray(sample_y_m)
-        expected_y=v_track_y(xp,lane_x[:,:,None],apex)[:,:,0]
+        apex_y=(xp.zeros_like(apex) if apex_y_m is None
+                else xp.asarray(apex_y_m)[:,None,None])
+        expected_y=v_track_y(xp,lane_x[:,:,None],apex,apex_y)[:,:,0]
         cross=xp.exp(-.5*((my-expected_y)/CROSS_TRACK_SIGMA_M)**2)
         spatial_weight=spatial_weight*cross[:,:,None]
     confidence=xp.ones_like(mx) if measurement_confidence is None else xp.clip(
