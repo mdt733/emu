@@ -4,6 +4,7 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { SensorObserver } from './sensor.js';
+import { RollingTerrainDiagnostic, groundRayHit } from './terrain-memory.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -130,6 +131,31 @@ export class EmuBrowserSim {
     this.sensorNoise = true;
     this.sensorObserver = bundle.schema === 2
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
+    // Separate sidecar sensor, never alters a currently walking 220/232 actor.
+    this.terrainMemory = new RollingTerrainDiagnostic();
+    this.showTerrainRays = false;
+    this.scanColliderMeshes = [];
+    this.scanRaycaster = new THREE.Raycaster();
+    this.scanRaycaster.near = 0;
+    this.scanRaycaster.far = 0.6;
+    this.sensorRayGroup = new THREE.Group();
+    this.sensorRayLines = [];
+    this.sensorHitDots = [];
+    for(let i=0;i<5;i++){
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(new Array(6).fill(0),3));
+      const l=new THREE.Line(g,new THREE.LineBasicMaterial({
+        color:i===4?0xff7766:0xff3939,transparent:true,opacity:.94,
+        depthTest:false,depthWrite:false}));
+      l.frustumCulled=false;l.renderOrder=16;
+      this.sensorRayLines.push(l);this.sensorRayGroup.add(l);
+      const dot=new THREE.Mesh(new THREE.SphereGeometry(.006,8,6),
+        new THREE.MeshBasicMaterial({color:0xff4c4c,depthTest:false,depthWrite:false}));
+      dot.renderOrder=17;
+      this.sensorHitDots.push(dot);this.sensorRayGroup.add(dot);
+    }
+    this.sensorRayGroup.visible=false;
+    this.scene.add(this.sensorRayGroup);
     this.fallenFor = 0;
     this.controlFrames = 0; // visible proof of live policy inference
     this.motorTravelRad = 0; // integrated actuated joint movement (rad)
@@ -278,6 +304,13 @@ export class EmuBrowserSim {
 
   dispose() {
     this.disposeModel();
+    this.scene.remove(this.sensorRayGroup);
+    for(const line of this.sensorRayLines){
+      line.geometry.dispose();line.material.dispose();
+    }
+    for(const dot of this.sensorHitDots){
+      dot.geometry.dispose();dot.material.dispose();
+    }
     this.routeLine.geometry.dispose();
     this.routeLine.material.dispose();
     this.targetRing.geometry.dispose();
@@ -471,6 +504,7 @@ export class EmuBrowserSim {
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
     if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
+    this.terrainMemory.reset();
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
@@ -759,6 +793,11 @@ export class EmuBrowserSim {
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
+    // Even if the trained actor is still schema-1/2, update the V memory
+    // entirely independently as a measured diagnostic (never policy input).
+    this.terrainMemory.update(this.sensorPose(),this.sensorNoise,
+      (start,dir,max)=>this.raycastGroundAndObstacles(start,dir,max),
+      {freeze:this.terrainMemoryFrozen===true});
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -786,6 +825,21 @@ export class EmuBrowserSim {
       R[1]*x + R[4]*y + R[7]*z,
       R[2]*x + R[5]*y + R[8]*z,
     ];
+  }
+
+  raycastGroundAndObstacles(start,direction,max=.6) {
+    const surface=groundRayHit(start,direction,(x,y)=>this.terrainHeightAt(x,y),max);
+    let closest=surface?.range ?? Infinity;
+    if(this.scanColliderMeshes.length){
+      this.scanRaycaster.set(new THREE.Vector3(...start),new THREE.Vector3(...direction));
+      this.scanRaycaster.near=0;
+      this.scanRaycaster.far=Math.min(max,closest);
+      // Worldbody MuJoCo geom meshes; includes physically collidable boxes,
+      // ramps, logs and trees, excludes robot self-hits and world hfield.
+      const hits=this.scanRaycaster.intersectObjects(this.scanColliderMeshes,false);
+      if(hits.length && hits[0].distance<closest)closest=hits[0].distance;
+    }
+    return Number.isFinite(closest)&&closest<=max?{range:closest}:null;
   }
 
   sensorPose() {
@@ -957,6 +1011,7 @@ export class EmuBrowserSim {
     mj.mjv_updateScene(this.model, this.data, this.mjvOption, this.mjvPerturb, this.mjvCamera, mj.mjtCatBit.mjCAT_ALL.value, this.mjvScene);
     const geoms = this.mjvScene.geoms;
     const count = Number(geoms.size());
+    this.scanColliderMeshes=[];
     for (let i = 0; i < count; i++) {
       const vg = geoms.get(i);
       const rgba = Array.from(vg.rgba, Number);
@@ -980,6 +1035,15 @@ export class EmuBrowserSim {
       }
       // Heightfield collision is rendered by the seamless grass mesh above.
       mesh.visible = !mesh.userData.parkHeightfield;
+      // The only world geoms eligible for ToF first hits are the REAL
+      // MuJoCo colliders, not render-only guide meshes or robot body geoms.
+      // Floor/hfield are sampled separately by the ground-height function.
+      const geomId=Number(vg.objid);
+      const staticWorldGeom=Number(vg.objtype)===Number(mj.mjtObj.mjOBJ_GEOM.value)
+        && geomId>=0 && geomId<Number(this.model.ngeom)
+        && Number(this.model.geom_bodyid[geomId])===0;
+      if(staticWorldGeom && !mesh.userData.floor &&
+         !mesh.userData.parkHeightfield) this.scanColliderMeshes.push(mesh);
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
@@ -1081,8 +1145,29 @@ export class EmuBrowserSim {
     }
   }
 
+  updateTerrainRayGuides() {
+    this.sensorRayGroup.visible=this.showTerrainRays;
+    if(!this.showTerrainRays)return;
+    const beams=this.terrainMemory?.beams||[];
+    for(let i=0;i<5;i++){
+      const v=beams[i],line=this.sensorRayLines[i],dot=this.sensorHitDots[i];
+      const positions=line.geometry.attributes.position;
+      if(!v){line.visible=false;dot.visible=false;continue;}
+      line.visible=true;
+      const start=v.origin,end=v.point;
+      for(let j=0;j<3;j++){
+        positions.array[j]=start[j];positions.array[3+j]=end[j];
+      }
+      positions.needsUpdate=true;line.geometry.computeBoundingSphere();
+      line.material.opacity=v.valid?.94:.2;
+      dot.visible=v.valid;
+      if(v.valid)dot.position.set(end[0],end[1],end[2]);
+    }
+  }
+
   render(dt = 1 / 60) {
     this.refreshScene();
+    this.updateTerrainRayGuides();
     if (this.cameraMode === 'orbit' || this.cameraMode === 'overview')
       this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
