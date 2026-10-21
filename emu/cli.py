@@ -283,9 +283,9 @@ def main(argv=None) -> int:
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
     q.add_argument('--forward-preview',action='store_true',
-                   help='v5019 opt-in 296-input two-lane rolling ToF/optical-flow profile (preserves 220/232)')
+                   help='v5019 opt-in 312-input V-shaped rear-ToF+flow memory (preserves 220/232)')
     q.add_argument('--forward-preview-masked',action='store_true',
-                   help='same 280-input sensor geometry/timing with profile+validity channels zeroed (controlled baseline)')
+                   help='same 312-input physical sensing with 20 terrain-memory channels masked (controlled baseline)')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
