@@ -40,7 +40,8 @@ jobs:
         run: emu doctor --no-require-gpu --no-mjx-smoke
       - name: Smoke public planning, exams and exporter imports
         run: |
-          emu ladder --stage plan > /dev/null
+          emu campaign-refork > /dev/null
+          emu campaign5020 --root "$RUNNER_TEMP/v5020-historical-plan" > /dev/null
           emu directional-exam --help > /dev/null
           emu directional-batch --help > /dev/null
           emu train --help > /dev/null
@@ -49,7 +50,9 @@ jobs:
           emu export-policy --help > /dev/null
           python - <<'PY'
           from emu.checkpoint_io import resume_training_lineage, git_provenance
-          from emu.branch_lab import train_one, plan_dict
+          from emu.branch_lab import train_one  # single-run CLI still lives here until Pass 6
+          from emu.campaign_refork import plan as current_campaign_plan
+          from emu.experiment_io import read_json, save_json, sha256_file
           from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
           from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
           print('All public entrypoint owners import cleanly')
