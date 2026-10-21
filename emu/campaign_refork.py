@@ -433,6 +433,16 @@ def _terrain_entry_ok(board: dict) -> bool:
                 winning["slope"] >= .10 and winning["gait"] >= .10)
 
 
+def _publish_results(root: Path) -> None:
+    """Evidence generation is strictly read-only and never blocks promotion."""
+    try:
+        from .results_refork import write_refork_report
+        for path in write_refork_report(root):
+            print(f"[refork] report: {path}",flush=True)
+    except (OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
+        print(f"[refork] WARNING: offline research report failed: {exc}",flush=True)
+
+
 def run(root: Path, *, foundation: Path, seed: int, envs: int,
         screen_envs: int, horizon: int, device: str, stop_after: str) -> None:
     if envs < 8 or envs % 8 or screen_envs < 8 or horizon < 100:
@@ -464,6 +474,7 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
                                 screen_envs=screen_envs,horizon=horizon,device=device)
             print(f"[refork] {stage}: {board['reason']} ({board['winner']})",flush=True)
             if not board["winner"]:
+                _publish_results(root)
                 raise RuntimeError(f"{stage} produced no safely promotable winner. "
                                    f"Kept parent {ancestor}; see {root/stage/'scoreboard.md'}")
             chosen = candidates[board["winner"]]
@@ -478,6 +489,7 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
             else:
                 _save(selection_file,selection)
             ancestor = next_ck
+            _publish_results(root)
             if stage == stop_after:
                 print(f"[refork] stopped after {stage}. Champion: {ancestor}",flush=True)
                 return
