@@ -314,7 +314,7 @@ SCREEN_PANELS = {
 def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
            sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0,
-           terrain_mode: str = 'gravity'):
+           terrain_mode: str = 'gravity', course_path: Path | None = None):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
     from .environment import DomainRandomizationConfig
@@ -322,8 +322,12 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
         enabled=terrain_radius > 0, terrain_radius=terrain_radius,
         terrain_mode=terrain_mode)
     env = EmuMJXEnv(
-        str(ROBOT_XML), num_envs=int(envs), seed=seed,
+        str(course_path or ROBOT_XML), num_envs=int(envs), seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
+        terrain_contact_mode='box_surface' if course_path is not None else 'legacy',
+        terrain_adaptive=course_path is not None,
+        terrain_random_placement=course_path is not None,
+        terrain_height_exposure=.95, terrain_height_edge_fraction=.80,
         push_max_force_n=push_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
         phase_speed_gain=config.phase_speed_gain,
@@ -345,6 +349,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                   device: str | None = None, eval_pitch_deg: float | None = None,
                   eval_phase_speed_gain: float | None = None,
                   sensor_contact_exam: bool = False,
+                  v5020_physical_exam: bool = False,
+                  course_root: Path | None = None,
                   key_by_path: bool = False, write_screen_files: bool = True
                   ) -> dict[str, dict[str, Any]]:
     """Evaluate multiple final checkpoints through one set of compiled worlds."""
@@ -405,6 +411,34 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             combo_mix=.20,terrain_radius=.20)
         panels['gentle_slope'] = ('gentle_slope',1555,
             _screen_episode(.70,.65,.35,.70,(.45,.40,.15),.80))
+    if v5020_physical_exam:
+        from .contracts import OBS_SCHEMA_PREVIEW
+        from .terrain import adaptive_height_course
+        if config.observation_schema != OBS_SCHEMA_PREVIEW:
+            raise ValueError('v5020 physical exam requires rolling_tof_312')
+        if course_root is None:
+            raise ValueError('physical step exam needs an explicit immutable course_root')
+        exam_path=Path(course_root).expanduser().resolve() / 'heldout_real_step_course.xml'
+        course=adaptive_height_course(ROBOT_XML,exam_path,immutable=True)
+        worlds['core'] = _screen_world(config,envs=envs,seed_offset=1661,
+            limits=(.45,-.12,.14,.90),push_n=.70,
+            sensor_scale=1.5,combo_mix=.10)
+        panels['core'] = ('core',1661,
+            _screen_episode(.05,.05,.05,.05,(.50,.30,.20),.50))
+        for suffix,radius,salt in (('contact_slope',.30,1667),
+                                   ('contact_harder',.55,1669)):
+            worlds[suffix] = _screen_world(config,envs=envs,seed_offset=salt,
+                limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
+                combo_mix=.35,terrain_radius=radius,terrain_mode='contact')
+            panels[suffix] = (suffix,salt,
+                _screen_episode(.65,.65,.45,.60,(.35,.40,.25),.75))
+        worlds['real_step'] = _screen_world(config,envs=envs,seed_offset=1771,
+            limits=(.40,-.10,.12,.80),push_n=.35,sensor_scale=1.5,
+            combo_mix=.05,terrain_radius=.22,terrain_mode='contact',
+            course_path=course)
+        course_episode=_screen_episode(.25,.25,.15,.25,(.65,.25,.10),.75)
+        course_episode.update(frontier_terrain_height_m=.020)
+        panels['real_step'] = ('real_step',1771,course_episode)
     if sensor_contact_exam:
         if config.observation_schema != 'sim2real_232':
             raise ValueError('real contact sensor exam requires sim2real_232 actor')
@@ -441,6 +475,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None,
             'eval_phase_speed_gain':config.phase_speed_gain,
             'sensor_contact_exam':bool(sensor_contact_exam),
+            'v5020_physical_exam':bool(v5020_physical_exam),
             'checkpoint_sha256':sha256_file(ck)}
         for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
@@ -449,6 +484,16 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 jax.random.fold_in(key0,salt),int(horizon))
             vals=np.asarray(jax.device_get(compact),dtype=np.float64)
             out.update({f'screen_{name}_{k}':float(v) for k,v in zip(SCREEN_FIELDS,vals)})
+        if v5020_physical_exam:
+            env,trainer=worlds['real_step']
+            evidence=trainer['evaluate_terrain_summary'](
+                params,env.params_array(panels['real_step'][2]),
+                norm['mean'],obs_std,
+                jax.random.fold_in(key0,1771),int(horizon))
+            done,contact,cross=np.asarray(jax.device_get(evidence),dtype=np.float64)
+            out['course_20mm_done_count']=float(done)
+            out['course_20mm_contact_rate']=float(contact)
+            out['course_20mm_crossing_rate']=float(cross)
         if sensor_contact_exam:
             # Common independent conditions for each arm, regardless of what
             # terrain/motor distribution it saw while learning.
