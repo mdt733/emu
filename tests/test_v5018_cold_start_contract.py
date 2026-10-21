@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from emu.branch_lab import inspect_run, one_run_config
+from emu.train_cli import inspect_run, one_run_config
 from emu.checkpoint_io import resume_training_lineage
 from emu.contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR
 from emu.ppo import expected_param_shapes
