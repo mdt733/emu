@@ -133,6 +133,8 @@ export class EmuBrowserSim {
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     // Separate sidecar sensor, never alters a currently walking 220/232 actor.
     this.terrainMemory = new RollingTerrainDiagnostic();
+    this.terrainMemoryActive = false;
+    this.terrainMemoryFrozen = false;
     this.showTerrainRays = false;
     this.scanColliderMeshes = [];
     this.scanRaycaster = new THREE.Raycaster();
@@ -336,6 +338,14 @@ export class EmuBrowserSim {
     this.mjvOption?.delete();
     this.controls?.dispose();
     this.renderer?.dispose();
+  }
+
+  setTerrainDiagnostic(enabled,{rays=false,freeze=false}={}) {
+    const active=Boolean(enabled);
+    if(active&&!this.terrainMemoryActive)this.terrainMemory.reset();
+    this.terrainMemoryActive=active;
+    this.terrainMemoryFrozen=Boolean(freeze);
+    this.showTerrainRays=active&&Boolean(rays);
   }
 
   setCameraMode(mode) {
@@ -795,9 +805,10 @@ export class EmuBrowserSim {
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
     // Even if the trained actor is still schema-1/2, update the V memory
     // entirely independently as a measured diagnostic (never policy input).
-    this.terrainMemory.update(this.sensorPose(),this.sensorNoise,
+    if(this.terrainMemoryActive) this.terrainMemory.update(
+      this.sensorPose(),this.sensorNoise,
       (start,dir,max)=>this.raycastGroundAndObstacles(start,dir,max),
-      {freeze:this.terrainMemoryFrozen===true});
+      {freeze:this.terrainMemoryFrozen});
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
