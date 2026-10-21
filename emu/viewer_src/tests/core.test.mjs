@@ -49,6 +49,44 @@ test('policy loading preserves schema-2 sensor contracts and safe local assets',
   assert.throws(()=>parseShowcaseManifest({...manifest,policy:'../secret'}));
 });
 
+test('schema-9 312-input live actor loads only with exact V field and sensor identity',()=>{
+  const samples=[-5,0,5,10,15], sides=['right','left'];
+  const front=sides.flatMap(side=>samples.map(cm=>`terrain_height_${side}_${cm}cm_m`));
+  const confidence=sides.flatMap(side=>samples.map(cm=>`terrain_confidence_${side}_${cm}cm`));
+  const prefix=Array.from({length:55},(_,i)=>'baseline_'+i).concat(
+    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
+  const fields=[...prefix,...front,...confidence];
+  const c={
+    schema:'rolling_tof_312',
+    sensor_model_revision:'tripod_tof_flow_async_v1',
+    history_len:4,action_dim:6,
+    base_fields:fields,
+    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
+    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
+    tof_range_limits_m:[.035,.6],
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:.01,flow_dropout_prob:.02,gyro_bias_std_rad_s:.015,sensor_noise_scale:1.5},
+    rolling_model_revision:'rear_2d_apex_tof_v_tracks_51x2_v6',
+    rolling_cells_per_lane:51,rolling_actor_indices:[5,10,15,20,25],
+    rolling_front_lanes_y_m:[-.05,.05],forward_masked:false,
+  };
+  const bundle={format:'emu-policy',schema:3,
+    policy:{action_dim:6,history_len:4,base_obs_dim:78,obs_dim:312,layers:[{},{},{}]},
+    source:{checkpoint_schema:9},robot_xml:'<mujoco/>',
+    observation:{base_fields:fields,sensor_contract:c},control:{}};
+  assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,312);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{base_fields:[...fields.slice(0,-2),...fields.slice(-2).reverse()],
+      sensor_contract:c}})),/Unsupported 312-input/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{base_fields:fields,
+      sensor_contract:{...c,rolling_model_revision:'unknown'}}})),/Unsupported 312-input/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    source:{checkpoint_schema:8}})),/schema does not match/);
+  const observer=new SensorObserver(c);
+  assert.ok(observer);
+});
+
 // 2. Terrain has real physics geometry; not merely decorative foliage.
 test('terrain park creates a physical heightfield with solid tree trunks',()=>{
   const xml='<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
