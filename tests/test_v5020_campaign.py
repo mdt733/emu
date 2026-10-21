@@ -74,7 +74,7 @@ def test_result_rank_requires_measured_physical_course_and_slope():
              course_20mm_attempt_count=20.)
     score=lab._score_arm(p,"balanced")
     assert score["eligible"] and score["course_20mm_crossing"]==.25
-    assert lab._score_arm({**p,"course_20mm_done_count":0},"balanced")["eligible"] is False
+    assert lab._score_arm({**p,"course_20mm_attempt_count":0},"balanced")["eligible"] is False
     assert lab._score_arm({k:v for k,v in p.items() if k!="screen_contact_slope_survival"},
                           "balanced")["eligible"] is False
 
