@@ -88,3 +88,11 @@ def test_exam_never_certifies_invalid_or_sparse_physical_evidence(change):
     e.update(change)
     with pytest.raises((ValueError,TypeError)):
         graded_step_score(e,(5,10,20),(.2,.2,.6))
+
+
+
+def test_success_cannot_appear_before_trial_completes():
+    m=_events([[0,0],[0,1]])
+    m["terrain_edge_crossing"][0,0]=1.
+    with pytest.raises(ValueError,match="without completed trial"):
+        terrain_edge_trials(m)
