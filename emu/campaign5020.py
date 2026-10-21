@@ -160,7 +160,10 @@ def _stage_run(root: Path, *, stage: str, arm: str | None, parent: Path | None,
     ck,partial=_completed(run,target,envs,cfg)
     if ck is None:
         how="auto" if partial else str(parent) if parent else ""
-        print(f"[v5020 lab] {stage}/{arm or 'shared'}: {checkpoint_step(partial or parent) if (partial or parent) else 0:,} -> {target:,}",flush=True)
+        start=partial or parent
+        start_step=(checkpoint_step(start,expected_observation_schema=OBS_SCHEMA_PREVIEW,
+                                    expected_sensor_contract=contract) if start else 0)
+        print(f"[v5020 lab] {stage}/{arm or 'shared'}: {start_step:,} -> {target:,}",flush=True)
         run_training(replace(cfg,resume=how),provenance=provenance)
         ck,partial=_completed(run,target,envs,cfg)
         if ck is None:
