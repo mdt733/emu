@@ -289,8 +289,10 @@ async function activatePolicy(index) {
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
-    sim.showTerrainRays = terrainMemoryPanel.enabled && terrainMemoryPanel.rays.checked;
-    sim.terrainMemoryFrozen = terrainMemoryPanel.freeze.checked;
+    sim.setTerrainDiagnostic(terrainMemoryPanel.enabled,{
+      rays:terrainMemoryPanel.rays.checked,
+      freeze:terrainMemoryPanel.freeze.checked,
+    });
     sim.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
     updateStickLabels();
 
@@ -454,8 +456,10 @@ autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = auto
 noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
 const updateTerrainDiagnostic=()=>{
   if(sim){
-    sim.showTerrainRays=terrainMemoryPanel.enabled && terrainMemoryPanel.rays.checked;
-    sim.terrainMemoryFrozen=terrainMemoryPanel.freeze.checked;
+    sim.setTerrainDiagnostic(terrainMemoryPanel.enabled,{
+      rays:terrainMemoryPanel.rays.checked,
+      freeze:terrainMemoryPanel.freeze.checked,
+    });
   }
 };
 terrainMemoryPanel.toggle.addEventListener('click',updateTerrainDiagnostic);
