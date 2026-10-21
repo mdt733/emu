@@ -71,9 +71,18 @@ def test_result_rank_requires_measured_physical_course_and_slope():
     for panel in ("robust70","contact_slope"):
         p[f"screen_{panel}_step_evidence"]=.5
     p.update(course_20mm_crossing_rate=.25,course_20mm_contact_rate=.50,
-             course_20mm_attempt_count=20.)
+             course_20mm_attempt_count=20.,
+             power_robust_shaft_abs_power_w=3.0,
+             power_contact_slope_shaft_abs_power_w=3.2,
+             power_robust_over_rated_frac=.20,
+             power_contact_slope_over_rated_frac=.25)
     score=lab._score_arm(p,"balanced")
     assert score["eligible"] and score["course_20mm_crossing"]==.25
+    assert score["servo_over_rated_frac"]==.225
+    high_power=lab._score_arm({**p,
+        "power_robust_shaft_abs_power_w":15.,
+        "power_contact_slope_shaft_abs_power_w":15.},"efficient")
+    assert high_power["score"]<score["score"]
     assert lab._score_arm({**p,"course_20mm_attempt_count":0},"balanced")["eligible"] is False
     assert lab._score_arm({k:v for k,v in p.items() if k!="screen_contact_slope_survival"},
                           "balanced")["eligible"] is False
