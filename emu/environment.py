@@ -1140,6 +1140,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_adaptive: bool = False,
                  terrain_height_exposure: float = .60,
                  terrain_height_edge_fraction: float = .35,
+                 terrain_random_placement: bool = False,
                  terrain_progress_weight: float = 0.,
                  forward_preview_masked: bool = False):
         import jax
@@ -1161,7 +1162,7 @@ class EmuMJXEnv(TaskSampler):
         self.observation_schema = observation_schema
         self.forward_preview_masked = bool(forward_preview_masked)
         if self.forward_preview_masked and observation_schema != OBS_SCHEMA_PREVIEW:
-            raise ValueError('forward profile mask requires 280-input sensor contract')
+            raise ValueError('V-memory mask requires 312-input sensor contract')
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
         self.obs_dim = self.base_obs_dim * HISTORY_LEN
@@ -1256,6 +1257,10 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_progress_weight = float(terrain_progress_weight)
         self.terrain_contact_mode = terrain_contact_mode
         self.terrain_adaptive = bool(terrain_adaptive)
+        self.terrain_random_placement = bool(terrain_random_placement)
+        if self.terrain_random_placement and (
+                not self.terrain_adaptive or observation_schema != OBS_SCHEMA_PREVIEW):
+            raise ValueError('variable obstacle location requires adaptive physical course and 312-input V sensor')
         if self.terrain_adaptive and terrain_contact_mode != 'box_surface':
             raise ValueError('adaptive step height requires real box-surface physics')
         self.terrain_height_exposure = float(terrain_height_exposure)
@@ -1270,11 +1275,20 @@ class EmuMJXEnv(TaskSampler):
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
         if self.terrain_contact_mode == 'box_surface':
-            if self.contact_slope_deg > 0 or (self.domain_config.enabled and
-                                               self.domain_config.terrain_radius > 0):
+            # The historical 232-input step experiment remains locked to
+            # flat geometry. The new 312-input adaptive terrain experiment
+            # can couple per-world real contact slopes and a *horizontally*
+            # topped box placed at that world's local plane height.
+            mixing_slope = self.contact_slope_deg > 0 or (
+                self.domain_config.enabled and
+                self.domain_config.terrain_radius > 0)
+            if mixing_slope and not (
+                observation_schema == OBS_SCHEMA_PREVIEW and self.terrain_adaptive
+                and self.contact_slope_deg == 0
+                and self.domain_config.terrain_mode == 'contact'):
                 raise ValueError(
-                    'box_surface P1 requires zero real or gravity-equivalent '
-                    'terrain randomization; sloped-floor-plus-box needs its own tests')
+                    'box plus real contact slopes require 312-input adaptive course '
+                    'and per-world contact terrain (not gravity tilt)')
             box_id = mujoco.mj_name2id(
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,terrain_box_geom)
             if box_id < 0 or self.mj_model.geom_type[box_id] != mujoco.mjtGeom.mjGEOM_BOX:
@@ -1914,12 +1928,37 @@ class EmuMJXEnv(TaskSampler):
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
         if self.terrain_adaptive:
-            # MJX contact geometry follows data.mocap_pos without mutating
-            # model geom sizes, solver topology, or other worlds. Never move
-            # the obstacle MID-episode: this occurs only at spawn/reset.
+            # One real MJX box per world. Sample its centre/heading once at
+            # birth, always AHEAD of the feet. Geometry never moves mid-episode.
             h = task[:, T.terrain_height_m]
-            origin = jnp.stack([jnp.where(h > 0., .20, 5.), jnp.zeros_like(h), h], axis=1)
-            data = data.replace(mocap_pos=data.mocap_pos.at[:, self.terrain_mocap_id, :].set(origin))
+            if self.terrain_random_placement:
+                kx = jax.vmap(lambda k: jax.random.fold_in(k, 50201))(pos_keys)
+                ky = jax.vmap(lambda k: jax.random.fold_in(k, 50202))(pos_keys)
+                ka = jax.vmap(lambda k: jax.random.fold_in(k, 50203))(pos_keys)
+                bx = jax.vmap(lambda k: jax.random.uniform(
+                    k, (), minval=.22, maxval=.38))(kx)
+                by = jax.vmap(lambda k: jax.random.uniform(
+                    k, (), minval=-.025, maxval=.025))(ky)
+                angle = jax.vmap(lambda k: jax.random.uniform(
+                    k, (), minval=-.17, maxval=.17))(ka)
+            else:
+                bx = jnp.full_like(h,.20)
+                by = jnp.zeros_like(h)
+                angle = jnp.zeros_like(h)
+            # Crucial for true incline+box worlds: place the box TOP at
+            # obstacle height above the *local sloped contact floor*.
+            n = self.floor_normal_world
+            plane_z = -(bx*n[:,0]+by*n[:,1])/jnp.maximum(n[:,2],.50)
+            px = jnp.where(h > 0., bx, 5.)
+            py = jnp.where(h > 0., by, 0.)
+            pz = jnp.where(h > 0., plane_z+h, 0.)
+            origin = jnp.stack([px,py,pz],axis=1)
+            data = data.replace(mocap_pos=data.mocap_pos.at[:,self.terrain_mocap_id,:].set(origin))
+            if self.terrain_random_placement:
+                quat = jnp.stack((jnp.cos(angle/2),jnp.zeros_like(angle),
+                                  jnp.zeros_like(angle),jnp.sin(angle/2)),axis=1)
+                data = data.replace(
+                    mocap_quat=data.mocap_quat.at[:,self.terrain_mocap_id,:].set(quat))
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
