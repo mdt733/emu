@@ -75,9 +75,10 @@ test('schema-9 312-input live actor loads only with exact V field and sensor ide
     source:{checkpoint_schema:9},robot_xml:'<mujoco/>',
     observation:{base_fields:fields,sensor_contract:c},control:{}};
   assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,312);
+  const shuffled=[...fields.slice(0,-2),...fields.slice(-2).reverse()];
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    observation:{base_fields:[...fields.slice(0,-2),...fields.slice(-2).reverse()],
-      sensor_contract:c}})),/Unsupported 312-input/);
+    observation:{base_fields:shuffled,
+      sensor_contract:{...c,base_fields:shuffled}}})),/Unsupported 312-input/);
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
     observation:{base_fields:fields,
       sensor_contract:{...c,rolling_model_revision:'unknown'}}})),/Unsupported 312-input/);
