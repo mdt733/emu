@@ -164,7 +164,7 @@ def summarize(run, expected=None):
                 target=int(target) if target is not None else None, log_rows=count,
                 changes=changes, story=training_story(logged, changes),
                 rewards=rewards, config=config,
-                source=meta.get('source_provenance', {}), parent=spec.get('parent', {}),
+                source=meta.get('source_provenance', {}), parent=spec.get('parent') or {},
                 checkpoint_sha256=sha, screen=screen,
                 fixed=fixed[-1] if fixed else {}, problems=problems)
 
