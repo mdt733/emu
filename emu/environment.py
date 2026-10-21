@@ -2049,7 +2049,7 @@ class EmuMJXEnv(TaskSampler):
             floor_origin = data.geom_xpos[:,floor_id,:]
             floor_normal = jnp.reshape(
                 data.geom_xmat[:,floor_id], (self.num_envs,3,3))[:,:,2]
-            noise = jax.vmap(lambda k: jax.random.normal(
+            forward_noise = jax.vmap(lambda k: jax.random.normal(
                 jax.random.fold_in(k, 5021), (2,), dtype=jnp.float32))(keys)
             ray_kwargs = {}
             if self.terrain_contact_mode == 'box_surface':
@@ -2061,7 +2061,7 @@ class EmuMJXEnv(TaskSampler):
                     box_half_size=self.terrain_box_half_size)
             forward_ranges, forward_valid = first_hit_ranges(
                 jnp, torso, R, floor_origin, floor_normal,
-                errors_m=scale[:,None] * FORWARD_NOISE_STD_M * noise,
+                errors_m=scale[:,None] * FORWARD_NOISE_STD_M * forward_noise,
                 **ray_kwargs)
             forward_ranges = jnp.where(
                 forward_valid,
@@ -2075,9 +2075,7 @@ class EmuMJXEnv(TaskSampler):
                 jnp, torso, R, floor_origin, floor_normal,
                 mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
                 beams_body=TOF_TRIPOD_BEAMS_BODY,
-                errors_m=scale[:,None]*.0015*
-                         jax.vmap(lambda k: jax.random.normal(
-                             jax.random.fold_in(k, 5016), (8,)))(keys)[:,:3],
+                errors_m=scale[:,None]*.0015*noise[:,:3],
                 **ray_kwargs)
             measured_tripod = jnp.where(
                 tripod_valid,
