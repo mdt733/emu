@@ -1,5 +1,12 @@
 # EMU v5020 — from-zero training with V-memory, recovery, real slopes and steps
 
+> **Recommended full campaign:** [v5020 branch laboratory](V5020_LAB.md).
+> One `emu campaign5020 --run` does the common 20M root, four 80M
+> terrain/resilience experiments, two 120M finalists, independent physical
+> promotion screens, one 160M champion, and automatic `results.md` exports.
+> The stages below are now optional single-lineage diagnostics, not
+> the primary research runner.
+
 **Code:** [feature/v5020-coldstart-terrain](https://github.com/mdt733/emu/tree/feature/v5020-coldstart-terrain), forked from v5019's working diagnostic viewer. No changes to `main` or public champion. Previous v5018 run is stopped; these are new independent 312-input policy lineages.
 
 ## Physics → sensors → PPO
