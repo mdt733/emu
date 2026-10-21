@@ -110,3 +110,20 @@ def test_examination_failure_is_propagated_without_starting_training(tmp_path,mo
         full.run(tmp_path/"fresh",envs=4096,seed=733,screen_envs=32,
                  horizon=300,device="cuda",stop_after="walk80")
     assert not (tmp_path/"fresh"/"foundation20").exists()
+
+
+def test_second_full_launcher_cannot_share_foundation_gpu_lock(tmp_path,monkeypatch):
+    import fcntl
+    from emu import campaign_full5020 as full
+    root=tmp_path/"reserved"
+    root.mkdir()
+    lock=root/".full-campaign.lock"
+    # Separate file descriptors in the same Linux process still conflict.
+    with lock.open("a+") as held:
+        fcntl.flock(held,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        monkeypatch.setattr(full,"_run_locked",
+                            lambda *a,**kw:pytest.fail("duplicate training entered"))
+        with pytest.raises(RuntimeError,match="already holds"):
+            full.run(root,envs=4096,seed=733,screen_envs=32,
+                     horizon=300,device="cuda",stop_after="walk80",
+                     skip_preflight=True)
