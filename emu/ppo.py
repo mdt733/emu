@@ -610,31 +610,41 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     def evaluate_terrain_summary(params, curriculum_params, obs_mean, obs_std,
                                  eval_key, horizon):
-        """Frozen-policy REAL obstacle exam: completed crossing and contact evidence.
+        """Frozen-policy real step exam; first episode, physical contact + crossing.
 
-        Counts only independently classified, terminal episode outcomes.
-        A near-box pose, forward velocity or high reward earns no crossing.
+        A healthy walker must not score zero just because its episode has
+        not timed out by the held-out horizon. Count an actual supported,
+        upright crossing *after* genuine box-foot contact in that SAME
+        episode, and never count post-reset or unobserved obstacle births.
         """
         if not env.terrain_adaptive:
             raise ValueError('terrain outcome exam requires a real adaptive MJX box')
         keys=jax.random.split(eval_key,env.num_envs)
         es=env._reset_with_keys(keys,curriculum_params)
-        initial=(es,env.obs(es),jnp.zeros((3,),dtype=jnp.float32))
+        attempts=((es.task[:,T.terrain_height_m]>0.) &
+                  (es.task[:,T.terrain_height_m]>=.70 *
+                   jnp.maximum(.0001,es.task[:,T.terrain_birth_frontier_m])))
+        zeros=jnp.zeros((env.num_envs,),dtype=jnp.bool_)
+        initial=(es,env.obs(es),zeros,zeros,zeros)
         def one(_,carry):
-            state,ob,totals=carry
+            state,ob,finished,contacted,crossed=carry
             mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask))
             out=env.step(state,jnp.clip(mean,-1.,1.),curriculum_params)
-            totals=totals+jnp.stack((
-                jnp.sum(out.metrics['terrain_edge_done']),
-                jnp.sum(out.metrics['terrain_edge_contact']),
-                jnp.sum(out.metrics['terrain_edge_crossing']),
-            ))
-            return out.state,out.obs,totals
-        _,_,totals=jax.lax.fori_loop(0,horizon,one,initial)
-        # Distinguish "none completed" from measured failure; both score zero
-        # but the report exposes the event count explicitly.
-        return jnp.stack((totals[0],totals[1]/jnp.maximum(1.,totals[0]),
-                          totals[2]/jnp.maximum(1.,totals[0])))
+            in_original=~finished
+            saw_contact=(out.metrics['terrain_box_foot_contact_any']>.5)
+            contacted=contacted | (in_original & saw_contact)
+            supported_passage=(out.metrics['terrain_crossed_this_frame']>.5)
+            survived=(out.metrics['episode_fell']<.5)
+            crossed=crossed | (in_original & contacted & supported_passage & survived)
+            finished=finished | (out.done>.5)
+            return out.state,out.obs,finished,contacted,crossed
+        _,_,_,contacted,crossed=jax.lax.fori_loop(0,horizon,one,initial)
+        n=jnp.maximum(1.,jnp.sum(attempts.astype(jnp.float32)))
+        return jnp.stack((
+            jnp.sum(attempts.astype(jnp.float32)),
+            jnp.sum((attempts & contacted).astype(jnp.float32))/n,
+            jnp.sum((attempts & crossed).astype(jnp.float32))/n,
+        ))
 
     evaluate_terrain_summary = jax.jit(evaluate_terrain_summary, static_argnums=(5,))
 
