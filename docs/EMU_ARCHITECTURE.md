@@ -35,6 +35,8 @@ The reference implementation is available at
                  ladder promotion
 ```
 
+The shared `scoring.py` now owns completed obstacle-trial accounting and exact-height exam validation. It rejects missing completed attempts and events without completed trials. Broader gait/tracking/support definitions are **not yet unified**.
+
 The same *definitions of physical events* must be used by all consumers;
 their evidence sources and decisions must **not** be conflated.
 
@@ -43,7 +45,7 @@ their evidence sources and decisions must **not** be conflated.
 | Physics, sensors (`robot.xml`, `environment.py`, `terrain.py`, `rolling_tof.py`) | Collision, actuators, on-robot observation, physically observable facts | Champion selection or training schedule |
 | Reward (`rewards.py`) | Bounded per-step learning payments, including opt-in verified crossing | Proof of capabilities or held-out promotion |
 | PPO (`ppo.py`) | Network and value updates from rollouts | Training difficulty or examiner selection |
-| Metrics (`results.py`; future shared scoring contract) | Episode counts, command tracking, stance, support, falls, effort, *physical crossing* | Scoring weights and policy promotion |
+| Metrics (`scoring.py`, `results.py`) | Episode counts, command tracking, stance, support, falls, effort, *physical crossing* | Scoring weights and policy promotion |
 | Governor and capability field (`curriculum.py`) | Pool training evidence; choose next task envelope and retreat on failure | Certify unseen conditions with training rewards |
 | Frozen examiner (`evaluation.py`) | Matched independent physical tests with counts, task context and confidence | Teach PPO or modify governor |
 | Champion Ladder (`campaign_refork.py`) | Five independent arms, short health probes, identical exams, single winner / keep incumbent | Define physical truth or implement PPO |
@@ -52,7 +54,9 @@ their evidence sources and decisions must **not** be conflated.
 ## The three notions of difficulty
 
 1. **Physical safety ceiling:** legal bounds of this simulator/hardware;
-   e.g. the existing adaptive box collision supports up to 150mm.
+   e.g. the existing adaptive box collision supports up to 150mm. Frozen
+   5/10/20/40/80/150mm exam labels are now exact physical heights, not
+   the upper limit of a random-height training sampler.
 2. **Training frontier:** current challenge distribution, set from *on-policy
    physical evidence* by the governor and retained in the learning checkpoint.
 3. **Certified capability:** what a **frozen** actor succeeds at with
