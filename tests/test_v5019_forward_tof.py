@@ -43,13 +43,13 @@ def _ground_hits(forward,valid,pos,rot,fpos,fnormal):
         simulate_tripod_ranges, fit_tripod_ground,
         TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY)
     gravity=np.einsum('nij,j->ni',np.transpose(rot,(0,2,1)),np.array([0.,0.,-1.]))
-    tripod=simulate_tripod_ranges(
+    tripod,tripod_valid=simulate_tripod_ranges(
         np,pos,rot,fpos,fnormal)
     # The three downward rays define a measured local reference.
-    plane=fit_tripod_ground(np,tripod['ranges_m'],gravity)
+    plane=fit_tripod_ground(np,tripod,gravity)
     return measured_height_and_x(
-        np,forward,valid,tripod['ranges_m'],plane['ground_normal_body'],
-        plane['valid'],mounts_body=FORWARD_MOUNTS_BODY_M,
+        np,forward,valid,tripod,plane['ground_normal_body'],
+        plane['valid'] & np.all(tripod_valid,axis=1),mounts_body=FORWARD_MOUNTS_BODY_M,
         beams_body=FORWARD_DIRECTIONS_BODY,
         tripod_mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
         tripod_beams_body=TOF_TRIPOD_BEAMS_BODY,
@@ -147,7 +147,7 @@ def test_reverse_and_turns_do_not_invent_values():
 
 def test_flow_dropout_does_not_falsely_shift():
     h,c=empty_map(np,1)
-    ys=v_track_y(np,np.array([[[.15]],[[.15]]]).reshape((1,2,1)),
+    ys=v_track_y(np,np.array([[[.15],[.15]]]),
                  np.array([[[-.04]]]))[:,:,0]
     h,c=insert_measurement(np,h,c,np.array([[.15,.15]]),
                            np.array([[.05,.02]]),np.array([[True,True]]),
