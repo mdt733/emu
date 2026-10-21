@@ -188,13 +188,18 @@ def _score_arm(data: dict, name: str) -> dict:
         height=sum(val(f"screen_{p}_height_shortfall_m")
                    for p in ("core","robust70","contact_slope"))/3
         gait=(val("screen_robust70_step_evidence")+val("screen_contact_slope_step_evidence"))/2
+        watts=(val("power_robust_shaft_abs_power_w")+
+               val("power_contact_slope_shaft_abs_power_w"))/2
+        overload=(val("power_robust_over_rated_frac")+
+                  val("power_contact_slope_over_rated_frac"))/2
     except ValueError as exc:
         return {"arm":name,"eligible":False,"score":None,"reasons":[str(exc)]}
     # No power shortcut lets a standing/falling actor outrank a walking
     # robot. Exercise four independent physical objectives first.
     rank=(.21*core+.22*hard+.16*growth+.19*slope+.16*step+
           .04*touched+.02*gait-.05*min(1.,motion/.65)
-          -.05*min(1.,height/.07))
+          -.05*min(1.,height/.07)-.02*min(2.,watts/15.)
+          -.025*min(1.,overload))
     reasons=[]
     if core<.25: reasons.append("core survival <25%")
     if hard<.04: reasons.append("resilience survival <4%")
@@ -208,6 +213,8 @@ def _score_arm(data: dict, name: str) -> dict:
             "course_20mm_crossing":round(step,5),"course_20mm_contact":round(touched,5),
             "course_20mm_attempts":int(attempts),
             "motion_mae":round(motion,5),"height_shortfall_m":round(height,5),
+            "shaft_abs_power_w":round(watts,5),
+            "servo_over_rated_frac":round(overload,5),
             "step_evidence":round(gait,5)}
 
 
@@ -278,8 +285,8 @@ def _screen(root: Path, stage: str, names: list[str], *,
            "real supported passage in the original episode; rewards do not count.",
            "The 20mm exam is a held-out probe, not a claim of maximum height.",
            "",
-           "| Arm | Eligible | Score | Core | Recovery | True slopes | 20mm contact | 20mm crossing | Reasons |",
-           "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+           "| Arm | Eligible | Score | Core | Recovery | True slopes | 20mm contact | 20mm crossing | Overrated torque | Shaft watts | Reasons |",
+           "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for row in rows:
         lines.append(
             f"| {row['arm']} | {row['eligible']} | {row['score']} | "
@@ -287,6 +294,8 @@ def _screen(root: Path, stage: str, names: list[str], *,
             f"{row.get('real_slope_survival','—')} | "
             f"{row.get('course_20mm_contact','—')} | "
             f"{row.get('course_20mm_crossing','—')} | "
+            f"{row.get('servo_over_rated_frac','—')} | "
+            f"{row.get('shaft_abs_power_w','—')} | "
             f"{', '.join(row['reasons'])} |")
     scorecard=root/f"{stage}_scorecard.md"
     temp=scorecard.with_name(scorecard.name+'.tmp')
