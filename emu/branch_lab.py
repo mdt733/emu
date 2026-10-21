@@ -579,8 +579,9 @@ def one_run_config(args) -> TrainingConfig:
     terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
     if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
         raise ValueError('--contact-terrain-radius must be in [0, 1]')
-    if terrain_radius > 0 and args.profile != 'sim2real':
-        raise ValueError('per-world real contact terrain requires --profile sim2real')
+    if terrain_radius > 0 and args.profile != 'sim2real' and not (
+            args.profile == 'foundation' and preview_actor):
+        raise ValueError('real contact slopes require sim2real or the 312-input foundation')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     box_raw=getattr(args,'terrain_box_height_mm',None)
@@ -591,6 +592,7 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('terrain box PPO research requires sim2real and --sensor-actor')
     if box_height >= 0 and (grade != 0 or terrain_radius != 0):
         raise ValueError('v5018 P1 box course cannot mix with inclined/random terrain')
+    varied=bool(getattr(args, 'terrain_varied_placement', False))
     adaptive_limit=int(getattr(args, 'terrain_height_ceiling_mm', 0))
     adaptive_flat=bool(getattr(args, 'terrain_height_flat_control',False))
     exposure=float(getattr(args, 'terrain_height_exposure', .60))
@@ -611,15 +613,21 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
     if adaptive_flat and adaptive_limit:
         raise ValueError('adaptive flat control must have zero height ceiling')
-    if (adaptive_limit or adaptive_flat) and (box_height >= 0 or grade > 0 or terrain_radius > 0 or
-                           args.profile != 'sim2real' or not sensor_actor):
-        raise ValueError('adaptive terrain requires sim2real + sensor actor and no static box/slopes')
+    if varied and (not preview_actor or not (adaptive_limit or adaptive_flat)):
+        raise ValueError('varied placement requires 312-input preview + adaptive physical step topology')
+    # The legacy 232 experimental slope+step combination is unverified.
+    # Only 312-input adaptive worlds have coupled contact geometry support.
+    if (adaptive_limit or adaptive_flat) and (
+            box_height >= 0 or grade > 0 or args.profile != 'sim2real'
+            or not sensor_actor or (terrain_radius > 0 and not preview_actor)):
+        raise ValueError('adaptive steps require sim2real; slope+step coupling requires 312-input preview')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=(OBS_SCHEMA_PREVIEW if preview_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    forward_preview_masked=preview_masked,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,terrain_box_height_mm=box_height,
+                   terrain_random_placement=varied,
                    terrain_height_safety_m=adaptive_limit / 1000.,
                    terrain_adaptive_flat_control=adaptive_flat,
                    terrain_height_initial_m=min(initial, adaptive_limit if adaptive_limit else initial) / 1000.,
