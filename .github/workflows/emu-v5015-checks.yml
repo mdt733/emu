@@ -50,7 +50,7 @@ jobs:
           emu export-policy --help > /dev/null
           python - <<'PY'
           from emu.checkpoint_io import resume_training_lineage, git_provenance
-          from emu.branch_lab import train_one  # single-run CLI still lives here until Pass 6
+          from emu.train_cli import train_one
           from emu.campaign_refork import plan as current_campaign_plan
           from emu.experiment_io import read_json, save_json, sha256_file
           from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
