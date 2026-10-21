@@ -31,7 +31,10 @@ def _evidence(core=.9, hard=.4, slope=.7, crossing=.2):
     for name in ("robust", "contact_slope"):
         d[f"power_{name}_shaft_abs_power_w"] = 3.
         d[f"power_{name}_over_rated_frac"] = .12
-    d.update(course_5mm_crossing_rate=crossing,course_5mm_attempt_count=32.)
+    for mm in c.EXAM_HEIGHTS_MM:
+        d[f"course_{mm}mm_crossing_rate"]=crossing
+        d[f"course_{mm}mm_attempt_count"]=32.
+        d[f"course_{mm}mm_contact_rate"]=min(1., crossing+.25)
     return d
 
 
@@ -43,8 +46,11 @@ def test_plan_is_read_only_and_three_walking_generations_plus_gated_terrain(tmp_
     assert result["generations"][0]["target_steps_per_actor"]==40_000_000
     assert result["generations"][1]["target_steps_per_actor"]==60_000_000
     assert result["generations"][2]["target_steps_per_actor"]==80_000_000
-    assert all(len(x["arms"])==4 for x in result["generations"])
-    assert [x["physical_step_training"] for x in result["generations"]]==[False,False,False,True]
+    assert all(len(x["arms"])==5 for x in result["generations"])
+    assert all("steps" in x["arms"] for x in result["generations"])
+    assert [x["physical_step_training"] for x in result["generations"]]==[True]*4
+    assert result["earned_step_height_ceiling_mm"]==150
+    assert result["independent_step_exam_mm"]==[5,10,20,40,80,150]
     assert not root.exists()
     assert c.main(["--root",str(root),"--status"])==0
     status=json.loads(capsys.readouterr().out)
@@ -69,15 +75,21 @@ def test_contract_and_mild_main_style_stage_progression(tmp_path):
             assert cfg.open_frontier is False
             assert cfg.steps==c.TARGET[stage]
             assert cfg.allow_rollback
-            if stage!="terrain100":
+            if arm == "steps":
+                assert cfg.terrain_height_safety_m==.150
+                assert cfg.terrain_height_initial_m==.003
+                assert cfg.terrain_height_growth_m==.001
+                assert cfg.terrain_random_placement is True
+                assert cfg.domain_terrain_radius==0.  # real boxes on level floor
+                assert cfg.terrain_height_exposure==.60
+                assert cfg.terrain_progress_weight>0.
+            else:
                 assert cfg.terrain_height_safety_m==0.
                 assert cfg.terrain_adaptive_flat_control is False
                 assert cfg.terrain_random_placement is False
+                assert cfg.terrain_progress_weight==0.
+            if stage!="terrain100":
                 assert cfg.pitch_command_max_deg<=12.
-            else:
-                assert cfg.terrain_adaptive_flat_control
-                assert cfg.terrain_random_placement
-                assert 0 <= cfg.terrain_height_safety_m <= .005
     first=training_sensor_contract(configurations[0])
     assert all(training_sensor_contract(x)==first for x in configurations)
     foundation_profile=c.config(root/"walk40"/"general"/"finish",stage="walk40",
@@ -120,14 +132,22 @@ def test_probe_detects_repeated_100_percent_falls_and_spring_explosion(tmp_path)
     assert c.probe_health(p)["eligible"]
 
 
-def test_heldout_selection_requires_real_survival_and_step_for_terrain():
+def test_heldout_score_rewards_real_steps_without_bypassing_survival_gates():
     assert c._score(_evidence(core=.03,hard=.0,slope=0.),
                     stage="walk40",name="dead")["eligible"] is False
     assert c._score(_evidence(),stage="walk80",name="walker")["eligible"]
-    assert c._score(_evidence(crossing=.0),
-                    stage="terrain100",name="non_crosser")["eligible"] is False
-    assert c._score(_evidence(crossing=.25),
-                    stage="terrain100",name="crosser")["eligible"]
+    flat=c._score(_evidence(crossing=.0),
+                  stage="walk40",name="flat")
+    step=c._score(_evidence(crossing=.25),
+                  stage="walk40",name="step")
+    assert flat["eligible"] and step["eligible"]
+    assert step["score"]>flat["score"]
+    # A brilliant obstacle score cannot rescue a policy that cannot walk.
+    assert not c._score(_evidence(core=.03,hard=0.,slope=0.,crossing=1.),
+                        stage="walk40",name="fragile")["eligible"]
+    missing=_evidence()
+    del missing["course_80mm_crossing_rate"]
+    assert not c._score(missing,stage="walk40",name="incomplete")["eligible"]
     assert not c._terrain_entry_ok({"winner":"a","rows":[{"arm":"a",
         "eligible":True,"core":.81,"hard":.01,"slope":.2,"gait":.4}]})
 
@@ -153,8 +173,8 @@ def test_full_three_generation_refork_uses_one_winner_each_time(tmp_path,monkeyp
         extra=.04 if "/general/" in str(ck) else 0.
         if "/turns/" in str(ck):
             extra=.02
-        if "/step5/" in str(ck):
-            extra=.08
+        if "/steps/" in str(ck):
+            extra=-.04
         return _evidence(core=.84+extra,hard=.25+extra,
                          slope=.30+extra,crossing=.10+extra)
     monkeypatch.setattr(c,"git_provenance",lambda:{
@@ -173,18 +193,21 @@ def test_full_three_generation_refork_uses_one_winner_each_time(tmp_path,monkeyp
     for stage in c.STAGES[:3]:
         selection=json.loads((root/stage/"selection.json").read_text())
         assert selection["winner"]=="general"
-        assert len([x for x in trace if x[0].parts[-3]==stage])==8
+        assert len([x for x in trace if x[0].parts[-3]==stage])==10
         assert (root/stage/"scoreboard.json").exists()
     assert not (root/"terrain100").exists()
-    parent60=json.loads((root/"walk60"/"general"/"probe"/"stage_spec.json").read_text())
-    assert "/walk40/general/finish/checkpoints/final.pkl" in parent60["parent"]["path"]
-    parent80=json.loads((root/"walk80"/"general"/"probe"/"stage_spec.json").read_text())
-    assert "/walk60/general/finish/checkpoints/final.pkl" in parent80["parent"]["path"]
+    # Mock phase deliberately doesn't write stage_spec: inspect actual calls.
+    parent60=next(parent for run,parent in trace
+                  if run==root/"walk60"/"general"/"probe")
+    assert "/walk40/general/finish/checkpoints/final.pkl" in str(parent60)
+    parent80=next(parent for run,parent in trace
+                  if run==root/"walk80"/"general"/"probe")
+    assert "/walk60/general/finish/checkpoints/final.pkl" in str(parent80)
     # A second launch with the same pinned source/evidence reuses sealed scores.
     original_count=len(trace)
     c.run(root,foundation=foundation,seed=733,envs=4096,
           screen_envs=32,horizon=300,device="cuda",stop_after="walk80")
-    assert len(trace)==original_count+24  # fake_phase is deliberately not idempotent
+    assert len(trace)==original_count+30  # fake_phase is deliberately not idempotent
 
 
 def test_collapse_rejects_all_and_keeps_the_parent(tmp_path,monkeypatch):
