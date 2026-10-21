@@ -244,6 +244,7 @@ def main(argv=None) -> int:
     mode=q.add_mutually_exclusive_group()
     mode.add_argument('--run',action='store_true',help='one foreground resumable multi-arm study; default plans')
     mode.add_argument('--status',action='store_true',help='read persisted scores and lineage')
+    mode.add_argument('--preflight',action='store_true',help='JAX/MJX true terrain examiner gate before 380M training; no output in campaign root')
     q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
     q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
     q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
@@ -372,6 +373,7 @@ def main(argv=None) -> int:
               '--seed',str(args.seed),'--device',args.device,'--stop-after',args.stop_after]
         if args.run: argv.append('--run')
         if args.status: argv.append('--status')
+        if args.preflight: argv.append('--preflight')
         return lab(argv)
     if args.cmd=='campaign5016':
         from .campaign5016 import main as pinnacle
