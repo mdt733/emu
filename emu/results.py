@@ -606,6 +606,21 @@ def mean_metric(metrics: dict[str, Any], name: str) -> float:
     return float(np.asarray(metrics[name]).mean())
 
 
+def physical_peak_metric(metrics: dict[str, Any], name: str) -> float:
+    """Largest per-world, per-frame magnitude in one collected rollout.
+
+    A mean can hide an extreme finite sample among thousands of worlds.
+    This metric is diagnostic only: it does not change policy rewards,
+    governor update rules, or the physical state.
+    """
+    if name not in metrics:
+        return -1.0
+    values=np.asarray(metrics[name],dtype=np.float64)
+    if values.size == 0 or not np.isfinite(values).all():
+        return float("nan")
+    return float(np.max(values))
+
+
 def done_mean(metrics: dict[str, Any], name: str, default: float = 0.0) -> float:
     # A thin wrapper over masked_mean(metrics, name, 'episode_done',
     # default) -- kept as its own function since "done_mean" reads better
@@ -902,6 +917,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
         'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
+        # Maximum across ALL worlds and 32 frames in this PPO rollout,
+        # not an average that can bury a catastrophic finite outlier.
+        'spring_potential_energy_peak_j': physical_peak_metric(metrics, 'spring_potential_energy_j'),
+        'servo_shaft_abs_power_peak_w': physical_peak_metric(metrics, 'servo_shaft_abs_power_w'),
         # The reward ledger owns payment names. These remain teaching
         # payments; unlike measured progress or torque they are NOT exams.
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')
