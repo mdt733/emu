@@ -17,7 +17,7 @@ import os
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from .campaign5020 import _read, _save, _sha
+from .experiment_io import read_json as _read, save_json as _save, sha256_file as _sha
 from .checkpoint_io import (checkpoint_step, git_provenance,
                             resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
