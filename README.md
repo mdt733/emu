@@ -1,5 +1,13 @@
 # EMU · Learning to walk
 
+> **Current full fresh-run experiment (review branch):**
+> [v5020 full 4096-world campaign](docs/V5020_FULL_CAMPAIGN.md) starts with
+> a 20M 312-input cold-start, then automatically runs five controlled
+> winner/refork challengers at 40M, 60M and 80M, with JAX/MJX preflight,
+> source-pinned checkpoint safety and per-generation `results.md`.
+> Plan with `emu campaign-full5020`; execute only with `--run`.
+> Runs and checkpoints remain outside Git; `main` and showcase unchanged.
+>
 > **v5020 terrain/resilience branch laboratory:** [one-command 380M research campaign](docs/V5020_LAB.md)
 > on `feature/v5020-coldstart-terrain`. Start with `emu campaign5020` to see the
 > 20M shared 312-input foundation, four 80M forks, two 120M finalists and
