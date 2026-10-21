@@ -70,7 +70,14 @@ def terrain_progress_payment(metrics, *, xp, weight: float):
                 (metrics['support'] >= .25) &
                 (metrics['gravity_z'] > .80) &
                 (metrics['terminal'] < .5))
-    return weight * xp.clip(dx / .012, 0., 1.) * eligible.astype(dx.dtype)
+    forward = weight * xp.clip(dx / .012, 0., 1.) * eligible.astype(dx.dtype)
+    # Modest one-shot completion reward for genuine box-foot contact and
+    # supported first crossing; the environment supplies this REWARD-ONLY
+    # truth, never an actor input. The existing zero-weight branch stays
+    # bit-identical and can still beat the specialist on held-out exams.
+    crossed = metrics.get('terrain_first_verified_crossing', xp.zeros_like(dx))
+    completion = 4.0 * weight * xp.clip(crossed, 0., 1.)
+    return forward + completion
 
 
 def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
