@@ -1,8 +1,10 @@
-"""Winner-refork campaign: one 312-input lineage, four controlled challengers per generation.
+"""Winner-refork campaign: one 312-input lineage, five controlled challenges.
 
-Use the proven main-style locomotion baseline and promote exactly one qualified
-policy at 40/60/80M. Only after an 80M locomotion qualification can a separate
-5mm physical-step generation run. Never modifies the historical campaign5020.
+General gait, turning, recovery, efficiency and a real height-growing obstacle
+specialist compete at 40/60/80M (and optional 100M). One proven winner becomes
+the sole parent for all five next-round policies. Frozen exams compare EVERY
+policy on the same general physics and same progressively taller real steps.
+Never modifies historical campaign5020 or the source in main.
 """
 from __future__ import annotations
 
@@ -23,13 +25,18 @@ from .contracts import OBS_SCHEMA_PREVIEW, source_repo_root
 from .training_config import (TrainingConfig, foundation_config,
                               training_sensor_contract, verify_existing_phase_config)
 
-VERSION = "v5020-winner-refork-1"
+VERSION = "v5020-winner-refork-2"
 STAGES = ("walk40", "walk60", "walk80", "terrain100")
 TARGET = {"walk40": 40_000_000, "walk60": 60_000_000,
           "walk80": 80_000_000, "terrain100": 100_000_000}
 PROBE_STEPS = 2_000_000
-WALK_ARMS = ("general", "turns", "recovery", "efficiency")
-TERRAIN_ARMS = ("flat_control", "step3", "step5", "step5_efficiency")
+WALK_ARMS = ("general", "turns", "recovery", "efficiency", "steps")
+# Identical fixed evaluation heights for every policy, even those which
+# only trained on flat surfaces. 150mm is the existing MJX box's geometry
+# ceiling; the earned training frontier is NOT capped at any of these steps.
+EXAM_HEIGHTS_MM = (5, 10, 20, 40, 80, 150)
+EXAM_WEIGHTS = (.10, .15, .25, .25, .15, .10)
+TERRAIN_SAFETY_M = .150
 # Deliberately milder than the original v5020 mature jump, which failed
 # catastrophically at 21.36M. These are envelopes, not target achievements.
 WALK_LEVELS = {
@@ -57,21 +64,25 @@ FLOORS = {
 
 
 def arms(stage: str) -> tuple[str, ...]:
-    return TERRAIN_ARMS if stage == "terrain100" else WALK_ARMS
+    if stage not in STAGES:
+        raise ValueError(f"unknown generation {stage}")
+    return WALK_ARMS
 
 
 def plan(envs: int = 2048) -> dict:
     return {
         "version": VERSION, "observation_schema": OBS_SCHEMA_PREVIEW,
         "proposed_envs": envs, "source": "existing schema-9 foundation (explicit checkpoint)",
+        "independent_step_exam_mm": list(EXAM_HEIGHTS_MM),
+        "earned_step_height_ceiling_mm": int(TERRAIN_SAFETY_M*1000),
         "generations": [
             {"stage": s, "target_steps_per_actor": TARGET[s],
              "arms": list(arms(s)), "probe_steps_per_arm": PROBE_STEPS,
-             "winner_count": 1, "physical_step_training": s == "terrain100"}
+             "winner_count": 1, "physical_step_training": "steps" in arms(s)}
             for s in STAGES],
         "safety": ("probe each new curriculum for 2M, reject collapse/absurd spring energy, "
-                   "screen all survivors in matched held-out physics, keep only qualified winner; "
-                   "terrain100 requires an eligible walk80 winner"),
+                   "screen ALL contenders at 5/10/20/40/80/150mm, including flat controls; "
+                   "only promote a qualified general walker, regardless of step score"),
         "code_branch": "feature/v5020-coldstart-terrain",
     }
 
@@ -99,29 +110,33 @@ def config(run: Path, *, stage: str, arm: str, target: int,
     if stage in ("walk60", "walk80", "terrain100"):
         cfg = replace(cfg, capability_field_mode="graph",
                       field_max_influence=.03 if stage == "walk60" else .06)
-    if stage != "terrain100":
-        if arm == "turns":
-            cfg = replace(cfg, combo_mix_frac={
-                "walk40": .15, "walk60": .35, "walk80": .55}[stage])
-        elif arm == "recovery":
-            cfg = replace(cfg, push_max_force_n={
-                "walk40": .90, "walk60": 1.20, "walk80": 1.80}[stage])
-        elif arm == "efficiency":
-            cfg = replace(cfg, motor_guidance_weight={
-                "walk40": .012, "walk60": .020, "walk80": .030}[stage])
-    else:
-        # Identical static MJX model topology for all four contenders.
-        # In control, the mocap box remains off-course (x=5m).
-        cfg = replace(cfg, terrain_adaptive_flat_control=True,
+    if arm == "turns":
+        cfg = replace(cfg, combo_mix_frac={
+            "walk40": .15, "walk60": .35,
+            "walk80": .55, "terrain100": .55}[stage])
+    elif arm == "recovery":
+        cfg = replace(cfg, push_max_force_n={
+            "walk40": .90, "walk60": 1.20,
+            "walk80": 1.80, "terrain100": 1.80}[stage])
+    elif arm == "efficiency":
+        cfg = replace(cfg, motor_guidance_weight={
+            "walk40": .012, "walk60": .020,
+            "walk80": .030, "terrain100": .030}[stage])
+    elif arm == "steps":
+        # Physical step height is earned continuously from REAL edge
+        # crossings with fall-rate retreat and evidence-count gating;
+        # 150mm is a safety ceiling, not a target or a curriculum stage.
+        # Flat & non-forward-command births are retained for general gait.
+        # Keep gentle steps on level ground first, decoupled from slopes.
+        cfg = replace(cfg,domain_terrain_radius=0.,
                       terrain_random_placement=True,
                       terrain_height_initial_m=.003,
-                      terrain_height_exposure=.25,
+                      terrain_height_safety_m=TERRAIN_SAFETY_M,
+                      terrain_height_exposure=.60,
                       terrain_height_edge_fraction=.35,
-                      terrain_height_growth_m=.0005,
-                      terrain_height_safety_m=0. if arm == "flat_control"
-                      else .003 if arm == "step3" else .005)
-        if arm == "step5_efficiency":
-            cfg = replace(cfg, motor_guidance_weight=.02)
+                      terrain_height_growth_m=.001,
+                      terrain_progress_weight=.035)
+    return cfg
     return cfg
 
 
@@ -258,8 +273,12 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
                  val("power_contact_slope_shaft_abs_power_w")) / 2
         overload = (val("power_robust_over_rated_frac") +
                     val("power_contact_slope_over_rated_frac")) / 2
-        crossing = val("course_5mm_crossing_rate") if stage == "terrain100" else None
-        attempts = val("course_5mm_attempt_count") if stage == "terrain100" else None
+        crossings = [val(f"course_{mm}mm_crossing_rate") for mm in EXAM_HEIGHTS_MM]
+        attempts = [val(f"course_{mm}mm_attempt_count") for mm in EXAM_HEIGHTS_MM]
+        contact = [val(f"course_{mm}mm_contact_rate") for mm in EXAM_HEIGHTS_MM]
+        if any(n < 1 for n in attempts):
+            raise ValueError("no eligible physical obstacle births at a graded height")
+        step_score = sum(w * x for w, x in zip(EXAM_WEIGHTS, crossings))
     except (KeyError, ValueError, TypeError) as exc:
         return {"arm": name, "eligible": False, "score": None,
                 "reasons": [f"invalid held-out evidence: {exc}"]}
@@ -275,14 +294,15 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
         reasons.append("insufficient stepping evidence")
     if height > .055:
         reasons.append("chassis height shortfall >55mm")
-    if stage == "terrain100" and (attempts < 1 or crossing < .01):
-        reasons.append("no verified 5mm physical box crossing")
-    rank = (.33 * core + .20 * hard + .20 * slope + .12 * growth +
-            .10 * gait - .035 * min(1., motion / .65) -
+    # Every arm can earn course points, including the existing control.
+    # True crossing influences selection but cannot bypass survival gates.
+    # Graded heights add discrimination as the earnable frontier grows.
+    rank = (.28 * core + .16 * hard + .16 * slope + .12 * growth +
+            .10 * gait + .25 * step_score -
+            .035 * min(1., motion / .65) -
             .025 * min(1., height / .055) -
             .025 * min(2., power / 15.) -
-            .025 * min(1., overload) +
-            (.12 * crossing if crossing is not None else 0.))
+            .025 * min(1., overload))
     return {"arm": name, "eligible": not reasons,
             "score": round(rank, 6), "reasons": reasons,
             "core": round(core, 5), "hard": round(hard, 5),
@@ -291,7 +311,11 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
             "height_shortfall_m": round(height, 5),
             "shaft_abs_power_w": round(power, 5),
             "overrated_frac": round(overload, 5),
-            "crossing_5mm": None if crossing is None else round(crossing, 5)}
+            "graded_step_score": round(step_score, 5),
+            "step_crossings": {str(mm): round(x, 5)
+                               for mm, x in zip(EXAM_HEIGHTS_MM, crossings)},
+            "step_contacts": {str(mm): round(x, 5)
+                              for mm, x in zip(EXAM_HEIGHTS_MM, contact)}}
 
 
 def _exam(ck: Path, *, stage: str, root: Path, screen_envs: int,
@@ -302,11 +326,11 @@ def _exam(ck: Path, *, stage: str, root: Path, screen_envs: int,
     kwargs = {"envs": screen_envs, "horizon": horizon, "device": device,
               "eval_pitch_deg": 8., "key_by_path": True,
               "write_screen_files": False}
-    if stage == "terrain100":
-        kwargs.update(v5020_physical_exam=True, physical_step_height_mm=5,
-                      course_root=root)
-    else:
-        kwargs["v5020_locomotion_exam"] = True
+    # Identical frozen core/recovery/contact-slope AND obstacle physics
+    # for all five arms; no candidate gets a softer exam.
+    kwargs.update(v5020_physical_exam=True,
+                  physical_step_heights_mm=EXAM_HEIGHTS_MM,
+                  eval_phase_speed_gain=1.0, course_root=root)
     result = evaluate_runs([ck], **kwargs)
     return result[str(ck.resolve())]
 
@@ -365,11 +389,12 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
         f"# {stage} — winner-refork held-out screening\n\n"
         f"Parent SHA-256: {_sha(parent)}\n\nWinner: {winner or 'NONE'}\n\n"
         f"Verdict: {reason}\n\n"
-        "| Arm | Eligible | Score | Core | Recovery | Contact slopes | 5mm crossing | Reasons |\n"
-        "|---|---|---:|---:|---:|---:|---:|---|\n" +
+        "| Arm | Eligible | Score | Core | Recovery | Contact slopes | Graded step score | Crossings by mm | Reasons |\n"
+        "|---|---|---:|---:|---:|---:|---:|---|---|\n" +
         "".join(f"| {r['arm']} | {r['eligible']} | {r['score']} | "
                 f"{r.get('core','—')} | {r.get('hard','—')} | "
-                f"{r.get('slope','—')} | {r.get('crossing_5mm','—')} | "
+                f"{r.get('slope','—')} | {r.get('graded_step_score','—')} | "
+                f"{r.get('step_crossings','—')} | "
                 f"{', '.join(r['reasons'])} |\n" for r in results),
         encoding="utf-8")
     return board
@@ -426,8 +451,8 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
             if stage == "terrain100":
                 prior = _read(root/"walk80"/"scoreboard.json")
                 if not _terrain_entry_ok(prior):
-                    raise RuntimeError("80M winner not qualified for physical boxes; STOP")
-            print(f"\n[refork] {stage}: four challengers from {_validated_step(ancestor,config(root/stage/arms(stage)[0]/'probe',stage=stage,arm=arms(stage)[0],target=TARGET[stage],seed=seed,envs=envs,device=device)):,}",flush=True)
+                    raise RuntimeError("80M winner not qualified for 100M continuation; STOP")
+            print(f"\n[refork] {stage}: five challengers from {_validated_step(ancestor,config(root/stage/arms(stage)[0]/'probe',stage=stage,arm=arms(stage)[0],target=TARGET[stage],seed=seed,envs=envs,device=device)):,}",flush=True)
             candidates = {}
             for name in arms(stage):
                 # On resume, completed rejected probes are re-read and not retrained.
@@ -457,7 +482,7 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="312-input four-way winner/refork walk40 -> walk60 -> walk80 -> guarded terrain100")
+    p = argparse.ArgumentParser(description="312-input five-way winner/refork: general, turns, recovery, efficiency, earned-height steps")
     p.add_argument("--root",type=Path,default=Path.home()/"robot_lab"/"emu_runs"/"v5020_refork")
     p.add_argument("--foundation",type=Path,help="exact existing ~20M schema-9 final.pkl; no new foundation trained")
     p.add_argument("--seed",type=int,default=733)
@@ -465,7 +490,7 @@ def main(argv=None) -> int:
     p.add_argument("--screen-envs",type=int,default=32)
     p.add_argument("--screen-horizon",type=int,default=300)
     p.add_argument("--device",choices=("cuda","cpu","auto","gpu"),default="cuda")
-    p.add_argument("--stop-after",choices=STAGES,default="walk80")
+    p.add_argument("--stop-after",choices=STAGES,default="walk40")
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--run",action="store_true",help="real foreground GPU training")
     mode.add_argument("--status",action="store_true",help="read-only persisted winners and scoreboards")
