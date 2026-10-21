@@ -51,15 +51,15 @@ def run(height_mm: int, heading_kp: float, seed: int, worlds: int,
         raise FileNotFoundError(f'policy file does not exist: {policy}')
     actor, normalizer, export = load_exported_actor_for_exam(policy)
     if export['observation_schema'] not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW):
-        raise ValueError('pilot requires immutable 232 or 280 sensor actor')
+        raise ValueError('pilot requires immutable 232 or 312 sensor actor')
     if ablate_forward_preview:
         if export['observation_schema'] != OBS_SCHEMA_PREVIEW:
-            raise ValueError('forward zero-ablation requires a trained 280-input policy')
+            raise ValueError('forward zero-ablation requires a trained 312-input policy')
         if export['sensor_contract'].get('forward_masked'):
             raise ValueError('policy was already trained with preview masked')
     if policy_file is None and export['source']['step'] != 260112384:
         raise ValueError('unexpected protected policy training lineage')
-    # Explicit --policy accepts independent 232/280 research exports;
+    # Explicit --policy accepts independent 232/312 research exports;
     # they must still prove the exact sensor contract inside this examiner.
     settings = export['sensor_contract']['settings']
 
@@ -282,9 +282,9 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('--height-mm',type=int,choices=[0,5,10,15,20,30,40,50,60,80,100,120,150],required=True)
     p.add_argument('--policy',type=Path,default=None,
-                   help='optional independent 232/280-input .emupolicy; default protected 260M frozen champion')
+                   help='optional independent 232/312-input .emupolicy; default protected 260M frozen champion')
     p.add_argument('--ablate-forward-preview',action='store_true',
-                   help='read-only 280-input policy counterfactual: zero all 12 preview channels only, unchanged actor and physics')
+                   help='read-only 312-input policy counterfactual: zero all 20 terrain-memory channels, unchanged actor and physics')
     p.add_argument('--step-yaw-deg',type=float,default=0.)
     p.add_argument('--speed',type=float,default=.10)
     p.add_argument('--heading-kp',type=float,choices=[0.,.75],required=True)
