@@ -1564,6 +1564,21 @@ class EmuMJXEnv(TaskSampler):
                   'terrain_forward_delta_m': (data.xpos[:,self.torso_id,0] -
                                               state.data.xpos[:,self.torso_id,0]),
                   'terrain_course_x': data.xpos[:,self.torso_id,0]}
+        if self.terrain_adaptive:
+            # Reward only a FIRST, physically verified passage in this
+            # episode: real box-foot collision occurred earlier or now,
+            # both feet and torso cleared the box, with supported upright
+            # motion. Mere forward progress or a bounding-box skim is not
+            # a completion bonus. Actor receives no privileged truth.
+            crossed = metrics['terrain_crossed_this_frame'] > .5
+            contacted = ((state.ep_terrain_contacted > .5) |
+                         (metrics['terrain_box_foot_contact_any'] > .5))
+            first_verified = (crossed & contacted &
+                              (state.ep_terrain_crossed < .5) &
+                              (metrics['terminal'] < .5) &
+                              (~physics_diverged))
+            metrics = {**metrics, 'terrain_first_verified_crossing':
+                       first_verified.astype(jnp.float32)}
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
