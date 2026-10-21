@@ -48,6 +48,18 @@
 
 
 
+    <aside id="terrainMemoryPanel" class="terrain-memory-panel glass" hidden aria-label="Rolling terrain sensor diagnostic">
+      <header><b>V TERRAIN MEMORY</b><button type="button" id="terrainMemoryClose" aria-label="Close terrain memory panel">✕</button></header>
+      <small class="terrain-memory-caption">Sensor-only diagnostic · existing walker does not consume this memory</small>
+      <label class="terrain-memory-row"><input id="terrainRaysToggle" type="checkbox" checked /> Show red ToF rays &amp; hit dots</label>
+      <label class="terrain-memory-row"><input id="terrainMemoryFreeze" type="checkbox" /> Freeze remembered terrain</label>
+      <div class="terrain-memory-track"><b>RIGHT</b><canvas id="terrainRightCanvas" height="108" aria-label="Right V-memory heights and confidence"></canvas></div>
+      <div class="terrain-memory-track"><b>LEFT</b><canvas id="terrainLeftCanvas" height="108" aria-label="Left V-memory heights and confidence"></canvas></div>
+      <div class="terrain-memory-key">Grey = unknown · brighter = more confidence · gold = NN sample columns</div>
+      <pre id="terrainMemorySamples" class="terrain-memory-samples">Awaiting measurements</pre>
+      <small id="terrainMemoryStatus" class="terrain-memory-caption">Load a policy to start</small>
+    </aside>
+
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
       <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World &amp; steering</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
