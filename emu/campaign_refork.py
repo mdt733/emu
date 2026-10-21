@@ -163,8 +163,11 @@ def _context(root: Path, *, foundation: dict, seed: int, envs: int,
         raise ValueError("campaign root must be outside Git and outside the home root")
     if not provenance.get("available") or provenance.get("dirty") or not provenance.get("commit"):
         raise RuntimeError("refork requires a clean, identifiable Git revision")
-    if provenance.get("branch") != "feature/v5020-coldstart-terrain":
-        raise RuntimeError("refork work must run on feature/v5020-coldstart-terrain")
+    # Reviewable integration branches may host a fresh fully pinned
+    # campaign. Never run on main, develop or a detached/unknown ref.
+    if provenance.get("branch") not in (
+        "feature/v5020-coldstart-terrain", "feature/v5020-full-campaign"):
+        raise RuntimeError("refork requires an approved v5020 feature branch")
     expected = {"version": VERSION, "foundation": foundation, "seed": seed,
                 "envs": envs, "screen_envs": screen_envs, "horizon": horizon,
                 "source_commit": provenance["commit"]}
