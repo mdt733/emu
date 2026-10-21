@@ -222,30 +222,110 @@ def _phase(run: Path, cfg: TrainingConfig, *, parent: Path,
 
 
 def probe_health(probe_run: Path) -> dict:
-    """Reject gross on-policy collapse before paying for a full 20M generation."""
+    """Audit a whole short continuation, then judge its latest trajectory.
+
+    A recovering learner is not rejected for one early fall-rate spike.
+    Extreme finite physics is different: ANY logged physically absurd
+    energy/power sample invalidates the probe even if its last rows look
+    healthy. The recent window still vetoes persistent collapse.
+    These are research screening thresholds, not hardware certifications.
+    """
     with (probe_run / "metrics.csv").open(newline="", encoding="utf-8") as fd:
         rows = list(csv.DictReader(fd))
     if not rows:
         raise RuntimeError(f"no actual rollout metrics for probe {probe_run}")
-    recent = rows[-3:]
-    def readings(name: str) -> list[float]:
-        vals = [float(r[name]) for r in recent]
-        if not all(math.isfinite(v) for v in vals):
-            raise ValueError(f"nonfinite {name} in {probe_run}")
-        return vals
-    fall = sum(readings("fall_rate")) / len(recent)
-    length = sum(readings("ep_len_mean")) / len(recent)
-    max_spring = max(readings("spring_potential_energy_j"))
+
+    required = ("fall_rate", "ep_len_mean", "spring_potential_energy_j")
+    # Current telemetry includes these; older source-pinned research traces
+    # may omit them. Do not manufacture a zero for missing optional data.
+    optional = ("servo_shaft_abs_power_w", "servo_over_rated_frac",
+                "nan_grad_skips_total")
+    def samples(key: str, *, mandatory: bool = True) -> list[float] | None:
+        if not mandatory and key not in rows[0]:
+            return None
+        data = []
+        for n, row in enumerate(rows):
+            try:
+                value = float(row[key])
+            except (KeyError, ValueError, TypeError) as exc:
+                raise ValueError(f"missing/non-numeric {key} in probe row {n}") from exc
+            if not math.isfinite(value):
+                raise ValueError(f"nonfinite {key} in probe row {n}")
+            data.append(value)
+        return data
+
+    readings = {k: samples(k) for k in required}
+    readings.update({k: samples(k, mandatory=False) for k in optional})
+    falls = readings["fall_rate"]
+    lengths = readings["ep_len_mean"]
+    spring = readings["spring_potential_energy_j"]
+    if any(not 0. <= v <= 1. for v in falls):
+        raise ValueError("fall_rate outside physical [0,1] range")
+    if any(v < 0. for v in lengths + spring):
+        raise ValueError("negative physical episode length or spring energy")
+    if readings["servo_shaft_abs_power_w"] is not None and any(
+            v < 0. for v in readings["servo_shaft_abs_power_w"]):
+        raise ValueError("negative absolute servo shaft power")
+    if readings["servo_over_rated_frac"] is not None and any(
+            not 0. <= v <= 1. for v in readings["servo_over_rated_frac"]):
+        raise ValueError("servo overload fraction outside [0,1]")
+
+    # If completed-episode counts exist, distinguish a sample with no
+    # completed episodes from a measured healthy zero-fall cohort.
+    episodes = samples("episodes", mandatory=False)
+    if episodes is not None and any(x < 0. for x in episodes):
+        raise ValueError("negative completed episode count")
+    if episodes is not None and sum(episodes) < 8.:
+        raise ValueError("insufficient completed episodes to qualify a probe")
+
+    # One contiguous recent window evaluates the final learned policy.
+    # Prior severe windows are retained as *warnings* if subsequently
+    # recovered, never silently erased by truncation to the last 3 rows.
+    window = max(3, min(12, math.ceil(len(rows) * .20)))
+    recent_fall = falls[-window:]
+    recent_len = lengths[-window:]
+    def avg(values: list[float]) -> float:
+        return sum(values) / len(values)
+
+    fall = avg(recent_fall)
+    length = avg(recent_len)
+    max_spring = max(spring)
+    severe_windows = sum(
+        avg(falls[i:i + 3]) > .92 and avg(lengths[i:i + 3]) < 70.
+        for i in range(max(0, len(rows) - 2))
+    )
     reasons = []
+    warnings = []
     if fall > .92:
         reasons.append(f"probe fall rate {fall:.1%} >92%")
     if length < 70.:
         reasons.append(f"probe mean episode length {length:.1f} <70 frames")
     if max_spring > 50.:
         reasons.append(f"unphysical mean spring potential {max_spring:.1f}J >50J")
+    # Deliberately permissive failsafe for an aggregate six-actuator
+    # ABSOLUTE mechanical-power diagnostic, not a battery-power estimate.
+    # Typical healthy research screens are single-digit watts; 1000W is
+    # orders of magnitude beyond a plausible reading for this robot.
+    max_power = (max(readings["servo_shaft_abs_power_w"])
+                 if readings["servo_shaft_abs_power_w"] is not None else None)
+    if max_power is not None and max_power > 1000.:
+        reasons.append(f"unphysical mean shaft absolute power {max_power:.1f}W >1000W")
+    if severe_windows and not reasons:
+        warnings.append(f"{severe_windows} earlier severely collapsed 3-row windows; later recovery observed")
+    skips = readings["nan_grad_skips_total"]
+    if skips is not None and max(skips) > 0.:
+        warnings.append(f"PPO has reported skipped nonfinite gradients (max {max(skips):g}); inspect the trace")
+
     return {"eligible": not reasons, "reasons": reasons,
             "fall_rate": round(fall, 5), "mean_episode_frames": round(length, 2),
-            "max_logged_spring_j": round(max_spring, 3)}
+            "max_logged_spring_j": round(max_spring, 3),
+            "max_logged_shaft_abs_power_w": None if max_power is None else round(max_power, 3),
+            "rows_checked": len(rows), "recent_window_rows": min(len(rows),window),
+            "worst_3row_fall_rate": round(max(
+                (avg(falls[i:i+3]) for i in range(max(1, len(rows)-2))), default=0.), 5),
+            "severe_collapse_windows": int(severe_windows),
+            "total_completed_episodes": None if episodes is None else int(sum(episodes)),
+            "warnings": warnings}
 
 
 def _score(evidence: dict, *, stage: str, name: str) -> dict:
