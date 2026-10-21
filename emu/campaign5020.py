@@ -395,6 +395,7 @@ def main(argv=None) -> int:
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument("--run",action="store_true",help="execute campaign in foreground; default is plan only")
     mode.add_argument("--status",action="store_true",help="inspect only the persisted campaign context and scoreboard")
+    mode.add_argument("--preflight",action="store_true",help="test 312-input MJX true-step, slope, and servo exam without training or changing campaign root")
     args=parser.parse_args(argv)
     if args.status:
         print(json.dumps({
@@ -403,10 +404,15 @@ def main(argv=None) -> int:
                       if (args.root/f"{r}_scoreboard.json").exists()},
         },indent=2,sort_keys=True))
         return 0
-    if not args.run:
+    if not args.run and not args.preflight:
         print(json.dumps(plan(args.seed,args.envs,args.screen_envs,args.screen_horizon),indent=2,sort_keys=True))
         return 0
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
+    if args.preflight:
+        from .campaign5020_preflight import run_preflight
+        outcome=run_preflight(seed=args.seed,device=args.device,worlds=8,horizon=6)
+        print(json.dumps(outcome,indent=2,sort_keys=True))
+        return 0
     run(args.root,seed=args.seed,envs=args.envs,
         screen_envs=args.screen_envs,horizon=args.screen_horizon,
         device=args.device,stop_after=args.stop_after)
