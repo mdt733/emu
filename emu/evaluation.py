@@ -314,7 +314,8 @@ SCREEN_PANELS = {
 def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
            sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0,
-           terrain_mode: str = 'gravity', course_path: Path | None = None):
+           terrain_mode: str = 'gravity', course_path: Path | None = None,
+           exact_obstacle_height: bool = False):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
     from .environment import DomainRandomizationConfig
@@ -327,6 +328,7 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
         terrain_contact_mode='box_surface' if course_path is not None else 'legacy',
         terrain_adaptive=course_path is not None,
         terrain_random_placement=course_path is not None,
+        terrain_exact_height_exam=exact_obstacle_height,
         terrain_height_exposure=.95, terrain_height_edge_fraction=.80,
         push_max_force_n=push_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
@@ -449,7 +451,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         worlds['real_step'] = _screen_world(config,envs=envs,seed_offset=1771,
             limits=(.40,-.10,.12,.80),push_n=.35,sensor_scale=1.5,
             combo_mix=.05,terrain_radius=.22,terrain_mode='contact',
-            course_path=course)
+            course_path=course, exact_obstacle_height=True)
         course_episode=_screen_episode(.25,.25,.15,.25,(.65,.25,.10),.75)
         course_episode.update(frontier_terrain_height_m=heights[0]/1000.,
                               probe_cmd_vx=.20,probe_cmd_vy=0.,probe_cmd_yaw=0.)
@@ -494,6 +496,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             'v5020_locomotion_exam':bool(v5020_locomotion_exam),
             'physical_step_height_mm':physical_step_height_mm if v5020_physical_exam and physical_step_heights_mm is None else None,
             'physical_step_heights_mm':list(heights) if v5020_physical_exam else [],
+            'physical_step_exact_height':bool(v5020_physical_exam),
             'checkpoint_sha256':sha256_file(ck)}
         for name,(world_name,salt,episode) in panels.items():
             env,trainer=worlds[world_name]
@@ -505,9 +508,10 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         if v5020_physical_exam:
             env,trainer=worlds['real_step']
             for mm in heights:
-                # Matched RNG stream at each height for every contender;
-                # scaled random terrain births are still judged at their
-                # actual simulated collision height, never teacher rewards.
+                # This birth sets the actual box TOP to exactly mm/1000
+                # above its local contact plane, not merely the upper
+                # boundary of a randomized training-height distribution.
+                # Matched RNG and terrain transforms are reused per policy.
                 episode=dict(panels['real_step'][2],
                              frontier_terrain_height_m=mm/1000.)
                 evidence=trainer['evaluate_terrain_summary'](
