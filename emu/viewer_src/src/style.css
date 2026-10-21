@@ -385,3 +385,32 @@ button:disabled { opacity: .4; cursor: default; }
  .challenge-legend{font-size:10px;}
  .challenge-controls select,#demoMode{flex-basis:100%;}
 }
+
+
+/* Optional V-memory diagnostics: never obscure joystick deck on mobile. */
+.terrain-memory-panel {
+  position:fixed; top:68px; right:12px; z-index:18;
+  width:min(390px,calc(100vw - 24px)); max-height:min(77vh,620px);
+  overflow:auto; padding:11px 12px; border-radius:12px;
+  background:rgba(10,19,28,.92); color:#e1eaf2;
+  box-shadow:0 10px 30px rgba(0,0,0,.34);
+}
+.terrain-memory-panel[hidden]{display:none!important;}
+.terrain-memory-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.terrain-memory-panel header b{font-size:11px;letter-spacing:.10em;}
+.terrain-memory-panel header button{min-height:31px;padding:3px 10px;}
+.terrain-memory-caption,.terrain-memory-key{display:block;color:#91a9b9;font-size:10px;line-height:1.45;margin:5px 0;}
+.terrain-memory-row{display:flex;align-items:center;gap:7px;margin:7px 0;font-size:12px;cursor:pointer;}
+.terrain-memory-row input{accent-color:#e57b77;}
+.terrain-memory-track{margin:8px 0 4px;}
+.terrain-memory-track b{font-size:10px;letter-spacing:.09em;color:#c1d1e2;}
+.terrain-memory-track canvas{display:block;width:100%;height:108px;border-radius:6px;}
+.terrain-memory-samples{white-space:pre-wrap;font:10px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;
+ color:#d5e4f0;background:rgba(15,27,38,.8);padding:6px;border-radius:6px;margin:6px 0;}
+@media(max-width:650px){
+ .terrain-memory-panel{top:64px;left:8px;right:8px;width:auto;
+  max-height:min(47vh,400px);padding:8px 10px;}
+ .terrain-memory-track canvas{height:83px;}
+ .terrain-memory-panel .terrain-memory-track{margin:4px 0;}
+ #terrainMemoryToggle{font-size:11px;padding:0 7px;}
+}
