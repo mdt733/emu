@@ -47,7 +47,7 @@ their evidence sources and decisions must **not** be conflated.
 | Governor and capability field (`curriculum.py`) | Pool training evidence; choose next task envelope and retreat on failure | Certify unseen conditions with training rewards |
 | Frozen examiner (`evaluation.py`) | Matched independent physical tests with counts, task context and confidence | Teach PPO or modify governor |
 | Champion Ladder (`campaign_refork.py`) | Five independent arms, short health probes, identical exams, single winner / keep incumbent | Define physical truth or implement PPO |
-| Lifecycle (`training.py`, `checkpoint_io.py`, `experiment_io.py`) | Source identity, isolated runs, full-state resume and atomic reports | Interpret reward as demonstrated walking |
+| Lifecycle (`train_cli.py`, `training.py`, `checkpoint_io.py`, `experiment_io.py`) | Source identity, isolated runs, full-state resume and atomic reports | Interpret reward as demonstrated walking |
 
 ## The three notions of difficulty
 
