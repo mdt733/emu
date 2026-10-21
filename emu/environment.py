@@ -609,13 +609,22 @@ class TaskSampler:
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
             vy = jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], vy)
             yaw = jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], yaw)
-            obstacle_height = (adaptive_height_sample(
-                jnp, params[P.frontier_terrain_height_m],
-                jax.random.uniform(k_terrain, ()),
-                jax.random.uniform(jax.random.fold_in(k_terrain, 5018), ()),
-                exposure=self.terrain_height_exposure,
-                edge_fraction=self.terrain_height_edge_fraction)
-                if self.terrain_adaptive else jnp.asarray(0., dtype=jnp.float32))
+            # Ordinary training samples flat, interior and frontier heights.
+            # Frozen certification uses the EXACT requested physical height
+            # on each eligible birth; an "mm" label must not mean a mixture
+            # of smaller obstacles. Both paths retain identical geometry.
+            if self.terrain_exact_height_exam:
+                obstacle_height = jnp.clip(params[P.frontier_terrain_height_m],
+                                           0., self.terrain_height_max_m)
+            elif self.terrain_adaptive:
+                obstacle_height = adaptive_height_sample(
+                    jnp, params[P.frontier_terrain_height_m],
+                    jax.random.uniform(k_terrain, ()),
+                    jax.random.uniform(jax.random.fold_in(k_terrain, 5018), ()),
+                    exposure=self.terrain_height_exposure,
+                    edge_fraction=self.terrain_height_edge_fraction)
+            else:
+                obstacle_height = jnp.asarray(0., dtype=jnp.float32)
             # Preserve flat rehearsal across all command regimes.
             obstacle_height = jnp.where(is_athletic, 0., obstacle_height)
             # This lab's obstacle is fixed on WORLD +X. Challenging a
@@ -1141,6 +1150,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_height_exposure: float = .60,
                  terrain_height_edge_fraction: float = .35,
                  terrain_random_placement: bool = False,
+                 terrain_exact_height_exam: bool = False,
                  terrain_progress_weight: float = 0.,
                  forward_preview_masked: bool = False):
         import jax
@@ -1257,6 +1267,13 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_progress_weight = float(terrain_progress_weight)
         self.terrain_contact_mode = terrain_contact_mode
         self.terrain_adaptive = bool(terrain_adaptive)
+        # Frozen examiner only: do not affect training's random height
+        # distribution or the actor's sensor/normalizer contract.
+        self.terrain_exact_height_exam = bool(terrain_exact_height_exam)
+        if self.terrain_exact_height_exam and not self.terrain_adaptive:
+            raise ValueError('exact-height physical exam requires adaptive box physics')
+        from .terrain import TERRAIN_FRONTIER_MAX_M
+        self.terrain_height_max_m = TERRAIN_FRONTIER_MAX_M
         self.terrain_random_placement = bool(terrain_random_placement)
         if self.terrain_random_placement and (
                 not self.terrain_adaptive or observation_schema != OBS_SCHEMA_PREVIEW):
