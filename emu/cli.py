@@ -244,6 +244,18 @@ def main(argv=None) -> int:
     mode=q.add_mutually_exclusive_group()
     mode.add_argument('--run',action='store_true',help='one foreground resumable multi-arm study; default plans')
     mode.add_argument('--status',action='store_true',help='read persisted scores and lineage')
+    q=sub.add_parser('campaign-refork',help='v5020 winner-refork: 4x40M, promote 1; 4x60M; 4x80M; gated 5mm terrain')
+    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5020_refork'))
+    q.add_argument('--foundation',default='',help='exact existing 312-input ~20M foundation final.pkl')
+    q.add_argument('--envs',type=int,default=2048)
+    q.add_argument('--screen-envs',type=int,default=32)
+    q.add_argument('--screen-horizon',type=int,default=300)
+    q.add_argument('--seed',type=int,default=733)
+    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
+    q.add_argument('--stop-after',choices=['walk40','walk60','walk80','terrain100'],default='walk80')
+    mode=q.add_mutually_exclusive_group()
+    mode.add_argument('--run',action='store_true')
+    mode.add_argument('--status',action='store_true')
     q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
     q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
     q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
@@ -373,6 +385,17 @@ def main(argv=None) -> int:
         if args.run: argv.append('--run')
         if args.status: argv.append('--status')
         return lab(argv)
+    if args.cmd=='campaign-refork':
+        from .campaign_refork import main as refork
+        argv=['--root',args.root,'--envs',str(args.envs),
+              '--screen-envs',str(args.screen_envs),
+              '--screen-horizon',str(args.screen_horizon),
+              '--seed',str(args.seed),'--device',args.device,
+              '--stop-after',args.stop_after]
+        if args.foundation: argv+=['--foundation',args.foundation]
+        if args.run: argv.append('--run')
+        if args.status: argv.append('--status')
+        return refork(argv)
     if args.cmd=='campaign5016':
         from .campaign5016 import main as pinnacle
         argv=['--root',args.root,'--foundation',args.foundation,
