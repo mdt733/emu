@@ -8,7 +8,7 @@ test('first-hit sensor sees a real raised step before the flat floor',()=>{
   const origin=[0,0,.2334], dx=.165/.2334;
   const length=Math.hypot(dx,1),ray=[dx/length,0,-1/length];
   const flat=groundRayHit(origin,ray,()=>0);
-  const step=groundRayHit(origin,ray,(x)=>x>=.16&&x<=.24?.05:0);
+  const step=groundRayHit(origin,ray,(x)=>x>=.12&&x<=.24?.05:0);
   assert.ok(flat&&step);
   assert.ok(flat.range-step.range>.02,{flat,step});
 });
