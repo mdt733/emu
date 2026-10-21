@@ -37,6 +37,12 @@ The reference implementation is available at
 
 The shared `scoring.py` now owns completed obstacle-trial accounting and exact-height exam validation. It rejects missing completed attempts and events without completed trials. Broader gait/tracking/support definitions are **not yet unified**.
 
+The 2M probe is a separate **numerical safety and training-health gate**:
+it reads all logged samples, preserves any per-world physics peaks,
+weights final-window fall/episode length by completed trial counts,
+and records recovered early collapse. It never teaches PPO or supplies
+evidence to a frozen certification exam.
+
 The same *definitions of physical events* must be used by all consumers;
 their evidence sources and decisions must **not** be conflated.
 
