@@ -310,7 +310,9 @@ def _choose(root: Path, from_stage: str, to_stage: str, *,
             board: dict, previous: list[str]) -> list[str]:
     slots=SLOTS[to_stage]
     eligible=[row for row in board["results"] if row.get("eligible") and
-              row.get("score") is not None and row["arm"] in previous]
+              row.get("score") is not None and math.isfinite(float(row["score"]))
+              and row["arm"] in previous]
+    eligible.sort(key=lambda row:(-float(row["score"]),row["arm"]))
     if len(eligible)<slots:
         raise RuntimeError(f"Only {len(eligible)}/{slots} eligible {from_stage} finalists. STOP: inspect results.md; no arbitrary winner")
     selected=sorted(r["arm"] for r in eligible[:slots])
