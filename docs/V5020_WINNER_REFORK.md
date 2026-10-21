@@ -1,8 +1,8 @@
 # v5020 — five-way winner-and-refork, with earned obstacle height
 
-**One integration Git branch:** \`feature/v5020-coldstart-terrain\`.
+**One integration Git branch:** `feature/v5020-coldstart-terrain`.
 **Historical main/reference:** successful v5016 Pinnacle methodology.
-**Historical failed v5020 campaign:** unchanged; \`emu campaign5020\` remains reproducible.
+**Historical failed v5020 campaign:** unchanged; `emu campaign5020` remains reproducible.
 
 We now make **five different learning strategies**, not five Git branches. All
 contenders start from the **same frozen schema-9, 312-input policy**, including
@@ -15,11 +15,11 @@ learning state into five new independent training continuations.
 
 | Contender | What it teaches |
 |---|---|
-| \`general\` | Main-style conservative level/general gait; no physical boxes |
-| \`turns\` | More mixed forward/lateral/yaw commands |
-| \`recovery\` | More disturbance pushes and recovery lessons |
-| \`efficiency\` | Mild servo mechanical-effort costs |
-| \`steps\` | Real collidable box steps **on level ground**, with an **earned continuously growing step-height frontier** |
+| `general` | Main-style conservative level/general gait; no physical boxes |
+| `turns` | More mixed forward/lateral/yaw commands |
+| `recovery` | More disturbance pushes and recovery lessons |
+| `efficiency` | Mild servo mechanical-effort costs |
+| `steps` | Real collidable box steps **on level ground**, with an **earned continuously growing step-height frontier** |
 
 The 312-input sensor package remains identical across all five. **The steps
 arm does not have a prescribed 3mm, 5mm or 20mm final height.** It begins
@@ -29,7 +29,7 @@ frontier-edge steps. Some episodes are flat to rehearse general walking;
 non-forward tasks are also flat because a box placed on global +X would
 otherwise train avoidance and falling instead of climbing.
 
-The preexisting \`RegimeGovernor\` accumulates real *completed* episodes
+The preexisting `RegimeGovernor` accumulates real *completed* episodes
 near the frontier and advances by up to **1mm per qualifying evidence batch**
 when true crossing, contact and fall criteria pass. Falls can retreat height;
 lack of evidence holds it still. The height field lives in the saved governor
@@ -40,7 +40,7 @@ competence reaches it, the next research change can enlarge the collision
 geometry and carefully test heights beyond 150mm, perhaps eventually 200mm.
 Just lifting a numeric cap would not make the robot capable.
 
-The optional \`terrain100\` generation is now **another five-way competition**
+The optional `terrain100` generation is now **another five-way competition**
 from the 80M winner, not a special 3-versus-5mm shootout. The first launch
 still defaults to stopping at 40M for evidence review.
 
@@ -54,10 +54,16 @@ We use *identical frozen-policy screens* for all five at each generation:
 - **True collidable step crossings at 5, 10, 20, 40, 80 and 150mm**
 
 These 6 heights are **testing milestones**, not ceilings in the teaching
-distribution. All models—including \`general\`, which trained no boxes—are
+distribution. All models—including `general`, which trained no boxes—are
 evaluated at every height. This preserves the ability of naturally agile
 walkers (such as the older 260M demo) to score obstacle competence even
 without explicit step lessons.
+
+The frozen examiner now sets **the exact requested collision height at birth**,
+not a randomized lesson height capped by the exam label. Each height requires
+at least **8 completed eligible attempts** for tournament grading, with
+explicit contact and crossing rates; insufficient evidence fails closed.
+This is a screening threshold, not a hardware safety certification.
 
 The examiner requires a real box-foot contact and **supported, upright
 passage beyond the measured box**, with a matched seed and course geometry.
@@ -94,14 +100,14 @@ checkpoint is also tested under the same conditions. If all contenders
 are rejected or regress badly against a qualified incumbent, the campaign
 **stops and preserves the parent** rather than selecting a false champion.
 
-One GPU subprocess runs at a time. \`flock\`, run/source identity, parent
+One GPU subprocess runs at a time. `flock`, run/source identity, parent
 SHA-256, validated checkpoint schema and selection SHA checks enforce
 resumability. Existing output roots and old policy files are never
 reinterpreted under changed training source.
 
 ## Read-only plan / tests
 
-\`\`\`bash
+```bash
 cd ~/emu-v5020
 git switch feature/v5020-coldstart-terrain
 git fetch origin feature/v5020-coldstart-terrain
@@ -110,14 +116,14 @@ source .venv/bin/activate
 
 emu campaign-refork
 python -m pytest -q tests/test_v5020_refork.py tests/test_v5020_campaign.py
-\`\`\`
+```
 
 Inspect available foundation snapshots before choosing a parent:
 
-\`\`\`bash
+```bash
 find ~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints \
   -maxdepth 1 -name '*.pkl' -printf '%f\n' | sort
-\`\`\`
+```
 
 The input may be any compatible, **validated 12–22M foundation checkpoint**,
 including a healthy earlier snapshot. The completed 20M final is not
@@ -129,7 +135,7 @@ automatically best.
 4096-world foundation in the previous campaign and preserves that environment
 count for its descendants:
 
-\`\`\`bash
+```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 emu campaign-refork --run \
   --foundation ~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints/final.pkl \
@@ -137,14 +143,14 @@ emu campaign-refork --run \
   --screen-envs 32 --screen-horizon 300 \
   --stop-after walk40 \
   --root ~/robot_lab/emu_runs/v5020_refork
-\`\`\`
+```
 
 The first generation runs **five probes**, then only the survivors'
 continuations and frozen exams. Expect the five-arm 40M round to require
 more total environment steps than the previous four-arm proposal. Inspect
-\`walk40/scoreboard.json\`, \`walk40/scoreboard.md\` and the winner before
-using the same pinned commit/root to increase \`--stop-after\` to \`walk60\`,
-\`walk80\`, then optional \`terrain100\`.
+`walk40/scoreboard.json`, `walk40/scoreboard.md` and the winner before
+using the same pinned commit/root to increase `--stop-after` to `walk60`,
+`walk80`, then optional `terrain100`.
 
 Changing from the original 4096 training worlds to 2048 is a separate
 experiment and requires a 2048-world foundation checkpoint and fresh root.
@@ -154,19 +160,19 @@ proof of curriculum maturity.
 
 ## Implementation and verification
 
-- \`emu/campaign_refork.py\`: five-arm lineage, probe/finish separation,
+- `emu/campaign_refork.py`: five-arm lineage, probe/finish separation,
   score eligibility and single-winner promotion
-- \`emu/evaluation.py\`: frozen same-geometry, six-height MJX examination
-- \`emu/terrain.py\` and \`emu/curriculum.py\`: existing per-world adaptive
+- `emu/evaluation.py`: frozen same-geometry, six-height MJX examination
+- `emu/terrain.py` and `emu/curriculum.py`: existing per-world adaptive
   births, earned height growth, retreat and training-evidence pooling
-- \`emu/environment.py\` and \`emu/rewards.py\`: reward-only,
+- `emu/environment.py` and `emu/rewards.py`: reward-only,
   physically verified first crossing
-- \`tests/test_v5020_refork.py\`: five-arm recipes, capability/score gates,
+- `tests/test_v5020_refork.py`: five-arm recipes, capability/score gates,
   probe aborts, DAG promotion, no altered sensor contract
-- \`tests/test_v5020_coldstart.py\`: actual MJX obstacle/crossing/efficiency
+- `tests/test_v5020_coldstart.py`: actual MJX obstacle/crossing/efficiency
   compilation smoke
 
 The code and documentation are under review on the v5020 feature branch.
-No changes to \`main\` or the showcase, and no locally trained weights
+No changes to `main` or the showcase, and no locally trained weights
 are written to Git. A clean source checkout and successful Python/real-MJX
 acceptance remain required before the next large run.
