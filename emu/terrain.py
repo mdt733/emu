@@ -15,6 +15,30 @@ from __future__ import annotations
 
 from .directional import contact_pair_mask
 
+def box_crossing_position_flags(xp, *, foot_xyz, torso_xyz,
+                                box_center, box_rotation, box_half_size):
+    """Teacher-only per-world crossing geometry for a yawed physical box.
+
+    foot_xyz: [N,2,3], torso_xyz/box_center: [N,3],
+    box_rotation: [N,3,3], box_half_size: [3].
+    Output is three [N] flags. NEVER compare [N,2] feet to an [N]
+    threshold without an explicit [:,None] world-to-foot broadcast.
+
+    This is only evidence of being past the box; the caller separately
+    requires real supporting contacts, correct commands and upright gait.
+    """
+    half=xp.asarray(box_half_size)
+    extent_x=(xp.abs(box_rotation[:,0,0])*half[0] +
+              xp.abs(box_rotation[:,0,1])*half[1])
+    beyond=box_center[:,0]+extent_x
+    torso_far=torso_xyz[:,0]>=beyond+.18
+    feet_far=xp.all(foot_xyz[:,:,0]>=(beyond+.04)[:,None],axis=1)
+    lane_y=box_center[:,1]
+    in_lane=((xp.abs(torso_xyz[:,1]-lane_y)<.11) &
+             xp.all(xp.abs(foot_xyz[:,:,1]-lane_y[:,None])<.12,axis=1))
+    return torso_far,feet_far,in_lane
+
+
 # Conservative box-top geometric classification tolerances. A sphere centre
 # whose vertical clearance is below its radius by >4mm is NOT on top.
 TOP_PENETRATION_TOLERANCE_M = 0.004
