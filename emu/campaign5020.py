@@ -275,7 +275,7 @@ def _screen(root: Path, stage: str, names: list[str], *,
            f"examined with {screen_envs} worlds and {horizon} frames per test.",
            "",
            "Real 20mm step crossings require collidable foot contact, "
-           "real course completion and supported progress; rewards do not count.",
+           "real supported passage in the original episode; rewards do not count.",
            "The 20mm exam is a held-out probe, not a claim of maximum height.",
            "",
            "| Arm | Eligible | Score | Core | Recovery | True slopes | 20mm contact | 20mm crossing | Reasons |",
