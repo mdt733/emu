@@ -105,4 +105,11 @@ if [[ "$stage" == smoke ]]; then
   echo "GPU smoke: XLA_PYTHON_CLIENT_PREALLOCATE=$XLA_PYTHON_CLIENT_PREALLOCATE"
 fi
 echo 'Training in this foreground console. Ctrl+C stops; rerun with --run to resume stage.'
-exec "${cmd[@]}"
+# Keep the old EMU research habit: results.md, results_data.json and
+# evidence ZIP belong to EACH run, outside the source checkout.
+# Only report a completed/validated training stage. If training fails,
+# set -e preserves its exit status and leaves diagnostics untouched.
+"${cmd[@]}"
+echo 'Writing offline results.md and evidence bundle for the completed stage...'
+emu report --root "$dir"
+
