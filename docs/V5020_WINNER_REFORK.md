@@ -87,11 +87,18 @@ uses this PPO teaching payment as a measured crossing.
 ## Guard rails after the failed 380M experiment
 
 Each contender first runs a 2M-step probe under its proposed lesson
-distribution. A probe is rejected if its recent mean fall rate exceeds 92%,
-mean episode length falls below 70 frames or logged mean spring energy exceeds
-50J. A failed probe **never trains the next 18M**. These thresholds flag gross
-collapse; they are not a guarantee of future health. For survivors, each
-20M continuation completes in a separate immutable training-config phase.
+distribution. It reads **every logged row**, including all sparse-log
+intervals' **worst per-world spring-energy and shaft-power peaks**.
+Unphysical values at any point veto continuation, even if the final rows
+look healthy. The final ~20% of rows are evaluated using the number of
+completed episodes as their weight: >92% falls or <70-frame episode
+lengths reject persistent collapse. Too few completed episodes or
+nonfinite evidence also prevent qualification. Earlier collapse followed
+by sustained recovery is reported as a warning, not automatically a
+rejection. This is intentionally a coarse **research safety screen**,
+not a physical hardware certification.
+A failed probe **never trains the next ~18M**. Each surviving
+continuation completes in its own pinned training-config phase.
 
 At the 40M, 60M and 80M boundaries, every final policy faces the same
 frozen-policy tests and is rejected if its general locomotion fails the
