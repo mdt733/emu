@@ -289,8 +289,18 @@ def probe_health(probe_run: Path) -> dict:
     def avg(values: list[float]) -> float:
         return sum(values) / len(values)
 
-    fall = avg(recent_fall)
-    length = avg(recent_len)
+    # Pool by completed episodes rather than averaging ratios from tiny
+    # and huge cohorts as if they carried equal evidence. Old historical
+    # traces without episode counts retain their original row-mean method.
+    recent_episodes = None if episodes is None else sum(episodes[-window:])
+    if recent_episodes is not None:
+        if recent_episodes < 8.:
+            raise ValueError("insufficient recent completed episodes to qualify a probe")
+        fall = sum(v*n for v,n in zip(recent_fall,episodes[-window:])) / recent_episodes
+        length = sum(v*n for v,n in zip(recent_len,episodes[-window:])) / recent_episodes
+    else:
+        fall = avg(recent_fall)
+        length = avg(recent_len)
     spring_peak = readings["spring_potential_energy_peak_j"]
     max_spring = max(max(spring), max(spring_peak) if spring_peak else 0.)
     severe_windows = sum(
@@ -332,6 +342,7 @@ def probe_health(probe_run: Path) -> dict:
                 (avg(falls[i:i+3]) for i in range(max(1, len(rows)-2))), default=0.), 5),
             "severe_collapse_windows": int(severe_windows),
             "total_completed_episodes": None if episodes is None else int(sum(episodes)),
+            "recent_completed_episodes": None if recent_episodes is None else int(recent_episodes),
             "warnings": warnings}
 
 
