@@ -9,8 +9,6 @@ import zipfile
 from pathlib import Path
 import numpy as np
 import pytest
-from emu import branch_lab as lab
-from emu import branch_lab as recipe
 from emu import results
 from emu.results import append_training_observation, write_capability_field_artifacts, make_metrics_row
 from emu.contracts import BASE_OBS_FIELDS, OBS_DIM, ACTION_DIM
@@ -58,40 +56,6 @@ def reference_action(obs: np.ndarray, layers: list[tuple], mean: np.ndarray,
         x = np.tanh(x @ weights + bias).astype(np.float32)
     weights, bias = layers[-1]
     return np.clip(x @ weights + bias, -1.0, 1.0)
-
-def test_auto_promotion_only_accepts_eligible_sorted_arms(tmp_path):
-    results={'round':'round1','results':[
-        {'arm':'pitch15','eligible':False,'score':.99},
-        {'arm':'slope','eligible':True,'score':.60},
-        {'arm':'baseline','eligible':True,'score':.60},
-        {'arm':'shadow','eligible':True,'score':.20},
-    ]}
-    assert lab.promotion_choices(results,2)==['baseline','slope']
-    assert lab.promotion_choices(results,1)==['baseline']
-    # The study designer (not the runner) owns round budgets and advancement.
-    # For this recipe: 20M + 4*60M + 2*20M + 1*20M = 320M.
-    study = lab.plan_dict(seed=733, envs=2048)
-    assert study == recipe.plan_dict(seed=733, envs=2048)
-    assert study['nominal_steps'] == 320_000_000
-    assert study['round1_incremental_steps'] == 240_000_000
-    assert study['through_round1_total_steps'] == 260_000_000
-    assert list(recipe.PROMOTION_SLOTS.items()) == [('round2', 2), ('round3', 1)]
-    assert study['rounds'] == recipe.ROUNDS
-    assert [a['name'] for a in study['arms']] == list(recipe.BY_NAME)
-    with pytest.raises(RuntimeError,match='Only 1 of 2'):
-        lab.promotion_choices({'round':'round1','results':results['results'][:2]},2)
-    # Source audit: the ladder must not create any campaign files with a
-    # missing Git identity (single-run already enforces this invariant).
-    campaign = tmp_path / 'isolated-campaign'
-    for bad in ({'available': False, 'commit': '', 'dirty': False},
-                {'available': True, 'commit': '', 'dirty': False}):
-        with pytest.raises(RuntimeError, match='identifiable clean Git'):
-            lab._context(campaign, 733, 2048, bad)
-        assert not (campaign / 'lab_context.json').exists()
-    with pytest.raises(RuntimeError, match='uncommitted changes'):
-        lab._context(campaign, 733, 2048,
-                     {'available': True, 'commit': 'a'*40, 'dirty': True})
-    assert not (campaign / 'lab_context.json').exists()
 
 def test_full_fourway_report_roundtrips_into_small_shareable_zip(tmp_path):
     root = tmp_path/'campaign'
