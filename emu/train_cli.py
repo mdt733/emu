@@ -1,0 +1,231 @@
+"""A single protected EMU training run: parse profile, validate, resume, launch.
+
+This module owns only the human-facing `emu train` command and its safety
+checks. PPO and physics remain in training.py; tournament selection is
+in campaign_refork.py. No historical experiment recipes live here.
+"""
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import asdict, replace
+from pathlib import Path
+
+from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
+                            run_training, update_boundary_at_or_after)
+from .contracts import (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+                        OBS_SCHEMA_PREVIEW, source_repo_root)
+from .training_config import (TrainingConfig, foundation_config,
+                              mature_config, training_sensor_contract,
+                              verify_existing_phase_config)
+
+
+def one_run_config(args) -> TrainingConfig:
+    """Resolve a named, existing training profile without inventing PPO flags."""
+    if args.envs <= 0 or args.steps <= 0:
+        raise ValueError('--envs and --steps must both be positive')
+    run_dir = Path(args.run_dir).expanduser().resolve()
+    if args.profile == 'foundation':
+        cfg = foundation_config(run_dir=run_dir, seed=args.seed,
+                                device=args.device, envs=args.envs)
+    elif args.profile in ('mature', 'sim2real'):
+        # The pitch envelope is a shared run setting, not a tournament arm.
+        cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
+                            seed=args.seed, device=args.device, envs=args.envs,
+                            resume=None)
+    else:
+        raise ValueError(f'unknown profile: {args.profile}')
+    requested_pitch=getattr(args, 'pitch_deg', None)
+    pitch_deg=float((30.0 if args.profile == 'sim2real' else 8.0)
+                    if requested_pitch is None else requested_pitch)
+    if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
+        raise ValueError('--pitch-deg must be within (0, 30] degrees')
+    weight=float(getattr(args,'motor_guidance_weight',0.0))
+    if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
+        raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
+    grade=float(getattr(args,'contact_slope_deg',0.0))
+    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
+        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
+    preview_actor = bool(getattr(args, 'forward_preview', False))
+    preview_masked = bool(getattr(args, 'forward_preview_masked', False))
+    if preview_masked and not preview_actor:
+        raise ValueError('--forward-preview-masked requires --forward-preview')
+    if preview_actor and args.profile not in ('foundation', 'sim2real'):
+        raise ValueError('--forward-preview requires foundation or sim2real')
+    sensor_actor = bool(getattr(args, 'sensor_actor', False) or preview_actor)
+    if sensor_actor and args.profile not in ('foundation', 'sim2real'):
+        raise ValueError('--sensor-actor requires --profile foundation or sim2real')
+    if grade > 0 and args.profile != 'sim2real':
+        raise ValueError('real contact slope requires --profile sim2real')
+    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
+    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
+        raise ValueError('--contact-terrain-radius must be in [0, 1]')
+    if terrain_radius > 0 and args.profile != 'sim2real' and not (
+            args.profile == 'foundation' and preview_actor):
+        raise ValueError('--contact-terrain-radius requires --profile sim2real, or --profile foundation with --forward-preview (312-input)')
+    if terrain_radius > 0 and grade > 0:
+        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
+    box_raw=getattr(args,'terrain_box_height_mm',None)
+    box_height=-1 if box_raw is None else box_raw
+    if type(box_height) is not int or box_height not in (-1,0,5,10,15,20,30,40,50):
+        raise ValueError('fixed terrain box height must be -1 or one of 0/5/10/15/20/30/40/50mm')
+    if box_height >= 0 and (args.profile != 'sim2real' or not sensor_actor):
+        raise ValueError('terrain box PPO research requires sim2real and --sensor-actor')
+    if box_height >= 0 and (grade != 0 or terrain_radius != 0):
+        raise ValueError('fixed physical box course cannot mix with inclined/random terrain')
+    varied=bool(getattr(args, 'terrain_varied_placement', False))
+    adaptive_limit=int(getattr(args, 'terrain_height_ceiling_mm', 0))
+    adaptive_flat=bool(getattr(args, 'terrain_height_flat_control',False))
+    exposure=float(getattr(args, 'terrain_height_exposure', .60))
+    edge=float(getattr(args, 'terrain_height_edge_fraction', .35))
+    grow=float(getattr(args, 'terrain_height_growth_mm', 1.))
+    initial=float(getattr(args, 'terrain_height_initial_mm', 3.))
+    terrain_reward=float(getattr(args, 'terrain_progress_weight', 0.))
+    if not 0 <= adaptive_limit <= 150:
+        raise ValueError('adaptive terrain height safety must be 0..150mm')
+    if not all(math.isfinite(x) for x in (exposure, edge, grow, initial, terrain_reward)):
+        raise ValueError('nonfinite adaptive terrain setting')
+    if not 0. <= terrain_reward <= .10:
+        raise ValueError('terrain-progress-weight must be [0,.10]')
+    if terrain_reward and not adaptive_limit:
+        raise ValueError('terrain progress teaching requires adaptive real step terrain')
+    if not (.05 <= exposure <= .95 and .05 <= edge <= .95 and
+            .1 <= grow <= 3. and 0. < initial <= 15.):
+        raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
+    if adaptive_flat and adaptive_limit:
+        raise ValueError('adaptive flat control must have zero height ceiling')
+    if varied and (not preview_actor or not (adaptive_limit or adaptive_flat)):
+        raise ValueError('varied placement requires 312-input preview + adaptive physical step topology')
+    # Mixed contact slopes and adaptive physical boxes require the verified
+    # 312-input sensor contract; older actor schemes remain incompatible.
+    if (adaptive_limit or adaptive_flat) and (
+            box_height >= 0 or grade > 0 or args.profile != 'sim2real'
+            or not sensor_actor or (terrain_radius > 0 and not preview_actor)):
+        raise ValueError('adaptive steps require sim2real; slope+step coupling requires 312-input preview')
+    return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   observation_schema=(OBS_SCHEMA_PREVIEW if preview_actor else
+                                       OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
+                   forward_preview_masked=preview_masked,
+                   pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
+                   contact_slope_deg=grade,terrain_box_height_mm=box_height,
+                   terrain_random_placement=varied,
+                   terrain_height_safety_m=adaptive_limit / 1000.,
+                   terrain_adaptive_flat_control=adaptive_flat,
+                   terrain_height_initial_m=min(initial, adaptive_limit if adaptive_limit else initial) / 1000.,
+                   terrain_height_exposure=exposure,
+                   terrain_height_edge_fraction=edge,
+                   terrain_height_growth_m=grow / 1000.,
+                   terrain_progress_weight=terrain_reward,
+                   domain_randomization=terrain_radius > 0,
+                   domain_terrain_radius=terrain_radius,
+                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
+
+
+def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
+    """Fail closed on incompatible runs, unclean source, and unsafe paths.
+
+    Returns (validated checkpoint to resume from, already complete?).
+    A resume from another experiment does not rewrite that ancestor.
+    """
+    root = Path(config.run_dir).resolve()
+    repo = source_repo_root()
+    if repo and (root == repo.resolve() or repo.resolve() in root.parents):
+        raise RuntimeError('Choose --run-dir OUTSIDE the Git checkout; raw training outputs are not source files')
+    if root == Path.home().resolve():
+        raise RuntimeError('Do not use your home directory directly as a run directory')
+    if not provenance.get('available') or not provenance.get('commit') or provenance.get('dirty'):
+        raise RuntimeError('A clean Git source commit is required for reproducible training')
+
+    cfg_path = root / 'training_config.json'
+    meta_path = root / 'run_meta.json'
+    if root.exists() and any(root.iterdir()) and not cfg_path.is_file():
+        raise RuntimeError(f'{root} contains files but no training_config.json; refusing to overwrite them')
+    if cfg_path.is_file():
+        previous = asdict(TrainingConfig.load(cfg_path))
+        wanted = asdict(config)
+        for variable in ('resume', 'device'):
+            previous.pop(variable, None)
+            wanted.pop(variable, None)
+        if previous != wanted:
+            raise RuntimeError('Existing training configuration differs; choose a fresh --run-dir')
+        if not meta_path.is_file():
+            # run_support writes config and console.log *before* the trainer
+            # checks CUDA. A driver/setup failure leaves these two harmless
+            # files but no policy state. Allow retry only in that precise case.
+            unexpected = {p.name for p in root.iterdir()} - {
+                'training_config.json', 'console.log',
+            }
+            if unexpected:
+                raise RuntimeError(
+                    'Saved config has no run_meta.json but other run contents exist: '
+                    f'{sorted(unexpected)}; refusing ambiguous lineage')
+        else:
+            metadata = json.loads(meta_path.read_text(encoding='utf-8'))
+            ancestor = metadata.get('source_provenance', {}).get('git_commit')
+            if ancestor != provenance['commit']:
+                raise RuntimeError('Source commit differs from prior run; use the matching source or a new --run-dir')
+        verify_existing_phase_config(root, config)
+
+    finished, partial, expected = resolve_target_checkpoint(
+        root, target_steps=config.steps, envs=config.envs, label=root.name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
+    if finished is not None:
+        if resume not in ('', 'auto'):
+            raise RuntimeError('Run already complete; external --resume is not appropriate here')
+        return finished, True
+
+    if partial is not None:
+        if resume != 'auto':
+            raise RuntimeError('Existing partial checkpoint detected: use --resume auto, or a new --run-dir')
+        return partial, False
+    if resume == 'auto':
+        raise RuntimeError('--resume auto requested but no valid checkpoint exists in this run directory')
+    if resume:
+        from .checkpoint_io import load_checkpoint
+        parent = Path(resume).expanduser().resolve()
+        if not parent.is_file():
+            raise FileNotFoundError(f'Parent checkpoint not found: {parent}')
+        payload = load_checkpoint(
+            parent, validate=True, expected_observation_schema=config.observation_schema,
+            expected_sensor_contract=training_sensor_contract(config))
+        source = payload['meta'].get('source_provenance', {}).get('git_commit')
+        if source != provenance['commit']:
+            raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
+        parent_step = int(payload['meta']['step'])
+        if parent_step >= expected:
+            raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
+        return parent, False
+    return None, False
+
+
+def train_one(args) -> int:
+    """A small CLI wrapper; the existing training module performs the updates."""
+    config = one_run_config(args)
+    target = update_boundary_at_or_after(config.steps, config.envs)
+    print(f'One-run EMU: {args.profile} | {config.envs} worlds | '
+          f'{config.steps:,} requested steps (PPO boundary {target:,})')
+    print(f'Run directory: {config.run_dir}')
+    if args.plan:
+        print(json.dumps(asdict(config), sort_keys=True, indent=2))
+        print('Planning only; no checkpoint opened or training launched.')
+        return 0
+    provenance = git_provenance()
+    parent, completed = inspect_run(config, provenance=provenance, resume=args.resume)
+    if completed:
+        print(f'Already complete: validated {parent} (no PPO update).')
+        return 0
+    actual = replace(config, resume=str(parent) if parent is not None else '')
+    print(f'Training {parent or "from scratch"} -> {target:,} steps on source {provenance["commit"][:12]}')
+    run_training(actual, provenance=provenance)
+    # Do not announce success until the trainer's own validated final is present.
+    final, _, _ = resolve_target_checkpoint(
+        Path(config.run_dir), target_steps=config.steps, envs=config.envs,
+        label=Path(config.run_dir).name,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
+    if final is None:
+        raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
+    print(f'Completed validated run: {final}')
+    return 0
+
