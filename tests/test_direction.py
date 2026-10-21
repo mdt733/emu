@@ -434,7 +434,8 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
 def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     """New run only; v5015 historical recipe stays pinned and reproducible."""
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config, ARMS
+    from emu.train_cli import one_run_config
+    from emu.campaign_refork import WALK_ARMS
     def config(profile, pitch=None):
         return one_run_config(SimpleNamespace(
             profile=profile, run_dir=str(tmp_path/profile),steps=2048,
@@ -445,9 +446,10 @@ def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     assert config('mature').pitch_command_max_deg == pytest.approx(8.0)
     assert config('foundation').pitch_command_max_deg == pytest.approx(8.0)
     assert config('sim2real',18).pitch_command_max_deg == pytest.approx(18.)
-    # Pitch15 is only part of the preserved *historical* lab5015 recipe.
-    # Future v5016 arms must use identical common 30deg range.
-    assert 'pitch15' in {a.name for a in ARMS}
+    # The old pitch15 arm belongs in research history, not the current
+    # five-way research campaign's teaching recipes.
+    assert 'pitch15' not in WALK_ARMS
+    assert {'general','steps'}.issubset(set(WALK_ARMS))
     assert modern.run_dir != config('mature').run_dir
     with pytest.raises(ValueError,match='pitch-deg'):
         config('sim2real',31.0)
@@ -634,7 +636,7 @@ def test_shared_real_contact_slope_training_plan_is_explicit(tmp_path,capsys):
     import json
     from dataclasses import asdict
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config
+    from emu.train_cli import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
     from emu import cli
@@ -675,7 +677,7 @@ def test_contact_terrain_mode_is_explicit_in_public_training_plan(tmp_path,capsy
     from dataclasses import asdict
     from types import SimpleNamespace
     from emu import cli
-    from emu.branch_lab import one_run_config
+    from emu.train_cli import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
 
