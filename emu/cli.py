@@ -233,6 +233,17 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=.75)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--run',action='store_true',help='execute rather than plan only')
+    q=sub.add_parser('campaign5020',help='312-input terrain branch lab: 20M root -> 4x80M -> 2x120M -> 160M winner')
+    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5020_lab'))
+    q.add_argument('--envs',type=int,default=512)
+    q.add_argument('--screen-envs',type=int,default=32)
+    q.add_argument('--screen-horizon',type=int,default=300)
+    q.add_argument('--seed',type=int,default=733)
+    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
+    q.add_argument('--stop-after',choices=['foundation','round1','round2','round3'],default='round3')
+    mode=q.add_mutually_exclusive_group()
+    mode.add_argument('--run',action='store_true',help='one foreground resumable multi-arm study; default plans')
+    mode.add_argument('--status',action='store_true',help='read persisted scores and lineage')
     q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
     q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
     q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
@@ -354,6 +365,14 @@ def main(argv=None) -> int:
                   policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
+    if args.cmd=='campaign5020':
+        from .campaign5020 import main as lab
+        argv=['--root',args.root,'--envs',str(args.envs),
+              '--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon),
+              '--seed',str(args.seed),'--device',args.device,'--stop-after',args.stop_after]
+        if args.run: argv.append('--run')
+        if args.status: argv.append('--status')
+        return lab(argv)
     if args.cmd=='campaign5016':
         from .campaign5016 import main as pinnacle
         argv=['--root',args.root,'--foundation',args.foundation,
