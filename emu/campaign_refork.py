@@ -137,8 +137,8 @@ def _foundation(path: Path, *, envs: int) -> dict:
     if source.envs != envs or source.observation_schema != OBS_SCHEMA_PREVIEW:
         raise ValueError("foundation env-count or 312-input sensor schema differs")
     step = _validated_step(path, source)
-    if not 19_000_000 <= step <= 22_000_000:
-        raise ValueError(f"expected ~20M original foundation, got {step:,}")
+    if not 12_000_000 <= step <= 22_000_000:
+        raise ValueError(f"expected a saved 12–22M foundation snapshot, got {step:,}")
     return {"path": str(path.resolve()), "sha256": _sha(path), "step": step}
 
 
