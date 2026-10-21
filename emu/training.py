@@ -390,6 +390,19 @@ def train(args: TrainingConfig) -> int:
             pass
     comp_window: list[tuple[float, float]] = []
     recent_rewards: list[float] = []
+    # Preserve the worst raw physical sample from EVERY rollout until
+    # the next sparse CSV log. Per-world extreme values must not disappear
+    # into either a 4096-world average or a multi-rollout log interval.
+    peak_names = ("spring_potential_energy_peak_j", "servo_shaft_abs_power_peak_w")
+    pending_physical_peaks = {name: 0.0 for name in peak_names}
+    def absorb_physical_peaks(current_row: dict[str, Any]) -> None:
+        for name in peak_names:
+            candidate = float(current_row.get(name, -1.0))
+            previous = pending_physical_peaks[name]
+            pending_physical_peaks[name] = (
+                float("nan") if not np.isfinite(candidate) or not np.isfinite(previous)
+                else max(previous, candidate))
+
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -459,6 +472,7 @@ def train(args: TrainingConfig) -> int:
         maybe_cloud_eval(total_steps)
         host_summary_t0 = time.perf_counter()
         row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
+        absorb_physical_peaks(row)
         # Continuous capability review: ordinary PPO experience updates the
         # decaying command/recovery/maneuver field every rollout.  This is the
         # broad review loop; no simulator pause is required.
@@ -581,6 +595,7 @@ def train(args: TrainingConfig) -> int:
                       f"Further updates were skipped this rollout to avoid walking the policy too far from "
                       f"the data it was collected under. Fine as a one-off; investigate lr/epochs/minibatches "
                       f"if this keeps firing.", flush=True)
+            row.update(pending_physical_peaks)
             log_row = make_metrics_row(
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
                 reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
@@ -596,6 +611,7 @@ def train(args: TrainingConfig) -> int:
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
             print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+            pending_physical_peaks = {name: 0.0 for name in peak_names}
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
@@ -693,6 +709,8 @@ def train(args: TrainingConfig) -> int:
     maybe_fixed_eval(total_steps, force=True)
     maybe_cloud_eval(total_steps, force=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
+    absorb_physical_peaks(row)
+    row.update(pending_physical_peaks)
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
         exclude_field_taught=not bool(args.field_evidence_from_taught)))
