@@ -174,3 +174,43 @@ def test_three_world_312_real_step_frozen_exams_compile(tmp_path):
     assert np.isfinite(np.asarray(power)).all()
     assert 0<=float(course[0])<=3
     assert 0<=float(course[1])<=1 and 0<=float(course[2])<=1
+
+
+
+def test_heldout_exact_step_exam_never_samples_shorter_height(tmp_path):
+    """At certification, a 20mm label means a physical 20mm box top.
+
+    Ordinary training must remain free to sample flat and interior
+    obstacles. This test uses the same fixed-topology MJX mocap course.
+    """
+    pytest.importorskip("mujoco")
+    jax=pytest.importorskip("jax")
+    from emu.environment import T
+    env=EmuMJXEnv(
+        str(_course(tmp_path)), num_envs=3, seed=1701,
+        observation_schema=OBS_SCHEMA_PREVIEW,
+        terrain_contact_mode="box_surface", terrain_adaptive=True,
+        terrain_random_placement=True, terrain_exact_height_exam=True)
+    for mm in (5, 20, 80):
+        request={**_episode_config(), "frontier_terrain_height_m":mm/1000.}
+        state,obs=env.reset(request)
+        tasks=np.asarray(jax.device_get(state.task[:, T.terrain_height_m]))
+        np.testing.assert_allclose(tasks, np.full(3,mm/1000.),atol=1e-6,rtol=0.)
+        box=np.asarray(jax.device_get(
+            state.data.geom_xpos[:,env.terrain_box_geom_id,:]))
+        box_top=box[:,2]+float(np.asarray(env.terrain_box_half_size)[2])
+        np.testing.assert_allclose(box_top,np.full(3,mm/1000.),atol=1e-5,rtol=0.)
+        assert obs.shape==(3,312)
+        assert np.isfinite(np.asarray(jax.device_get(obs))).all()
+
+    # A regular training world has exactly the same real geometry but
+    # uses a varied-height sampler and may leave a birth on flat ground.
+    training=EmuMJXEnv(
+        str(_course(tmp_path)),num_envs=16,seed=1701,
+        observation_schema=OBS_SCHEMA_PREVIEW,
+        terrain_contact_mode="box_surface",terrain_adaptive=True,
+        terrain_height_exposure=.50,terrain_random_placement=True)
+    state,_=training.reset({**_episode_config(),"frontier_terrain_height_m":.02})
+    heights=np.asarray(jax.device_get(state.task[:,T.terrain_height_m]))
+    assert np.all(heights<=.02+1e-6)
+    assert np.any(heights<.019)
