@@ -173,7 +173,7 @@ def test_full_three_generation_refork_uses_one_winner_each_time(tmp_path,monkeyp
     for stage in c.STAGES[:3]:
         selection=json.loads((root/stage/"selection.json").read_text())
         assert selection["winner"]=="general"
-        assert len([x for x in trace if x[0].parts[-4]==stage])==8
+        assert len([x for x in trace if x[0].parts[-3]==stage])==8
         assert (root/stage/"scoreboard.json").exists()
     assert not (root/"terrain100").exists()
     parent60=json.loads((root/"walk60"/"general"/"probe"/"stage_spec.json").read_text())
