@@ -99,7 +99,7 @@ Playground. Neither source cleanup nor v5020 research modifies that policy.
 | What does the actor sense? | `contracts.py`, `forward_tof.py`, `rolling_tof.py` |
 | What actions are rewarded? | `rewards.py` |
 | How does PPO learn? | `ppo.py`, `training.py` |
-| What happened in the rollouts? | `results.py` |
+| What happened physically? | `scoring.py` (shared event contracts), `results.py` (rollout reports) |
 | How are lessons adjusted? | `curriculum.py` |
 | What can a frozen policy demonstrate? | `evaluation.py` |
 | How are champions selected? | `campaign_refork.py` |
