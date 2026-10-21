@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
-from .terrain import box_surface_truth, adaptive_height_sample
+from .terrain import box_surface_truth, adaptive_height_sample, box_crossing_position_flags
 from .forward_tof import (first_hit_ranges, FORWARD_NOISE_STD_M,
                           FORWARD_QUANTIZATION_M, FORWARD_MOUNTS_BODY_M,
                           FORWARD_DIRECTIONS_BODY)
@@ -2466,16 +2466,13 @@ class EmuMJXEnv(TaskSampler):
             # V5020 places/yaws the actual step independently in every
             # world, so evaluate motion PAST the measured physical front edge
             # instead of giving credit before reaching a farther obstacle.
-            box_c = data.geom_xpos[:,bid,:]
-            box_r = jnp.reshape(data.geom_xmat[:,bid],(self.num_envs,3,3))
-            extent_x = (jnp.abs(box_r[:,0,0])*self.terrain_box_half_size[0] +
-                        jnp.abs(box_r[:,0,1])*self.terrain_box_half_size[1])
-            box_front_x = box_c[:,0]+extent_x
-            far = data.xpos[:,self.torso_id,0] >= box_front_x+.18
-            feet_far = jnp.all(foot_pos[:,:,0] >= box_front_x+.04,axis=1)
-            lane_center_y = box_c[:,1]
-            in_lane = ((jnp.abs(data.xpos[:,self.torso_id,1]-lane_center_y)<.11) &
-                       jnp.all(jnp.abs(foot_pos[:,:,1]-lane_center_y[:,None])<.12,axis=1))
+            far,feet_far,in_lane = box_crossing_position_flags(
+                jnp,foot_xyz=foot_pos,
+                torso_xyz=data.xpos[:,self.torso_id,:],
+                box_center=data.geom_xpos[:,bid,:],
+                box_rotation=jnp.reshape(
+                    data.geom_xmat[:,bid],(self.num_envs,3,3)),
+                box_half_size=self.terrain_box_half_size)
             supported = terrain_truth['support_fraction'] >= .25
             upright = -projected_gravity[:, 2] >= .8
             terrain_edge_crossing = (edge & far & feet_far & in_lane & supported & upright)
