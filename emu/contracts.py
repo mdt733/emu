@@ -145,7 +145,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             GRID_CELLS, GRID_SPACING_M, GRID_START_M, GRID_LOOKAHEAD_M,
             FRONT_LANES_Y_M, REAR_REFERENCE_X_M, FORWARD_REFERENCE_X_M,
             OUTPUT_SAMPLE_X_M, OUTPUT_SAMPLE_INDICES, SENSOR_MAP_REVISION,
-            CONFIDENCE_TIME_S, CROSS_TRACK_SIGMA_M)
+            CONFIDENCE_TIME_S, CROSS_TRACK_SIGMA_M, INSERT_RADIUS_M)
         body.update(
             rolling_model_revision=SENSOR_MAP_REVISION,
             rolling_cells_per_lane=GRID_CELLS,
@@ -158,6 +158,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             rolling_actor_sample_x_m=list(OUTPUT_SAMPLE_X_M),
             rolling_actor_indices=list(OUTPUT_SAMPLE_INDICES),
             rolling_cross_track_sigma_m=CROSS_TRACK_SIGMA_M,
+            rolling_insert_radius_m=INSERT_RADIUS_M,
             rolling_confidence_decay_s=CONFIDENCE_TIME_S,
             forward_model_revision=FORWARD_MODEL_REVISION,
             forward_mounts_body_m=[list(v) for v in FORWARD_MOUNTS_BODY_M],
