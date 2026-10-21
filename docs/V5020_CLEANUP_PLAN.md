@@ -56,9 +56,12 @@ Exit: physical facts are identical across consumers, without reweighting PPO.
 
 ## Pass 2 — physical and numerical safety
 
-- [ ] Detect extreme finite spring/contact/servo values as well as NaN/Inf.
-- [ ] Make 2M probes sensitive to progression throughout the probe,
-      not merely an average of the last three logging rows.
+- [x] Detect extreme finite **spring energy and shaft power** across every
+      32-frame rollout/world, retained across sparse CSV log intervals.
+      **Contact impulse physical-scale guard still pending**.
+- [x] Make 2M probes audit their complete recorded trajectory, evaluate
+      recent collapse with completed-episode weighting, and retain earlier
+      recovered-collapse warnings. Invalid/nonfinite evidence fails closed.
 - [ ] Confirm early auto-abort never destroys the last valid checkpoint.
 - [ ] Confirm true-contact slopes and collidable box geometry in MJX
       small-world smokes.
