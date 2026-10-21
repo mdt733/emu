@@ -437,7 +437,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             combo_mix=.05,terrain_radius=.22,terrain_mode='contact',
             course_path=course)
         course_episode=_screen_episode(.25,.25,.15,.25,(.65,.25,.10),.75)
-        course_episode.update(frontier_terrain_height_m=.020)
+        course_episode.update(frontier_terrain_height_m=.020,
+                              probe_cmd_vx=.20,probe_cmd_vy=0.,probe_cmd_yaw=0.)
         panels['real_step'] = ('real_step',1771,course_episode)
     if sensor_contact_exam:
         if config.observation_schema != 'sim2real_232':
@@ -494,7 +495,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             out['course_20mm_attempt_count']=float(attempts)
             out['course_20mm_contact_rate']=float(contact)
             out['course_20mm_crossing_rate']=float(cross)
-        if sensor_contact_exam:
+        if sensor_contact_exam or v5020_physical_exam:
             # Common independent conditions for each arm, regardless of what
             # terrain/motor distribution it saw while learning.
             for world_name, salt, episode in (
