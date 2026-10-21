@@ -65,6 +65,26 @@ def test_two_physical_beams_measure_real_step_not_oracle():
     assert (flat[1]-raised[1]>.01).any()
 
 
+def test_rear_downward_tof_cannot_see_through_a_real_step():
+    from emu.directional import (
+        TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY)
+    (_,p,rot,fpos,fnormal)=_physical_ranges([.24])
+    flat,_=first_hit_ranges(
+        np,p,rot,fpos,fnormal,mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+        beams_body=TOF_TRIPOD_BEAMS_BODY)
+    step,_=first_hit_ranges(
+        np,p,rot,fpos,fnormal,mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+        beams_body=TOF_TRIPOD_BEAMS_BODY,
+        box_center=np.array([[.20,0.,.025]]),
+        box_rotation=np.eye(3)[None,:,:],
+        box_half_size=np.array([.04,.20,.025]))
+    assert flat.shape==step.shape==(1,3)
+    # Front probes remain on the lower floor; rear probe sees actual
+    # solid top at 5cm instead of looking through it to the floor.
+    assert flat[0,2]-step[0,2]>.045
+    assert np.allclose(flat[0,:2],step[0,:2],atol=1e-6)
+
+
 def test_gravity_projected_hit_distance_changes_with_pitch_and_chassis_height():
     values=[]
     for pitch in (-8.,0.,8.):
