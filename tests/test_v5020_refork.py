@@ -192,6 +192,21 @@ def test_probe_invalid_episodes_and_nonfinite_data_are_not_good_news(tmp_path):
         c.probe_health(tmp_path)
 
 
+
+def test_probe_episode_weighting_prevents_tiny_cohorts_hiding_major_falls(tmp_path):
+    # One rollout ending 1000 episodes is stronger evidence than two
+    # rollouts with one successful episode apiece.
+    _write_probe_metrics(tmp_path, [
+        (1.0,15.,.8,4.,1000.),
+        (.0,500.,.8,4.,1.),
+        (.0,500.,.8,4.,1.),
+    ])
+    health=c.probe_health(tmp_path)
+    assert not health["eligible"]
+    assert health["fall_rate"]> .99
+    assert health["recent_completed_episodes"]==1002
+
+
 def test_sparse_training_log_cannot_hide_a_single_world_physics_peak(tmp_path):
     tmp_path.mkdir(exist_ok=True)
     columns=("fall_rate","ep_len_mean","spring_potential_energy_j",
