@@ -608,6 +608,36 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
+    def evaluate_terrain_summary(params, curriculum_params, obs_mean, obs_std,
+                                 eval_key, horizon):
+        """Frozen-policy REAL obstacle exam: completed crossing and contact evidence.
+
+        Counts only independently classified, terminal episode outcomes.
+        A near-box pose, forward velocity or high reward earns no crossing.
+        """
+        if not env.terrain_adaptive:
+            raise ValueError('terrain outcome exam requires a real adaptive MJX box')
+        keys=jax.random.split(eval_key,env.num_envs)
+        es=env._reset_with_keys(keys,curriculum_params)
+        initial=(es,env.obs(es),jnp.zeros((3,),dtype=jnp.float32))
+        def one(_,carry):
+            state,ob,totals=carry
+            mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask))
+            out=env.step(state,jnp.clip(mean,-1.,1.),curriculum_params)
+            totals=totals+jnp.stack((
+                jnp.sum(out.metrics['terrain_edge_done']),
+                jnp.sum(out.metrics['terrain_edge_contact']),
+                jnp.sum(out.metrics['terrain_edge_crossing']),
+            ))
+            return out.state,out.obs,totals
+        _,_,totals=jax.lax.fori_loop(0,horizon,one,initial)
+        # Distinguish "none completed" from measured failure; both score zero
+        # but the report exposes the event count explicitly.
+        return jnp.stack((totals[0],totals[1]/jnp.maximum(1.,totals[0]),
+                          totals[2]/jnp.maximum(1.,totals[0])))
+
+    evaluate_terrain_summary = jax.jit(evaluate_terrain_summary, static_argnums=(5,))
+
     def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
                             eval_key, horizon):
         """Common-condition efficiency telemetry, NEVER used as a PPO reward.
@@ -927,6 +957,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_terrain_summary': evaluate_terrain_summary,
         'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
