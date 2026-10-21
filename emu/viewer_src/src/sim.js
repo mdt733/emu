@@ -129,7 +129,7 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.sensorObserver = bundle.schema === 2
+    this.sensorObserver = [2,3].includes(bundle.schema)
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     // Separate sidecar sensor, never alters a currently walking 220/232 actor.
     this.terrainMemory = new RollingTerrainDiagnostic();
@@ -342,7 +342,11 @@ export class EmuBrowserSim {
 
   setTerrainDiagnostic(enabled,{rays=false,freeze=false}={}) {
     const active=Boolean(enabled);
-    if(active&&!this.terrainMemoryActive)this.terrainMemory.reset();
+    // Schema-9 actor must keep its own measured map regardless of whether
+    // the optional diagnostic panel is open. Never reset live NN inputs
+    // merely because the spectator toggled the overlay.
+    if(active&&!this.terrainMemoryActive&&this.bundle.schema!==3)
+      this.terrainMemory.reset();
     this.terrainMemoryActive=active;
     this.terrainMemoryFrozen=Boolean(freeze);
     this.showTerrainRays=active&&Boolean(rays);
@@ -803,15 +807,16 @@ export class EmuBrowserSim {
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
-    // Even if the trained actor is still schema-1/2, update the V memory
-    // entirely independently as a measured diagnostic (never policy input).
-    if(this.terrainMemoryActive){
+    // With schema-9 the physical rolling map IS part of the actor's
+    // measured observation, not merely a spectator visualisation. Keep
+    // updating it even when the optional terrain panel is hidden.
+    if(this.terrainMemoryActive || this.bundle.schema===3){
       const pose=this.sensorPose();
       this.terrainMemory.update(
         pose,this.sensorNoise,
         (start,dir,max)=>this.raycastGroundAndObstacles(
           start,dir,max,pose.heightAt),
-        {freeze:this.terrainMemoryFrozen});
+        {freeze:this.bundle.schema===3 ? false : this.terrainMemoryFrozen});
     }
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
@@ -950,6 +955,15 @@ export class EmuBrowserSim {
       base[k++] = sensor.forwardGrade;
       base[k++] = sensor.sideGrade;
       base[k++] = sensor.groundConfidence;
+    }
+    if (this.bundle.schema === 3) {
+      // Exactly: 58 historical sensor values, 10 heights [right,left],
+      // then 10 measured confidence values in matching V sample order.
+      // The optional panel cannot freeze or clear the neural observation.
+      const sample=this.terrainMemory.values();
+      const masked=this.bundle.observation.sensor_contract?.forward_masked===true;
+      for (const value of sample.actorHeights) base[k++] = masked ? 0 : value;
+      for (const value of sample.actorConfidence) base[k++] = masked ? 0 : value;
     }
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
