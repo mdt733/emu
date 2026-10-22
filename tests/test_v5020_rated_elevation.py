@@ -93,7 +93,10 @@ def test_old_foundation_curriculum_checkpoint_can_load_without_band_counts():
     new=RegimeGovernor(terrain_height_safety_m=.006,terrain_height_initial_m=0.,
                        terrain_rated_elevation=True)
     new.load_state_dict(old)
-    assert new.params.frontier_terrain_height_m==0.
+    # Raw legacy migration preserves all historical bytes, including the
+    # dormant 3mm default. The flat-parent handoff in training.py must then
+    # clear that UNTRAINED field after verifying parent_config was flat.
+    assert new.params.frontier_terrain_height_m==old['params']['frontier_terrain_height_m']
     assert new.terrain_edge_evidence['above_done']==0.
 
 
@@ -152,3 +155,29 @@ def test_platform_and_floor_do_not_collide_with_each_other_but_feet_do(tmp_path)
     assert not compatible(floor,platform)
     assert compatible(floor,foot)
     assert compatible(platform,foot)
+
+
+def test_handoff_blocks_silent_profile_or_reward_changes(tmp_path):
+    from dataclasses import replace
+    from emu.train_cli import verify_flat_parent_terrain_bridge
+    from emu.training_config import foundation_config
+    foundation=foundation_config(run_dir=tmp_path/'old',seed=733,
+                                  device='cuda',envs=2048)
+    bridge=replace(foundation,run_dir=str(tmp_path/'new'),steps=32000000,
+                   terrain_random_placement=True,
+                   terrain_elevation_mode='up',
+                   terrain_height_safety_m=.006,
+                   terrain_height_initial_m=0.)
+    verify_flat_parent_terrain_bridge(foundation,bridge)
+    with pytest.raises(RuntimeError,match='push_max_force_n'):
+        verify_flat_parent_terrain_bridge(
+            foundation,replace(bridge,push_max_force_n=3.2))
+    with pytest.raises(RuntimeError,match='phase_speed_gain'):
+        verify_flat_parent_terrain_bridge(
+            foundation,replace(bridge,phase_speed_gain=1.25))
+    with pytest.raises(RuntimeError,match='ppo_lr'):
+        verify_flat_parent_terrain_bridge(
+            foundation,replace(bridge,ppo_lr=foundation.ppo_lr*.5))
+    with pytest.raises(RuntimeError,match='observation_schema'):
+        verify_flat_parent_terrain_bridge(
+            foundation,replace(bridge,observation_schema='sim2real_232'))
