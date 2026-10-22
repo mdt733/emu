@@ -271,6 +271,8 @@ def main(argv=None) -> int:
                    help='physical fixed box 0/5/10/15/20/30/40/50mm; for variable heights use --terrain-height-ceiling-mm')
     q.add_argument('--terrain-varied-placement',action='store_true',
                    help='312-input adaptive MJX step: per-episode X/Y/heading randomization, no shape changes')
+    q.add_argument('--terrain-elevation-mode',choices=['hurdle','up','down','mixed'],
+                   default='hurdle',help='opt-in long raised-platform step transitions, 312-input only')
     q.add_argument('--terrain-height-ceiling-mm',type=int,default=0,
                    help='adaptive per-episode real steps 0..150mm; 0=off; sim2real sensor actor only')
     q.add_argument('--terrain-height-flat-control',action='store_true',
