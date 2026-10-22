@@ -18,7 +18,8 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS, terrain_progress_payment
-from .terrain import box_surface_truth, adaptive_height_sample, box_crossing_position_flags
+from .terrain import (box_surface_truth, adaptive_height_sample,
+                      box_crossing_position_flags, elevation_transition_update)
 from .forward_tof import (first_hit_ranges, FORWARD_NOISE_STD_M,
                           FORWARD_QUANTIZATION_M, FORWARD_MOUNTS_BODY_M,
                           FORWARD_DIRECTIONS_BODY)
@@ -131,6 +132,14 @@ class EnvState(NamedTuple):
     # and fifty post-crossing frames must not count as fifty successes.
     ep_terrain_crossed: Any
     ep_terrain_contacted: Any
+    # Genuine up/down raised-platform certificate accumulators (teacher only).
+    # Kept per first episode; training resumes from network/optimizer state,
+    # never from partially progressed simulator episodes.
+    ep_elevation_source_seen: Any
+    ep_elevation_landed: Any
+    ep_elevation_landing_x: Any
+    ep_elevation_supported_frames: Any
+    ep_elevation_post_landing_gait: Any
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1150,6 +1159,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_height_exposure: float = .60,
                  terrain_height_edge_fraction: float = .35,
                  terrain_random_placement: bool = False,
+                 terrain_elevation_mode: str = 'hurdle',
                  terrain_exact_height_exam: bool = False,
                  terrain_progress_weight: float = 0.,
                  forward_preview_masked: bool = False):
@@ -1275,6 +1285,14 @@ class EmuMJXEnv(TaskSampler):
         from .terrain import TERRAIN_FRONTIER_MAX_M
         self.terrain_height_max_m = TERRAIN_FRONTIER_MAX_M
         self.terrain_random_placement = bool(terrain_random_placement)
+        if terrain_elevation_mode not in ('hurdle', 'up', 'down', 'mixed'):
+            raise ValueError('unknown physical terrain elevation mode')
+        if terrain_elevation_mode != 'hurdle' and (
+                not self.terrain_adaptive or not self.terrain_random_placement
+                or observation_schema != OBS_SCHEMA_PREVIEW
+                or terrain_contact_mode != 'box_surface'):
+            raise ValueError('raised-platform training needs adaptive varied 312-input physical course')
+        self.terrain_elevation_mode = terrain_elevation_mode
         if self.terrain_random_placement and (
                 not self.terrain_adaptive or observation_schema != OBS_SCHEMA_PREVIEW):
             raise ValueError('variable obstacle location requires adaptive physical course and 312-input V sensor')
@@ -1341,6 +1359,9 @@ class EmuMJXEnv(TaskSampler):
                     raise ValueError('adaptive terrain requires one mocap obstacle body')
             self.terrain_box_half_size=jnp.asarray(
                 self.mj_model.geom_size[box_id],dtype=jnp.float32)
+            if self.terrain_elevation_mode != 'hurdle' and not np.isclose(
+                    float(self.mj_model.geom_size[box_id,0]),1.,atol=1e-6):
+                raise ValueError('raised-platform training requires a 2m landing geometry')
             self.terrain_foot_radius_m=float(radii[0])
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
