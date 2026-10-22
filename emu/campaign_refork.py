@@ -26,7 +26,7 @@ from .scoring import graded_step_score
 from .training_config import (TrainingConfig, foundation_config,
                               training_sensor_contract, verify_existing_phase_config)
 
-VERSION = "v5020-winner-refork-3"
+VERSION = "v5020-winner-refork-4"
 STAGES = ("walk40", "walk60", "walk80", "terrain100")
 TARGET = {"walk40": 40_000_000, "walk60": 60_000_000,
           "walk80": 80_000_000, "terrain100": 100_000_000}
@@ -466,27 +466,62 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
         results.append(score)
     eligible = sorted((r for r in results if r["eligible"]),
                       key=lambda r: (-r["score"], r["arm"]))
-    if not eligible:
-        winner = None
-        reason = "No eligible candidate; retain incumbent and STOP"
-    elif (parent_rating["eligible"] and
-          (eligible[0]["score"] < parent_rating["score"] - .005 or
-           eligible[0]["core"] < parent_rating["core"] - .10)):
-        winner = None
-        reason = "Every candidate regressed against frozen incumbent; STOP"
+    # Do not mistake strict, maturity-dependent CERTIFICATION floors for a
+    # physical safety limit. A coherent, finite, improving walker can
+    # earn another bounded generation while still failing the certification
+    # needed for public champion publication. Unhealthy 2M probes never
+    # arrive here, and corrupt/incomplete exam evidence has no numeric rank.
+    provisional = sorted((
+        r for r in results
+        if not r["eligible"] and r.get("score") is not None
+        and r["core"] >= .20 and r["gait"] >= .04
+        and r["hard"] >= 0. and r["slope"] >= 0.
+        and r["height_shortfall_m"] <= .09
+    ), key=lambda r: (-r["score"], r["arm"]))
+    if eligible:
+        best = eligible[0]
+        if parent_rating["eligible"] and (
+            best["score"] < parent_rating["score"] - .005
+            or best["core"] < parent_rating["core"] - .10
+        ):
+            winner = None
+            qualification = "no-progress"
+            reason = "Qualified incumbent beats every challenger; preserve incumbent and STOP"
+        else:
+            winner = best["arm"]
+            qualification = "certified"
+            reason = "Best qualifying frozen policy"
+    elif provisional:
+        best = provisional[0]
+        # This permits *research continuation*, NEVER a public promotion.
+        # If an already-qualified incumbent exists, don't replace it with
+        # an unqualified descendant just to extend the run.
+        if parent_rating["eligible"]:
+            winner = None
+            qualification = "no-progress"
+            reason = "Qualified incumbent retained; no challenger qualified"
+        else:
+            winner = best["arm"]
+            qualification = "provisional"
+            reason = ("Provisional research continuation: coherent held-out gait "
+                      "but strict certification floors not yet satisfied")
     else:
-        winner = eligible[0]["arm"]
-        reason = "Promoted best qualifying frozen policy"
+        winner = None
+        qualification = "none"
+        reason = "No viable contender with valid frozen evidence; preserve incumbent and STOP"
     board = {"version": VERSION, "stage": stage, "target": target,
              "parent_sha256": _sha(parent),
              "candidates": {k: v["sha256"] if v else None for k, v in candidates.items()},
              "incumbent": parent_rating, "rows": results,
-             "winner": winner, "reason": reason}
+             "winner": winner, "qualification": qualification,
+             "reason": reason}
     _save(location, board)
     report = root / stage / "scoreboard.md"
     report.write_text(
         f"# {stage} — winner-refork held-out screening\n\n"
-        f"Parent SHA-256: {_sha(parent)}\n\nWinner: {winner or 'NONE'}\n\n"
+        f"Parent SHA-256: {_sha(parent)}\n\n"
+        f"Next research parent: {winner or 'NONE'}\n\n"
+        f"Qualification: {qualification.upper()} (provisional is NOT a champion)\n\n"
         f"Verdict: {reason}\n\n"
         "| Arm | Eligible | Score | Core | Recovery | Contact slopes | Graded step score | Crossings by mm | Reasons |\n"
         "|---|---|---:|---:|---:|---:|---:|---|---|\n" +
@@ -566,12 +601,13 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
                                 screen_envs=screen_envs,horizon=horizon,device=device)
             print(f"[refork] {stage}: {board['reason']} ({board['winner']})",flush=True)
             if not board["winner"]:
-                raise RuntimeError(f"{stage} produced no safely promotable winner. "
+                raise RuntimeError(f"{stage} produced no viable research continuation. "
                                    f"Kept parent {ancestor}; see {root/stage/'scoreboard.md'}")
             chosen = candidates[board["winner"]]
             next_ck = Path(chosen["path"])
             selection_file = root / stage / "selection.json"
             selection = {"version":VERSION,"winner":board["winner"],
+                         "qualification":board["qualification"],
                          "parent_sha256":_sha(ancestor),"checkpoint":chosen,
                          "scoreboard_sha256":_sha(root/stage/"scoreboard.json")}
             if selection_file.exists():
@@ -581,7 +617,8 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
                 _save(selection_file,selection)
             ancestor = next_ck
             if stage == stop_after:
-                print(f"[refork] stopped after {stage}. Champion: {ancestor}",flush=True)
+                name = "QUALIFIED research winner" if board["qualification"] == "certified" else "PROVISIONAL research parent (not certified)"
+                print(f"[refork] stopped after {stage}. {name}: {ancestor}",flush=True)
                 return
 
 
