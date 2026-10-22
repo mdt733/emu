@@ -484,9 +484,9 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
             best["score"] < parent_rating["score"] - .005
             or best["core"] < parent_rating["core"] - .10
         ):
-            winner = None
-            qualification = "no-progress"
-            reason = "Qualified incumbent beats every challenger; preserve incumbent and STOP"
+            winner = "incumbent"
+            qualification = "incumbent-qualified"
+            reason = "Qualified incumbent retained over weaker challengers; keep learning next generation"
         else:
             winner = best["arm"]
             qualification = "certified"
@@ -497,9 +497,9 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
         # If an already-qualified incumbent exists, don't replace it with
         # an unqualified descendant just to extend the run.
         if parent_rating["eligible"]:
-            winner = None
-            qualification = "no-progress"
-            reason = "Qualified incumbent retained; no challenger qualified"
+            winner = "incumbent"
+            qualification = "incumbent-qualified"
+            reason = "Qualified incumbent retained; no challenger qualified, but training may continue"
         else:
             winner = best["arm"]
             qualification = "provisional"
@@ -599,11 +599,16 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
                    parent=ancestor,seed=seed,envs=envs,device=device,provenance=source)
             board = _scoreboard(root,stage,candidates,parent=ancestor,
                                 screen_envs=screen_envs,horizon=horizon,device=device)
-            print(f"[refork] {stage}: {board['reason']} ({board['winner']})",flush=True)
+            print(f"[refork] {stage}: {board['reason']} ({board['winner']}; {board['qualification']})",flush=True)
             if not board["winner"]:
                 raise RuntimeError(f"{stage} produced no viable research continuation. "
                                    f"Kept parent {ancestor}; see {root/stage/'scoreboard.md'}")
-            chosen = candidates[board["winner"]]
+            chosen = ({"path":str(ancestor.resolve()),"sha256":_sha(ancestor),
+                       "step":_validated_step(ancestor,config(root/stage/arms(stage)[0]/'probe',
+                         stage=stage,arm=arms(stage)[0],target=TARGET[stage],seed=seed,
+                         envs=envs,device=device))}
+                      if board["winner"] == "incumbent"
+                      else candidates[board["winner"]])
             next_ck = Path(chosen["path"])
             selection_file = root / stage / "selection.json"
             selection = {"version":VERSION,"winner":board["winner"],
@@ -617,7 +622,9 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
                 _save(selection_file,selection)
             ancestor = next_ck
             if stage == stop_after:
-                name = "QUALIFIED research winner" if board["qualification"] == "certified" else "PROVISIONAL research parent (not certified)"
+                name = ("HELD-OUT QUALIFIED research winner"
+                        if board["qualification"] in ("certified", "incumbent-qualified")
+                        else "PROVISIONAL research parent (not certified)")
                 print(f"[refork] stopped after {stage}. {name}: {ancestor}",flush=True)
                 return
 
