@@ -206,3 +206,79 @@ requires invalid rays to remain unknown (zero confidence). This is a
 source-level numerical/MuJoCo test, not evidence of learned competence.
 The elevation examiner also reports source-side exposure separately from
 contact, crossing, falls, timeouts and incomplete attempts.
+
+
+## 2026-10-22 afternoon — opt-in training on genuine elevation platforms
+
+Local evidence supplied by the user for earlier commit `d10dfd6`:
+98/98 focused tests passed; `overnight_v5020.sh --check` passed its
+111/111 focused tests, detected JAX 0.12 / CUDA GPU and MuJoCo 3.16,
+and CORRECTLY refused the older 312-input 15cm-fingerprint foundation.
+The resulting check reported NOT OVERNIGHT READY, as intended.
+
+**New source after d10dfd6 still requires fresh regression and MJX runs.**
+No subsequent tests, learned step competence, or large GPU campaign
+are asserted by the GitHub edits alone.
+
+The experimental `--terrain-elevation-mode up|down|mixed` now selects a
+**fixed-topology 2m-long, 1m-wide physical raised platform**, not the
+historical 80mm hurdle. The historical hurdle is still the default and
+its generated XML remains byte-identical. A distinct
+`v5020_adaptive_elevation_course.xml` is immutable and pinned in run
+metadata; position and height vary independently across worlds only at
+episode birth. Step-down births start at the actual raised collision
+surface. Flat rehearsal births park the box out of the course.
+
+The same sensor-visible collidable box is consumed by both forward
+beams, the three tripod rays and now the optical-flow camera depth
+on 312-input courses. No geometry height is directly given to the actor.
+The sensor fingerprint was advanced to include the camera-depth
+first-hit correction, invalidating older experimental 312 contracts.
+
+The trainee's terrain crossing metric is now evaluated at the REAL
+transition edge of the long platform, not the far end of a hurdle.
+The existing episode-only scorer demands source support, obstacle
+contact, upright two-foot destination passage, grounded support,
+eight supported destination frames, >=40mm extra forward travel and
+post-landing gait evidence. It is used for both teaching outcomes and
+frozen evidence, while 220/232 and old hurdle defaults stay isolated.
+This is instrumentation, NOT proof a neural policy learned to climb.
+
+Before any extended run, execute:
+
+```bash
+cd ~/emu-v5020
+git switch feature/v5020-coldstart-terrain
+git pull --ff-only origin feature/v5020-coldstart-terrain
+source .venv/bin/activate
+python -m pytest -q tests/test_v5020_coldstart.py tests/test_scoring.py \
+  tests/test_v5020_refork.py tests/test_foundation_readiness.py \
+  tests/test_overnight_launcher.py
+emu train --profile sim2real --forward-preview \
+  --terrain-varied-placement --terrain-elevation-mode mixed \
+  --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 5 \
+  --envs 64 --steps 131072 --seed 733 --device cuda \
+  --run-dir "$HOME/robot_lab/emu_runs/v5020_mixed_elevation_plan" --plan
+```
+
+Only after those tests pass, a disposable *small* cold-start GPU
+lifecycle (NOT an overnight campaign) is available:
+
+```bash
+cd ~/emu-v5020
+RUN_ROOT="$HOME/robot_lab/emu_runs/v5020_platform_smoke_$(git rev-parse --short HEAD)"
+XLA_PYTHON_CLIENT_PREALLOCATE=false emu train --profile sim2real \
+  --forward-preview --terrain-varied-placement \
+  --terrain-elevation-mode mixed --terrain-height-ceiling-mm 20 \
+  --terrain-height-initial-mm 5 --terrain-height-exposure .65 \
+  --envs 64 --steps 131072 --seed 733 --device cuda \
+  --run-dir "$RUN_ROOT"
+```
+
+These early training steps are to prove reset, physical stepping, PPO,
+finite gradients, saving and fixed exams compile and run, **not**
+to assert competence. Do not reuse a smoke root after source changes.
+The long overnight launcher `--run` remains blocked until browser 312
+parity, independent elevation exams and real GPU learning are accepted.
+The five-arm tournament still uses the historical hurdle by default:
+it must NOT silently switch to new elevation lessons before acceptance.
