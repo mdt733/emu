@@ -74,7 +74,7 @@ source .venv/bin/activate
 command -v emu >/dev/null ||
   { echo "STOP: emu CLI unavailable after venv activation" >&2; exit 1; }
 echo "=== Fast source gate: rating/evidence/lineage contracts (NO GPU training) ==="
-python -m pytest -q tests/test_v5020_rated_elevation.py tests/test_v5020_2048_launcher.py tests/test_v5020_report.py ||
+python -m pytest -q tests/test_v5020_rated_elevation.py tests/test_v5020_console_feedback.py tests/test_v5020_2048_launcher.py tests/test_v5020_report.py ||
   { echo "STOP: new rated-terrain regression tests failed; no GPU run started" >&2; exit 1; }
 mkdir -p "$RUN_ROOT/logs" "$RUN_ROOT/lineage"
 if [[ -f "$RUN_ROOT/lineage/source_commit.txt" ]] &&
