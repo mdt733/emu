@@ -16,8 +16,11 @@ Usage: bash scripts/overnight_v5020.sh [--check|--run]
             Champion Ladder round; stop after independent examination.
 
 Optional environment overrides:
-  FOUNDATION_PATH=...   Source 312-input 12-22M .pkl. Defaults to
-                        ~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints/final.pkl
+  FOUNDATION_PATH=...   Explicit saved 312-input 12-22M .pkl.
+                        If unset: try a validated mature best.pkl,
+                        falling back to final.pkl, under
+                        ~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20
+                        or ~/robot_lab/emu_runs/v5020_lab_4096/foundation20
   RUN_ROOT=...          New output dir (or resume an identical, pinned study).
                         Defaults to ~/robot_lab/emu_runs/v5020_refork_<git-sha>
   EXAM_ENVS=32          Number of frozen-policy exam worlds (>=8).
