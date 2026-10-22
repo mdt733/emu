@@ -585,3 +585,26 @@ def test_elevation_platform_keeps_old_hurdle_xml_unchanged_and_files_immutable(t
     with pytest.raises(RuntimeError,match="differs from declared geometry"):
         adaptive_height_course(ROBOT_XML,short,elevation_platform=True)
     assert short.read_bytes()==original
+
+
+def test_down_platform_tripod_and_camera_diagnostics_share_physical_surface(tmp_path):
+    """No 312-input sensor may report the phantom buried floor as current ground."""
+    import jax
+    from emu.terrain import elevation_course
+    from emu.contracts import ROBOT_XML
+    path=elevation_course(ROBOT_XML,tmp_path/'tripod_upper.xml',20,
+                          direction='down')
+    env=EmuMJXEnv(str(path),num_envs=2,seed=733,
+                 observation_schema=OBS_SCHEMA_PREVIEW,
+                 terrain_contact_mode='box_surface')
+    state,_=env.reset({'probe_cmd_vx':.10,'probe_cmd_vy':0.,
+                       'probe_cmd_yaw':0.,'steady_difficulty':0.,
+                       'resilience_difficulty':0.,'posture_difficulty':0.,
+                       'regime_frac_steady':1.,'regime_frac_transition':0.})
+    ground=env.ground_sensor_probe(state.data)
+    assert np.asarray(ground['beam_valid']).all()
+    torso=np.asarray(jax.device_get(state.data.xpos[:,env.torso_id,2]))
+    rear=np.asarray(jax.device_get(ground['ranges_m']))[:,2]
+    np.testing.assert_allclose(rear,torso-.025-.020,atol=.012,rtol=0.)
+    assert np.asarray(ground['valid']).all()
+    assert np.isfinite(np.asarray(ground['optical_depth_m'])).all()
