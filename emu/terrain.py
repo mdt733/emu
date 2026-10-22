@@ -307,8 +307,9 @@ def rated_height_update(rating_m: float, evidence: dict, *, safety_m: float,
     above_success = number('terrain_above_cross_count')
     above_falls = number('terrain_above_fall_count')
     above_contact = number('terrain_above_contact_count')
+    success_height_sum = number('terrain_above_cross_height_sum_m')
     if any(x is None for x in (easy, easy_falls, above, above_success,
-                               above_falls, above_contact)):
+                               above_falls, above_contact, success_height_sum)):
         return rating_m, 'hold_missing_ability_band_evidence'
     if (easy_falls > easy + 1e-5 or above_success > above + 1e-5 or
             above_falls > above + 1e-5 or above_contact > above + 1e-5):
@@ -319,7 +320,13 @@ def rated_height_update(rating_m: float, evidence: dict, *, safety_m: float,
         return rating_m, 'hold_collect_above_rating_trials'
     if (above_success / above >= .25 and above_falls / above <= .35
             and above_contact / above >= .25):
-        return min(safety_m, rating_m + growth_m), 'expand_success_above_rating'
+        # Earn at most the actual MEAN successful challenging height. This
+        # prevents a zero-rated biped clearing 0.15mm from suddenly being
+        # certified for a 1mm step, even when the requested growth is 1mm.
+        demonstrated = success_height_sum / max(above_success, 1.e-6)
+        candidate = min(safety_m, rating_m + growth_m, demonstrated)
+        if candidate > rating_m + 1.e-8:
+            return candidate, 'expand_success_above_rating'
     return rating_m, 'hold_challenge_not_yet_mastered'
 
 
