@@ -159,6 +159,11 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
         raise RuntimeError('Choose --run-dir OUTSIDE the Git checkout; raw training outputs are not source files')
     if root == Path.home().resolve():
         raise RuntimeError('Do not use your home directory directly as a run directory')
+    if (root / 'UNSAFE_RESUME.json').is_file():
+        raise RuntimeError(
+            f'NON-RESUMABLE catastrophic terrain collapse: {root / "UNSAFE_RESUME.json"}. '
+            'This checkpoint lineage is quarantined. Do not retry it; '
+            'reassess the parent foundation and create a fresh run directory.')
     if not provenance.get('available') or not provenance.get('commit') or provenance.get('dirty'):
         raise RuntimeError('A clean Git source commit is required for reproducible training')
 
