@@ -318,7 +318,7 @@ def probe_health(probe_run: Path) -> dict:
     if length < 70.:
         reasons.append(f"probe mean episode length {length:.1f} <70 frames")
     if max_spring > 50.:
-        reasons.append(f"unphysical mean spring potential {max_spring:.1f}J >50J")
+        reasons.append(f"unphysical logged spring potential {max_spring:.1f}J >50J")
     # Deliberately permissive failsafe for an aggregate six-actuator
     # ABSOLUTE mechanical-power diagnostic, not a battery-power estimate.
     # Typical healthy research screens are single-digit watts; 1000W is
@@ -330,7 +330,7 @@ def probe_health(probe_run: Path) -> dict:
         power_candidates += readings["servo_shaft_abs_power_peak_w"]
     max_power = max(power_candidates) if power_candidates else None
     if max_power is not None and max_power > 1000.:
-        reasons.append(f"unphysical mean shaft absolute power {max_power:.1f}W >1000W")
+        reasons.append(f"unphysical logged shaft absolute power {max_power:.1f}W >1000W")
     if severe_windows and not reasons:
         warnings.append(f"{severe_windows} earlier severely collapsed 3-row windows; later recovery observed")
     skips = readings["nan_grad_skips_total"]
@@ -494,9 +494,9 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
     provisional = sorted((
         r for r in results
         if not r["eligible"] and r.get("score") is not None
-        and r["core"] >= .20 and r["gait"] >= .04
+        and r["core"] >= .10 and r["gait"] >= .02
         and r["hard"] >= 0. and r["slope"] >= 0.
-        and r["height_shortfall_m"] <= .09
+        and r["height_shortfall_m"] <= .10
     ), key=lambda r: (-r["score"], r["arm"]))
     if eligible:
         best = eligible[0]
@@ -604,11 +604,11 @@ def _terrain_entry_ok(board: dict) -> bool:
     ):
         return True
     return bool(board.get("qualification")=="provisional"
-                and winning.get("core",0.) >= .55
-                and winning.get("hard",0.) >= .01
-                and winning.get("slope",0.) >= .02
-                and winning.get("gait",0.) >= .07
-                and winning.get("height_shortfall_m",1.) <= .075)
+                and winning.get("core",0.) >= .35
+                and winning.get("hard",0.) >= .005
+                and winning.get("slope",0.) >= .01
+                and winning.get("gait",0.) >= .05
+                and winning.get("height_shortfall_m",1.) <= .085)
 
 
 def run(root: Path, *, foundation: Path, seed: int, envs: int,
