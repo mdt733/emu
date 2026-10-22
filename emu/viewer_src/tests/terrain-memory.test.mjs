@@ -23,7 +23,7 @@ test('six directions are NOT fabricated: two front rays and three downward',()=>
   assert.equal(mem.beams.filter(b=>b.valid).length,5);
   assert.equal(mem.heights.length,2);
   assert.equal(mem.heights[0].length,V_CELLS);
-  assert.deepEqual(V_SAMPLES,[5,10,15,20,25]);
+  assert.deepEqual(V_SAMPLES,[5,10,15,20,30]);
   assert.equal(mem.values().actorHeights.length,10);
   assert.equal(mem.values().actorConfidence.length,10);
   // The two forward lookahead rays have a slant range > direct down-rays.
@@ -34,14 +34,22 @@ test('rolling memory preserves sparse measurements, moves forward hits back towa
   const m=new RollingTerrainDiagnostic();
   m.insert(0,.20,-.05,.05,true);
   m.insert(1,.20,+.05,.02,true);
-  assert.equal(m.values().actorConfidence[4],0);
+  // The schema-3 actor NOW samples at 20cm, exactly where these actual
+  // sensor hits were inserted. The old 15cm readout was only a viewer bug.
+  const initial=m.actorReadout();
+  assert.ok(initial.confidence[4]>.005);
+  assert.ok(initial.confidence[9]>.005);
+  near(initial.heights[4],.05,.02);
+  near(initial.heights[9],.02,.02);
+  // Forward motion transports that measured patch toward the feet by 5cm;
+  // inspect the spatial 15cm grid cell instead of expecting the far 20cm
+  // actor readout to remain fixed after 25 updates.
   for(let i=0;i<25;i++)m.transport(.02,.1,0,0,1);
-  const d=m.values();
-  assert.ok(d.actorConfidence[4]>.005);
-  assert.ok(d.actorConfidence[9]>.005);
-  near(d.actorHeights[4],.05,.02);
-  near(d.actorHeights[9],.02,.02);
-  assert.equal(d.actorConfidence[0],0);
+  assert.ok(m.confidence[0][25]>.005);
+  assert.ok(m.confidence[1][25]>.005);
+  near(m.heights[0][25],.05,.02);
+  near(m.heights[1][25],.02,.02);
+  assert.equal(m.actorReadout().confidence[0],0);
 });
 
 test('turning and reverse travel advect measured patches without creating full map',()=>{
