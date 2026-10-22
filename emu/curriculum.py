@@ -613,7 +613,21 @@ class RegimeGovernor:
             'global_retreat': global_retreat,
         }
         if self.terrain_height_safety_m > 0.:
-            from .terrain import next_height_frontier
+            from .terrain import next_height_frontier, first_height_from_flat
+            # A new physical axis begins at EXACTLY 0mm. Check retained
+            # on-policy flat competence before releasing its first tiny
+            # elevation. Once positive, only real post-landing crossings
+            # may earn further growth (existing pooled trials below).
+            at_zero = self.params.frontier_terrain_height_m <= 0.
+            if at_zero:
+                opening, opening_event = first_height_from_flat(
+                    self.params.frontier_terrain_height_m, row,
+                    safety_m=self.terrain_height_safety_m,
+                    initial_rise_m=min(self.terrain_height_growth_m, .00025),
+                    kl_ok=kl_ok_to_expand, retreat=global_retreat)
+                self.params.frontier_terrain_height_m = opening
+            else:
+                opening_event = None
             # Rollout rates are ratios among completed edge episodes;
             # pool the corresponding integer counts until statistically
             # meaningful. A JAX policy's long healthy episodes can span
@@ -665,7 +679,9 @@ class RegimeGovernor:
                                                   contacts=0.,falls=0.)
             else:
                 decision = 'collect_completed_edge_episodes'
-            report['terrain_frontier_event'] = decision
+            report['terrain_frontier_event'] = (opening_event
+                                                if opening_event is not None
+                                                else decision)
         else:
             report['terrain_frontier_event'] = 'off'
         report['frontier_terrain_height_m'] = self.params.frontier_terrain_height_m
