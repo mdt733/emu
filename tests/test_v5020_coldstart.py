@@ -374,3 +374,24 @@ def test_true_elevation_frozen_mjx_exam_compiles_on_small_worlds(tmp_path, direc
     assert results[0] == 2.
     assert results[2] == 0.  # Impossible to land and walk 40mm in 4 frames.
     assert np.all((results[1:] >= 0.) & (results[1:] <= 1.))
+
+
+def test_public_elevation_exam_cli_is_read_only(tmp_path, monkeypatch, capsys):
+    from emu.cli import main
+    from emu import evaluation
+    calls = []
+    def fake_evaluate_runs(paths, **kwargs):
+        calls.append((paths,kwargs))
+        return {"checkpoint": {"elevation_up_10mm_crossing_rate": 0.0}}
+    monkeypatch.setattr(evaluation,"evaluate_runs", fake_evaluate_runs)
+    source=tmp_path/"checkpoint.pkl"
+    assert main(['screen-elevation','--checkpoint',str(source),
+                 '--course-root',str(tmp_path/'geometry'),
+                 '--direction','up','--height-mm','10',
+                 '--envs','8','--horizon','350','--device','cpu']) == 0
+    assert calls[0][0] == [source]
+    assert calls[0][1]["v5020_elevation_exam"]
+    assert calls[0][1]["write_screen_files"] is False
+    assert calls[0][1]["key_by_path"] is True
+    assert not (tmp_path/'geometry').exists()
+    assert 'elevation_up_10mm' in capsys.readouterr().out
