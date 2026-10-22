@@ -527,50 +527,42 @@ def _fmt_len(v: float) -> str:
     return '-' if v < 0 else f"{v:.0f}"
 
 
-def format_line(version: str, step: int, reward: float, row: dict[str, float], report: dict[str, Any], train_fps: float,
-                 wall_fps: float | None = None, nan_grad_skips: int = 0) -> str:
-    fail = f"{100*row['fall_height']:.0f}/{100*row['fall_tilt']:.0f}/{100*row['fall_roll_rate']:.0f}/{100*row['fall_pitch_rate']:.0f}"
-    line1 = (f"[{version}] step={step:,} rew={reward:+.3f} len={row['ep_len_mean']:.0f} "
-             f"fall={100*row['fall_rate']:.1f}% train_fps={train_fps:.0f} wall_fps={(wall_fps if wall_fps is not None else train_fps):.0f} fail(h/t/r/p)={fail} "
-             f"vx={row['vx_mean']:+.3f}/{row['cmd_vx_mean']:+.3f} cone={row['foot_mid_angle_deg']:.1f}deg "
-             f"step={row['step_evidence']:.2f} sync={row['phase_sync']:.2f}")
-    # Three regimes' difficulty + live env-allocation fraction, plus
-    # posture's own global dial.
-    line2 = (f"[{version}]   steady={report['steady_difficulty']:.2f}(env={report['regime_frac_steady']:.2f}) "
-             f"transition={report['transition_difficulty']:.2f}(env={report['regime_frac_transition']:.2f}) "
-             f"resilience={report['resilience_difficulty']:.2f}(env={report['regime_frac_resilience']:.2f}) "
-             f"posture={report['posture_difficulty']:.2f} | "
-             f"fall_ema steady/trans/res/post={report['fall_ema_steady']:.2f}/{report['fall_ema_transition']:.2f}/"
-             f"{report['fall_ema_resilience']:.2f}/{report['fall_ema_posture']:.2f} target={report['fall_target']:.2f} | "
-             f"fail_len={_fmt_len(row.get('fail_ep_len_mean', -1.0))} "
-             f"timeout_len={_fmt_len(row.get('timeout_ep_len_mean', -1.0))} | "
-             f"r_track={row['reward_command_tracking']:.2f} r_contact={row['reward_feet_only_contact']:.2f} | "
-             f"nan_skips={nan_grad_skips} ev={row.get('explained_variance', 0.0):.2f} "
-             f"expl_std={row.get('exploration_std_mean', 0.0):.3f}")
-    line3 = (f"[{version}]   events steady/trans/res/post="
-             f"{report['event_steady']}/{report['event_transition']}/{report['event_resilience']}/{report['event_posture']}"
-             f"{' GLOBAL-RETREAT' if report.get('global_retreat') else ''} "
-             f"comp steady/trans/res={report['competence_steady']:.2f}/{report['competence_transition']:.2f}/{report['competence_resilience']:.2f} "
-             f"core_comp={report['core_competence']:.2f} core_bad_streak={int(report['core_bad_streak'])} "
-             f"core_fall={row.get('core_fall_rate', -1.0):.2f} core_len={_fmt_len(row.get('core_ep_len_mean', -1.0))} "
-             f"precision_vx={report['precision_vx']:.2f} combo={report.get('precision_combo',-1.0):.2f} kl_stress={report['kl_stopped_frac_seen']:.2f}"
-             f"{'(CHRONIC-IGNORED)' if report.get('kl_stress_chronic', 0.0) else ''} "
-             f"kl_end={row.get('ppo_approx_kl_final', 0.0):.3f} "
-             f"eff_lr={row.get('ppo_effective_lr', 0.0):.2e} "
-             f"a_clip={row.get('ppo_action_clip_frac', 0.0):.2f}")
-    line4 = (f"[{version}]   frontier vx=[{report.get('frontier_vx_lo',0.0):+.3f},{report.get('frontier_vx_hi',0.0):+.3f}] "
-             f"vy=±{report.get('frontier_vy',0.0):.3f} yaw=±{report.get('frontier_yaw',0.0):.3f} "
-             f"combo={report.get('frontier_combo_radius',1.0):.3f} push={report.get('frontier_push_n',0.0):.3f}N "
-             f"sensor={report.get('frontier_sensor_scale',0.0):.2f}x hold={report.get('frontier_transition_hold_s',0.0):.3f}s "
-             f"ramp={report.get('frontier_ramp_steps',0.0):.2f}frames")
-    line5 = (f"[{version}]   field nodes={row.get('field_known_nodes',0.0):.0f}/{row.get('field_competent_nodes',0.0):.0f} "
-             f"frontier={row.get('field_frontier_nodes',0.0):.0f} q={row.get('field_mean_quality_known',0.0):.2f} "
-             f"edges={row.get('field_known_edges',0.0):.0f}/{row.get('field_competent_edges',0.0):.0f} "
-             f"recovery={row.get('field_known_recovery_cells',0.0):.0f}/{row.get('field_competent_recovery_cells',0.0):.0f} "
-             f"events(n/r/e)+={row.get('field_node_events_update',0.0):.0f}/{row.get('field_recovery_events_update',0.0):.0f}/{row.get('field_edge_events_update',0.0):.0f} "
-             f"teach(node/edge)={report.get('field_node_influence',0.0):.2f}/{report.get('field_edge_influence',0.0):.2f}")
-    return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
+def format_line(version: str, step: int, reward: float, row: dict[str, float],
+                report: dict[str, Any], train_fps: float,
+                wall_fps: float | None = None, nan_grad_skips: int = 0,
+                *, slope_deg: float = 0.0,
+                variable_slope: bool = False,
+                rated_terrain: bool = False) -> str:
+    """One operator-friendly progress line. Detailed diagnostics stay in CSV.
 
+    vx=[lo,hi] is the currently ALLOWED command range, not an observed
+    per-rollout velocity extreme. 'step' is the teacher's EARNED physical
+    terrain-height rating, never the 6mm exploration safety ceiling.
+    Shaft J/m is a diagnostic of ABSOLUTE mechanical work, not battery use.
+    """
+    wall = train_fps if wall_fps is None else wall_fps
+    lo = float(report.get('frontier_vx_lo', 0.0))
+    hi = float(report.get('frontier_vx_hi', 0.0))
+    slope = 'var' if variable_slope else f'{slope_deg:.1f}deg'
+    height = (f"{1000.0 * float(report.get('frontier_terrain_height_m', 0.0)):.3f}mm"
+              if rated_terrain else 'flat')
+    work = float(row.get('servo_shaft_work_per_forward_m_j', -1.0))
+    work_text = f'{work:.1f}J/m' if math.isfinite(work) and work >= 0. else 'n/a'
+    torque = float(row.get('servo_over_rated_frac', -1.0))
+    torque_text = f'{100.0*torque:.0f}%' if math.isfinite(torque) and torque >= 0. else 'n/a'
+    line = (
+        f'[{version}] steps={step:,} rew={reward:+.3f} '
+        f'len={row["ep_len_mean"]:.0f} fall={100.0 * row["fall_rate"]:.1f}% '
+        f'fps={wall:,.0f} '
+        f'vx_cmd=[{lo:+.2f},{hi:+.2f}]m/s '
+        f'slope={slope} step={height} '
+        f'resil={float(report.get("resilience_difficulty",0.0)):.2f} '
+        f'shaft={work_text} over={torque_text}')
+    if nan_grad_skips:
+        line += f' WARNING:nan_skips={nan_grad_skips}'
+    if report.get('global_retreat'):
+        line += ' RETREAT'
+    return line
 
 
 def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> None:
@@ -646,7 +638,7 @@ from typing import Any
 
 import numpy as np
 
-from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
+from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, CONTROL_DT, task_param_defaults
 from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME, MOTOR_PAYMENT_NAME
 from .scoring import terrain_edge_trials
 from .contracts import (
@@ -927,6 +919,38 @@ def augment_rollout_row(
             row[f'ppo_{key}_{rn}'] = float(np.asarray(aux_now.get(f'{key}_{rn}', 0.0)))
 
 
+def shaft_work_per_forward_m(metrics: dict[str, Any]) -> float:
+    """Absolute six-servo SHAFT work / measured +X progress, in J/m.
+
+    Reuses existing per-control-frame GPU metrics after they have already
+    been transferred to CPU. Counts power on ALL frames commanding forward
+    motion (even if stalled/backsliding), but only counts positive world-X
+    displacement as distance. No new simulation, sensor or reward math.
+    Returns -1 when the forward sample is absent or too close to stationary.
+    """
+    needed=('servo_shaft_abs_power_w','terrain_forward_delta_m','cmd_vx')
+    if any(k not in metrics for k in needed):
+        return -1.0
+    power=np.asarray(metrics['servo_shaft_abs_power_w'],dtype=np.float64)
+    delta=np.asarray(metrics['terrain_forward_delta_m'],dtype=np.float64)
+    command=np.asarray(metrics['cmd_vx'],dtype=np.float64)
+    if (power.shape!=delta.shape or power.shape!=command.shape or
+            power.size==0 or not all(np.isfinite(a).all()
+                                     for a in (power,delta,command))):
+        return -1.0
+    eligible=command>0.05
+    n=int(np.count_nonzero(eligible))
+    if not n:
+        return -1.0
+    distance=float(np.maximum(delta[eligible],0.0).sum())
+    duration=n*CONTROL_DT
+    # When almost stationary, an enormous J/m is not informative.
+    if distance<0.02 or distance/duration<0.01:
+        return -1.0
+    work=float(np.maximum(power[eligible],0.0).sum())*CONTROL_DT
+    return work/distance
+
+
 def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float] | None = None, combo_p: float = COMBO_P) -> dict[str, float]:
     """Report episode outcomes and physical evidence, separate from payment.
 
@@ -965,6 +989,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'reward_swing_clearance': mean_metric(metrics, 'reward_swing_clearance'),
         # Read-only nominal servo mechanics: no effect on PPO or governance.
         'servo_shaft_abs_power_w': mean_metric(metrics, 'servo_shaft_abs_power_w'),
+        'servo_shaft_work_per_forward_m_j': shaft_work_per_forward_m(metrics),
         'servo_shaft_drive_power_w': mean_metric(metrics, 'servo_shaft_drive_power_w'),
         'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
         'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
