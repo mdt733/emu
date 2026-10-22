@@ -481,3 +481,23 @@ it. Fetch `~/robot_lab/emu_runs/v5020_2048_<gitshort>/logs/`, plus
 the printed traceback and failure checkpoint provenance, to diagnose
 before spending GPU time. Even successful frozen 4-world parity is
 only a necessary short-horizon check, not proof of robust locomotion.
+
+
+### Final launch scope clarification (do not overstate)
+The `scripts/run_v5020_2048.sh` entry point now offers only
+`--stop-after foundation|up`. The previously outlined mixed12 and
+mixed20 stages are **removed from executable launcher code**, not merely
+hidden after a run-time branch. The only new physical curriculum in
+this reproducible invocation is the rated step-UP feature, with the
+absolute safety cap fixed at 6mm. Down-step and slope experiments
+require separately verified zero-rated axes and a new later study.
+
+Before launch the script also runs the read-only frozen CPU transfer
+exam `scripts/verify_v5020_bridge.py` (4 worlds, 160 frames, same saved
+actor/norm/command on original flat, zero-height platform and actual
+microstep platform). This is NOT a tiny training run and does not alter
+the source checkpoint. It must pass before CUDA PPO begins.
+
+Any existing `UNSAFE_RESUME.json` quarantines the continuation; never
+remove it to dodge a failed gate. The original `main` branch and public
+v5016 Pinnacle demo remain untouched.
