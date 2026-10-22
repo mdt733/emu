@@ -91,12 +91,16 @@ def check(parent: Path, *, worlds: int = 4, horizon: int = 160) -> dict:
                 "terrain_exploration_safety_m":.006}
         plateau = EmuMJXEnv(str(course),num_envs=n,seed=733,
                             max_episode_steps=700, **opts)
-        # One SAME policy/norm/task/simulator seed across three conditions.
+        micro_world = EmuMJXEnv(str(course),num_envs=n,seed=733,
+                                 max_episode_steps=700, **opts)
+        # Two distinct env/trainer JIT closures are REQUIRED. Mutating a
+        # Python attribute AFTER a JAX function has been traced would NOT
+        # recompile it, giving a false green light for a phantom microprobe.
+        plateau.terrain_exploration_probe_m = 0.  # real 0mm baseline
+        assert micro_world.terrain_exploration_probe_m == .002
         reference = score(old)
-        plateau.terrain_exploration_probe_m = 0.  # genuine 0mm baseline
         zero = score(plateau)
-        plateau.terrain_exploration_probe_m = .002  # actual <=0.25mm probe
-        micro = score(plateau)
+        micro = score(micro_world)  # real <=0.25mm probe
 
     names = ("survival", "first_fall_step", "vx_mae", "vy_mae",
              "yaw_mae", "gravity_z", "cone", "gait", "support",
