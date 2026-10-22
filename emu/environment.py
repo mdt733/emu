@@ -1144,6 +1144,7 @@ class EmuMJXEnv(TaskSampler):
                  domain_config: DomainRandomizationConfig | None = None,
                  attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
+                 considered_reward: bool = False,
                  contact_slope_deg: float = 0.0,
                  contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
                  observation_schema: str = OBS_SCHEMA_LEGACY,
@@ -1182,6 +1183,9 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
+        self.considered_reward = bool(considered_reward)
+        if self.considered_reward and self.motor_guidance_weight <= 0.:
+            raise ValueError('v5021 considered reward requires nonzero motor guidance')
         self.observation_schema = observation_schema
         self.forward_preview_masked = bool(forward_preview_masked)
         if self.forward_preview_masked and observation_schema != OBS_SCHEMA_PREVIEW:
@@ -1682,7 +1686,8 @@ class EmuMJXEnv(TaskSampler):
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
-            motor_guidance_weight=self.motor_guidance_weight)
+            motor_guidance_weight=self.motor_guidance_weight,
+            considered_reward=self.considered_reward)
         # Reward-only physically supported step approach: optional matched
         # research arm. Never promotes a frontier without independent crossing.
         terrain_payment = terrain_progress_payment(
