@@ -501,3 +501,48 @@ the source checkpoint. It must pass before CUDA PPO begins.
 Any existing `UNSAFE_RESUME.json` quarantines the continuation; never
 remove it to dodge a failed gate. The original `main` branch and public
 v5016 Pinnacle demo remain untouched.
+
+
+## 2026-10-22 — missing clean results bundle restored (post-32M)
+
+The protected 2048-world terrain-bridge run on source `6c22a5678442`
+COMPLETED to 32,047,104 transitions with final logged reward +3.180,
+episode length ~699, falls 1.1%, frozen broad score 0.095. This is
+valuable **walk-preservation evidence**, not 6mm stair certification;
+the last logged earned terrain rating was only ~0.231mm.
+
+The 20M→32M launcher initially omitted the existing offline results
+generation and printed two huge, unlabeled CSV rows instead. FIXED:
+`scripts/run_v5020_2048.sh --run` now automatically calls
+`emu report --root "$RUN_ROOT"` after the final checkpoint is saved.
+It leaves the source checkpoint untouched and writes:
+- `$RUN_ROOT/results.md`: readable narrative, trends, independent panels,
+  separate earned stair rating vs immutable safety ceiling, warnings
+- `$RUN_ROOT/results_data.json`: machine-readable summary and SHA256 lineage
+- `$RUN_ROOT/results_bundle.zip`: both reports and supporting
+  metrics/fixed_eval/config/metadata files, WITHOUT huge pickle models.
+
+`emu/results.py` now discovers the v5020 stage-root layout
+(`foundation/`, `up/`) in addition to older tournaments and
+single-run `up/`. It includes the actual source Git commit and the
+`lineage/up.parent.sha256` hash. Unit tests in
+`tests/test_v5020_report.py` cover offline backfill and safe ZIP
+exclusion of checkpoint bytes.
+
+**Retroactive report generation for the user's ALREADY FINISHED run,
+without training and without touching the old source checkpoint:**
+
+```bash
+cd ~/emu-v5020
+git switch feature/v5020-coldstart-terrain
+git pull --ff-only origin feature/v5020-coldstart-terrain
+source .venv/bin/activate
+emu report --root ~/robot_lab/emu_runs/v5020_2048_6c22a5678442
+```
+
+Then attach
+`~/robot_lab/emu_runs/v5020_2048_6c22a5678442/results_bundle.zip`.
+DO NOT rerun `scripts/run_v5020_2048.sh --run` to create a report.
+The reporter is offline/read-only regarding training artifacts. No
+GPU tests or PPO continuation were run by the assistant for these
+reporting changes.
