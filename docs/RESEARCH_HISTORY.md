@@ -48,6 +48,36 @@ legacy gyro processing. Sensor extrinsics, timing, calibration, occlusion
 and JAX-vs-real data semantics require explicit tests. Old checkpoints
 must not be silently reinterpreted after such changes.
 
+### Exact v5020 4096-world foundation failure evidence
+
+The archived first v5020 results bundle contains one `foundation20/fixed_eval.csv`
+record at policy step **20,054,016**, plus all foundation training metrics.
+The fixed exam was strikingly deceptive if only the easiest panel was used:
+
+| Frozen exam panel | Survival |
+|---|---:|
+| core | 99.9878% |
+| stress30 | 0.1709% |
+| dynamic50 | 0.1831% |
+| resilience50 | 0.0122% |
+| dynamic80 | 0.0244% |
+| combo70 | 0.0977% |
+
+The same saved row's broad exam score was **−0.5529083**. Near-perfect
+`core` survival is **not** evidence of useful general-purpose walking.
+Later training logs near 20M also showed increasing falls and shortened
+episodes. These figures describe **this one measured parent at that
+step**, not every possible 12–20M snapshot or every 312-input foundation.
+They must never be extrapolated to unexamined checkpoints.
+
+Practical result: the overnight launcher now vetoes a foundation that
+combines apparently healthy `core` survival with near-zero transfer
+across all three independently evaluated mild/dynamic/recovery panels.
+It can instead begin a **new flat-first 312-input** foundation, stop
+if that one is also inadequate, and preserve every original checkpoint.
+This is a precaution based on the observed failure, **not** proof a
+fresh run will succeed.
+
 ## Lessons to retain as engineering rules
 
 ### Physics
