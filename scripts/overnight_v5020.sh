@@ -70,7 +70,10 @@ EXAM_HORIZON="${EXAM_HORIZON:-300}"
 # observation/sensor contract and 12–22M physical-step maturity gate.
 # A score from another checkpoint step never validates this policy.
 echo "=== Checkout: $BRANCH @ $REVISION ==="
-FOUNDATION_META="$(python - "$EXPLICIT_FOUNDATION" "$HOME" <<'PY'
+FOUNDATION_NEEDS_BUILD=0
+FRESH_ROOT="$HOME/robot_lab/emu_runs/v5020_flatfirst_foundation_$SHORT_SHA"
+SOURCE_ERROR=""
+if FOUNDATION_META="$(python - "$EXPLICIT_FOUNDATION" "$HOME" <<'PY'
 import sys
 from pathlib import Path
 from emu.foundation_readiness import choose_foundation
@@ -91,13 +94,25 @@ if exam is None:
 else:
     print("FOUNDATION_FIXED_EXAM="+", ".join(f"{k}={v:.4f}" for k,v in sorted(exam.items())))
 PY
-)"
-printf '%s\n' "$FOUNDATION_META"
-FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
-ENVS="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_WORLDS=//p')"
-[[ -f "$FOUNDATION_PATH" && "$ENVS" =~ ^[0-9]+$ ]] || {
-  echo "STOP: no verified foundation checkpoint and world count" >&2; exit 1
-}
+)"; then
+  printf '%s\n' "$FOUNDATION_META"
+  FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
+  ENVS="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_WORLDS=//p')"
+  [[ -f "$FOUNDATION_PATH" && "$ENVS" =~ ^[0-9]+$ ]] || {
+    echo "STOP: selected foundation has no verified path/world count" >&2; exit 1
+  }
+else
+  if [[ -n "$EXPLICIT_FOUNDATION" ]]; then
+    echo "STOP: explicitly requested checkpoint is invalid/unhealthy; no silent substitution." >&2
+    exit 1
+  fi
+  FOUNDATION_NEEDS_BUILD=1
+  ENVS="${FOUNDATION_ENVS:-4096}"
+  FOUNDATION_PATH="$FRESH_ROOT/checkpoints/final.pkl"
+  echo "=== No qualified source: will create/validate a fresh flat-first 312-input foundation ==="
+  echo "New foundation run: $FRESH_ROOT"
+  echo "This is an explicit opt-in only when --run is used; --check launches no training."
+fi
 if (( ENVS != 2048 && ENVS != 4096 )); then
   echo "STOP: unsupported overnight GPU world count $ENVS; use a reviewed study." >&2
   exit 1
@@ -146,7 +161,12 @@ echo "=== Research plan (read-only) ==="
 emu campaign-refork
 
 if [[ "$MODE" == "--check" ]]; then
-  echo "CHECK PASSED. No campaign was started. Use --run to launch."
+  if ((FOUNDATION_NEEDS_BUILD)); then
+    echo "CHECK PASSED: no qualified existing foundation; --run will train a fresh flat-first 312-input foundation FIRST."
+  else
+    echo "CHECK PASSED: existing source checkpoint validated."
+  fi
+  echo "No campaign was started. Use --run to launch."
   exit 0
 fi
 
@@ -156,6 +176,44 @@ fi
 LOG_DIR="$HOME/robot_lab/emu_launch_logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/v5020_refork_${SHORT_SHA}_$(date +%Y%m%d_%H%M%S).log"
+if ((FOUNDATION_NEEDS_BUILD)); then
+  [[ "$ENVS" =~ ^[0-9]+$ ]] || { echo "STOP: invalid FOUNDATION_ENVS" >&2; exit 1; }
+  if [[ -e "$FRESH_ROOT" && ! -f "$FRESH_ROOT/training_config.json" ]]; then
+    echo "STOP: new foundation directory is nonempty/unidentified: $FRESH_ROOT" >&2; exit 1
+  fi
+  echo "=== Training a new 312-input, flat-first 20M foundation: $FRESH_ROOT ==="
+  echo "It starts with attainable level walking: no contact-slope randomisation, no early steps."
+  # An interruption may resume ONLY within the same pinned revision.
+  RESUME=()
+  if [[ -d "$FRESH_ROOT/checkpoints" ]] &&
+       find "$FRESH_ROOT/checkpoints" -maxdepth 1 -type f -name '*.pkl' | grep -q .; then
+    RESUME=(--resume auto)
+  fi
+  XLA_PYTHON_CLIENT_PREALLOCATE=false PYTHONUNBUFFERED=1 \
+    emu train --profile foundation --forward-preview \
+      --envs "$ENVS" --seed 733 --device cuda \
+      --run-dir "$FRESH_ROOT" --steps 20000000 "${RESUME[@]}" 2>&1 | tee -a "$LOG_FILE"
+
+  # Reassess the exact completed policy. A saved 20M checkpoint alone does
+  # NOT authorise five more expensive challengers.
+  FOUNDATION_META="$(python - "$FRESH_ROOT" <<'PY'
+import sys
+from pathlib import Path
+from emu.foundation_readiness import choose_foundation
+p=Path(sys.argv[1]).resolve()
+best=choose_foundation([p])
+print("FOUNDATION_PATH="+best["path"])
+print("FOUNDATION_WORLDS="+str(best["envs"]))
+print("FOUNDATION_STEP="+str(best["step"]))
+print("FOUNDATION_SELECTION="+best["selection_reason"])
+print("FOUNDATION_SHA256="+best["sha256"])
+print("FOUNDATION_FIXED_EXAM="+str(best["source_evaluation"]))
+PY
+)"
+  printf '%s\n' "$FOUNDATION_META"
+  FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
+  echo "=== Fresh foundation passed screening; proceeding to first 40M generation ==="
+fi
 echo "=== Starting five-way first round; live log: $LOG_FILE ==="
 echo "If every challenger fails, campaign exits without promoting anything."
 echo "A validated winner, if any, will be in $RUN_ROOT/walk40/selection.json"
