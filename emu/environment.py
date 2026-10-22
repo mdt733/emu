@@ -1880,6 +1880,18 @@ class EmuMJXEnv(TaskSampler):
         # Static elevation exams can begin on a raised landing. Derive the
         # birth support from the real box footprint, not a lesson label or
         # the XML torso height (the standard birth path overwrites qpos0).
+        if self.terrain_elevation_mode != 'hurdle':
+            # Descending births start with their FEET on the real upper
+            # landing. Geometry is sampled above and becomes immutable
+            # throughout the episode. Flat-rehearsal worlds park it 5m away.
+            box_centre = data.mocap_pos[:, self.terrain_mocap_id, :]
+            on_upper = ((task[:, T.terrain_height_m] > 0.) &
+                        (box_centre[:, 0] < 0.))
+            # Current opt-in platform lessons explicitly use a level
+            # physical floor. Preserve the existing source-plane spawn in
+            # all other worlds; do not invent floor contacts.
+            floor_z = jnp.where(on_upper, jnp.maximum(
+                floor_z, box_centre[:, 2]), floor_z)
         if self.terrain_box_geom_id >= 0 and not self.terrain_adaptive:
             bid = self.terrain_box_geom_id
             centre = jnp.asarray(self.mj_model.geom_pos[bid])
@@ -2014,6 +2026,21 @@ class EmuMJXEnv(TaskSampler):
                 bx = jnp.full_like(h,.20)
                 by = jnp.zeros_like(h)
                 angle = jnp.zeros_like(h)
+            if self.terrain_elevation_mode != 'hurdle':
+                # bx is the transition EDGE, not the box centre. A single
+                # fixed 2m platform serves both ascending and descending
+                # worlds by moving it +1m or -1m, without topology changes.
+                # Mixed direction is deterministic from each world's birth key.
+                if self.terrain_elevation_mode == 'mixed':
+                    kd = jax.vmap(lambda k: jax.random.fold_in(k, 50204))(pos_keys)
+                    downhill = jax.vmap(lambda k: jax.random.bernoulli(k))(kd)
+                else:
+                    downhill = jnp.full(h.shape, self.terrain_elevation_mode == 'down')
+                bx = bx + jnp.where(downhill, -self.terrain_box_half_size[0],
+                                   self.terrain_box_half_size[0])
+                # Keep platform faces square with the crossing direction
+                # while varying approach distance and lateral offset.
+                angle = jnp.zeros_like(angle)
             # Crucial for true incline+box worlds: place the box TOP at
             # obstacle height above the *local sloped contact floor*.
             n = self.floor_normal_world
@@ -2048,10 +2075,12 @@ class EmuMJXEnv(TaskSampler):
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        bzeros = jnp.zeros((self.num_envs,), dtype=jnp.bool_)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, zeros,
+                         bzeros, bzeros, zeros, izeros, zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
