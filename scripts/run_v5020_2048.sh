@@ -29,11 +29,12 @@ HELP
 MODE="${1:---plan}"
 [[ "$MODE" == --plan || "$MODE" == --run || "$MODE" == --help ]] || { usage >&2; exit 2; }
 if [[ "$MODE" == --help ]]; then usage; exit 0; fi
-if [[ ${3+x} ]]; then usage >&2; exit 2; fi
 STOP_AFTER="${STOP_AFTER:-mixed20}"
 if [[ ${2+x} ]]; then
-  [[ "$2" == --stop-after ]] && { usage >&2; exit 2; }
-  usage >&2; exit 2
+  if [[ "$2" != --stop-after || -z "${3:-}" || ${4+x} ]]; then
+    usage >&2; exit 2
+  fi
+  STOP_AFTER="$3"
 fi
 case "$STOP_AFTER" in foundation|up|mixed12|mixed20) ;; *) echo "Invalid STOP_AFTER=$STOP_AFTER" >&2; exit 2;; esac
 
@@ -66,12 +67,11 @@ source .venv/bin/activate
 command -v emu >/dev/null ||
   { echo "STOP: emu CLI unavailable after venv activation" >&2; exit 1; }
 mkdir -p "$RUN_ROOT/logs" "$RUN_ROOT/lineage"
-printf '%s\n' "$SHA" > "$RUN_ROOT/lineage/source_commit.txt.tmp"
 if [[ -f "$RUN_ROOT/lineage/source_commit.txt" ]] &&
    [[ "$(cat "$RUN_ROOT/lineage/source_commit.txt")" != "$SHA" ]]; then
   echo "STOP: source SHA differs from this run's original source" >&2; exit 1
 fi
-mv "$RUN_ROOT/lineage/source_commit.txt.tmp" "$RUN_ROOT/lineage/source_commit.txt"
+printf '%s\n' "$SHA" > "$RUN_ROOT/lineage/source_commit.txt"
 
 step() {
   local name="$1" target="$2" parent="$3"
@@ -105,7 +105,9 @@ step() {
   echo "Log: $log"
   # "emu train" is intentionally foreground/synchronous and has pipefail.
   # It writes run-local checkpoints, metrics, fixed evals and console.log.
-  XLA_PYTHON_CLIENT_PREALLOCATE=false     emu train --run-dir "$dir" --steps "$target"     --envs "$ENVS" --seed "$SEED" --device cuda     "${resume[@]}" "$@" 2>&1 | tee -a "$log"
+  XLA_PYTHON_CLIENT_PREALLOCATE=false emu train --run-dir "$dir" --steps "$target" \
+    --envs "$ENVS" --seed "$SEED" --device cuda \
+    "${resume[@]}" "$@" 2>&1 | tee -a "$log"
   [[ -s "$ck" ]] || { echo "STOP: $name returned without final checkpoint" >&2; exit 1; }
   echo "=== Completed $name: $ck ==="
 }
