@@ -12,8 +12,10 @@ case "${1:---check}" in
 Usage: bash scripts/overnight_v5020.sh [--check|--run]
   --check   Validate the current WSL checkout, 312-input foundation,
             regression tests and GPU. No PPO training, no new run root.
-  --run     Perform the same checks, then run ONLY the five-arm 20->40M
-            Champion Ladder round; stop after independent examination.
+  --run     If no suitable saved foundation exists, train a fresh flat-first
+            312-input 20M foundation and re-examine it. Only after it passes
+            source screening run the five-arm 20->40M Champion Ladder round.
+            Stop after its independent exam; do not launch 60/80M.
 
 Optional environment overrides:
   FOUNDATION_PATH=...   Explicit saved 312-input 12-22M .pkl.
