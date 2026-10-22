@@ -485,7 +485,7 @@ def test_true_elevation_training_plan_is_opt_in_and_pinned(tmp_path, capsys):
     with pytest.raises(ValueError,match='raised-platform training'):
         main(['train','--profile','sim2real','--forward-preview',
               '--terrain-elevation-mode','mixed','--terrain-height-ceiling-mm','20',
-              '--steps','65536',
+              '--terrain-height-initial-mm','0','--steps','65536',
               '--run-dir',str(tmp_path/'invalid'),'--plan'])
     assert not (tmp_path/'invalid').exists()
 
