@@ -2179,6 +2179,23 @@ class EmuMJXEnv(TaskSampler):
         distance=jnp.sum((origin-torso)*normal,axis=-1)
         true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
         true_depth=jnp.where(denom<-.3,true_depth,0.)
+        if (self.observation_schema == OBS_SCHEMA_PREVIEW and
+                self.terrain_contact_mode == 'box_surface'):
+            # A real downward-looking flow camera sees the closest contact
+            # surface, not an invisible floor THROUGH a raised landing.
+            # This is sensor FORWARD synthesis only. The actor gets the
+            # resulting noisy angular flow / estimated velocity, never box Z.
+            box=self.terrain_box_geom_id
+            camera_range, camera_valid=first_hit_ranges(
+                jnp,torso,R,origin,normal,
+                box_center=data.geom_xpos[:,box,:],
+                box_rotation=jnp.reshape(data.geom_xmat[:,box],
+                                         (self.num_envs,3,3)),
+                box_half_size=self.terrain_box_half_size,
+                mounts_body=((0.,0.,0.),),
+                beams_body=((0.,0.,-1.),))
+            true_depth=jnp.where(camera_valid[:,0],
+                                 camera_range[:,0],0.)
         _,body_velocity,_=self._body_packets(data)
         # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
         # the second world-to-body rotation used by the legacy 220 actor.
