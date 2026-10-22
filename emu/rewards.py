@@ -68,7 +68,7 @@ def terrain_progress_payment(metrics, *, xp, weight: float):
     return forward + completion
 
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, considered_reward=False):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -108,7 +108,23 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     if motor_guidance_weight > 0.0:
         overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
         shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
-        motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
+        if considered_reward:
+            # V5021: meaningful motor economics without a prescribed gait.
+            # Existing physical telemetry: no new JAX kernels or sensors.
+            # Quadratic overload punishes chronic operation above the nominal
+            # continuous torque, yet still permits brief emergency peaks.
+            # Shaft work and stance-foot velocity discourage foot hammering;
+            # action-rate discourages target jitter. Every term is bounded.
+            target_jerk = jnp.clip(m['action_delta_norm'] / 3.0, 0.0, 1.0)
+            contact_harshness = jnp.clip(m['stance_slip'] / 0.5, 0.0, 1.0)
+            motor_load_proxy = (
+                4.0 * overload * overload +
+                1.5 * shaft_motion * shaft_motion +
+                0.75 * target_jerk +
+                0.5 * contact_harshness
+            )
+        else:
+            motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
         motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
