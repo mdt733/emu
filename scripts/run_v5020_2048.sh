@@ -121,15 +121,9 @@ step() {
     "${resume[@]}" "$@" 2>&1 | tee -a "$log"
   [[ -s "$ck" ]] || { echo "STOP: $name returned without final checkpoint" >&2; exit 1; }
   echo "=== Completed $name: $ck ==="
-  # Lightweight evidence index, never an inferred success claim.
-  if [[ -f "$dir/metrics.csv" ]]; then
-    echo "Latest raw rollout metrics ($name):"
-    tail -n 2 "$dir/metrics.csv"
-  fi
-  if [[ -f "$dir/fixed_eval.csv" ]]; then
-    echo "Latest frozen evaluation ($name):"
-    tail -n 2 "$dir/fixed_eval.csv"
-  fi
+  # A 500-column raw CSV row is not a human-readable result. The offline
+  # campaign report below owns the detailed shared evidence and warnings.
+  echo "Completed stage $name; metrics and frozen exam preserved in $dir"
 }
 echo "Source/policy/checkpoint contracts are strict. Any failure stops this"
 echo "campaign with its console logs, stage output, and prior snapshots intact."
@@ -188,7 +182,14 @@ PY
 )"
 fi
 echo "Qualified foundation walker: $PARENT"
-if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
+if [[ "$STOP_AFTER" == foundation ]]; then
+  echo "Requested stop after foundation"
+  if [[ -f "$RUN_ROOT/foundation/metrics.csv" ]]; then
+    emu report --root "$RUN_ROOT"
+    echo "Share: $RUN_ROOT/results_bundle.zip"
+  fi
+  exit 0
+fi
 echo "=== HARD GATE: same frozen 312-input policy on original flat, zero plateau, and microprobes ==="
 echo "This is a CPU/4-world policy examination only. No PPO updates."
 python scripts/verify_v5020_bridge.py --parent "$PARENT" --worlds 4 --horizon 160 \
@@ -235,5 +236,14 @@ echo
 echo "=== v5020 first continuous terrain bridge complete ==="
 echo "Output: $RUN_ROOT/up"
 echo "Checkpoint: $RUN_ROOT/up/checkpoints/final.pkl"
+echo
+echo "=== Building CLEAN results.md + results_data.json + evidence ZIP ==="
+# No JAX, no model deserialisation, no PPO, no mutation of checkpoints.
+emu report --root "$RUN_ROOT"
+echo
+echo "=== Share these results (not checkpoint pkl files) ==="
+echo "Markdown: $RUN_ROOT/results.md"
+echo "Data:     $RUN_ROOT/results_data.json"
+echo "Bundle:   $RUN_ROOT/results_bundle.zip"
 echo "This is NOT proof of a successful 6mm transition. Independently"
 echo "check retained flat walking and physically supported step-up exams."
