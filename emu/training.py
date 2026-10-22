@@ -242,19 +242,35 @@ def train(args: TrainingConfig) -> int:
         try:
             governor.load_state_dict(resumed_payload['curriculum_state'])
             health.load_state_dict(resumed_payload['health_state'])
-            # External 25M FLAT foundation fork: the complete parent teacher
-            # rightly had no terrain height frontier (zero). Without explicit
-            # opt-in seeding here the new adaptive arm inherits ZERO forever:
-            # 100% flat births, no edge exposure, no way to earn the first step.
-            # Same-run 'auto' resume MUST retain its already-earned height.
+            # Handoff invariant: a foundation with NO physical terrain
+            # lessons has NOT earned a terrain rating. Historical
+            # RegimeParams defaults include an UNUSED 3mm terrain field,
+            # even in checkpoints that saw only flat ground! Never inherit
+            # that dormant number as demonstrated obstacle capability.
+            # Same-run --resume auto always retains its real learned rating.
             external_parent = str(args.resume).lower() != 'auto'
-            if (external_parent and args.terrain_height_safety_m > 0. and
-                governor.params.frontier_terrain_height_m <= 0.):
-                initial = min(args.terrain_height_initial_m,
-                              args.terrain_height_safety_m)
-                governor.params.frontier_terrain_height_m = initial
-                print(f"{LOG_PREFIX} v5018 seeded adaptive height frontier "
-                      f"from flat parent: {initial*1000.:.1f}mm", flush=True)
+            if external_parent and args.terrain_height_safety_m > 0.:
+                from .training_config import TrainingConfig
+                parent_config = TrainingConfig.load(
+                    Path(args.resume).expanduser().resolve().parent.parent /
+                    'training_config.json')
+                parent_exposed_to_terrain = bool(
+                    parent_config.terrain_height_safety_m > 0. or
+                    parent_config.terrain_adaptive_flat_control or
+                    parent_config.terrain_box_height_mm >= 0)
+                if not parent_exposed_to_terrain:
+                    governor.params.frontier_terrain_height_m = 0.
+                    governor.terrain_edge_evidence = dict.fromkeys(
+                        governor.terrain_edge_evidence, 0.)
+                    print(f"{LOG_PREFIX} v5020 physical-elevation handoff: "
+                          "fresh unearned terrain rating=0.000mm; "
+                          "discarded dormant historical default; "
+                          "retained policy, optimizer, observation normalization, "
+                          "command governor, field and health.", flush=True)
+                elif governor.params.frontier_terrain_height_m > args.terrain_height_safety_m:
+                    raise RuntimeError(
+                        'Source trained on real terrain above destination safety limit; '
+                        'refuse irreversible downrating on transfer')
             if governor.params.frontier_terrain_height_m > args.terrain_height_safety_m and (
                 args.terrain_height_safety_m > 0. or args.terrain_adaptive_flat_control):
                 raise RuntimeError('resumed height frontier exceeds configured physical ceiling')
