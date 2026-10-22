@@ -200,12 +200,14 @@ TERRAIN_FRONTIER_MAX_M = 0.150
 TERRAIN_BOX_HALF_HEIGHT_M = 0.075
 
 
-def adaptive_height_course(robot_source, dest, *, immutable: bool = True):
-    """Build a fixed-topology course with a per-world movable step.
+def adaptive_height_course(robot_source, dest, *, immutable: bool = True,
+                           elevation_platform: bool = False):
+    """Build one batched physical obstacle with fixed topology.
 
-    No geom size or angle changes at runtime. Birth-time mocap_pos sets the
-    top height in [0,150mm], x=0.20m or x=5m for flat rehearsal.
-    Requires a CPU/MJX collision smoke before using the training campaign.
+    Historical short hurdles remain the default. The opt-in 2m-long,
+    1m-wide landing has its vertical edge moved forward for an ascent, or
+    behind the robot for a descent; all geometry is real MuJoCo contact.
+    Per-world mocap positions are sampled only at episode birth.
     """
     from pathlib import Path
     import xml.etree.ElementTree as ET
@@ -219,7 +221,7 @@ def adaptive_height_course(robot_source, dest, *, immutable: bool = True):
     ET.SubElement(mocap, 'geom', {
         'name': 'v5018_obstacle_step', 'type': 'box',
         'pos': f'0 0 {-TERRAIN_BOX_HALF_HEIGHT_M}',
-        'size': f'.04 .20 {TERRAIN_BOX_HALF_HEIGHT_M}',
+        'size': f'{1.0 if elevation_platform else .04} {0.5 if elevation_platform else .20} {TERRAIN_BOX_HALF_HEIGHT_M}',
         'friction': '1.5 .005 .0001'})
     return _write_reproducible_course(tree, Path(dest), immutable=immutable)
 
