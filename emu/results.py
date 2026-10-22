@@ -199,7 +199,8 @@ def collect(root):
     if not dirs:
         # v5020 continuous, source-pinned 2048 campaign. The old
         # foundation20/round1 tournament layout remains unchanged.
-        dirs = [root / stage for stage in ('foundation', 'up')
+        dirs = [root / stage for stage in
+                ('foundation', 'up', 'up64', 'up128', 'up224', 'up320')
                 if (root / stage / 'metrics.csv').is_file()]
     if not dirs and (root/'metrics.csv').is_file():
         dirs = [root]  # one-run emu train experiments
