@@ -105,6 +105,28 @@ if [[ -e "$RUN_ROOT" && ! -f "$RUN_ROOT/refork_context.json" ]]; then
 fi
 echo "=== Run destination: $RUN_ROOT ==="
 echo "=== STOP target: walk40 (five 2M health probes + surviving continuations) ==="
+# Show what the source foundation actually did in its last saved fixed
+# evaluations. A valid checkpoint is not proof that it learned healthy gait.
+PARENT_DIR="$(dirname "$(dirname "$FOUNDATION_PATH")")"
+if [[ -f "$PARENT_DIR/fixed_eval.csv" ]]; then
+  python - "$PARENT_DIR/fixed_eval.csv" <<'PY'
+import csv, sys
+from pathlib import Path
+with Path(sys.argv[1]).open(newline="",encoding="utf-8") as fd:
+    rows=list(csv.DictReader(fd))
+print("=== Foundation fixed-exam reference (last 3 saved rows) ===")
+for row in rows[-3:]:
+    keys=("step","eval_policy_step","eval_broad_score",
+          "eval_core_survival","eval_dynamic80_survival",
+          "eval_combo70_survival","eval_resilience75_survival")
+    print("  "+" ".join(f"{key}={row[key]}" for key in keys if row.get(key) not in (None,"")))
+if not rows:
+    print("  No saved fixed-evaluation rows; checkpoint quality remains unproven.")
+PY
+else
+  echo "WARNING: no fixed_eval.csv next to foundation; snapshot was validated structurally, NOT for gait health."
+fi
+echo "Do not equate checkpoint validity or source CI with a strong foundation."
 
 echo "=== Focused source regressions (no training) ==="
 python -m pytest -q \
