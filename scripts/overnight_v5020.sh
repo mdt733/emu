@@ -29,9 +29,9 @@ Optional environment overrides:
   EXAM_ENVS=32          Number of frozen-policy exam worlds (>=8).
   EXAM_HORIZON=300      Frozen-policy exam frames (>=100).
   STOP_AFTER=terrain100   Optional walk40/walk60/walk80/terrain100 limit.
-  FOUNDATION_ENVS=4096   World count for NEW foundation if source unsuitable.
-No silent reduction from 4096 to 2048 worlds: the foundation config
-determines the required world count.
+  FOUNDATION_ENVS=2048   Default for a NEW foundation on 8GB GPUs.
+Existing checkpoints still require their own exact original world count;
+never silently alter an existing training lineage.
 HELP
     exit 0 ;;
   *) echo "Usage: $0 [--check|--run]. See --help" >&2; exit 2 ;;
@@ -124,7 +124,7 @@ else
     exit 1
   fi
   FOUNDATION_NEEDS_BUILD=1
-  ENVS="${FOUNDATION_ENVS:-4096}"
+  ENVS="${FOUNDATION_ENVS:-2048}"
   FOUNDATION_PATH="$FRESH_ROOT/checkpoints/final.pkl"
   echo "=== No qualified source: will create/validate a fresh flat-first 312-input foundation ==="
   echo "New foundation run: $FRESH_ROOT"
@@ -163,7 +163,11 @@ if not rows:
     print("  No saved fixed-evaluation rows; checkpoint quality remains unproven.")
 PY
 else
-  echo "WARNING: no fixed_eval.csv next to foundation; snapshot was validated structurally, NOT for gait health."
+  if ((FOUNDATION_NEEDS_BUILD)); then
+    echo "No foundation checkpoint exists at this new path: a cold start is required."
+  else
+    echo "WARNING: selected source has no fixed_eval.csv: walking quality remains unproven."
+  fi
 fi
 echo "Do not equate checkpoint validity or source CI with a strong foundation."
 
