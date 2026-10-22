@@ -93,11 +93,14 @@ the GPU doctor, prints the current experiment plan, writes a dated log
 remaining steps are skipped. No 60M/80M continuations are launched.
 
 To check everything without training: `bash scripts/overnight_v5020.sh --check`.
-The default foundation checkpoint is the earlier fixed 4096-world lab's
-`foundation20/checkpoints/final.pkl` if present. That is an **unreviewed
-candidate**, not a guarantee of healthy gait; the script prints its
-last recorded fixed exams. You may select a previously verified better
-12–22M snapshot with `FOUNDATION_PATH=/full/path/to/checkpoint.pkl`.
+The launcher searches the existing `v5020_lab_4096_fixed/foundation20`
+then `v5020_lab_4096/foundation20` directories, preferring a
+**mature, schema-validated `best.pkl`** over the last `final.pkl`.
+It checks fixed-evaluation data from the **exact selected policy step**;
+known catastrophic collapse on both easy panels is a hard stop.
+Missing or unproven checkpoints are not silently replaced with the
+working 232-input `main` policy. For an explicit previously verified
+source, set `FOUNDATION_PATH=/full/path/to/checkpoint.pkl` and rerun.
 
 Run it in a terminal that stays open or a **pre-existing** tmux session
 if you intend to disconnect. Closing the WSL session may otherwise
