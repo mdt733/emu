@@ -37,12 +37,12 @@ jobs:
         run: |
           git log -1 --format='%H'
           python -c "import mujoco,jax; print('MuJoCo:',mujoco.__version__,'JAX:',jax.__version__)"
-      - name: Reference profile and optical geometry
+      - name: Consolidated terrain and optical geometry
         run: |
-          python -m pytest -q tests/test_v5022_forward_sensing.py tests/test_v5022_multizone.py tests/test_v5022_terrain_profiles.py
+          python -m pytest -q tests/test_terrain.py -k 'not mjx'
       - name: Actual MJX solids, support and ray tracing
         run: |
-          python -m pytest -q tests/test_v5022_mjx_steps.py tests/test_v5022_mjx_profiles.py
+          python -m pytest -q tests/test_terrain.py -k 'mjx'
       - name: Legacy contract shape regression
         run: |
           python -m pytest -q \
