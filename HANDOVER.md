@@ -179,3 +179,30 @@ revision, no demonstrated successful real-model elevation crossing, no
 integrated mixed-height per-world elevation TRAINING curriculum, and no
 312-input browser policy execution parity. These remain hard gates against
 enabling `overnight_v5020.sh --run` or promoting a Pinnacle successor.
+
+
+### 20cm actor lookahead / observation contract
+
+The forward ToF model nominally samples two spots 20cm ahead; previously
+the 312 actor read out only through 15cm. Since the rolling map deposits
+each real hit within a narrow 2cm window, a newly sighted edge could be
+visible in the full 51-cell diagnostic while still absent from *all* the
+actor's 20 terrain channels. The fifth distance on each side is now 20cm:
+`[-5,0,5,10,20]` cm, still ten heights + ten confidences per 78-field
+observation and four-frame 312-input actor history.
+
+This intentionally changes the semantics of two channels on each frame.
+`PREVIEW_RANGE_FIELDS`, `PREVIEW_VALID_FIELDS`, sample indices and the
+rolling model revision were changed together, so the persisted sensor
+fingerprint changes. Existing experimental 312 checkpoints with the older
+15cm map contract are NOT silently accepted. Historical 220/232 observation
+schemas remain unchanged. Browser 312 policy parity is still outstanding.
+
+The new regression sends two forward rays and three tripod rays through
+the *same* long-box collision geometry for true 20mm up/down transitions,
+projects only sensor returns through the tripod estimator, inserts measured
+signed heights into the V memory, checks the actual actor readout and
+requires invalid rays to remain unknown (zero confidence). This is a
+source-level numerical/MuJoCo test, not evidence of learned competence.
+The elevation examiner also reports source-side exposure separately from
+contact, crossing, falls, timeouts and incomplete attempts.
