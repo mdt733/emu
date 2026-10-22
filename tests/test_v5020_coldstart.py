@@ -297,3 +297,80 @@ def test_mjx_down_step_birth_is_on_upper_landing(tmp_path):
     assert obs.shape == (2,312)
     np.testing.assert_allclose(np.asarray(state.data.qpos[:,2]),
                                NEUTRAL_ROOT_Z+.020, atol=1e-6)
+
+
+def test_elevation_certificate_requires_source_contact_landing_and_more_gait():
+    """Pure NumPy adversarial examples: no GPU and no alleged obstacle rewards."""
+    from emu.terrain import elevation_transition_update
+
+    def run(*, source=True, contact=True, target=True, gait=.4,
+            both_feet=True, upright=True, progress=True):
+        state = (np.array([False]), np.array([False]), np.array([False]),
+                 np.array([0.],dtype=np.float32), np.array([0],dtype=np.int32),
+                 np.array([0.],dtype=np.float32), np.array([False]))
+        edge = np.array([.25],dtype=np.float32)
+        # Two frames of genuine source-side approach.
+        for _ in range(2):
+            state = elevation_transition_update(np,
+                source_seen=state[0],contacted=state[1],landed=state[2],
+                landing_x=state[3],supported_frames=state[4],
+                post_landing_gait=state[5],crossed=state[6],
+                source_support=np.array([source]),
+                obstacle_contact=np.array([False]),
+                target_support=np.array([False]),torso_x=np.array([0.]),
+                feet_x=np.array([[0.,0.]]),edge_x=edge,
+                upright=np.array([True]),gait=np.array([0.]),
+                active=np.array([True]))
+        # Transition then 10 frames on the new level. Traversal happens
+        # AFTER first supported landing, not on the approach or mid-air.
+        for i in range(11):
+            x = .35 + (min(i, 10)*.005 if progress else 0.)
+            feet = np.array([[x-.01, x-.02 if both_feet else .20]])
+            state = elevation_transition_update(np,
+                source_seen=state[0],contacted=state[1],landed=state[2],
+                landing_x=state[3],supported_frames=state[4],
+                post_landing_gait=state[5],crossed=state[6],
+                source_support=np.array([False]),
+                obstacle_contact=np.array([contact]),
+                target_support=np.array([target]),torso_x=np.array([x]),
+                feet_x=feet,edge_x=edge,
+                upright=np.array([upright]),gait=np.array([gait]),
+                active=np.array([True]))
+        return bool(state[-1][0])
+
+    assert run()
+    for kw in ({"source":False}, {"contact":False}, {"target":False},
+               {"gait":0.}, {"both_feet":False}, {"upright":False},
+               {"progress":False}):
+        assert not run(**kw), kw
+
+
+@pytest.mark.parametrize("direction", ["up", "down"])
+def test_true_elevation_frozen_mjx_exam_compiles_on_small_worlds(tmp_path, direction):
+    """Exercise real collidable geometry and JIT inference; no claim of gait skill."""
+    import jax
+    import jax.numpy as jnp
+    from emu.terrain import elevation_course
+    from emu.contracts import ROBOT_XML
+    from emu.ppo import make_trainer
+    path = elevation_course(ROBOT_XML, tmp_path/f"{direction}.xml", 10,
+                            direction=direction)
+    env = EmuMJXEnv(str(path), num_envs=2, seed=733,
+                    observation_schema=OBS_SCHEMA_PREVIEW,
+                    terrain_contact_mode='box_surface')
+    trainer = make_trainer(env, seed=733, lr=.0003,
+                           rollout=2, epochs=1, minibatches=1)
+    cfg = {'probe_cmd_vx': .18, 'probe_cmd_vy': 0.,
+           'probe_cmd_yaw': 0., 'steady_difficulty': 0.,
+           'resilience_difficulty': 0., 'posture_difficulty': 0.,
+           'regime_frac_steady': 1., 'regime_frac_transition': 0.}
+    state = trainer['make_initial_state'](cfg)
+    measured = trainer['evaluate_elevation_summary'](
+        state.params, env.params_array(cfg), jnp.zeros(312), jnp.ones(312),
+        jax.random.PRNGKey(1701), 4, direction)
+    results = np.asarray(measured)
+    assert results.shape == (6,)
+    assert np.isfinite(results).all()
+    assert results[0] == 2.
+    assert results[2] == 0.  # Impossible to land and walk 40mm in 4 frames.
+    assert np.all((results[1:] >= 0.) & (results[1:] <= 1.))
