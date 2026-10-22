@@ -197,12 +197,14 @@ fi
 
 # Preserve the core-foundation command/phase/push/field economics through
 # the first physical step; never switch to aggressive mature sim2real here.
+# No new reward shaping at the boundary; the only sampled difference from
+# the original flat episodes is a small, physically collidable probe cohort.
 step up 32000000 "$PARENT" \
   --profile terrain-bridge --forward-preview --pitch-deg 8 \
   --terrain-varied-placement --terrain-elevation-mode up \
   --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .40 --terrain-height-edge-fraction .30 \
-  --terrain-progress-weight .015 "${APPROVAL[@]}"
+  --terrain-progress-weight 0 "${APPROVAL[@]}"
 if [[ "$STOP_AFTER" == up ]]; then echo "Requested stop after up"; exit 0; fi
 
 qualified_stage() {
@@ -233,7 +235,7 @@ step mixed12 48000000 "$PARENT" \
   --terrain-varied-placement --terrain-elevation-mode mixed \
   --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .55 --terrain-height-edge-fraction .35 \
-  --terrain-progress-weight .025
+  --terrain-progress-weight 0
 if [[ "$STOP_AFTER" == mixed12 ]]; then echo "Requested stop after mixed12"; exit 0; fi
 
 PARENT="$(qualified_stage mixed12)"
@@ -243,7 +245,7 @@ step mixed20 70000000 "$PARENT" \
   --terrain-varied-placement --terrain-elevation-mode mixed \
   --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .65 --terrain-height-edge-fraction .40 \
-  --terrain-progress-weight .035
+  --terrain-progress-weight 0
 
 echo
 echo "=== v5020 experimental 2048-world ladder complete ==="
