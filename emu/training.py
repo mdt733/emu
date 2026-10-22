@@ -508,12 +508,24 @@ def train(args: TrainingConfig) -> int:
                                 row['episodes'] >= 16 and row['fall_rate'] >= .90
                                 and row['ep_len_mean'] < 100 else 0)
             if mass_fall_streak >= 4:
+                # Persist a *machine-readable* quarantine marker before
+                # aborting. Never let the generic --resume auto mechanism
+                # restart the catastrophically failing child next time.
+                write_json(run_dir / 'UNSAFE_RESUME.json', {
+                    'reason': 'mass_fall_bridge_collapse',
+                    'step': int(total_steps),
+                    'fall_rate': float(row['fall_rate']),
+                    'episode_length': float(row['ep_len_mean']),
+                    'vx_mps': float(row['vx_mean']),
+                    'message': 'DO NOT AUTO-RESUME: preserve source 20M foundation',
+                })
                 raise RuntimeError(
                     'HARD STOP: terrain bridge collapsed for four consecutive '
                     f'2048-world PPO rollouts (falls={row["fall_rate"]:.1%}, '
                     f'episode_len={row["ep_len_mean"]:.0f}, vx={row["vx_mean"]:.3f}m/s) '
                     'before qualified walking could be maintained. '
-                    'Do not resume this child checkpoint. Parent foundation preserved.')
+                    'Quarantine marker UNSAFE_RESUME.json written; '
+                    'do not restart child checkpoint. Parent foundation preserved.')
         # Continuous capability review: ordinary PPO experience updates the
         # decaying command/recovery/maneuver field every rollout.  This is the
         # broad review loop; no simulator pause is required.
