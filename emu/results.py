@@ -26,7 +26,7 @@ FIELDS = ('reward_mean', 'fall_rate', 'ep_len_mean', 'height_error_m', 'step_evi
 PAYMENTS = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
             'clearance', 'smoothness', 'joint_safety', 'fall_penalty', 'motor_cost')
 SCREENS = ('resilience100', 'robust70', 'growth140', 'growthcombo140', 'gentle_slope')
-FIXED = ('core', 'stress30', 'dynamic50', 'robust40', 'combo70',
+FIXED = ('foundation', 'core', 'stress30', 'dynamic50', 'robust40', 'combo70',
          'resilience50', 'resilience75', 'dynamic80', 'growth110', 'growthcombo110')
 STORY_FIELDS = ('field_known_nodes', 'field_known_edges', 'frontier_vx_hi')
 MARK = chr(96)
