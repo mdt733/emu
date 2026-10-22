@@ -732,7 +732,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             return (out.state, out.obs, finished | terminated,
                     source_seen, contacted, landed, landing_x,
                     stable, gait_total, crossed, fallen)
-        (_, _, finished, _, contacted, _, _, _, _, crossed, fallen) = (
+        (_, _, finished, source_seen, contacted, _, _, _, _, crossed, fallen) = (
             jax.lax.fori_loop(0, horizon, one_step, initial))
         certified = crossed & ~fallen
         # No success by reset, falling, mere touching, or an unfinished edge
@@ -741,6 +741,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         timeouts = finished & ~fallen & ~certified
         return jnp.stack((
             jnp.asarray(float(env.num_envs)),
+            jnp.mean(source_seen.astype(jnp.float32)),
             jnp.mean(contacted.astype(jnp.float32)),
             jnp.mean(certified.astype(jnp.float32)),
             jnp.mean(fallen.astype(jnp.float32)),
