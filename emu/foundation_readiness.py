@@ -128,6 +128,13 @@ def choose_foundation(directories: list[Path], *,
                 continue
             try:
                 record=inspect(path)
+                # Automatic overnight selection needs evidence for the
+                # selected EXACT policy step. A mature saved network with
+                # no matching frozen evaluation has UNKNOWN competence,
+                # and may only be chosen via an explicit user path.
+                if record.get("source_evaluation") is None:
+                    findings.append(f"{path}: no exact-checkpoint fixed exam; cannot auto-select")
+                    continue
                 issue=reject_obviously_collapsed(record.get("source_evaluation"))
                 if issue:
                     findings.append(f"{path}: {issue}")
