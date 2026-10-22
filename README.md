@@ -63,6 +63,30 @@ simulator geometry ceiling is 150mm**, not a certified capability claim.
 The independent examiner tests every contender at 5/10/20/40/80/150mm,
 in addition to general walking, recovery, slopes and mechanical effort.
 
+## Tonight's first bounded GPU run (WSL2)
+
+The simple, guarded entry point on this **experimental branch** is:
+
+```bash
+cd ~/emu-v5020
+git pull --ff-only
+bash scripts/overnight_v5020.sh --run
+```
+
+It validates the **matching existing** 312-input 12–22M foundation,
+local source/test contracts and GPU; prints the foundation's existing
+fixed-evaluation reference; then runs *only* the first five-way 20→40M
+round. No source edits, Git merges, main/showcase changes, automatic 60M
+continuation or silent policy selection. It records a new root linked
+to the Git commit. Use `--check` first for a dry preflight.
+
+The default foundation path is
+`~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints/final.pkl`.
+It is a **candidate**, not automatically the healthiest learner. Override
+with `FOUNDATION_PATH=/absolute/path/to/a/validated.pkl` if a better
+compatible foundation has been verified; the script refuses a missing
+checkpoint or incompatible schema. See [WSL launch guide](docs/INSTALL.md).
+
 ## Quick start
 
 Python 3.13+ and a suitable JAX/MuJoCo installation are required. For a
