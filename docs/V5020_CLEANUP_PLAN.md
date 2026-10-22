@@ -141,7 +141,8 @@ examiner, and experiment selection without spelunking through old layers.
 ## Overnight-readiness milestone
 
 - [x] Add `scripts/overnight_v5020.sh`: one guarded, **opt-in** WSL
-      preflight and first 20→40M five-arm run, with source identity,
+      preflight and optional full five-arm ladder (40M/60M/80M,
+      conditionally 100M), with source identity,
       checkpoint/schema/world-count validation, tests, GPU doctor, an
       external timestamped log and an immutable root per source commit.
 - [x] Display the source foundation's saved fixed-evaluation history;
@@ -149,9 +150,13 @@ examiner, and experiment selection without spelunking through old layers.
 - [x] Veto the observed narrow v5020 20.05M foundation whose easy
       survival was ~99.99% but stress30/dynamic50 were <0.2% and
       resilience50 ~0.01%. Add opt-in **flat-first new 312-input 20M**
-      fallback before the 40M tournament. Re-examine and stop if unfit.
-- [x] Keep initial launch limited to `walk40`, with all five 2M
-      survival probes and an independent frozen exam.
+      fallback before the 40M tournament. Demand basic held-out walking,
+      not full slope/recovery mastery, from that freshly trained parent.
+- [x] Keep all five 2M survival probes and independent frozen exams,
+      but continue a promising research parent beyond 40M by default.
+      A qualified incumbent may persist; a provisional learner is not
+      labelled a certified champion. Only genuine collapse/invalid
+      evidence or incoherent gait stops the ladder.
 - [ ] Independently check the user's local foundation quality and confirm
       source/GPU before the real overnight launch.
 - [ ] Demonstrate the full GPU campaign works and passes eligibility gates;
