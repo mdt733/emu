@@ -87,9 +87,13 @@ bash scripts/overnight_v5020.sh --run
 
 The script sources this checkout's own `.venv`, validates the current
 312-input checkpoint and exact world count, runs focused regressions and
-the GPU doctor, prints the current experiment plan, writes a dated log
-**outside** the training output root, and starts only the first five-arm
-20→40M generation. In the event of a rejected probe, the contender's
+the GPU doctor, prints the current experiment plan and writes a dated
+log **outside** the training output root. If existing foundations fail
+source health validation, `--run` first trains an entirely **new,
+flat-first 312-input foundation** in a source-pinned directory, independently
+examines it at 20M and **stops** if that result also lacks generalisable
+walking. No incompatible checkpoint weights are reused. Only an acceptable
+parent proceeds to the first five-arm 20→40M generation. In the event of a rejected probe, the contender's
 remaining steps are skipped. No 60M/80M continuations are launched.
 
 To check everything without training: `bash scripts/overnight_v5020.sh --check`.
