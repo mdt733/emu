@@ -262,6 +262,8 @@ export class EmuBrowserSim {
       this.treeCrowns = null;
     }
     this.park = null;
+    this.depthReading=null;
+    this.depthLastMs=0;
     // Terrain geometry moved; rebuild guide heights on the next nav tick.
     this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
@@ -1015,7 +1017,7 @@ export class EmuBrowserSim {
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
       return hit?hit.distance:Infinity;
-    },{subrays:sampleCount,noise:this.sensorNoise?.001:0,dropout:0});
+    },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
     this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount};
     const points=this.depthLinePositions,colors=this.depthLineColors;
     for(let i=0;i<16;i++){
