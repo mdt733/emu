@@ -53,6 +53,19 @@ walking certification, sensor-memory diagnostics and curriculum integration
 are STILL PENDING. The old hurdle crossing classifier is not elevation
 certification and no elevation training competence is claimed.
 
+Frozen terrain exams now revoke a recorded crossing if the robot later falls
+in that original episode. Efficiency summaries also exclude reset aftermath.
+Training event reduction rejects fractional/contradictory completion,
+contact, crossing and fall records.
+
+Validation record: baseline full suite finished with 196 passing tests and
+one existing launcher-help assertion failure (fixed and passing on rerun).
+The focused qualification/scoring/refork/launcher suite now passes 69 tests;
+elevation geometry/ToF/contact/MJX-birth checks pass 7 tests. An earlier
+72-test focused integration run included real three-world 312-input MJX
+terrain and frozen exams. These overlapping runs must not be added together
+as a count of unique tests. The complete suite was not rerun after all edits.
+
 Next: replace the 80 mm hurdle lesson with genuine elevation transitions,
 validate sensor reconstruction, integrate browser 312 inference, and run the
 small real-GPU lifecycle before removing the launch gate.

@@ -648,9 +648,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                   (es.task[:,T.terrain_height_m]>=.70 *
                    jnp.maximum(.0001,es.task[:,T.terrain_birth_frontier_m])))
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.bool_)
-        initial=(es,env.obs(es),zeros,zeros,zeros)
+        initial=(es,env.obs(es),zeros,zeros,zeros,zeros)
         def one(_,carry):
-            state,ob,finished,contacted,crossed=carry
+            state,ob,finished,contacted,crossed,fallen=carry
             mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask))
             out=env.step(state,jnp.clip(mean,-1.,1.),curriculum_params)
             in_original=~finished
@@ -659,9 +659,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             supported_passage=(out.metrics['terrain_crossed_this_frame']>.5)
             survived=(out.metrics['episode_fell']<.5)
             crossed=crossed | (in_original & contacted & supported_passage & survived)
+            fallen=fallen | (in_original & ~survived)
             finished=finished | (out.done>.5)
-            return out.state,out.obs,finished,contacted,crossed
-        _,_,_,contacted,crossed=jax.lax.fori_loop(0,horizon,one,initial)
+            return out.state,out.obs,finished,contacted,crossed,fallen
+        _,_,_,contacted,crossed,fallen=jax.lax.fori_loop(0,horizon,one,initial)
+        crossed = crossed & ~fallen
         n=jnp.maximum(1.,jnp.sum(attempts.astype(jnp.float32)))
         return jnp.stack((
             jnp.sum(attempts.astype(jnp.float32)),
@@ -686,7 +688,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         totals = jnp.zeros((5,), dtype=jnp.float32)
 
         def one(i, carry):
-            es, ob, sums = carry
+            es, ob, sums, finished, count = carry
             mean, _ = apply(params, normalize_obs(
                 ob, obs_mean, obs_std, obs_norm_mask))
             action = jnp.clip(mean, -1., 1.)
@@ -697,18 +699,22 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             action_delta_norm = jnp.linalg.norm(action - es.prev_action, axis=1)
             out = env.step(es, action, curriculum_params)
             m = out.metrics
+            active = ~finished
+            def total(value):
+                return jnp.sum(jnp.where(active, value, 0.))
             sums = sums + jnp.stack((
-                jnp.sum(m['servo_shaft_abs_power_w']),
-                jnp.sum(m['servo_shaft_drive_power_w']),
-                jnp.sum(m['servo_over_rated_frac']),
-                jnp.sum(m['servo_peak_torque_limit_frac']),
-                jnp.sum(action_delta_norm),
+                total(m['servo_shaft_abs_power_w']),
+                total(m['servo_shaft_drive_power_w']),
+                total(m['servo_over_rated_frac']),
+                total(m['servo_peak_torque_limit_frac']),
+                total(action_delta_norm),
             ))
-            return out.state, out.obs, sums
+            return out.state, out.obs, sums, finished | (out.done > .5), count + jnp.sum(active)
 
-        _, _, sums = jax.lax.fori_loop(
-            0, horizon, one, (state, obs, totals))
-        return sums / float(env.num_envs * horizon)
+        _, _, sums, _, count = jax.lax.fori_loop(
+            0, horizon, one, (state, obs, totals,
+                jnp.zeros((env.num_envs,), dtype=jnp.bool_), jnp.array(0)))
+        return sums / jnp.maximum(count, 1)
 
     evaluate_efficiency = jax.jit(evaluate_efficiency, static_argnums=(5,))
 

@@ -46,6 +46,16 @@ def terrain_edge_trials(metrics: Mapping[str, Any]) -> dict[str, float]:
         # Incomplete episodes are not failures OR successes.
         if np.any((flags < -1e-6) | (flags > done + 1e-6)):
             raise ValueError(f"terrain outcome without completed trial: {key}")
+    mask=np.asarray(metrics["terrain_edge_mask"],dtype=np.float64)
+    contact=np.asarray(metrics["terrain_edge_contact"],dtype=np.float64)
+    crossing=np.asarray(metrics["terrain_edge_crossing"],dtype=np.float64)
+    fell=np.asarray(metrics["terrain_edge_fell"],dtype=np.float64)
+    for name, flags in (("exposure",mask),("completion",done),("contact",contact),
+                        ("crossing",crossing),("fall",fell)):
+        if np.any((flags != 0.) & (flags != 1.)):
+            raise ValueError(f"nonbinary terrain {name} event")
+    if np.any(done > mask) or np.any(crossing > contact) or np.any(crossing+fell > done):
+        raise ValueError("contradictory terrain completion/contact/crossing/fall evidence")
     ended=mean("terrain_edge_done")
     row={
         "terrain_edge_exposure":mean("terrain_edge_mask"),

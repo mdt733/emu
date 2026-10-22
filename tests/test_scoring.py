@@ -172,3 +172,66 @@ def test_compiled_evaluator_excludes_reset_aftermath(early_fall):
     assert result['survival'] == pytest.approx(2/3)
     # Only one frame of world 2 counts toward gait/command evidence.
     assert result['step_evidence'] == pytest.approx(.3*351/701, abs=1e-6)
+
+
+def test_compiled_terrain_exam_revokes_crossing_when_robot_later_falls():
+    import jax
+    import jax.numpy as jnp
+    from typing import NamedTuple
+    from emu.ppo import make_trainer
+    from emu.environment import T, TASK_FIELDS
+
+    class State(NamedTuple):
+        frame: object
+        task: object
+        prev_action: object
+    class Output(NamedTuple):
+        state: object
+        obs: object
+        metrics: object
+        done: object
+    class World:
+        num_envs = 2
+        terrain_adaptive = True
+        def _reset_with_keys(self, keys, params):
+            task = jnp.zeros((2,len(TASK_FIELDS)))
+            task = task.at[:,T.terrain_height_m].set(.02)
+            task = task.at[:,T.terrain_birth_frontier_m].set(.02)
+            return State(jnp.array(0),task,jnp.zeros((2,6)))
+        def reset(self, params):
+            return self._reset_with_keys(None,params), self.obs(None)
+        def obs(self, state):
+            return jnp.zeros((2,220))
+        def step(self, state, action, params):
+            fell = jnp.array([1.,0.]) * (state.frame == 1)
+            metrics = dict(terrain_box_foot_contact_any=jnp.ones(2),
+                terrain_crossed_this_frame=jnp.ones(2), episode_fell=fell)
+            metrics.update(servo_shaft_abs_power_w=jnp.ones(2)*10*(state.frame == 0),
+                servo_shaft_drive_power_w=jnp.ones(2)*5*(state.frame == 0),
+                servo_over_rated_frac=jnp.zeros(2), servo_peak_torque_limit_frac=jnp.zeros(2))
+            return Output(State(state.frame+1,state.task,state.prev_action),self.obs(None),metrics,fell)
+    trainer = make_trainer(World(), seed=733, lr=.0003, rollout=1, epochs=1, minibatches=1)
+    initial = trainer['make_initial_state']({})
+    result = trainer['evaluate_terrain_summary'](initial.params, {},
+        jnp.zeros(220),jnp.ones(220),jax.random.PRNGKey(0),4)
+    np.testing.assert_allclose(np.asarray(result), [2.,1.,.5])
+
+
+    effort = trainer['evaluate_efficiency'](initial.params, {},
+        jnp.zeros(220),jnp.ones(220),jax.random.PRNGKey(0),4)
+    # Six observed first-episode frames, never the two post-fall frames.
+    np.testing.assert_allclose(np.asarray(effort)[:2], [20/6,10/6], rtol=1e-6)
+
+
+@pytest.mark.parametrize("changes", [
+    {"terrain_edge_mask": 0.},
+    {"terrain_edge_crossing": 1.},
+    {"terrain_edge_contact": 1., "terrain_edge_crossing": 1., "terrain_edge_fell": 1.},
+    {"terrain_edge_contact": .5},
+])
+def test_contradictory_or_fractional_terrain_events_are_rejected(changes):
+    metrics = _events([1.])
+    for key, value in changes.items():
+        metrics[key][:] = value
+    with pytest.raises(ValueError):
+        terrain_edge_trials(metrics)
