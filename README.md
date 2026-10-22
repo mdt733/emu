@@ -68,8 +68,9 @@ in addition to general walking, recovery, slopes and mechanical effort.
 The simple, guarded entry point on this **experimental branch** is:
 
 ```bash
-cd ~/emu-v5020
-git pull --ff-only
+cd ~/emu-v5020 &&
+test "$(git branch --show-current)" = "feature/v5020-coldstart-terrain" &&
+git pull --ff-only origin feature/v5020-coldstart-terrain &&
 bash scripts/overnight_v5020.sh --run
 ```
 
