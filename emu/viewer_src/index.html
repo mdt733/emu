@@ -47,6 +47,28 @@
 
 
 
+    <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
+      <div class="depth-head"><b>FRONT DEPTH · 4×4</b><label><input id="depthOn" type="checkbox" checked /> On</label></div>
+      <div class="depth-sub">VL53L8CX · 65° diagonal · observer only</div>
+      <label class="depth-row">Ground <select id="depthCourse">
+        <option value="flat">Flat reference</option>
+        <option value="step-up">5 cm step up</option>
+        <option value="step-down">5 cm step down</option>
+        <option value="crest">Hill crest</option>
+        <option value="trough">Hill trough</option>
+        <option value="log">Half-round log</option>
+        <option value="angled">Angled ridge</option>
+      </select></label>
+      <label class="depth-row">Downward tilt <output id="depthTiltOut">50°</output>
+        <input id="depthTilt" type="range" min="25" max="75" value="50" step="5"/></label>
+      <label class="depth-row">Forward mount <output id="depthMountOut">90 mm</output>
+        <input id="depthMount" type="range" min="80" max="180" value="90" step="5"/></label>
+      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show rays in 3D</label>
+      <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 depth readings in centimetres"></div>
+      <div class="depth-far">↑ Farther ahead · nearer below</div>
+      <div id="depthNote" class="depth-foot">Waiting for robot · raw line-of-sight range</div>
+    </aside>
+
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
       <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World &amp; steering</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
@@ -58,7 +80,7 @@
         <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
         <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
         <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option></select></label>
+        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="sensor">Depth lab course</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
         <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
