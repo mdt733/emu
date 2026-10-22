@@ -249,7 +249,7 @@ class TrainingConfig:
         # Historical v5014 configs may omit ONLY these new optional fields.
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
-                    'motor_guidance_weight', 'contact_slope_deg',
+                    'motor_guidance_weight', 'considered_reward', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
                     'terrain_box_height_mm', 'terrain_random_placement', 'terrain_elevation_mode',
                     'terrain_height_safety_m',
