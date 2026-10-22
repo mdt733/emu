@@ -243,16 +243,43 @@ def adaptive_height_course(robot_source, dest, *, immutable: bool = True,
     return _write_reproducible_course(tree, Path(dest), immutable=immutable)
 
 
-def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60, edge_fraction=.35):
-    """Flat rehearsal + continuous interior samples + a frontier-height tail.
+def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60,
+                           edge_fraction=.35, probe_above_m=0.0,
+                           safety_m=None):
+    """Birth height distribution around an EARNED skill rating, not a cap.
 
-    The upper_m input is learned by the governor; NOT an actor channel.
+    Legacy/hurdle experiments use probe_above_m=0 and remain byte-for-byte
+    equivalent in their sampling maths. For new elevation curricula the
+    controller's 'upper_m' is an estimated skill rating, NOT a hard ceiling:
+       ~45% of exposed births below the rating (consolidation);
+       ~30% near it; ~25% above it (challenging probes).
+    The high side samples beyond the rating, never past the immutable
+    physical safety limit. At rating zero the course begins essentially
+    flat but already probes 0..0.25mm. Flat practice is still sampled
+    separately by 'selection < exposure' and the forward-task corridor.
     """
-    high = xp.clip(upper_m, 0., TERRAIN_FRONTIER_MAX_M)
-    exposure = xp.clip(exposure, 0., 1.)
-    frac = xp.where(uniform < edge_fraction, .72 + .28 * uniform / xp.maximum(edge_fraction, 1.e-6),
-                    (uniform - edge_fraction) / xp.maximum(1.-edge_fraction, 1.e-6))
-    return xp.where(selection < exposure, high * frac, 0.)
+    rating = xp.clip(upper_m, 0., TERRAIN_FRONTIER_MAX_M)
+    if probe_above_m <= 0.:
+        # Retain the old short-hurdle experiment distribution exactly.
+        frac = xp.where(uniform < edge_fraction,
+                        .72 + .28 * uniform / xp.maximum(edge_fraction, 1.e-6),
+                        (uniform - edge_fraction) / xp.maximum(1.-edge_fraction, 1.e-6))
+        return xp.where(selection < exposure, rating * frac, 0.)
+    if safety_m is None:
+        raise ValueError('exploration above the rating requires an explicit safety limit')
+    safe = xp.minimum(xp.asarray(safety_m), TERRAIN_FRONTIER_MAX_M)
+    rating = xp.minimum(rating, safe)
+    probe = xp.minimum(xp.asarray(probe_above_m), safe)
+    # Do not jump straight to a full 2mm step at the zero frontier. Explore
+    # below 0.25mm first, then open the full training band as rating grows.
+    challenge_width = xp.minimum(probe, xp.maximum(.00025, rating * .40))
+    low = .80 * rating * (uniform / .45)
+    middle = rating * (.80 + .40 * ((uniform - .45) / .30))
+    high = rating + challenge_width * ((uniform - .75) / .25)
+    proposed = xp.where(uniform < .45, low,
+                        xp.where(uniform < .75, middle, high))
+    proposed = xp.clip(proposed, 0., safe)
+    return xp.where(selection < exposure, proposed, 0.)
 
 
 def first_height_from_flat(current_m: float, row: dict, *, safety_m: float,
