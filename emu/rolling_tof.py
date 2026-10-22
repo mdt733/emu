@@ -8,7 +8,7 @@ may enter the map's reconstruction. Unknown space keeps near-zero confidence.
 V apex = measured ground hit of rear ToF (nominal x=-4cm, y=0).
 Both paths spread to calibrated +/-5cm at nominal forward x=20cm and
 continue outward to 40cm. Pitch/torso-height change ray-hit positions, not
-the stored x-axis calibration. Five requested x locations (-5/0/5/10/15cm) per side feed PPO.
+the stored x-axis calibration. Five requested x locations (-5/0/5/10/20cm) per side feed PPO.
 """
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ GRID_CELLS = 51                    # -10, -9, ..., 39, 40 cm
 FORWARD_REFERENCE_X_M = .20        # where the two physical rays aim at neutral pose
 FRONT_LANES_Y_M = (-.05, .05)      # right, left
 REAR_REFERENCE_X_M = -.04
-OUTPUT_SAMPLE_X_M = (-.05, 0., .05, .10, .15)
-OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20, 25)
+OUTPUT_SAMPLE_X_M = (-.05, 0., .05, .10, .20)
+OUTPUT_SAMPLE_INDICES = (5, 10, 15, 20, 30)
 CONFIDENCE_TIME_S = .60
 CROSS_TRACK_SIGMA_M = .023         # width of uncertainty around each scanned V arm
 INSERT_RADIUS_M = .020             # near-hit interpolation: 2cm footprint, never a large flat fill
-SENSOR_MAP_REVISION = "rear_2d_apex_tof_v_tracks_51x2_v6"
+SENSOR_MAP_REVISION = "rear_2d_apex_tof_v_tracks_51x2_v7_actor20cm"
 
 
 def grid_positions(xp):
@@ -217,7 +217,7 @@ def rebase_to_rear_measurement(xp, heights, confidences,
 
 
 def readout(xp, heights, confidences):
-    """Ten heights (-5/0/5/10/15cm per side), plus ten confidences."""
+    """Ten heights (-5/0/5/10/20cm per side), plus ten confidences."""
     idx=xp.asarray(OUTPUT_SAMPLE_INDICES)
     h=xp.take(heights,idx,axis=2)
     c=xp.take(confidences,idx,axis=2)
