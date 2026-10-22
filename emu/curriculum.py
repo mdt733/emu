@@ -626,77 +626,98 @@ class RegimeGovernor:
             'global_retreat': global_retreat,
         }
         if self.terrain_height_safety_m > 0.:
-            from .terrain import next_height_frontier, first_height_from_flat
-            # A new physical axis begins at EXACTLY 0mm. Check retained
-            # on-policy flat competence before releasing its first tiny
-            # elevation. Once positive, only real post-landing crossings
-            # may earn further growth (existing pooled trials below).
-            at_zero = self.params.frontier_terrain_height_m <= 0.
-            if at_zero:
-                opening, opening_event = first_height_from_flat(
-                    self.params.frontier_terrain_height_m, row,
-                    safety_m=self.terrain_height_safety_m,
-                    initial_rise_m=min(self.terrain_height_growth_m, .00025),
-                    kl_ok=kl_ok_to_expand, retreat=global_retreat)
-                self.params.frontier_terrain_height_m = opening
-            else:
-                opening_event = None
-            # Rollout rates are ratios among completed edge episodes;
-            # pool the corresponding integer counts until statistically
-            # meaningful. A JAX policy's long healthy episodes can span
-            # twenty 32-frame PPO updates, so per-update min-count tests
-            # otherwise prevent growth forever.
-            trials = max(0., float(row.get('terrain_edge_done_count', 0.)))
-            crossing = float(row.get('terrain_edge_crossing', -1.))
-            contact = float(row.get('terrain_edge_contact', -1.))
-            fallen = float(row.get('terrain_edge_fall_rate', -1.))
-            if (math.isfinite(trials) and trials > 0. and
+            from .terrain import next_height_frontier, rated_height_update
+            evidence=self.terrain_edge_evidence
+            # All statistics count COMPLETE physical episodes only. Both
+            # short-hurdle and rated-platform modes pool across rollouts.
+            trials=max(0.,float(row.get('terrain_edge_done_count',0.)))
+            crossing=float(row.get('terrain_edge_crossing',-1.))
+            contact=float(row.get('terrain_edge_contact',-1.))
+            fallen=float(row.get('terrain_edge_fall_rate',-1.))
+            if (math.isfinite(trials) and trials>0. and
                 all(math.isfinite(v) and 0. <= v <= 1.
-                    for v in (crossing, contact, fallen))):
-                evidence = self.terrain_edge_evidence
+                    for v in (crossing,contact,fallen))):
                 evidence['episodes'] += trials
-                evidence['crossings'] += trials * crossing
-                evidence['contacts'] += trials * contact
-                evidence['falls'] += trials * fallen
-            report['terrain_edge_pooled_episodes'] = self.terrain_edge_evidence['episodes']
-            if self.terrain_edge_evidence['episodes'] >= 8.:
-                e = self.terrain_edge_evidence
-                n = e['episodes']
-                pooled_row = {
-                    'terrain_edge_exposure': 1.0,  # all recorded trials ARE real edge births
-                    'terrain_edge_done_count': n,
-                    'terrain_edge_crossing': e['crossings']/n,
-                    'terrain_edge_contact': e['contacts']/n,
-                    'terrain_edge_fall_rate': e['falls']/n,
-                }
-                new_h, decision = next_height_frontier(
-                    self.params.frontier_terrain_height_m, pooled_row,
-                    safety_m=self.terrain_height_safety_m,
+                evidence['crossings'] += trials*crossing
+                evidence['contacts'] += trials*contact
+                evidence['falls'] += trials*fallen
+            report['terrain_edge_pooled_episodes']=evidence['episodes']
+            if self.terrain_rated_elevation:
+                columns={'below_done':'terrain_below_done_count',
+                         'below_fall':'terrain_below_fall_count',
+                         'above_done':'terrain_above_done_count',
+                         'above_cross':'terrain_above_cross_count',
+                         'above_fall':'terrain_above_fall_count',
+                         'above_contact':'terrain_above_contact_count'}
+                band_data={}
+                for dest,source in columns.items():
+                    raw=row.get(source,0.)
+                    try:
+                        value=float(raw)
+                    except (TypeError,ValueError):
+                        value=float('nan')
+                    if not math.isfinite(value) or value<0.:
+                        raise ValueError('invalid rated elevation count '+source)
+                    evidence[dest]+=value
+                    band_data[dest]=value
+                report['terrain_above_pooled_trials']=evidence['above_done']
+                report['terrain_below_pooled_trials']=evidence['below_done']
+                current=self.params.frontier_terrain_height_m
+                pooled=dict(
+                    terrain_below_done_count=evidence['below_done'],
+                    terrain_below_fall_count=evidence['below_fall'],
+                    terrain_above_done_count=evidence['above_done'],
+                    terrain_above_cross_count=evidence['above_cross'],
+                    terrain_above_fall_count=evidence['above_fall'],
+                    terrain_above_contact_count=evidence['above_contact'])
+                new_h,decision=rated_height_update(
+                    current,pooled,safety_m=self.terrain_height_safety_m,
                     growth_m=self.terrain_height_growth_m)
-                current = self.params.frontier_terrain_height_m
-                if new_h > current and (global_retreat or not kl_ok_to_expand):
-                    decision = 'hold_global_retreat' if global_retreat else 'hold_kl_stress'
-                    new_h = current
-                elif new_h > current:
-                    # Like the core curriculum, new axes share a bounded
-                    # expansion budget rather than all pushing full speed.
-                    other_expansions = sum(
-                        str(v).startswith('expand') for v in frontier_events.values())
-                    other_expansions += sum(
-                        str(v).startswith('push') for v in events.values())
-                    if other_expansions:
-                        new_h = current + (new_h-current)/(1 + other_expansions)
-                        decision = 'expand_crossing_shared_budget'
-                self.params.frontier_terrain_height_m = new_h
-                self.terrain_edge_evidence = dict(episodes=0.,crossings=0.,
-                                                  contacts=0.,falls=0.)
+                if new_h>current and (global_retreat or not kl_ok_to_expand):
+                    decision='hold_global_retreat' if global_retreat else 'hold_kl_stress'
+                    new_h=current
+                elif new_h>current:
+                    other=sum(str(v).startswith('expand') for v in frontier_events.values())
+                    other+=sum(str(v).startswith('push') for v in events.values())
+                    if other:
+                        new_h=current+(new_h-current)/(1+other)
+                        decision='expand_ability_shared_budget'
+                self.params.frontier_terrain_height_m=new_h
+                # Each decision uses an independent body of evidence.
+                # Repeatedly applying the same eight completed episodes
+                # would otherwise inflate/deflate a rating on every update.
+                if evidence['above_done']>=8. or evidence['below_done']>=64.:
+                    self.terrain_edge_evidence=dict.fromkeys(evidence,0.)
+                report['terrain_frontier_event']=decision
             else:
-                decision = 'collect_completed_edge_episodes'
-            report['terrain_frontier_event'] = (opening_event
-                                                if opening_event is not None
-                                                else decision)
+                # Historical short-hurdle controller kept as-is.
+                if evidence['episodes']>=8.:
+                    n=evidence['episodes']
+                    pooled_row=dict(terrain_edge_exposure=1.,
+                        terrain_edge_done_count=n,
+                        terrain_edge_crossing=evidence['crossings']/n,
+                        terrain_edge_contact=evidence['contacts']/n,
+                        terrain_edge_fall_rate=evidence['falls']/n)
+                    current=self.params.frontier_terrain_height_m
+                    new_h,decision=next_height_frontier(
+                        current,pooled_row,safety_m=self.terrain_height_safety_m,
+                        growth_m=self.terrain_height_growth_m)
+                    if new_h>current and (global_retreat or not kl_ok_to_expand):
+                        decision='hold_global_retreat' if global_retreat else 'hold_kl_stress'
+                        new_h=current
+                    elif new_h>current:
+                        other=sum(str(v).startswith('expand') for v in frontier_events.values())
+                        other+=sum(str(v).startswith('push') for v in events.values())
+                        if other:
+                            new_h=current+(new_h-current)/(1+other)
+                            decision='expand_crossing_shared_budget'
+                    self.params.frontier_terrain_height_m=new_h
+                    self.terrain_edge_evidence=dict.fromkeys(evidence,0.)
+                else:
+                    decision='collect_completed_edge_episodes'
+                report['terrain_frontier_event']=decision
         else:
-            report['terrain_frontier_event'] = 'off'
+            report['terrain_frontier_event']='off'
         report['frontier_terrain_height_m'] = self.params.frontier_terrain_height_m
         return report
 
