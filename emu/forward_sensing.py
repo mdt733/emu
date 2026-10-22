@@ -101,3 +101,91 @@ def scan_box_course(xp, torso_world, body_to_world, box_min, box_max,
     if dropout is not None:
         valid = valid & ~xp.asarray(dropout, dtype=bool)
     return xp.where(valid, distances, 0.0), valid
+
+
+# Candidate production hardware package: ONE front-facing 4x4 multizone ToF
+# (e.g. VL53L5CX), mounted ahead of the torso. The 3-beam arrangement above
+# is a comparison prototype, NOT the currently selected hardware layout.
+# A single device shares ONE optical centre across all 16 zones.
+# This 45x45 degree FOV approximation samples five rays within each zone;
+# a real histogram sensor may return several targets, reject edges, or report
+# a dominant return. Do not claim the simulated median is hardware truth.
+MULTIZONE_MOUNT_BODY_M = (0.090, 0.0, -0.018)
+MULTIZONE_DOWN_TILT_DEG = 50.0
+MULTIZONE_CENTRES_DEG = (-16.875, -5.625, 5.625, 16.875)
+MULTIZONE_SUBRAY_OFFSETS_DEG = ((0., 0.), (-2.8, 0.), (2.8, 0.),
+                                (0., -2.8), (0., 2.8))
+
+
+def multizone_ray_geometry(xp, torso_world, body_to_world):
+    """16 physical zones × 5 sub-rays from one common front module.
+
+    Result: origins/directions both [W, 16, 5, 3]. The optical centre
+    follows the *actual* body pose and every zone shares that centre.
+    A 4x4 sensor's measured range is not four rows of exact ground truth.
+    """
+    from math import radians
+    mount = xp.asarray(MULTIZONE_MOUNT_BODY_M)
+    R = xp.asarray(body_to_world)
+    torso = xp.asarray(torso_world)
+    angles = xp.asarray(MULTIZONE_CENTRES_DEG)
+    delta = xp.asarray(MULTIZONE_SUBRAY_OFFSETS_DEG)
+    azimuth = angles[None, :, None] + delta[None, None, :, 0]
+    elevation = (MULTIZONE_DOWN_TILT_DEG +
+                 angles[:, None, None] + delta[None, :, 1][None, ...])
+    # Layout [4 vertical rows, 4 horizontal columns, 5 subrays].
+    az = xp.broadcast_to(azimuth, (4, 4, 5))
+    el = xp.broadcast_to(elevation, (4, 4, 5))
+    x = xp.cos(xp.deg2rad(el)) * xp.cos(xp.deg2rad(az))
+    y = xp.cos(xp.deg2rad(el)) * xp.sin(xp.deg2rad(az))
+    z = -xp.sin(xp.deg2rad(el))
+    dirs_body = xp.stack((x, y, z), axis=-1).reshape(16, 5, 3)
+    dirs_world = xp.einsum("wij,ksj->wksi", R, dirs_body)
+    origin = torso + xp.einsum("wij,j->wi", R, mount)
+    return xp.broadcast_to(origin[:, None, None, :], dirs_world.shape), dirs_world
+
+
+def scan_multizone_box_course(xp, torso_world, body_to_world,
+                              box_min, box_max, *,
+                              noise_m=None, dropout=None,
+                              min_range_m=0.035, max_range_m=0.60):
+    """Controlled spatial sensor model, not the deployable observation yet.
+
+    Returns range/valid/visibility confidence arrays [W,4,4].
+    A zone reports the median of >=3 valid sub-ray returns, not a secretly
+    exact height. Broadly mixed depths reduce confidence. A missing range
+    is explicitly invalid. Only the measurement simulator reads box truth;
+    PPO must eventually receive just ranges, validity and freshness.
+    """
+    origins, dirs = multizone_ray_geometry(xp, torso_world, body_to_world)
+    n = xp.asarray(torso_world).shape[0]
+    rays = ray_box_distances(
+        xp, origins.reshape(n, 80, 3), dirs.reshape(n, 80, 3),
+        box_min, box_max).reshape(n, 16, 5)
+    inside = xp.isfinite(rays) & (rays >= min_range_m) & (rays <= max_range_m)
+    valid_count = xp.sum(inside, axis=-1)
+    sorted_ranges = xp.sort(xp.where(inside, rays, xp.inf), axis=-1)
+    mid_index = xp.maximum(0, (valid_count - 1) // 2).astype(int)
+    median = xp.take_along_axis(
+        sorted_ranges, mid_index[..., None], axis=-1)[..., 0]
+    lowest = sorted_ranges[..., 0]
+    highest_index = xp.maximum(0, valid_count - 1).astype(int)
+    highest = xp.take_along_axis(
+        sorted_ranges, highest_index[..., None], axis=-1)[..., 0]
+    spread = xp.where(valid_count > 0, highest - lowest, 0.0)
+    valid = valid_count >= 3
+    if noise_m is not None:
+        median = median + xp.asarray(noise_m).reshape(n, 16)
+    valid = valid & xp.isfinite(median) & (
+        median >= min_range_m) & (median <= max_range_m)
+    if dropout is not None:
+        valid = valid & ~xp.asarray(dropout, dtype=bool).reshape(n, 16)
+    # Report VALIDITY separately; confidence is conservative measurement
+    # quality/visibility, never a ground-truth probability of safe walking.
+    confidence = xp.where(
+        valid, (valid_count / 5.0) * xp.clip(1 - spread / 0.07, 0., 1.), 0.)
+    return dict(
+        ranges_m=xp.where(valid, median, 0.).reshape(n, 4, 4),
+        valid=valid.reshape(n, 4, 4),
+        visibility_confidence=confidence.reshape(n, 4, 4),
+    )
