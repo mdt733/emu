@@ -273,11 +273,13 @@ def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60,
     # Do not jump straight to a full 2mm step at the zero frontier. Explore
     # below 0.25mm first, then open the full training band as rating grows.
     challenge_width = xp.minimum(probe, xp.maximum(.00025, rating * .40))
+    challenge_fraction = min(.45, max(.10, float(edge_fraction)))
+    near_end = 1. - challenge_fraction
     low = .80 * rating * (uniform / .45)
-    middle = rating * (.80 + .40 * ((uniform - .45) / .30))
-    high = rating + challenge_width * ((uniform - .75) / .25)
+    middle = rating * (.80 + .40 * ((uniform - .45) / (near_end - .45)))
+    high = rating + challenge_width * ((uniform - near_end) / challenge_fraction)
     proposed = xp.where(uniform < .45, low,
-                        xp.where(uniform < .75, middle, high))
+                        xp.where(uniform < near_end, middle, high))
     proposed = xp.clip(proposed, 0., safe)
     return xp.where(selection < exposure, proposed, 0.)
 
