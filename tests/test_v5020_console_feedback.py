@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from emu.results import format_line, shaft_work_per_forward_m, summarize_rollout
+from emu.results import format_line, shaft_work_per_forward_m
 
 
 def test_shafts_are_measured_joules_per_real_forward_metre_not_fake_electrical_watts():
@@ -34,7 +34,7 @@ def test_progress_is_one_clear_line_and_is_honest_about_command_range_and_rating
     line=format_line('emu_v5015',34668544,3.23,row,governor,
                      train_fps=31813,wall_fps=31044,
                      rated_terrain=True,slope_deg=0.)
-    assert line.count('\\n')==0
+    assert len(line.splitlines()) == 1
     for label in ('steps=34,668,544','rew=+3.230','len=700','fall=0.0%',
                   'fps=31,044','vx_cmd=[-0.12,+0.40]m/s',
                   'slope=0.0deg','step=0.231mm',
