@@ -79,8 +79,9 @@ From a clean local checkout of the current feature ref, after reviewing the
 foundation's fixed evaluation and ensuring GPU drivers are ready:
 
 ```bash
-cd ~/emu-v5020
-git pull --ff-only
+cd ~/emu-v5020 &&
+test "$(git branch --show-current)" = "feature/v5020-coldstart-terrain" &&
+git pull --ff-only origin feature/v5020-coldstart-terrain &&
 bash scripts/overnight_v5020.sh --run
 ```
 
