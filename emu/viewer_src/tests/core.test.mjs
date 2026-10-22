@@ -6,6 +6,7 @@ import {parsePolicy} from '../src/policy.js';
 import {parseShowcaseManifest} from '../src/showcase.js';
 import {withTerrain,generateTerrainPark,surfaceSlope} from '../src/terrain.js';
 import {SensorObserver} from '../src/sensor.js';
+import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {commandStickPositions,DemoHandoff} from '../src/demo-handoff.js';
 import {VirtualStick} from '../src/joystick.js';
@@ -296,4 +297,41 @@ test('background Worker handles route requests without blocking the viewer',asyn
     route:{steps:[],solved:true}}});
   assert.equal((await result).route.solved,true);
   broker.dispose();
+});
+
+
+test('v5022 front sensor uses 4x4 raw range geometry and adjustable physical mount',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const torso=[0,0,.2584],identity=[1,0,0,0,1,0,0,0,1];
+  const a=depthProbeRays(torso,identity,{forward:.09,tilt:50});
+  const b=depthProbeRays(torso,identity,{forward:.15,tilt:65});
+  assert.equal(a.directions.length,16);
+  assert.ok(a.directions.every(zone=>zone.length===5));
+  assert.ok(a.directions[0][0][2]>a.directions[15][0][2]);
+  assert.ok(Math.abs(b.origin[0]-a.origin[0]-.06)<1e-9);
+  assert.ok(b.directions[5][0][2]<a.directions[5][0][2]);
+  // Synthetic plane forward model checks bearing, not a magic height grid.
+  const plane=(origin,direction)=>direction[2]<-.001
+    ? Math.max(0,-origin[2]/direction[2]):Infinity;
+  const measured=readDepthProbe(a,plane);
+  assert.equal(measured.ranges.length,16);
+  assert.ok(measured.valid.some(Boolean));
+  assert.ok(measured.valid.some((x,i)=>x&&measured.ranges[i]>0));
+  const missing=readDepthProbe(a,()=>Infinity);
+  assert.ok(missing.valid.every(x=>!x));
+  assert.ok(missing.ranges.every(x=>x===0));
+});
+
+test('v5022 diagnostic obstacle courses alter REAL MuJoCo support geometry',()=>{
+  const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05" /></worldbody></mujoco>';
+  const rise=withTerrain(xml,'sensor',{obstacle:'step-up'});
+  const down=withTerrain(xml,'sensor',{obstacle:'step-down'});
+  const hill=withTerrain(xml,'sensor',{obstacle:'crest'});
+  const log=withTerrain(xml,'sensor',{obstacle:'log'});
+  assert.ok(rise.includes('depth_landing'));
+  assert.ok(!rise.includes('name="floor"'));
+  assert.ok(rise!==down);
+  assert.ok(hill.includes('depth_rise')&&hill.includes('depth_exit'));
+  assert.ok(log.includes('depth_log')&&log.includes('name="floor"'));
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'unknown'}));
 });
