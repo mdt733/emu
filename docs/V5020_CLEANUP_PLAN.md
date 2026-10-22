@@ -62,6 +62,10 @@ Exit: physical facts are identical across consumers, without reweighting PPO.
 - [x] Make 2M probes audit their complete recorded trajectory, evaluate
       recent collapse with completed-episode weighting, and retain earlier
       recovered-collapse warnings. Invalid/nonfinite evidence fails closed.
+- [x] Use explicit per-run `log_every_updates=1` ONLY in short probes
+      (about 16 logged updates at 4096 worlds), instead of drawing a
+      "whole trajectory" conclusion from just two sparse CSV rows.
+      Ordinary mature runs retain the existing 10-update cadence.
 - [ ] Confirm early auto-abort never destroys the last valid checkpoint.
 - [ ] Confirm true-contact slopes and collidable box geometry in MJX
       small-world smokes.
