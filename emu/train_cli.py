@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
+import re
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -25,7 +27,7 @@ def one_run_config(args) -> TrainingConfig:
     if args.envs <= 0 or args.steps <= 0:
         raise ValueError('--envs and --steps must both be positive')
     run_dir = Path(args.run_dir).expanduser().resolve()
-    if args.profile == 'foundation':
+    if args.profile in ('foundation', 'terrain-bridge'):
         cfg = foundation_config(run_dir=run_dir, seed=args.seed,
                                 device=args.device, envs=args.envs)
     elif args.profile in ('mature', 'sim2real'):
@@ -50,11 +52,13 @@ def one_run_config(args) -> TrainingConfig:
     preview_masked = bool(getattr(args, 'forward_preview_masked', False))
     if preview_masked and not preview_actor:
         raise ValueError('--forward-preview-masked requires --forward-preview')
-    if preview_actor and args.profile not in ('foundation', 'sim2real'):
+    if preview_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge'):
         raise ValueError('--forward-preview requires foundation or sim2real')
     sensor_actor = bool(getattr(args, 'sensor_actor', False) or preview_actor)
-    if sensor_actor and args.profile not in ('foundation', 'sim2real'):
+    if sensor_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge'):
         raise ValueError('--sensor-actor requires --profile foundation or sim2real')
+    if args.profile == 'terrain-bridge' and not preview_actor:
+        raise ValueError('terrain-bridge requires --forward-preview (312-input)')
     if grade > 0 and args.profile != 'sim2real':
         raise ValueError('real contact slope requires --profile sim2real')
     terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
@@ -102,16 +106,26 @@ def one_run_config(args) -> TrainingConfig:
     if elevation_mode != 'hurdle' and (
             not preview_actor or not varied or adaptive_limit <= 0
             or box_height >= 0 or grade != 0 or terrain_radius > 0
-            or args.profile != 'sim2real'):
-        raise ValueError('raised-platform training requires sim2real 312-input '
+            or args.profile not in ('sim2real', 'terrain-bridge')):
+        raise ValueError('raised-platform training requires sim2real or terrain-bridge 312-input '
                          'adaptive step heights, varied placement and initially flat contact ground')
     # Mixed contact slopes and adaptive physical boxes require the verified
     # 312-input sensor contract; older actor schemes remain incompatible.
     if (adaptive_limit or adaptive_flat) and (
-            box_height >= 0 or grade > 0 or args.profile != 'sim2real'
+            box_height >= 0 or grade > 0 or args.profile not in ('sim2real', 'terrain-bridge')
             or not sensor_actor or (terrain_radius > 0 and not preview_actor)):
         raise ValueError('adaptive steps require sim2real; slope+step coupling requires 312-input preview')
+    parent_commit = str(getattr(args, 'approve_parent_commit', '') or '')
+    parent_sha = str(getattr(args, 'approve_parent_sha256', '') or '')
+    if (bool(parent_commit) != bool(parent_sha) or
+            (parent_commit and (not re.fullmatch(r'[0-9a-f]{40}', parent_commit)
+                                or not re.fullmatch(r'[0-9a-f]{64}', parent_sha)))):
+        raise ValueError('cross-source fork requires exact parent source commit and checkpoint SHA256')
+    if parent_commit and args.profile != 'terrain-bridge':
+        raise ValueError('cross-source parent approval requires terrain-bridge profile')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   approved_parent_git_commit=parent_commit,
+                   approved_parent_sha256=parent_sha,
                    observation_schema=(OBS_SCHEMA_PREVIEW if preview_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    forward_preview_masked=preview_masked,
@@ -201,7 +215,17 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
         if source != provenance['commit']:
-            raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
+            if (not config.approved_parent_git_commit or
+                    config.approved_parent_git_commit != source):
+                raise RuntimeError('Parent source commit differs; an exact, checksum-pinned terrain-bridge parent approval is required')
+        if config.approved_parent_git_commit:
+            checksum = hashlib.sha256()
+            with parent.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b''):
+                    checksum.update(chunk)
+            if checksum.hexdigest() != config.approved_parent_sha256:
+                raise RuntimeError('Approved parent checkpoint SHA256 mismatch')
+
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
