@@ -282,3 +282,55 @@ The long overnight launcher `--run` remains blocked until browser 312
 parity, independent elevation exams and real GPU learning are accepted.
 The five-arm tournament still uses the historical hurdle by default:
 it must NOT silently switch to new elevation lessons before acceptance.
+
+ 
+## 2026-10-22 evening — requested full-scale 2048-world cold start
+
+The earlier suggested **64-world GPU training smoke is superseded** by the
+user's explicit decision to run real 2048-world experiments immediately.
+Source is still ONLY `feature/v5020-coldstart-terrain`; the protected
+Pinnacle main/showcase and `overnight_v5020.sh --run` stay untouched/locked.
+
+New `scripts/run_v5020_2048.sh` is an **opt-in** shell entry point;
+`--plan` has no side effects; `--run` actually trains synchronously on
+the user's RTX GPU. No GPU training has been started remotely by ChatGPT.
+Each training phase uses exactly 2048 environments, 32-frame PPO rollouts,
+saved fixed examinations, `metrics.csv`, source SHA, logs, resumable
+snapshots and exact parent checkpoint hashes. A failure stops the script
+but leaves all output intact; rerun same command on the exact same
+source revision to resume a valid same-stage snapshot.
+
+Stages (absolute, cumulative training transitions):
+
+| Stage | Target | Physical training |
+| --- | ---: | --- |
+| foundation | 20M | fresh, flat-first, 312 inputs; require exact-checkpoint basic walking exam |
+| up | 32M | 2m raised platform, real up steps, 6mm height safety ceiling |
+| mixed12 | 48M | raised step up/down, 12mm ceiling |
+| mixed20 | 70M | raised step up/down, 20mm ceiling |
+
+These are *ceilings*, not guaranteed earned step heights. All phases
+retain flat rehearsal, while evidence-gated automatic height progression
+should protect ordinary walking. Larger steps wait for evidence.
+
+One copy/paste launcher command after synchronising the branch:
+
+```bash
+cd ~/emu-v5020
+git switch feature/v5020-coldstart-terrain
+git pull --ff-only origin feature/v5020-coldstart-terrain
+bash scripts/run_v5020_2048.sh --run
+```
+
+For a safe read-only plan: `bash scripts/run_v5020_2048.sh --plan`.
+To stop after a completed intermediate stage:
+`bash scripts/run_v5020_2048.sh --run --stop-after up`.
+Use `bash -n scripts/run_v5020_2048.sh` and
+`python -m pytest -q tests/test_v5020_2048_launcher.py
+tests/test_v5020_coldstart.py` for source tests before launching.
+
+No compiled/genuine 2048-world mixed-elevation acceptance is claimed.
+An OOM, compile exception, failed fitness gate, or physically incoherent
+run are legitimate findings. The caller should provide the stage's
+console.log, `metrics.csv`, and `fixed_eval.csv` from the default
+`~/robot_lab/emu_runs/v5020_2048_<commit>` output root.
