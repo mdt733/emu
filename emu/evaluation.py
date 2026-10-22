@@ -431,6 +431,15 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             sensor_scale=1.5,combo_mix=.10)
         panels['core'] = ('core',1661,
             _screen_episode(.05,.05,.05,.05,(.50,.30,.20),.50))
+        # A fixed, gentle FORWARD task catches upright stationary policies
+        # missed by broad survival panels. This uses a new held-out seed,
+        # independent of the 20M foundation panel and all training births.
+        # The evaluator collects displacement/gait/support in the original
+        # episode; automatic resets never contribute a second attempt.
+        worlds['forward'] = _screen_world(config,envs=envs,seed_offset=1663,
+            limits=(.45,-.12,.14,.90),push_n=.35,
+            sensor_scale=1.2,combo_mix=0.)
+        panels['forward'] = ('forward',1663,dict(_foundation_episode))
         for suffix,radius,salt in (('contact_slope',.30,1667),
                                    ('contact_harder',.55,1669)):
             worlds[suffix] = _screen_world(config,envs=envs,seed_offset=salt,
