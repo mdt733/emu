@@ -49,6 +49,6 @@ def test_fresh_start_requires_explicit_run_and_preserves_pinned_checkpoint(tmp_p
     fresh_section=text[foundation_at:]
     assert 'emu campaign5020 --run' not in fresh_section
     assert 'XLA_PYTHON_CLIENT_PREALLOCATE=false' in fresh_section
-    assert 'choose_foundation([p])' in fresh_section
+    assert 'choose_fresh_foundation(p)' in fresh_section
     assert 'FOUNDATION_PATH="$FRESH_ROOT/checkpoints/final.pkl"' in text
     assert 'git reset' not in text and 'git checkout main' not in text
