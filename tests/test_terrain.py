@@ -189,3 +189,47 @@ def test_mjx_rays_and_real_collision_share_step_solids(height):
     actual=np.asarray(result.qpos[:,2])
     np.testing.assert_allclose(actual,[.018,height+.018],atol=.022)
     assert actual[1]-actual[0] == pytest.approx(height,abs=.025)
+
+
+
+def test_real_mjx_hillcrest_contact_and_depth_ray_parity():
+    """Slope transitions are collidable support, not tilted gravity."""
+    mujoco=pytest.importorskip("mujoco")
+    jax=pytest.importorskip("jax")
+    import jax.numpy as jnp
+    from mujoco import mjx
+
+    slopes, _ = course_surfaces(-.8,0.,[.4,.4,.4,.4],
+                                 [0.,12.,0.,-12.],[0.,0.,0.])
+    xml=['<mujoco><option timestep=".005" gravity="0 0 -9.81"/>',
+         '<asset><material name="solid" rgba=".5 .5 .5 1"/></asset>',
+         '<worldbody>']
+    for i,segment in enumerate(slopes):
+        p,size,quat = surface_box_geometry(segment)
+        fmt=lambda v:' '.join(f'{x:.9f}' for x in v)
+        xml.append(f'<geom name="terrain_{i}" type="box" group="1" '
+                   f'material="solid" pos="{fmt(p)}" '
+                   f'size="{fmt(size)}" quat="{fmt(quat)}"/>')
+    xml.append('<body name="probe" pos="0 0 .16"><freejoint/>'
+               '<geom type="sphere" size=".018" mass=".01"/></body>'
+               '</worldbody></mujoco>')
+    cpu=mujoco.MjModel.from_xml_string(''.join(xml))
+    m=mjx.put_model(cpu)
+    d=mjx.forward(m,mjx.make_data(m))
+    ids=np.asarray([mujoco.mj_name2id(cpu,mujoco.mjtObj.mjOBJ_GEOM,
+                                      f'terrain_{i}') for i in range(4)])
+    assert np.all(ids>=0)
+    p,R=pose(x=-.48)
+    o,v=camera_rays(jnp,jnp.asarray(p),jnp.asarray(R))
+    chosen=(10,35,62)
+    origin=o.reshape(1,80,3)[:,chosen,:]
+    rays=v.reshape(1,80,3)[:,chosen,:]
+    expected=ray_boxes(jnp,origin,rays,d.geom_xpos[ids],
+                       d.geom_xmat[ids],m.geom_size[ids])
+    def trace(point,direction):
+        return mjx.ray(m,d,point,direction,
+                       geomgroup=(0,1,0,0,0,0),flg_static=True)
+    hit,which=jax.jit(jax.vmap(trace))(origin[0],rays[0])
+    assert np.all(np.asarray(which)>=0)
+    np.testing.assert_allclose(np.asarray(expected)[0],np.asarray(hit),
+                               atol=.003)
