@@ -360,6 +360,16 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
         return x
     try:
         core = val("screen_core_survival")
+        forward = val("screen_forward_walking_pass")
+        forward_survival = val("screen_forward_survival")
+        forward_command = val("screen_forward_commanded_forward_m")
+        # Signed movement is physically meaningful even when negative;
+        # unlike rates or absolute errors, do NOT silently clamp it to zero.
+        forward_progress = float(evidence["screen_forward_forward_progress_m"])
+        if not math.isfinite(forward_progress):
+            raise ValueError("nonfinite forward displacement")
+        if forward > forward_survival + 1.e-6:
+            raise ValueError("forward walking passes exceed first-episode survivors")
         hard = (val("screen_resilience100_survival") +
                 val("screen_robust70_survival")) / 2
         growth = (val("screen_growth140_survival") +
@@ -390,6 +400,11 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
     reasons = []
     if core < core_min:
         reasons.append(f"core survival {core:.2f} < {core_min:.2f}")
+    forward_floor = .10 if stage == "walk40" else .20
+    if forward < forward_floor:
+        reasons.append(f"commanded forward walking {forward:.2f} < {forward_floor:.2f}")
+    if forward_progress < .01 or forward_command < .10:
+        reasons.append("insufficient actual or requested forward displacement")
     if hard < hard_min:
         reasons.append(f"recovery survival {hard:.2f} < {hard_min:.2f}")
     if slope < slope_min:
@@ -401,8 +416,8 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
     # Every arm can earn course points, including the existing control.
     # True crossing influences selection but cannot bypass survival gates.
     # Graded heights add discrimination as the earnable frontier grows.
-    rank = (.28 * core + .16 * hard + .16 * slope + .12 * growth +
-            .10 * gait + .25 * step_score -
+    rank = (.25 * core + .16 * hard + .16 * slope + .12 * growth +
+            .10 * gait + .08 * forward + .25 * step_score -
             .035 * min(1., motion / .65) -
             .025 * min(1., height / .055) -
             .025 * min(2., power / 15.) -
@@ -410,6 +425,9 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
     return {"arm": name, "eligible": not reasons,
             "score": round(rank, 6), "reasons": reasons,
             "core": round(core, 5), "hard": round(hard, 5),
+            "forward_walking_pass": round(forward, 5),
+            "forward_progress_m": round(forward_progress, 5),
+            "forward_commanded_m": round(forward_command, 5),
             "slope": round(slope, 5), "growth": round(growth, 5),
             "gait": round(gait, 5), "motion_mae": round(motion, 5),
             "height_shortfall_m": round(height, 5),
@@ -497,6 +515,8 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
         r for r in results
         if not r["eligible"] and r.get("score") is not None
         and r["core"] >= .10 and r["gait"] >= .02
+        and r["forward_walking_pass"] >= .10
+        and r["forward_progress_m"] >= .01
         and r["hard"] >= 0. and r["slope"] >= 0.
         and r["height_shortfall_m"] <= .10
     ), key=lambda r: (-r["score"], r["arm"]))
