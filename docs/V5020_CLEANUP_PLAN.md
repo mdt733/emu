@@ -146,6 +146,10 @@ examiner, and experiment selection without spelunking through old layers.
       external timestamped log and an immutable root per source commit.
 - [x] Display the source foundation's saved fixed-evaluation history;
       distinguish valid checkpoint structure from learned locomotion.
+- [x] Veto the observed narrow v5020 20.05M foundation whose easy
+      survival was ~99.99% but stress30/dynamic50 were <0.2% and
+      resilience50 ~0.01%. Add opt-in **flat-first new 312-input 20M**
+      fallback before the 40M tournament. Re-examine and stop if unfit.
 - [x] Keep initial launch limited to `walk40`, with all five 2M
       survival probes and an independent frozen exam.
 - [ ] Independently check the user's local foundation quality and confirm
