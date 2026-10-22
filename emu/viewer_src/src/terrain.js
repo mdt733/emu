@@ -130,12 +130,65 @@ function parkXml(park) {
   return {asset,geometry:terrain+'\n'+trunks};
 }
 
+
+// Depth inspection courses use real MuJoCo support geometry, never painted
+// obstacles. These courses are DIAGNOSTIC ONLY: the champion is not retrained.
+export const DEPTH_COURSES = Object.freeze([
+  ['flat','Flat reference'], ['step-up','5 cm step up'],
+  ['step-down','5 cm step down'], ['crest','Hill crest'],
+  ['trough','Hill trough'], ['log','Half-round log'],
+  ['angled','Angled ridge'],
+]);
+function depthCourseXml(kind) {
+  if(!DEPTH_COURSES.some(([id])=>id===kind))
+    throw new Error('Unknown depth lab obstacle');
+  const surface=(name,x0,x1,z0,z1)=>{
+    const angle=Math.atan2(z1-z0,x1-x0);
+    const thickness=.25, midX=(x0+x1)/2, midZ=(z0+z1)/2;
+    const x=midX+thickness*Math.sin(angle);
+    const z=midZ-thickness*Math.cos(angle);
+    return '<geom name="depth_'+name+'" type="box" pos="'+x+' 0 '+z+
+      '" size="'+((x1-x0)/(2*Math.cos(angle)))+' 1.3 '+thickness+
+      '" euler="0 '+(-angle*180/Math.PI)+' 0" friction="1.5 0.005 0.0001" rgba="0.35 0.58 0.51 1"/>';
+  };
+  if(kind==='flat')return {removeFloor:false,geoms:''};
+  if(kind==='log')return {
+    removeFloor:false,geoms:'<geom name="depth_log" type="cylinder" pos=".83 0 .025" size=".055 .52" euler="90 0 0" friction="1.5 .005 .0001" rgba=".61 .43 .29 1"/>',
+  };
+  if(kind==='angled')return {
+    removeFloor:false,geoms:'<geom name="depth_angled_ridge" type="box" pos=".85 0 .03" size=".052 .52 .03" euler="0 0 22" friction="1.5 .005 .0001" rgba=".67 .50 .29 1"/>',
+  };
+  if(kind==='step-up'||kind==='step-down'){
+    const z=kind==='step-up'?.05:-.05;
+    return {removeFloor:true,geoms: [
+      surface('approach',-4,.65,0,0),
+      surface('landing',.65,5,z,z),
+    ].join('\n')};
+  }
+  const z=kind==='crest'?.065:-.065;
+  return {removeFloor:true,geoms: [
+    surface('approach',-4,.65,0,0),
+    surface('rise',.65,1.20,0,z),
+    surface('top',1.20,1.55,z,z),
+    surface('exit',1.55,2.1,z,0),
+    surface('after',2.1,5,0,0),
+  ].join('\n')};
+}
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
+  if(mode==='sensor'){
+    const course=depthCourseXml(options.obstacle||'flat');
+    let xml=robotXml;
+    if(course.removeFloor){
+      xml=xml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
+      if(xml===robotXml)throw new Error('Sensor course requires named floor');
+    }
+    return xml.replace('</worldbody>',course.geoms+'\n</worldbody>');
+  }
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(mode!=='park')throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
