@@ -94,6 +94,9 @@ def terrain_edge_trials(metrics: Mapping[str, Any]) -> dict[str, float]:
             row[f"terrain_{label}_cross_count"]=float((crossing*band).sum())
             row[f"terrain_{label}_fall_count"]=float((fell*band).sum())
             row[f"terrain_{label}_contact_count"]=float((contact*band).sum())
+        # Promotion cannot jump higher than demonstrated successful heights.
+        # A 0.15mm success at rating 0mm does NOT certify a 1mm stair.
+        row['terrain_above_cross_height_sum_m']=float((crossing*above*height).sum())
     return row
 
 
