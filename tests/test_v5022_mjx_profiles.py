@@ -83,3 +83,42 @@ def test_actual_mjx_rays_change_before_crest_contact():
         result.append(float(distance))
     assert np.isfinite(result).all()
     assert abs(result[0] - result[1]) > .006, result
+
+
+
+def test_oriented_box_sensor_distance_matches_real_mjx_rays_on_crest():
+    """Actual geom pose and size, not an independent sloped-floor oracle."""
+    mujoco = pytest.importorskip('mujoco')
+    jax = pytest.importorskip('jax')
+    import jax.numpy as jnp
+    from mujoco import mjx
+    from emu.forward_sensing import (
+        multizone_ray_geometry, ray_oriented_box_distances)
+
+    xml, _ = hill_xml([0., 12., 0., -12.])
+    cpu = mujoco.MjModel.from_xml_string(xml)
+    m = mjx.put_model(cpu)
+    d = mjx.forward(m, mjx.make_data(m))
+    ids = np.array([
+        mujoco.mj_name2id(cpu, mujoco.mjtObj.mjOBJ_GEOM,
+                          f'surface_{i}') for i in range(4)])
+    assert np.all(ids >= 0)
+    t = jnp.asarray([[-.48, 0., .2584]])
+    R = jnp.eye(3)[None]
+    origins, vectors = multizone_ray_geometry(jnp, t, R)
+    p = origins.reshape(1,80,3)
+    v = vectors.reshape(1,80,3)
+    # Use four of the 80 rays, spanning different vertical scanning rows.
+    pick = [1, 21, 51, 71]
+    ref = []
+    for i in pick:
+        result, geom_id = jax.jit(lambda pnt, vec: mjx.ray(
+            m, d, pnt, vec, geomgroup=(0,1,0,0,0,0),
+            flg_static=True))(p[0,i], v[0,i])
+        assert int(geom_id) in ids
+        ref.append(float(result))
+
+    actual = ray_oriented_box_distances(
+        jnp, p[:,pick,:], v[:,pick,:],
+        d.geom_xpos[ids], d.geom_xmat[ids], m.geom_size[ids])
+    np.testing.assert_allclose(np.asarray(actual)[0], ref, atol=.003)
