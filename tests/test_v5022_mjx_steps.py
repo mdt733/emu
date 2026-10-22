@@ -18,10 +18,11 @@ def physical_scene(upper_top):
     return f"""<mujoco>
       <option timestep="0.005" gravity="0 0 -9.81" integrator="Euler"/>
       <default><geom friction="1.5 0.005 0.0001"/></default>
+      <asset><material name="opaque_terrain" rgba="0.55 0.52 0.48 1"/></asset>
       <worldbody>
-        <geom name="approach" type="box" group="1"
+        <geom name="approach" material="opaque_terrain" type="box" group="1"
               pos="-0.42 0 -0.20" size=".58 .4 .20"/>
-        <geom name="landing" type="box" group="1"
+        <geom name="landing" material="opaque_terrain" type="box" group="1"
               pos=".58 0 {r_z:.8f}" size=".42 .4 {r_half:.8f}"/>
         <body name="contact_probe" pos="0 0 .16">
           <freejoint/>
