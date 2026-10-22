@@ -63,6 +63,7 @@ def metrics(overload=0., shaft=0., jerk=0., slip=0.):
         target_height=x(.25),height_error=x(0.),
         attitude_quality=x(1.),foot_mid_cone=x(1.),
         bad_contact=x(0.),support=x(1.),stance_slip=x(slip),
+        foot_impact_speed_mps=x(slip),
         swing_clearance=x(.015),target_step_height=x(.012),
         organic_step_shape=x(1.),action_delta_norm=x(jerk),
         joint_limit_pressure=x(0.),scissor_pressure=x(0.),
