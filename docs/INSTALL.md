@@ -73,7 +73,40 @@ records. The user may already have a 4096-world foundation. **Do not
 reuse a foundation from a different schema or another environment
 count, and do not discard its original provenance.**
 
-## 4. Training only after tests and a foundation review
+## 4. Guarded first overnight run
+
+From a clean local checkout of the current feature ref, after reviewing the
+foundation's fixed evaluation and ensuring GPU drivers are ready:
+
+```bash
+cd ~/emu-v5020
+git pull --ff-only
+bash scripts/overnight_v5020.sh --run
+```
+
+The script sources this checkout's own `.venv`, validates the current
+312-input checkpoint and exact world count, runs focused regressions and
+the GPU doctor, prints the current experiment plan, writes a dated log
+**outside** the training output root, and starts only the first five-arm
+20→40M generation. In the event of a rejected probe, the contender's
+remaining steps are skipped. No 60M/80M continuations are launched.
+
+To check everything without training: `bash scripts/overnight_v5020.sh --check`.
+The default foundation checkpoint is the earlier fixed 4096-world lab's
+`foundation20/checkpoints/final.pkl` if present. That is an **unreviewed
+candidate**, not a guarantee of healthy gait; the script prints its
+last recorded fixed exams. You may select a previously verified better
+12–22M snapshot with `FOUNDATION_PATH=/full/path/to/checkpoint.pkl`.
+
+Run it in a terminal that stays open or a **pre-existing** tmux session
+if you intend to disconnect. Closing the WSL session may otherwise
+interrupt training; this script does not silently detach. A compatible
+interrupted campaign can resume only under the **same pinned source
+commit, parent checkpoint and root**. Check progress in the logged output
+and `walk40/*/probe_health.json`; a winner is recorded at
+`walk40/scoreboard.md` and `walk40/selection.json`.
+
+## 5. Manual training command (advanced)
 
 This is an **example**, not a request to start training. Replace the
 `--foundation` path with a confirmed, existing, healthy compatible
