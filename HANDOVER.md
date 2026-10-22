@@ -334,3 +334,78 @@ An OOM, compile exception, failed fitness gate, or physically incoherent
 run are legitimate findings. The caller should provide the stage's
 console.log, `metrics.csv`, and `fixed_eval.csv` from the default
 `~/robot_lab/emu_runs/v5020_2048_<commit>` output root.
+
+
+## 2026-10-22 evening — critical 20M→20.7M collapse and revised height doctrine
+
+The user reported a real 2048-world 312-input experiment:
+- Original 20M foundation: 700-step episodes, ~0% falls, reward +2.89.
+- First `up` continuation: 13–15-step episodes, 100% falls,
+  reward about -8.6; reported vx became unphysical, including -50m/s.
+- **Stop the original v5020_2048_624bcb92db8c/up run; NEVER resume its
+  damaged child checkpoint.** Its original 20M foundation best.pkl is
+  still valuable and must not be overwritten.
+- Root cause not yet isolated in GPU physics. Confirmed independent launcher
+  mistake: old stage switched `foundation` to the aggressive mature
+  `sim2real` curriculum (commands, push, phase speed, field and normaliser)
+  exactly when introducing the long raised box. This violates continuity.
+  A possible additional physics problem was the 2m kinematic platform
+  deeply overlapping the static floor. Distinct collision masks now prevent
+  terrain-terrain pairs while retaining real foot-plane/foot-box contacts.
+
+User's **new binding curriculum doctrine**:
+1. Every stage transition inherits policy/optimizer/normaliser, full governor
+   and capability field state, command distribution, reward and perturbation
+   settings. Only the newly introduced physical dimension changes.
+2. The learned terrain frontier is a **skill rating**, not the highest
+   height shown in training. Sample an explicit mix BELOW, NEAR and ABOVE
+   the rating, with independent flat rehearsal and an immutable absolute
+   hardware/physics safety ceiling.
+3. At 0mm skill, start tiny above-rating probes (up to 0.25mm), not an
+   unearned fixed 3mm jump, nor a free promotion to 0.25mm. The 0mm
+   **rating stays zero until actual completed physical crossings succeed**.
+4. Promotion requires enough completed >rating attempts with physically
+   supported post-landing locomotion and tolerable falls; cap new rating
+   to the MEASURED successful challenge height. Demotion is driven by
+   failure at easier <rating heights; challenging failures alone HOLD.
+5. Flat, slope (starts at 0 degrees), ascent and descent are separate
+   skill axes. Adding descent cannot silently start at the previously
+   earned ascent rating. Independent positive/negative slope ratings
+   and descent-rated training still need to be integrated and tested.
+6. **Never claim evidence is passed without user's WSL tests.**
+
+Implemented feature-branch changes:
+- `emu/terrain.py` new rated distribution and pure
+  `rated_height_update`; old hurdle sampler/old governor retained.
+- `emu/environment.py` birth-rated ability recorded as teacher-only
+  rollout diagnostic; sampling clipped to explicit immutable course safety.
+  All positive-height attempts (including easier practice) are eligible
+  to count completed physical trials.
+- `emu/scoring.py` independently counts DONE, crossing, contact, fall,
+  and actual successful metres for below/above-rated trials. Long-lived
+  episodes do NOT count as repeated attempts.
+- `emu/curriculum.py` pools per-band evidence across PPO updates,
+  runs the rating controller only in opted-in long-platform training,
+  and migrates old source-pinned foundation checkpoint state.
+- `emu/train_cli.py` supports `--profile terrain-bridge` with identical
+  foundation PPO/gait profile instead of the mature switch, and requires
+  new elevation plans to declare 0mm initial rating.
+- `scripts/run_v5020_2048.sh` defaults only through the 32M up stage,
+  can use `FOUNDATION_FROM` to reuse the original 20M foundation without
+  rerunning it, and accepts a different-source parent only when its commit
+  AND checkpoint SHA256 are explicitly pinned/validated.
+  The mixed up/down stages are LOCKED rather than silently restarting
+  descent at a nonzero rating. Terrain coaching reward is 0 in this
+  continuity-first study.
+- `emu/training.py` stops a catastrophic rated elevation experiment after
+  four consecutive 2048-world short-episode 90%+ fall rollouts.
+- Added `tests/test_v5020_rated_elevation.py`; the 2048 launcher now
+  runs these and its own source tests before entering GPU training.
+- Protected `main`, original 20M checkpoint, and the traditional
+  `overnight_v5020.sh --run` lock remain unchanged.
+
+**IMPORTANT: New source is UNTESTED ON THE USER'S GPU.** This branch only
+contains source changes and authored regression tests. Run tests and
+validate a flat zero-height equivalence/physics gate before spending
+more substantial 2048-world GPU transitions. A mixed-slope and
+independently-rated downhill campaign remains future work.
