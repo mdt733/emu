@@ -92,6 +92,10 @@ def competence_shadow(rows: list[Mapping[str, Any]],
     for title, limit_key, ceiling_key, precision_key, exposure_key, unit in AXES:
         limit = _finite_number(last, limit_key)
         ceiling = _finite_number(cfg, ceiling_key)
+        # Configuration stores reverse safety as a positive maximum
+        # magnitude; display it as a negative command boundary.
+        if title == "reverse" and ceiling is not None:
+            ceiling = -abs(ceiling)
         history = []
         for row in recent:
             precision = _finite_number(row, precision_key)
