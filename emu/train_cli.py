@@ -97,12 +97,14 @@ def one_run_config(args) -> TrainingConfig:
     if terrain_reward and not adaptive_limit:
         raise ValueError('terrain progress teaching requires adaptive real step terrain')
     if not (.05 <= exposure <= .95 and .05 <= edge <= .95 and
-            .1 <= grow <= 3. and 0. < initial <= 15.):
+            .1 <= grow <= 3. and 0. <= initial <= 15.):
         raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
     if adaptive_flat and adaptive_limit:
         raise ValueError('adaptive flat control must have zero height ceiling')
     if varied and (not preview_actor or not (adaptive_limit or adaptive_flat)):
         raise ValueError('varied placement requires 312-input preview + adaptive physical step topology')
+    if elevation_mode != 'hurdle' and initial != 0.:
+        raise ValueError('real elevation starts at precisely 0mm, not a nonzero jump')
     if elevation_mode != 'hurdle' and (
             not preview_actor or not varied or adaptive_limit <= 0
             or box_height >= 0 or grade != 0 or terrain_radius > 0
