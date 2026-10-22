@@ -74,7 +74,6 @@ EXAM_HORIZON="${EXAM_HORIZON:-300}"
 echo "=== Checkout: $BRANCH @ $REVISION ==="
 FOUNDATION_NEEDS_BUILD=0
 FRESH_ROOT="$HOME/robot_lab/emu_runs/v5020_flatfirst_foundation_$SHORT_SHA"
-SOURCE_ERROR=""
 if FOUNDATION_META="$(python - "$EXPLICIT_FOUNDATION" "$HOME" <<'PY'
 import sys
 from pathlib import Path
@@ -115,6 +114,7 @@ else
   echo "New foundation run: $FRESH_ROOT"
   echo "This is an explicit opt-in only when --run is used; --check launches no training."
 fi
+[[ "$ENVS" =~ ^[0-9]+$ ]] || { echo "STOP: invalid foundation world count: $ENVS" >&2; exit 1; }
 if (( ENVS != 2048 && ENVS != 4096 )); then
   echo "STOP: unsupported overnight GPU world count $ENVS; use a reviewed study." >&2
   exit 1
