@@ -326,6 +326,15 @@ def train(args: TrainingConfig) -> int:
             raise RuntimeError(f"--resume network/optimizer restore failed: {exc}") from exc
     p = env.params_array(params)
 
+    # Rendering preferences only: nothing here enters PPO, env physics,
+    # rewards, curriculum, checkpoints, or the sensor/actor fingerprint.
+    console_view = {
+        'slope_deg': float(args.contact_slope_deg),
+        'variable_slope': bool(args.domain_terrain_radius > 0. and
+                               args.domain_terrain_mode == 'contact'),
+        'rated_terrain': bool(args.terrain_height_safety_m > 0. and
+                              args.terrain_elevation_mode != 'hurdle'),
+    }
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
@@ -676,7 +685,7 @@ def train(args: TrainingConfig) -> int:
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips, **console_view), flush=True)
             pending_physical_peaks = {name: 0.0 for name in peak_names}
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
@@ -820,7 +829,7 @@ def train(args: TrainingConfig) -> int:
         params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips, **console_view), flush=True)
     print(f'{LOG_PREFIX} training complete', flush=True)
     return 0
 
