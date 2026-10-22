@@ -396,6 +396,10 @@ def train(args: TrainingConfig) -> int:
             pass
     comp_window: list[tuple[float, float]] = []
     recent_rewards: list[float] = []
+    # Elevation bridge is intended to PRESERVE a qualified core walker.
+    # Abort rather than burn millions of steps if the transfer makes every
+    # robot die almost immediately. No previous/source checkpoint is touched.
+    mass_fall_streak = 0
     # Preserve the worst raw physical sample from EVERY rollout until
     # the next sparse CSV log. Per-world extreme values must not disappear
     # into either a 4096-world average or a multi-rollout log interval.
@@ -481,6 +485,17 @@ def train(args: TrainingConfig) -> int:
         host_summary_t0 = time.perf_counter()
         row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
         absorb_physical_peaks(row)
+        if args.terrain_elevation_mode != 'hurdle' and not args.open_frontier:
+            mass_fall_streak = (mass_fall_streak + 1 if
+                                row['episodes'] >= 16 and row['fall_rate'] >= .90
+                                and row['ep_len_mean'] < 100 else 0)
+            if mass_fall_streak >= 4:
+                raise RuntimeError(
+                    'HARD STOP: terrain bridge collapsed for four consecutive '
+                    f'2048-world PPO rollouts (falls={row["fall_rate"]:.1%}, '
+                    f'episode_len={row["ep_len_mean"]:.0f}, vx={row["vx_mean"]:.3f}m/s) '
+                    'before qualified walking could be maintained. '
+                    'Do not resume this child checkpoint. Parent foundation preserved.')
         # Continuous capability review: ordinary PPO experience updates the
         # decaying command/recovery/maneuver field every rollout.  This is the
         # broad review loop; no simulator pause is required.
