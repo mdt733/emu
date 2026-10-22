@@ -16,6 +16,7 @@ import numpy as np
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, PREVIEW_RANGE_FIELDS, actor_observation_fields
 from .environment import T
 from .scoring import basic_walking_pass
+from .terrain import elevation_transition_update
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
@@ -673,6 +674,83 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_terrain_summary = jax.jit(evaluate_terrain_summary, static_argnums=(5,))
 
+    def evaluate_elevation_summary(params, curriculum_params, obs_mean, obs_std,
+                                   eval_key, horizon, direction):
+        """First-episode post-landing certificate for a STATIC raised landing.
+
+        The exam world contains the same collidable raised box seen by the
+        forward range rays. Its edge, support pairs and poses are independent
+        teacher evidence, never actor observations. Both up and down require
+        walking *after* landing, not just reaching/touching the edge.
+        """
+        if direction not in ("up", "down"):
+            raise ValueError("elevation exam direction must be up/down")
+        if env.terrain_adaptive or env.terrain_box_geom_id < 0:
+            raise ValueError("elevation examiner needs one static collidable landing")
+        box_id = env.terrain_box_geom_id
+        box_cx = float(env.mj_model.geom_pos[box_id, 0])
+        half = float(np.asarray(env.mj_model.geom_size[box_id])[0])
+        edge = jnp.full((env.num_envs,), box_cx - half if direction == "up"
+                        else box_cx + half)
+        keys = jax.random.split(eval_key, env.num_envs)
+        es = env._reset_with_keys(keys, curriculum_params)
+        zero_b = jnp.zeros((env.num_envs,), dtype=jnp.bool_)
+        zero_f = jnp.zeros((env.num_envs,), dtype=jnp.float32)
+        zero_i = jnp.zeros((env.num_envs,), dtype=jnp.int32)
+        initial = (es, env.obs(es), zero_b, zero_b, zero_b, zero_b,
+                   zero_f, zero_i, zero_f, zero_b, zero_b)
+        def one_step(_, carry):
+            (state, obs, finished, source_seen, contacted, landed,
+             landing_x, stable, gait_total, crossed, fallen) = carry
+            mean, _ = apply(params, normalize_obs(
+                obs, obs_mean, obs_std, obs_norm_mask))
+            out = env.step(state, jnp.clip(mean, -1., 1.), curriculum_params)
+            m = out.metrics
+            active = ~finished
+            terminated = out.done > .5
+            fallen = fallen | (active & (m["episode_fell"] > .5))
+            # In auto-reset worlds out.state may already contain a newly
+            # spawned robot on termination. Never certify its position.
+            valid = active & ~terminated
+            top = m["terrain_top_contact_fraction"] >= .5
+            floor = m["terrain_floor_contact_fraction"] >= .5
+            source_support = floor if direction == "up" else top
+            target_support = top if direction == "up" else floor
+            (source_seen, contacted, landed, landing_x,
+             stable, gait_total, crossed) = elevation_transition_update(
+                jnp, source_seen=source_seen, contacted=contacted,
+                landed=landed, landing_x=landing_x,
+                supported_frames=stable, post_landing_gait=gait_total,
+                crossed=crossed, source_support=source_support,
+                obstacle_contact=(m["terrain_box_foot_contact_any"] > .5),
+                target_support=target_support,
+                torso_x=out.state.data.xpos[:, env.torso_id, 0],
+                feet_x=out.state.data.xpos[:, env.foot_bodies, 0],
+                edge_x=edge, upright=(m["gravity_z"] >= .8) &
+                (m["support"] > SUPPORT_MIN),
+                gait=m["step_evidence"], active=valid)
+            return (out.state, out.obs, finished | terminated,
+                    source_seen, contacted, landed, landing_x,
+                    stable, gait_total, crossed, fallen)
+        (_, _, finished, _, contacted, _, _, _, _, crossed, fallen) = (
+            jax.lax.fori_loop(0, horizon, one_step, initial))
+        certified = crossed & ~fallen
+        # No success by reset, falling, mere touching, or an unfinished edge
+        # approach. An uncompleted trial is neither a fall nor a crossing.
+        unfinished = ~(finished | certified | fallen)
+        timeouts = finished & ~fallen & ~certified
+        return jnp.stack((
+            jnp.asarray(float(env.num_envs)),
+            jnp.mean(contacted.astype(jnp.float32)),
+            jnp.mean(certified.astype(jnp.float32)),
+            jnp.mean(fallen.astype(jnp.float32)),
+            jnp.mean(timeouts.astype(jnp.float32)),
+            jnp.mean(unfinished.astype(jnp.float32)),
+        ))
+
+    evaluate_elevation_summary = jax.jit(evaluate_elevation_summary,
+                                         static_argnums=(5, 6))
+
     def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
                             eval_key, horizon):
         """Common-condition efficiency telemetry, NEVER used as a PPO reward.
@@ -997,6 +1075,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
         'evaluate_terrain_summary': evaluate_terrain_summary,
+        'evaluate_elevation_summary': evaluate_elevation_summary,
         'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,
