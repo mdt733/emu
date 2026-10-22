@@ -468,3 +468,68 @@ def test_true_elevation_ray_returns_are_signed_and_visible_in_actor_at_20cm(dire
     z,unknown=insert_measurement(np,z,unknown,x,measured,np.zeros_like(good))
     _,confidence_empty=readout(np,z,unknown)
     assert np.all(confidence_empty==0.)
+
+
+def test_true_elevation_training_plan_is_opt_in_and_pinned(tmp_path, capsys):
+    from emu.cli import main
+    arguments=['train','--profile','sim2real','--forward-preview',
+               '--terrain-varied-placement','--terrain-height-ceiling-mm','20',
+               '--terrain-height-initial-mm','5','--envs','8',
+               '--steps','65536','--device','cpu',
+               '--run-dir',str(tmp_path/'flat_to_landing')]
+    assert main(arguments+['--terrain-elevation-mode','mixed','--plan']) == 0
+    output=capsys.readouterr().out
+    assert '"terrain_elevation_mode": "mixed"' in output
+    assert '"observation_schema": "rolling_tof_312"' in output
+    assert not (tmp_path/'flat_to_landing').exists()
+    with pytest.raises(ValueError,match='raised-platform training'):
+        main(['train','--profile','sim2real','--forward-preview',
+              '--terrain-elevation-mode','mixed','--terrain-height-ceiling-mm','20',
+              '--run-dir',str(tmp_path/'invalid'),'--plan'])
+    assert not (tmp_path/'invalid').exists()
+
+
+def test_mixed_elevation_batched_births_have_real_upper_lower_levels(tmp_path):
+    """Independent worlds require no per-frame geometry changes or phantom support."""
+    import jax
+    import jax.numpy as jnp
+    from emu.terrain import adaptive_height_course
+    from emu.contracts import ROBOT_XML
+    from emu.environment import T, NEUTRAL_ROOT_Z
+
+    path=adaptive_height_course(
+        ROBOT_XML,tmp_path/'long_platform.xml',elevation_platform=True)
+    env=EmuMJXEnv(str(path),num_envs=16,seed=733,
+        observation_schema=OBS_SCHEMA_PREVIEW,
+        terrain_contact_mode='box_surface',terrain_adaptive=True,
+        terrain_random_placement=True,terrain_elevation_mode='mixed',
+        terrain_height_exposure=.95,terrain_height_edge_fraction=.80)
+    episode=dict(probe_cmd_vx=.16,probe_cmd_vy=0.,probe_cmd_yaw=0.,
+                 steady_difficulty=0.,transition_difficulty=0.,
+                 resilience_difficulty=0.,posture_difficulty=0.,
+                 regime_frac_steady=1.,regime_frac_transition=0.,
+                 regime_frac_resilience=0.)
+    state,obs=env.reset(episode)
+    assert obs.shape==(16,312)
+    box=np.asarray(jax.device_get(
+        state.data.geom_xpos[:,env.terrain_box_geom_id,:]))
+    h=np.asarray(jax.device_get(state.task[:,T.terrain_height_m]))
+    root=np.asarray(jax.device_get(state.data.qpos[:,2]))
+    half=np.asarray(env.terrain_box_half_size)
+    active=h>0.
+    down=(box[:,0]<0.)&active
+    up=(box[:,0]>0.)&active
+    assert down.sum()>=2 and up.sum()>=2
+    assert np.all(box[~active,0]>4.)
+    edge=box[:,0]+np.where(down,half[0],-half[0])
+    assert np.all((edge[active]>=.22)&(edge[active]<=.38))
+    np.testing.assert_allclose(box[active,2]+half[2],h[active],atol=1e-5,rtol=0.)
+    # Down worlds actually BEGIN ON the upper contact surface, while up
+    # worlds approach the lower surface. No teleport later in the episode.
+    assert np.all(np.abs(root[down]-(NEUTRAL_ROOT_Z+h[down]))<.02)
+    assert np.all(np.abs(root[up]-NEUTRAL_ROOT_Z)<.02)
+    state2=env.step(state,jnp.zeros((16,6),dtype=jnp.float32),
+                    env.params_array(episode))
+    assert np.isfinite(np.asarray(jax.device_get(state2.obs))).all()
+    assert state2.obs.shape==(16,312)
+    assert 'terrain_elevation_supported_frames' in state2.metrics
