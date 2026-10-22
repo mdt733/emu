@@ -74,8 +74,14 @@ Exit: no absurd physics silently leads to a 'successful' teaching signal.
 
 - [ ] Represent for every skill: physical safety ceiling, training
       frontier, valid trial counts, success confidence and retreat state.
-- [ ] Shadow-run unified physical command frontier proposals beside the
-      current fixed 40/60/80M study recipe, without modifying training.
+- [x] Add `emu/competence_shadow.py`: a GPU-free, read-only report of
+      the current command limits, safety ceilings, edge tracking exposure,
+      episode-weighted fall evidence and UNKNOWN held-out certification.
+      It never writes to a checkpoint or changes the study recipe.
+- [ ] Implement **true matched decision replay** for the inherited frontier
+      algorithm against source-pinned training telemetry, without
+      influencing the current 40/60/80M study. The visibility report is
+      deliberately not yet a full alternative governor.
 - [ ] Bring real slopes, acceleration and physical steps into the same
       *governance interface*, while retaining their distinct evidence rules.
 - [ ] Preserve bootstrapping, core-walk rehearsal, per-regime evidence,
