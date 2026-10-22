@@ -122,6 +122,8 @@ run_stage() {
   [[ -s "$final" ]] || { echo "STOP: missing final checkpoint $final"; exit 1; }
   echo "Completed $name; checkpoint SHA256 $(sha256sum "$final" | cut -d' ' -f1)"
   printf '%s\n' "$(sha256sum "$final" | cut -d' ' -f1)" > "$RUN_ROOT/lineage/$name.final.sha256"
+  echo "=== Regenerating read-only V5021 shareable results ==="
+  PYTHONPATH="$ROOT" python -m emu.cli report --root "$RUN_ROOT"
 }
 
 run_stage s10 10000000 ""
