@@ -631,7 +631,9 @@ class TaskSampler:
                     jax.random.uniform(k_terrain, ()),
                     jax.random.uniform(jax.random.fold_in(k_terrain, 5018), ()),
                     exposure=self.terrain_height_exposure,
-                    edge_fraction=self.terrain_height_edge_fraction)
+                    edge_fraction=self.terrain_height_edge_fraction,
+                    probe_above_m=(.002 if self.terrain_elevation_mode != 'hurdle' else 0.),
+                    safety_m=self.terrain_exploration_safety_m if self.terrain_elevation_mode != 'hurdle' else None)
             else:
                 obstacle_height = jnp.asarray(0., dtype=jnp.float32)
             # Preserve flat rehearsal across all command regimes.
@@ -1160,6 +1162,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_height_edge_fraction: float = .35,
                  terrain_random_placement: bool = False,
                  terrain_elevation_mode: str = 'hurdle',
+                 terrain_exploration_safety_m: float = 0.,
                  terrain_exact_height_exam: bool = False,
                  terrain_progress_weight: float = 0.,
                  forward_preview_masked: bool = False):
@@ -1293,6 +1296,16 @@ class EmuMJXEnv(TaskSampler):
                 or terrain_contact_mode != 'box_surface'):
             raise ValueError('raised-platform training needs adaptive varied 312-input physical course')
         self.terrain_elevation_mode = terrain_elevation_mode
+        self.terrain_exploration_safety_m = float(terrain_exploration_safety_m)
+        if self.terrain_elevation_mode != 'hurdle' and self.terrain_exploration_safety_m <= 0.:
+            # Independently constructed short tests may use this constructor
+            # without specifying a training ceiling. Such tests retain the
+            # global physical 150mm maximum; REAL training always supplies
+            # an explicit run-config limit.
+            self.terrain_exploration_safety_m = self.terrain_height_max_m
+        if (not np.isfinite(self.terrain_exploration_safety_m) or
+            not 0. <= self.terrain_exploration_safety_m <= self.terrain_height_max_m):
+            raise ValueError('invalid physical elevation exploration safety limit')
         if self.terrain_random_placement and (
                 not self.terrain_adaptive or observation_schema != OBS_SCHEMA_PREVIEW):
             raise ValueError('variable obstacle location requires adaptive physical course and 312-input V sensor')
@@ -2628,9 +2641,13 @@ class EmuMJXEnv(TaskSampler):
             # A measurable edge task counts only worlds born with a physical
             # step near their earned ceiling. We do NOT treat a skim of the
             # obstacle as a completed step crossing.
-            edge = ((task[:, T.terrain_height_m] > 0.) &
-                    (task[:, T.terrain_height_m] >= .70 *
-                     jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m])))
+            # For genuine long-platform elevation, record ALL completed
+            # positive-height attempts. Excluding below-rating attempts
+            # would hide the evidence needed to detect loss of easy skill.
+            edge = (task[:, T.terrain_height_m] > 0.)
+            if self.terrain_elevation_mode == 'hurdle':
+                edge = (edge & (task[:, T.terrain_height_m] >= .70 *
+                                jnp.maximum(.0001, task[:, T.terrain_birth_frontier_m])))
             # The old fixed course used absolute .42/.28 X thresholds.
             # V5020 places/yaws the actual step independently in every
             # world, so evaluate motion PAST the measured physical front edge
@@ -2754,6 +2771,7 @@ class EmuMJXEnv(TaskSampler):
             'regime_resilience': (task[:, T.regime] > 1.5).astype(jnp.float32),
             'athletic_rehearsal': task[:, T.athletic_rehearsal],
             'terrain_height_birth_m': task[:, T.terrain_height_m],
+            'terrain_birth_rating_m': task[:, T.terrain_birth_frontier_m],
             'field_taught': task[:, T.field_taught],
             'regime_steady_frontier': jnp.logical_and(task[:, T.regime] < 0.5, task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
             'regime_transition_frontier': jnp.logical_and(jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5), task[:, T.athletic_rehearsal] < 0.5).astype(jnp.float32),
