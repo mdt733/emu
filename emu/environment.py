@@ -2153,8 +2153,26 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
-        ranges,beam_valid=simulate_tripod_ranges(
-            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        if (self.observation_schema == OBS_SCHEMA_PREVIEW and
+                self.terrain_contact_mode == 'box_surface'):
+            # The tripod shares the exact first-hit collision oracle with
+            # forward rays and the flow-camera depth. Never look through
+            # an upper platform to the lower plane.
+            box=self.terrain_box_geom_id
+            ranges,beam_valid=first_hit_ranges(
+                jnp,torso,R,floor_o,floor_n,
+                box_center=data.geom_xpos[:,box,:],
+                box_rotation=jnp.reshape(data.geom_xmat[:,box],
+                                         (self.num_envs,3,3)),
+                box_half_size=self.terrain_box_half_size,
+                mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                beams_body=TOF_TRIPOD_BEAMS_BODY,
+                errors_m=range_errors_m)
+        else:
+            # Historical 232-input measurements remain byte-for-byte
+            # semantically unchanged.
+            ranges,beam_valid=simulate_tripod_ranges(
+                jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
@@ -2266,22 +2284,14 @@ class EmuMJXEnv(TaskSampler):
                 forward_valid,
                 jnp.round(forward_ranges / FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
                 0.)
-            # Real obstacle first hits ALSO affect the rear and front
-            # downward tripod. Otherwise the V junction would see THROUGH
-            # a raised step (the historical 232 tripod intentionally retains
-            # its original flat-plane forward model).
-            tripod_ranges, tripod_valid = first_hit_ranges(
-                jnp, torso, R, floor_origin, floor_normal,
-                mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
-                beams_body=TOF_TRIPOD_BEAMS_BODY,
-                errors_m=scale[:,None]*.0015*noise[:,:3],
-                **ray_kwargs)
+            # The 312 tripod is already acquired once by the same
+            # box-aware ground_sensor_probe path used for diagnostics.
+            # Quantise the delivered raw range packet, not a second raycast.
             measured_tripod = jnp.where(
-                tripod_valid,
-                jnp.round(tripod_ranges/FORWARD_QUANTIZATION_M) * FORWARD_QUANTIZATION_M,
-                0.)
-            probe = dict(probe, tof_ranges_m=measured_tripod,
-                         tof_beam_valid=tripod_valid)
+                probe['tof_beam_valid'],
+                jnp.round(probe['tof_ranges_m']/FORWARD_QUANTIZATION_M) *
+                FORWARD_QUANTIZATION_M, 0.)
+            probe = dict(probe, tof_ranges_m=measured_tripod)
         else:
             forward_ranges = jnp.zeros((self.num_envs,2),dtype=jnp.float32)
             forward_valid = jnp.zeros((self.num_envs,2),dtype=bool)
