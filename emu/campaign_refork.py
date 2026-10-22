@@ -509,8 +509,8 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
             reason = "Qualified incumbent retained over weaker challengers; keep learning next generation"
         else:
             winner = best["arm"]
-            qualification = "certified"
-            reason = "Best qualifying frozen policy"
+            qualification = "heldout-qualified"
+            reason = "Best policy passing held-out simulator qualification"
     elif provisional:
         best = provisional[0]
         # This permits *research continuation*, NEVER a public promotion.
@@ -666,7 +666,7 @@ def run(root: Path, *, foundation: Path, seed: int, envs: int,
             ancestor = next_ck
             if stage == stop_after:
                 name = ("HELD-OUT QUALIFIED research winner"
-                        if board["qualification"] in ("certified", "incumbent-qualified")
+                        if board["qualification"] in ("heldout-qualified", "incumbent-qualified")
                         else "PROVISIONAL research parent (not certified)")
                 print(f"[refork] stopped after {stage}. {name}: {ancestor}",flush=True)
                 return
