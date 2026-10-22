@@ -1602,6 +1602,49 @@ class EmuMJXEnv(TaskSampler):
                   'terrain_forward_delta_m': (data.xpos[:,self.torso_id,0] -
                                               state.data.xpos[:,self.torso_id,0]),
                   'terrain_course_x': data.xpos[:,self.torso_id,0]}
+        elevation_track = (state.ep_elevation_source_seen,
+                           state.ep_elevation_landed,
+                           state.ep_elevation_landing_x,
+                           state.ep_elevation_supported_frames,
+                           state.ep_elevation_post_landing_gait)
+        if self.terrain_elevation_mode != 'hurdle':
+            # A long platform cannot use the old "both feet beyond the
+            # obstacle's far end" hurdle test. Credit REAL supported
+            # transition at its NEAR edge, followed by sustained walking
+            # at the new elevation (the same measurement as frozen exams).
+            box = data.geom_xpos[:, self.terrain_box_geom_id, :]
+            down = box[:, 0] < 0.
+            edge_x = box[:, 0] + jnp.where(
+                down, self.terrain_box_half_size[0],
+                -self.terrain_box_half_size[0])
+            active = (metrics['terminal'] < .5) & ~physics_diverged
+            (seen, _, landed, landed_x, stable, gait_total, crossed) = (
+                elevation_transition_update(
+                    jnp, source_seen=state.ep_elevation_source_seen,
+                    contacted=state.ep_terrain_contacted > .5,
+                    landed=state.ep_elevation_landed,
+                    landing_x=state.ep_elevation_landing_x,
+                    supported_frames=state.ep_elevation_supported_frames,
+                    post_landing_gait=state.ep_elevation_post_landing_gait,
+                    crossed=state.ep_terrain_crossed > .5,
+                    source_support=jnp.where(
+                        down, metrics['terrain_top_contact_fraction'] >= .5,
+                        metrics['terrain_floor_contact_fraction'] >= .5),
+                    obstacle_contact=metrics['terrain_box_foot_contact_any'] > .5,
+                    target_support=jnp.where(
+                        down, metrics['terrain_floor_contact_fraction'] >= .5,
+                        metrics['terrain_top_contact_fraction'] >= .5),
+                    torso_x=data.xpos[:,self.torso_id,0],
+                    feet_x=data.xpos[:,self.foot_bodies,0],
+                    edge_x=edge_x,
+                    upright=(metrics['gravity_z'] >= .8) &
+                            (metrics['support'] > SUPPORT_MIN),
+                    gait=metrics['step_evidence'],active=active))
+            elevation_track = (seen, landed, landed_x, stable, gait_total)
+            metrics = {**metrics, 'terrain_crossed_this_frame':
+                       crossed.astype(jnp.float32),
+                       'terrain_elevation_landed': landed.astype(jnp.float32),
+                       'terrain_elevation_supported_frames': stable.astype(jnp.float32)}
         if self.terrain_adaptive:
             # Reward only a FIRST, physically verified passage in this
             # episode: real box-foot collision occurred earlier or now,
@@ -1675,6 +1718,7 @@ class EmuMJXEnv(TaskSampler):
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            ep_terrain_crossed, ep_terrain_contacted,
+                           *elevation_track,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
