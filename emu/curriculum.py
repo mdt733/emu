@@ -144,7 +144,8 @@ class RegimeGovernor:
                                           contacts=0., falls=0.,
                                           below_done=0., below_fall=0.,
                                           above_done=0., above_cross=0.,
-                                          above_fall=0., above_contact=0.)
+                                          above_fall=0., above_contact=0.,
+                                          above_cross_height_sum_m=0.)
         # Only long-platform elevation opts into the rated-band controller.
         # Legacy short-hurdle experiments preserve their own old governor.
         self.terrain_rated_elevation = bool(terrain_rated_elevation)
@@ -206,7 +207,8 @@ class RegimeGovernor:
                 raise ValueError(f"curriculum {name} keys mismatch")
         old_keys={'episodes','crossings','contacts','falls'}
         new_keys=old_keys|{'below_done','below_fall','above_done',
-                           'above_cross','above_fall','above_contact'}
+                           'above_cross','above_fall','above_contact',
+                           'above_cross_height_sum_m'}
         if (not isinstance(d['terrain_edge_evidence'],dict) or
             set(d['terrain_edge_evidence']) not in (old_keys,new_keys)):
             raise ValueError('terrain edge evidence state keys mismatch')
@@ -648,7 +650,8 @@ class RegimeGovernor:
                          'above_done':'terrain_above_done_count',
                          'above_cross':'terrain_above_cross_count',
                          'above_fall':'terrain_above_fall_count',
-                         'above_contact':'terrain_above_contact_count'}
+                         'above_contact':'terrain_above_contact_count',
+                         'above_cross_height_sum_m':'terrain_above_cross_height_sum_m'}
                 band_data={}
                 for dest,source in columns.items():
                     raw=row.get(source,0.)
@@ -669,7 +672,8 @@ class RegimeGovernor:
                     terrain_above_done_count=evidence['above_done'],
                     terrain_above_cross_count=evidence['above_cross'],
                     terrain_above_fall_count=evidence['above_fall'],
-                    terrain_above_contact_count=evidence['above_contact'])
+                    terrain_above_contact_count=evidence['above_contact'],
+                    terrain_above_cross_height_sum_m=evidence['above_cross_height_sum_m'])
                 new_h,decision=rated_height_update(
                     current,pooled,safety_m=self.terrain_height_safety_m,
                     growth_m=self.terrain_height_growth_m)
