@@ -101,6 +101,7 @@ Playground. Neither source cleanup nor v5020 research modifies that policy.
 | How does PPO learn? | `ppo.py`, `training.py` |
 | What happened physically? | `scoring.py` (shared event contracts), `results.py` (rollout reports) |
 | How are lessons adjusted? | `curriculum.py` |
+| What does the logged command envelope suggest? | `competence_shadow.py` (read-only evidence; no certifications) |
 | What can a frozen policy demonstrate? | `evaluation.py` |
 | How are champions selected? | `campaign_refork.py` |
 | How is one run planned, guarded and resumed? | `train_cli.py` |
