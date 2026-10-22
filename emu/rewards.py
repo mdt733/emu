@@ -116,7 +116,7 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
             # Shaft work and stance-foot velocity discourage foot hammering;
             # action-rate discourages target jitter. Every term is bounded.
             target_jerk = jnp.clip(m['action_delta_norm'] / 3.0, 0.0, 1.0)
-            contact_harshness = jnp.clip(m['stance_slip'] / 0.5, 0.0, 1.0)
+            contact_harshness = jnp.clip(m['foot_impact_speed_mps'] / 0.5, 0.0, 1.0)
             motor_load_proxy = (
                 4.0 * overload * overload +
                 1.5 * shaft_motion * shaft_motion +
