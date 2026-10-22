@@ -259,7 +259,7 @@ def main(argv=None) -> int:
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--profile',choices=['foundation','mature','sim2real','terrain-bridge'],default='foundation')
+    q.add_argument('--profile',choices=['foundation','mature','sim2real','terrain-bridge','considered'],default='foundation')
     q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
