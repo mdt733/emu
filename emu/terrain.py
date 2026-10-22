@@ -216,14 +216,30 @@ def adaptive_height_course(robot_source, dest, *, immutable: bool = True,
     world = tree.getroot().find('worldbody')
     if world is None:
         raise ValueError('canonical robot is missing worldbody')
+    # A thick 2m platform geometrically penetrates the floor so its top
+    # forms a real riser at small positive heights. Both terrain bodies are
+    # kinematic; their *mutual* contact is unphysical and can consume MJX
+    # contact slots that the feet need. Use disjoint collision categories
+    # for plane (2) and platform (4), each accepting the default robot (1).
+    # Foot<->floor and foot<->platform still collide: (1&1)!=0.
+    if elevation_platform:
+        floor = next((g for g in world.findall('geom')
+                      if g.get('name') == 'floor'), None)
+        if floor is None or floor.get('type') != 'plane':
+            raise ValueError('raised-platform course requires canonical floor plane')
+        floor.set('contype', '2')
+        floor.set('conaffinity', '1')
     mocap = ET.SubElement(world, 'body', {
         'name': 'v5018_course_mocap', 'mocap': 'true', 'pos': '5 0 0'})
-    ET.SubElement(mocap, 'geom', {
+    attributes = {
         'name': 'v5018_obstacle_step', 'type': 'box',
         'pos': f'0 0 {-TERRAIN_BOX_HALF_HEIGHT_M}',
         'size': (f'1 .5 {TERRAIN_BOX_HALF_HEIGHT_M}' if elevation_platform
                  else f'.04 .20 {TERRAIN_BOX_HALF_HEIGHT_M}'),
-        'friction': '1.5 .005 .0001'})
+        'friction': '1.5 .005 .0001'}
+    if elevation_platform:
+        attributes.update(contype='4', conaffinity='1')
+    ET.SubElement(mocap, 'geom', attributes)
     return _write_reproducible_course(tree, Path(dest), immutable=immutable)
 
 
