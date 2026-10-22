@@ -36,7 +36,7 @@ def test_one_physical_camera_shared_origin_and_4x4_zone_layout():
     origins, direction = multizone_ray_geometry(np, t, R)
     assert origins.shape == direction.shape == (2, 16, 5, 3)
     assert MULTIZONE_MOUNT_BODY_M[0] > .076
-    np.testing.assert_allclose(origins, origins[:, 0:1, 0:1, :], atol=1e-8)
+    np.testing.assert_allclose(origins, np.broadcast_to(origins[:, 0:1, 0:1, :], origins.shape), atol=1e-8)
     np.testing.assert_allclose(np.linalg.norm(direction, axis=-1), 1., atol=1e-7)
     # The outer zones scan different horizontal and vertical angles.
     assert direction[0, 0, 0, 1] < direction[0, 3, 0, 1]
