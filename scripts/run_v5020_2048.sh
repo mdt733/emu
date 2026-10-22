@@ -137,6 +137,23 @@ echo "Source/policy/checkpoint contracts are strict. Any failure stops this"
 echo "campaign with its console logs, stage output, and prior snapshots intact."
 
 
+# This operator previously qualified a 20M frozen 312-input walker on
+# v5020 source 624bcb92.... Reuse ONLY those exact immutable bytes, never
+# accidentally rerun 20M or inherit its catastrophically failed 'up' child.
+# On a fresh computer with no known candidate, genuine cold-start remains
+# possible. An existing path with an unexpected hash requires investigation.
+KNOWN_PARENT="$HOME/robot_lab/emu_runs/v5020_2048_624bcb92db8c/foundation/checkpoints/best.pkl"
+KNOWN_PARENT_SHA="23ca16ecd7de3b9980108d3833bb47dd8276f02aab6a2db35a3f30208dd4fc23"
+if [[ -z "${FOUNDATION_FROM:-}" && -f "$KNOWN_PARENT" ]]; then
+  actual="$(sha256sum "$KNOWN_PARENT" | cut -d' ' -f1)"
+  if [[ "$actual" != "$KNOWN_PARENT_SHA" ]]; then
+    echo "STOP: known previously-good foundation path was changed!" >&2
+    echo "expected=$KNOWN_PARENT_SHA actual=$actual path=$KNOWN_PARENT" >&2
+    exit 1
+  fi
+  FOUNDATION_FROM="$KNOWN_PARENT"
+  echo "Reusing original 20M champion at exact verified SHA256: $FOUNDATION_FROM"
+fi
 if [[ -n "${FOUNDATION_FROM:-}" ]]; then
   [[ "$FOUNDATION_FROM" == /* && -f "$FOUNDATION_FROM" ]] ||
     { echo "STOP: FOUNDATION_FROM must be an absolute, existing .pkl checkpoint" >&2; exit 1; }
@@ -168,6 +185,11 @@ PY
 fi
 echo "Qualified foundation walker: $PARENT"
 if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
+echo "=== HARD GATE: same frozen 312-input policy on original flat, zero plateau, and microprobes ==="
+echo "This is a CPU/4-world policy examination only. No PPO updates."
+python scripts/verify_v5020_bridge.py --parent "$PARENT" --worlds 4 --horizon 160 \
+  2>&1 | tee "$RUN_ROOT/logs/bridge_parity_$(date +%Y%m%d_%H%M%S).log"
+echo "Frozen transfer preflight passed. 2048-world policy learning is now permitted."
 # Explicit one-time source transfer only: pin BOTH original code commit
 # and checkpoint bytes. Trainer validates full 312-input sensor contract,
 # optimizer, observation normaliser and 2048 environment lineage too.
