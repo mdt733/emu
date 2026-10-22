@@ -36,7 +36,7 @@ def test_forward_fan_is_normalized_and_reaches_ahead_of_feet():
     origins, rays = forward_ray_geometry(np, t, R)
     assert origins.shape == rays.shape == (1, 3, 3)
     np.testing.assert_allclose(np.linalg.norm(rays, axis=-1), 1.0)
-    assert all(m[0] > 0 for m in FORWARD_TOF_MOUNTS_BODY_M)
+    assert all(m[0] > .076 for m in FORWARD_TOF_MOUNTS_BODY_M), 'ToF must not start inside torso box'
     assert (rays[0, :, 0] > 0.65).all() and (rays[0, :, 2] < -0.65).all()
 
 
