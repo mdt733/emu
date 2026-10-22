@@ -87,7 +87,11 @@ uses this PPO teaching payment as a measured crossing.
 ## Guard rails after the failed 380M experiment
 
 Each contender first runs a 2M-step probe under its proposed lesson
-distribution. It reads **every logged row**, including all sparse-log
+distribution. **Probes log every PPO update** (roughly 16 updates at
+4096 worlds or 31 at 2048, 32 physics/control frames each), instead
+of the ordinary 10-update CSV cadence. Longer surviving continuations
+retain the efficient 10-update cadence.
+It reads **every logged row**, including all sparse-log
 intervals' **worst per-world spring-energy and shaft-power peaks**.
 Unphysical values at any point veto continuation, even if the final rows
 look healthy. The final ~20% of rows are evaluated using the number of
