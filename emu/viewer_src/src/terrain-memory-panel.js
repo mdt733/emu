@@ -32,8 +32,8 @@ export class TerrainMemoryPanel {
     const mm=x=>Number.isFinite(x)?Math.round(x*1000)+' mm':'—';
     const actor=d.actorHeights.map((h,i)=>d.actorConfidence[i]>.05?mm(h):'·');
     this.samples.textContent=
-      'Right −5/0/5/10/15: '+actor.slice(0,5).join('  ')+'\n'+
-      'Left  −5/0/5/10/15: '+actor.slice(5).join('  ');
+      'Right −5/0/5/10/20: '+actor.slice(0,5).join('  ')+'\n'+
+      'Left  −5/0/5/10/20: '+actor.slice(5).join('  ');
     const hits=d.beams.filter(q=>q.valid).length;
     this.status.textContent=
       'Hits '+hits+'/5  ·  vx '+d.motion.vx.toFixed(2)+
@@ -72,7 +72,7 @@ export class TerrainMemoryPanel {
       g.strokeStyle='rgba(253,236,143,.88)';
       g.beginPath();g.moveTo(x,top);g.lineTo(x,bottom);g.stroke();
       g.fillStyle='#dce7f1';g.font='9px system-ui';g.textAlign='center';
-      g.fillText(['−5','0','5','10','15'][i],x,h-7);
+      g.fillText(['−5','0','5','10','20'][i],x,h-7);
     }
     g.fillStyle='#8599ac';g.textAlign='left';g.font='9px system-ui';
     g.fillText('−10',2,h-7);
