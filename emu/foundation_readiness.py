@@ -148,3 +148,41 @@ def choose_foundation(directories: list[Path], *,
             break
     why="; ".join(findings) if findings else "no checkpoint files found in the expected foundation roots"
     raise RuntimeError(f"No suitable 312-input 12–22M source foundation: {why}")
+
+
+def choose_fresh_foundation(directory: Path, *,
+                            inspect: Callable[[Path],dict[str,Any]]=source_foundation
+                            ) -> dict[str,Any]:
+    """Check a brand-new FLAT-FIRST foundation on the skills it was taught.
+
+    A fresh 20M core walker will often be weak at combined velocity,
+    contact slopes and disturbance recovery. Those are next-generation
+    lessons, NOT a reason to discard a coherent walker after 20M.
+    Still refuse a policy that cannot survive even the easiest matched
+    held-out exam or has no exact checkpoint-step evidence. This does not
+    certify general-purpose locomotion.
+    """
+    root=Path(directory).expanduser().resolve()
+    failures=[]
+    for filename in ("best.pkl","final.pkl"):
+        path=root/"checkpoints"/filename
+        if not path.is_file():
+            continue
+        try:
+            record=inspect(path)
+            evaluation=record.get("source_evaluation")
+            if not evaluation:
+                failures.append(f"{path}: no exact-checkpoint frozen evaluation")
+                continue
+            core=evaluation.get("eval_core_survival")
+            if core is None or not math.isfinite(core) or core < .20:
+                failures.append(f"{path}: no coherent easy walking (core={core})")
+                continue
+            return {**record,
+                    "selection_reason":"fresh flat-first core walker (harder abilities not yet required)",
+                    "qualification":"foundation-core-only"}
+        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
+            failures.append(f"{path}: {exc}")
+    raise RuntimeError(
+        "New flat-first foundation has no eligible basic walker; STOP without "
+        "spending five-way continuation steps. "+"; ".join(failures))
