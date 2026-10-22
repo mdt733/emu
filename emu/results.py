@@ -160,10 +160,25 @@ def summarize(run, expected=None):
         problems.append('a JSON evidence file is unreadable')
     if logged and any(v is None for v in rewards.values()):
         problems.append('reward payment columns are incomplete')
+    def mm(value):
+        return value * 1000. if value is not None else None
+    rated = [number(r, 'frontier_terrain_height_m') for r in logged]
+    rated = [v for v in rated if v is not None and v >= 0.]
+    terrain = dict(
+        mode=config.get('terrain_elevation_mode', 'hurdle'),
+        safety_ceiling_mm=mm(number(config, 'terrain_height_safety_m')),
+        first_logged_rating_mm=mm(rated[0]) if rated else None,
+        latest_rating_mm=mm(rated[-1]) if rated else None,
+        peak_logged_rating_mm=mm(max(rated)) if rated else None,
+        latest_height_birth_mean_mm=mm(number(final, 'terrain_height_birth_m')),
+        last_rating_event=final.get('terrain_frontier_event', ''),
+        last_above_pooled_trials=number(final,'terrain_above_pooled_trials'),
+        last_below_pooled_trials=number(final,'terrain_below_pooled_trials'),
+    )
     return dict(path=str(run), step=int(step) if step is not None else None,
                 target=int(target) if target is not None else None, log_rows=count,
                 changes=changes, story=training_story(logged, changes),
-                rewards=rewards, config=config,
+                terrain=terrain, rewards=rewards, config=config,
                 source=meta.get('source_provenance', {}), parent=spec.get('parent') or {},
                 checkpoint_sha256=sha, screen=screen,
                 fixed=fixed[-1] if fixed else {}, problems=problems)
@@ -181,10 +196,24 @@ def collect(root):
         folder = root / stage
         if folder.is_dir():
             dirs.extend(sorted(p for p in folder.iterdir() if p.is_dir() and not p.is_symlink()))
+    if not dirs:
+        # v5020 continuous, source-pinned 2048 campaign. The old
+        # foundation20/round1 tournament layout remains unchanged.
+        dirs = [root / stage for stage in ('foundation', 'up')
+                if (root / stage / 'metrics.csv').is_file()]
     if not dirs and (root/'metrics.csv').is_file():
         dirs = [root]  # one-run emu train experiments
     if not dirs and not boards:
         raise ValueError('No campaign runs or scoreboards found under root')
+    if not context and dirs:
+        # The one-stage campaign has no lab_context.json. Read existing
+        # training provenance rather than reporting an imaginary "unknown".
+        probe = dirs[-1]
+        source = read_json(probe/'run_meta.json').get('source_provenance', {})
+        settings = read_json(probe/'training_config.json')
+        context = {'git_commit': source.get('git_commit', 'unknown'),
+                   'envs': settings.get('envs', 'unknown'),
+                   'seed': settings.get('seed', 'unknown')}
     runs = {}
     for path in dirs:
         name = str(path.relative_to(root)) if path != root else 'single'
@@ -192,6 +221,13 @@ def collect(root):
         scored = next((r for r in boards.get(stage, {}).get('results', [])
                        if r.get('arm') == arm), None)
         runs[name] = summarize(path, scored)
+        # 2048 ladder pins external parent bytes separately. Include that
+        # saved SHA in the shareable report without loading a pickle.
+        lineage_file = root/'lineage'/f'{name}.parent.sha256'
+        if lineage_file.is_file() and not lineage_file.is_symlink():
+            parent_sha = lineage_file.read_text(encoding='utf-8').strip()
+            if len(parent_sha) == 64 and all(c in '0123456789abcdef' for c in parent_sha):
+                runs[name]['parent'] = {'sha256': parent_sha}
     foundation = runs.get('foundation20', {}).get('checkpoint_sha256')
     for name, run in runs.items():
         original = context.get('git_commit')
@@ -315,6 +351,23 @@ def markdown(info):
         lines.extend(['### Measurement trends', ''])
         _table(lines, ('Measurement','Early','Late'),
                [(k, pretty(v['early']), pretty(v['late'])) for k,v in run['changes'].items()])
+        if run['terrain'].get('mode') != 'hurdle':
+            t = run['terrain']
+            lines.extend(['### Physical elevation skill rating (training evidence)', '',
+                          '- Terrain mode: '+text(t['mode']),
+                          '- Physical safety ceiling: '+pretty(t['safety_ceiling_mm'])+' mm (NOT demonstrated ability)',
+                          '- Earned rating, first logged → last logged: '+
+                          pretty(t['first_logged_rating_mm'])+' → '+pretty(t['latest_rating_mm'])+' mm',
+                          '- Highest logged earned rating: '+pretty(t['peak_logged_rating_mm'])+' mm',
+                          '- Last logged terrain governor decision: '+text(t['last_rating_event'] or 'unknown'),
+                          '- Last logged above/below-rated pooled trials: '+
+                          pretty(t['last_above_pooled_trials'])+' / '+pretty(t['last_below_pooled_trials']),
+                          '',
+                          'These ratings are on-policy training estimates from sparse logged snapshots, '
+                          'not an independent demonstration of stair height. Counts in sparse CSV rows '
+                          'cannot safely be summed into total physical trials. '
+                          'Use held-out exact-height crossing exams for certification.',
+                          ''])
         lines.extend(['### Independent fixed evaluation', ''])
         _panel_table(lines, run['fixed'], FIXED, 'eval_')
         if run['problems']:
