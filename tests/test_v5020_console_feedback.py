@@ -13,8 +13,8 @@ def test_shafts_are_measured_joules_per_real_forward_metre_not_fake_electrical_w
         'terrain_forward_delta_m': np.array([[.020,.020,-.010,.020]]),
         'cmd_vx': np.array([[.2,.2,.2,-.2]])
     }
-    # J = 10W*0.02s*3 = 0.6J. Only +X progress counts = 0.040m.
-    assert shaft_work_per_forward_m(metrics)==pytest.approx(15.)
+    # J = 10W*0.02s*3 = 0.6J; NET +X travel is 0.030m.
+    assert shaft_work_per_forward_m(metrics)==pytest.approx(20.)
     metrics['terrain_forward_delta_m'][:]=.00001
     assert shaft_work_per_forward_m(metrics)==-1.
     metrics['cmd_vx'][:]=0.
