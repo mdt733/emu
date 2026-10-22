@@ -72,6 +72,15 @@ Never label the frontier as a certified skill. The robot can sometimes pass an
 unseen harder task without having trained on it. Report that generalisation,
 including its sample size and success criterion.
 
+**Read-only observation of this gap:** `python -m emu.competence_shadow
+--metrics /path/to/metrics.csv --config /path/to/training_config.json`
+reports the current training command limits, configured safety bounds, logged
+on-policy edge tracking, and completion-weighted recent fall rates. It
+produces stdout JSON only; does not change lessons, checkpoints, rewards,
+run directories or CI training. Neither on-policy tracking nor a training
+height frontier is an independently **certified** capability, and the
+output explicitly reports certification as unknown.
+
 **Current gap:** the Champion Ladder uses `open_frontier=False` and stages
 `vx/vy/yaw` ceilings at 40/60/80M. The inherited adaptive command-frontier
 logic exists (enabled in the mature `main` recipe), while the *separate*
