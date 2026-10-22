@@ -98,3 +98,33 @@ def test_two_mjx_worlds_really_support_different_elevations(upper_top):
     assert np.isfinite(actual).all(), actual
     np.testing.assert_allclose(actual, expected, atol=.022)
     np.testing.assert_allclose(actual[1] - actual[0], upper_top, atol=.025)
+
+
+
+@pytest.mark.parametrize("upper_top", [0.05, -0.05])
+def test_down_tripod_observes_actual_split_surface_not_old_floor_plane(upper_top):
+    """Front and rear modules can straddle a *true* discontinuity."""
+    mujoco = pytest.importorskip("mujoco")
+    jax = pytest.importorskip("jax")
+    import jax.numpy as jnp
+    from mujoco import mjx
+    from emu.forward_sensing import scan_tripod_oriented_boxes
+    cpu = mujoco.MjModel.from_xml_string(physical_scene(upper_top))
+    m = mjx.put_model(cpu)
+    d = mjx.forward(m, mjx.make_data(m))
+    ids = np.asarray([
+        mujoco.mj_name2id(cpu, mujoco.mjtObj.mjOBJ_GEOM, "approach"),
+        mujoco.mj_name2id(cpu, mujoco.mjtObj.mjOBJ_GEOM, "landing")])
+    assert (ids >= 0).all()
+    t = jnp.asarray([[.16,0.,.2584]],dtype=jnp.float32)
+    R = jnp.eye(3,dtype=jnp.float32)[None]
+    ranges, good = jax.jit(lambda pos, rot: scan_tripod_oriented_boxes(
+        jnp, pos, rot, d.geom_xpos[ids], d.geom_xmat[ids],
+        m.geom_size[ids]))(t, R)
+    value = np.asarray(ranges)[0]
+    assert bool(np.asarray(good).all())
+    # Two front ToFs are over the landing, rear ToF over approach ground.
+    assert value[0] == pytest.approx(.2584-.025-upper_top, abs=.003)
+    assert value[1] == pytest.approx(.2584-.025-upper_top, abs=.003)
+    assert value[2] == pytest.approx(.2584-.025, abs=.003)
+    assert value[2] - value[0] == pytest.approx(upper_top, abs=.003)
