@@ -122,3 +122,13 @@ def test_oriented_box_sensor_distance_matches_real_mjx_rays_on_crest():
         jnp, p[:,pick,:], v[:,pick,:],
         d.geom_xpos[ids], d.geom_xmat[ids], m.geom_size[ids])
     np.testing.assert_allclose(np.asarray(actual)[0], ref, atol=.003)
+    from emu.forward_sensing import scan_multizone_oriented_boxes
+    result = jax.jit(lambda torso, rot: scan_multizone_oriented_boxes(
+        jnp, torso, rot, d.geom_xpos[ids],
+        d.geom_xmat[ids], m.geom_size[ids]))(t, R)
+    assert result['ranges_m'].shape == (1,4,4)
+    assert result['valid'].shape == (1,4,4)
+    assert bool(np.asarray(result['valid']).any())
+    assert np.isfinite(np.asarray(result['ranges_m'])).all()
+    assert np.all((np.asarray(result['visibility_confidence']) >= 0) &
+                  (np.asarray(result['visibility_confidence']) <= 1))
