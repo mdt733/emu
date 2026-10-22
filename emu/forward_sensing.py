@@ -12,12 +12,12 @@ these same rays with actual MJX scene geometry before connecting PPO.
 """
 from __future__ import annotations
 
-# Body X forward, Y left, Z up; provisional measured extrinsics.
+# Body X forward, Y left, Z up; provisional extrinsics: X=90 mm sits beyond the actual torso front face (76 mm).
 # A second ToF fan complements, and does not replace, the v5016 down tripod.
 FORWARD_TOF_MOUNTS_BODY_M = (
-    (0.045, -0.047, -0.018),
-    (0.045,  0.000, -0.018),
-    (0.045,  0.047, -0.018),
+    (0.090, -0.060, -0.018),
+    (0.090,  0.000, -0.018),
+    (0.090,  0.060, -0.018),
 )
 FORWARD_TOF_BEAMS_BODY = (
     (0.70, -0.12, -0.70),
