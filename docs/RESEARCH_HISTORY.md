@@ -107,6 +107,49 @@ must not be silently reinterpreted after such changes.
   deleted by source cleanup, and must never be overwritten or silently
   reinterpreted by a newer source commit.
 
+## Deferred research after the first verified 312-input champion
+
+A separate October 2026 architecture review compared the existing sensor
+contracts, terrain and the old four-arm failure. Its strongest conclusion:
+**prove the current rolling-ToF actor can walk and improve real step results
+before adding more senses or obstacle families.** We agree. None of the
+following hypotheses is activated for tonight's v5020 experiment.
+
+**Potential new senses, only after a passing held-out 312-input reference:**
+
+- Foot-contact threshold or force/current measurement: possibly the most
+  economical extra signal for supported stepping; needs realistic contact
+  bounce, load and actuator calibration.
+- IMU linear acceleration: potentially helps impact/slip classification;
+  use measured frame/delay, not integrated world-truth velocity.
+- A downward depth/short-range range-grid: may extend field of view beyond
+  the two rolling ToF lanes; must model mounting extrinsics, occlusion,
+  noise, quantisation, latency and dropout. A high-resolution raw depth
+  stream is not automatically a useful actor input.
+
+**Any real actor addition requires a new, explicitly versioned observation
+schema**, fresh checkpoint/normaliser contract, masked-vs-unmasked ablation
+and independent same-condition exams. Never reinterpret the existing
+220/232/312-input checkpoint weights as if inputs had been appended.
+Sim-only obstacle labels and exact geometry remain teacher/evaluation
+truth, not actor senses.
+
+**Potential future obstacle families:** authentic inclined ramps/slopes
+(with actual normal-force support and slip checks), a sequence of steps,
+then gaps/uneven patches. The *current* v5020 already has gentle real
+contact slopes and a movable box. Do not conflate showing terrain in
+the browser with testing its MJX collidability. Fixed-topology physics
+and exact-height/angle exam conditions remain prerequisites. Any new
+family gets an independently measured, evidence-driven frontier; no
+simultaneous expansion of height, grade, velocity and sensor corruption
+on the same immature foundation.
+
+**No new Git branch or actor schema is authorised here.** The only
+current experimental branch remains `feature/v5020-coldstart-terrain`,
+and proven `main` is protected until explicit approval. The next
+engineering milestone is an evaluated foundation, five bounded probes,
+one 40M Champion Ladder exam, and honest diagnosis if nobody qualifies.
+
 ## Reproducibility pointers
 
 - Reference: `main` → `emu/campaign5016.py` and pinned 232-input policy.
