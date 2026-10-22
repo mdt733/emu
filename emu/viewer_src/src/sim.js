@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver } from './sensor.js';
+import { SensorObserver, depthProbeRays, readDepthProbe } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -109,6 +109,23 @@ export class EmuBrowserSim {
     );
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
+    this.sensorObstacle = 'flat';
+    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true};
+    this.depthReading = null;
+    this.depthLastMs = 0;
+    this.depthRaycaster = new THREE.Raycaster();
+    this.depthLinePositions = new Float32Array(16*6);
+    this.depthLineColors = new Float32Array(16*6);
+    const depthGeometry = new THREE.BufferGeometry();
+    depthGeometry.setAttribute('position',new THREE.BufferAttribute(this.depthLinePositions,3).setUsage(THREE.DynamicDrawUsage));
+    depthGeometry.setAttribute('color',new THREE.BufferAttribute(this.depthLineColors,3).setUsage(THREE.DynamicDrawUsage));
+    this.depthLines = new THREE.LineSegments(depthGeometry,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.72,depthTest:true}));
+    this.depthLines.frustumCulled=false;
+    this.depthLines.visible=false;
+    this.scene.add(this.depthLines);
+    this.depthMountMarker = new THREE.Mesh(new THREE.SphereGeometry(.010,10,8),new THREE.MeshBasicMaterial({color:0xffcc80,depthTest:true}));
+    this.depthMountMarker.visible=false;
+    this.scene.add(this.depthMountMarker);
     this.parkTreesEnabled = true;
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
@@ -261,6 +278,10 @@ export class EmuBrowserSim {
 
   dispose() {
     this.disposeModel();
+    this.depthLines.geometry.dispose();
+    this.depthLines.material.dispose();
+    this.depthMountMarker.geometry.dispose();
+    this.depthMountMarker.material.dispose();
     this.routeLine.geometry.dispose();
     this.routeLine.material.dispose();
     this.targetRing.geometry.dispose();
@@ -306,7 +327,7 @@ export class EmuBrowserSim {
   }
 
   setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
-    if (!['flat','ramp','park'].includes(mode)) throw new Error('Unknown terrain');
+    if (!['flat','ramp','park','sensor'].includes(mode)) throw new Error('Unknown terrain');
     const degrees = Number(maximum);
     if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
     if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
@@ -315,6 +336,19 @@ export class EmuBrowserSim {
     this.loadModel(); // rebuilds only browser MuJoCo contacts
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setSensorObstacle(id) {
+    if(!['flat','step-up','step-down','crest','trough','log','angled'].includes(id))throw new Error('Unknown sensor course');
+    if(id===this.sensorObstacle)return;
+    this.sensorObstacle=id;
+    if(this.terrainMode==='sensor')this.loadModel();
+  }
+  setDepthInspector({enabled,forward,tilt,showRays}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),showRays:Boolean(showRays)};
+    // Validation lives with one optical mounting model, not a policy contract.
+    if(values.forward<.078||values.forward>.2||values.tilt<15||values.tilt>85)throw new Error('Invalid depth mount');
+    this.depthConfig=values;
+    this.depthLastMs=0;
+  }
   setTreesEnabled(enabled) {
     const next=Boolean(enabled);
     if (next===this.parkTreesEnabled) return;
@@ -345,7 +379,7 @@ export class EmuBrowserSim {
     this.park = this.terrainMode==='park'
       ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
       : null;
-    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park});
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
@@ -432,6 +466,7 @@ export class EmuBrowserSim {
     this.levelPoseValid = false;
     this.chaseReady = false;
     this.trailLine.geometry.setDrawRange(0, 0);
+    this.depthLastMs=0;
     this.refreshScene();
   }
 
@@ -952,8 +987,58 @@ export class EmuBrowserSim {
     }
   }
 
+  updateDepthInspector(nowMs) {
+    // Diagnostics are independent of the actor observations and commands.
+    if(!this.depthConfig.enabled || !this.data){
+      this.depthLines.visible=false;
+      this.depthMountMarker.visible=false;
+      this.depthReading=null;
+      return;
+    }
+    if(this.depthLastMs && nowMs-this.depthLastMs<75)return;
+    this.depthLastMs=nowMs;
+    const o=this.torsoId*3;
+    const torso=Array.from(this.data.xpos.slice(o,o+3));
+    const pose=depthProbeRays(torso,this.bodyRotation(),this.depthConfig);
+    // Only MuJoCo geoms rendered by the viewer, plus its exact hfield mesh.
+    // That deliberately INCLUDES moving feet/shins: self occlusion is real.
+    const targets=this.meshes.filter(mesh=>mesh.visible);
+    if(this.parkSurface)targets.push(this.parkSurface);
+    for(const mesh of targets)mesh.updateMatrixWorld(true);
+    const raycaster=this.depthRaycaster;
+    raycaster.near=.018;
+    const origin=new THREE.Vector3(...pose.origin);
+    const direction=new THREE.Vector3();
+    const sampleCount=this.terrainMode==='park'?1:5; // avoid 80 expensive park hfield casts
+    const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
+      raycaster.set(origin,direction.set(...dir).normalize());
+      raycaster.far=maxRange;
+      const hit=raycaster.intersectObjects(targets,false)[0];
+      return hit?hit.distance:Infinity;
+    },{subrays:sampleCount,noise:this.sensorNoise?.001:0,dropout:0});
+    this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount};
+    const points=this.depthLinePositions,colors=this.depthLineColors;
+    for(let i=0;i<16;i++){
+      const ray=pose.directions[i][0];
+      const range=reading.valid[i]?reading.ranges[i]:.50;
+      const end=pose.origin.map((v,k)=>v+ray[k]*range);
+      for(let k=0;k<3;k++){
+        points[i*6+k]=pose.origin[k];
+        points[i*6+3+k]=end[k];
+        const c=reading.valid[i]?[.31,.95,.65]:[1,.53,.38];
+        colors[i*6+k]=colors[i*6+3+k]=c[k];
+      }
+    }
+    this.depthLines.geometry.attributes.position.needsUpdate=true;
+    this.depthLines.geometry.attributes.color.needsUpdate=true;
+    this.depthLines.visible=this.depthConfig.showRays;
+    this.depthMountMarker.position.copy(origin);
+    this.depthMountMarker.visible=true;
+  }
+
   render(dt = 1 / 60) {
     this.refreshScene();
+    this.updateDepthInspector(performance.now());
     if (this.cameraMode === 'orbit') this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
