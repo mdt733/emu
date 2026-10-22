@@ -255,6 +255,51 @@ def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60, ed
     return xp.where(selection < exposure, high * frac, 0.)
 
 
+def first_height_from_flat(current_m: float, row: dict, *, safety_m: float,
+                           initial_rise_m: float = .00025,
+                           kl_ok: bool = True, retreat: bool = False):
+    """Earn the very FIRST 0 -> tiny step using real flat walking evidence.
+
+    With a zero-high platform parked outside the corridor there cannot be
+    any genuine edge-crossing trials. Requiring one to leave zero produces a
+    deadlocked curriculum. Instead, prove that the inherited walker survived
+    long *flat* episodes while moving to its commanded velocity, then open
+    one tiny physical rise. Every later rise REQUIRES true edge crossings;
+    flat walking can never certify a nonzero stair.
+    """
+    import math
+    if not 0. <= current_m <= safety_m <= TERRAIN_FRONTIER_MAX_M:
+        raise ValueError('invalid physical elevation limits')
+    if current_m > 0. or safety_m <= 0.:
+        return current_m, 'not_at_zero'
+    if retreat or not kl_ok:
+        return current_m, 'hold_retreat_or_kl_stress'
+    def measured(key, default=-1.):
+        try:
+            n = float(row.get(key, default))
+            return n if math.isfinite(n) else -1.
+        except (ValueError, TypeError):
+            return -1.
+    n = measured('episodes', 0.)
+    survival_len = measured('ep_len_mean')
+    falls = measured('fall_rate')
+    core_len = measured('core_ep_len_mean')
+    steps = measured('step_evidence')
+    gravity = measured('gravity_z')
+    support = measured('support')
+    vx = measured('vx_mean')
+    cmd = measured('cmd_vx_mean')
+    # These are conservative necessary conditions, not a guarantee that
+    # the policy will safely solve even a tiny elevation transition.
+    healthy = (n >= 8. and survival_len >= 450. and core_len >= 350. and
+               0. <= falls <= .15 and steps >= .10 and
+               gravity >= .7 and support >= .20 and
+               vx > -1. and cmd > -1. and abs(vx-cmd) <= .12)
+    if not healthy:
+        return current_m, 'hold_zero_until_proven_flat_gait'
+    return min(safety_m, initial_rise_m), 'seed_earned_0_to_0_25mm'
+
+
 def next_height_frontier(current_m: float, row: dict, *, safety_m: float,
                          growth_m: float = .001, min_exposure: float = .005):
     """Evidence-gated advancement/retreat of physical step difficulty.
