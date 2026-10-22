@@ -78,7 +78,7 @@ def env_kwargs_from_args(args) -> dict:
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
-        considered_reward=args.considered_reward,
+        considered_reward=bool(getattr(args, 'considered_reward', False)),
         terrain_progress_weight=args.terrain_progress_weight,
         terrain_random_placement=args.terrain_random_placement,
         terrain_elevation_mode=args.terrain_elevation_mode,
