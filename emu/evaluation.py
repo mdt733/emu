@@ -571,11 +571,12 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 jax.random.fold_in(key0, 1783), int(horizon),
                 elevation_direction)
             metrics = np.asarray(jax.device_get(evidence),dtype=np.float64)
-            if metrics.shape != (6,) or not np.isfinite(metrics).all() or metrics[0] != envs:
+            if metrics.shape != (7,) or not np.isfinite(metrics).all() or metrics[0] != envs:
                 raise RuntimeError('invalid first-episode elevation result')
             for metric, number in zip((
-                'attempt_count', 'contact_rate', 'crossing_rate',
-                'fall_rate', 'timeout_rate', 'incomplete_rate'), metrics):
+                'attempt_count', 'exposure_rate', 'contact_rate',
+                'crossing_rate', 'fall_rate', 'timeout_rate',
+                'incomplete_rate'), metrics):
                 out[f'elevation_{elevation_direction}_{physical_step_height_mm}mm_{metric}'] = float(number)
         if sensor_contact_exam or v5020_physical_exam or v5020_locomotion_exam or v5020_elevation_exam:
             # Common independent conditions for each arm, regardless of what
