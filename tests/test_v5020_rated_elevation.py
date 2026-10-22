@@ -181,3 +181,35 @@ def test_handoff_blocks_silent_profile_or_reward_changes(tmp_path):
     with pytest.raises(RuntimeError,match='observation_schema'):
         verify_flat_parent_terrain_bridge(
             foundation,replace(bridge,observation_schema='sim2real_232'))
+
+
+def test_zero_height_control_has_no_positive_obstacle_on_course():
+    from emu.terrain import adaptive_height_sample
+    x=np.linspace(0.,1.,67)
+    h=adaptive_height_sample(np,0.,x,np.zeros_like(x),
+                             exposure=.40,edge_fraction=.30,
+                             probe_above_m=0.,safety_m=.006)
+    assert np.count_nonzero(h)==0
+
+
+def test_catastrophic_child_checkpoint_is_never_resume_eligible(tmp_path):
+    from emu.train_cli import inspect_run
+    from emu.training_config import foundation_config
+    run=tmp_path/'failed_child'
+    run.mkdir()
+    (run/'UNSAFE_RESUME.json').write_text('{"reason":"mass_fall_bridge_collapse"}')
+    cfg=foundation_config(run_dir=run,seed=733,device='cuda',envs=2048)
+    with pytest.raises(RuntimeError,match='NON-RESUMABLE'):
+        inspect_run(cfg,provenance={'available':True,
+                                  'commit':'f'*40,'dirty':False},
+                    resume='auto')
+
+
+def test_frozen_exam_uses_distinct_compiled_environments():
+    source=(__import__('pathlib').Path(__file__).resolve().parents[1]/
+            'scripts'/'verify_v5020_bridge.py').read_text()
+    assert 'plateau = EmuMJXEnv(' in source
+    assert 'micro_world = EmuMJXEnv(' in source
+    assert 'zero = score(plateau)' in source
+    assert 'micro = score(micro_world)' in source
+    assert 'PPO update' in source
