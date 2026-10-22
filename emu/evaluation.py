@@ -318,7 +318,8 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
            limits: tuple[float, float, float, float], push_n: float,
            sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0,
            terrain_mode: str = 'gravity', course_path: Path | None = None,
-           exact_obstacle_height: bool = False):
+           exact_obstacle_height: bool = False,
+           static_elevation: bool = False):
     vx_hi, vx_lo, vy, yaw = limits
     seed = EVAL_SEED + seed_offset
     from .environment import DomainRandomizationConfig
@@ -329,8 +330,8 @@ def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
         str(course_path or ROBOT_XML), num_envs=int(envs), seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
         terrain_contact_mode='box_surface' if course_path is not None else 'legacy',
-        terrain_adaptive=course_path is not None,
-        terrain_random_placement=course_path is not None,
+        terrain_adaptive=course_path is not None and not static_elevation,
+        terrain_random_placement=course_path is not None and not static_elevation,
         terrain_exact_height_exam=exact_obstacle_height,
         terrain_height_exposure=.95, terrain_height_edge_fraction=.80,
         push_max_force_n=push_n,
@@ -356,6 +357,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                   sensor_contact_exam: bool = False,
                   v5020_physical_exam: bool = False,
                   v5020_locomotion_exam: bool = False,
+                  v5020_elevation_exam: bool = False,
+                  elevation_direction: str = 'up',
                   physical_step_height_mm: int = 20,
                   physical_step_heights_mm: tuple[int, ...] | None = None,
                   course_root: Path | None = None,
@@ -422,7 +425,7 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
     # Main-style locomotion exams are deliberately independent of obstacle
     # geometry. The 312-input actor is evaluated on flat/core, recovery and
     # genuine contact slopes BEFORE the campaign permits obstacle lessons.
-    if v5020_locomotion_exam or v5020_physical_exam:
+    if v5020_locomotion_exam or v5020_physical_exam or v5020_elevation_exam:
         from .contracts import OBS_SCHEMA_PREVIEW
         if config.observation_schema != OBS_SCHEMA_PREVIEW:
             raise ValueError('v5020 locomotion exam requires rolling_tof_312')
@@ -468,6 +471,28 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
         course_episode.update(frontier_terrain_height_m=heights[0]/1000.,
                               probe_cmd_vx=.20,probe_cmd_vy=0.,probe_cmd_yaw=0.)
         panels['real_step'] = ('real_step',1771,course_episode)
+    if v5020_elevation_exam:
+        # This is a distinct PHYSICAL elevation transition, not the 80mm
+        # hurdle graded by the legacy real_step panels. A long platform
+        # gives a genuinely new walking elevation and an actual vertical
+        # face. Use one immutable course per direction/height to avoid
+        # mutating a prior experiment or changing physics mid-episode.
+        from .terrain import elevation_course
+        if elevation_direction not in ('up', 'down'):
+            raise ValueError('elevation_direction must be up/down')
+        if type(physical_step_height_mm) is not int or physical_step_height_mm not in (5, 10, 20, 30, 40):
+            raise ValueError('elevation exam requires 5/10/20/30/40mm')
+        if course_root is None:
+            raise ValueError('elevation exam requires an immutable course_root')
+        exam_path = (Path(course_root).expanduser().resolve() /
+                     f'elevation_{elevation_direction}_{physical_step_height_mm}mm.xml')
+        course = elevation_course(ROBOT_XML, exam_path, physical_step_height_mm,
+                                  direction=elevation_direction, immutable=True)
+        worlds['elevation'] = _screen_world(
+            config, envs=envs, seed_offset=1783,
+            limits=(.40,-.10,.12,.80), push_n=.25,
+            sensor_scale=1.0, combo_mix=0., course_path=course,
+            static_elevation=True)
     if sensor_contact_exam:
         if config.observation_schema != 'sim2real_232':
             raise ValueError('real contact sensor exam requires sim2real_232 actor')
@@ -506,6 +531,8 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
             'sensor_contact_exam':bool(sensor_contact_exam),
             'v5020_physical_exam':bool(v5020_physical_exam),
             'v5020_locomotion_exam':bool(v5020_locomotion_exam),
+            'v5020_elevation_exam':bool(v5020_elevation_exam),
+            'elevation_direction':elevation_direction if v5020_elevation_exam else None,
             'physical_step_height_mm':physical_step_height_mm if v5020_physical_exam and physical_step_heights_mm is None else None,
             'physical_step_heights_mm':list(heights) if v5020_physical_exam else [],
             'physical_step_exact_height':bool(v5020_physical_exam),
@@ -535,7 +562,22 @@ def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
                 out[f'course_{mm}mm_attempt_count']=float(attempts)
                 out[f'course_{mm}mm_contact_rate']=float(contact)
                 out[f'course_{mm}mm_crossing_rate']=float(cross)
-        if sensor_contact_exam or v5020_physical_exam or v5020_locomotion_exam:
+        if v5020_elevation_exam:
+            env, trainer = worlds['elevation']
+            episode = dict(_foundation_episode)
+            episode.update(probe_cmd_vx=.18, probe_cmd_vy=0., probe_cmd_yaw=0.)
+            evidence = trainer['evaluate_elevation_summary'](
+                params, env.params_array(episode), norm['mean'], obs_std,
+                jax.random.fold_in(key0, 1783), int(horizon),
+                elevation_direction)
+            metrics = np.asarray(jax.device_get(evidence),dtype=np.float64)
+            if metrics.shape != (6,) or not np.isfinite(metrics).all() or metrics[0] != envs:
+                raise RuntimeError('invalid first-episode elevation result')
+            for metric, number in zip((
+                'attempt_count', 'contact_rate', 'crossing_rate',
+                'fall_rate', 'timeout_rate', 'incomplete_rate'), metrics):
+                out[f'elevation_{elevation_direction}_{physical_step_height_mm}mm_{metric}'] = float(number)
+        if sensor_contact_exam or v5020_physical_exam or v5020_locomotion_exam or v5020_elevation_exam:
             # Common independent conditions for each arm, regardless of what
             # terrain/motor distribution it saw while learning.
             for world_name, salt, episode in (
@@ -581,9 +623,21 @@ def screen_main(argv=None) -> int:
     p.add_argument('--envs',type=int,default=512)
     p.add_argument('--horizon',type=int,default=350)
     p.add_argument('--eval-pitch-deg',type=float,default=None)
+    p.add_argument('--elevation-direction',choices=['up','down'],default=None,
+                   help='optional true step-up/down post-landing certificate (312-input)')
+    p.add_argument('--elevation-height-mm',type=int,default=20)
+    p.add_argument('--elevation-course-root',type=Path,default=None,
+                   help='directory for immutable height-specific physical exam XML')
     p.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default=None)
     a=p.parse_args(argv)
-    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg)
+    if a.elevation_direction and a.elevation_course_root is None:
+        p.error('--elevation-course-root required with --elevation-direction')
+    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,
+        horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg,
+        v5020_elevation_exam=a.elevation_direction is not None,
+        elevation_direction=a.elevation_direction or 'up',
+        physical_step_height_mm=a.elevation_height_mm,
+        course_root=a.elevation_course_root)
     print(json.dumps(out,indent=2,sort_keys=True))
     return 0
 
