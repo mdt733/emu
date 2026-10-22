@@ -75,9 +75,12 @@ bash scripts/overnight_v5020.sh --run
 ```
 
 It validates the **matching existing** 312-input 12–22M foundation,
-local source/test contracts and GPU; prints the foundation's existing
-fixed-evaluation reference; then runs *only* the first five-way 20→40M
-round. No source edits, Git merges, main/showcase changes, automatic 60M
+local source/test contracts and GPU. If all saved foundations are
+incompatible or clearly unhealthy, `--run` instead starts a **fresh
+flat-first 312-input 20M foundation**, examines that new policy, and
+only proceeds to the first five-way 20→40M round if it qualifies.
+A rejected fresh parent is preserved and the script **stops**, without
+wasting another 100M steps. No source edits, Git merges, main/showcase changes, automatic 60M
 continuation or silent policy selection. It records a new root linked
 to the Git commit. Use `--check` first for a dry preflight.
 
