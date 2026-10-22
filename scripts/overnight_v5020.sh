@@ -99,7 +99,13 @@ candidates=[
     home/"robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20",
     home/"robot_lab/emu_runs/v5020_lab_4096/foundation20",
 ]
-choice=choose_foundation(candidates,explicit=Path(specified) if specified else None)
+try:
+    choice=choose_foundation(candidates,explicit=Path(specified) if specified else None)
+except (OSError, RuntimeError, ValueError) as exc:
+    # An old 15cm 312-input policy is EXPECTED to fail the new fingerprint.
+    # Report the reason without a frightening Python traceback during --check.
+    print(f"Foundation discovery: no compatible qualified source: {exc}",file=sys.stderr)
+    raise SystemExit(1)
 print("FOUNDATION_PATH="+choice["path"])
 print("FOUNDATION_WORLDS="+str(choice["envs"]))
 print("FOUNDATION_STEP="+str(choice["step"]))
