@@ -19,8 +19,11 @@ post-landing gait/contact evidence. Flat walking is rehearsed in every phase.
 Default stop is the first raised step-up stage (32M), to examine survival.
 Mixed stages are currently LOCKED: downhill must begin with its own
 0mm skill rating and cannot inherit the trained uphill height.
-To REUSE an existing qualified 20M foundation rather than retraining:
+The prior known-good 20M foundation is auto-discovered ONLY if the saved
+SHA256 is exactly the previously qualified value. No damaged 24M child resume.
+To select another qualified foundation explicitly:
   FOUNDATION_FROM=/absolute/path/to/foundation/checkpoints/best.pkl bash scripts/run_v5020_2048.sh --run
+On a fresh machine, opt into cold-start explicitly with COLD_START=1.
 Each completed phase has its own
 source-pinned directory and survives restarts. Rerun the same command after
 a failure: it uses --resume auto when validated same-phase snapshots exist.
@@ -153,6 +156,12 @@ if [[ -z "${FOUNDATION_FROM:-}" && -f "$KNOWN_PARENT" ]]; then
   fi
   FOUNDATION_FROM="$KNOWN_PARENT"
   echo "Reusing original 20M champion at exact verified SHA256: $FOUNDATION_FROM"
+fi
+if [[ -z "${FOUNDATION_FROM:-}" && "${COLD_START:-0}" != 1 ]]; then
+  echo "STOP: no verified existing 20M foundation found." >&2
+  echo "Set FOUNDATION_FROM=/full/path/to/qualified/best.pkl to select one," >&2
+  echo "or COLD_START=1 to deliberately train a fresh 2048-world foundation." >&2
+  exit 1
 fi
 if [[ -n "${FOUNDATION_FROM:-}" ]]; then
   [[ "$FOUNDATION_FROM" == /* && -f "$FOUNDATION_FROM" ]] ||
