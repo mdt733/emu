@@ -546,3 +546,80 @@ DO NOT rerun `scripts/run_v5020_2048.sh --run` to create a report.
 The reporter is offline/read-only regarding training artifacts. No
 GPU tests or PPO continuation were run by the assistant for these
 reporting changes.
+
+
+## 2026-10-22 evening — proposed larger continuous overnight rated-up campaign
+
+**Evidence used:** user's uploaded 32M `results_bundle(3).zip`. Exactly
+32,047,104 steps (2048 worlds, seed 733, source
+`6c22a56784424c576c254c153b172a40849bf235`), final policy
+SHA256 `ffd9c2126cc5567826ed2820a0fbdb830edea52597dd6f2e5a7fb4c0bc75c344`.
+Frozen foundation walking pass ~99.976%; core survival 100%; final
+training reward +3.180, episode length ~699, falls ~1.1%, held-out
+broad score +0.095. The continuously earned up-step rating was
+**0.231mm** versus a 6mm safety ceiling, and the last logged above
+rating trials were only 3 (sparse). The report exposes very high
+servo-over-rated time (~62.2% late): an issue for later servo-efficiency
+research, NOT a reason to change reward weights mid-continuation.
+
+New feature-branch entry point
+`scripts/overnight_v5020_up.sh` has intentionally NO experimental
+new terrain modes, profiles, teaching bonuses, optimizer changes or
+servo reward shocks. It continues the exact *same* rated 312-input
+up-step training from saved 32M final to cumulative milestones:
+- `up64` 64M (32M additional)
+- `up128` 128M (64M additional)
+- `up224` 224M (96M additional)
+- `up320` 320M (96M additional; total ~288M more)
+
+Each is full 2048 MJX envs, seed 733, 8 degree pitch, same 0.4
+height exposure and .30 challenge band, exact 6mm safety ceiling,
+same flat rehearsal, same foundation PPO/gait profile and NO terrain
+reward. The ACTUAL rating is **restored** from the source policy
+checkpoint on every stage transition, not reset at a phase boundary.
+Only absolute target transition count and run output directory change.
+
+Safety:
+- Launcher source commit pinned; no dirty working tree, no `main`;
+  parent checkpoint exact SHA256 and expected original source SHA,
+  step count and 312 channel/sensor/PPO/optimizer/curriculum contracts.
+- `emu/train_cli.py::verify_rated_parent_continuation` rejects ANY
+  new config difference beyond approved source-parent identity, output
+  paths and absolute targets. It is called when inspecting rated parent
+  handoffs, not only flat-foundation handoffs.
+- Before first GPU training: tests
+  `tests/test_v5020_overnight.py`,
+  `tests/test_v5020_report.py`,
+  `tests/test_v5020_2048_launcher.py`,
+  `tests/test_v5020_rated_elevation.py`.
+  Broken tests abort BEFORE GPU.
+- Midstage sustained 90%+ catastrophic falls or impossible >8m/s
+  forward speed creates `UNSAFE_RESUME.json` and forbids child resume.
+- End-of-stage frozen exact-checkpoint exam and median last-three
+  on-policy rows must preserve >=75% walking and core survival,
+  <=25% last-three fall rate, >=400-frame length. Otherwise DO NOT
+  start the next stage. Parent checkpoints are never modified.
+- After EACH completed stage, automatically write
+  `results.md`, `results_data.json`, `results_bundle.zip` from
+  all completed available stages. Reporter excludes .pkl checkpoints.
+  They remain available even if the next stage gate rejects.
+- 6mm remains an absolute simulation safety limit, NOT earned skill.
+  No descent or sloped-world transition is introduced overnight.
+
+**Copy/paste** after feature branch checkout:
+```bash
+cd ~/emu-v5020
+git switch feature/v5020-coldstart-terrain
+git pull --ff-only origin feature/v5020-coldstart-terrain
+bash scripts/overnight_v5020_up.sh --plan
+bash scripts/overnight_v5020_up.sh --run
+```
+Keep WSL/PC awake. Optional earlier cutoff:
+`bash scripts/overnight_v5020_up.sh --run --stop-after up128`.
+After completion attach
+`~/robot_lab/emu_runs/v5020_overnight_up_<HEAD12>/results_bundle.zip`.
+
+**Not yet executed on the user's GPU by the assistant.** Source,
+test and script commits live only on the protected feature branch.
+No change to `main` or showcase; actual proof comes from user's
+preflight and collected training logs.
