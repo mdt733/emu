@@ -112,7 +112,8 @@ class RegimeGovernor:
                  frontier_push_safety_n: float = 3.0,
                  terrain_height_safety_m: float = 0.0,
                  terrain_height_initial_m: float = 0.003,
-                 terrain_height_growth_m: float = 0.001):
+                 terrain_height_growth_m: float = 0.001,
+                 terrain_rated_elevation: bool = False):
         self.params = RegimeParams()
         if regime_command_frac is not None:
             self.params.regime_command_frac = float(regime_command_frac)
@@ -140,7 +141,13 @@ class RegimeGovernor:
         # COMPLETED edge episodes across on-policy rollouts; never infer
         # height skill from reward, contact frames, or one lucky sample.
         self.terrain_edge_evidence = dict(episodes=0., crossings=0.,
-                                          contacts=0., falls=0.)
+                                          contacts=0., falls=0.,
+                                          below_done=0., below_fall=0.,
+                                          above_done=0., above_cross=0.,
+                                          above_fall=0., above_contact=0.)
+        # Only long-platform elevation opts into the rated-band controller.
+        # Legacy short-hurdle experiments preserve their own old governor.
+        self.terrain_rated_elevation = bool(terrain_rated_elevation)
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -197,13 +204,19 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
-        if (not isinstance(d['terrain_edge_evidence'], dict) or
-            set(d['terrain_edge_evidence']) != {'episodes','crossings','contacts','falls'}):
+        old_keys={'episodes','crossings','contacts','falls'}
+        new_keys=old_keys|{'below_done','below_fall','above_done',
+                           'above_cross','above_fall','above_contact'}
+        if (not isinstance(d['terrain_edge_evidence'],dict) or
+            set(d['terrain_edge_evidence']) not in (old_keys,new_keys)):
             raise ValueError('terrain edge evidence state keys mismatch')
         for key, value in d['terrain_edge_evidence'].items():
             if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0:
                 raise ValueError(f'invalid terrain edge evidence {key}={value!r}')
-        self.terrain_edge_evidence = dict(d['terrain_edge_evidence'])
+        # Source-commit pinned 20M foundations were trained before banded
+        # statistics existed. Their zero legacy evidence is safely migrated.
+        self.terrain_edge_evidence = dict.fromkeys(new_keys, 0.)
+        self.terrain_edge_evidence.update(d['terrain_edge_evidence'])
         self.params = RegimeParams(**d['params'])
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
