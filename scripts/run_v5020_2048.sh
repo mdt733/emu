@@ -5,13 +5,12 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'HELP'
-Usage: bash scripts/run_v5020_2048.sh --plan|--run [--stop-after foundation|up|mixed12|mixed20]
+Usage: bash scripts/run_v5020_2048.sh --plan|--run [--stop-after foundation|up]
 
 2048 physical MJX environments per training phase; cold-start or approved saved foundation.
   foundation   20M flat-first 312-input foundation (frozen gait qualification)
   up           32M cumulative steps, opt-in real 2m-long step-up, <=6mm
-  mixed12      48M cumulative steps, planned LOCKED mixed up/down stage
-  mixed20      70M cumulative steps, planned LOCKED higher mixed stage
+  downhill/mixed and slopes are intentionally NOT available yet
 These heights are SAFETY CEILINGS. The curriculum earns actual heights from
 post-landing gait/contact evidence. Flat walking is rehearsed in every phase.
 
@@ -44,11 +43,7 @@ if [[ ${2+x} ]]; then
   fi
   STOP_AFTER="$3"
 fi
-case "$STOP_AFTER" in foundation|up|mixed12|mixed20) ;; *) echo "Invalid STOP_AFTER=$STOP_AFTER" >&2; exit 2;; esac
-if [[ "$STOP_AFTER" == mixed12 || "$STOP_AFTER" == mixed20 ]]; then
-  echo "STOP: mixed stages not safe yet; independent down-step rating is not implemented." >&2
-  exit 2
-fi
+case "$STOP_AFTER" in foundation|up) ;; *) echo "Invalid STOP_AFTER=$STOP_AFTER" >&2; exit 2;; esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -64,7 +59,7 @@ RUN_ROOT="${RUN_ROOT:-$HOME/robot_lab/emu_runs/v5020_2048_$SHORT_SHA}"
 case "$RUN_ROOT/" in "$ROOT/"*) echo "Run output must be outside source checkout" >&2; exit 1 ;; esac
 printf '\nEMU v5020 2048-world staged cold-start\n'
 printf 'Branch: %s\nSource: %s\nOutput: %s\nWorlds: %s (ALL phases)\n' "$BRANCH" "$SHA" "$RUN_ROOT" "$ENVS"
-printf 'Sequence: 20M flat, 32M up <=6mm, 48M mixed <=12mm, 70M mixed <=20mm\n'
+printf 'Sequence: qualified 20M flat -> 32M rated up-step (6mm absolute safety cap)\n'
 printf 'Requested last stage: %s\n' "$STOP_AFTER"
 if [[ "$MODE" == --plan ]]; then
   printf '\nPlanning only. NO training, checkpoints, or run directories created.\n'
@@ -236,51 +231,9 @@ step up 32000000 "$PARENT" \
   --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .40 --terrain-height-edge-fraction .30 \
   --terrain-progress-weight 0 "${APPROVAL[@]}"
-if [[ "$STOP_AFTER" == up ]]; then echo "Requested stop after up"; exit 0; fi
-
-qualified_stage() {
-  local name="$1"
-  python - "$RUN_ROOT/$name" <<'PY'
-from pathlib import Path
-import sys
-from emu.foundation_readiness import basic_foundation_issue, recent_fixed_exam
-root=Path(sys.argv[1])
-errors=[]
-for ck in (root/'checkpoints'/'best.pkl',root/'checkpoints'/'final.pkl'):
-    if not ck.is_file():
-        continue
-    evidence=recent_fixed_exam(ck)
-    failure=basic_foundation_issue(evidence)
-    if not failure:
-        print(ck.resolve())
-        break
-    errors.append(f"{ck.name}: {failure}")
-else:
-    raise SystemExit("STOP: no stage checkpoint retained basic walking: "+"; ".join(errors))
-PY
-}
-PARENT="$(qualified_stage up)"
-echo "Step-up stage retained walker: $PARENT"
-step mixed12 48000000 "$PARENT" \
-  --profile terrain-bridge --forward-preview --pitch-deg 8 \
-  --terrain-varied-placement --terrain-elevation-mode mixed \
-  --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 0 \
-  --terrain-height-exposure .55 --terrain-height-edge-fraction .35 \
-  --terrain-progress-weight 0
-if [[ "$STOP_AFTER" == mixed12 ]]; then echo "Requested stop after mixed12"; exit 0; fi
-
-PARENT="$(qualified_stage mixed12)"
-echo "Mixed12 stage retained walker: $PARENT"
-step mixed20 70000000 "$PARENT" \
-  --profile terrain-bridge --forward-preview --pitch-deg 8 \
-  --terrain-varied-placement --terrain-elevation-mode mixed \
-  --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 0 \
-  --terrain-height-exposure .65 --terrain-height-edge-fraction .40 \
-  --terrain-progress-weight 0
-
 echo
-echo "=== v5020 experimental 2048-world ladder complete ==="
-echo "Results: $RUN_ROOT"
-echo "Latest: $RUN_ROOT/mixed20/checkpoints/final.pkl"
-echo "IMPORTANT: completing 70M transitions does NOT certify 20mm stairs."
-echo "Run independent frozen up/down exams before declaring a new policy champion."
+echo "=== v5020 first continuous terrain bridge complete ==="
+echo "Output: $RUN_ROOT/up"
+echo "Checkpoint: $RUN_ROOT/up/checkpoints/final.pkl"
+echo "This is NOT proof of a successful 6mm transition. Independently"
+echo "check retained flat walking and physically supported step-up exams."
