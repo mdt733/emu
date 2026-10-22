@@ -189,3 +189,49 @@ def scan_multizone_box_course(xp, torso_world, body_to_world,
         valid=valid.reshape(n, 4, 4),
         visibility_confidence=confidence.reshape(n, 4, 4),
     )
+
+
+
+def ray_oriented_box_distances(xp, origins, directions,
+                               box_centres_world, box_rotations_world,
+                               box_half_sizes):
+    """Intersect real oriented support boxes, retaining batch-world geometry.
+
+    origins, directions: [W,R,3]
+    box_centres_world: [B,3] or [W,B,3]
+    box_rotations_world: [B,3,3] or [W,B,3,3] (local-to-world)
+    box_half_sizes: [B,3] or [W,B,3]
+    returns [W,R] along the normalized ray, +inf if none.
+
+    Read these inputs from the actual MJX contact geometry / geom_xmat.
+    Unlike a second analytic slope oracle, this follows the SAME solid
+    support boxes that produce the robot's collisions. The sensor actor
+    must only receive delayed noisy ranges + validity, never geom ids.
+    """
+    origins, directions = xp.asarray(origins), xp.asarray(directions)
+    centres = xp.asarray(box_centres_world)
+    rotation = xp.asarray(box_rotations_world)
+    sizes = xp.asarray(box_half_sizes)
+    if centres.ndim == 2:
+        centres = centres[None]
+    if rotation.ndim == 3:
+        rotation = rotation[None]
+    if sizes.ndim == 2:
+        sizes = sizes[None]
+    # R[j,i] takes local coordinate i to world coordinate j.
+    # Its transpose maps the world ray into each actual box frame.
+    delta = origins[:, :, None, :] - centres[:, None, :, :]
+    local_origins = xp.einsum('wbji,wrbj->wrbi', rotation, delta)
+    local_directions = xp.einsum('wbji,wrj->wrbi', rotation, directions)
+    half = sizes[:, None, :, :]
+    parallel = xp.abs(local_directions) <= 1e-8
+    safe_d = xp.where(parallel, 1., local_directions)
+    a = (-half - local_origins) / safe_d
+    b = (half - local_origins) / safe_d
+    entering = xp.max(xp.where(parallel, -xp.inf, xp.minimum(a, b)), axis=-1)
+    exiting = xp.min(xp.where(parallel, xp.inf, xp.maximum(a, b)), axis=-1)
+    parallel_ok = xp.all(
+        (~parallel) | (xp.abs(local_origins) <= half), axis=-1)
+    hit = parallel_ok & (exiting >= xp.maximum(entering, 0.)) & (exiting >= 0.)
+    distance = xp.where(entering >= 0., entering, exiting)
+    return xp.min(xp.where(hit, distance, xp.inf), axis=-1)
