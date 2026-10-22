@@ -2745,6 +2745,14 @@ class EmuMJXEnv(TaskSampler):
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
         stance_w = jnp.clip((0.040 - foot_ground_distance) / 0.020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
+        # V5021 reward-only landing harshness: downward foot speed just as
+        # the foot reaches a supported surface. NOT a collision impulse or a
+        # real-world force sensor. Uses the already-known last/current poses.
+        foot_downward_mps = jnp.maximum(
+            0.0, (prev_foot_pos[:, :, 2] - foot_pos[:, :, 2]) / CONTROL_DT)
+        foot_impact_speed_mps = (
+            jnp.sum(foot_downward_mps * stance_w, axis=1) /
+            jnp.maximum(1.0, jnp.sum(stance_w, axis=1)))
         if terrain_truth is not None:
             # Compute full 3-D tangential foot motion against the plane
             # actually touched. Never treat a sliding riser touch as stance.
@@ -2811,6 +2819,8 @@ class EmuMJXEnv(TaskSampler):
             'organic_step_shape': organic_step_shape,
             'bad_contact': bad_contact, 'support': support,
             'stance_slip': stance_slip,
+            **({'foot_impact_speed_mps': foot_impact_speed_mps}
+               if self.considered_reward else {}),
             'swing_clearance': swing_clearance, 'target_step_height': jnp.maximum(0.008, task[:, T.step_height]),
             'action_delta_norm': action_delta,
             'joint_limit_pressure': joint_pressure,
