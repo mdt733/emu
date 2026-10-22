@@ -15,7 +15,14 @@ def _record(path, score=.5, *, step=20_054_016, envs=4096):
         "sha256":"a"*64,
         "source_evaluation":dict(eval_broad_score=score,
                                  eval_core_survival=.8,eval_stress30_survival=.7,
-                                 eval_foundation_walking_pass=.6),
+                                 eval_foundation_walking_pass=.6,
+                                 eval_foundation_survival=.8,
+                                 eval_foundation_forward_progress_m=.16,
+                                 eval_foundation_commanded_forward_m=.34,
+                                 eval_foundation_step_evidence=.18,
+                                 eval_foundation_gravity_z=.94,
+                                 eval_foundation_support=.70,
+                                 eval_foundation_vx_mae=.05),
     }
 
 
@@ -160,8 +167,9 @@ def test_fresh_survivor_or_invalid_evidence_cannot_qualify(tmp_path, rate):
     (tmp_path/"checkpoints").mkdir()
     (tmp_path/"checkpoints"/"best.pkl").write_bytes(b"mock")
     def inspect(path):
-        return _record(path) | {"source_evaluation": {
-            "eval_core_survival": 1., "eval_foundation_walking_pass": rate}}
+        evidence = _record(path)["source_evaluation"] | {
+            "eval_core_survival": 1., "eval_foundation_walking_pass": rate}
+        return _record(path) | {"source_evaluation": evidence}
     with pytest.raises(RuntimeError, match="basic walker"):
         choose_fresh_foundation(tmp_path, inspect=inspect)
 
@@ -171,7 +179,36 @@ def test_basic_fresh_walker_does_not_need_advanced_skills(tmp_path):
     (tmp_path/"checkpoints").mkdir()
     (tmp_path/"checkpoints"/"best.pkl").write_bytes(b"mock")
     def inspect(path):
-        return _record(path) | {"source_evaluation": {
-            "eval_foundation_walking_pass": .25, "eval_core_survival": .3,
-            "eval_resilience50_survival": 0., "eval_dynamic50_survival": 0.}}
+        evidence = _record(path)["source_evaluation"] | {
+            "eval_foundation_walking_pass": .25, "eval_foundation_survival": .3,
+            "eval_core_survival": .3, "eval_resilience50_survival": 0.,
+            "eval_dynamic50_survival": 0.}
+        return _record(path) | {"source_evaluation": evidence}
     assert choose_fresh_foundation(tmp_path, inspect=inspect)["qualification"] == "foundation-core-only"
+
+@pytest.mark.parametrize("change", [
+    {"eval_foundation_forward_progress_m": 0.},
+    {"eval_foundation_commanded_forward_m": 0.},
+    {"eval_foundation_step_evidence": 0.},
+    {"eval_foundation_support": 0.},
+    {"eval_foundation_gravity_z": 0.},
+    {"eval_foundation_survival": .10},
+    {"eval_foundation_vx_mae": float("nan")},
+])
+def test_no_padded_or_inconsistent_foundation_qualification(tmp_path, change):
+    from emu.foundation_readiness import choose_fresh_foundation
+    ck = tmp_path / "checkpoints"
+    ck.mkdir()
+    (ck / "best.pkl").write_bytes(b"mock")
+    def inspect(path):
+        return _record(path) | {"source_evaluation":
+            _record(path)["source_evaluation"] | change}
+    with pytest.raises(RuntimeError, match="basic walker"):
+        choose_fresh_foundation(tmp_path, inspect=inspect)
+
+
+def test_claimed_pass_rate_alone_is_not_an_exam():
+    from emu.foundation_readiness import basic_foundation_issue
+    evidence = {"eval_foundation_walking_pass": .99, "eval_core_survival": 1.}
+    assert "missing" in basic_foundation_issue(evidence)
+    assert basic_foundation_issue(_record(Path("/tmp/candidate"))["source_evaluation"]) is None
