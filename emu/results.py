@@ -924,8 +924,9 @@ def shaft_work_per_forward_m(metrics: dict[str, Any]) -> float:
 
     Reuses existing per-control-frame GPU metrics after they have already
     been transferred to CPU. Counts power on ALL frames commanding forward
-    motion (even if stalled/backsliding), but only counts positive world-X
-    displacement as distance. No new simulation, sensor or reward math.
+    motion (even if stalled/backsliding); uses NET world-X progress, so
+    backward slips cannot artificially improve the J/m result.
+    No new simulation, sensor or reward math.
     Returns -1 when the forward sample is absent or too close to stationary.
     """
     needed=('servo_shaft_abs_power_w','terrain_forward_delta_m','cmd_vx')
@@ -942,7 +943,7 @@ def shaft_work_per_forward_m(metrics: dict[str, Any]) -> float:
     n=int(np.count_nonzero(eligible))
     if not n:
         return -1.0
-    distance=float(np.maximum(delta[eligible],0.0).sum())
+    distance=float(delta[eligible].sum())
     duration=n*CONTROL_DT
     # When almost stationary, an enormous J/m is not informative.
     if distance<0.02 or distance/duration<0.01:
