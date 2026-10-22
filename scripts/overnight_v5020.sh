@@ -12,10 +12,10 @@ case "${1:---check}" in
 Usage: bash scripts/overnight_v5020.sh [--check|--run]
   --check   Validate the current WSL checkout, 312-input foundation,
             regression tests and GPU. No PPO training, no new run root.
-  --run     If no suitable saved foundation exists, train a fresh flat-first
-            312-input 20M foundation and re-examine it. Only after it passes
-            source screening run the five-arm 20->40M Champion Ladder round.
-            Stop after its independent exam; do not launch 60/80M.
+  --run     Run from a qualified existing source, or first train/verify a
+            fresh flat-first 312-input 20M foundation. Follow the five-arm
+            40/60/80M ladder; attempt optional 100M terrain only if sensible.
+            Preserve all checkpoints and stop when physically incoherent.
 
 Optional environment overrides:
   FOUNDATION_PATH=...   Explicit saved 312-input 12-22M .pkl.
@@ -27,6 +27,8 @@ Optional environment overrides:
                         Defaults to ~/robot_lab/emu_runs/v5020_refork_<git-sha>
   EXAM_ENVS=32          Number of frozen-policy exam worlds (>=8).
   EXAM_HORIZON=300      Frozen-policy exam frames (>=100).
+  STOP_AFTER=terrain100   Optional walk40/walk60/walk80/terrain100 limit.
+  FOUNDATION_ENVS=4096   World count for NEW foundation if source unsuitable.
 No silent reduction from 4096 to 2048 worlds: the foundation config
 determines the required world count.
 HELP
@@ -61,6 +63,11 @@ EXPLICIT_FOUNDATION="${FOUNDATION_PATH:-}"
 RUN_ROOT="${RUN_ROOT:-$HOME/robot_lab/emu_runs/v5020_refork_$SHORT_SHA}"
 EXAM_ENVS="${EXAM_ENVS:-32}"
 EXAM_HORIZON="${EXAM_HORIZON:-300}"
+STOP_AFTER="${STOP_AFTER:-terrain100}"
+case "$STOP_AFTER" in
+  walk40|walk60|walk80|terrain100) ;;
+  *) echo "STOP: STOP_AFTER must be walk40/walk60/walk80/terrain100" >&2; exit 2 ;;
+esac
 [[ "$EXAM_ENVS" =~ ^[0-9]+$ && "$EXAM_HORIZON" =~ ^[0-9]+$ ]] || {
   echo "STOP: EXAM_ENVS and EXAM_HORIZON must be positive integers" >&2; exit 1
 }
@@ -127,7 +134,7 @@ if [[ -e "$RUN_ROOT" && ! -f "$RUN_ROOT/refork_context.json" ]]; then
   exit 1
 fi
 echo "=== Run destination: $RUN_ROOT ==="
-echo "=== STOP target: walk40 (five 2M health probes + surviving continuations) ==="
+echo "=== Requested last stage: $STOP_AFTER (five health-screened challengers each generation) ==="
 # Show what the source foundation actually did in its last saved fixed
 # evaluations. A valid checkpoint is not proof that it learned healthy gait.
 PARENT_DIR="$(dirname "$(dirname "$FOUNDATION_PATH")")"
@@ -216,7 +223,7 @@ PY
   FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
   echo "=== Fresh foundation passed screening; proceeding to first 40M generation ==="
 fi
-echo "=== Starting five-way first round; live log: $LOG_FILE ==="
+echo "=== Starting healthy-continuation ladder through $STOP_AFTER; live log: $LOG_FILE ==="
 echo "If every challenger fails, campaign exits without promoting anything."
 echo "A validated winner, if any, will be in $RUN_ROOT/walk40/selection.json"
 XLA_PYTHON_CLIENT_PREALLOCATE=false PYTHONUNBUFFERED=1 \
@@ -224,4 +231,4 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false PYTHONUNBUFFERED=1 \
     --foundation "$FOUNDATION_PATH" \
     --envs "$ENVS" --seed 733 \
     --screen-envs "$EXAM_ENVS" --screen-horizon "$EXAM_HORIZON" \
-    --stop-after walk40 --root "$RUN_ROOT" 2>&1 | tee -a "$LOG_FILE"
+    --stop-after "$STOP_AFTER" --root "$RUN_ROOT" 2>&1 | tee -a "$LOG_FILE"
