@@ -147,6 +147,44 @@ def one_run_config(args) -> TrainingConfig:
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
 
+def verify_flat_parent_terrain_bridge(parent_config: TrainingConfig,
+                                     bridge_config: TrainingConfig) -> None:
+    """No implicit 'mature' curriculum when a real 0mm axis is introduced.
+
+    For a flat -> elevation handoff, the sole allowed differences are the
+    physical terrain sampler, its rating safety/geometry, absolute run target,
+    file location and the explicitly pinned historical checkpoint identity.
+    Everything that changes the learned walking task, rewards, optimizer,
+    observation, pushes and capabilities MUST be identical to the 20M run.
+    """
+    if (parent_config.terrain_height_safety_m > 0. or
+            parent_config.terrain_adaptive_flat_control or
+            parent_config.terrain_box_height_mm >= 0):
+        raise ValueError('terrain-bridge requires a genuinely flat foundation parent')
+    from dataclasses import asdict
+    allowed = {
+        'run_dir', 'steps', 'resume', 'device',
+        'approved_parent_git_commit', 'approved_parent_sha256',
+        'terrain_random_placement', 'terrain_elevation_mode',
+        'terrain_height_safety_m', 'terrain_height_initial_m',
+        'terrain_height_exposure', 'terrain_height_edge_fraction',
+        'terrain_height_growth_m', 'terrain_progress_weight',
+    }
+    original=asdict(parent_config)
+    desired=asdict(bridge_config)
+    unexpected={key:(original[key],desired[key])
+                for key in original if key not in allowed
+                and original[key]!=desired[key]}
+    if unexpected:
+        raise RuntimeError(
+            'Non-continuous flat-to-terrain learning envelope; unexpected '
+            f'configuration changes: {unexpected}')
+    if bridge_config.terrain_height_initial_m != 0.:
+        raise RuntimeError('Untrained physical axis must start rated at 0mm')
+    if bridge_config.terrain_progress_weight != parent_config.terrain_progress_weight:
+        raise RuntimeError('Terrain handoff must not silently change reward weights')
+
+
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
@@ -233,6 +271,13 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             if checksum.hexdigest() != config.approved_parent_sha256:
                 raise RuntimeError('Approved parent checkpoint SHA256 mismatch')
 
+        if (config.terrain_elevation_mode != 'hurdle' and
+                config.terrain_height_safety_m > 0. and
+                config.terrain_height_initial_m == 0.):
+            old_config=TrainingConfig.load(
+                parent.parent.parent/'training_config.json')
+            if old_config.terrain_height_safety_m == 0.:
+                verify_flat_parent_terrain_bridge(old_config, config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
