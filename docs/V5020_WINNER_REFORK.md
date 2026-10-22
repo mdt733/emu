@@ -156,8 +156,15 @@ emu campaign-refork --run \
   --root ~/robot_lab/emu_runs/v5020_refork
 ```
 
-The first generation runs **five probes**, then only the survivors'
-continuations and frozen exams. Expect the five-arm 40M round to require
+The full default evening run now continues through successive **five-probe
+40M/60M/80M generations**, and conditionally a 100M terrain generation
+when the 80M policy is physically coherent. Use `STOP_AFTER=walk40`
+to limit it to the first round. Each generation runs five probes,
+then only survivors' continuations and frozen exams. A promising but
+not-yet-qualifying policy may become a **provisional research parent**
+for more training; it is explicitly **not** promoted as a certified
+champion. A qualified existing incumbent is carried forward when new
+contenders regress rather than prematurely ending a healthy lineage. Expect the five-arm 40M round to require
 more total environment steps than the previous four-arm proposal. Inspect
 `walk40/scoreboard.json`, `walk40/scoreboard.md` and the winner before
 using the same pinned commit/root to increase `--stop-after` to `walk60`,
