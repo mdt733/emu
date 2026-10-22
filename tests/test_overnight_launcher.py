@@ -42,7 +42,8 @@ def test_fresh_start_requires_explicit_run_and_preserves_pinned_checkpoint(tmp_p
     assert check_at < foundation_at
     assert 'emu train --profile foundation --forward-preview' in text
     assert '--steps 20000000' in text
-    assert '--stop-after walk40' in text
+    assert '--stop-after "$STOP_AFTER"' in text
+    assert 'STOP_AFTER="${STOP_AFTER:-terrain100}"' in text
     # The new foundation is neither a legacy 232-input warm start nor
     # the failed four-arm terrain curriculum in disguise.
     fresh_section=text[foundation_at:]
