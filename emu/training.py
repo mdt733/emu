@@ -80,6 +80,7 @@ def env_kwargs_from_args(args) -> dict:
         motor_guidance_weight=args.motor_guidance_weight,
         terrain_progress_weight=args.terrain_progress_weight,
         terrain_random_placement=args.terrain_random_placement,
+        terrain_elevation_mode=args.terrain_elevation_mode,
         contact_slope_deg=args.contact_slope_deg,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
@@ -149,14 +150,19 @@ def train(args: TrainingConfig) -> int:
     if args.terrain_height_safety_m > 0. or args.terrain_adaptive_flat_control:
         import hashlib
         from .terrain import adaptive_height_course
+        platform = args.terrain_elevation_mode != 'hurdle'
         training_xml = adaptive_height_course(
-            ROBOT_XML, run_dir / 'v5018_adaptive_course.xml', immutable=True)
+            ROBOT_XML,
+            run_dir / ('v5020_adaptive_elevation_course.xml' if platform
+                       else 'v5018_adaptive_course.xml'),
+            immutable=True, elevation_platform=platform)
         course_sha256 = hashlib.sha256(training_xml.read_bytes()).hexdigest()
         env_options.update(
             terrain_contact_mode='box_surface', terrain_adaptive=True,
             terrain_height_exposure=args.terrain_height_exposure,
             terrain_height_edge_fraction=args.terrain_height_edge_fraction)
-        print(f'{LOG_PREFIX} v5018 ADAPTIVE REAL STEP ceiling={args.terrain_height_safety_m:.3f}m '
+        print(f'{LOG_PREFIX} physical course={args.terrain_elevation_mode} '
+              f'ceiling={args.terrain_height_safety_m:.3f}m '
               f'physical_course_sha256={course_sha256}',flush=True)
     if args.terrain_box_height_mm >= 0:
         # One exact physical XML fixture for the examiner AND the learner.
