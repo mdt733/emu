@@ -295,7 +295,8 @@ def test_full_three_generation_refork_uses_one_winner_each_time(tmp_path,monkeyp
     monkeypatch.setattr(c,"probe_health",lambda run:{
         "eligible":True,"reasons":[],"fall_rate":.25,
         "mean_episode_frames":500,"max_logged_spring_j":.9})
-    monkeypatch.setattr(c,"_exam",fake_exam)
+    monkeypatch.setattr(c,"_exam_many",lambda checkpoints,**kwargs:{
+        str(Path(p).resolve()):fake_exam(p,**kwargs) for p in checkpoints})
     c.run(root,foundation=foundation,seed=733,envs=4096,
           screen_envs=32,horizon=300,device="cuda",stop_after="walk80")
     for stage in c.STAGES[:3]:
@@ -339,8 +340,9 @@ def test_collapse_rejects_all_and_keeps_the_parent(tmp_path,monkeypatch):
     monkeypatch.setattr(c,"probe_health",lambda run:{
         "eligible":False,"reasons":["100% falls"],"fall_rate":1.,
         "mean_episode_frames":15.,"max_logged_spring_j":20000.})
-    monkeypatch.setattr(c,"_exam",lambda ck,**kwargs:_evidence())
-    with pytest.raises(RuntimeError,match="no safely promotable winner"):
+    monkeypatch.setattr(c,"_exam_many",lambda checkpoints,**kwargs:{
+        str(Path(p).resolve()):_evidence() for p in checkpoints})
+    with pytest.raises(RuntimeError,match="no viable research continuation"):
         c.run(root,foundation=foundation,seed=733,envs=4096,
               screen_envs=32,horizon=300,device="cuda",stop_after="walk80")
     assert not (root/"walk60").exists()
