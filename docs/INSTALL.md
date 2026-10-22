@@ -93,7 +93,11 @@ source health validation, `--run` first trains an entirely **new,
 flat-first 312-input foundation** in a source-pinned directory, independently
 examines it at 20M and **stops** if that result also lacks generalisable
 walking. No incompatible checkpoint weights are reused. Only an acceptable
-parent proceeds to the first five-arm 20→40M generation. In the event of a rejected probe, the contender's
+parent proceeds to the five-arm 20→40M generation, followed by 60M,
+80M and conditionally 100M. The default is optimistic continuation
+while physical results remain coherent. Set `STOP_AFTER=walk40` (or
+`walk60`, `walk80`) for a shorter run. A provisional research parent
+is NEVER a qualified champion or a reason to alter protected `main`. In the event of a rejected probe, the contender's
 remaining steps are skipped. No 60M/80M continuations are launched.
 
 To check everything without training: `bash scripts/overnight_v5020.sh --check`.
