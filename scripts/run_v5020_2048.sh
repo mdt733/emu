@@ -161,6 +161,12 @@ PY
 fi
 echo "Qualified foundation walker: $PARENT"
 if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
+if [[ "$STOP_AFTER" == mixed12 || "$STOP_AFTER" == mixed20 ]]; then
+  echo "STOP: mixed ascent/descent is not yet a continuous same-skill transition." >&2
+  echo "A new 0mm descent rating needs direction-specific progression; do not" >&2
+  echo "randomly replace proven up steps with unlearned down steps." >&2
+  exit 2
+fi
 
 # Explicit one-time source transfer only: pin BOTH original code commit
 # and checkpoint bytes. Trainer validates full 312-input sensor contract,
@@ -194,7 +200,7 @@ fi
 step up 32000000 "$PARENT" \
   --profile terrain-bridge --forward-preview --pitch-deg 8 \
   --terrain-varied-placement --terrain-elevation-mode up \
-  --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 3 \
+  --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .40 --terrain-height-edge-fraction .30 \
   --terrain-progress-weight .015 "${APPROVAL[@]}"
 if [[ "$STOP_AFTER" == up ]]; then echo "Requested stop after up"; exit 0; fi
@@ -225,7 +231,7 @@ echo "Step-up stage retained walker: $PARENT"
 step mixed12 48000000 "$PARENT" \
   --profile terrain-bridge --forward-preview --pitch-deg 8 \
   --terrain-varied-placement --terrain-elevation-mode mixed \
-  --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 3 \
+  --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .55 --terrain-height-edge-fraction .35 \
   --terrain-progress-weight .025
 if [[ "$STOP_AFTER" == mixed12 ]]; then echo "Requested stop after mixed12"; exit 0; fi
@@ -235,7 +241,7 @@ echo "Mixed12 stage retained walker: $PARENT"
 step mixed20 70000000 "$PARENT" \
   --profile terrain-bridge --forward-preview --pitch-deg 8 \
   --terrain-varied-placement --terrain-elevation-mode mixed \
-  --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 3 \
+  --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 0 \
   --terrain-height-exposure .65 --terrain-height-edge-fraction .40 \
   --terrain-progress-weight .035
 
