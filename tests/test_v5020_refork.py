@@ -31,6 +31,10 @@ def _evidence(core=.9, hard=.4, slope=.7, crossing=.2):
     for name in ("robust", "contact_slope"):
         d[f"power_{name}_shaft_abs_power_w"] = 3.
         d[f"power_{name}_over_rated_frac"] = .12
+    d["screen_forward_survival"] = .85
+    d["screen_forward_walking_pass"] = .45
+    d["screen_forward_forward_progress_m"] = .17
+    d["screen_forward_commanded_forward_m"] = .35
     for mm in c.EXAM_HEIGHTS_MM:
         d[f"course_{mm}mm_crossing_rate"]=crossing
         d[f"course_{mm}mm_attempt_count"]=32.
@@ -422,3 +426,33 @@ def test_out_of_range_evidence_cannot_win(key, value):
     evidence[key] = value
     result = c._score(evidence, stage="walk40", name="invalid")
     assert not result["eligible"] and result["score"] is None
+
+@pytest.mark.parametrize("change", [
+    {"screen_forward_walking_pass": 0., "screen_forward_survival": 1.},
+    {"screen_forward_forward_progress_m": 0.},
+    {"screen_forward_commanded_forward_m": 0.},
+    {"screen_forward_walking_pass": .91, "screen_forward_survival": .90},
+    {"screen_forward_walking_pass": float("nan")},
+])
+def test_tournament_never_selects_stationary_or_fabricated_forward_walker(change):
+    evidence = _evidence(core=1., hard=.9, slope=.9, crossing=.9) | change
+    outcome = c._score(evidence, stage="walk40", name="survival_only")
+    assert outcome["eligible"] is False
+
+
+def test_basic_walker_is_not_rejected_for_unsolved_advanced_skills():
+    # Demonstrates strict forward proof plus intentionally weak resilience.
+    evidence = _evidence(core=.7, hard=.20, slope=.27, crossing=0.)
+    evidence["screen_forward_walking_pass"] = .23
+    result = c._score(evidence, stage="walk40", name="developing")
+    assert result["eligible"]
+    assert result["forward_walking_pass"] == pytest.approx(.23)
+    assert result["step_crossings"]["20"] == 0.
+
+
+def test_missing_forward_panel_cannot_produce_numbered_score():
+    evidence = _evidence()
+    del evidence["screen_forward_walking_pass"]
+    result = c._score(evidence, stage="walk40", name="incomplete")
+    assert result["score"] is None
+    assert "invalid held-out evidence" in result["reasons"][0]
