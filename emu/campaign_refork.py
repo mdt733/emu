@@ -507,8 +507,13 @@ def _run_candidate(root: Path, *, stage: str, arm: str, parent: Path,
                                                device=device))
     probe_target = update_boundary_at_or_after(pstep + PROBE_STEPS, envs)
     probe_run = out / "probe"
-    probe_cfg = config(probe_run,stage=stage,arm=arm,target=probe_target,
-                       seed=seed,envs=envs,device=device)
+    # A 2M probe spans only ~16 PPO updates at 4096 worlds. The normal
+    # 10-update logging cadence leaves too few points to distinguish
+    # collapse from recovery. Log every update ONLY for short probes.
+    probe_cfg = replace(
+        config(probe_run,stage=stage,arm=arm,target=probe_target,
+               seed=seed,envs=envs,device=device),
+        log_every_updates=1)
     probe_ck = _phase(probe_run, probe_cfg, parent=parent, provenance=provenance)
     health = probe_health(probe_run)
     _save(out/"probe_health.json",health)
