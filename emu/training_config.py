@@ -193,6 +193,10 @@ class TrainingConfig:
     terrain_height_edge_fraction: float = 0.35
     terrain_height_growth_m: float = 0.001
     terrain_progress_weight: float = 0.0  # optional reward-only physical forward clearance coaching
+    # Explicit, checksum-pinned single source-revision fork. Empty means a
+    # parent MUST come from the exact current source commit (normal rule).
+    approved_parent_git_commit: str = ""
+    approved_parent_sha256: str = ""
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -252,6 +256,7 @@ class TrainingConfig:
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
                     'terrain_progress_weight', 'forward_preview_masked',
+                    'approved_parent_git_commit', 'approved_parent_sha256',
                     'log_every_updates'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
