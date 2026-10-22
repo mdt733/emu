@@ -28,6 +28,26 @@ def test_considered_config_is_true_cold_start_with_expandable_command_dimensions
     assert p.cloud_probes_per_eval == 0
 
 
+def test_cold_start_frontiers_begin_at_seed_and_can_really_expand():
+    from emu.curriculum import RegimeGovernor
+    v=RegimeGovernor(open_frontier=True,
+        frontier_vx_hi_safety=12.0, frontier_vx_lo_safety=4.,
+        frontier_vy_safety=4., frontier_yaw_safety=12.,
+        cold_start_frontier=True,terrain_height_safety_m=.150,
+        terrain_height_initial_m=0.,terrain_rated_elevation=True)
+    assert v.params.frontier_vx_hi==pytest.approx(.060)
+    assert v.params.frontier_vx_lo==pytest.approx(-.020)
+    assert v.params.frontier_vy==pytest.approx(.020)
+    assert v.params.frontier_yaw==pytest.approx(.150)
+    assert v.params.frontier_terrain_height_m==0.
+    assert v.frontier_vx_hi_safety==12.
+    assert v.frontier_growth_frac==pytest.approx(.015)
+    assert v.FRONTIER_FLOOR_VX_HI==.060
+    historical=RegimeGovernor()
+    assert historical.FRONTIER_FLOOR_VX_HI==.60
+    assert historical.frontier_growth_frac==pytest.approx(.0015)
+
+
 def test_considered_cli_requires_312_actor_and_real_150mm_technical_course(tmp_path,capsys):
     from emu.cli import main
     core=['train','--profile','considered','--run-dir',str(tmp_path/'s10'),
