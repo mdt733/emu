@@ -33,19 +33,20 @@ Source changes *after a campaign starts* invalidate subsequent resume.
 Only ever run from a clean committed `feature/v5021-considered-walker`
 worktree.
 
-Watch the training with the browser (separate terminal, CPU viewer):
-```bash
-cd ~/emu-v5021
+Watch the training in a **separate detached viewer worktree**. Never
+rebuild tracked browser assets inside the source-pinned trainer checkout:
+
+~~~bash
+git -C ~/emu-v5021 worktree add --detach ~/emu-v5021-viewer HEAD
+cd ~/emu-v5021-viewer
 source ~/emu-v5020/.venv/bin/activate
+PYTHONPATH="$PWD" python -m emu.cli viewer-build
 ROOT=$(ls -dt "$HOME"/robot_lab/emu_runs/v5021_considered_* | head -n1)
 PYTHONPATH="$PWD" python -m emu.cli viewer --live --root "$ROOT" --port 8766
-```
-Then open http://127.0.0.1:8766/ ; live viewer uses last SAVED
-checkpoint and browser-local MuJoCo, not real GPU rollout frames.
-A viewer at the exact training Git commit is strongly preferred:
-build it with `PYTHONPATH="$PWD" python -m emu.cli viewer-build` first
-if this checkout does not already have fresh bundled assets.
+~~~
 
+Then open http://127.0.0.1:8766/ . The viewer follows SAVED checkpoints,
+not the GPU training frames.
 ## Implemented now
 
 - PPO train uses 312-input V-shaped sensor memory; older schema1/2 remain.
