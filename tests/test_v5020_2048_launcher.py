@@ -12,7 +12,7 @@ def test_2048_launcher_is_valid_shell_and_help_has_no_side_effects(tmp_path):
     help_output=subprocess.run(['bash',str(SCRIPT),'--help'],
                                cwd=tmp_path,capture_output=True,text=True)
     assert help_output.returncode==0,help_output.stderr
-    for needle in ('2048','20M','32M','48M','70M','up','mixed'):
+    for needle in ('2048','20M','32M','up','foundation'):
         assert needle in help_output.stdout
     assert not list(tmp_path.iterdir())
 
@@ -31,8 +31,10 @@ def test_2048_launcher_does_not_silently_downscale_or_overwrite_main():
     assert 'XLA_PYTHON_CLIENT_PREALLOCATE=false' in source
     assert 'emu train --run-dir' in source
     assert '--resume auto' in source or 'resume=(--resume auto)' in source
-    for name in ('foundation','up','mixed12','mixed20'):
+    for name in ('foundation','up'):
         assert f'step {name} ' in source
+    for dangerous in ('step mixed12 ','step mixed20 ','--profile sim2real'):
+        assert dangerous not in source
     assert 'rm -rf' not in source
     assert 'git reset' not in source
     assert 'git checkout main' not in source
