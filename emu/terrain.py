@@ -282,49 +282,45 @@ def adaptive_height_sample(xp, upper_m, uniform, selection, *, exposure=0.60,
     return xp.where(selection < exposure, proposed, 0.)
 
 
-def first_height_from_flat(current_m: float, row: dict, *, safety_m: float,
-                           initial_rise_m: float = .00025,
-                           kl_ok: bool = True, retreat: bool = False):
-    """Earn the very FIRST 0 -> tiny step using real flat walking evidence.
+def rated_height_update(rating_m: float, evidence: dict, *, safety_m: float,
+                        growth_m: float = .001, min_trials: int = 8):
+    """Change rated step height using completed above/below-rating episodes.
 
-    With a zero-high platform parked outside the corridor there cannot be
-    any genuine edge-crossing trials. Requiring one to leave zero produces a
-    deadlocked curriculum. Instead, prove that the inherited walker survived
-    long *flat* episodes while moving to its commanded velocity, then open
-    one tiny physical rise. Every later rise REQUIRES true edge crossings;
-    flat walking can never certify a nonzero stair.
+    Above-rating successes earn promotion; below-rating failures earn retreat.
+    A 0mm rating is valid: tiny above-rating physical probes already run.
     """
     import math
-    if not 0. <= current_m <= safety_m <= TERRAIN_FRONTIER_MAX_M:
-        raise ValueError('invalid physical elevation limits')
-    if current_m > 0. or safety_m <= 0.:
-        return current_m, 'not_at_zero'
-    if retreat or not kl_ok:
-        return current_m, 'hold_retreat_or_kl_stress'
-    def measured(key, default=-1.):
+    if not (math.isfinite(rating_m) and math.isfinite(safety_m)
+            and math.isfinite(growth_m)
+            and 0. <= rating_m <= safety_m <= TERRAIN_FRONTIER_MAX_M
+            and 0. < growth_m <= .003):
+        raise ValueError('invalid rated terrain update limits')
+    def number(key):
         try:
-            n = float(row.get(key, default))
-            return n if math.isfinite(n) else -1.
-        except (ValueError, TypeError):
-            return -1.
-    n = measured('episodes', 0.)
-    survival_len = measured('ep_len_mean')
-    falls = measured('fall_rate')
-    core_len = measured('core_ep_len_mean')
-    steps = measured('step_evidence')
-    gravity = measured('gravity_z')
-    support = measured('support')
-    vx = measured('vx_mean')
-    cmd = measured('cmd_vx_mean')
-    # These are conservative necessary conditions, not a guarantee that
-    # the policy will safely solve even a tiny elevation transition.
-    healthy = (n >= 8. and survival_len >= 450. and core_len >= 350. and
-               0. <= falls <= .15 and steps >= .10 and
-               gravity >= .7 and support >= .20 and
-               vx > -1. and cmd > -1. and abs(vx-cmd) <= .12)
-    if not healthy:
-        return current_m, 'hold_zero_until_proven_flat_gait'
-    return min(safety_m, initial_rise_m), 'seed_earned_0_to_0_25mm'
+            value = float(evidence[key])
+            return value if math.isfinite(value) and value >= 0. else None
+        except (KeyError, TypeError, ValueError):
+            return None
+    easy = number('terrain_below_done_count')
+    easy_falls = number('terrain_below_fall_count')
+    above = number('terrain_above_done_count')
+    above_success = number('terrain_above_cross_count')
+    above_falls = number('terrain_above_fall_count')
+    above_contact = number('terrain_above_contact_count')
+    if any(x is None for x in (easy, easy_falls, above, above_success,
+                               above_falls, above_contact)):
+        return rating_m, 'hold_missing_ability_band_evidence'
+    if (easy_falls > easy + 1e-5 or above_success > above + 1e-5 or
+            above_falls > above + 1e-5 or above_contact > above + 1e-5):
+        raise ValueError('contradictory completed height-band evidence')
+    if easy >= min_trials and easy_falls / easy >= .50:
+        return max(0., rating_m - growth_m), 'retreat_failing_below_rating'
+    if above < min_trials:
+        return rating_m, 'hold_collect_above_rating_trials'
+    if (above_success / above >= .25 and above_falls / above <= .35
+            and above_contact / above >= .25):
+        return min(safety_m, rating_m + growth_m), 'expand_success_above_rating'
+    return rating_m, 'hold_challenge_not_yet_mastered'
 
 
 def next_height_frontier(current_m: float, row: dict, *, safety_m: float,
