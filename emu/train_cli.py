@@ -74,6 +74,9 @@ def one_run_config(args) -> TrainingConfig:
     if box_height >= 0 and (grade != 0 or terrain_radius != 0):
         raise ValueError('fixed physical box course cannot mix with inclined/random terrain')
     varied=bool(getattr(args, 'terrain_varied_placement', False))
+    elevation_mode=str(getattr(args,'terrain_elevation_mode','hurdle'))
+    if elevation_mode not in ('hurdle','up','down','mixed'):
+        raise ValueError('unknown terrain_elevation_mode')
     adaptive_limit=int(getattr(args, 'terrain_height_ceiling_mm', 0))
     adaptive_flat=bool(getattr(args, 'terrain_height_flat_control',False))
     exposure=float(getattr(args, 'terrain_height_exposure', .60))
@@ -96,6 +99,12 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('adaptive flat control must have zero height ceiling')
     if varied and (not preview_actor or not (adaptive_limit or adaptive_flat)):
         raise ValueError('varied placement requires 312-input preview + adaptive physical step topology')
+    if elevation_mode != 'hurdle' and (
+            not preview_actor or not varied or adaptive_limit <= 0
+            or box_height >= 0 or grade != 0 or terrain_radius > 0
+            or args.profile != 'sim2real'):
+        raise ValueError('raised-platform training requires sim2real 312-input '
+                         'adaptive step heights, varied placement and initially flat contact ground')
     # Mixed contact slopes and adaptive physical boxes require the verified
     # 312-input sensor contract; older actor schemes remain incompatible.
     if (adaptive_limit or adaptive_flat) and (
@@ -109,6 +118,7 @@ def one_run_config(args) -> TrainingConfig:
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,terrain_box_height_mm=box_height,
                    terrain_random_placement=varied,
+                   terrain_elevation_mode=elevation_mode,
                    terrain_height_safety_m=adaptive_limit / 1000.,
                    terrain_adaptive_flat_control=adaptive_flat,
                    terrain_height_initial_m=min(initial, adaptive_limit if adaptive_limit else initial) / 1000.,
