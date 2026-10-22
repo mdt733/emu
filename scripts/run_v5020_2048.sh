@@ -72,6 +72,7 @@ if [[ -f "$RUN_ROOT/lineage/source_commit.txt" ]] &&
   echo "STOP: source SHA differs from this run's original source" >&2; exit 1
 fi
 printf '%s\n' "$SHA" > "$RUN_ROOT/lineage/source_commit.txt"
+trap 'code=$?; echo "2048 campaign stopped (exit $code). Check $RUN_ROOT/logs; run the SAME command again on this same source commit to resume." >&2' ERR
 
 step() {
   local name="$1" target="$2" parent="$3"
@@ -110,6 +111,15 @@ step() {
     "${resume[@]}" "$@" 2>&1 | tee -a "$log"
   [[ -s "$ck" ]] || { echo "STOP: $name returned without final checkpoint" >&2; exit 1; }
   echo "=== Completed $name: $ck ==="
+  # Lightweight evidence index, never an inferred success claim.
+  if [[ -f "$dir/metrics.csv" ]]; then
+    echo "Latest raw rollout metrics ($name):"
+    tail -n 2 "$dir/metrics.csv"
+  fi
+  if [[ -f "$dir/fixed_eval.csv" ]]; then
+    echo "Latest frozen evaluation ($name):"
+    tail -n 2 "$dir/fixed_eval.csv"
+  fi
 }
 echo "Source/policy/checkpoint contracts are strict. Any failure stops this"
 echo "campaign with its console logs, stage output, and prior snapshots intact."
