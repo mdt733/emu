@@ -7,7 +7,7 @@ usage() {
   cat <<'HELP'
 Usage: bash scripts/run_v5020_2048.sh --plan|--run [--stop-after foundation|up|mixed12|mixed20]
 
-2048 physical MJX environments per training phase, from random weights.
+2048 physical MJX environments per training phase; cold-start or approved saved foundation.
   foundation   20M flat-first 312-input foundation (frozen gait qualification)
   up           32M cumulative steps, opt-in real 2m-long step-up, <=6mm
   mixed12      48M cumulative steps, real up/down, <=12mm
@@ -16,7 +16,12 @@ These heights are SAFETY CEILINGS. The curriculum earns actual heights from
 post-landing gait/contact evidence. Flat walking is rehearsed in every phase.
 
 --plan reads only; --run launches actual 2048-world PPO and writes checkpoints.
-By default all phases run sequentially. Each completed phase has its own
+Default stop is the first raised step-up stage (32M), to examine survival
+before spending another ~38M on harder levels. To finish all stages later:
+  bash scripts/run_v5020_2048.sh --run --stop-after mixed20
+To REUSE an existing qualified 20M foundation rather than retraining:
+  FOUNDATION_FROM=/absolute/path/to/foundation/checkpoints/best.pkl bash scripts/run_v5020_2048.sh --run
+Each completed phase has its own
 source-pinned directory and survives restarts. Rerun the same command after
 a failure: it uses --resume auto when validated same-phase snapshots exist.
 The foundation must pass its saved exact-step walking exam before steps start.
@@ -29,7 +34,7 @@ HELP
 MODE="${1:---plan}"
 [[ "$MODE" == --plan || "$MODE" == --run || "$MODE" == --help ]] || { usage >&2; exit 2; }
 if [[ "$MODE" == --help ]]; then usage; exit 0; fi
-STOP_AFTER="${STOP_AFTER:-mixed20}"
+STOP_AFTER="${STOP_AFTER:-up}"
 if [[ ${2+x} ]]; then
   if [[ "$2" != --stop-after || -z "${3:-}" || ${4+x} ]]; then
     usage >&2; exit 2
@@ -124,29 +129,115 @@ step() {
 echo "Source/policy/checkpoint contracts are strict. Any failure stops this"
 echo "campaign with its console logs, stage output, and prior snapshots intact."
 
-step foundation 20000000 coldstart --profile foundation --forward-preview
-if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
 
-# Fail CLOSED if a structurally correct foundation only learned to stand.
-# The evaluator checks the EXACT saved checkpoint's simultaneous commanded
-# travel + gait + survival; it is not a generic evaluation score.
-PARENT="$(python - "$RUN_ROOT/foundation" <<'PY'
-import sys
+if [[ -n "${FOUNDATION_FROM:-}" ]]; then
+  [[ "$FOUNDATION_FROM" == /* && -f "$FOUNDATION_FROM" ]] ||
+    { echo "STOP: FOUNDATION_FROM must be an absolute, existing .pkl checkpoint" >&2; exit 1; }
+  echo "=== Checking existing flat 312-input foundation; NO foundation retraining ==="
+  PARENT="$(python - "$FOUNDATION_FROM" "$ENVS" <<'PY'
 from pathlib import Path
-from emu.foundation_readiness import choose_fresh_foundation
-selection=choose_fresh_foundation(Path(sys.argv[1]))
-print(selection['path'])
+import sys
+from emu.foundation_readiness import source_foundation, basic_foundation_issue
+p=Path(sys.argv[1]).resolve()
+source=source_foundation(p)
+if source['envs'] != int(sys.argv[2]):
+    raise SystemExit(f"bad foundation env count: {source['envs']}")
+issue=basic_foundation_issue(source.get('source_evaluation'))
+if issue:
+    raise SystemExit(f"existing parent failed walking gate: {issue}")
+print(str(p))
 PY
 )"
+else
+  step foundation 20000000 coldstart --profile foundation --forward-preview
+  # Exact-checkpoint joint walking grade, not an optimistic reward proxy.
+  PARENT="$(python - "$RUN_ROOT/foundation" <<'PY'
+from pathlib import Path
+import sys
+from emu.foundation_readiness import choose_fresh_foundation
+print(choose_fresh_foundation(Path(sys.argv[1]))['path'])
+PY
+)"
+fi
 echo "Qualified foundation walker: $PARENT"
+if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
 
-step up 32000000 "$PARENT"   --profile sim2real --forward-preview --pitch-deg 8   --terrain-varied-placement --terrain-elevation-mode up   --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 3   --terrain-height-exposure .40 --terrain-height-edge-fraction .30   --terrain-progress-weight .015
+# Explicit one-time source transfer only: pin BOTH original code commit
+# and checkpoint bytes. Trainer validates full 312-input sensor contract,
+# optimizer, observation normaliser and 2048 environment lineage too.
+PARENT_COMMIT="$(python - "$PARENT" <<'PY'
+from pathlib import Path
+from emu.checkpoint_io import load_checkpoint
+from emu.training_config import TrainingConfig, training_sensor_contract
+import sys
+p=Path(sys.argv[1])
+cfg=TrainingConfig.load(p.parent.parent/'training_config.json')
+meta=load_checkpoint(p,validate=True,expected_observation_schema=cfg.observation_schema,
+                     expected_sensor_contract=training_sensor_contract(cfg))['meta']
+print(meta['source_provenance']['git_commit'])
+PY
+)"
+APPROVAL=()
+if [[ "$PARENT_COMMIT" != "$SHA" ]]; then
+  [[ "$PARENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "STOP: imported foundation has no authenticated source commit" >&2; exit 1; }
+  APPROVAL=(--approve-parent-commit "$PARENT_COMMIT"
+            --approve-parent-sha256 "$(sha256sum "$PARENT" | cut -d' ' -f1)")
+  echo "Explicit historical parent transfer from $PARENT_COMMIT:"
+  echo "  checkpoint: $PARENT"
+  echo "  sha256: ${APPROVAL[3]}"
+  echo "  new source: $SHA"
+fi
+
+# Preserve the core-foundation command/phase/push/field economics through
+# the first physical step; never switch to aggressive mature sim2real here.
+step up 32000000 "$PARENT" \
+  --profile terrain-bridge --forward-preview --pitch-deg 8 \
+  --terrain-varied-placement --terrain-elevation-mode up \
+  --terrain-height-ceiling-mm 6 --terrain-height-initial-mm 3 \
+  --terrain-height-exposure .40 --terrain-height-edge-fraction .30 \
+  --terrain-progress-weight .015 "${APPROVAL[@]}"
 if [[ "$STOP_AFTER" == up ]]; then echo "Requested stop after up"; exit 0; fi
 
-step mixed12 48000000 "$RUN_ROOT/up/checkpoints/final.pkl"   --profile sim2real --forward-preview --pitch-deg 8   --terrain-varied-placement --terrain-elevation-mode mixed   --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 3   --terrain-height-exposure .55 --terrain-height-edge-fraction .35   --terrain-progress-weight .025
+qualified_stage() {
+  local name="$1"
+  python - "$RUN_ROOT/$name" <<'PY'
+from pathlib import Path
+import sys
+from emu.foundation_readiness import basic_foundation_issue, recent_fixed_exam
+root=Path(sys.argv[1])
+errors=[]
+for ck in (root/'checkpoints'/'best.pkl',root/'checkpoints'/'final.pkl'):
+    if not ck.is_file():
+        continue
+    evidence=recent_fixed_exam(ck)
+    failure=basic_foundation_issue(evidence)
+    if not failure:
+        print(ck.resolve())
+        break
+    errors.append(f"{ck.name}: {failure}")
+else:
+    raise SystemExit("STOP: no stage checkpoint retained basic walking: "+"; ".join(errors))
+PY
+}
+PARENT="$(qualified_stage up)"
+echo "Step-up stage retained walker: $PARENT"
+step mixed12 48000000 "$PARENT" \
+  --profile terrain-bridge --forward-preview --pitch-deg 8 \
+  --terrain-varied-placement --terrain-elevation-mode mixed \
+  --terrain-height-ceiling-mm 12 --terrain-height-initial-mm 3 \
+  --terrain-height-exposure .55 --terrain-height-edge-fraction .35 \
+  --terrain-progress-weight .025
 if [[ "$STOP_AFTER" == mixed12 ]]; then echo "Requested stop after mixed12"; exit 0; fi
 
-step mixed20 70000000 "$RUN_ROOT/mixed12/checkpoints/final.pkl"   --profile sim2real --forward-preview --pitch-deg 8   --terrain-varied-placement --terrain-elevation-mode mixed   --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 3   --terrain-height-exposure .65 --terrain-height-edge-fraction .40   --terrain-progress-weight .035
+PARENT="$(qualified_stage mixed12)"
+echo "Mixed12 stage retained walker: $PARENT"
+step mixed20 70000000 "$PARENT" \
+  --profile terrain-bridge --forward-preview --pitch-deg 8 \
+  --terrain-varied-placement --terrain-elevation-mode mixed \
+  --terrain-height-ceiling-mm 20 --terrain-height-initial-mm 3 \
+  --terrain-height-exposure .65 --terrain-height-edge-fraction .40 \
+  --terrain-progress-weight .035
 
 echo
 echo "=== v5020 experimental 2048-world ladder complete ==="
