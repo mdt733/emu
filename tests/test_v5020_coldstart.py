@@ -533,3 +533,32 @@ def test_mixed_elevation_batched_births_have_real_upper_lower_levels(tmp_path):
     assert np.isfinite(np.asarray(jax.device_get(state2.obs))).all()
     assert state2.obs.shape==(16,312)
     assert 'terrain_elevation_supported_frames' in state2.metrics
+
+
+def test_down_platform_optical_flow_camera_sees_top_not_buried_floor(tmp_path,monkeypatch):
+    """On a real raised landing the camera cannot look THROUGH its top."""
+    import jax
+    import emu.environment as physics
+    from emu.terrain import elevation_course
+    from emu.contracts import ROBOT_XML
+    path=elevation_course(ROBOT_XML,tmp_path/'camera_down.xml',20,
+                          direction='down')
+    env=EmuMJXEnv(str(path),num_envs=2,seed=733,
+                 observation_schema=OBS_SCHEMA_PREVIEW,
+                 terrain_contact_mode='box_surface')
+    state,_=env.reset({'probe_cmd_vx':.10,'probe_cmd_vy':0.,
+                       'probe_cmd_yaw':0.,'steady_difficulty':0.,
+                       'resilience_difficulty':0.,'posture_difficulty':0.,
+                       'regime_frac_steady':1.,'regime_frac_transition':0.})
+    seen={}
+    original=physics.simulate_downward_optical_flow
+    def observe_depth(xp,velocity,gyro,depth,**kwargs):
+        seen['depth_m']=np.asarray(jax.device_get(depth))
+        return original(xp,velocity,gyro,depth,**kwargs)
+    monkeypatch.setattr(physics,'simulate_downward_optical_flow',observe_depth)
+    env.optical_flow_probe(state.data)
+    depth=seen['depth_m']
+    torso=np.asarray(jax.device_get(state.data.xpos[:,env.torso_id,2]))
+    assert depth.shape==(2,)
+    assert np.all(torso-depth>.015)  # top is genuinely 20mm above floor
+    np.testing.assert_allclose(depth,torso-.020,atol=.012,rtol=0.)
