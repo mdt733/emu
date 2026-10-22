@@ -72,6 +72,28 @@ def terrain_edge_trials(metrics: Mapping[str, Any]) -> dict[str, float]:
             terrain_edge_contact=mean("terrain_edge_contact")/ended,
             terrain_edge_fall_rate=mean("terrain_edge_fell")/ended,
         )
+    # NEW rated-platform controller: do not average easy attempts and
+    # challenging probes into one score. The sampled height and rating are
+    # episode-birth teacher facts, not actor inputs. Count only completed
+    # trials: an episode spanning 20 PPO updates cannot contribute 20 fails.
+    if "terrain_birth_rating_m" in metrics:
+        height=np.asarray(metrics["terrain_height_birth_m"],dtype=np.float64)
+        rating=np.asarray(metrics["terrain_birth_rating_m"],dtype=np.float64)
+        if (height.shape != done.shape or rating.shape != done.shape or
+                not np.isfinite(height).all() or not np.isfinite(rating).all() or
+                np.any(height < 0.) or np.any(rating < 0.)):
+            raise ValueError("invalid physical-height/rated-skill evidence shapes")
+        # Only truly BELOW current proficiency is an easy lesson; at zero
+        # there is no below-zero 'easy obstacle'. Any positive trial at
+        # rating zero is necessarily exploration ABOVE proficiency.
+        easy=(rating > 1.e-6) & (height <= .80*rating+1.e-8) & (height > 0.)
+        above=(height > rating+5.e-5)
+        for label, band in (("below",easy),("above",above)):
+            trials=done*band
+            row[f"terrain_{label}_done_count"]=float(trials.sum())
+            row[f"terrain_{label}_cross_count"]=float((crossing*band).sum())
+            row[f"terrain_{label}_fall_count"]=float((fell*band).sum())
+            row[f"terrain_{label}_contact_count"]=float((contact*band).sum())
     return row
 
 
