@@ -417,21 +417,34 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
                               for mm, x in zip(EXAM_HEIGHTS_MM, contact)}}
 
 
+def _exam_many(checkpoints: list[Path], *, stage: str, root: Path,
+               screen_envs: int, horizon: int, device: str) -> dict[str, dict]:
+    """One frozen MJX examiner build, many source-pinned policies.
+
+    Every parent/challenger receives identical seeds, world geometry,
+    sensor contract and physical-height tests. Constructing fresh MJX
+    worlds per policy needlessly re-JITs large functions on the 8GB GPU;
+    one shared batch does the exact same examinations more efficiently.
+    """
+    from .evaluation import evaluate_runs
+    if not checkpoints:
+        return {}
+    sources=[Path(p).expanduser().resolve() for p in checkpoints]
+    kwargs={"envs":screen_envs,"horizon":horizon,"device":device,
+            "eval_pitch_deg":8.,"key_by_path":True,
+            "write_screen_files":False,
+            "v5020_physical_exam":True,
+            "physical_step_heights_mm":EXAM_HEIGHTS_MM,
+            "eval_phase_speed_gain":1.0,"course_root":root}
+    return evaluate_runs(sources,**kwargs)
+
+
 def _exam(ck: Path, *, stage: str, root: Path, screen_envs: int,
           horizon: int, device: str) -> dict:
-    from .evaluation import evaluate_runs
-    # Checkpoint-path evaluation reads its owner run configuration and exact
-    # schema-9 sensor contract; all candidates face identical examiner worlds.
-    kwargs = {"envs": screen_envs, "horizon": horizon, "device": device,
-              "eval_pitch_deg": 8., "key_by_path": True,
-              "write_screen_files": False}
-    # Identical frozen core/recovery/contact-slope AND obstacle physics
-    # for all five arms; no candidate gets a softer exam.
-    kwargs.update(v5020_physical_exam=True,
-                  physical_step_heights_mm=EXAM_HEIGHTS_MM,
-                  eval_phase_speed_gain=1.0, course_root=root)
-    result = evaluate_runs([ck], **kwargs)
-    return result[str(ck.resolve())]
+    """Single-policy compatibility wrapper for manual examination."""
+    source=Path(ck).expanduser().resolve()
+    return _exam_many([source],stage=stage,root=root,screen_envs=screen_envs,
+                      horizon=horizon,device=device)[str(source)]
 
 
 def _scoreboard(root: Path, stage: str, candidates: dict, *,
@@ -448,21 +461,24 @@ def _scoreboard(root: Path, stage: str, candidates: dict, *,
             or board.get("candidates") != expected):
             raise RuntimeError("scoreboard provenance changed; do not recompute or mix data")
         return board
-    # The parent is examined on the SAME difficulty/seed as contenders.
-    parent_evidence = _exam(parent, stage=stage, root=root,
-                            screen_envs=screen_envs, horizon=horizon, device=device)
-    parent_rating = _score(parent_evidence, stage=stage, name="incumbent")
-    results = []
+    # Frozen exam construction/compilation happens ONCE per generation.
+    # It is read-only: neither PPO nor the teacher ever sees these scores.
+    paths=[Path(parent).resolve()] + [
+        Path(candidates[name]["path"]).resolve()
+        for name in arms(stage) if candidates[name] is not None]
+    examined=_exam_many(paths,stage=stage,root=root,screen_envs=screen_envs,
+                        horizon=horizon,device=device)
+    parent_rating=_score(examined[str(Path(parent).resolve())],stage=stage,name="incumbent")
+    results=[]
     for name in arms(stage):
-        saved = candidates[name]
+        saved=candidates[name]
         if saved is None:
-            results.append({"arm": name, "eligible": False, "score": None,
-                            "reasons": ["probe rejected"]})
+            results.append({"arm":name,"eligible":False,"score":None,
+                            "reasons":["probe rejected"]})
             continue
-        evidence = _exam(Path(saved["path"]), stage=stage, root=root,
-                         screen_envs=screen_envs, horizon=horizon, device=device)
-        score = _score(evidence, stage=stage, name=name)
-        score["checkpoint_sha256"] = saved["sha256"]
+        evidence=examined[str(Path(saved["path"]).resolve())]
+        score=_score(evidence,stage=stage,name=name)
+        score["checkpoint_sha256"]=saved["sha256"]
         results.append(score)
     eligible = sorted((r for r in results if r["eligible"]),
                       key=lambda r: (-r["score"], r["arm"]))
