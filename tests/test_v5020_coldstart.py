@@ -395,3 +395,76 @@ def test_public_elevation_exam_cli_is_read_only(tmp_path, monkeypatch, capsys):
     assert calls[0][1]["key_by_path"] is True
     assert not (tmp_path/'geometry').exists()
     assert 'elevation_up_10mm' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("direction, sign", [("up", 1.), ("down", -1.)])
+def test_true_elevation_ray_returns_are_signed_and_visible_in_actor_at_20cm(direction, sign):
+    """Hardware-like returns, not privileged obstacle height as policy input.
+
+    At 20cm ahead the 2cm insertion kernel cannot populate the OLD 15cm
+    actor tap. The 20cm tap must see both elevated tops and descending
+    edges without advancing the robot (and retain confidence=0 when blind).
+    """
+    from emu.forward_tof import first_hit_ranges
+    from emu.directional import (
+        fit_tripod_ground, TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY)
+    from emu.forward_tof import FORWARD_MOUNTS_BODY_M, FORWARD_DIRECTIONS_BODY
+    from emu.rolling_tof import (
+        empty_map, insert_measurement, measured_height_and_x, readout,
+        OUTPUT_SAMPLE_X_M, OUTPUT_SAMPLE_INDICES)
+    from emu.contracts import sensor_observation_contract, PREVIEW_RANGE_FIELDS
+
+    h=.020
+    # The box is a 2m long physical landing, with transition edge at x=.16m.
+    # Step-up: box begins at .16. Step-down: box ends at .16.
+    center=np.array([[1.16 if direction=="up" else -.84, 0.,h/2]],
+                    dtype=np.float32)
+    rotation=np.eye(3,dtype=np.float32)[None]
+    torso=np.array([[0.,0.,.2584+(h if direction=="down" else 0.)]],
+                   dtype=np.float32)
+    floor=np.zeros((1,3),dtype=np.float32)
+    up=np.array([[0.,0.,1.]],dtype=np.float32)
+    kwargs=dict(box_center=center,box_rotation=rotation,
+                box_half_size=np.array([1.,.5,h/2],dtype=np.float32))
+    tof,valid=first_hit_ranges(np,torso,rotation,floor,up,
+                              mounts_body=FORWARD_MOUNTS_BODY_M,
+                              beams_body=FORWARD_DIRECTIONS_BODY,**kwargs)
+    tripod,tripod_valid=first_hit_ranges(np,torso,rotation,floor,up,
+                              mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+                              beams_body=TOF_TRIPOD_BEAMS_BODY,**kwargs)
+    estimator=fit_tripod_ground(np,tripod,np.array([[0.,0.,-1.]],
+                                                  dtype=np.float32))
+    assert valid.all() and tripod_valid.all() and estimator["valid"].all()
+    x,y,measured,good,rx,ry,rear_valid=measured_height_and_x(
+        np,tof,valid,tripod,estimator["ground_normal_body"],
+        estimator["valid"],
+        mounts_body=FORWARD_MOUNTS_BODY_M,
+        beams_body=FORWARD_DIRECTIONS_BODY,
+        tripod_mounts_body=TOF_TRIPOD_MOUNTS_BODY_M,
+        tripod_beams_body=TOF_TRIPOD_BEAMS_BODY,
+        gravity_body=np.array([[0.,0.,-1.]],dtype=np.float32),
+        include_rear=True)
+    assert good.all() and rear_valid.all()
+    np.testing.assert_allclose(measured,np.full((1,2),sign*h),
+                               atol=.003,rtol=0)
+    heights,confidence=empty_map(np,1)
+    heights,confidence=insert_measurement(
+        np,heights,confidence,x,measured,good,
+        sample_y_m=y,apex_x_m=rx,apex_y_m=ry)
+    # New readings around 20cm cannot reach 15cm when only a 2cm
+    # neighbourhood is filled. That was the old actor's blind spot.
+    assert np.all(confidence[:,:,25]==0.)
+    read_h,read_c=readout(np,heights,confidence)
+    assert read_h.shape==(1,10) and read_c.shape==(1,10)
+    np.testing.assert_allclose(read_h[:,[4,9]],sign*h,atol=.003,rtol=0)
+    assert np.all(read_c[:,[4,9]]>.05)
+    assert OUTPUT_SAMPLE_X_M[-1]==.20 and OUTPUT_SAMPLE_INDICES[-1]==30
+    assert PREVIEW_RANGE_FIELDS[4].endswith("_20cm_m")
+    assert sensor_observation_contract(schema=OBS_SCHEMA_PREVIEW)[
+        "rolling_actor_sample_x_m"][-1]==.20
+
+    # Unknown forward return must stay unknown, not be invented as flat.
+    z,unknown=empty_map(np,1)
+    z,unknown=insert_measurement(np,z,unknown,x,measured,np.zeros_like(good))
+    _,confidence_empty=readout(np,z,unknown)
+    assert np.all(confidence_empty==0.)
