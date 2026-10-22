@@ -174,6 +174,7 @@ class TrainingConfig:
     # less for repeated nominal overload and gross shaft-motion effort.
     # Compare only against a matched no-guidance branch after physics exams.
     motor_guidance_weight: float = 0.0
+    considered_reward: bool = False  # v5021 torque-aware shaping; legacy runs unchanged
 
     # Opt-in real contact incline, uniform across all training worlds.
     # The historical tilted-gravity terrain randomizer remains separate.
@@ -269,6 +270,34 @@ def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, re
         run_dir=str(run_dir), steps=int(steps), seed=int(seed),
         device=str(device), envs=int(envs),
         resume=str(resume) if resume is not None else "",
+    )
+
+
+def considered_config(*, run_dir: Path, steps: int, seed: int, device: str,
+                      envs: int) -> TrainingConfig:
+    """V5021 cold-start exploration with physical, evidence-gated frontiers.
+
+    Safety bounds here are numerical/model-validity limits, not requested
+    achievements. The governor expands only after demonstrated precision.
+    Terrain platform topology currently supports up to 150mm; lifting that
+    physical model limit needs separately validated contact geometry.
+    """
+    base = mature_config('graph', run_dir=run_dir, steps=steps,
+                         seed=seed, device=device, envs=envs, resume=None)
+    return replace(
+        base,
+        considered_reward=True,
+        motor_guidance_weight=0.10,
+        # Terrain heights and command envelopes are learnt, never forced.
+        frontier_vx_hi_safety=12.0, frontier_vx_lo_safety=4.0,
+        frontier_vy_safety=4.0, frontier_yaw_safety=12.0,
+        frontier_combo_safety=4.0,
+        # Keep sensor coordinate systems adapting during cold-start growth.
+        freeze_obs_norm_after_steps=0,
+        # Avoid allocating substantial GPU time to capability-cloud exams.
+        cloud_probes_per_eval=0, cloud_final_probes=0,
+        # Mature profile retains a flat rehearsal population.
+        athletic_rehearsal_frac=0.15,
     )
 
 
