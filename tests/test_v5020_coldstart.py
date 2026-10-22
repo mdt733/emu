@@ -533,6 +533,15 @@ def test_mixed_elevation_batched_births_have_real_upper_lower_levels(tmp_path):
     assert np.isfinite(np.asarray(jax.device_get(state2.obs))).all()
     assert state2.obs.shape==(16,312)
     assert 'terrain_elevation_supported_frames' in state2.metrics
+    # Neither progress through one step nor a reset can be certified as a
+    # completed elevation change. Geometry stays fixed for ongoing episodes.
+    assert not np.asarray(jax.device_get(
+        state2.metrics['terrain_first_verified_crossing'])).any()
+    ongoing=np.asarray(jax.device_get(state2.done))<.5
+    assert ongoing.any()
+    before=np.asarray(jax.device_get(state.data.mocap_pos))
+    after=np.asarray(jax.device_get(state2.state.data.mocap_pos))
+    np.testing.assert_allclose(after[ongoing],before[ongoing],atol=0.,rtol=0.)
 
 
 def test_down_platform_optical_flow_camera_sees_top_not_buried_floor(tmp_path,monkeypatch):
