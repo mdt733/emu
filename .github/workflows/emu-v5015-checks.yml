@@ -34,6 +34,8 @@ jobs:
           node-version-file: .nvmrc
       - name: Compile
         run: python -m compileall -q emu tests
+      - name: v5022 terrain and VL53L8CX physical checks
+        run: python -m pytest -q tests/test_terrain.py
       - name: Run 16 Python checks
         run: python -m pytest -q tests
       - name: Smoke public doctor CLI (CPU-only)
