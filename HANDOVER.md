@@ -623,3 +623,35 @@ After completion attach
 test and script commits live only on the protected feature branch.
 No change to `main` or showcase; actual proof comes from user's
 preflight and collected training logs.
+
+
+## 2026-10-22 — concise operator console requested during overnight v5020
+
+Feature-branch **NEXT RUN ONLY**, do not pull into or restart any
+already-active source-pinned overnight campaign.
+
+`emu/results.py::format_line` now prints ONE meaningful line:
+`steps`, `rew`, `len`, `fall`, `fps` (actual wall fps),
+`vx_cmd=[lo,hi]` (allowed command envelope, NOT observed min/max),
+`slope` (fixed physical floor angle; 'var' if per-world randomized),
+`step` (earned physical height rating, NOT cap; flat if no adaptive
+step terrain), `resil` (governor resilience difficulty),
+`shaft` (mechanical absolute servo J/net forward world-X metre),
+`over` (fraction of joint-frame observations exceeding nominal
+continuous servo torque). If no useful forward distance is measured,
+shaft='n/a' instead of an unstable or infinite cost. Work uses only
+existing transferred rollout measurements and a tiny NumPy reduction;
+not electrical battery energy, and no simulator or neural change.
+Warnings for nan-grad skips and global curriculum retreats survive.
+Every detailed field is still preserved in the metrics CSV/reports.
+
+Both periodic and final output use exactly the same formatter.
+`tests/test_v5020_console_feedback.py` tests units, backward
+slip penalty, no-motion sentinels, one-line and semantic labels;
+both v5020 launchers include it in PRE-GPU pytest.
+
+**Training already underway retains old console formatting until
+the process ends.** Don't pull into its checkout mid-campaign:
+the launcher strictly pins a source Git commit across stages.
+This is purely presentation/CPU summary work for the NEXT launch,
+not a reason to interrupt a healthy 320M overnight.
