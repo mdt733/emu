@@ -504,6 +504,19 @@ def train(args: TrainingConfig) -> int:
         row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
         absorb_physical_peaks(row)
         if args.terrain_elevation_mode != 'hurdle' and not args.open_frontier:
+            raw_vx = np.asarray(rollout_metrics['vx'],dtype=np.float64)
+            peak_vx = (float(np.max(np.abs(raw_vx))) if raw_vx.size else float('nan'))
+            if not np.isfinite(peak_vx) or peak_vx > 8.:
+                write_json(run_dir / 'UNSAFE_RESUME.json', {
+                    'reason': 'physically_implausible_terrain_velocity',
+                    'step': int(total_steps),
+                    'peak_abs_vx_mps': peak_vx if np.isfinite(peak_vx) else None,
+                    'message': 'DO NOT AUTO-RESUME: preserve source 20M foundation',
+                })
+                raise RuntimeError(
+                    f'HARD STOP: terrain continuation produced unphysical '
+                    f'|vx| peak {peak_vx:.2f}m/s (8m/s tripwire). '
+                    'Policy lineage quarantined; investigate MJX contact/divergence.')
             mass_fall_streak = (mass_fall_streak + 1 if
                                 row['episodes'] >= 16 and row['fall_rate'] >= .90
                                 and row['ep_len_mean'] < 100 else 0)
