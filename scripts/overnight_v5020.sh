@@ -208,9 +208,9 @@ if ((FOUNDATION_NEEDS_BUILD)); then
   FOUNDATION_META="$(python - "$FRESH_ROOT" <<'PY'
 import sys
 from pathlib import Path
-from emu.foundation_readiness import choose_foundation
+from emu.foundation_readiness import choose_fresh_foundation
 p=Path(sys.argv[1]).resolve()
-best=choose_foundation([p])
+best=choose_fresh_foundation(p)
 print("FOUNDATION_PATH="+best["path"])
 print("FOUNDATION_WORLDS="+str(best["envs"]))
 print("FOUNDATION_STEP="+str(best["step"]))
@@ -221,7 +221,7 @@ PY
 )"
   printf '%s\n' "$FOUNDATION_META"
   FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
-  echo "=== Fresh foundation passed screening; proceeding to first 40M generation ==="
+  echo "=== Fresh foundation demonstrated basic walking; harder lessons remain unproven. Continuing ladder ==="
 fi
 echo "=== Starting healthy-continuation ladder through $STOP_AFTER; live log: $LOG_FILE ==="
 echo "If every challenger fails, campaign exits without promoting anything."
