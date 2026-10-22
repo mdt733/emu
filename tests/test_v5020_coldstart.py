@@ -369,10 +369,10 @@ def test_true_elevation_frozen_mjx_exam_compiles_on_small_worlds(tmp_path, direc
         state.params, env.params_array(cfg), jnp.zeros(312), jnp.ones(312),
         jax.random.PRNGKey(1701), 4, direction)
     results = np.asarray(measured)
-    assert results.shape == (6,)
+    assert results.shape == (7,)
     assert np.isfinite(results).all()
     assert results[0] == 2.
-    assert results[2] == 0.  # Impossible to land and walk 40mm in 4 frames.
+    assert results[3] == 0.  # Impossible to land and walk 40mm in 4 frames.
     assert np.all((results[1:] >= 0.) & (results[1:] <= 1.))
 
 
