@@ -1,9 +1,11 @@
 """Winner-refork campaign: one 312-input lineage, five controlled challenges.
 
 General gait, turning, recovery, efficiency and a real height-growing obstacle
-specialist compete at 40/60/80M (and optional 100M). One proven winner becomes
-the sole parent for all five next-round policies. Frozen exams compare EVERY
-policy on the same general physics and same progressively taller real steps.
+specialist compete at 40/60/80M (and conditionally 100M). One research parent
+continues each round, chosen on matched frozen exams and never by PPO rewards.
+Passing mature locomotion floors earns a held-out qualification; a coherent
+but less mature learner may continue PROVISIONALLY, without being called a
+champion. Broken physics/failed probes/invalid evidence cannot be promoted.
 Never modifies historical campaign5020 or the source in main.
 """
 from __future__ import annotations
@@ -79,7 +81,9 @@ def plan(envs: int = 2048) -> dict:
         "generations": [
             {"stage": s, "target_steps_per_actor": TARGET[s],
              "arms": list(arms(s)), "probe_steps_per_arm": PROBE_STEPS,
-             "winner_count": 1, "physical_step_training": "steps" in arms(s)}
+             "research_parent_count": 1,
+             "allow_provisional_continuation": True,
+             "physical_step_training": "steps" in arms(s)}
             for s in STAGES],
         "safety": ("probe each new curriculum for 2M, reject collapse/absurd spring energy, "
                    "screen ALL contenders at 5/10/20/40/80/150mm, including flat controls; "
