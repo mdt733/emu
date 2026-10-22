@@ -27,6 +27,11 @@ Reports can be rebuilt independently with:
 
 --plan performs no training and creates no files.
 --run stays in the foreground; overnight shell/session must remain running.
+In another WSL terminal, watch the latest saved policy (not raw MJX
+frames) in the read-only browser viewer:
+  emu viewer --live --root "$HOME/robot_lab/emu_runs/v5020_overnight_up_$(git rev-parse HEAD | cut -c1-12)" --port 8765
+Viewer: http://127.0.0.1:8765/ ; it auto-loads newly saved checkpoints
+from up64, up128, up224 and up320 without using the training GPU.
 Optional overrides: STOP_AFTER, RUN_ROOT, PARENT_FROM, PARENT_SHA256.
 HELP
 }
@@ -70,6 +75,9 @@ echo "Parent: $PARENT_FROM"
 echo "Sequence: 32,047,104 -> 64M -> 128M -> 224M -> 320M"
 echo "Terrain: same existing raised platform / same 6mm safety cap"
 echo "Worlds: 2048; seed 733; stop after $STOP_AFTER"
+echo "Live viewer (another WSL terminal):"
+echo "  emu viewer --live --root '$RUN_ROOT' --port 8765"
+echo "  Browse: http://127.0.0.1:8765/ (latest SAVED policy; not same MJX frames)"
 
 if [[ "$MODE" == --plan ]]; then
   echo "PLAN ONLY: no training, checkpoint load, or file writes."
