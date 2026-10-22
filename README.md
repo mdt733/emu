@@ -78,9 +78,12 @@ It validates the **matching existing** 312-input 12–22M foundation,
 local source/test contracts and GPU. If all saved foundations are
 incompatible or clearly unhealthy, `--run` instead starts a **fresh
 flat-first 312-input 20M foundation**, examines that new policy, and
-only proceeds to the first five-way 20→40M round if it qualifies.
-A rejected fresh parent is preserved and the script **stops**, without
-wasting another 100M steps. No source edits, Git merges, main/showcase changes, automatic 60M
+only proceeds to the five-way **40M → 60M → 80M** research rounds if
+the new foundation passes initial health screening. It also attempts
+a final **100M terrain-focused round** when the 80M walker has reasonable
+physical evidence. Mature qualification and promising-but-provisional
+research results are reported separately; only catastrophic collapse,
+invalid evidence or an incoherent gait stops progress. No source edits, Git merges, main/showcase changes, automatic 60M
 continuation or silent policy selection. It records a new root linked
 to the Git commit. Use `--check` first for a dry preflight.
 
