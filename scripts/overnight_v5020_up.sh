@@ -231,6 +231,9 @@ run_stage() {
     2>&1 | tee -a "$log"
   [[ -s "$final" ]] ||
     { echo "STOP: $name did not publish a final checkpoint" >&2; exit 1; }
+  # Write morning evidence even if the subsequent retention gate decides
+  # this stage must NOT continue. Trainer output is immutable either way.
+  report_now
   gate_stage "$name"
   local output_hash="$(sha256sum "$final" | cut -d' ' -f1)"
   local saved="$RUN_ROOT/lineage/$name.final.sha256"
@@ -239,7 +242,6 @@ run_stage() {
   fi
   printf '%s\n' "$output_hash" > "$saved"
   echo "=== $name accepted: $output_hash ==="
-  report_now
 }
 
 run_stage up64   64000000 "$PARENT_FROM" "$KNOWN_SOURCE"
