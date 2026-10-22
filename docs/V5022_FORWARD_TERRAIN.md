@@ -111,3 +111,59 @@ in five tests. Those failures are inherited from `main`, not failures
 of the forward sensor. The protected showcase must not be rewritten
 to satisfy a stale test. The dedicated terrain check was green before
 consolidation; final consolidated results are tracked in GitHub Actions.
+
+
+## Viewer acceptance lab (champion untouched)
+
+The *existing* `viewer_src` now offers the **FRONT DEPTH · 4×4**
+diagnostic, attached to any loaded policy. It DOES NOT connect this
+diagnostic to the policy observations, learned weights, or servo commands.
+
+Controls:
+- **Downward tilt:** 25–75° in 5° increments, initial 50°.
+- **Forward sensor mount:** 80–180 mm from root, initial 90 mm.
+  These are body coordinates, not world-X or feet-relative positions.
+- **Show rays:** 16 representative visible rays plus the optical mount.
+- **Ground:** existing viewer park, or switch into one real MuJoCo contact
+  course: flat, 5cm step up, 5cm step down, crest, trough,
+  half-cylinder log, or angled ridge.
+- **4×4 cells:** raw line-of-sight distances in **centimetres**,
+  far/top row to near/bottom row. Invalid = "—", NOT zero height.
+  Each optical zone is represented by five subrays over simple courses;
+  the larger park heightfield uses one centre ray per zone to keep the
+  viewer responsive. Neither emulates a calibrated ST histogram engine.
+- Sensor raycast includes MuJoCo-visible, **moving robot geometry**,
+  so swing feet/legs may occlude returns; no silent filtering.
+- In depth courses autonomous roaming is disabled, leaving the exact
+  champion actor under manual joystick control. Existing navigation
+  remains available in the normal park mode. The champion has NOT learned
+  these steps; falls here are expected, not evidence of sensor failure.
+
+To try it without replacing your working checkout:
+
+```bash
+git clone --branch feature/v5022-forward-terrain https://github.com/mdt733/emu.git ~/emu-v5022
+cd ~/emu-v5022
+bash scripts/setup_wsl.sh --install-node
+source .venv/bin/activate
+emu viewer showcase/champion.emupolicy --no-open
+# In your browser: http://127.0.0.1:8765/
+```
+
+A running local viewer must rebuild with `emu viewer-build` after pulling
+code updates. The public GitHub Pages showcase continues to use `main`;
+opening that public URL will NOT show v5022 until explicitly promoted.
+
+Feedback requested: choose a course; walk toward the feature with
+vX about 0.04–0.08 m/s; compare tilt 35/50/65° and mount 85/120/160 mm.
+Watch the far row, first reliable range change, dropout at the edge,
+and whether a swinging foot occludes a cell. Keep speed and starting
+position the same when comparing configurations.
+
+**Important caveat:** the browser renders actual MuJoCo geom positions for
+ray intersection, but its ray engine is Three.js visual geometry and its
+zone aggregation is simplified. It is a *qualitative* hardware validation,
+not a bit-identical readout from a real VL53L8CX. Also the loaded 232-input
+champion still uses its protected historical down-tripod floor estimator,
+which can become inaccurate on discontinuous new courses. The front panel
+reports independently observed geometry; no trained step-crossing claim.
