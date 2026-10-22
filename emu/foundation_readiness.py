@@ -27,15 +27,18 @@ def recent_fixed_exam(checkpoint: Path) -> dict[str, float] | None:
                              expected_sensor_contract=__contract(path))
     with history.open(newline="",encoding="utf-8-sig") as fd:
         matches=[row for row in csv.DictReader(fd)
-                 if row.get("eval_policy_step",row.get("step")) not in ("",None)
-                 and float(row.get("eval_policy_step") or row.get("step")) == target]
+                 if row.get("eval_policy_step") not in ("",None)
+                 and float(row["eval_policy_step"]) == target]
     if not matches:
         return None
     result = {}
     for key in ("eval_broad_score","eval_core_survival",
                 "eval_stress30_survival","eval_dynamic50_survival",
                 "eval_resilience50_survival", "eval_foundation_walking_pass",
-                "eval_foundation_forward_progress_m", "eval_foundation_commanded_forward_m"):
+                "eval_foundation_forward_progress_m", "eval_foundation_commanded_forward_m",
+                "eval_foundation_survival", "eval_foundation_step_evidence",
+                "eval_foundation_gravity_z", "eval_foundation_support",
+                "eval_foundation_vx_mae"):
         raw=matches[-1].get(key)
         if raw in (None,""):
             continue
@@ -194,12 +197,43 @@ def choose_fresh_foundation(directory: Path, *,
 
 
 def basic_foundation_issue(evaluation):
-    """Fail closed on old survival-only exams; require joint walking evidence."""
+    """Verify a fresh checkpoint using a full, *joint* frozen forward exam.
+
+    The evaluator computes walking_pass per original world (travel + requested
+    travel + gait + posture + support + survival). These aggregate measurements
+    are a provenance/consistency check, not a substitute for that joint test.
+    In particular a CSV containing only a claimed pass rate is not evidence.
+    """
     if not evaluation:
         return "no exact-checkpoint walking exam"
-    rate = evaluation.get("eval_foundation_walking_pass")
-    if rate is None or not math.isfinite(rate) or not 0. <= rate <= 1.:
-        return "missing or invalid commanded walking evidence; re-evaluate this checkpoint"
+    fields = ("walking_pass", "survival", "forward_progress_m",
+              "commanded_forward_m", "step_evidence", "gravity_z",
+              "support", "vx_mae")
+    values = {}
+    for field in fields:
+        name = "eval_foundation_" + field
+        try:
+            value = float(evaluation[name])
+        except (KeyError, ValueError, TypeError):
+            return f"missing or invalid commanded walking evidence: {name}"
+        if not math.isfinite(value):
+            return f"missing or invalid commanded walking evidence: {name}"
+        values[field] = value
+    rate = values["walking_pass"]
+    survival = values["survival"]
+    if not (0. <= rate <= survival <= 1.):
+        return "inconsistent foundation walking/survival evidence"
     if rate < .20:
         return f"insufficient genuine basic walkers ({rate:.3f} < 0.20)"
+    # 20% of worlds can be competent while the rest still learn. Aggregate
+    # gates must stay modest: hard turning/recovery is NOT a 20M requirement.
+    for key, minimum in (("commanded_forward_m", .05),
+                         ("forward_progress_m", .01),
+                         ("step_evidence", .02),
+                         ("gravity_z", .10),
+                         ("support", .10)):
+        if values[key] < minimum:
+            return f"foundation {key} {values[key]:.4f} below {minimum:.4f}"
+    if values["vx_mae"] < 0.:
+        return "invalid foundation vx tracking error"
     return None
