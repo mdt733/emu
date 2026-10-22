@@ -18,7 +18,7 @@ from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
 from .contracts import (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
                         OBS_SCHEMA_PREVIEW, source_repo_root)
 from .training_config import (TrainingConfig, foundation_config,
-                              mature_config, training_sensor_contract,
+                              mature_config, considered_config, training_sensor_contract,
                               verify_existing_phase_config)
 
 
@@ -27,7 +27,12 @@ def one_run_config(args) -> TrainingConfig:
     if args.envs <= 0 or args.steps <= 0:
         raise ValueError('--envs and --steps must both be positive')
     run_dir = Path(args.run_dir).expanduser().resolve()
-    if args.profile in ('foundation', 'terrain-bridge'):
+    if args.profile == 'considered':
+        if not getattr(args,'forward_preview',False):
+            raise ValueError('v5021 considered cold start requires --forward-preview (312 inputs)')
+        cfg = considered_config(run_dir=run_dir, steps=args.steps, seed=args.seed,
+                                device=args.device, envs=args.envs)
+    elif args.profile in ('foundation', 'terrain-bridge'):
         cfg = foundation_config(run_dir=run_dir, seed=args.seed,
                                 device=args.device, envs=args.envs)
     elif args.profile in ('mature', 'sim2real'):
@@ -42,7 +47,8 @@ def one_run_config(args) -> TrainingConfig:
                     if requested_pitch is None else requested_pitch)
     if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
         raise ValueError('--pitch-deg must be within (0, 30] degrees')
-    weight=float(getattr(args,'motor_guidance_weight',0.0))
+    weight=(cfg.motor_guidance_weight if args.profile == 'considered'
+            else float(getattr(args,'motor_guidance_weight',0.0)))
     if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
         raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
     grade=float(getattr(args,'contact_slope_deg',0.0))
@@ -52,10 +58,10 @@ def one_run_config(args) -> TrainingConfig:
     preview_masked = bool(getattr(args, 'forward_preview_masked', False))
     if preview_masked and not preview_actor:
         raise ValueError('--forward-preview-masked requires --forward-preview')
-    if preview_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge'):
+    if preview_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge', 'considered'):
         raise ValueError('--forward-preview requires foundation or sim2real')
     sensor_actor = bool(getattr(args, 'sensor_actor', False) or preview_actor)
-    if sensor_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge'):
+    if sensor_actor and args.profile not in ('foundation', 'sim2real', 'terrain-bridge', 'considered'):
         raise ValueError('--sensor-actor requires --profile foundation or sim2real')
     if args.profile == 'terrain-bridge' and not preview_actor:
         raise ValueError('terrain-bridge requires --forward-preview (312-input)')
@@ -101,6 +107,8 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('adaptive terrain exposure/edge/growth/initial outside lab bounds')
     if adaptive_flat and adaptive_limit:
         raise ValueError('adaptive flat control must have zero height ceiling')
+    if args.profile == 'considered' and (adaptive_limit != 150 or not varied or elevation_mode != 'up' or initial != 0.):
+        raise ValueError('v5021 currently requires true step-up terrain, variable placement, zero initial rating, and --terrain-height-ceiling-mm 150')
     if varied and (not preview_actor or not (adaptive_limit or adaptive_flat)):
         raise ValueError('varied placement requires 312-input preview + adaptive physical step topology')
     if elevation_mode != 'hurdle' and initial != 0.:
@@ -108,13 +116,13 @@ def one_run_config(args) -> TrainingConfig:
     if elevation_mode != 'hurdle' and (
             not preview_actor or not varied or adaptive_limit <= 0
             or box_height >= 0 or grade != 0 or terrain_radius > 0
-            or args.profile not in ('sim2real', 'terrain-bridge')):
+            or args.profile not in ('sim2real', 'terrain-bridge', 'considered')):
         raise ValueError('raised-platform training requires sim2real or terrain-bridge 312-input '
                          'adaptive step heights, varied placement and initially flat contact ground')
     # Mixed contact slopes and adaptive physical boxes require the verified
     # 312-input sensor contract; older actor schemes remain incompatible.
     if (adaptive_limit or adaptive_flat) and (
-            box_height >= 0 or grade > 0 or args.profile not in ('sim2real', 'terrain-bridge')
+            box_height >= 0 or grade > 0 or args.profile not in ('sim2real', 'terrain-bridge', 'considered')
             or not sensor_actor or (terrain_radius > 0 and not preview_actor)):
         raise ValueError('adaptive steps require sim2real; slope+step coupling requires 312-input preview')
     parent_commit = str(getattr(args, 'approve_parent_commit', '') or '')
