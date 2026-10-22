@@ -409,3 +409,75 @@ contains source changes and authored regression tests. Run tests and
 validate a flat zero-height equivalence/physics gate before spending
 more substantial 2048-world GPU transitions. A mixed-slope and
 independently-rated downhill campaign remains future work.
+
+
+## 2026-10-22 — hardened non-breaking 2048-world restart
+
+After the 100%-fall 20M->up catastrophe, do NOT run the old
+`624bcb92db8c` continuation. That child is rejected as evidence of
+learning. **Keep the exact qualified 20M best.pkl in place.**
+
+The current branch's conservative launch now enforces, IN ORDER:
+
+1. No dirty Git checkout; only `feature/v5020-coldstart-terrain`.
+2. Fast source tests for rated-height distribution, separation of
+   easy/challenge completed trials, quarantine and CLI handoff.
+3. Look for the previously qualified 20M foundation at
+   `~/robot_lab/emu_runs/v5020_2048_624bcb92db8c/foundation/checkpoints/best.pkl`.
+   It is accepted automatically ONLY with SHA256
+   `23ca16ecd7de3b9980108d3833bb47dd8276f02aab6a2db35a3f30208dd4fc23`.
+   Any other source must be explicitly specified with `FOUNDATION_FROM`.
+   If nothing is available, fail CLOSED; `COLD_START=1` opts in to a
+   truly new foundation on a blank PC.
+4. Verify exact-step saved flat walking evidence and unchanged 312-channel
+   fingerprint, optimiser, normaliser and model schema.
+5. **NEW frozen CPU verification before PPO updates:** same saved network,
+   same normaliser, same steady +X command and seed on three independent
+   worlds: original flat robot.xml, long-platform physics/sensors held at
+   exactly 0mm, and genuine 0..0.25mm height probes. All use only 4 envs
+   to check continuity (NOT a 64-env training smoke). Abort before GPU
+   training for lost frozen forward walking or early falls. Each world
+   has its OWN JAX-traced function: do NOT mutate one JIT closure between
+   zero and positive height cases. Logs saved as `bridge_parity_*.log`.
+6. Trainer compare saved original foundation config against bridge config
+   and reject ANY changed command envelope, phase rate, push ceiling,
+   reward, PPO economics, actor/normaliser, capability field mode, or
+   any unrelated setting. Only the new physical terrain sampler/geometry,
+   target step count/run location, and explicitly approved old-source
+   parent hash may differ.
+7. Remove the UNTRAINED historical `RegimeParams.frontier_terrain_height_m
+   = 0.003` placeholder from the incoming flat checkpoint. Actual
+   new elevation rating is exactly 0mm. All other saved learner/
+   governor/health/field state survives intact.
+8. Sample continuous step-up heights below/near/above earned skill,
+   subject to the explicit 6mm safety limit. At initial 0mm rating,
+   only 0..0.25mm positive probes enter. Promotion requires physical
+   crossings at ABOVE-rated heights and cannot exceed the MEASURED
+   successful height. Failure at easier heights permits retreat.
+   No step completion is inferred from just proximity or box touching.
+9. If 4 consecutive 2048-world PPO rollouts experience catastrophic
+   short-episode falls, OR any physical vx exceeds 8m/s, write
+   `UNSAFE_RESUME.json`, abort, and reject ALL future `--resume auto`
+   attempts for that child lineage. The original parent is untouched.
+10. The experimental default stops at the 32M absolute-step `up` stage.
+    Random down steps/slope introduction remain BLOCKED until independent
+    0mm/0-degree skill-rating continuity exists. Old
+    `scripts/overnight_v5020.sh --run` and `main` are unaffected.
+
+User's one command (runs source gate and frozen CPU parity, then starts
+2048-world GPU PPO only if they pass):
+
+```bash
+cd ~/emu-v5020
+git switch feature/v5020-coldstart-terrain
+git pull --ff-only origin feature/v5020-coldstart-terrain
+source .venv/bin/activate
+bash scripts/run_v5020_2048.sh --run
+```
+
+No one has run this revised code on the user's WSL GPU yet. Do NOT claim
+acceptance or guaranteed performance. If preflight fails, do not bypass
+it. Fetch `~/robot_lab/emu_runs/v5020_2048_<gitshort>/logs/`, plus
+the printed traceback and failure checkpoint provenance, to diagnose
+before spending GPU time. Even successful frozen 4-world parity is
+only a necessary short-horizon check, not proof of robust locomotion.
