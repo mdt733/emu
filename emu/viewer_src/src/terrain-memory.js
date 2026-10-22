@@ -1,12 +1,13 @@
-// Browser-local v5019 terrain-memory DIAGNOSTIC. The current schema-1/2
-// walking actor does NOT consume this map. Keep this sidecar out of policy obs.
-// Geometry/calibrations mirror emu/rolling_tof.py and emu/forward_tof.py.
+// Browser-local v5019 rolling V terrain memory. Schema-1/2 actors keep this
+// as an optional diagnostic; schema-3 312-input actors MUST consume its
+// exact 20 ordered readout channels on every frame.
+// Geometry/calibrations approximate emu/rolling_tof.py and emu/forward_tof.py.
 // No true MuJoCo ground height, box height or qvel enters the MEMORY update:
 // pose.vbody is used ONLY to synthesize a noisy gyro-compensated optical flow.
 import { inferTripod } from './sensor.js';
 
 export const V_CELLS=51, V_START=-0.10, V_SPACING=.01, V_APEX=-.04;
-export const V_SAMPLES=[5,10,15,20,25]; // -5,0,5,10,15cm
+export const V_SAMPLES=[5,10,15,20,30]; // -5,0,5,10,20cm; EXACT rolling_tof.py contract
 const MOUNTS=[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]];
 const FRONT=[[.035,-.05,-.025],[.035,.05,-.025]];
 const RAYS=FRONT.map(()=>{const dx=(.20-.035)/.2334, l=Math.hypot(dx,1);return [dx/l,0,-1/l];});
