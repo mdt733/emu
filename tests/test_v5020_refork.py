@@ -267,6 +267,7 @@ def test_full_three_generation_refork_uses_one_winner_each_time(tmp_path,monkeyp
     trace=[]
     def fake_phase(run,cfg,*,parent,provenance):
         assert parent.exists()
+        assert cfg.log_every_updates == (1 if run.name=="probe" else 10)
         ck=run/"checkpoints"/"final.pkl"
         ck.parent.mkdir(parents=True,exist_ok=True)
         ck.write_text(f"{run} <- {parent}")
@@ -347,6 +348,24 @@ def test_collapse_rejects_all_and_keeps_the_parent(tmp_path,monkeypatch):
     assert board["winner"] is None
     assert not any((root/"walk40"/a/"finish").exists() for a in c.WALK_ARMS)
 
+
+
+def test_logging_cadence_is_explicit_and_older_foundations_still_load(tmp_path):
+    from dataclasses import asdict
+    from emu.training_config import TrainingConfig, LOG_EVERY_UPDATES
+    assert LOG_EVERY_UPDATES == 10
+    full=asdict(TrainingConfig())
+    assert full["log_every_updates"]==10
+    full.pop("log_every_updates")
+    import json
+    path=tmp_path/"old_run_config.json"
+    path.write_text(json.dumps(full))
+    loaded=TrainingConfig.load(path)
+    assert loaded.log_every_updates==10
+    # A 4096-world 2M probe has about 16 PPO updates, so one-row-per-
+    # update logging exposes recovery/collapse whereas default 10 would
+    # leave only about two logged measurements.
+    assert 2_000_000 // (4096*32) >= 15
 
 
 def test_step_frontier_is_earned_continuously_not_stopped_at_exam_heights():
