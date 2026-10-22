@@ -271,3 +271,40 @@ def scan_multizone_oriented_boxes(xp, torso_world, body_to_world,
     return reduce_multizone_measurements(
         xp, rays, noise_m=noise_m, dropout=dropout,
         min_range_m=min_range_m, max_range_m=max_range_m)
+
+
+
+def scan_tripod_oriented_boxes(xp, torso_world, body_to_world,
+                              box_centres_world, box_rotations_world,
+                              box_half_sizes, *, range_noise_m=None,
+                              dropout=None):
+    """Existing physical down-looking tripod measured against REAL solids.
+
+    Important for mixed platforms: the v5016 floor-plane forward model
+    would otherwise see through a raised landing. This opt-in diagnostic
+    uses actual support geom poses and the old tripod mounting contract.
+    It is NOT yet wired into the protected 232-observation environment.
+
+    Returns (three raw ranges [W,3], three validity bits [W,3]).
+    Do not infer a physically sound local plane when these three rays
+    land on different platforms; three points trivially fit *some* plane.
+    """
+    from .directional import (
+        TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
+        TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
+    p = xp.asarray(torso_world)
+    R = xp.asarray(body_to_world)
+    mounts = xp.asarray(TOF_TRIPOD_MOUNTS_BODY_M)
+    beams = xp.asarray(TOF_TRIPOD_BEAMS_BODY)
+    origins = p[:,None,:] + xp.einsum("wij,kj->wki", R, mounts)
+    directions = xp.einsum("wij,kj->wki", R, beams)
+    ranges = ray_oriented_box_distances(
+        xp, origins, directions, box_centres_world, box_rotations_world,
+        box_half_sizes)
+    if range_noise_m is not None:
+        ranges += xp.asarray(range_noise_m)
+    good = (xp.isfinite(ranges) &
+            (ranges >= TOF_MIN_RANGE_M) & (ranges <= TOF_MAX_RANGE_M))
+    if dropout is not None:
+        good &= ~xp.asarray(dropout, dtype=bool)
+    return xp.where(good, ranges, 0.), good
