@@ -403,7 +403,9 @@ def train(args: TrainingConfig) -> int:
                 float("nan") if not np.isfinite(candidate) or not np.isfinite(previous)
                 else max(previous, candidate))
 
-    log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
+    if not 1 <= int(args.log_every_updates) <= 1000:
+        raise ValueError("log_every_updates must be in [1,1000]")
+    log_every_steps = args.envs * ROLLOUT_STEPS * int(args.log_every_updates)
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
 
