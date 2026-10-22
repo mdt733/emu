@@ -79,6 +79,22 @@ def reject_obviously_collapsed(evaluation: dict[str,float] | None) -> str | None
     if core is not None and stress is not None and core < .15 and stress < .15:
         return (f"severe low-difficulty collapse: core={core:.3f}, "
                 f"stress30={stress:.3f}; do not spend 100M steps on this parent")
+
+    # An actor can stand upright almost indefinitely on the easiest panel
+    # while falling nearly immediately whenever given real commands.
+    # The old 4096-world v5020 foundation is an observed counterexample:
+    # core=.99988, stress30=.00171, dynamic50=.00183,
+    # resilience50=.00012. This is NOT a transferable walking foundation.
+    dynamic = evaluation.get("eval_dynamic50_survival")
+    resilience = evaluation.get("eval_resilience50_survival")
+    if (core is not None and core >= .70
+            and stress is not None and stress < .03
+            and dynamic is not None and dynamic < .03
+            and resilience is not None and resilience < .03):
+        return (f"narrow, non-transferring foundation: core={core:.3f} but "
+                f"stress30={stress:.4f}, dynamic50={dynamic:.4f}, "
+                f"resilience50={resilience:.4f}; review earlier snapshots "
+                f"or train a new foundation before a long five-way refork")
     return None
 
 
