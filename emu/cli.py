@@ -259,7 +259,7 @@ def main(argv=None) -> int:
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--profile',choices=['foundation','mature','sim2real'],default='foundation')
+    q.add_argument('--profile',choices=['foundation','mature','sim2real','terrain-bridge'],default='foundation')
     q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
@@ -293,6 +293,8 @@ def main(argv=None) -> int:
                    help='v5019 opt-in 312-input V-shaped rear-ToF+flow memory (preserves 220/232)')
     q.add_argument('--forward-preview-masked',action='store_true',
                    help='same 312-input physical sensing with 20 terrain-memory channels masked (controlled baseline)')
+    q.add_argument('--approve-parent-commit',default='',help='explicit SHA-1 source commit of a trusted earlier-branch 312-input foundation')
+    q.add_argument('--approve-parent-sha256',default='',help='exact SHA-256 of that earlier-source foundation checkpoint; required together with --approve-parent-commit')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
