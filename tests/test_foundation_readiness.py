@@ -104,6 +104,21 @@ def test_actual_v5020_20m_foundation_is_not_assumed_to_walk(tmp_path):
                           _record(path)|{"source_evaluation":old})
 
 
+def test_unexamined_saved_policy_is_unknown_not_automatically_qualified(tmp_path):
+    root=tmp_path/"foundation20"
+    ck=root/"checkpoints"
+    ck.mkdir(parents=True)
+    (ck/"best.pkl").write_bytes(b"not-an-exam")
+    def no_exam(path):
+        return _record(path)|{"source_evaluation":None}
+    with pytest.raises(RuntimeError,match="no exact-checkpoint fixed exam"):
+        choose_foundation([root],inspect=no_exam)
+    # A deliberately selected source can be investigated/run separately,
+    # but the default overnight auto-selection will not silently pick it.
+    chosen=choose_foundation([],explicit=ck/"best.pkl",inspect=no_exam)
+    assert chosen["source_evaluation"] is None
+
+
 def test_early_healthy_core_does_not_require_solved_difficult_panels():
     # A foundation is allowed to be weak under harder conditions without
     # being an obvious degenerate stand-still policy.
