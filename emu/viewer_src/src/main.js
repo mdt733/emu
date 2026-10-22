@@ -23,6 +23,13 @@ const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
+const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
+const depthMount=$('depthMount'),depthRays=$('depthRays');
+const depthCells=Array.from({length:16},()=>{
+  const cell=document.createElement('span');
+  cell.className='depth-cell invalid';cell.textContent='—';
+  $('depthGrid').appendChild(cell);return cell;
+});
 const treesToggle = $('treesToggle');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
@@ -254,7 +261,10 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
+    sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    updateDepthSettings();
+    if(terrainMode.value==='sensor' && demoActive)stopDemo();
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -348,10 +358,54 @@ cameraBtn.addEventListener('click', () => {
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
+  if(terrainMode.value==='sensor'&&demoActive)stopDemo();
   if (!sim) return;
   try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
   catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
 }
+function updateDepthSettings(){
+  $('depthTiltOut').textContent=depthTilt.value+'°';
+  $('depthMountOut').textContent=depthMount.value+' mm';
+  if(sim)sim.setDepthInspector({
+    enabled:depthOn.checked,tilt:Number(depthTilt.value),
+    forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+  });
+}
+function changeDepthCourse(){
+  terrainMode.value='sensor';
+  if(demoActive)stopDemo();
+  if(!sim)return;
+  try{
+    sim.setSensorObstacle(depthCourse.value);
+    sim.setTerrainMode('sensor',Number(terrainMax.value));
+    navigator.reset();updateStickLabels();
+  }catch(error){setStatus('Depth lab course: '+error.message,'error');}
+}
+for(const input of [depthOn,depthTilt,depthMount,depthRays])
+  input.addEventListener('input',updateDepthSettings);
+depthCourse.addEventListener('change',changeDepthCourse);
+function updateDepthGrid(){
+  const data=sim?.depthReading;
+  let hits=0;
+  depthCells.forEach((cell,i)=>{
+    const good=Boolean(data?.valid[i]);
+    cell.className=good?'depth-cell':'depth-cell invalid';
+    if(good){
+      const cm=data.ranges[i]*100;hits++;
+      cell.textContent=cm.toFixed(0);
+      // Near = teal, far = blue. Zero is NEVER treated as near terrain.
+      const fraction=Math.max(0,Math.min(1,(cm-5)/145));
+      cell.style.background='hsl('+(174+fraction*52).toFixed(0)+' 42% '+(29+fraction*11).toFixed(0)+'%)';
+    }else{
+      cell.textContent='—';cell.style.background='';
+    }
+  });
+  $('depthNote').textContent=!depthOn.checked
+    ? 'Diagnostic off · champion unchanged'
+    : !data?'Waiting for robot · no scan yet'
+    : hits+'/16 zones · '+data.subrays+' ray'+(data.subrays!==1?'s':'')+'/zone · cm line-of-sight';
+}
+
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
@@ -428,6 +482,7 @@ function updateTelemetry(now, dt) {
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
   $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
+  updateDepthGrid();
 }
 
 function frame(ms) {
@@ -443,7 +498,7 @@ function frame(ms) {
     fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
   }
   if (sim) {
-    if (!demoActive && !navigationFault && handoff.shouldResume(now,
+    if (!demoActive && terrainMode.value!=='sensor' && !navigationFault && handoff.shouldResume(now,
        held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
        Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
       startDemo();
