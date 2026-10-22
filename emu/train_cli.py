@@ -185,6 +185,33 @@ def verify_flat_parent_terrain_bridge(parent_config: TrainingConfig,
         raise RuntimeError('Terrain handoff must not silently change reward weights')
 
 
+def verify_rated_parent_continuation(parent_config: TrainingConfig,
+                                     next_config: TrainingConfig) -> None:
+    """A rated step-up stage is another checkpoint, NOT a new lesson.
+
+    Allow only output location, absolute target steps and explicitly pinned
+    source-parent identity to change. All training inputs/economics and the
+    sampled physical height distribution must remain exactly the same.
+    The saved curriculum's *earned* height is restored by training.py,
+    never replaced by this static initial-height setting.
+    """
+    from dataclasses import asdict
+    if (parent_config.terrain_elevation_mode != 'up' or
+            parent_config.terrain_height_safety_m <= 0. or
+            parent_config.observation_schema != OBS_SCHEMA_PREVIEW):
+        raise ValueError('overnight rated step-up continuation requires a real 312-input up-stage parent')
+    allowed={'run_dir','steps','resume','device',
+             'approved_parent_git_commit','approved_parent_sha256'}
+    old=asdict(parent_config)
+    new=asdict(next_config)
+    changed={key:(old[key],new[key]) for key in old
+             if key not in allowed and old[key]!=new[key]}
+    if changed:
+        raise RuntimeError(
+            'Non-continuous rated-elevation stage handoff. Refusing to alter '
+            f'command, rewards, push, sensor, optimizer, terrain or curriculum: {changed}')
+
+
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
@@ -278,6 +305,8 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
                 parent.parent.parent/'training_config.json')
             if old_config.terrain_height_safety_m == 0.:
                 verify_flat_parent_terrain_bridge(old_config, config)
+            else:
+                verify_rated_parent_continuation(old_config, config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
