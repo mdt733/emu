@@ -74,8 +74,9 @@ export function parsePolicy(text) {
           c.rolling_start_m !== -.10 ||
           JSON.stringify(c.rolling_actor_indices) !== JSON.stringify([5,10,15,20,30]) ||
           JSON.stringify(c.rolling_actor_sample_x_m) !== JSON.stringify([-.05,0,.05,.1,.2]) ||
-          c.forward_masked !== false && c.forward_masked !== true ||
-          c.forward_model_revision !== 'v5019_forward_two_ray_v1' && !c.forward_model_revision)
+          typeof c.forward_masked !== 'boolean' ||
+          c.forward_model_revision !== 'two_far_rays_three_box_aware_tripod_and_camera_flow_depth_v6' ||
+          c.rolling_model_revision !== 'rear_2d_apex_tof_v_tracks_51x2_v7_actor20cm')
         throw new Error('Unsupported 312-input V-shaped terrain memory layout');
     }
   } else if (p.source?.checkpoint_schema !== 7 ||
