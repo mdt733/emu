@@ -138,7 +138,8 @@ echo "=== Focused source regressions (no training) ==="
 python -m pytest -q \
   tests/test_v5020_refork.py tests/test_v5020_coldstart.py \
   tests/test_scoring.py tests/test_competence_shadow.py \
-  tests/test_experiment_io.py
+  tests/test_experiment_io.py tests/test_foundation_readiness.py \
+  tests/test_overnight_launcher.py
 echo "=== Live MJX/CUDA doctor (small smoke, no training) ==="
 XLA_PYTHON_CLIENT_PREALLOCATE=false emu doctor --v5015-smoke --domain-smoke
 echo "=== Research plan (read-only) ==="
