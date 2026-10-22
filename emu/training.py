@@ -160,7 +160,8 @@ def train(args: TrainingConfig) -> int:
         env_options.update(
             terrain_contact_mode='box_surface', terrain_adaptive=True,
             terrain_height_exposure=args.terrain_height_exposure,
-            terrain_height_edge_fraction=args.terrain_height_edge_fraction)
+            terrain_height_edge_fraction=args.terrain_height_edge_fraction,
+            terrain_exploration_safety_m=args.terrain_height_safety_m)
         print(f'{LOG_PREFIX} physical course={args.terrain_elevation_mode} '
               f'ceiling={args.terrain_height_safety_m:.3f}m '
               f'physical_course_sha256={course_sha256}',flush=True)
