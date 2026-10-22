@@ -142,3 +142,67 @@ export class SensorObserver {
             groundConfidence:valid?ground.confidence*gradeFresh:0};
   }
 }
+
+
+// Diagnostic-only ST VL53L8CX (8x8-capable package in 4x4 mode).
+// No policy observation is constructed here; the active champion stays intact.
+// Pixel rows go far -> near; columns go body-right -> body-left.
+export const DEPTH_FOV_DEG = 45;
+export const DEPTH_ZONES = 4;
+export const DEPTH_MAX_M = 1.5;
+const DEPTH_OFFSETS = [[0,0],[-3,0],[3,0],[0,-3],[0,3]];
+
+export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}) {
+  if (![forward,tilt,height].every(Number.isFinite) || forward<.078 ||
+      forward>.20 || tilt<15 || tilt>85)
+    throw new Error('Depth mount must be forward 78–200 mm, tilt 15–85°');
+  const rotate = ([x,y,z]) => [
+    R[0]*x+R[1]*y+R[2]*z,
+    R[3]*x+R[4]*y+R[5]*z,
+    R[6]*x+R[7]*y+R[8]*z,
+  ];
+  const mounted = rotate([forward,0,height]);
+  const origin = torso.map((v,i)=>v+mounted[i]);
+  const directions=[];
+  const rad=Math.PI/180;
+  for(let row=0;row<4;row++)for(let col=0;col<4;col++){
+    const zone=[];
+    for(const [offY,offZ] of DEPTH_OFFSETS){
+      const yaw=(-16.875+11.25*col+offY)*rad;
+      const pitch=(tilt-16.875+11.25*row+offZ)*rad;
+      zone.push(rotate([
+        Math.cos(pitch)*Math.cos(yaw),
+        Math.cos(pitch)*Math.sin(yaw),
+        -Math.sin(pitch),
+      ]));
+    }
+    directions.push(zone);
+  }
+  return {origin,directions};
+}
+
+export function readDepthProbe(pose, cast, {subrays=5, noise=0, dropout=0}={}) {
+  // Caller provides real ray intersections against the visible world.
+  // Five rays approximate finite zones; this is NOT ST histogram simulation.
+  const count=subrays===1?1:5;
+  const ranges=[],valid=[],hitPoints=[];
+  for(const zone of pose.directions){
+    const values=[];
+    for(let j=0;j<count;j++){
+      const hit=cast(pose.origin,zone[j],DEPTH_MAX_M);
+      const distance=Number(hit);
+      if(Number.isFinite(distance)&&distance>=.02&&distance<=DEPTH_MAX_M)
+        values.push(distance);
+    }
+    values.sort((a,b)=>a-b);
+    let ok=values.length>=Math.ceil(count*.6);
+    let value=ok?values[Math.floor((values.length-1)/2)]:0;
+    if(ok && noise) value+=noise*(Math.random()-.5)*2;
+    ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
+    ranges.push(ok?value:0);
+    valid.push(ok);
+    const distance=ok?value:.55;
+    hitPoints.push(pose.origin.map((p,k)=>p+distance*zone[0][k]));
+  }
+  return {ranges,valid,origin:pose.origin,hitPoints};
+}
