@@ -113,8 +113,24 @@ class RegimeGovernor:
                  terrain_height_safety_m: float = 0.0,
                  terrain_height_initial_m: float = 0.003,
                  terrain_height_growth_m: float = 0.001,
-                 terrain_rated_elevation: bool = False):
+                 terrain_rated_elevation: bool = False,
+                 cold_start_frontier: bool = False):
         self.params = RegimeParams()
+        # V5021 alone starts open-ended frontiers at real seed commands,
+        # not the 0.60m/s 20M-pretrained mature profile. Separate instance
+        # floors prevent the next qualified expansion from jumping back to
+        # the historically pretrained 0.60m/s floor.
+        self.frontier_growth_frac = (
+            0.015 if cold_start_frontier else FRONTIER_GROWTH_FRAC)
+        if cold_start_frontier:
+            self.FRONTIER_FLOOR_VX_HI = 0.060
+            self.FRONTIER_FLOOR_VX_LO = -0.020
+            self.FRONTIER_FLOOR_VY = 0.020
+            self.FRONTIER_FLOOR_YAW = 0.150
+            self.params.frontier_vx_hi = self.FRONTIER_FLOOR_VX_HI
+            self.params.frontier_vx_lo = self.FRONTIER_FLOOR_VX_LO
+            self.params.frontier_vy = self.FRONTIER_FLOOR_VY
+            self.params.frontier_yaw = self.FRONTIER_FLOOR_YAW
         if regime_command_frac is not None:
             self.params.regime_command_frac = float(regime_command_frac)
         if athletic_rehearsal_frac is not None:
@@ -352,7 +368,7 @@ class RegimeGovernor:
                 good = ema >= self.FRONTIER_EXPAND_PRECISION and precision >= 0.55
                 sustained_bad = self.frontier_bad_streak[axis] >= self.FRONTIER_BAD_STREAK_LIMIT
                 if easy_enough and good:
-                    mag = min(safety_mag, max(abs(cur), floor_mag) * (1.0 + FRONTIER_GROWTH_FRAC))
+                    mag = min(safety_mag, max(abs(cur), floor_mag) * (1.0 + self.frontier_growth_frac))
                     setattr(self.params, field, sign * mag)
                     frontier_events[axis] = 'expand_edge_proven'
                 elif sustained_bad:
@@ -364,7 +380,7 @@ class RegimeGovernor:
 
             cur = float(self.params.frontier_push_n)
             if self.fall_ema['resilience'] <= 0.22 and self.competence['resilience'] >= 0.60:
-                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + self.frontier_growth_frac))
                 frontier_events['push_n'] = 'expand'
             elif self.fall_ema['resilience'] >= 0.45:
                 self.params.frontier_push_n = max(0.70, cur * (1.0 - FRONTIER_RETREAT_FRAC))
@@ -377,7 +393,7 @@ class RegimeGovernor:
                           float(row.get('precision_vy', 0.0)),
                           float(row.get('precision_yaw', 0.0)))
             if global_fall <= 0.25 and settled >= 0.55:
-                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + 0.5*FRONTIER_GROWTH_FRAC))
+                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + 0.5*self.frontier_growth_frac))
                 frontier_events['sensor'] = 'expand'
             elif global_fall >= 0.50:
                 self.params.frontier_sensor_scale = max(1.50, cur * (1.0 - 0.5*FRONTIER_RETREAT_FRAC))
@@ -396,7 +412,7 @@ class RegimeGovernor:
                 else:
                     self.frontier_bad_streak['combo'] = max(0, int(self.frontier_bad_streak.get('combo', 0)) - 1)
                 if easy_enough and ema >= 0.60 and cp >= 0.55:
-                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + self.frontier_growth_frac))
                     frontier_events['combo'] = 'expand_edge_proven'
                 elif self.frontier_bad_streak['combo'] >= self.FRONTIER_BAD_STREAK_LIMIT:
                     self.params.frontier_combo_radius = max(self.FRONTIER_FLOOR_COMBO, cur * (1.0 - FRONTIER_RETREAT_FRAC))
@@ -416,8 +432,8 @@ class RegimeGovernor:
                 else:
                     self.frontier_bad_streak['accel'] = max(0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
                 if self.fall_ema['transition'] <= 0.25 and self.competence['transition'] >= 0.60 and ema >= 0.55:
-                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - FRONTIER_GROWTH_FRAC))
-                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - 2.0*FRONTIER_GROWTH_FRAC))
+                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - self.frontier_growth_frac))
+                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - 2.0*self.frontier_growth_frac))
                     frontier_events['accel'] = 'expand_transition_proven'
                 elif self.fall_ema['transition'] >= 0.50 or self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT:
                     self.params.frontier_transition_hold_s = min(0.90, self.params.frontier_transition_hold_s * (1.0 + FRONTIER_RETREAT_FRAC))
