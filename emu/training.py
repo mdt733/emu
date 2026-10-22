@@ -230,7 +230,8 @@ def train(args: TrainingConfig) -> int:
                               terrain_height_safety_m=args.terrain_height_safety_m,
                               terrain_height_initial_m=args.terrain_height_initial_m,
                               terrain_height_growth_m=args.terrain_height_growth_m,
-                              terrain_rated_elevation=args.terrain_elevation_mode != 'hurdle')
+                              terrain_rated_elevation=args.terrain_elevation_mode != 'hurdle',
+                              cold_start_frontier=bool(getattr(args, 'considered_reward', False)))
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
