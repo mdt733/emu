@@ -175,6 +175,9 @@ def build() -> int:
             'lockfile before distributing this Git checkout.'
         )
     subprocess.check_call(['npm', 'ci', '--no-audit', '--no-fund'], cwd=src)
+    # A 312-input actor cannot safely be served by a browser that silently
+    # truncates its observation packet. Fail build BEFORE serving that bundle.
+    subprocess.check_call(['npm', 'test'], cwd=src)
     subprocess.check_call(['npm', 'run', 'build'], cwd=src)
     dist = src / 'dist'
     # This single package-owned source is never regenerated from a mirror.
