@@ -655,3 +655,57 @@ the process ends.** Don't pull into its checkout mid-campaign:
 the launcher strictly pins a source Git commit across stages.
 This is purely presentation/CPU summary work for the NEXT launch,
 not a reason to interrupt a healthy 320M overnight.
+
+
+## 2026-10-22 late — browser live viewer rejected schema-3 312-input actor
+
+Observed user-visible error exactly:
+`Live feed: Unsupported policy format/schema: emu-policy/3`.
+
+**Root cause:** `emu/viewer_server.py::build_bundle` correctly
+exports schema 3 for the 312-input preview, but browser
+`viewer_src/src/policy.js::parsePolicy` only accepted schema 1/2.
+The browser also had an unused terrain-memory sidecar which was
+NEVER appended to neural observations. Merely allowing schema 3 would
+have led to a misleading observation-dimension failure or an invalid
+actor.
+
+Feature-branch-only fix:
+- Browser schema3 allowed only with proper 78x4=312, checkpoint
+  schema9, 58 base+10 measured V heights+10 confidence ordered
+  right/left and exact sample positions [-5,0,5,10,20] cm.
+- `SensorObserver` for schema3 uses same delayed tripod/flow as schema2.
+- Schema3's `RollingTerrainDiagnostic` now runs on EVERY control frame,
+  independent of whether visual scanner panel is open; its genuine
+  measured/flow-advected readout feeds the 20 NN channels.
+  Optional UI freeze never freezes actual NN sensor inputs.
+  Schema1/2 continue as before with purely optional diagnostic.
+- Corrected far-V actor and panel sample from an old 15cm to 20cm.
+- `preview-observation.js` validates the 58+20 channel contract.
+- `viewer_src/tests/schema3.test.mjs` validates schema1/2/3,
+  refuses wrong 312 field order/checkpoint 8, validates sample indices,
+  actor observations and masking. `emu viewer-build` runs `npm test`
+  before bundling so a stale 1/2-only client cannot be shipped quietly.
+
+**DO NOT pull into source-pinned actively training checkout!**
+It has already resumed the protected 32->320M experiment and source
+commit checking across overnight stages. These changes may be used in
+a completely separate, DETACHED viewer worktree with a NEW port,
+without touching training's code or checkpoint writers.
+
+Suggested viewer-only worktree, from another WSL terminal:
+```bash
+git -C "$HOME/emu-v5020" fetch origin feature/v5020-coldstart-terrain
+git -C "$HOME/emu-v5020" worktree add --detach \
+  "$HOME/emu-v5020-viewer" origin/feature/v5020-coldstart-terrain
+cd "$HOME/emu-v5020-viewer"
+source "$HOME/emu-v5020/.venv/bin/activate"
+PYTHONPATH="$PWD" python -m emu.cli viewer-build
+RUN_ROOT="$(ls -dt "$HOME"/robot_lab/emu_runs/v5020_overnight_up_* | head -n1)"
+PYTHONPATH="$PWD" python -m emu.cli viewer --live \
+  --root "$RUN_ROOT" --port 8766
+```
+Open http://127.0.0.1:8766/ . The watch process reads ONLY
+existing training checkpoints; trained PPO stays in original source.
+The WASM browser sim is an approximate physical replay, not literally
+the same MJX environment or calibrated 6mm step exam.
