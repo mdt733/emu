@@ -129,11 +129,12 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.sensorObserver = bundle.schema === 2
+    this.sensorObserver = bundle.schema >= 2
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
-    // Separate sidecar sensor, never alters a currently walking 220/232 actor.
+    // Schema 3 *consumes* V memory (20 terrain channels in 78x4); schemas
+    // 1/2 retain a purely optional, viewer-only V diagnostic.
     this.terrainMemory = new RollingTerrainDiagnostic();
-    this.terrainMemoryActive = false;
+    this.terrainMemoryActive = bundle.schema === 3;
     this.terrainMemoryFrozen = false;
     this.showTerrainRays = false;
     this.scanColliderMeshes = [];
@@ -341,11 +342,13 @@ export class EmuBrowserSim {
   }
 
   setTerrainDiagnostic(enabled,{rays=false,freeze=false}={}) {
-    const active=Boolean(enabled);
+    const actorNeedsMemory=this.bundle.schema === 3;
+    const active=actorNeedsMemory || Boolean(enabled);
     if(active&&!this.terrainMemoryActive)this.terrainMemory.reset();
     this.terrainMemoryActive=active;
-    this.terrainMemoryFrozen=Boolean(freeze);
-    this.showTerrainRays=active&&Boolean(rays);
+    // Freezing the overlay must NEVER freeze policy observations.
+    this.terrainMemoryFrozen=!actorNeedsMemory && Boolean(freeze);
+    this.showTerrainRays=Boolean(enabled)&&Boolean(rays);
   }
 
   setCameraMode(mode) {
@@ -803,8 +806,8 @@ export class EmuBrowserSim {
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
-    // Even if the trained actor is still schema-1/2, update the V memory
-    // entirely independently as a measured diagnostic (never policy input).
+    // For schema-3 this is the ACTUAL 20-channel actor sensor memory.
+    // For schema-1/2 it remains viewer-only; neither changes other actors.
     if(this.terrainMemoryActive){
       const pose=this.sensorPose();
       this.terrainMemory.update(
@@ -950,6 +953,15 @@ export class EmuBrowserSim {
       base[k++] = sensor.forwardGrade;
       base[k++] = sensor.sideGrade;
       base[k++] = sensor.groundConfidence;
+    }
+    if(this.bundle.schema === 3) {
+      // Authoritative 78-value frame contract:
+      // [55 legacy, 3 tripod grade, 10 V heights, 10 V confidences].
+      // Sensor readout is measured/flow-advected, NOT exact MuJoCo terrain.
+      const memory = this.terrainMemory.values();
+      const masked = this.bundle.observation.sensor_contract.forward_masked;
+      for(const x of memory.actorHeights) base[k++] = masked ? 0 : x;
+      for(const x of memory.actorConfidence) base[k++] = masked ? 0 : x;
     }
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
