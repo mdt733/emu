@@ -184,6 +184,7 @@ class TrainingConfig:
     # Never silently substitute browser demonstration geoms for GPU lessons.
     terrain_box_height_mm: int = -1
     terrain_random_placement: bool = False  # 312-input adaptive course: vary step X/Y/yaw per birth
+    terrain_elevation_mode: str = "hurdle"  # opt-in real raised-platform up/down/mixed lessons
     # Opt-in maximum of continuous per-episode step heights; off by default.
     terrain_height_safety_m: float = 0.0
     terrain_adaptive_flat_control: bool = False
@@ -245,7 +246,8 @@ class TrainingConfig:
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
-                    'terrain_box_height_mm', 'terrain_random_placement', 'terrain_height_safety_m',
+                    'terrain_box_height_mm', 'terrain_random_placement', 'terrain_elevation_mode',
+                    'terrain_height_safety_m',
                     'terrain_adaptive_flat_control',
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
