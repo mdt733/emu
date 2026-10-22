@@ -81,12 +81,14 @@ round. No source edits, Git merges, main/showcase changes, automatic 60M
 continuation or silent policy selection. It records a new root linked
 to the Git commit. Use `--check` first for a dry preflight.
 
-The default foundation path is
-`~/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints/final.pkl`.
-It is a **candidate**, not automatically the healthiest learner. Override
-with `FOUNDATION_PATH=/absolute/path/to/a/validated.pkl` if a better
-compatible foundation has been verified; the script refuses a missing
-checkpoint or incompatible schema. See [WSL launch guide](docs/INSTALL.md).
+The launcher searches the existing `v5020_lab_4096_fixed/foundation20`
+then `v5020_lab_4096/foundation20` checkpoint directories. It prefers
+a **mature, validated `best.pkl`** over `final.pkl`, never mixes
+incompatible run histories, and rejects a parent with independently
+documented catastrophic failure on both easy locomotion panels. If no
+acceptable foundation is present, it **stops before training**.
+Override with `FOUNDATION_PATH=/absolute/path/to/a/validated.pkl` for an
+explicit source; a valid checkpoint is still not a guarantee of good gait. See [WSL launch guide](docs/INSTALL.md).
 
 ## Quick start
 
