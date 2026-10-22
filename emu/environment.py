@@ -632,7 +632,7 @@ class TaskSampler:
                     jax.random.uniform(jax.random.fold_in(k_terrain, 5018), ()),
                     exposure=self.terrain_height_exposure,
                     edge_fraction=self.terrain_height_edge_fraction,
-                    probe_above_m=(.002 if self.terrain_elevation_mode != 'hurdle' else 0.),
+                    probe_above_m=self.terrain_exploration_probe_m,
                     safety_m=self.terrain_exploration_safety_m if self.terrain_elevation_mode != 'hurdle' else None)
             else:
                 obstacle_height = jnp.asarray(0., dtype=jnp.float32)
@@ -1296,6 +1296,12 @@ class EmuMJXEnv(TaskSampler):
                 or terrain_contact_mode != 'box_surface'):
             raise ValueError('raised-platform training needs adaptive varied 312-input physical course')
         self.terrain_elevation_mode = terrain_elevation_mode
+        # Private-to-environment sampler control: frozen handoff verification
+        # can switch off ONLY new step challenges, leaving the identical
+        # platform topology, collision masks and 312-input sensor pipeline.
+        # Real rated training always leaves this at 2mm.
+        self.terrain_exploration_probe_m = (
+            .002 if terrain_elevation_mode != 'hurdle' else 0.)
         self.terrain_exploration_safety_m = float(terrain_exploration_safety_m)
         if self.terrain_elevation_mode != 'hurdle' and self.terrain_exploration_safety_m <= 0.:
             # Independently constructed short tests may use this constructor
