@@ -221,7 +221,8 @@ def adaptive_height_course(robot_source, dest, *, immutable: bool = True,
     ET.SubElement(mocap, 'geom', {
         'name': 'v5018_obstacle_step', 'type': 'box',
         'pos': f'0 0 {-TERRAIN_BOX_HALF_HEIGHT_M}',
-        'size': f'{1.0 if elevation_platform else .04} {0.5 if elevation_platform else .20} {TERRAIN_BOX_HALF_HEIGHT_M}',
+        'size': (f'1 .5 {TERRAIN_BOX_HALF_HEIGHT_M}' if elevation_platform
+                 else f'.04 .20 {TERRAIN_BOX_HALF_HEIGHT_M}'),
         'friction': '1.5 .005 .0001'})
     return _write_reproducible_course(tree, Path(dest), immutable=immutable)
 
