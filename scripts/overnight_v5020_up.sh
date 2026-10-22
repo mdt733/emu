@@ -96,7 +96,7 @@ echo "=== Preflight: syntax, source regression and report contracts ==="
 bash -n scripts/overnight_v5020_up.sh
 python -m compileall -q emu scripts/overnight_v5020_up.sh
 python -m pytest -q tests/test_v5020_overnight.py tests/test_v5020_report.py \
-  tests/test_v5020_2048_launcher.py tests/test_v5020_rated_elevation.py ||
+  tests/test_v5020_2048_launcher.py tests/test_v5020_rated_elevation.py tests/test_v5020_console_feedback.py ||
   { echo "STOP: preflight tests failed; GPU training was NOT started" >&2; exit 1; }
 
 [[ -f "$PARENT_FROM" && "$PARENT_FROM" == /* ]] ||
