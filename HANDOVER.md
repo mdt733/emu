@@ -709,3 +709,39 @@ Open http://127.0.0.1:8766/ . The watch process reads ONLY
 existing training checkpoints; trained PPO stays in original source.
 The WASM browser sim is an approximate physical replay, not literally
 the same MJX environment or calibrated 6mm step exam.
+
+
+## 2026-10-22 viewer build follow-up (separate detached worktree)
+User executed the safe standalone viewer worktree at commit 92e8537.
+The new npm safety gate caught 3 regressions of *existing viewer tests*,
+not policy/GPU damage:
+1. `core.test.mjs` checked an obsolete error phrase
+   `Unsupported v5016 sensor` after schema2/3 validation was consolidated
+   to `Unsupported sensor/observation model`. Updated message matcher.
+2. `terrain-memory.test.mjs` expected historical V_SAMPLES far index25
+   (15cm), while the authoritative 312 actor requires index30 (20cm).
+   Updated the exact indices assertion to [5,10,15,20,30].
+3. Same terrain-memory test expected the new 20cm actor readout to be
+   unobserved immediately after a real insert at x=20cm. That was an old
+   15cm-only test assumption. Revised to require immediate measured
+   signal at 20cm AND subsequent backward flow advection to the 15cm
+   *internal map cell* after 25 frames of 0.1m/s forward motion.
+   Numeric spot-check of original deterministic transport predicts at
+   15cm confidence ~0.16 and heights near 0.0493/0.0207m.
+Source parser and sensor geometry are **unchanged** by the follow-up.
+
+**Important:** assistant has NOT run the full npm suite in the
+user's WSL environment. In the already-created DETACHED VIEWER worktree
+(not training checkout), do:
+```bash
+git -C ~/emu-v5020-viewer fetch origin feature/v5020-coldstart-terrain
+git -C ~/emu-v5020-viewer switch --detach origin/feature/v5020-coldstart-terrain
+cd ~/emu-v5020-viewer
+source ~/emu-v5020/.venv/bin/activate
+PYTHONPATH="$PWD" python -m emu.cli viewer-build
+PYTHONPATH="$PWD" python -m emu.cli viewer --live \
+  --root ~/robot_lab/emu_runs/v5020_overnight_up_2c00fc8fbca7 \
+  --port 8766
+```
+Open http://127.0.0.1:8766/ . Never pull or switch the
+source-pinned `~/emu-v5020` training worktree mid-campaign.
