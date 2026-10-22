@@ -49,20 +49,13 @@ BRANCH="$(git branch --show-current)"
 }
 REVISION="$(git rev-parse HEAD)"
 SHORT_SHA="${REVISION:0:12}"
-FOUNDATION_PATH="${FOUNDATION_PATH:-$HOME/robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20/checkpoints/final.pkl}"
+# If no checkpoint was explicitly specified, prefer the saved policy
+# judged best in the original foundation run (when it is mature and matches
+# schema-9), rather than blindly using a possibly deteriorated final.pkl.
+EXPLICIT_FOUNDATION="${FOUNDATION_PATH:-}"
 RUN_ROOT="${RUN_ROOT:-$HOME/robot_lab/emu_runs/v5020_refork_$SHORT_SHA}"
 EXAM_ENVS="${EXAM_ENVS:-32}"
 EXAM_HORIZON="${EXAM_HORIZON:-300}"
-
-[[ -f "$FOUNDATION_PATH" ]] || {
-  echo "STOP: foundation not found: $FOUNDATION_PATH" >&2
-  echo "Choose a real, healthy 312-input 12-22M snapshot:" >&2
-  find "$HOME/robot_lab/emu_runs" -type f -path '*/checkpoints/*.pkl' \
-    \( -name 'best.pkl' -o -name 'final.pkl' -o -name 'snapshot*.pkl' \) \
-    2>/dev/null | grep -E '(foundation|v5020)' | head -40 >&2 || true
-  echo "Then retry: FOUNDATION_PATH=/real/validated/checkpoint.pkl bash scripts/overnight_v5020.sh --run" >&2
-  exit 1
-}
 [[ "$EXAM_ENVS" =~ ^[0-9]+$ && "$EXAM_HORIZON" =~ ^[0-9]+$ ]] || {
   echo "STOP: EXAM_ENVS and EXAM_HORIZON must be positive integers" >&2; exit 1
 }
@@ -70,27 +63,37 @@ EXAM_HORIZON="${EXAM_HORIZON:-300}"
   echo "STOP: not enough exam worlds or frames" >&2; exit 1
 }
 
-# Validate checkpoint and complete sensor contract BEFORE creating any run root.
-# _foundation loads and verifies the original saved policy using its own
-# matching training_config.json, rather than guessing what 4096 means.
+# Read-only source investigation; every candidate passes the exact saved
+# observation/sensor contract and 12–22M physical-step maturity gate.
+# A score from another checkpoint step never validates this policy.
 echo "=== Checkout: $BRANCH @ $REVISION ==="
-FOUNDATION_META="$(python - "$FOUNDATION_PATH" <<'PY'
+FOUNDATION_META="$(python - "$EXPLICIT_FOUNDATION" "$HOME" <<'PY'
 import sys
 from pathlib import Path
-from emu.campaign_refork import _foundation
-from emu.training_config import TrainingConfig
-ck=Path(sys.argv[1]).expanduser().resolve()
-cfg=TrainingConfig.load(ck.parent.parent/'training_config.json')
-item=_foundation(ck,envs=cfg.envs)
-print(f"FOUNDATION_WORLDS={cfg.envs}")
-print(f"FOUNDATION_STEP={item['step']}")
-print(f"FOUNDATION_SHA256={item['sha256']}")
+from emu.foundation_readiness import choose_foundation
+specified,home=sys.argv[1],Path(sys.argv[2])
+candidates=[
+    home/"robot_lab/emu_runs/v5020_lab_4096_fixed/foundation20",
+    home/"robot_lab/emu_runs/v5020_lab_4096/foundation20",
+]
+choice=choose_foundation(candidates,explicit=Path(specified) if specified else None)
+print("FOUNDATION_PATH="+choice["path"])
+print("FOUNDATION_WORLDS="+str(choice["envs"]))
+print("FOUNDATION_STEP="+str(choice["step"]))
+print("FOUNDATION_SHA256="+choice["sha256"])
+print("FOUNDATION_SELECTION="+choice["selection_reason"])
+exam=choice["source_evaluation"]
+if exam is None:
+    print("FOUNDATION_FIXED_EXAM=UNKNOWN: no exact checkpoint-step fixed evaluation")
+else:
+    print("FOUNDATION_FIXED_EXAM="+", ".join(f"{k}={v:.4f}" for k,v in sorted(exam.items())))
 PY
 )"
 printf '%s\n' "$FOUNDATION_META"
+FOUNDATION_PATH="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_PATH=//p')"
 ENVS="$(printf '%s\n' "$FOUNDATION_META" | sed -n 's/^FOUNDATION_WORLDS=//p')"
-[[ "$ENVS" =~ ^[0-9]+$ ]] || {
-  echo "STOP: foundation world count could not be verified" >&2; exit 1
+[[ -f "$FOUNDATION_PATH" && "$ENVS" =~ ^[0-9]+$ ]] || {
+  echo "STOP: no verified foundation checkpoint and world count" >&2; exit 1
 }
 if (( ENVS != 2048 && ENVS != 4096 )); then
   echo "STOP: unsupported overnight GPU world count $ENVS; use a reviewed study." >&2
