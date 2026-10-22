@@ -42,7 +42,7 @@ test('policy loading preserves schema-2 sensor contracts and safe local assets',
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,schema:1})));
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
     observation:{...bundle.observation,
-      sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported v5016 sensor/);
+      sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported sensor\/observation model/);
   const manifest={schema:1,mode:'showcase',trained:true,
     policy:'policies/champion.emupolicy'};
   assert.equal(parseShowcaseManifest(manifest).trained,true);
