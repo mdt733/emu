@@ -562,3 +562,26 @@ def test_down_platform_optical_flow_camera_sees_top_not_buried_floor(tmp_path,mo
     assert depth.shape==(2,)
     assert np.all(torso-depth>.015)  # top is genuinely 20mm above floor
     np.testing.assert_allclose(depth,torso-.020,atol=.012,rtol=0.)
+
+
+def test_elevation_platform_keeps_old_hurdle_xml_unchanged_and_files_immutable(tmp_path):
+    import xml.etree.ElementTree as ET
+    from emu.terrain import adaptive_height_course
+    from emu.contracts import ROBOT_XML
+    short=adaptive_height_course(ROBOT_XML,tmp_path/'old_hurdle.xml')
+    long=adaptive_height_course(
+        ROBOT_XML,tmp_path/'new_platform.xml',elevation_platform=True)
+    def size(path):
+        root=ET.parse(path).getroot()
+        geom=root.find(".//geom[@name='v5018_obstacle_step']")
+        assert geom is not None
+        return tuple(map(float,geom.attrib['size'].split()))
+    assert size(short)==pytest.approx((.04,.20,.075))
+    assert size(long)==pytest.approx((1.,.5,.075))
+    original=short.read_bytes()
+    assert b'size=".04 .20 0.075"' in original
+    assert short.read_bytes()==original
+    assert adaptive_height_course(ROBOT_XML,short)==short
+    with pytest.raises(RuntimeError,match="differs from declared geometry"):
+        adaptive_height_course(ROBOT_XML,short,elevation_platform=True)
+    assert short.read_bytes()==original
