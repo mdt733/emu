@@ -30,7 +30,8 @@ def test_zero_skill_rating_has_positive_microprobes_but_no_free_upgrade():
     rating,event=rated_height_update(0.,dict(
         terrain_below_done_count=0,terrain_below_fall_count=0,
         terrain_above_done_count=6,terrain_above_cross_count=6,
-        terrain_above_fall_count=0,terrain_above_contact_count=6),
+        terrain_above_fall_count=0,terrain_above_contact_count=6,
+        terrain_above_cross_height_sum_m=.001),
         safety_m=.020)
     assert rating==0.
     assert event.startswith('hold_')
@@ -40,7 +41,8 @@ def test_rating_promotion_retreat_and_hold_from_separate_physical_bands():
     from emu.terrain import rated_height_update
     base=dict(terrain_below_done_count=16.,terrain_below_fall_count=0.,
               terrain_above_done_count=12.,terrain_above_cross_count=6.,
-              terrain_above_fall_count=2.,terrain_above_contact_count=9.)
+              terrain_above_fall_count=2.,terrain_above_contact_count=9.,
+              terrain_above_cross_height_sum_m=.036)
     h,e=rated_height_update(.005,base,safety_m=.020,growth_m=.001)
     assert h==pytest.approx(.006)
     assert e.startswith('expand_')
@@ -79,13 +81,14 @@ def test_measured_completed_attempts_are_binned_against_birth_rating():
     assert r['terrain_above_cross_count']==1
     assert r['terrain_above_fall_count']==1
     assert r['terrain_above_contact_count']==2
+    assert r['terrain_above_cross_height_sum_m']==pytest.approx(.006)
 
 
 def test_old_foundation_curriculum_checkpoint_can_load_without_band_counts():
     from emu.curriculum import RegimeGovernor
     old=RegimeGovernor().state_dict()
     for key in ('below_done','below_fall','above_done','above_cross',
-                'above_fall','above_contact'):
+                'above_fall','above_contact','above_cross_height_sum_m'):
         old['terrain_edge_evidence'].pop(key)
     new=RegimeGovernor(terrain_height_safety_m=.006,terrain_height_initial_m=0.,
                        terrain_rated_elevation=True)
