@@ -132,3 +132,23 @@ def test_cli_rejects_nonzero_initial_platform_rating(tmp_path):
           '--run-dir',str(tmp_path/'bad'),'--plan']
     with pytest.raises(ValueError,match='0mm'):
         main(args)
+
+
+def test_platform_and_floor_do_not_collide_with_each_other_but_feet_do(tmp_path):
+    """A buried 2m kinematic platform must not crowd out foot contact slots."""
+    import mujoco
+    from emu.terrain import adaptive_height_course
+    from emu.contracts import ROBOT_XML
+    path=adaptive_height_course(ROBOT_XML,tmp_path/'isolated.xml',
+                                elevation_platform=True)
+    model=mujoco.MjModel.from_xml_path(str(path))
+    floor=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
+    platform=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,
+                              'v5018_obstacle_step')
+    foot=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'r_foot_ball')
+    def compatible(a,b):
+        return bool((int(model.geom_contype[a])&int(model.geom_conaffinity[b])) or
+                    (int(model.geom_contype[b])&int(model.geom_conaffinity[a])))
+    assert not compatible(floor,platform)
+    assert compatible(floor,foot)
+    assert compatible(platform,foot)
