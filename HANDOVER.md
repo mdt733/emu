@@ -126,3 +126,56 @@ source-code artifacts and are never removed by repository cleanup.
 Historical research code can be retired from *this experimental branch*
 after dependency audits, but the known-working reference remains
 untouched in `main` and every historical Git object remains available.
+
+
+## 2026-10-22 — foundation + genuine elevation examiner integration
+
+Development remains ONLY on `feature/v5020-coldstart-terrain`. `main`,
+the Pinnacle policy and the public showcase are untouched. The five-arm
+overnight launcher remains explicitly BLOCKED pending full acceptance.
+
+The existing frozen 20M foundation forward exam now requires its *complete*
+first-episode evidence: independent survival, commanded/actual displacement,
+stepping, posture, contact support and velocity error. An isolated pass-rate
+number is no longer an acceptable exam. The winner-refork's held-out
+screen also has a dedicated easy commanded-forward panel; survival-only
+policies cannot pass the eligibility gate or continue provisionally.
+
+True elevation geometry is a SEPARATE examiner from the original short-box
+hurdle curriculum. The CPU/MuJoCo fixtures provide long raised landings for
+both step-ups and step-downs. The new JAX frozen elevation examiner checks
+source-side support, real step contact, both feet and torso past the edge,
+destination-surface contact, upright posture, at least eight supported
+destination frames, post-landing gait, and >=40mm further progression.
+It reports contacts, certified crossings, falls, timeouts and incompletes;
+reset episodes cannot create a new attempt. The static geometry and physical
+contact oracle are examiner-only and are never actor observations.
+
+Small non-training regression command from a fresh checkout:
+
+```bash
+python -m pytest -q tests/test_foundation_readiness.py tests/test_v5020_refork.py tests/test_v5020_coldstart.py
+bash scripts/overnight_v5020.sh --check
+```
+
+Once an ACTUAL 312-input checkpoint exists, run separate, read-only exams:
+
+```bash
+emu screen-elevation --checkpoint "$FOUNDATION_PATH" \
+  --course-root "$HOME/robot_lab/emu_runs/v5020_elevation_checks" \
+  --direction up --height-mm 10 --envs 8 --horizon 350 --device cuda
+emu screen-elevation --checkpoint "$FOUNDATION_PATH" \
+  --course-root "$HOME/robot_lab/emu_runs/v5020_elevation_checks" \
+  --direction down --height-mm 10 --envs 8 --horizon 350 --device cuda
+```
+
+`FOUNDATION_PATH` must be set explicitly to a compatible saved 312-input
+checkpoint. The command does not rewrite checkpoint, metrics or campaign
+outputs. Geometry files are immutable: rerunning identical conditions is
+safe, differing files fail closed.
+
+**NOT YET ACCEPTED:** no verified GitHub Actions/MJX/GPU results for this
+revision, no demonstrated successful real-model elevation crossing, no
+integrated mixed-height per-world elevation TRAINING curriculum, and no
+312-input browser policy execution parity. These remain hard gates against
+enabling `overnight_v5020.sh --run` or promoting a Pinnacle successor.
