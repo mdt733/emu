@@ -162,33 +162,9 @@ def scan_multizone_box_course(xp, torso_world, body_to_world,
     rays = ray_box_distances(
         xp, origins.reshape(n, 80, 3), dirs.reshape(n, 80, 3),
         box_min, box_max).reshape(n, 16, 5)
-    inside = xp.isfinite(rays) & (rays >= min_range_m) & (rays <= max_range_m)
-    valid_count = xp.sum(inside, axis=-1)
-    sorted_ranges = xp.sort(xp.where(inside, rays, xp.inf), axis=-1)
-    mid_index = xp.maximum(0, (valid_count - 1) // 2).astype(int)
-    median = xp.take_along_axis(
-        sorted_ranges, mid_index[..., None], axis=-1)[..., 0]
-    lowest = sorted_ranges[..., 0]
-    highest_index = xp.maximum(0, valid_count - 1).astype(int)
-    highest = xp.take_along_axis(
-        sorted_ranges, highest_index[..., None], axis=-1)[..., 0]
-    spread = xp.where(valid_count > 0, highest - lowest, 0.0)
-    valid = valid_count >= 3
-    if noise_m is not None:
-        median = median + xp.asarray(noise_m).reshape(n, 16)
-    valid = valid & xp.isfinite(median) & (
-        median >= min_range_m) & (median <= max_range_m)
-    if dropout is not None:
-        valid = valid & ~xp.asarray(dropout, dtype=bool).reshape(n, 16)
-    # Report VALIDITY separately; confidence is conservative measurement
-    # quality/visibility, never a ground-truth probability of safe walking.
-    confidence = xp.where(
-        valid, (valid_count / 5.0) * xp.clip(1 - spread / 0.07, 0., 1.), 0.)
-    return dict(
-        ranges_m=xp.where(valid, median, 0.).reshape(n, 4, 4),
-        valid=valid.reshape(n, 4, 4),
-        visibility_confidence=confidence.reshape(n, 4, 4),
-    )
+    return reduce_multizone_measurements(
+        xp, rays, noise_m=noise_m, dropout=dropout,
+        min_range_m=min_range_m, max_range_m=max_range_m)
 
 
 
@@ -235,3 +211,63 @@ def ray_oriented_box_distances(xp, origins, directions,
     hit = parallel_ok & (exiting >= xp.maximum(entering, 0.)) & (exiting >= 0.)
     distance = xp.where(entering >= 0., entering, exiting)
     return xp.min(xp.where(hit, distance, xp.inf), axis=-1)
+
+
+
+def reduce_multizone_measurements(xp, rays, *, noise_m=None, dropout=None,
+                                  min_range_m=0.035, max_range_m=0.60):
+    """Convert simulated [W,16,5] raw ray hits into one physical-zone packet.
+
+    Approximate a multi-target optical receiver, never exact terrain heights.
+    Sensor acquisition clock and delay still belong to the future queue.
+    """
+    n = xp.asarray(rays).shape[0]
+    inside = xp.isfinite(rays) & (rays >= min_range_m) & (rays <= max_range_m)
+    valid_count = xp.sum(inside, axis=-1)
+    sorted_ranges = xp.sort(xp.where(inside, rays, xp.inf), axis=-1)
+    mid_index = xp.maximum(0, (valid_count - 1) // 2).astype(int)
+    median = xp.take_along_axis(
+        sorted_ranges, mid_index[..., None], axis=-1)[..., 0]
+    lowest = sorted_ranges[..., 0]
+    highest_index = xp.maximum(0, valid_count - 1).astype(int)
+    highest = xp.take_along_axis(
+        sorted_ranges, highest_index[..., None], axis=-1)[..., 0]
+    spread = xp.where(valid_count > 0, highest - lowest, 0.0)
+    valid = valid_count >= 3
+    if noise_m is not None:
+        median = median + xp.asarray(noise_m).reshape(n, 16)
+    valid = valid & xp.isfinite(median) & (
+        median >= min_range_m) & (median <= max_range_m)
+    if dropout is not None:
+        valid = valid & ~xp.asarray(dropout, dtype=bool).reshape(n, 16)
+    # Report VALIDITY separately; confidence is conservative measurement
+    # quality/visibility, never a ground-truth probability of safe walking.
+    confidence = xp.where(
+        valid, (valid_count / 5.0) * xp.clip(1 - spread / 0.07, 0., 1.), 0.)
+    return dict(
+        ranges_m=xp.where(valid, median, 0.).reshape(n, 4, 4),
+        valid=valid.reshape(n, 4, 4),
+        visibility_confidence=confidence.reshape(n, 4, 4),
+    )
+
+
+
+def scan_multizone_oriented_boxes(xp, torso_world, body_to_world,
+                                 box_centres_world, box_rotations_world,
+                                 box_half_sizes, *, noise_m=None,
+                                 dropout=None, min_range_m=0.035,
+                                 max_range_m=0.60):
+    """One front-mounted 4x4 sensor against the ACTUAL rotated solid support.
+
+    This is the terrain-contact-aligned forward measurement simulator. The
+    geometry comes from MJX geom_xpos / geom_xmat / geom_size, never directly
+    from teacher course labels. Caller must handle samples/latency/dropout.
+    """
+    origin, direction = multizone_ray_geometry(xp, torso_world, body_to_world)
+    n = xp.asarray(torso_world).shape[0]
+    rays = ray_oriented_box_distances(
+        xp, origin.reshape(n,80,3), direction.reshape(n,80,3),
+        box_centres_world, box_rotations_world, box_half_sizes).reshape(n,16,5)
+    return reduce_multizone_measurements(
+        xp, rays, noise_m=noise_m, dropout=dropout,
+        min_range_m=min_range_m, max_range_m=max_range_m)
