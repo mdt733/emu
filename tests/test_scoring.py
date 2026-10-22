@@ -125,7 +125,8 @@ def test_joint_walking_evidence_rejects_standing_falls_and_incomplete(change):
     assert not basic_walking_pass(np, **(values | change)).any()
 
 
-def test_compiled_evaluator_excludes_reset_aftermath():
+@pytest.mark.parametrize("early_fall", [True, False])
+def test_compiled_evaluator_excludes_reset_aftermath(early_fall):
     """Exercise the actual JIT evaluator with controlled physical telemetry."""
     import jax
     import jax.numpy as jnp
@@ -159,7 +160,7 @@ def test_compiled_evaluator_excludes_reset_aftermath():
                 cmd_vy=zero, cmd_yaw=zero, gravity_z=one, foot_mid_cone=one,
                 step_evidence=jnp.array([0., .3, .3]), support=one,
                 body_pitch=zero, cmd_pitch=zero, height_error=zero,
-                episode_fell=fell, terrain_forward_delta_m=vx*CONTROL_DT)
+                episode_fell=fell*early_fall, terrain_forward_delta_m=vx*CONTROL_DT)
             return Output(state+1, self.obs(None), metrics, fell)
 
     trainer = make_trainer(ExamWorld(), seed=733, lr=0.0003, rollout=1, epochs=1, minibatches=1)

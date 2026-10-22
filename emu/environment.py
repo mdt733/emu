@@ -1856,6 +1856,22 @@ class EmuMJXEnv(TaskSampler):
         # normal that the collision engine uses (plane passes through zero).
         normal=self.floor_normal_world
         floor_z=-jnp.sum(root_xy*normal[:,:2],axis=1)/normal[:,2]
+        # Static elevation exams can begin on a raised landing. Derive the
+        # birth support from the real box footprint, not a lesson label or
+        # the XML torso height (the standard birth path overwrites qpos0).
+        if self.terrain_box_geom_id >= 0 and not self.terrain_adaptive:
+            bid = self.terrain_box_geom_id
+            centre = jnp.asarray(self.mj_model.geom_pos[bid])
+            rotation = np.zeros(9)
+            import mujoco
+            mujoco.mju_quat2Mat(rotation, self.mj_model.geom_quat[bid])
+            rot = jnp.asarray(rotation.reshape(3, 3))
+            delta = jnp.concatenate((root_xy-centre[:2],
+                                    jnp.zeros((self.num_envs, 1))), axis=1)
+            local = delta @ rot
+            inside = jnp.all(jnp.abs(local[:, :2]) < self.terrain_box_half_size[:2], axis=1)
+            top = centre[2] + self.terrain_box_half_size[2]
+            floor_z = jnp.where(inside, jnp.maximum(floor_z, top), floor_z)
         qpos = qpos.at[:, 0:3].set(jnp.stack([
             root_xy[:,0],root_xy[:,1],
             NEUTRAL_ROOT_Z + task[:, T.height] + pos_offset[:, 2] + floor_z,

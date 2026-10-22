@@ -612,7 +612,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             0, horizon, one_step, (env_state, obs, first_fall0, sums0, finished0, walking0))
         failed = first_fall >= 0
         failed_count = jnp.sum(failed.astype(jnp.float32))
-        survival = 1.0 - failed_count / float(env.num_envs)
+        survival = jnp.mean(((~failed) & (walking[:, 0] == horizon)).astype(jnp.float32))
         first_fall_sum = jnp.sum(jnp.where(failed, first_fall, 0).astype(jnp.float32))
         first_fall_mean = jnp.where(
             failed_count > 0.0,

@@ -214,3 +214,86 @@ def test_heldout_exact_step_exam_never_samples_shorter_height(tmp_path):
     heights=np.asarray(jax.device_get(state.task[:,T.terrain_height_m]))
     assert np.all(heights<=.02+1e-6)
     assert np.any(heights<.019)
+
+
+@pytest.mark.parametrize('direction', ['up', 'down'])
+@pytest.mark.parametrize('height_mm', [5, 10, 20])
+def test_elevation_fixture_real_surfaces_and_sensor_first_hits(tmp_path, direction, height_mm):
+    import mujoco
+    from emu.terrain import elevation_course
+    from emu.forward_tof import first_hit_ranges
+    from emu.contracts import ROBOT_XML
+    path = elevation_course(ROBOT_XML, tmp_path/'elevation.xml', height_mm,
+                            direction=direction)
+    # Add a tiny independent contact probe on the upper platform. The
+    # platform must support it without a phantom floor contact beneath it.
+    import xml.etree.ElementTree as ET
+    tree = ET.parse(path)
+    high_x = .50 if direction == 'up' else 0.
+    probe = ET.SubElement(tree.getroot().find('worldbody'), 'body',
+        {'name': 'surface_probe', 'pos': f'{high_x} .35 {height_mm/1000.+.009}'})
+    ET.SubElement(probe, 'freejoint')
+    ET.SubElement(probe, 'geom', {'name': 'probe', 'type': 'sphere',
+                                'size': '.01', 'mass': '.01'})
+    tree.write(path)
+    model = mujoco.MjModel.from_xml_path(str(path))
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    box = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, 'v5018_obstacle_step')
+    h = height_mm/1000.
+    probe_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, 'probe')
+    contacts = [c for c in data.contact if probe_id in (c.geom1, c.geom2)]
+    assert contacts
+    assert all(box in (c.geom1, c.geom2) for c in contacts)
+    assert all(abs(c.frame[2]) > .99 for c in contacts)
+    # Disable probe visibility for the sensor parity rays below.
+    model.geom_group[probe_id] = 5
+    ray_groups = np.array([1,1,1,1,1,0], dtype=np.uint8)
+    # Rays stay beside the robot, but well inside the platform width.
+    for x, expected in ((0., 0. if direction == 'up' else h),
+                        (.50, h if direction == 'up' else 0.)):
+        origin = np.array([x, .35, .30])
+        normal = np.zeros(3)
+        geom = np.array([-1], dtype=np.int32)
+        distance = mujoco.mj_ray(model, data, origin, np.array([0.,0.,-1.]),
+                                 ray_groups, True, -1, geom, normal)
+        assert .30-distance == pytest.approx(expected, abs=1e-9)
+        np.testing.assert_allclose(normal, [0.,0.,1.], atol=1e-9)
+        ranges, valid = first_hit_ranges(np, origin[None], np.eye(3)[None],
+            np.zeros((1,3)), np.array([[0.,0.,1.]]),
+            box_center=data.geom_xpos[box][None],
+            box_rotation=data.geom_xmat[box].reshape(1,3,3),
+            box_half_size=model.geom_size[box],
+            mounts_body=((0.,0.,0.),), beams_body=((0.,0.,-1.),))
+        assert valid[0,0]
+        assert ranges[0,0] == pytest.approx(distance, abs=1e-8)
+    # The vertical face is real and has a horizontal outward normal.
+    origin = np.array([0. if direction == 'up' else .50, .35, h/2])
+    sign = 1. if direction == 'up' else -1.
+    normal = np.zeros(3)
+    geom = np.array([-1], dtype=np.int32)
+    distance = mujoco.mj_ray(model, data, origin, np.array([sign,0.,0.]),
+                             ray_groups, True, -1, geom, normal)
+    assert distance == pytest.approx(.25)
+    assert geom[0] == box
+    np.testing.assert_allclose(normal, [-sign,0.,0.], atol=1e-9)
+    assert model.geom_size[box,0]*2 >= 1.
+    assert model.qpos0[2] == pytest.approx(.2584 + (h if direction == 'down' else 0.))
+
+
+def test_mjx_down_step_birth_is_on_upper_landing(tmp_path):
+    from emu.terrain import elevation_course
+    from emu.contracts import ROBOT_XML
+    from emu.environment import NEUTRAL_ROOT_Z
+    path = elevation_course(ROBOT_XML, tmp_path/'down.xml', 20, direction='down')
+    env = EmuMJXEnv(str(path), num_envs=2, seed=733,
+                   observation_schema=OBS_SCHEMA_PREVIEW,
+                   terrain_contact_mode='box_surface')
+    state, obs = env.reset({'probe_cmd_vx': .10, 'probe_cmd_vy': 0.,
+                            'probe_cmd_yaw': 0., 'steady_difficulty': 0.,
+                            'resilience_difficulty': 0., 'posture_difficulty': 0.,
+                            'regime_frac_steady': 1., 'regime_frac_transition': 0.,
+                            'regime_frac_resilience': 0.})
+    assert obs.shape == (2,312)
+    np.testing.assert_allclose(np.asarray(state.data.qpos[:,2]),
+                               NEUTRAL_ROOT_Z+.020, atol=1e-6)

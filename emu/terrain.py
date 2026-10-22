@@ -324,3 +324,50 @@ def _write_reproducible_course(tree, dest, *, immutable):
     with dest.open('xb') as out:
         out.write(encoded)
     return dest
+
+
+def elevation_course(robot_source, dest, height_mm: int, *, direction: str,
+                     edge_x_m: float = .25, landing_length_m: float = 2.,
+                     width_m: float = 1., immutable: bool = True):
+    """Physical elevation-transition exam fixture, not the hurdle curriculum.
+
+    A long raised box over the real lower plane gives a genuine upper
+    landing. Step-down starts on the box and travels toward its far edge.
+    The canonical lower plane is never moved or replaced. The same named
+    geometry is consumed by existing box-surface contact and ToF models.
+    This fixture alone does not certify crossing or enable training.
+    """
+    import math
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+
+    if direction not in ('up', 'down'):
+        raise ValueError('elevation direction must be up or down')
+    if type(height_mm) is not int or height_mm not in (5, 10, 20, 30, 40):
+        raise ValueError('elevation exam height must be 5/10/20/30/40mm')
+    if not all(math.isfinite(v) for v in (edge_x_m, landing_length_m, width_m)):
+        raise ValueError('nonfinite elevation dimensions')
+    if not .15 <= edge_x_m <= .50 or landing_length_m < 1. or width_m < .5:
+        raise ValueError('elevation fixture needs safe approach and long, wide landing')
+    tree = ET.parse(Path(robot_source))
+    world = tree.getroot().find('worldbody')
+    if world is None:
+        raise ValueError('canonical robot is missing worldbody')
+    half = landing_length_m / 2.
+    centre = edge_x_m + (half if direction == 'up' else -half)
+    h = height_mm / 1000.
+    ET.SubElement(world, 'geom', {
+        'name': 'v5018_obstacle_step', 'type': 'box',
+        'pos': f'{centre} 0 {h/2}', 'size': f'{half} {width_m/2} {h/2}',
+        'friction': '1.5 .005 .0001',
+    })
+    # CPU MuJoCo qpos0 and the environment's birth-height calculation both
+    # put down-step starts on the physical upper surface.
+    if direction == 'down':
+        torso = world.find("body[@name='torso']")
+        if torso is None:
+            raise ValueError('canonical robot is missing torso')
+        pos = [float(v) for v in torso.attrib['pos'].split()]
+        pos[2] += h
+        torso.set('pos', ' '.join(str(v) for v in pos))
+    return _write_reproducible_course(tree, Path(dest), immutable=immutable)

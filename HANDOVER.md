@@ -25,7 +25,8 @@ of a strong policy or certified force-based gait. Advanced skills are not
 required. Old survival-only CSVs are unknown and cannot auto-qualify or bypass
 the gate through an explicit path.
 
-Frozen summary metrics exclude reset aftermath and report tracking/gait
+Frozen summary metrics require full first-episode coverage for survival
+(including non-fall timeouts) and exclude reset aftermath and report tracking/gait
 means over observed first-episode frames. Walking qualification requires the
 whole horizon, so incomplete evidence cannot qualify. Tournament metrics
 reject negative errors/effort and out-of-range fractions.
@@ -39,6 +40,18 @@ including the actual JAX-compiled evaluator with controlled telemetry.
 Physical training and real-GPU acceptance remain unproven here. This host
 has Python 3.12 CPU dependencies, not the supported fresh-WSL Python 3.13/CUDA
 stack; do not treat these tests as fresh-PC acceptance.
+
+Elevation groundwork now includes `terrain.elevation_course`: static 5/10/20/
+30/40 mm up/down exam models with a two-metre upper landing, the unchanged
+lower plane and exact first-hit sensing through the existing named box.
+Static box-surface births use the actual upper surface when the robot starts
+on a down-step platform. Native MuJoCo tests check top contact without phantom
+floor support, ray normals, and ToF/native first-hit parity at 5/10/20 mm in
+both directions; a two-world 312-input MJX reset checks down-step birth height.
+These are exam fixtures only: batched random elevation lessons, post-landing
+walking certification, sensor-memory diagnostics and curriculum integration
+are STILL PENDING. The old hurdle crossing classifier is not elevation
+certification and no elevation training competence is claimed.
 
 Next: replace the 80 mm hurdle lesson with genuine elevation transitions,
 validate sensor reconstruction, integrate browser 312 inference, and run the
