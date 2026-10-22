@@ -212,11 +212,18 @@ export class RollingTerrainDiagnostic {
     }
     this.activeSamples=this.confidence.flatMap(x=>[...x]).filter(c=>c>.1).length;
   }
+  // Tiny readout available even when the diagnostic panel is closed.
+  // Right lane first, left lane second. Unknown cells keep confidence 0.
+  actorReadout(){
+    return {heights:this.heights.flatMap(x=>V_SAMPLES.map(i=>x[i])),
+            confidence:this.confidence.flatMap(x=>V_SAMPLES.map(i=>x[i]))};
+  }
   values(){
+    const actor=this.actorReadout();
     return {heights:this.heights.map(x=>Array.from(x)),
             confidence:this.confidence.map(x=>Array.from(x)),
-            actorHeights:this.heights.flatMap(x=>V_SAMPLES.map(i=>x[i])),
-            actorConfidence:this.confidence.flatMap(x=>V_SAMPLES.map(i=>x[i])),
+            actorHeights:actor.heights,
+            actorConfidence:actor.confidence,
             apex:[this.apexX,this.apexY],motion:{...this.motion},
             beams:this.beams.map((v,i)=>({...v,lane:i<2?i:2})),
             activeSamples:this.activeSamples,frame:this.frame,freeze:this.freeze};
