@@ -134,6 +134,21 @@ Exit: one current tournament command and one authoritative scorer.
 Exit: a reader can locate physics, measurements, rewards, PPO, governor,
 examiner, and experiment selection without spelunking through old layers.
 
+## Overnight-readiness milestone
+
+- [x] Add `scripts/overnight_v5020.sh`: one guarded, **opt-in** WSL
+      preflight and first 20→40M five-arm run, with source identity,
+      checkpoint/schema/world-count validation, tests, GPU doctor, an
+      external timestamped log and an immutable root per source commit.
+- [x] Display the source foundation's saved fixed-evaluation history;
+      distinguish valid checkpoint structure from learned locomotion.
+- [x] Keep initial launch limited to `walk40`, with all five 2M
+      survival probes and an independent frozen exam.
+- [ ] Independently check the user's local foundation quality and confirm
+      source/GPU before the real overnight launch.
+- [ ] Demonstrate the full GPU campaign works and passes eligibility gates;
+      `main` remains untouched regardless of this research outcome.
+
 ## Pass 7 — proof on actual hardware-backed MJX training
 
 - [ ] Python/browser CI green; small GPU physics and PPO smoke.
