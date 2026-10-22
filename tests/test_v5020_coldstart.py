@@ -474,7 +474,7 @@ def test_true_elevation_training_plan_is_opt_in_and_pinned(tmp_path, capsys):
     from emu.cli import main
     arguments=['train','--profile','sim2real','--forward-preview',
                '--terrain-varied-placement','--terrain-height-ceiling-mm','20',
-               '--terrain-height-initial-mm','5','--envs','8',
+               '--terrain-height-initial-mm','0','--envs','8',
                '--steps','65536','--device','cpu',
                '--run-dir',str(tmp_path/'flat_to_landing')]
     assert main(arguments+['--terrain-elevation-mode','mixed','--plan']) == 0
