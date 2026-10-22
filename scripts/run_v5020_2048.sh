@@ -10,15 +10,15 @@ Usage: bash scripts/run_v5020_2048.sh --plan|--run [--stop-after foundation|up|m
 2048 physical MJX environments per training phase; cold-start or approved saved foundation.
   foundation   20M flat-first 312-input foundation (frozen gait qualification)
   up           32M cumulative steps, opt-in real 2m-long step-up, <=6mm
-  mixed12      48M cumulative steps, real up/down, <=12mm
-  mixed20      70M cumulative steps, real up/down, <=20mm
+  mixed12      48M cumulative steps, planned LOCKED mixed up/down stage
+  mixed20      70M cumulative steps, planned LOCKED higher mixed stage
 These heights are SAFETY CEILINGS. The curriculum earns actual heights from
 post-landing gait/contact evidence. Flat walking is rehearsed in every phase.
 
 --plan reads only; --run launches actual 2048-world PPO and writes checkpoints.
-Default stop is the first raised step-up stage (32M), to examine survival
-before spending another ~38M on harder levels. To finish all stages later:
-  bash scripts/run_v5020_2048.sh --run --stop-after mixed20
+Default stop is the first raised step-up stage (32M), to examine survival.
+Mixed stages are currently LOCKED: downhill must begin with its own
+0mm skill rating and cannot inherit the trained uphill height.
 To REUSE an existing qualified 20M foundation rather than retraining:
   FOUNDATION_FROM=/absolute/path/to/foundation/checkpoints/best.pkl bash scripts/run_v5020_2048.sh --run
 Each completed phase has its own
@@ -42,6 +42,10 @@ if [[ ${2+x} ]]; then
   STOP_AFTER="$3"
 fi
 case "$STOP_AFTER" in foundation|up|mixed12|mixed20) ;; *) echo "Invalid STOP_AFTER=$STOP_AFTER" >&2; exit 2;; esac
+if [[ "$STOP_AFTER" == mixed12 || "$STOP_AFTER" == mixed20 ]]; then
+  echo "STOP: mixed stages not safe yet; independent down-step rating is not implemented." >&2
+  exit 2
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -164,13 +168,6 @@ PY
 fi
 echo "Qualified foundation walker: $PARENT"
 if [[ "$STOP_AFTER" == foundation ]]; then echo "Requested stop after foundation"; exit 0; fi
-if [[ "$STOP_AFTER" == mixed12 || "$STOP_AFTER" == mixed20 ]]; then
-  echo "STOP: mixed ascent/descent is not yet a continuous same-skill transition." >&2
-  echo "A new 0mm descent rating needs direction-specific progression; do not" >&2
-  echo "randomly replace proven up steps with unlearned down steps." >&2
-  exit 2
-fi
-
 # Explicit one-time source transfer only: pin BOTH original code commit
 # and checkpoint bytes. Trainer validates full 312-input sensor contract,
 # optimizer, observation normaliser and 2048 environment lineage too.
