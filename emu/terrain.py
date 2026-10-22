@@ -371,3 +371,40 @@ def elevation_course(robot_source, dest, height_mm: int, *, direction: str,
         pos[2] += h
         torso.set('pos', ' '.join(str(v) for v in pos))
     return _write_reproducible_course(tree, Path(dest), immutable=immutable)
+
+
+def elevation_transition_update(
+    xp, *, source_seen, contacted, landed, landing_x,
+    supported_frames, post_landing_gait, crossed,
+    source_support, obstacle_contact, target_support,
+    torso_x, feet_x, edge_x, upright, gait, active,
+):
+    """Teacher/exam-only first-episode evidence for a true elevation change.
+
+    Unlike the old hurdle test, the far end of a long platform is NOT the
+    transition edge. We certify source-side support, physical box contact,
+    both feet and torso past the transition, support on the destination
+    elevation, then another 40mm of grounded motion with gait evidence.
+    These privileged quantities must never enter actor observations.
+    """
+    source_seen = source_seen | (
+        active & source_support & (torso_x < edge_x - .02))
+    contacted = contacted | (active & obstacle_contact)
+    past = (torso_x >= edge_x + .08) & xp.all(
+        feet_x >= (edge_x + .02)[:, None], axis=1)
+    confirmed_landing = (
+        active & source_seen & contacted & past & target_support & upright)
+    first_landing = confirmed_landing & ~landed
+    landing_x = xp.where(first_landing, torso_x, landing_x)
+    landed = landed | confirmed_landing
+    # Keep cumulative destination-support frames rather than consecutive
+    # frames: alternating biped feet may briefly enter swing phase.
+    after_landing = active & landed & target_support & upright
+    supported_frames = supported_frames + after_landing.astype(xp.int32)
+    post_landing_gait = post_landing_gait + xp.where(
+        after_landing, xp.maximum(gait, 0.), 0.)
+    crossed = crossed | (
+        confirmed_landing & (supported_frames >= 8) &
+        (torso_x >= landing_x + .04) & (post_landing_gait >= 1.0))
+    return (source_seen, contacted, landed, landing_x,
+            supported_frames, post_landing_gait, crossed)
