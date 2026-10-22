@@ -17,36 +17,70 @@ export function decodeF32(blob) {
 
 export function parsePolicy(text) {
   const p = JSON.parse(text);
-  if (p.format !== 'emu-policy' || ![1, 2].includes(p.schema)) throw new Error(`Unsupported policy format/schema: ${p.format}/${p.schema}`);
-  if (!p.policy || !p.observation || !p.control || typeof p.robot_xml !== 'string') throw new Error('Policy bundle is missing required sections');
-  if (p.policy.action_dim !== 6) throw new Error(`Expected 6 actions, got ${p.policy.action_dim}`);
-  const isSensor = p.schema === 2;
-  const base = isSensor ? 58 : 55;
-  if (p.policy.history_len !== 4 || p.policy.base_obs_dim !== base || p.policy.obs_dim !== base * 4) {
+  if (p.format !== 'emu-policy' || ![1, 2, 3].includes(p.schema)) {
+    throw new Error(`Unsupported policy format/schema: ${p.format}/${p.schema}`);
+  }
+  if (!p.policy || !p.observation || !p.control || typeof p.robot_xml !== 'string')
+    throw new Error('Policy bundle is missing required sections');
+  if (p.policy.action_dim !== 6)
+    throw new Error(`Expected 6 actions, got ${p.policy.action_dim}`);
+  const isPreview = p.schema === 3;
+  const isSensor = p.schema >= 2;
+  const base = isPreview ? 78 : isSensor ? 58 : 55;
+  if (p.policy.history_len !== 4 || p.policy.base_obs_dim !== base ||
+      p.policy.obs_dim !== base * 4) {
     throw new Error(`Viewer policy observation mismatch: expected ${base}×4, bundle says ${p.policy.base_obs_dim}×${p.policy.history_len}=${p.policy.obs_dim}`);
   }
-  if (!Array.isArray(p.policy.layers) || p.policy.layers.length !== 3) throw new Error('Viewer requires a 3-layer actor');
-  if (!Array.isArray(p.observation.base_fields) || p.observation.base_fields.length !== base) throw new Error('Invalid base observation field contract');
+  if (!Array.isArray(p.policy.layers) || p.policy.layers.length !== 3)
+    throw new Error('Viewer requires a 3-layer actor');
+  const fields=p.observation.base_fields;
+  if (!Array.isArray(fields) || fields.length !== base)
+    throw new Error('Invalid base observation field contract');
+  const expectedGrade=[
+    'ground_forward_grade_rad', 'ground_sideways_grade_rad',
+    'ground_visibility_confidence'
+  ];
   if (isSensor) {
     const c = p.observation.sensor_contract;
-    if (!c || c.schema !== 'sim2real_232' || c.sensor_model_revision !== 'tripod_tof_flow_async_v1' ||
+    if (!c || c.schema !== (isPreview ? 'rolling_tof_312' : 'sim2real_232') ||
+        c.sensor_model_revision !== 'tripod_tof_flow_async_v1' ||
         c.history_len !== 4 || c.action_dim !== 6 ||
-        JSON.stringify(c.base_fields) !== JSON.stringify(p.observation.base_fields) ||
-        JSON.stringify(p.observation.base_fields.slice(-3)) !== JSON.stringify([
-          'ground_forward_grade_rad', 'ground_sideways_grade_rad', 'ground_visibility_confidence'
-        ])) throw new Error('Unsupported v5016 sensor observation model');
-    const settings = c.settings || {};
-    for(const field of ['tof_period_frames','flow_period_frames','tof_delay_frames','flow_delay_frames',
-                        'tof_dropout_prob','flow_dropout_prob','gyro_bias_std_rad_s','sensor_noise_scale']) {
-      if (!Number.isFinite(settings[field])) throw new Error(`Invalid sensor setting: ${field}`);
+        JSON.stringify(c.base_fields) !== JSON.stringify(fields) ||
+        JSON.stringify(fields.slice(55,58)) !== JSON.stringify(expectedGrade))
+      throw new Error('Unsupported sensor/observation model');
+    const settings=c.settings || {};
+    for (const field of ['tof_period_frames','flow_period_frames','tof_delay_frames',
+                         'flow_delay_frames','tof_dropout_prob','flow_dropout_prob',
+                         'gyro_bias_std_rad_s','sensor_noise_scale']) {
+      if (!Number.isFinite(settings[field]))
+        throw new Error(`Invalid sensor setting: ${field}`);
     }
     if (c.tof_range_limits_m?.[0] !== .035 || c.tof_range_limits_m?.[1] !== .6 ||
         JSON.stringify(c.tripod_mounts_body_m) !== JSON.stringify([[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]]) ||
         JSON.stringify(c.tripod_beams_body) !== JSON.stringify([[0,0,-1],[0,0,-1],[0,0,-1]]))
-      throw new Error('Unsupported ToF extrinsics in schema-8 actor');
-    if (p.source?.checkpoint_schema !== 8) throw new Error('Schema-8 sensor checkpoint required');
-  } else if (p.source?.checkpoint_schema === 8) {
-    throw new Error('Sensor actor cannot be rendered by legacy schema-1 viewer');
+      throw new Error('Unsupported tripod ToF extrinsics');
+    if (p.source?.checkpoint_schema !== (isPreview ? 9 : 8))
+      throw new Error('Policy checkpoint schema does not match its 232/312 observation contract');
+    if (isPreview) {
+      const x=[-5,0,5,10,20];
+      const expectedHeights=['right','left'].flatMap(side =>
+        x.map(cm => `terrain_height_${side}_${cm}cm_m`));
+      const expectedConfidence=['right','left'].flatMap(side =>
+        x.map(cm => `terrain_confidence_${side}_${cm}cm`));
+      if (JSON.stringify(fields.slice(58)) !==
+          JSON.stringify([...expectedHeights,...expectedConfidence]) ||
+          c.rolling_cells_per_lane !== 51 ||
+          c.rolling_spacing_m !== .01 ||
+          c.rolling_start_m !== -.10 ||
+          JSON.stringify(c.rolling_actor_indices) !== JSON.stringify([5,10,15,20,30]) ||
+          JSON.stringify(c.rolling_actor_sample_x_m) !== JSON.stringify([-.05,0,.05,.1,.2]) ||
+          c.forward_masked !== false && c.forward_masked !== true ||
+          c.forward_model_revision !== 'v5019_forward_two_ray_v1' && !c.forward_model_revision)
+        throw new Error('Unsupported 312-input V-shaped terrain memory layout');
+    }
+  } else if (p.source?.checkpoint_schema !== 7 ||
+             p.observation.sensor_contract != null) {
+    throw new Error('Legacy actor must use a schema-7, sensor-free checkpoint');
   }
   return p;
 }
