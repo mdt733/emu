@@ -136,6 +136,9 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
+    # Number of PPO rollouts per metrics CSV row. One-update probe logs
+    # preserve collapse history; mature runs retain the efficient default.
+    log_every_updates: int = LOG_EVERY_UPDATES
     observation_schema: str = OBS_SCHEMA_LEGACY  # explicit 220/232/312
     forward_preview_masked: bool = False  # same 312 V-memory model, all 20 terrain values masked for A/B
 
@@ -246,7 +249,8 @@ class TrainingConfig:
                     'terrain_adaptive_flat_control',
                     'terrain_height_initial_m', 'terrain_height_exposure',
                     'terrain_height_edge_fraction', 'terrain_height_growth_m',
-                    'terrain_progress_weight', 'forward_preview_masked'}
+                    'terrain_progress_weight', 'forward_preview_masked',
+                    'log_every_updates'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
