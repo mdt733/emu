@@ -29,7 +29,7 @@ FORWARD_NOISE_STD_M = .0015
 FORWARD_QUANTIZATION_M = .001  # provisional 1mm measurement resolution
 FORWARD_NOISE_RANGE_FACTOR = .5  # sigma rises gently with slant range
 FORWARD_PROFILE_CLIP_M = .15
-FORWARD_MODEL_REVISION = "two_far_rays_and_three_box_aware_downward_rays_v5"
+FORWARD_MODEL_REVISION = "two_far_rays_three_box_aware_tripod_and_camera_flow_depth_v6"
 
 # Exactly TWO physical beams, right/left, both nominally 20cm ahead.
 FORWARD_MOUNTS_BODY_M = tuple(
