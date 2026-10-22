@@ -5,6 +5,7 @@ import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { SensorObserver } from './sensor.js';
 import { RollingTerrainDiagnostic, groundRayHit } from './terrain-memory.js';
+import { appendPreviewObservation } from './preview-observation.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -958,10 +959,8 @@ export class EmuBrowserSim {
       // Authoritative 78-value frame contract:
       // [55 legacy, 3 tripod grade, 10 V heights, 10 V confidences].
       // Sensor readout is measured/flow-advected, NOT exact MuJoCo terrain.
-      const memory = this.terrainMemory.values();
-      const masked = this.bundle.observation.sensor_contract.forward_masked;
-      for(const x of memory.actorHeights) base[k++] = masked ? 0 : x;
-      for(const x of memory.actorConfidence) base[k++] = masked ? 0 : x;
+      k = appendPreviewObservation(base, k, this.terrainMemory,
+        this.bundle.observation.sensor_contract.forward_masked);
     }
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
