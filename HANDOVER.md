@@ -10,6 +10,40 @@ explicitly approves a reviewed merge.
 [`feature/v5020-coldstart-terrain`](https://github.com/mdt733/emu/tree/feature/v5020-coldstart-terrain).
 All changes in this handover refer **only** to that branch.
 
+## Terrain implementation acceptance — 22 October 2026
+
+**Overnight launch is blocked in source until the remaining acceptance gates
+pass.** `--check` performs no PPO update and reports NOT OVERNIGHT READY;
+`--run` exits before environment setup or run-directory creation.
+
+Foundation qualification now uses an additional fixed +0.10 m/s forward
+panel. At least 20% of original worlds must complete the full exam without
+falling, travel at least 5 cm and 30% of commanded distance, show mean lift
+evidence >=0.12, upright fraction >=0.80, support fraction >=0.50 and forward
+tracking MAE <=0.08 m/s. These are initial basic-walking thresholds, not proof
+of a strong policy or certified force-based gait. Advanced skills are not
+required. Old survival-only CSVs are unknown and cannot auto-qualify or bypass
+the gate through an explicit path.
+
+Frozen summary metrics exclude reset aftermath and report tracking/gait
+means over observed first-episode frames. Walking qualification requires the
+whole horizon, so incomplete evidence cannot qualify. Tournament metrics
+reject negative errors/effort and out-of-range fractions.
+
+Checkpoint and 312-input sensor formats are unchanged. Metric columns have
+expanded: new source uses a new pinned run root; do not append to historical
+CSV files. Same-revision full-state resume remains supported.
+
+Validation: focused qualification/scoring/refork/launcher regressions pass,
+including the actual JAX-compiled evaluator with controlled telemetry.
+Physical training and real-GPU acceptance remain unproven here. This host
+has Python 3.12 CPU dependencies, not the supported fresh-WSL Python 3.13/CUDA
+stack; do not treat these tests as fresh-PC acceptance.
+
+Next: replace the 80 mm hurdle lesson with genuine elevation transitions,
+validate sensor reconstruction, integrate browser 312 inference, and run the
+small real-GPU lifecycle before removing the launch gate.
+
 ## Current status
 
 - Physics: six-actuator biped in MuJoCo/MJX, real collidable boxes and

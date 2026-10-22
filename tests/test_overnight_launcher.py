@@ -52,3 +52,11 @@ def test_fresh_start_requires_explicit_run_and_preserves_pinned_checkpoint(tmp_p
     assert 'choose_fresh_foundation(p)' in fresh_section
     assert 'FOUNDATION_PATH="$FRESH_ROOT/checkpoints/final.pkl"' in text
     assert 'git reset' not in text and 'git checkout main' not in text
+
+
+def test_unaccepted_revision_cannot_start_overnight_campaign(tmp_path):
+    result = subprocess.run(["bash", str(SCRIPT), "--run"], cwd=tmp_path,
+                            capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "terrain acceptance pending" in result.stderr
+    assert not list(tmp_path.iterdir())

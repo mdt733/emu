@@ -410,3 +410,15 @@ def test_first_verified_crossing_reward_is_additive_and_opt_in():
     assert np.isclose(observed[1], w*.5)
     assert np.isclose(observed[0],w*.5+4*w)
     assert np.all(terrain_progress_payment(m,xp=np,weight=0.)==0.)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("screen_core_survival", 1.1), ("screen_robust70_vx_mae", -1.),
+    ("screen_contact_slope_step_evidence", 2.),
+    ("power_robust_shaft_abs_power_w", -100.),
+])
+def test_out_of_range_evidence_cannot_win(key, value):
+    evidence = _evidence()
+    evidence[key] = value
+    result = c._score(evidence, stage="walk40", name="invalid")
+    assert not result["eligible"] and result["score"] is None

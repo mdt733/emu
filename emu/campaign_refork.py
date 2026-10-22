@@ -355,6 +355,8 @@ def _score(evidence: dict, *, stage: str, name: str) -> dict:
         x = float(evidence[key])
         if not math.isfinite(x):
             raise ValueError(f"nonfinite {key}")
+        if x < 0. or (key.endswith(("_survival", "_step_evidence", "_over_rated_frac")) and x > 1.):
+            raise ValueError(f"out-of-range {key}")
         return x
     try:
         core = val("screen_core_survival")

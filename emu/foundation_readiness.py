@@ -34,7 +34,8 @@ def recent_fixed_exam(checkpoint: Path) -> dict[str, float] | None:
     result = {}
     for key in ("eval_broad_score","eval_core_survival",
                 "eval_stress30_survival","eval_dynamic50_survival",
-                "eval_resilience50_survival"):
+                "eval_resilience50_survival", "eval_foundation_walking_pass",
+                "eval_foundation_forward_progress_m", "eval_foundation_commanded_forward_m"):
         raw=matches[-1].get(key)
         if raw in (None,""):
             continue
@@ -74,6 +75,8 @@ def reject_obviously_collapsed(evaluation: dict[str,float] | None) -> str | None
     """
     if evaluation is None:
         return None
+    if basic_foundation_issue(evaluation) is None:
+        return None
     core=evaluation.get("eval_core_survival")
     stress=evaluation.get("eval_stress30_survival")
     if core is not None and stress is not None and core < .15 and stress < .15:
@@ -111,7 +114,8 @@ def choose_foundation(directories: list[Path], *,
     """
     if explicit is not None:
         result=inspect(Path(explicit))
-        issue=reject_obviously_collapsed(result.get("source_evaluation"))
+        issue=(reject_obviously_collapsed(result.get("source_evaluation"))
+               or basic_foundation_issue(result.get("source_evaluation")))
         if issue:
             raise ValueError(issue)
         return {**result,"selection_reason":"explicit checkpoint"}
@@ -131,11 +135,12 @@ def choose_foundation(directories: list[Path], *,
                 # Automatic overnight selection needs evidence for the
                 # selected EXACT policy step. A mature saved network with
                 # no matching frozen evaluation has UNKNOWN competence,
-                # and may only be chosen via an explicit user path.
+                # including explicit source paths.
                 if record.get("source_evaluation") is None:
                     findings.append(f"{path}: no exact-checkpoint fixed exam; cannot auto-select")
                     continue
-                issue=reject_obviously_collapsed(record.get("source_evaluation"))
+                issue=(reject_obviously_collapsed(record.get("source_evaluation"))
+                       or basic_foundation_issue(record.get("source_evaluation")))
                 if issue:
                     findings.append(f"{path}: {issue}")
                     continue
@@ -158,8 +163,8 @@ def choose_fresh_foundation(directory: Path, *,
     A fresh 20M core walker will often be weak at combined velocity,
     contact slopes and disturbance recovery. Those are next-generation
     lessons, NOT a reason to discard a coherent walker after 20M.
-    Still refuse a policy that cannot survive even the easiest matched
-    held-out exam or has no exact checkpoint-step evidence. This does not
+    Require joint commanded travel, stepping, posture, support and
+    survival in a fixed forward exam at the exact checkpoint step. This does not
     certify general-purpose locomotion.
     """
     root=Path(directory).expanduser().resolve()
@@ -174,9 +179,9 @@ def choose_fresh_foundation(directory: Path, *,
             if not evaluation:
                 failures.append(f"{path}: no exact-checkpoint frozen evaluation")
                 continue
-            core=evaluation.get("eval_core_survival")
-            if core is None or not math.isfinite(core) or core < .20:
-                failures.append(f"{path}: no coherent easy walking (core={core})")
+            issue = basic_foundation_issue(evaluation)
+            if issue:
+                failures.append(f"{path}: {issue}")
                 continue
             return {**record,
                     "selection_reason":"fresh flat-first core walker (harder abilities not yet required)",
@@ -186,3 +191,15 @@ def choose_fresh_foundation(directory: Path, *,
     raise RuntimeError(
         "New flat-first foundation has no eligible basic walker; STOP without "
         "spending five-way continuation steps. "+"; ".join(failures))
+
+
+def basic_foundation_issue(evaluation):
+    """Fail closed on old survival-only exams; require joint walking evidence."""
+    if not evaluation:
+        return "no exact-checkpoint walking exam"
+    rate = evaluation.get("eval_foundation_walking_pass")
+    if rate is None or not math.isfinite(rate) or not 0. <= rate <= 1.:
+        return "missing or invalid commanded walking evidence; re-evaluate this checkpoint"
+    if rate < .20:
+        return f"insufficient genuine basic walkers ({rate:.3f} < 0.20)"
+    return None

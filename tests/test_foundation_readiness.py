@@ -14,7 +14,8 @@ def _record(path, score=.5, *, step=20_054_016, envs=4096):
         "path":str(path.resolve()),"envs":envs,"step":step,
         "sha256":"a"*64,
         "source_evaluation":dict(eval_broad_score=score,
-                                 eval_core_survival=.8,eval_stress30_survival=.7),
+                                 eval_core_survival=.8,eval_stress30_survival=.7,
+                                 eval_foundation_walking_pass=.6),
     }
 
 
@@ -113,10 +114,9 @@ def test_unexamined_saved_policy_is_unknown_not_automatically_qualified(tmp_path
         return _record(path)|{"source_evaluation":None}
     with pytest.raises(RuntimeError,match="no exact-checkpoint fixed exam"):
         choose_foundation([root],inspect=no_exam)
-    # A deliberately selected source can be investigated/run separately,
-    # but the default overnight auto-selection will not silently pick it.
-    chosen=choose_foundation([],explicit=ck/"best.pkl",inspect=no_exam)
-    assert chosen["source_evaluation"] is None
+    # Explicit paths cannot bypass qualification for an overnight run.
+    with pytest.raises(ValueError, match="walking exam"):
+        choose_foundation([],explicit=ck/"best.pkl",inspect=no_exam)
 
 
 def test_early_healthy_core_does_not_require_solved_difficult_panels():
@@ -152,3 +152,26 @@ def test_only_exact_checkpoint_step_provides_foundation_health(tmp_path,monkeypa
     assert result["eval_core_survival"]==pytest.approx(.8)
     monkeypatch.setattr(check,"checkpoint_step",lambda *args,**kwargs:19_000_000)
     assert recent_fixed_exam(path) is None
+
+
+@pytest.mark.parametrize("rate", [None, float("nan"), -1., 1.1, 0., .19])
+def test_fresh_survivor_or_invalid_evidence_cannot_qualify(tmp_path, rate):
+    from emu.foundation_readiness import choose_fresh_foundation
+    (tmp_path/"checkpoints").mkdir()
+    (tmp_path/"checkpoints"/"best.pkl").write_bytes(b"mock")
+    def inspect(path):
+        return _record(path) | {"source_evaluation": {
+            "eval_core_survival": 1., "eval_foundation_walking_pass": rate}}
+    with pytest.raises(RuntimeError, match="basic walker"):
+        choose_fresh_foundation(tmp_path, inspect=inspect)
+
+
+def test_basic_fresh_walker_does_not_need_advanced_skills(tmp_path):
+    from emu.foundation_readiness import choose_fresh_foundation
+    (tmp_path/"checkpoints").mkdir()
+    (tmp_path/"checkpoints"/"best.pkl").write_bytes(b"mock")
+    def inspect(path):
+        return _record(path) | {"source_evaluation": {
+            "eval_foundation_walking_pass": .25, "eval_core_survival": .3,
+            "eval_resilience50_survival": 0., "eval_dynamic50_survival": 0.}}
+    assert choose_fresh_foundation(tmp_path, inspect=inspect)["qualification"] == "foundation-core-only"

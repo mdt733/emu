@@ -109,3 +109,18 @@ def graded_step_score(evidence: Mapping[str, Any], heights: tuple[int, ...],
     trials=tuple(ExactStepResult.from_exam(evidence,mm,min_attempts=min_attempts)
                  for mm in heights)
     return sum(w*t.crossing_rate for w,t in zip(weights,trials)),trials
+
+
+def basic_walking_pass(xp, *, observed_steps, horizon, fell, progress_m,
+                       commanded_m, gait, upright, support, vx_mae):
+    """Joint per-world first-episode evidence, shared by MJX and CPU tests.
+
+    This modest foundation gate requires sustained commanded travel, not
+    advanced manoeuvres. Missing time and reset episodes cannot contribute.
+    Lift evidence is a gait proxy, not a force/stride certification.
+    """
+    finite = xp.isfinite(progress_m) & xp.isfinite(commanded_m) & xp.isfinite(gait) & xp.isfinite(upright) & xp.isfinite(support) & xp.isfinite(vx_mae)
+    return (finite & (observed_steps == horizon) & xp.logical_not(fell) &
+            (commanded_m >= .10) & (progress_m >= .05) &
+            (progress_m >= .30 * commanded_m) & (gait >= .12) &
+            (upright >= .80) & (support >= .50) & (vx_mae <= .08))

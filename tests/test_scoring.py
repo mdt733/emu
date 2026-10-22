@@ -109,3 +109,65 @@ def test_physical_peak_is_per_world_per_frame_not_a_misleading_mean():
     assert physical_peak_metric({},"spring_potential_energy_j")==-1.
     data["spring_potential_energy_j"][11,1337]=float("nan")
     assert np.isnan(physical_peak_metric(data,"spring_potential_energy_j"))
+
+
+@pytest.mark.parametrize("change", [
+    {"progress_m": 0.}, {"commanded_m": 0.}, {"gait": 0.},
+    {"upright": .3}, {"support": 0.}, {"fell": True},
+    {"observed_steps": 349}, {"vx_mae": .10}, {"progress_m": float("inf")},
+])
+def test_joint_walking_evidence_rejects_standing_falls_and_incomplete(change):
+    from emu.scoring import basic_walking_pass
+    values = dict(observed_steps=np.array([350]), horizon=350,
+                  fell=np.array([False]), progress_m=.3, commanded_m=.7,
+                  gait=.2, upright=.95, support=.7, vx_mae=.05)
+    assert basic_walking_pass(np, **values).all()
+    assert not basic_walking_pass(np, **(values | change)).any()
+
+
+def test_compiled_evaluator_excludes_reset_aftermath():
+    """Exercise the actual JIT evaluator with controlled physical telemetry."""
+    import jax
+    import jax.numpy as jnp
+    from typing import NamedTuple
+    from emu.ppo import make_trainer
+    from emu.contracts import CONTROL_DT
+    from emu.evaluation import EVAL_FIELDS
+
+    class Output(NamedTuple):
+        state: object
+        obs: object
+        metrics: object
+        done: object
+
+    class ExamWorld:
+        num_envs = 3
+        def reset(self, params):
+            return jnp.array(0), self.obs(None)
+        def _reset_with_keys(self, keys, params):
+            return jnp.array(0)
+        def obs(self, state):
+            return jnp.zeros((3, 220))
+        def step(self, state, action, params):
+            # World 0 stands, world 1 walks, world 2 falls on frame 1
+            # then looks perfect forever. Only world 1 should qualify.
+            one = jnp.ones(3)
+            zero = jnp.zeros(3)
+            vx = jnp.array([0., .10, .10])
+            fell = jnp.array([0., 0., 1.]) * (state == 0)
+            metrics = dict(vx=vx, vy=zero, yaw_rate=zero, cmd_vx=one*.10,
+                cmd_vy=zero, cmd_yaw=zero, gravity_z=one, foot_mid_cone=one,
+                step_evidence=jnp.array([0., .3, .3]), support=one,
+                body_pitch=zero, cmd_pitch=zero, height_error=zero,
+                episode_fell=fell, terrain_forward_delta_m=vx*CONTROL_DT)
+            return Output(state+1, self.obs(None), metrics, fell)
+
+    trainer = make_trainer(ExamWorld(), seed=733, lr=0.0003, rollout=1, epochs=1, minibatches=1)
+    state = trainer['make_initial_state']({})
+    result = trainer['evaluate_summary'](state.params, {}, jnp.zeros(220),
+        jnp.ones(220), jax.random.PRNGKey(0), 350)
+    result = dict(zip(EVAL_FIELDS, np.asarray(result)))
+    assert result['walking_pass'] == pytest.approx(1/3)
+    assert result['survival'] == pytest.approx(2/3)
+    # Only one frame of world 2 counts toward gait/command evidence.
+    assert result['step_evidence'] == pytest.approx(.3*351/701, abs=1e-6)

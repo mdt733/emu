@@ -12,9 +12,10 @@ case "${1:---check}" in
 Usage: bash scripts/overnight_v5020.sh [--check|--run]
   --check   Validate the current WSL checkout, 312-input foundation,
             regression tests and GPU. No PPO training, no new run root.
-  --run     Run from a qualified existing source, or first train/verify a
+  --run     BLOCKED until terrain/browser/GPU acceptance is complete.
+            Eventually run from a qualified existing source, or train/verify a
             fresh flat-first 312-input 20M foundation. Follow the five-arm
-            40/60/80M ladder; attempt optional 100M terrain only if sensible.
+            40M/60M/80M ladder; attempt optional 100M terrain only if sensible.
             Preserve all checkpoints and stop when physically incoherent.
 
 Optional environment overrides:
@@ -36,6 +37,14 @@ HELP
   *) echo "Usage: $0 [--check|--run]. See --help" >&2; exit 2 ;;
 esac
 if [[ ${2+x} ]]; then echo "Only one --check/--run argument is allowed" >&2; exit 2; fi
+
+# Terrain implementation acceptance is deliberately incomplete on this revision.
+# Remove this source gate only after geometry, 312 browser parity and the
+# real-GPU lifecycle have recorded acceptance evidence (see HANDOVER.md).
+if [[ "$MODE" == "--run" ]]; then
+  echo "STOP: v5020 terrain acceptance pending: elevation physics, browser 312 parity, and GPU lifecycle." >&2
+  exit 1
+fi
 
 [[ -f .venv/bin/activate ]] || {
   echo "STOP: no venv in $ROOT. Follow docs/INSTALL.md (setup_wsl.sh) first." >&2
@@ -165,18 +174,19 @@ python -m pytest -q \
   tests/test_experiment_io.py tests/test_foundation_readiness.py \
   tests/test_overnight_launcher.py
 echo "=== Live MJX/CUDA doctor (small smoke, no training) ==="
-XLA_PYTHON_CLIENT_PREALLOCATE=false emu doctor --v5015-smoke --domain-smoke
+XLA_PYTHON_CLIENT_PREALLOCATE=false emu doctor --no-mjx-smoke
 echo "=== Research plan (read-only) ==="
 emu campaign-refork
 
 if [[ "$MODE" == "--check" ]]; then
   if ((FOUNDATION_NEEDS_BUILD)); then
-    echo "CHECK PASSED: no qualified existing foundation; --run will train a fresh flat-first 312-input foundation FIRST."
+    echo "SOURCE CHECKS PASSED: no qualified existing foundation; --run will train a fresh flat-first 312-input foundation FIRST."
   else
-    echo "CHECK PASSED: existing source checkpoint validated."
+    echo "SOURCE CHECKS PASSED: existing source checkpoint validated."
   fi
-  echo "No campaign was started. Use --run to launch."
-  exit 0
+  echo "NOT OVERNIGHT READY: elevation physics, browser 312 parity, and GPU lifecycle remain unaccepted."
+  echo "No campaign was started. --run remains blocked."
+  exit 1
 fi
 
 # Logs live OUTSIDE the run root because the campaign insists its new root

@@ -55,7 +55,8 @@ def checkpoint_eval_score(meta: dict[str, Any]) -> float:
 
 EVAL_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
                'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
-               'pitch_mae', 'height_shortfall_m')
+               'pitch_mae', 'height_shortfall_m',
+               'walking_pass', 'forward_progress_m', 'commanded_forward_m')
 
 
 def _episode(steady: float, transition: float, resilience: float, posture: float,
@@ -69,7 +70,11 @@ def _episode(steady: float, transition: float, resilience: float, posture: float
 
 
 # name -> (world, deterministic key salt, episode parameters)
+_foundation_episode = _episode(0., 0., 0., 0., (1., 0., 0.), 1.)
+_foundation_episode.update(probe_cmd_vx=.10, probe_cmd_vy=0., probe_cmd_yaw=0.)
+
 PANELS = {
+    'foundation': ('fixed', 99, _foundation_episode),
     'core': ('fixed', 100, _episode(0.0, 0.0, 0.0, 0.0, (1.0, 0.0, 0.0), 0.50)),
     'stress30': ('fixed', 101, _episode(.30, .30, .30, .20, (1/3, 1/3, 1/3), .50)),
     'dynamic50': ('fixed', 102, _episode(.45, .60, .25, .25, (.20, .65, .15), .75)),
@@ -285,9 +290,7 @@ from .training_config import (
     PPO_ENTROPY_COST, PPO_VALUE_COST, EVAL_SEED,
 )
 
-SCREEN_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
-                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
-                 'pitch_mae', 'height_shortfall_m')
+SCREEN_FIELDS = EVAL_FIELDS
 
 
 def _screen_episode(steady: float, transition: float, resilience: float, posture: float,

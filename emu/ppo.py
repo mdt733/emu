@@ -15,6 +15,7 @@ import numpy as np
 
 from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_PREVIEW, PREVIEW_RANGE_FIELDS, actor_observation_fields
 from .environment import T
+from .scoring import basic_walking_pass
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
@@ -569,30 +570,46 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         obs = env.obs(env_state)
         first_fall0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
         sums0 = jnp.zeros((9,), dtype=jnp.float32)
+        finished0 = jnp.zeros((env.num_envs,), dtype=jnp.bool_)
+        # steps, signed world-X travel, requested travel, gait, upright,
+        # support, tracking error: separate evidence for each original world.
+        walking0 = jnp.zeros((env.num_envs, 7), dtype=jnp.float32)
 
         def one_step(i, carry):
-            es, ob, first_fall, sums = carry
+            es, ob, first_fall, sums, finished, walking = carry
             mean, _ = apply(params, normalize_obs(ob, obs_mean, obs_std, obs_norm_mask))
             action = jnp.clip(mean, -1.0, 1.0)
             out = env.step(es, action, curriculum_params)
             m = out.metrics
-            fell = m['episode_fell'] > 0.5
+            fell = (m['episode_fell'] > 0.5) & ~finished
+            active = ~finished
             first_fall = jnp.where(jnp.logical_and(first_fall < 0, fell), i + 1, first_fall)
+            # Only first-episode samples contribute to conditional means;
+            # successful reset episodes cannot erase an earlier failure.
+            def total(value):
+                return jnp.sum(jnp.where(active, value, 0.))
             sums = sums + jnp.stack((
-                jnp.sum(jnp.abs(m['vx'] - m['cmd_vx'])),
-                jnp.sum(jnp.abs(m['vy'] - m['cmd_vy'])),
-                jnp.sum(jnp.abs(m['yaw_rate'] - m['cmd_yaw'])),
-                jnp.sum(m['gravity_z']),
-                jnp.sum(m['foot_mid_cone']),
-                jnp.sum(m['step_evidence']),
-                jnp.sum(m['support']),
-                jnp.sum(jnp.abs(m['body_pitch'] - m['cmd_pitch'])),
-                jnp.sum(jnp.maximum(0.0, -m['height_error'])),
+                total(jnp.abs(m['vx'] - m['cmd_vx'])),
+                total(jnp.abs(m['vy'] - m['cmd_vy'])),
+                total(jnp.abs(m['yaw_rate'] - m['cmd_yaw'])),
+                total(m['gravity_z']),
+                total(m['foot_mid_cone']),
+                total(m['step_evidence']),
+                total(m['support']),
+                total(jnp.abs(m['body_pitch'] - m['cmd_pitch'])),
+                total(jnp.maximum(0.0, -m['height_error'])),
             ))
-            return out.state, out.obs, first_fall, sums
+            walking += jnp.where(active[:, None], jnp.stack((
+                jnp.ones_like(m['vx']), m['terrain_forward_delta_m'],
+                m['cmd_vx'] * CONTROL_DT, m['step_evidence'],
+                (m['gravity_z'] >= .80).astype(jnp.float32),
+                (m['support'] > SUPPORT_MIN).astype(jnp.float32),
+                jnp.abs(m['vx'] - m['cmd_vx']),
+            ), axis=1), 0.)
+            return out.state, out.obs, first_fall, sums, finished | (out.done > .5), walking
 
-        _, _, first_fall, sums = jax.lax.fori_loop(
-            0, horizon, one_step, (env_state, obs, first_fall0, sums0))
+        _, _, first_fall, sums, _, walking = jax.lax.fori_loop(
+            0, horizon, one_step, (env_state, obs, first_fall0, sums0, finished0, walking0))
         failed = first_fall >= 0
         failed_count = jnp.sum(failed.astype(jnp.float32))
         survival = 1.0 - failed_count / float(env.num_envs)
@@ -602,9 +619,15 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             first_fall_sum / jnp.maximum(failed_count, 1.0),
             jnp.asarray(float(horizon), dtype=jnp.float32),
         )
-        denom = jnp.asarray(float(env.num_envs * horizon), dtype=jnp.float32)
+        denom = jnp.maximum(1., jnp.sum(walking[:, 0]))
         means = sums / denom
-        return jnp.concatenate((jnp.stack((survival, first_fall_mean)), means))
+        passed = basic_walking_pass(jnp, observed_steps=walking[:, 0], horizon=horizon,
+            fell=failed, progress_m=walking[:, 1], commanded_m=walking[:, 2],
+            gait=walking[:, 3]/horizon, upright=walking[:, 4]/horizon,
+            support=walking[:, 5]/horizon, vx_mae=walking[:, 6]/horizon)
+        extra = jnp.stack((jnp.mean(passed.astype(jnp.float32)),
+                           jnp.mean(walking[:, 1]), jnp.mean(walking[:, 2])))
+        return jnp.concatenate((jnp.stack((survival, first_fall_mean)), means, extra))
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
