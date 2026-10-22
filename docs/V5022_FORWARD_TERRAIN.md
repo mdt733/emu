@@ -21,13 +21,16 @@ Branch: `feature/v5022-forward-terrain`. No change to the public showcase.
 ## Phase 1 choice: three additional forward/downward ToF beams
 
 Keep the downward sensor tripod and its estimators unchanged. Place three
-additional narrow-range modules around body X=+45 mm, Z=-18 mm, at
-Y=-47/0/+47 mm. Approximate forward/downward beam vectors are
+additional narrow-range modules around body X=+90 mm, Z=-18 mm, at
+Y=-60/0/+60 mm. Approximate forward/downward beam vectors are
 (+.70,-.12,-.70), (+.71,0,-.71), (+.70,+.12,-.70), normalized.
-Mount geometry is provisional and requires clearance and CAD checks.
+The center of the actual torso box is X=+26 mm, with half-width 50 mm:
+its front surface is X=+76 mm. Sensor optics must sit beyond that surface,
+not inside the robot collision volume. Geometry is still provisional and
+requires clearance, cable and leg-swing/CAD checks.
 
 At neutral torso Z≈258 mm on level ground, the forward fan strikes the
-ground approximately 0.28 m ahead of the root. This is **not** a guaranteed
+ground approximately 0.33 m ahead of the root. This is **not** a guaranteed
 preview distance: tilt, platform height, riser occlusion, or missing surfaces
 change the first return. A narrow beam cannot infer the entire terrain
 surface. A ray can strike a vertical riser rather than its top, which
