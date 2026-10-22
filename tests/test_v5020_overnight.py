@@ -74,7 +74,7 @@ def test_overnight_script_syntax_help_plan_and_immutable_sequence():
                          ('up224','224000000'),('up320','320000000')):
         # Shell formatting is free to align columns with multiple spaces;
         # validate the ACTUAL invocation, not its cosmetic whitespace.
-        assert re.search(rf'(?m)^run_stage\\s+{stage}\\s+{target}\\s+', src), (
+        assert re.search(rf'(?m)^run_stage\s+{stage}\s+{target}\s+', src), (
             stage, target)
     assert 'ENVS=2048' not in src or '2048' in src
     assert 'PROFILE=(' in src
