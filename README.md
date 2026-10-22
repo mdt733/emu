@@ -83,17 +83,18 @@ the new foundation passes initial health screening. It also attempts
 a final **100M terrain-focused round** when the 80M walker has reasonable
 physical evidence. Mature qualification and promising-but-provisional
 research results are reported separately; only catastrophic collapse,
-invalid evidence or an incoherent gait stops progress. No source edits, Git merges, main/showcase changes, automatic 60M
-continuation or silent policy selection. It records a new root linked
-to the Git commit. Use `--check` first for a dry preflight.
+invalid evidence or an incoherent gait stops progress. No source edits,
+Git merges, protected `main`/showcase changes or unlabelled policy
+promotion. It records a new root linked to the Git commit. Use
+`--check` first for a dry preflight.
 
 The launcher searches the existing `v5020_lab_4096_fixed/foundation20`
 then `v5020_lab_4096/foundation20` checkpoint directories. It prefers
 a **mature, validated `best.pkl`** over `final.pkl`, never mixes
 incompatible run histories, and rejects a parent with independently
 documented catastrophic failure on both easy locomotion panels. If no
-acceptable foundation is present, it **stops before training**.
-Override with `FOUNDATION_PATH=/absolute/path/to/a/validated.pkl` for an
+acceptable *existing* foundation is present, it trains a fresh flat-first
+one and evaluates basic walking before continuing. Override with `FOUNDATION_PATH=/absolute/path/to/a/validated.pkl` for an
 explicit source; a valid checkpoint is still not a guarantee of good gait. See [WSL launch guide](docs/INSTALL.md).
 
 ## Quick start
@@ -118,8 +119,9 @@ python -m pytest -q tests/test_v5020_refork.py tests/test_v5020_campaign.py
 training requires explicit `--run`, a validated 312-input foundation
 checkpoint, a clean pinned source revision, and a **new empty** output
 directory. See [current training instructions](docs/INSTALL.md).
-The default is to stop at the first 40M comparison, not launch an
-unexamined overnight campaign.
+The default guarded launcher permits healthy continuations through 80M
+and conditional 100M; each generation gets its own frozen examination.
+Set `STOP_AFTER=walk40` to stop after the first generation.
 
 For the **existing proven demo**, stay on `main` or visit the public
 Playground. Neither source cleanup nor v5020 research modifies that policy.
