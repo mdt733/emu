@@ -261,7 +261,7 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
-    sim.setSensorObstacle(depthCourse.value);
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     updateDepthSettings();
     if(terrainMode.value==='sensor' && demoActive)stopDemo();
@@ -359,6 +359,8 @@ function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
   if(terrainMode.value==='sensor'&&demoActive)stopDemo();
+  if(terrainMode.value!=='sensor')depthCourse.value='viewer';
+  else if(depthCourse.value==='viewer'){depthCourse.value='flat';sim?.setSensorObstacle('flat');}
   if (!sim) return;
   try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
   catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
@@ -372,12 +374,12 @@ function updateDepthSettings(){
   });
 }
 function changeDepthCourse(){
-  terrainMode.value='sensor';
+  terrainMode.value=depthCourse.value==='viewer'?'park':'sensor';
   if(demoActive)stopDemo();
   if(!sim)return;
   try{
-    sim.setSensorObstacle(depthCourse.value);
-    sim.setTerrainMode('sensor',Number(terrainMax.value));
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     navigator.reset();updateStickLabels();
   }catch(error){setStatus('Depth lab course: '+error.message,'error');}
 }
@@ -403,7 +405,7 @@ function updateDepthGrid(){
   $('depthNote').textContent=!depthOn.checked
     ? 'Diagnostic off · champion unchanged'
     : !data?'Waiting for robot · no scan yet'
-    : hits+'/16 zones · '+data.subrays+' ray'+(data.subrays!==1?'s':'')+'/zone · cm line-of-sight';
+    : hits+'/16 zones · '+data.subrays+' ray'+(data.subrays!==1?'s':'')+'/zone · '+terrainMode.value+' scene · cm';
 }
 
 terrainMode.addEventListener('change',updateTerrain);
