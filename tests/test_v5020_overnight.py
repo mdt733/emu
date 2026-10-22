@@ -2,6 +2,7 @@
 from dataclasses import replace
 from pathlib import Path
 import json
+import re
 import subprocess
 import zipfile
 
@@ -71,7 +72,10 @@ def test_overnight_script_syntax_help_plan_and_immutable_sequence():
     src=SCRIPT.read_text()
     for stage,target in (('up64','64000000'),('up128','128000000'),
                          ('up224','224000000'),('up320','320000000')):
-        assert f'run_stage {stage} {target}' in src
+        # Shell formatting is free to align columns with multiple spaces;
+        # validate the ACTUAL invocation, not its cosmetic whitespace.
+        assert re.search(rf'(?m)^run_stage\\s+{stage}\\s+{target}\\s+', src), (
+            stage, target)
     assert 'ENVS=2048' not in src or '2048' in src
     assert 'PROFILE=(' in src
     assert '--profile terrain-bridge' in src
