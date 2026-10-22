@@ -84,6 +84,34 @@ def test_explicit_source_is_respected_and_catastrophic_evaluation_vetoes():
     assert selection["selection_reason"]=="explicit checkpoint"
 
 
+def test_actual_v5020_20m_foundation_is_not_assumed_to_walk(tmp_path):
+    # Measured from archived 4096-world first v5020 foundation at 20,054,016.
+    # Nearly perfect easy core survival hid total command/generalisation
+    # collapse. A "best.pkl" label and valid schema are not enough.
+    old=dict(eval_broad_score=-.5529083198947565,
+             eval_core_survival=.9998779296875,
+             eval_stress30_survival=.001708984375,
+             eval_dynamic50_survival=.0018310546875,
+             eval_resilience50_survival=.0001220703125)
+    failure=reject_obviously_collapsed(old)
+    assert failure is not None
+    assert "non-transferring" in failure
+    candidate=tmp_path/"foundation20"
+    (candidate/"checkpoints").mkdir(parents=True)
+    (candidate/"checkpoints"/"best.pkl").write_bytes(b"original mock")
+    with pytest.raises(RuntimeError,match="non-transferring"):
+        choose_foundation([candidate],inspect=lambda path:
+                          _record(path)|{"source_evaluation":old})
+
+
+def test_early_healthy_core_does_not_require_solved_difficult_panels():
+    # A foundation is allowed to be weak under harder conditions without
+    # being an obvious degenerate stand-still policy.
+    candidate=dict(eval_core_survival=.85,eval_stress30_survival=.12,
+                   eval_dynamic50_survival=.02,eval_resilience50_survival=.02)
+    assert reject_obviously_collapsed(candidate) is None
+
+
 def test_only_exact_checkpoint_step_provides_foundation_health(tmp_path,monkeypatch):
     from emu import foundation_readiness as f
     directory=tmp_path/"foundation20"
