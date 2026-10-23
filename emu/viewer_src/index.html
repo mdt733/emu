@@ -73,11 +73,15 @@
         </select></label>
       <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show beams from sensor</label>
       <label class="depth-visual"><input id="depthFootprint" type="checkbox" checked/> Show 4×4 ground footprint</label>
-      <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 depth readings in centimetres"></div>
+      <label class="depth-row">Display <select id="depthView">
+        <option value="height" selected>Terrain height · ±15 cm colours</option>
+        <option value="range">Raw distance · cm</option>
+      </select></label>
+      <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 signed terrain heights in centimetres"></div>
       <div class="depth-far">↑ Farther ahead · nearer below · one sensor, square optical field</div>
-      <div class="depth-legend">Teal: terrain · <span style="color:#ffbb65">orange: robot</span> · <span style="color:#ffe175">yellow: mixed edge</span> · red: invalid</div>
-      <div id="depthNote" class="depth-foot">Waiting for robot · raw line-of-sight range</div>
-      <button id="depthCopy" class="depth-copy" type="button">Copy 4×4 reading + settings</button>
+      <div class="depth-legend"><span style="color:#7fd7bf">Teal: flat zero</span> · <span style="color:#f2aa6d">orange: raised</span> · <span style="color:#6ab4ed">blue: lower</span> · <span style="color:#ffbb65">SELF: blocked</span> · <span style="color:#ffe175">yellow: mixed edge</span> · grey: missing</div>
+      <div id="depthNote" class="depth-foot">Waiting for robot · height relative to flat world z=0</div>
+      <button id="depthCopy" class="depth-copy" type="button">Copy raw range + height + settings</button>
     </aside>
 
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
