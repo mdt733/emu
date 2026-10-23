@@ -803,3 +803,42 @@ def test_optical_flow_gyro_compensation_and_explicit_dropouts():
     assert missing['velocity_confidence'][0]==0.
     np.testing.assert_array_equal(missing['velocity_body_xy_mps'][0],[0,0])
     assert bool(missing['velocity_valid'][1])
+
+
+
+def test_v5023_terrain_exam_requires_uninterrupted_real_far_side_support():
+    """Exam verdict cannot be earned by resets, ghost contacts or world Z."""
+    from emu.evaluation import score_terrain_course_trace
+    horizon, worlds = 100, 2
+    positions = np.zeros((horizon,worlds,2))
+    positions[:,:,0] = np.linspace(0.,.52,horizon)[:,None]
+    centres = np.array([[1.15,0.,-.11],[-.65,0.,-.11]])
+    quats = np.tile([1.,0.,0.,0.],(worlds,1))
+    ground = np.zeros((horizon,worlds,2),dtype=bool)
+    platform = np.zeros_like(ground)
+    platform[:,0,:] = positions[:,0,0,None]>.32
+    ground[:,1,:] = positions[:,1,0,None]>.32
+    rows = dict(
+        position_xy=positions,
+        done=np.zeros((horizon,worlds),dtype=bool),
+        fell=np.zeros((horizon,worlds),dtype=bool),
+        floor_contact=ground,
+        terrain_platform_contact=platform,
+        terrain_support=np.ones((horizon,worlds)),
+        terrain_bad_contact=np.zeros((horizon,worlds)),
+        terrain_vx=np.full((horizon,worlds),.15),
+        servo_shaft_drive_power_w=np.ones((horizon,worlds)),
+        initial_terrain_mocap_pos=centres,
+        initial_terrain_mocap_quat=quats,
+    )
+    completed=score_terrain_course_trace(rows,height_m=.04,speed=.15)
+    assert [x['lesson'] for x in completed]==['step-up','step-down']
+    assert all(x['crossing_pass'] for x in completed)
+    without=dict(rows,terrain_platform_contact=np.zeros_like(platform))
+    assert not score_terrain_course_trace(without,height_m=.04,speed=.15)[0]['crossing_pass']
+    terminated=np.zeros((horizon,worlds),dtype=bool)
+    terminated[80,0]=True
+    ended=dict(rows,done=terminated)
+    assert not score_terrain_course_trace(ended,height_m=.04,speed=.15)[0]['crossing_pass']
+    flat=score_terrain_course_trace(rows,height_m=0.,speed=.15)
+    assert all(x['crossing_pass'] is None for x in flat)
