@@ -829,7 +829,9 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
     else:
         cfg=TrainingConfig.load(run_dir/'training_config.json')
         actor_schema=cfg.observation_schema
-        sensor_settings={}
+        from .training_config import training_sensor_contract
+        contract=training_sensor_contract(cfg)
+        sensor_settings=dict(contract['settings']) if contract else {}
         checkpoint=run_dir/'checkpoints/final.pkl'
         saved=load_checkpoint(checkpoint,validate=True)
         params=saved['state']['params']
