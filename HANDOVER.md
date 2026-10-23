@@ -113,15 +113,23 @@ emu terrain-exam \
 
 **New source development:** use another checkout, e.g. `git clone -b feature/v5023-capability-growth https://github.com/mdt733/emu.git ~/emu-v5023-dev`. Read the *latest* branch head/CI first. Make any code changes **only** there / through connected GitHub branch tools. New branch commits may be ahead of both actual trained checkpoints; after editing, the branch must pass its own CI and physical evidence before any new long experiment. Never assume that today's remote HEAD equals the exact code used for the 20M/34M runs.
 
+### 2026-10-24 — directional terrain evidence correction
+
+- Source commit: [153d087](https://github.com/mdt733/emu/commit/153d08744c266c321160b699733f48299a2b0bfc), plus focused governor test. All changes exclusively on the v5023 feature branch; main, champion, showcase and Pages unchanged.
+- Code-first review: real step-up/down geometry and 4x4 ray/foot-occlusion already exist; crossing requires sustained far-side MJX foot support. But training outcome metrics and governor pooled up/down. Old matched frozen result is STILL 0/12 up for 20M and 34M, with descent 5/12 vs 9/12.
+- Now published per direction: completed attempts, genuine support-confirmed crossing success, falls, active-frame support/bad-contact, vx tracking MAE and mean mechanical shaft-drive W (not battery power). Original pooled counts remain available. Both training report paths carry new episode counts.
+- New governor growth gate: **at least three completed episodes for EACH direction in a rollout** and **>=50% successful supported far-side crossings for BOTH**. All-down successes and old rows without directional evidence no longer advance terrain. Sparse evidence holds the frontier; failed ascent/descent retreats terrain only. Existing 360 observation, sensor/physics geometry, core rewards and governor state schema remain unchanged.
+- Limitations: per-rollout counts may be sparse at 5% terrain dose; do not infer competence or relax the gate without validated serialized accumulation. New feature-branch source is NOT yet approved to resume the 20M/34M source-pinned 0ba009f checkpoints. No new GPU run or new ascent claim.
+- **Exact next task:** implement bounded monotonic ascent progress and supported clearance teaching without privileged actor information or reward loops for rocking/flailing; next verify actual height-matched up/down exams, near-lip ToF visibility and original-flat/dormant-flat parity before planning source-compatible bounded GPU fork.
 ## 8. Completion and handover discipline
 
-**Current status:** 20M and 34M GPU runs **COMPLETED**, both checkpoint-validated; independent 20M-vs-34M terrain exams **COMPLETED**; **ascending real steps 0/12 in both**. Main and champion **protected**. Next work is **code-first ascending-learning correction and independent paired exam**, not more of the unchanged trainer.
+**Current status:** 20M and 34M GPU runs **COMPLETED**, both checkpoint-validated; independent 20M-vs-34M terrain exams **COMPLETED**; **ascending real steps 0/12 in both**. Directional reports/governor fixed on updated feature source; no new physical training result yet. Main and champion **protected**. Next work is **code-first ascending-learning correction and independent paired exam**, not more of the unchanged trainer.
 
 **Carry-over checklist:**
 - [x] Save the mission/architecture, protected branches, pinned source, both checkpoint paths/hashes and exact results.
 - [x] Validate real CUDA 360 actor/2,048 worlds; finish cold foundation and mature continuation.
 - [x] Frozen independent terrain A/B at both 20M and 34M with original/dormant physics parity.
-- [ ] Direction-separated up/down evidence and curriculum gates.
+- [x] Direction-separated up/down evidence and curriculum gates (implemented; GPU verification pending).
 - [ ] Bounded ascent guidance and actual confirmed up-crossings.
 - [ ] Matched-height, multiple-seed independent physical exam; preserved command/core ability.
 - [ ] Safe reviewed source/checkpoint migration or fresh suitable cold-start; short training fork.
