@@ -382,3 +382,59 @@ test('v5022 slant range gradient on a single flat surface is not a step',()=>{
   assert.ok(flat.mixed.every(v=>!v));
   assert.ok(flat.selfOccluded.every(v=>!v));
 });
+
+
+test('depth obstacle terrain leaves live sensor telemetry safe in every course',()=>{
+  // Previously surfaceSlope('sensor') threw every frame; the sensor kept
+  // scanning but the UI stopped updating outside the radial park.
+  for(const mode of ['flat','ramp','park','sensor']){
+    const park=mode==='park'?generateTerrainPark({features:false,trees:false}):null;
+    const output=surfaceSlope(mode,park,0,0,0);
+    assert.equal(typeof output.supported,'boolean');
+    assert.ok(Number.isFinite(output.degrees));
+  }
+  assert.equal(surfaceSlope('sensor',null,.5,0,0).supported,false);
+});
+
+test('depth mount can sit at torso root and has fixed 4x4 zone geometry',()=>{
+  const {depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const forward of [0,.01,.045,.09,.18]){
+    const p=depthProbeRays([0,0,.25],R,{forward,tilt:50});
+    assert.equal(p.origin[0],forward);
+    assert.equal(p.directions.length,16);
+    assert.ok(p.directions.every(z=>z.length===5));
+  }
+  assert.throws(()=>depthProbeRays([0,0,.25],R,{forward:-.01,tilt:50}));
+});
+
+test('default park has real obstacle ring, clear spawn, and opt-out parity',()=>{
+  const base='<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
+  const park=generateTerrainPark({trees:false});
+  assert.ok(park.flatRadius>=4);
+  assert.equal(park.features.length,6);
+  assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)>2.5));
+  assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)<park.flatRadius));
+  assert.ok(park.features.every(f=>f.geoms.includes('type=')));
+  assert.ok(park.features.some(f=>f.id==='crest'&&f.geoms.includes('quat=')));
+  assert.ok(park.features.some(f=>f.id==='step-up'));
+  assert.ok(park.features.some(f=>f.id==='step-down'));
+  assert.ok(park.features.some(f=>f.id==='log'));
+  assert.ok(park.features.some(f=>f.id==='angled'));
+  assert.ok(park.features.some(f=>f.id==='trough'));
+  assert.equal(park.sampleHeight(0,0),0);
+  const xml=withTerrain(base,'park',{park});
+  assert.match(xml,/park_feature_step_up/);
+  assert.match(xml,/park_feature_crest_rise/);
+  assert.match(xml,/park_feature_crest_fall/);
+  assert.match(xml,/park_feature_log/);
+  assert.match(xml,/park_feature_trough_near/);
+  const noFeatures=generateTerrainPark({trees:false,features:false});
+  assert.equal(noFeatures.features.length,0);
+  assert.equal(noFeatures.flatRadius,park.flatRadius);
+  const cleanXml=withTerrain(base,'park',{park:noFeatures});
+  assert.doesNotMatch(cleanXml,/park_feature_/);
+  assert.match(cleanXml,/viewer_park_ground/);
+  // Feature toggling must not mutate the physical hfield itself.
+  assert.deepEqual(Array.from(park.heights),Array.from(noFeatures.heights));
+});
