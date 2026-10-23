@@ -534,7 +534,7 @@ from .contracts import source_repo_root
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                           run_training, update_boundary_at_or_after)
 from .training_config import TrainingConfig, foundation_config, mature_config, training_sensor_contract
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -566,7 +566,17 @@ def one_run_config(args) -> TrainingConfig:
     if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
         raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
     sensor_actor = bool(getattr(args, 'sensor_actor', False))
-    if sensor_actor and args.profile not in ('foundation', 'sim2real'):
+    terrain_actor = bool(getattr(args, 'terrain_actor', False))
+    terrain_max = float(getattr(args,'terrain_step_max_m',0.0))
+    if sensor_actor and terrain_actor:
+        raise ValueError('--sensor-actor and --terrain-actor are mutually exclusive')
+    if not math.isfinite(terrain_max) or not 0.0 <= terrain_max <= .08:
+        raise ValueError('--terrain-step-max-m must be between 0 and 0.08')
+    if terrain_actor and not 0.001 <= terrain_max <= .08:
+        raise ValueError('--terrain-actor needs --terrain-step-max-m above zero')
+    if terrain_max > 0 and (grade > 0 or getattr(args,'contact_terrain_radius',0.0)>0):
+        raise ValueError('finite steps and inclined floor are not yet compatible')
+    if (sensor_actor or terrain_actor) and args.profile not in ('foundation', 'sim2real'):
         raise ValueError('--sensor-actor requires --profile foundation or sim2real')
     if grade > 0 and args.profile != 'sim2real':
         raise ValueError('real contact slope requires --profile sim2real')
@@ -578,7 +588,9 @@ def one_run_config(args) -> TrainingConfig:
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   observation_schema=OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY,
+                   observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
+                                       OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
+                   terrain_step_max_m=terrain_max,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
