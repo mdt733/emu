@@ -1527,10 +1527,7 @@ class EmuMJXEnv(TaskSampler):
               'terrain_step_reached': (
                 (data.xpos[:,self.torso_id,0]>.96)&
                 (metrics['support']>.5)&
-                (metrics['episode_fell']<.5)).astype(jnp.float32)
-                if 'episode_fell' in metrics else
-                ((data.xpos[:,self.torso_id,0]>.96)&
-                 (metrics['support']>.5)&(~terminal_fail)).astype(jnp.float32),
+                (~terminal_fail)).astype(jnp.float32),
               'front_valid_fraction': jnp.mean(
                  front.valid[:,HISTORY_LEN-2,:].astype(jnp.float32),axis=1),
             } if self.use_front else {}),
