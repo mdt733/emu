@@ -1927,7 +1927,7 @@ class EmuMJXEnv(TaskSampler):
         return FrontState(
             jnp.concatenate([state.ranges_m[:,1:,:],r[:,None,:]],axis=1),
             jnp.concatenate([state.valid[:,1:,:],valid[:,None,:]],axis=1),
-            jnp.concatenate([state.age_frames[:,1:],nxt_age[:,None]],axis=1))
+            jnp.concatenate([state.age_frames[:,1:]+1,nxt_age[:,None]],axis=1))
 
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
