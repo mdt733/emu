@@ -577,3 +577,70 @@ def test_preferred_mount_preserves_foot_occlusion_without_privileged_labels():
     # distance and validity, and must discover kinematic correlations.
     result=scan_forward(np,p,R,*world,foot_centres=foot_centres)
     assert len(result)==2
+
+
+def test_v5022_contract_is_364_and_does_not_alias_old_actor_schemas():
+    from emu.contracts import (
+        OBS_DIM,SENSOR_OBS_DIM,TERRAIN_OBS_DIM,OBS_SCHEMA_TERRAIN,
+        actor_observation_fields,terrain_observation_contract)
+    assert OBS_DIM==220 and SENSOR_OBS_DIM==232 and TERRAIN_OBS_DIM==364
+    assert len(actor_observation_fields(OBS_SCHEMA_TERRAIN))==91
+    visible=terrain_observation_contract(front_visible=True)
+    blinded=terrain_observation_contract(front_visible=False)
+    assert visible['sha256']!=blinded['sha256']
+    assert visible['old_sensor_contract']['schema']=="sim2real_232"
+    assert visible['front']['mount_body_m']==[0.,0.,-.018]
+    assert visible['front']['tilt_down_deg']==70.
+    from emu.ppo import build_obs_norm_mask
+    mask=build_obs_norm_mask(OBS_SCHEMA_TERRAIN)
+    assert mask.shape==(364,)
+    assert mask[58:74].sum()==16
+    assert not mask[74:91].any()
+
+
+def test_v5022_real_terrain_sensor_queues_and_blinded_arm_cpu():
+    """Small actual MJX reset/step with both arms; not just toy ray math."""
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_TERRAIN
+    import jax.numpy as jnp
+    for visible in (True,False):
+        env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=5022,
+                      observation_schema=OBS_SCHEMA_TERRAIN,
+                      front_visible=visible)
+        state,obs=env.reset({})
+        assert obs.shape==(2,364)
+        assert state.hist.shape==(2,4,91)
+        assert state.front_state.ranges_m.shape==(2,4,16)
+        assert state.front_state.valid.shape==(2,4,16)
+        assert all(name in env.mj_model.names.decode("utf8")
+                   for name in ("front_step","front_crest_up"))
+        out=env.step(state,jnp.zeros((2,6)),{})
+        assert out.obs.shape==(2,364)
+        assert out.bootstrap_obs.shape==(2,364)
+        assert jnp.isfinite(out.obs).all()
+        assert jnp.isfinite(out.reward).all()
+        # The last 33 per-frame channels are raw slant ranges, validity,
+        # and captured-frame age; not hidden terrain height or foot labels.
+        front=out.state.hist[:,-1,58:]
+        if not visible:
+            assert (front==0).all()
+        else:
+            assert ((front[:,:16]>=0)&(front[:,:16]<=1.5)).all()
+            assert ((front[:,16:32]==0)|(front[:,16:32]==1)).all()
+            assert (front[:,32]==1).all()
+        assert 'terrain_step_reached' in out.metrics
+        assert 'front_valid_fraction' in out.metrics
+
+
+@pytest.mark.skipif(
+    __import__('os').environ.get('EMU_V5022_PPO_SMOKE')!='1',
+    reason='full optimizer smoke is opt-in, not required for every CPU geometry CI')
+def test_v5022_real_364_input_ppo_gradient_cpu():
+    from emu.v5022_experiment import run_arm
+    from emu.ppo import configure_jax
+    configure_jax("cpu")
+    for arm in ("visible","blinded"):
+        report=run_arm(arm=arm,root=None,envs=4,steps=1,seed=733,
+                       smoke=True,device="cpu")
+        assert report["step"]==8
+        assert np.isfinite(report["latest"]["reward_mean"])
