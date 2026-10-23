@@ -144,13 +144,18 @@ export class SensorObserver {
 }
 
 
-// Diagnostic-only ST VL53L8CX (8x8-capable package in 4x4 mode).
-// No policy observation is constructed here; the active champion stays intact.
-// Pixel rows go far -> near; columns go body-right -> body-left.
+// Diagnostic-only ST VL53L8CX (8x8-capable package in native 4x4 mode).
+// Four sub-rays per zone geometrically approximate a sampled 8x8 footprint;
+// the real hardware does NOT return 64 measurements when configured as 4x4.
+// No output enters the champion observation history.
 export const DEPTH_FOV_DEG = 45;
 export const DEPTH_ZONES = 4;
 export const DEPTH_MAX_M = 1.5;
-const DEPTH_OFFSETS = [[0,0],[-3,0],[3,0],[0,-3],[0,3]];
+// Centre then four quarter-cell points (each 4x4 zone covers 11.25 degrees).
+const DEPTH_OFFSETS = [
+  [0,0],[-2.8125,-2.8125],[-2.8125,2.8125],
+  [2.8125,-2.8125],[2.8125,2.8125],
+];
 
 export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}) {
   if (![forward,tilt,height].every(Number.isFinite) || forward<.078 ||
@@ -181,28 +186,36 @@ export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}
   return {origin,directions};
 }
 
-export function readDepthProbe(pose, cast, {subrays=5, noise=0, dropout=0}={}) {
-  // Caller provides real ray intersections against the visible world.
-  // Five rays approximate finite zones; this is NOT ST histogram simulation.
-  const count=subrays===1?1:5;
-  const ranges=[],valid=[],hitPoints=[];
+export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
+  // cast() returns a first physical intersection distance or
+  // {distance,kind:'self'|'terrain'}; no hidden surface-height lookup.
+  if(![1,4,5].includes(subrays))throw new Error('Expected 1, 4 or 5 depth rays per zone');
+  const samples=subrays===1?[0]:subrays===4?[1,2,3,4]:[0,1,2,3,4];
+  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],mixed=[];
   for(const zone of pose.directions){
     const values=[];
-    for(let j=0;j<count;j++){
-      const hit=cast(pose.origin,zone[j],DEPTH_MAX_M);
-      const distance=Number(hit);
+    for(const j of samples){
+      const result=cast(pose.origin,zone[j],DEPTH_MAX_M);
+      const distance=Number(typeof result==='number'?result:result?.distance);
       if(Number.isFinite(distance)&&distance>=.02&&distance<=DEPTH_MAX_M)
-        values.push(distance);
+        values.push({distance,kind:result?.kind||'terrain',ray:zone[j]});
     }
-    values.sort((a,b)=>a-b);
-    let ok=values.length>=Math.ceil(count*.6);
-    let value=ok?values[Math.floor((values.length-1)/2)]:0;
+    values.sort((a,b)=>a.distance-b.distance);
+    const coverage=values.length/samples.length;
+    let ok=coverage>=.60;
+    // Lower median: edge zones prefer an actual nearer surface instead of
+    // averaging lower and upper platforms into a fictitious "ramp".
+    const picked=ok?values[Math.floor((values.length-1)/2)]:null;
+    let value=picked?picked.distance:0;
     if(ok && noise) value+=noise*(Math.random()-.5)*2;
     ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
     ranges.push(ok?value:0);
     valid.push(ok);
-    const distance=ok?value:.55;
-    hitPoints.push(pose.origin.map((p,k)=>p+distance*zone[0][k]));
+    selfOccluded.push(ok&&picked.kind==='self');
+    mixed.push(ok&&values[values.length-1].distance-values[0].distance>.035);
+    const direction=ok?picked.ray:zone[0];
+    const length=ok?picked.distance:.55;
+    hitPoints.push(pose.origin.map((p,k)=>p+length*direction[k]));
   }
-  return {ranges,valid,origin:pose.origin,hitPoints};
+  return {ranges,valid,origin:pose.origin,hitPoints,selfOccluded,mixed};
 }
