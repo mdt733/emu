@@ -24,10 +24,10 @@ import time
 
 import numpy as np
 
-from .contracts import (ROBOT_XML, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM,
+from .contracts import (ROBOT_XML, CONTROL_DT, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM,
                         terrain_observation_contract)
 from .environment import EmuMJXEnv
-from .curriculum import RegimeGovernor, TrainingHealth
+from .curriculum import RegimeGovernor, TrainingHealth, CapabilityField
 from .ppo import configure_jax, require_backend, make_trainer, update_running_stats
 from .results import summarize_rollout
 from .training_config import (ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES,
@@ -142,6 +142,9 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         ('vy',foundation.vy_max_mps),('yaw',foundation.yaw_max_rad_s)):
         setattr(governor.params,'frontier_'+suffix,float(limit))
     health=TrainingHealth()
+    # Main foundation runs capability feedback in SHADOW: evidence is
+    # recorded continuously, but it never steers a cold-start lesson.
+    field=CapabilityField()
     lr_scale=float(PPO_LR_SCALE_INIT)
     obs_mean=jnp.zeros((TERRAIN_OBS_DIM,),dtype=jnp.float32)
     obs_var=jnp.ones((TERRAIN_OBS_DIM,),dtype=jnp.float32)
@@ -164,6 +167,7 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         obs_count=float(loaded["obs_count"])
         governor.load_state_dict(loaded["governor"])
         health.load_state_dict(loaded["health"])
+        field=CapabilityField.from_state_dict(loaded["field"])
         lr_scale=float(loaded["lr_scale"])
         print(f"[v5022 {arm}] resumed {step:,} steps; fresh episodes, intact PPO/optimizer/normalizer/curriculum",flush=True)
 
@@ -184,7 +188,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                      key=jax.device_get(state.key),
                      obs_mean=np.asarray(obs_mean),obs_var=np.asarray(obs_var),
                      obs_count=obs_count,governor=governor.state_dict(),
-                     health=health.state_dict(),lr_scale=lr_scale)
+                     health=health.state_dict(),lr_scale=lr_scale,
+                     field=field.state_dict())
         atomic_pickle(ckpt_path,payload)
 
     try:
@@ -201,6 +206,10 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             m=jax.device_get(metrics)
             aux=jax.device_get(aux)
             row=summarize_rollout(m,current)
+            field_diag=field.update_from_rollout(
+                m,step=step,control_dt=CONTROL_DT,
+                exclude_field_taught=not foundation.field_evidence_from_taught)
+            row.update(field_diag)
             row['ppo_kl_stopped_frac']=float(aux.get('kl_stopped',0.))
             ppo_health=health.observe_ppo(row)
             report=governor.update(
@@ -229,6 +238,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                 "governor_steady":float(governor.params.steady_difficulty),
                 "ppo_lr_scale":lr_scale,
                 "collapse_streak":float(health.stepping_collapse_streak),
+                "field_known_nodes":float(field.summary()["field_known_nodes"]),
+                "field_known_edges":float(field.summary()["field_known_edges"]),
             }
             if not all(math.isfinite(v) for k,v in record.items()
                        if isinstance(v,float)):
