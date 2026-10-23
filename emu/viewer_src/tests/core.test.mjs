@@ -369,3 +369,16 @@ test('v5022 4-ray edge zones report mixed step returns and robot occlusion',()=>
   assert.ok(mixed.ranges.every(x=>Math.abs(x-.18)<1e-8));
   assert.ok(mixed.hitPoints.every(p=>p.every(Number.isFinite)));
 });
+
+
+test('v5022 slant range gradient on a single flat surface is not a step',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1],{tilt:35});
+  const flat=readDepthProbe(pose,(origin,ray)=>({
+    distance:origin[2]/(-ray[2]),
+    kind:'terrain',surface:'same_flat_ground',
+  }),{subrays:4});
+  assert.ok(flat.valid.some(Boolean));
+  assert.ok(flat.mixed.every(v=>!v));
+  assert.ok(flat.selfOccluded.every(v=>!v));
+});
