@@ -2,8 +2,9 @@
 
 **Branch:** `feature/v5022-forward-terrain` from protected `main`
 (`2ec9e9db0a816c658131311129ef89ec7a595a12`).
-**Status:** ground and sensor **prototype only**; NOT connected to actor,
-PPO, training runs, viewer or public showcase. No change to `main`.
+**Status:** physically grounded geometry and **viewer-only diagnostic**; NOT connected to actor,
+PPO, new NN observations or training runs. The published public showcase
+and protected `main` remain untouched.
 
 ## Single-owner architecture
 
@@ -17,8 +18,9 @@ PPO, training runs, viewer or public showcase. No change to `main`.
 - `contracts.py`: will own **versioned** deployable observation fields and
   sensor contract hash. Existing 220 and 232 identities stay immutable.
 - `tests/test_terrain.py`: one physical/optical regression suite.
-- Existing reward, PPO, checkpoint, exporter and viewer owners remain as-is
-  until a reviewed end-to-end schema is ready.
+- Existing reward, PPO, checkpoint and exporter owners remain as-is.
+  The **existing viewer owners** now contain a read-only optical preview;
+  they do not modify the champion's neural inputs.
 
 No additional production module, standalone experimental harness, or
 version-specific training script should be needed.
@@ -41,8 +43,11 @@ detection FoV is **65° diagonal, 45° by 45°**), 8×8-capable hardware
 - Range validity: explicit per-zone validity, missing return represented
   by zero **plus invalid**. The 1.5m simulator cap is a training region of
   interest, not the published max ranging capability (4m).
-- The reference simulator samples five rays per zone to approximate a
-  finite footprint, and uses a median of visible rays; ST's histogram
+- The Python reference simulator samples five rays per zone (one centre
+  plus four quarter-zone points) to approximate a finite footprint.
+  The viewer offers one, four or five ray samples per zone, with a measured
+  scan cost. All sample directions share the same geometry definition.
+  Neither path emulates ST's histogram
   algorithms, reflectance response, crosstalk and multiple-target selection
   are **not** modelled exactly.
 - Actual **moving ball feet** must intersect front rays. Never erase a
@@ -167,3 +172,67 @@ not a bit-identical readout from a real VL53L8CX. Also the loaded 232-input
 champion still uses its protected historical down-tripod floor estimator,
 which can become inaccurate on discontinuous new courses. The front panel
 reports independently observed geometry; no trained step-crossing claim.
+
+
+### Preflight review and copyable measurements
+
+The viewer has an **Auto / 1 / 4 / 5** rays-per-zone selector:
+- **Auto:** 16 rays on the costly park heightfield, 64 rays on simple courses.
+- **1:** 16 total centre rays, fastest.
+- **4:** 64 total quarter-zone rays, a spatial 8×8 proxy reduced to 4×4.
+- **5:** 80 total centre + quarter-zone rays, matching the Python reference.
+
+All configurations deliver exactly **16 raw zone ranges and validity bits**.
+Measured **milliseconds per scan** is shown; scan update is intentionally
+throttled to about 13 Hz (or slower if a scan proves expensive). This is a
+*viewer display clock*, **not** the real VL53L8CX 4×4 acquisition clock.
+
+In the display, orange indicates **some rays struck a visible robot part**
+(which can be shin/foot), and yellow means subrays hit more than one visual
+object (e.g. two support geoms across a step seam). Those classifications use
+viewer-only geometry IDs for debugging. **They are privileged diagnostics,
+never allowed into the NN.** A flat slope should not be flagged as a "mixed
+edge" merely because its near and far rays have different slant ranges.
+
+The 3D ray endpoints are sampled **physical surface intersections** rather
+than a fictional projection of a median depth onto the centre ray. The
+**Copy 4×4 reading + settings** action copies the raw zone grid, configuration,
+scan cost, and occluded/mixed zone indices for bug reporting.
+
+Known limits before first interactive acceptance:
+1. Browser colour/rendered geometry is used for ray intersection, not the
+   real sensor histogram. The real instrument needs target-distance/status
+   bench measurements on a physical step before the NN is final.
+2. The **Python training candidate models ball-foot spheres**, while the
+   browser diagnostic sees all visible robot/shin meshes. Align physical
+   occluder geometry before closing the sim-to-real gate.
+3. A step course may make the existing champion fall or corrupt its old
+   tripod-derived ground estimate. That's expected: this is a sensor
+   inspection run, not proof of step locomotion.
+4. Existing full CI has five pre-existing tests that demand a schema-1
+   champion while the published champion is schema-2; do not "fix" them
+   by replacing the protected policy.
+5. Browser CI confirms JS contracts and builds; full visual WASM scene
+   rendering and intuitive sensor behaviour still require the user's
+   interactive PC run.
+
+### First PC acceptance sequence
+
+1. Open **Current viewer terrain** with **Auto**, confirm the 4×4 panel
+   changes during movement and the visible optical mount is outside the
+   torso mesh.
+2. Switch to **Flat reference** and compare tilt 35°, 50°, 65° with a
+   stationary robot. Watch far/near row ordering and missing cells.
+3. Set tilt 50° / forward 90 mm; approach **5 cm step up**, then
+   **5 cm step down** at a controlled slow joystick speed. Pause just
+   before the edge, **Copy 4×4 reading + settings**, record any missing or
+   robot-occluded cells. A fall is not evidence of bad optical behaviour.
+4. Try **Hill crest** then **Hill trough** and **angled ridge**.
+5. Compare **1 / 4 / 5** on the same paused physical scene and record
+   milliseconds/scan. Try **4** on the park only once to check whether
+   64 casts cause a visible slowdown, and return to Auto afterwards.
+6. Repeat your favourite settings with sensor noise off to separate
+   geometry mistakes from mild added range noise.
+
+**Do not freeze NN input shapes or begin a big cold-start training campaign
+until the above visible behaviour is accepted.**
