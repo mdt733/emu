@@ -48,7 +48,7 @@ jobs:
             --policy showcase/champion.emupolicy \
             --output "$RUNNER_TEMP/g4-terrain-course" \
             --device cpu --worlds 2 --horizon 80 --heights-cm 0 2
-          python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==2 and d['cases'][0]['crossing_pass'] is None"
+          python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==3 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None"
       - name: Capability evidence and approved 232-input examiner gate
         run: |
           python -m pytest -q tests/test_learning.py tests/test_direction.py \
