@@ -341,17 +341,31 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
                                     bundle.get('control') or {})
     source = bundle.get('source') or {}
     training = bundle.get('training') or {}
-    if bundle.get('format') != FORMAT or bundle.get('schema') != SCHEMA:
-        raise ValueError('not an EMU schema-1 exported actor')
+    if bundle.get('format') != FORMAT or bundle.get('schema') not in (1,2):
+        raise ValueError('not an EMU schema-1 or schema-2 exported actor')
+    schema = bundle['schema']
+    obs_dim = SENSOR_OBS_DIM if schema == 2 else OBS_DIM
+    base_dim = SENSOR_BASE_OBS_DIM if schema == 2 else BASE_OBS_DIM
+    fields = SENSOR_OBS_FIELDS if schema == 2 else BASE_OBS_FIELDS
+    actor_schema = OBS_SCHEMA_SENSOR if schema == 2 else OBS_SCHEMA_LEGACY
+    if schema == 2:
+        # The public schema-2 bundle must agree with the REAL train-time
+        # sensor timing, geometry and contract hash; size alone is unsafe.
+        provided = observation.get('sensor_contract')
+        if not isinstance(provided,dict):
+            raise ValueError('missing schema-2 sensor contract')
+        expected = sensor_observation_contract(provided.get('settings'))
+        if provided != expected:
+            raise ValueError('schema-2 sensor contract hash/geometry mismatch')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
         policy.get('history_len'), policy.get('action_dim')) != (
-            OBS_DIM, BASE_OBS_DIM, HISTORY_LEN, ACTION_DIM):
+            obs_dim, base_dim, HISTORY_LEN, ACTION_DIM):
         raise ValueError('export actor observations/actions differ from the current contract')
     if (policy.get('hidden_sizes') != list(PPO_HIDDEN_SIZES) or
         policy.get('activation') != 'tanh' or
         policy.get('output') != 'deterministic_mean_clipped'):
         raise ValueError('export policy network differs from current actor')
-    if (observation.get('base_fields') != list(BASE_OBS_FIELDS) or
+    if (observation.get('base_fields') != list(fields) or
         observation.get('history_order') != 'oldest_to_newest'):
         raise ValueError('export policy channel names/history order differ')
     if (control.get('actuated_joints') != list(ACTUATED_JOINTS) or
@@ -366,8 +380,9 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if (source.get('robot_model_sha256') != model_hash or
         bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
         raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
-    if source.get('checkpoint_schema') != 7 or not isinstance(source.get('step'), int):
-        raise ValueError('export provenance is not a known schema-7 training lineage')
+    expected_ckpt_schema=8 if schema==2 else 7
+    if source.get('checkpoint_schema') != expected_ckpt_schema or not isinstance(source.get('step'), int):
+        raise ValueError(f'export provenance is not a known schema-{expected_ckpt_schema} training lineage')
     if training.get('attitude_profile') not in ('v5014','v5015'):
         raise ValueError('missing supported training attitude profile')
     pitch = float(training.get('pitch_command_max_deg', float('nan')))
@@ -390,7 +405,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
             raise ValueError(f'nonfinite exported {name}')
         return out
 
-    layer_sizes = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
+    layer_sizes = (obs_dim, *PPO_HIDDEN_SIZES, ACTION_DIM)
     specs = policy.get('layers')
     if not isinstance(specs, list) or len(specs) != 3:
         raise ValueError('export must contain exactly three actor layers')
@@ -404,15 +419,18 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         layers.append({'w': w, 'b': b})
     if actor_hash.hexdigest() != source.get('actor_sha256'):
         raise ValueError('exported actor hash does not match declared source')
-    mean = decode(observation.get('mean'), (OBS_DIM,), 'normalizer mean')
-    std = decode(observation.get('std'), (OBS_DIM,), 'normalizer std')
-    mask = decode(observation.get('normalize_mask'), (OBS_DIM,), 'normalizer mask')
-    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask()):
+    mean = decode(observation.get('mean'), (obs_dim,), 'normalizer mean')
+    std = decode(observation.get('std'), (obs_dim,), 'normalizer std')
+    mask = decode(observation.get('normalize_mask'), (obs_dim,), 'normalizer mask')
+    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask(actor_schema)):
         raise ValueError('export observation standard deviations/mask incompatible')
     return {'pi': layers}, {'mean': mean, 'std': std}, {
         'source': source, 'training': training, 'control': control,
         'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
         'robot_model_sha256': model_hash,
+        'observation_schema': actor_schema,
+        'sensor_settings': dict(observation['sensor_contract']['settings']) if schema==2 else {},
+        'obs_dim': obs_dim,
     }
 
 
