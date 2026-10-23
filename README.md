@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
+**[Capability-growth charter and running checklist](docs/CAPABILITY_GROWTH.md)** · **[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
 
 ## How it works
 
@@ -75,4 +75,4 @@ Four support boundaries remain deliberately separate: `contracts.py` (actor/phys
 
 This reduces the package from 42 Python files to 15 **without pretending the learning maths got smaller**. Further true size reduction means analysing and cutting unnecessary behaviour, not merely moving functions.
 
-The only maintained long-form documentation is this front page, **[INSTALL](docs/INSTALL.md)**, **[HANDOVER](HANDOVER.md)** and **[PLAYGROUND](docs/PLAYGROUND.md)**. Older raw experiment artefacts live in Git history. The curated [research history](docs/RESEARCH_HISTORY.md) captures results, limitations and what to try next. Run `bash scripts/check.sh` before committing. Software tests don't replace a fresh CUDA acceptance and independent walking exams.
+The maintained documentation is this front page, **[capability-growth charter and running checklist](docs/CAPABILITY_GROWTH.md)** (the feature-branch design/handover), **[INSTALL](docs/INSTALL.md)**, **[HANDOVER](HANDOVER.md)** and **[PLAYGROUND](docs/PLAYGROUND.md)**. Older raw experiment artefacts live in Git history. The curated [research history](docs/RESEARCH_HISTORY.md) captures results, limitations and what to try next. Run `bash scripts/check.sh` before committing. Software tests don't replace a fresh CUDA acceptance and independent walking exams.
