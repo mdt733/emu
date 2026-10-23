@@ -818,6 +818,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
             attitude_profile=export['training']['attitude_profile'],
             pitch_command_max_deg=float(export['training']['pitch_command_max_deg']))
         actor_std = norm['std']
+        actor_schema=export['observation_schema']
+        sensor_settings=export['sensor_settings']
         artifact_sha = export['artifact_sha256']
         training_step = int(export['source']['step'])
         checkpoint_sha = None
@@ -826,6 +828,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_actor_sha = export['source'].get('actor_sha256')
     else:
         cfg=TrainingConfig.load(run_dir/'training_config.json')
+        actor_schema=cfg.observation_schema
+        sensor_settings={}
         checkpoint=run_dir/'checkpoints/final.pkl'
         saved=load_checkpoint(checkpoint,validate=True)
         params=saved['state']['params']
@@ -837,8 +841,14 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_type = 'schema7_checkpoint'
         source_training_commit = (saved['meta'].get('source_provenance') or {}).get('git_commit')
         source_actor_sha = None
-    if int(np.asarray(params['pi'][0]['w']).shape[0]) != OBS_DIM:
-        raise ValueError('this examiner supports only the 220-input actor contract')
+    from .contracts import OBS_DIM, SENSOR_OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_LEGACY
+    if actor_schema not in (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR):
+        raise ValueError('unsupported versioned directional examiner observation schema')
+    expected_dim = SENSOR_OBS_DIM if actor_schema==OBS_SCHEMA_SENSOR else OBS_DIM
+    if int(np.asarray(params['pi'][0]['w']).shape[0]) != expected_dim:
+        raise ValueError('directional examiner actor width and versioned schema disagree')
+    if np.asarray(norm['mean']).shape != (expected_dim,) or np.asarray(actor_std).shape != (expected_dim,):
+        raise ValueError('directional examiner normalizer and actor schema disagree')
     configure_jax(device)
     import jax
     import jax.numpy as jnp
@@ -854,7 +864,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         phase_speed_gain=cfg.phase_speed_gain,
         attitude_profile=cfg.attitude_profile,
         pitch_command_max_deg=cfg.pitch_command_max_deg,
-        sensor_noise_scale=0.,open_frontier=False,
+        sensor_noise_scale=sensor_settings.get('sensor_noise_scale',0.),
+        observation_schema=actor_schema,
+        **{k:v for k,v in sensor_settings.items() if k!='sensor_noise_scale'},
+        open_frontier=False,
         combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
     )
     # Shared, nonrandom MJX gravity field. No robot XML modifications.
@@ -897,6 +910,7 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'actor_sha256':source_actor_sha,
         'checkpoint_sha256':checkpoint_sha,
         'checkpoint_training_step':training_step,
+        'observation_schema':actor_schema,
         'exam':dict(**exam_request(
                     angle_deg=angle_deg,direction=direction,worlds=worlds,
                     horizon=horizon,settle_frames=settle_frames,
