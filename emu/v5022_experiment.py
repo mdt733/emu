@@ -230,7 +230,9 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             print(f"[v5022 {arm}] fixed eval {measured} crossing={cross_report}",flush=True)
         else:
             print(f"[v5022 {arm}] smoke held-out crossing {cross_report}",flush=True)
-        return {"arm":arm,"step":step,"latest":records[-1] if records else None}
+        return {"arm":arm,"step":step,"latest":records[-1] if records else None,
+                "held_out_crossing":cross_report,
+                "fixed_eval":measured if not smoke else None}
     finally:
         # Checkpoint current entire learned state on graceful interruption
         # where possible; no partial serialized checkpoint is ever promoted.
@@ -284,7 +286,16 @@ def main(argv=None):
         gc.collect()
         jax.clear_caches()
     if args.root is not None and args.run:
-        (args.root/"summary.json").write_text(json.dumps(results,indent=2))
+        summary={"arms":results}
+        if len(results)==2:
+            a,b=results
+            summary["visible_minus_blinded"]={
+                k:a["held_out_crossing"][k]-b["held_out_crossing"][k]
+                for k in a["held_out_crossing"]}
+            # Report the measured difference; never silently crown a new
+            # champion on raw training reward or a single noisy exam.
+            summary["decision"]="review fixed-seed crossing, survival and locomotion; no automatic promotion"
+        (args.root/"summary.json").write_text(json.dumps(summary,indent=2))
     print("[v5022] "+json.dumps(results),flush=True)
     return 0
 
