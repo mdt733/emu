@@ -21,7 +21,7 @@ import numpy as np
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
 
@@ -195,6 +195,8 @@ class SensorSample(NamedTuple):
     """One raw sensor snapshot; no estimated grade or velocity stored."""
     tof_ranges_m: Any
     tof_beam_valid: Any
+    terrain_ranges_m: Any
+    terrain_valid: Any
     flow_rad_s: Any
     flow_valid: Any
     gyro_body_rad_s: Any
@@ -1176,7 +1178,8 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
+        }, schema=observation_schema)
+            if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1966,6 +1969,82 @@ class EmuMJXEnv(TaskSampler):
                     ground_sideways_grade_rad=ground['sideways_grade_rad'],
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
+
+    def _terrain_4x4_ranges(self, data, errors_m=None):
+        """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
+
+        No height-map truth, per-ray CPU raycasts, or actor-visible collision IDs.
+        A fixed-topology JAX slab/sphere intersection works on batched MJX data.
+        """
+        jnp = self.jnp
+        beam_dirs = jnp.asarray([
+            [math.cos(math.radians(p))*math.cos(math.radians(y)),
+             math.cos(math.radians(p))*math.sin(math.radians(y)),
+             -math.sin(math.radians(p))]
+            for p in TERRAIN_TOF_PITCH_DEG for y in TERRAIN_TOF_YAW_DEG],
+            dtype=jnp.float32)
+        R = self._rotation_body_to_world(data)
+        origin = data.xpos[:, self.torso_id, :]
+        ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
+        floor = int(self.ids['floor_geom'])
+        normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
+        floor_orig = data.geom_xpos[:, floor, :]
+        denom = jnp.einsum('eki,ei->ek', ray, normal)
+        plane_t = jnp.einsum('ei,ei->e',floor_orig-origin,normal)[:,None] / jnp.where(
+            jnp.abs(denom)>1e-7,denom,1.)
+        plane_t = jnp.where(denom< -1e-6,plane_t,jnp.inf)
+
+        if self.terrain_step_mocap_id >= 0:
+            i = self.terrain_step_mocap_id
+            centre = data.mocap_pos[:,i,:]
+            q = data.mocap_quat[:,i,:]
+            ca = 1.-2.*q[:,3]**2
+            sa = 2.*q[:,0]*q[:,3]
+            offset = origin-centre
+            local_o = jnp.stack((
+                ca*offset[:,0]+sa*offset[:,1],
+                -sa*offset[:,0]+ca*offset[:,1],offset[:,2]),axis=-1)
+            local_d = jnp.stack((
+                ca[:,None]*ray[:,:,0]+sa[:,None]*ray[:,:,1],
+                -sa[:,None]*ray[:,:,0]+ca[:,None]*ray[:,:,1],
+                ray[:,:,2]),axis=-1)
+            half = jnp.asarray((TERRAIN_PLATFORM_HALF_LENGTH_M,
+                                TERRAIN_PLATFORM_HALF_WIDTH_M,
+                                TERRAIN_PLATFORM_HALF_DEPTH_M),dtype=jnp.float32)
+            parallel = jnp.abs(local_d)<1e-7
+            safe = jnp.where(parallel,1.,local_d)
+            first = (-half-local_o[:,None,:])/safe
+            last = (half-local_o[:,None,:])/safe
+            inside = jnp.abs(local_o[:,None,:])<=half
+            entering = jnp.where(parallel,jnp.where(inside,-jnp.inf,jnp.inf),
+                                 jnp.minimum(first,last))
+            leaving = jnp.where(parallel,jnp.where(inside,jnp.inf,-jnp.inf),
+                                jnp.maximum(first,last))
+            near = jnp.max(entering,axis=-1)
+            far = jnp.min(leaving,axis=-1)
+            box_t = jnp.where(far>=jnp.maximum(near,0.),
+                              jnp.where(near>0.,near,far),jnp.inf)
+            terrain_t = jnp.minimum(plane_t,box_t)
+        else:
+            terrain_t = plane_t
+
+        foot_ids = jnp.asarray(self.ids['foot_geoms'],dtype=jnp.int32)
+        foot_centres = data.geom_xpos[:,foot_ids,:]
+        diff = origin[:,None,:]-foot_centres
+        b = jnp.einsum('eki,eji->ekj',ray,diff)
+        radii = jnp.asarray(self.mj_model.geom_size[np.asarray(self.ids['foot_geoms']),0])
+        c = jnp.sum(diff*diff,axis=-1)-radii[None,:]**2
+        disc = b*b-c[:,None,:]
+        near = -b-jnp.sqrt(jnp.maximum(0.,disc))
+        far = -b+jnp.sqrt(jnp.maximum(0.,disc))
+        hit = jnp.where(near>1e-6,near,far)
+        occlusion_t = jnp.min(jnp.where((disc>=0.)&(hit>1e-6),hit,jnp.inf),axis=-1)
+        valid = ((terrain_t>=TERRAIN_TOF_MIN_M)&(terrain_t<=TERRAIN_TOF_MAX_M)&
+                 (occlusion_t>=terrain_t))
+        result = terrain_t+(errors_m if errors_m is not None else 0.)
+        return (jnp.where(valid,jnp.clip(result,TERRAIN_TOF_MIN_M,
+                                        TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
+                valid)
 
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
