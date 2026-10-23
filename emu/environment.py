@@ -1131,7 +1131,8 @@ class EmuMJXEnv(TaskSampler):
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
                  gyro_bias_std_rad_s: float = 0.015,
-                 terrain_step_max_m: float = 0.0):
+                 terrain_step_max_m: float = 0.0,
+                 paired_terrain_heights: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1197,6 +1198,8 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(terrain_step_max_m) or not 0 <= terrain_step_max_m <= .08:
             raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
         self.terrain_step_max_m = float(terrain_step_max_m)
+        self.paired_terrain_heights = bool(paired_terrain_heights)
+        self.terrain_pair_seed = int(seed)
         self.mj_model = (
             mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
             if self.terrain_step_max_m > 0 else
@@ -1868,6 +1871,17 @@ class EmuMJXEnv(TaskSampler):
             selected = jax.random.uniform(ke, ()) < params[P.terrain_exposure]
             return magnitude, angle, selected
         magnitude, angle, selected = jax.vmap(choose)(k)
+        if self.paired_terrain_heights:
+            # Independent frozen exam only. Each adjacent UP/DOWN pair has
+            # identical real height AND edge yaw. Live curriculum keeps
+            # its per-episode severity sampling unchanged.
+            pair_index = jnp.arange(self.num_envs, dtype=jnp.int32)//2
+            pair_keys = jax.vmap(lambda x: jax.random.fold_in(
+                jax.random.PRNGKey(self.terrain_pair_seed), x))(pair_index)
+            magnitude = .3 + .7*jax.vmap(
+                lambda x: jax.random.uniform(x, ()))(pair_keys)
+            angle = jax.vmap(lambda x: jax.random.uniform(
+                jax.random.fold_in(x, 19), (), minval=-.35, maxval=.35))(pair_keys)
         ceiling = jnp.clip(params[P.terrain_height_m], 0.0, self.terrain_step_max_m)
         active = selected & (ceiling > 1e-6)
         height = jnp.where(active, ceiling * magnitude, 0.0)
