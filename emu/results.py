@@ -16,7 +16,7 @@ from pathlib import Path
 
 FILES = ('metrics.csv', 'fixed_eval.csv', 'screen_eval.json', 'training_config.json',
          'run_meta.json', 'lab_spec.json', 'envelope_summary.json',
-         'performance.json', 'capability_field_summary.json')
+         'performance.json', 'capability_field_summary.json', 'capability_evidence.json')
 FIELDS = ('reward_mean', 'fall_rate', 'ep_len_mean', 'height_error_m', 'step_evidence',
           'vx_mean', 'cmd_vx_mean', 'servo_shaft_abs_power_w',
           'servo_shaft_drive_power_w', 'servo_shaft_brake_power_w',
@@ -585,6 +585,10 @@ def write_capability_field_artifacts(
         node_frac=float(params.get('field_node_frac', 0.0)),
         edge_frac=float(params.get('field_edge_frac', 0.0)),
     )
+    # Report-only projection of the EXISTING capability events. Nothing in
+    # trainer or governor consumes this JSON as a lesson or PPO reward.
+    write_json(run_dir / 'capability_evidence.json',
+               capability_field_evidence_snapshot(field))
 
 
 # PPO rollout observations: report facts, never pay training reward.
@@ -644,6 +648,33 @@ def capability_evidence_report(*, family: str, source: str,
         if quality is not None and attempted else None,
         # Deliberately no aggregate grade/rank or motor efficiency claim here.
     )
+
+
+def capability_field_evidence_snapshot(field, min_events: int = 20) -> dict[str, Any]:
+    """Report, but do not change, main's three evidence families.
+
+    Command nodes have tracking/upright/support *observed* quality. Existing
+    recovery/transition records track success only; their quality is not
+    fabricated. Terrain and motor grace will require their OWN truth.
+    """
+    return {
+        "schema": "emu_capability_evidence_1",
+        "training_only": True,
+        "qualification": "descriptive diagnostics, not independent exam results",
+        "command_nodes": capability_evidence_report(
+            family="command_nodes",source="training_rollout",
+            success=field.node_success,failure=field.node_failure,
+            lower=field.node_lower(),quality_sum=field.node_quality_sum,
+            min_events=min_events),
+        "recovery": capability_evidence_report(
+            family="recovery",source="training_rollout",
+            success=field.rec_success,failure=field.rec_failure,
+            lower=field.recovery_lower(),min_events=min_events),
+        "transitions": capability_evidence_report(
+            family="transitions",source="training_rollout",
+            success=field.edge_success,failure=field.edge_failure,
+            lower=field.edge_lower(),min_events=min_events),
+    }
 
 
 def mean_metric(metrics: dict[str, Any], name: str) -> float:
