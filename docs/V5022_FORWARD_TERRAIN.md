@@ -34,7 +34,7 @@ detection FoV is **65° diagonal, 45° by 45°**), 8×8-capable hardware
 - Reference: https://www.st.com/resource/en/datasheet/vl53l8cx.pdf
 - Driver: https://www.st.com/content/st_com/en/technical-documents/UM3109.html
 - `terrain.py` holds **one optical mounting point** at body XYZ
-  (+90, 0, -18) mm, tilted approximately **50° downward**. Provisional
+  (0, 0, -18) mm, tilted approximately **70° downward**. Provisional
   mounting geometry: verify leg swing, chassis clearance, PCB placement,
   wiring and actual usable FoV using CAD / a real robot.
 - Zone ordering: internal rows are **far to near**; lateral ordering is
@@ -125,8 +125,8 @@ diagnostic, attached to any loaded policy. It DOES NOT connect this
 diagnostic to the policy observations, learned weights, or servo commands.
 
 Controls:
-- **Downward tilt:** 25–75° in 5° increments, initial 50°.
-- **Forward sensor mount:** 0–180 mm from root, initial 90 mm.
+- **Downward tilt:** 0–90° in 5° increments, provisional default 70°.
+- **Forward sensor mount:** 0–180 mm from root, provisional default 0 mm.
   These are body coordinates, not world-X or feet-relative positions.
 - **Show rays:** 16 representative visible rays plus the optical mount.
 - **Ground:** existing viewer park, or switch into one real MuJoCo contact
@@ -134,7 +134,7 @@ Controls:
   half-cylinder log, or angled ridge.
 - **4×4 cells:** raw line-of-sight distances in **centimetres**,
   far/top row to near/bottom row. Invalid = "—", NOT zero height.
-  Each optical zone is represented by five subrays over simple courses;
+  Each optical zone defaults to four subrays over simple courses;
   the larger park heightfield uses one centre ray per zone to keep the
   viewer responsive. Neither emulates a calibrated ST histogram engine.
 - Sensor raycast includes MuJoCo-visible, **moving robot geometry**,
@@ -468,3 +468,47 @@ visible as a square grid on the ground (subject to real chassis
 occlusion). Try Tilt 50° next: the patch elongates forward. If the grid
 breaks or shows orange blocked readings at 0mm, the mounting origin
 may be inside the chassis; move it a little forward and compare.
+
+
+### Viewer selection round 2: provisional 0mm / 70° mount
+
+The first interactive visual test preferred the sensor optical centre at **0mm
+forward relative to the chassis/root frame**, **70° downward**, keeping the
+existing **-18mm vertical** offset. The viewer and the standalone pure
+Python terrain sensor now default to that candidate. This is an
+**experimental setting**, not a frozen CAD bracket or actor policy schema.
+
+The user's observed 4×4 pattern is useful:
+- **Rear two middle zones:** frequently see moving feet/legs. These
+  returns are preserved as real short-range returns, not silently erased.
+  There is **no privileged simulator self/foot-identity bit** in the raw
+  actor candidate. The viewer shows foot-hit debug colours only to assist
+  human evaluation. A beam measuring a foot is measuring **camera-to-foot
+  slant distance**, not directly foot-to-ground clearance.
+- **Rear outside corners:** retain views of ground on opposite sides of
+  the body and might detect cross-slope, especially when feet block the
+  rear centre. The existing browser test now explicitly checks that a
+  10° cross-slope produces distinguishable slant ranges on these corners.
+- **Forward rows:** still project in front of the robot, but at 70° the
+  farthest useful footprint is inherently closer than at 50°. Existing
+  45° square FoV and robot pitch control affect exactly how far.
+- **Required physical follow-up:** repeat with leg swing, chassis pitch,
+  more than one terrain shape and sensor status/noise. Small reflectance
+  or foot geometry differences on a real VL53L8CX could change which
+  zones return a valid value.
+
+A useful follow-up scan: leave **Forward 0mm**, try
+**65° / 70° / 75°** tilt over flat, step-up and crest with representative
+pitch commands. For optional candidate sweep use:
+
+```bash
+EMU_SENSOR_SWEEP=1 EMU_SENSOR_TILT_DEG=70 EMU_SENSOR_FORWARD_MM=0 \
+  python -m pytest -q -s tests/test_terrain.py -k optional_post_viewer_mount_sweep
+```
+
+The default sweep now compares **65/70/75° × 0/30/60mm**.
+Compare all 9 candidates only if it helps distinguish foot occlusion
+from forward look-ahead. The goal is the best **multi-zone signal**, not
+a fabricated per-foot height sensor and not maximum look-ahead alone.
+No v5022 PPO inputs, archived actor contracts or checkpoints have been
+changed in this stage.
