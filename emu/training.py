@@ -30,7 +30,9 @@ from .environment import EmuMJXEnv
 from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .curriculum import CapabilityField
 from .curriculum import record_capability_cloud_exam
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
+                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT,
+                        FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS)
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -43,7 +45,7 @@ from .training_config import (
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
-from .curriculum import RegimeGovernor
+from .curriculum import RegimeGovernor, TerrainRegimeGovernor
 from .curriculum import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .results import summarize_rollout, augment_rollout_row
@@ -91,6 +93,7 @@ def env_kwargs_from_args(args) -> dict:
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
+        front_visible=args.front_visible,
         open_frontier=args.open_frontier,
         combo_mix_frac=args.combo_mix_frac, combo_probe_frac=args.combo_probe_frac,
         recovery_tilt_max_deg=RECOVERY_TILT_MAX_DEG,
@@ -136,10 +139,17 @@ def train(args: TrainingConfig) -> int:
     # Schema/physical sensor meaning is part of the learning state; never
     # confuse the legacy Pitch15 actor with a 232-channel learner.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM
-    obs_meta = (dict(checkpoint_schema=8, observation_schema=OBS_SCHEMA_SENSOR,
-                     sensor_contract=sensor_contract, obs_dim=obs_dim)
-                if sensor_contract is not None else {})
+    if args.observation_schema == OBS_SCHEMA_TERRAIN:
+        obs_dim=TERRAIN_OBS_DIM
+        obs_meta=dict(checkpoint_schema=9,observation_schema=OBS_SCHEMA_TERRAIN,
+                      sensor_contract=sensor_contract,obs_dim=obs_dim)
+    elif sensor_contract is not None:
+        obs_dim=SENSOR_OBS_DIM
+        obs_meta=dict(checkpoint_schema=8,observation_schema=OBS_SCHEMA_SENSOR,
+                      sensor_contract=sensor_contract,obs_dim=obs_dim)
+    else:
+        obs_dim=OBS_DIM
+        obs_meta={}
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
         run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs,
         expected_observation_schema=args.observation_schema,
@@ -178,13 +188,16 @@ def train(args: TrainingConfig) -> int:
                     attitude_profile=args.attitude_profile,
                     pitch_command_max_deg=args.pitch_command_max_deg,
                     sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
+                    front_visible=args.front_visible,
                     open_frontier=False, combo_mix_frac=0.0)
         cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
         cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
-    governor = RegimeGovernor(fall_target=args.fall_target,
+    governor_class=(TerrainRegimeGovernor if args.observation_schema==OBS_SCHEMA_TERRAIN
+                    else RegimeGovernor)
+    governor = governor_class(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
                               athletic_rehearsal_frac=args.athletic_rehearsal_frac,
@@ -436,6 +449,8 @@ def train(args: TrainingConfig) -> int:
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
+        if args.observation_schema == OBS_SCHEMA_TERRAIN:
+            governor.record_terrain(rollout_metrics,total_steps)
         report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -656,6 +671,8 @@ def train(args: TrainingConfig) -> int:
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
+    if args.observation_schema == OBS_SCHEMA_TERRAIN:
+        governor.record_terrain(rollout_metrics,total_steps)
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))

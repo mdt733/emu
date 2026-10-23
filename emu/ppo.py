@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -96,8 +96,12 @@ def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
     import numpy as _np
     fields = actor_observation_fields(observation_schema)
     normalised = OBS_NORMALIZED_FIELDS
-    if observation_schema == OBS_SCHEMA_SENSOR:
+    if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
         normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
+    if observation_schema == OBS_SCHEMA_TERRAIN:
+        # Bounded validity/age stay raw. Physical slant ranges are normalized.
+        normalised = normalised | {f"front_range_{r}_{c}_m"
+                                  for r in range(4) for c in range(4)}
     base = _np.asarray(
         [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
@@ -885,10 +889,70 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_node_window = jax.jit(evaluate_node_window, static_argnums=(5,6,7))
 
+    def evaluate_terrain_crossing(params, curriculum_params, obs_mean, obs_std,
+                                  eval_key, horizon=300, request_vx=.22):
+        """v5022 matched held-out real ledge crossing (no teacher hints).
+
+        Start at the same seeded birth poses and repeatedly command forward
+        velocity. Success means *physically* passing the real step-down edge
+        at x=.94 while remaining alive and supported. Never use reward as
+        the verdict, and never allow an auto-reset to count as a crossing.
+        """
+        if not getattr(env,"use_front",False):
+            raise ValueError("terrain crossing requires real v5022 course")
+        keys=jax.random.split(eval_key,env.num_envs)
+        # Reset base state, then issue the same commanded velocity to both
+        # policy observation history AND the internal command ramp.
+        st=env._reset_with_keys(keys,curriculum_params)
+        ever_fell=jnp.zeros((env.num_envs,),dtype=jnp.bool_)
+        ever_approached=jnp.zeros_like(ever_fell)
+        ever_crossed=jnp.zeros_like(ever_fell)
+        max_progress=jnp.full((env.num_envs,),-jnp.inf,jnp.float32)
+        idx=BASE_OBS_FIELDS.index("cmd_vx")
+
+        def one(_,carry):
+            es,dead,approached,crossed,progress=carry
+            cmd=jnp.asarray(request_vx,dtype=jnp.float32)
+            task=es.task.at[:,T.vx].set(cmd)
+            target=es.cmd_target.at[:,0].set(cmd)
+            from_cmd=es.cmd_ramp_from.at[:,0].set(cmd)
+            hist=es.hist.at[:,-1,idx].set(cmd)
+            staged=es._replace(
+                task=task,cmd_target=target,cmd_ramp_from=from_cmd,
+                cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
+                cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
+                cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000),
+                hist=hist)
+            mean,_=apply(params,normalize_obs(
+                hist.reshape((env.num_envs,obs_dim)),obs_mean,obs_std,obs_norm_mask))
+            out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
+            x=out.state.data.qpos[:,0]
+            # out.state may be post-reset; never count reset-contaminated
+            # progress. The pre-reset binary terminal is out.done.
+            dead_next=dead | (out.done>.5)
+            live=~dead_next
+            approached=approached | (live & (x>.22))
+            crossed=crossed | (live & (x>.96) &
+                               (out.metrics["support"]>.5))
+            progress=jnp.maximum(progress,jnp.where(live,x,-jnp.inf))
+            return out.state,dead_next,approached,crossed,progress
+
+        _,dead,approached,crossed,progress=jax.lax.fori_loop(
+            0,horizon,one,(st,ever_fell,ever_approached,
+                            ever_crossed,max_progress))
+        return jnp.stack((jnp.mean(crossed.astype(jnp.float32)),
+                          jnp.mean(approached.astype(jnp.float32)),
+                          jnp.mean(dead.astype(jnp.float32)),
+                          jnp.mean(jnp.where(jnp.isfinite(progress),progress,0.))))
+
+    evaluate_terrain_crossing=jax.jit(
+        evaluate_terrain_crossing,static_argnums=(5,6))
+
     return {
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
+        'evaluate_terrain_crossing': evaluate_terrain_crossing,
         'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
         'evaluate_recovery': evaluate_recovery,

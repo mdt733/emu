@@ -2076,3 +2076,149 @@ def record_capability_cloud_exam(
     print(f"{log_prefix} capability-cloud step={step:,}: controls={len(control_rows)} "
           f"disturbed={len(disturbed_rows)}/{len(requested)-len(controls)} baseline_ok={baseline_ok:.3f} "
           f"valid_recovery={mean_rec:.3f} worst_dir={worst:.3f} calibration_mae={cal_mae:.3f} wall={elapsed:.1f}s", flush=True)
+
+
+
+class TerrainFrontier:
+    """Opt-in v5022 *physical* height frontier alongside, not replacing,
+    main's four-scalar RegimeGovernor and its speed/push frontiers.
+
+    The first 20M environment steps are guaranteed flat. From then onward
+    only a bounded share of suitable forward lessons encounters an obstacle.
+    Exposure is evaluated over COMPLETED affected episodes, never raw
+    training reward or a snapshot of flat-world global falls.
+    """
+    FOUNDATION_STEPS = 20_000_000
+    MAX_HEIGHT_M = .075
+    START_HEIGHT_M = .004
+    STEP_M = .001
+    RETREAT_M = .003
+    MAX_EXPOSURE = .25
+    MIN_EPISODES = 8
+    PATIENCE = 8
+
+    def __init__(self):
+        self.height_max_m = 0.
+        self.exposure_fraction = 0.
+        self.good_streak = 0
+        self.bad_streak = 0
+        self.last_action = "foundation_flat"
+        self.last_crossing_rate = -1.
+        self.total_terrain_episodes = 0
+
+    def state_dict(self):
+        return {k:getattr(self,k) for k in (
+            'height_max_m','exposure_fraction','good_streak','bad_streak',
+            'last_action','last_crossing_rate','total_terrain_episodes')}
+
+    def load_state_dict(self,state):
+        expected=set(self.state_dict())
+        if not isinstance(state,dict) or set(state)!=expected:
+            raise ValueError("v5022 terrain frontier checkpoint identity mismatch")
+        for k in expected:setattr(self,k,state[k])
+        if not 0<=float(self.height_max_m)<=self.MAX_HEIGHT_M:
+            raise ValueError("invalid saved physical terrain height")
+        if not 0<=float(self.exposure_fraction)<=self.MAX_EXPOSURE:
+            raise ValueError("invalid saved terrain exposure fraction")
+
+    def params_dict(self):
+        return dict(terrain_height_max_m=float(self.height_max_m),
+                    terrain_fraction=float(self.exposure_fraction))
+
+    def update(self,step,governor,row,metrics):
+        import numpy as np
+        if step < self.FOUNDATION_STEPS:
+            self.height_max_m = self.exposure_fraction = 0.
+            self.good_streak = self.bad_streak = 0
+            self.last_action = "foundation_flat"
+            return self.params_dict()
+
+        core=float(governor.core_competence)
+        fall=float(governor.fall_ema["posture"])
+        stable = core>=.45 and fall<=.40
+        if self.height_max_m<=0:
+            if stable:
+                self.height_max_m=self.START_HEIGHT_M
+                self.exposure_fraction=.20
+                self.last_action="introduce_4mm_after_core_stable"
+            else:
+                self.last_action="waiting_for_main_core_stability"
+            return self.params_dict()
+
+        exposed=int(np.asarray(metrics["terrain_exposed_episodes"]).sum())
+        crossed=int(np.asarray(metrics["terrain_crossed_episodes"]).sum())
+        self.total_terrain_episodes+=exposed
+        if exposed<self.MIN_EPISODES:
+            self.last_action="insufficient_terrain_episodes"
+            return self.params_dict()
+        score=crossed/max(exposed,1)
+        self.last_crossing_rate=float(score)
+        # Growth requires both BASIC walking health and independent actual
+        # step-crossing evidence. Failed terrain may retreat even when flat
+        # walking masks it in the global reward.
+        good=stable and score>=.25
+        bad=(fall>.55 or core<.30 or score<.06)
+        self.good_streak=self.good_streak+1 if good else 0
+        self.bad_streak=self.bad_streak+1 if bad else 0
+        if self.bad_streak>=self.PATIENCE:
+            self.height_max_m=max(self.START_HEIGHT_M,
+                                  self.height_max_m-self.RETREAT_M)
+            self.bad_streak=self.good_streak=0
+            self.last_action="retreat_crossing_or_core"
+        elif self.good_streak>=self.PATIENCE:
+            self.height_max_m=min(self.MAX_HEIGHT_M,
+                                  self.height_max_m+self.STEP_M)
+            self.good_streak=0
+            self.last_action="expand_proven_crossing"
+        else:
+            self.last_action="hold"
+        return self.params_dict()
+
+
+
+class TerrainRegimeGovernor(RegimeGovernor):
+    """Main governor unchanged + opt-in serializable physical terrain dial.
+
+    Recovery checkpoints already own governor.state_dict(), so the new
+    terrain frontier travels with PPO/optimizer/health/field on every
+    resume or rollback, not in an untracked JSON sidecar.
+    """
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.terrain=TerrainFrontier()
+        self._terrain_metrics=None
+        self._terrain_step=0
+
+    def record_terrain(self,metrics,step):
+        self._terrain_metrics=metrics
+        self._terrain_step=int(step)
+
+    def params_dict(self):
+        return {**super().params_dict(),**self.terrain.params_dict()}
+
+    def state_dict(self):
+        return {**super().state_dict(),
+                "terrain_frontier":self.terrain.state_dict()}
+
+    def load_state_dict(self,data):
+        if not isinstance(data,dict) or "terrain_frontier" not in data:
+            raise ValueError("v5022 checkpoint requires physical terrain frontier")
+        plain=dict(data)
+        terrain=plain.pop("terrain_frontier")
+        super().load_state_dict(plain)
+        self.terrain.load_state_dict(terrain)
+
+    def update(self,row,*,kl_ok_to_expand=True):
+        report=super().update(row,kl_ok_to_expand=kl_ok_to_expand)
+        if self._terrain_metrics is not None:
+            self.terrain.update(self._terrain_step,self,row,self._terrain_metrics)
+            self._terrain_metrics=None
+        report.update({
+            "terrain_height_max_m":self.terrain.height_max_m,
+            "terrain_exposure_fraction":self.terrain.exposure_fraction,
+            "terrain_frontier_action":self.terrain.last_action,
+            "terrain_completed_exposed_episodes":
+                self.terrain.total_terrain_episodes,
+            "terrain_last_cross_rate":self.terrain.last_crossing_rate,
+        })
+        return report

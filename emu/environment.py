@@ -18,9 +18,14 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .terrain import (training_course_xml, course_ground_height, scan_forward,scan_tripod,
+                      batched_course_model,course_model_axes,
+                      TERRAIN_COURSE_NAMES)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
+                         actor_observation_fields, sensor_observation_contract,
+                         terrain_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -138,6 +143,9 @@ class EnvState(NamedTuple):
     # The v5016 opt-in sensor queue persists independent acquisition and
     # delivery timing. Legacy policies leave this at None.
     sensor_state: Any = None
+    front_state: Any = None
+    terrain_height: Any = None
+    terrain_crossed: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -156,6 +164,13 @@ class SensorState(NamedTuple):
     samples: SensorSample
     gyro_bias_rad_s: Any
     current_gyro_body_rad_s: Any
+
+
+class FrontState(NamedTuple):
+    """Independent four-frame front acquisition ring; no teacher features."""
+    ranges_m: Any
+    valid: Any
+    age_frames: Any
 
 
 class PhysicalFrame(NamedTuple):
@@ -1071,7 +1086,8 @@ class EmuMJXEnv(TaskSampler):
                  flow_delay_frames: int = 1,
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
-                 gyro_bias_std_rad_s: float = 0.015):
+                 gyro_bias_std_rad_s: float = 0.015,
+                 front_visible: bool = True):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1089,6 +1105,8 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
         self.observation_schema = observation_schema
+        self.front_visible = bool(front_visible)
+        self.use_front = observation_schema == OBS_SCHEMA_TERRAIN
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
         self.obs_dim = self.base_obs_dim * HISTORY_LEN
@@ -1115,7 +1133,7 @@ class EmuMJXEnv(TaskSampler):
         self.tof_dropout_prob = float(tof_dropout_prob)
         self.flow_dropout_prob = float(flow_dropout_prob)
         self.gyro_bias_std_rad_s = float(gyro_bias_std_rad_s)
-        self.sensor_contract = (sensor_observation_contract({
+        old_sensor_contract = (sensor_observation_contract({
             'tof_period_frames': tof_period_frames,
             'flow_period_frames': flow_period_frames,
             'tof_delay_frames': tof_delay_frames,
@@ -1124,14 +1142,26 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
+        }) if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
+        self.sensor_contract = (terrain_observation_contract(
+            old_sensor_contract['settings'], front_visible=self.front_visible)
+            if self.use_front else old_sensor_contract)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
         self.num_envs = int(num_envs)
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
-        self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
+        # Only the explicitly opt-in v5022 world has non-continuous,
+        # REAL collidable geometry. Archived policy physics stay identical.
+        if self.use_front:
+            if contact_slope_deg or (domain_config and domain_config.terrain_radius):
+                raise ValueError('v5022 real terrain cannot mix with tilted plane domain')
+            from pathlib import Path
+            self.mj_model = mujoco.MjModel.from_xml_string(
+                training_course_xml(Path(self.robot_xml).read_text()))
+        else:
+            self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
@@ -1159,14 +1189,32 @@ class EmuMJXEnv(TaskSampler):
             # can IGNORE the rotated geom_quat completely, in CPU and MJX.
             # MuJoCo explicitly permits changing sameframe from nonzero->0.
             self.mj_model.geom_sameframe[floor_id] = 0
+        if self.use_front:
+            # Dynamic geom poses must be honoured even for compiled world
+            # body same-frame optimisations. No main/legacy physics changed.
+            for name in TERRAIN_COURSE_NAMES:
+                ix=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,name)
+                self.mj_model.geom_sameframe[ix]=0
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
+        self.terrain_ids = (np.asarray([
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,name)
+            for name in TERRAIN_COURSE_NAMES],dtype=np.int32)
+            if self.use_front else None)
+        if self.use_front and np.any(self.terrain_ids<0):
+            raise RuntimeError('training terrain collision geoms missing')
+        self.terrain_sizes = (jnp.asarray(self.mj_model.geom_size[self.terrain_ids])
+                              if self.use_front else None)
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
+        if self.use_front:
+            # Fixed model topology, but actual contact geometry differs per
+            # episode/world and is passed dynamically to MJX step/forward.
+            self.model_in_axes=course_model_axes(jax,self.mjx_model_template)
         gravity_unit = self.domain_info.get('gravity_unit_world')
         self.gravity_unit_world = (
             gravity_unit if gravity_unit is not None
@@ -1317,6 +1365,16 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
+        if self.use_front:
+            # Opt-in v5022 parameters appended AFTER main's entire packed
+            # teacher vector. Main's P indices and their meanings stay fixed.
+            ceiling=float(params.get('terrain_height_max_m',0.))
+            fraction=float(params.get('terrain_fraction',0.))
+            fixed=float(params.get('terrain_fixed_height_m',0.))
+            if not 0.<=ceiling<=.08 or not 0.<=fraction<=.30 or not 0.<=fixed<=.075:
+                raise ValueError("terrain height must be 0–8cm; exposed share 0–30%; exam 0–7.5cm")
+            packed=np.concatenate([packed,np.asarray([ceiling,fraction,fixed],
+                                                    dtype=np.float32)])
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
@@ -1332,6 +1390,16 @@ class EmuMJXEnv(TaskSampler):
         return state.hist.reshape((self.num_envs, self.obs_dim))
 
     # ---------------- JAX-only implementation below ----------------
+
+    def _course_model(self, height):
+        return batched_course_model(
+            self.jnp,self.mjx_model_template,self.terrain_ids,height)
+
+    def _terrain_height_from_data(self,data):
+        # Measured from actual world geom pose. When inactive the support
+        # box is buried 1m below ground, so observed height clamps to 0.
+        return self.jnp.maximum(
+            0.,data.geom_xpos[:,int(self.terrain_ids[0]),2]+.18)
 
     def _split_batch(self, keys, n: int):
         jax = self.jax
@@ -1421,14 +1489,20 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        terrain_crossed = (state.terrain_crossed |
+            ((data.xpos[:,self.torso_id,0]>.96)&
+             (metrics['support']>.5)&(~terminal_fail))) if self.use_front else None
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
             else None)
-        base = self._base_obs(data, task, action, phase, ctrl, sensors)
+        front = (self._advance_front_state(state.front_state,data,physics.next_keys,
+                                         state.ep_len+1)
+                 if self.use_front else None)
+        base = self._base_obs(data, task, action, phase, ctrl, sensors, front)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1444,7 +1518,8 @@ class EmuMJXEnv(TaskSampler):
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left, sensors)
+                           physics.push_force, physics.push_steps_left, sensors, front,
+                           state.terrain_height,terrain_crossed)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1480,6 +1555,23 @@ class EmuMJXEnv(TaskSampler):
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,
             'episode_support': ep_support_sum / denom,
+            **({
+              # Truth belongs ONLY in training/evaluation diagnostics,
+              # never the deployable 364-channel actor history.
+              'terrain_step_approach': (
+                (data.xpos[:,self.torso_id,0]>.22)&
+                (data.xpos[:,self.torso_id,0]<.44)).astype(jnp.float32),
+              'terrain_step_reached': (
+                (data.xpos[:,self.torso_id,0]>.96)&
+                (metrics['support']>.5)&
+                (~terminal_fail)).astype(jnp.float32),
+              'terrain_height_m': state.terrain_height,
+              'terrain_exposed_episodes': (done & (state.terrain_height>.0005)).astype(jnp.float32),
+              'terrain_crossed_episodes': (done & (state.terrain_height>.0005) & terrain_crossed).astype(jnp.float32),
+              'terrain_exposed': (state.terrain_height>.0005).astype(jnp.float32),
+              'front_valid_fraction': jnp.mean(
+                 front.valid[:,HISTORY_LEN-2,:].astype(jnp.float32),axis=1),
+            } if self.use_front else {}),
         }
         return StepOut(
             new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
@@ -1558,8 +1650,10 @@ class EmuMJXEnv(TaskSampler):
         xfrc = jnp.zeros_like(data.xfrc_applied).at[:, self.torso_id, 0:3].set(push_force)
         data = data.replace(xfrc_applied=xfrc)
 
+        physical_model=(self._course_model(state.terrain_height)
+                        if self.use_front else self.mjx_model)
         def substep(_, d):
-            return self.step_batched(self.mjx_model, d)
+            return self.step_batched(physical_model, d)
         data = jax.lax.fori_loop(0, CONTROL_SUBSTEPS, substep, data)
 
         # Non-finite MJX qpos/qvel can bypass every fall comparison (NaN
@@ -1734,6 +1828,28 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
+        if self.use_front:
+            # 0–20M: ceiling=0, fraction=0 => every course box is buried
+            # beneath the real floor; ordinary walking foundation is clean.
+            # Later: at most 30% of worlds get a small varying physical
+            # step, and only when commands offer a meaningful approach.
+            ceiling=params[TASK_PARAM_DIM]
+            fraction=params[TASK_PARAM_DIM+1]
+            roll=self.jax.vmap(lambda k:self.jax.random.uniform(
+                self.jax.random.fold_in(k,5024),()))(noise_keys)
+            dose=self.jax.vmap(lambda k:self.jax.random.uniform(
+                self.jax.random.fold_in(k,5025),(),
+                minval=.50,maxval=1.0))(noise_keys)
+            eligible=(task[:,T.vx]>.085)&(jnp.abs(task[:,T.vy])<.16)&(
+                jnp.abs(task[:,T.yaw])<.75)
+            terrain_height=jnp.where(
+                eligible & (roll<fraction),ceiling*dose,0.)
+            # Only held-out exam callers supply a positive fixed height;
+            # all training worlds use the adaptive max and bounded dose.
+            terrain_height=jnp.where(params[TASK_PARAM_DIM+2]>0.,
+                                     params[TASK_PARAM_DIM+2],terrain_height)
+        else:
+            terrain_height=None
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
@@ -1743,21 +1859,25 @@ class EmuMJXEnv(TaskSampler):
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
-        data = self.forward_batched(self.mjx_model, data)
+        data = self.forward_batched(
+            self._course_model(terrain_height) if self.use_front
+            else self.mjx_model,data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
-                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
-        base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
+                   if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
+        front = (self._initial_front_state(data,noise_keys)
+                 if self.use_front else None)
+        base = self._base_obs(data, task, prev_action, phase, prev_action, sensors, front)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors, front, terrain_height, jnp.zeros((self.num_envs,),dtype=jnp.bool_) if self.use_front else None)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -1785,8 +1905,18 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
-        ranges,beam_valid=simulate_tripod_ranges(
-            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        if self.use_front:
+            boxes=self.terrain_ids
+            ranges,beam_valid=scan_tripod(
+                jnp,torso,R,data.geom_xpos[:,boxes,:],
+                data.geom_xmat[:,boxes,:].reshape(
+                    (self.num_envs,len(boxes),3,3)),
+                self._course_model(self._terrain_height_from_data(data)).geom_size[:,boxes,:],
+                floor_origin=floor_o,floor_normal=floor_n,
+                noise_m=range_errors_m)
+        else:
+            ranges,beam_valid=simulate_tripod_ranges(
+                jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
@@ -1811,6 +1941,11 @@ class EmuMJXEnv(TaskSampler):
         distance=jnp.sum((origin-torso)*normal,axis=-1)
         true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
         true_depth=jnp.where(denom<-.3,true_depth,0.)
+        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
+        if self.use_front:
+            # Flow capture also tracks physical terrain depth. Its packet
+            # sees the noisy tripod estimate, never the true course top.
+            true_depth=jnp.where(ground['valid'],ground['optical_depth_m'],0.)
         _,body_velocity,_=self._body_packets(data)
         # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
         # the second world-to-body rotation used by the legacy 220 actor.
@@ -1818,7 +1953,6 @@ class EmuMJXEnv(TaskSampler):
         measured_flow,flow_valid=simulate_downward_optical_flow(
             jnp,body_velocity,body_gyro,true_depth,
             flow_error_rad_s=flow_errors_rad_s)
-        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
         measured_gyro=body_gyro+(jnp.asarray(gyro_errors_rad_s)
                                  if gyro_errors_rad_s is not None else 0.)
         estimate=estimate_flow_velocity(
@@ -1834,6 +1968,62 @@ class EmuMJXEnv(TaskSampler):
                     ground_sideways_grade_rad=ground['sideways_grade_rad'],
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
+
+    def _front_probe(self, data, keys):
+        """Exactly the collidable MJX boxes, world floor and live foot balls.
+
+        The actor NEVER gets course height, box IDs or foot identity.
+        These geometric truths are used only to SYNTHESISE optical returns.
+        """
+        jax,jnp=self.jax,self.jnp
+        boxes=self.terrain_ids
+        floor=int(self.ids['floor_geom'])
+        floor_o=data.geom_xpos[:,floor,:]
+        floor_n=data.geom_xmat[:,floor,:].reshape(
+            (self.num_envs,3,3))[:,:,2]
+        bpos=data.geom_xpos[:,boxes,:]
+        brot=data.geom_xmat[:,boxes,:].reshape(
+            (self.num_envs,len(boxes),3,3))
+        # Foot-ball centres are measured from live MuJoCo geom poses.
+        feet=data.geom_xpos[:,self.ids['foot_geoms'],:]
+        ranges,valid=scan_forward(
+            jnp,data.xpos[:,self.torso_id,:],
+            self._rotation_body_to_world(data),
+            bpos,brot,
+            self._course_model(self._terrain_height_from_data(data)).geom_size[:,boxes,:],
+            foot_centres=feet,
+            foot_radii=.018,subrays=4,floor_origin=floor_o,
+            floor_normal=floor_n)
+        # Noise is measured slant range noise, never privileged height.
+        noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5022),(16,),dtype=jnp.float32))(keys)
+        distances=ranges+noise*.0015
+        valid=valid & (distances>=.02) & (distances<=1.5)
+        return jnp.where(valid,distances,0.),valid
+
+    def _initial_front_state(self,data,keys):
+        jnp=self.jnp
+        ranges,valid=self._front_probe(data,keys)
+        ages=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        return FrontState(
+            jnp.repeat(ranges[:,None,:],HISTORY_LEN,axis=1),
+            jnp.repeat(valid[:,None,:],HISTORY_LEN,axis=1),
+            jnp.repeat(ages[:,None],HISTORY_LEN,axis=1))
+
+    def _advance_front_state(self,state,data,keys,age_frames):
+        jnp,jax=self.jnp,self.jax
+        ranges,valid=self._front_probe(data,keys)
+        # 50Hz capture at the 20ms control rate, one control frame delay;
+        # 2% independent zone dropout; no stale echoes masquerading as 0m.
+        dropout=jax.vmap(lambda k:jax.random.uniform(
+            jax.random.fold_in(k,5023),(16,)))(keys)<.02
+        valid=valid & ~dropout
+        r=jnp.where(valid,ranges,0.)
+        nxt_age=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        return FrontState(
+            jnp.concatenate([state.ranges_m[:,1:,:],r[:,None,:]],axis=1),
+            jnp.concatenate([state.valid[:,1:,:],valid[:,None,:]],axis=1),
+            jnp.concatenate([state.age_frames[:,1:]+1,nxt_age[:,None]],axis=1))
 
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
@@ -1963,6 +2153,11 @@ class EmuMJXEnv(TaskSampler):
         floor = int(self.ids['floor_geom'])
         normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
         origin = data.geom_xpos[:,floor,:]
+        if self.use_front:
+            # Reward ONLY. Supports exactly the injected collision boxes;
+            # never a privileged actor observation or hidden sensor depth.
+            return positions[...,2]-course_ground_height(
+            self.jnp,positions,self._terrain_height_from_data(data))
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
@@ -2127,7 +2322,7 @@ class EmuMJXEnv(TaskSampler):
             **spring_energy,
         }
 
-    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
+    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None, front_state=None):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
@@ -2164,7 +2359,7 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema == OBS_SCHEMA_SENSOR:
+        if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
             # No direct access to simulated true velocity, floor normal or
             # even instantaneous raw ToF/flow readings: the persistent sensor
             # ring owns acquisition cadence, delay, dropout and gyro bias.
@@ -2183,6 +2378,19 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_sideways_grade_rad'],
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
+        if self.use_front:
+            if front_state is None: raise ValueError('v5022 needs delayed front packet')
+            # Relative capture age, explicit masks, physical slant ranges.
+            # Both experimental arms have IDENTICAL 364-wide actor networks.
+            frame=HISTORY_LEN-2  # one-frame sensor delivery delay
+            rng=front_state.ranges_m[:,frame,:]
+            ok=front_state.valid[:,frame,:]
+            visible=ok & self.front_visible
+            rng=jnp.where(visible,rng,0.)
+            age=jnp.where(self.front_visible,
+                front_state.age_frames[:,frame],0).astype(jnp.float32)
+            base=jnp.concatenate([base,rng,visible.astype(jnp.float32),
+                                  age[:,None]],axis=1)
         assert base.shape[1] == self.base_obs_dim, (
             f"_base_obs produced {base.shape[1]} columns, "
             f"{self.observation_schema} requires {self.base_obs_dim}")

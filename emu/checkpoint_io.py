@@ -19,12 +19,14 @@ import numpy as np
 
 from .curriculum import FIELD_VERSION
 from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
-                        SENSOR_OBS_DIM, sensor_observation_contract)
+                        OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM,
+                        sensor_observation_contract, terrain_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
 CHECKPOINT_SCHEMA = 7  # Historical Pitch15 pickle format, never renumber.
 SENSOR_CHECKPOINT_SCHEMA = 8
+TERRAIN_CHECKPOINT_SCHEMA = 9  # v5022; old 7/8 checkpoint meaning immutable.
 ROBOT_MODEL_SHA256 = hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 
 
@@ -84,6 +86,23 @@ def _validate_observation_meta(meta: dict[str, Any], where: str = '',
         if 'sensor_contract' in meta:
             raise ValueError(f"checkpoint{where} has sensor metadata inside legacy schema 7")
         return OBS_DIM
+    if expected_observation_schema == OBS_SCHEMA_TERRAIN:
+        if disk_schema != TERRAIN_CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_TERRAIN:
+            raise ValueError(f"checkpoint observation schema mismatch{where}: expected v5022 terrain 364 schema 9")
+        supplied=meta.get('sensor_contract')
+        if not isinstance(supplied,dict):
+            raise ValueError(f"checkpoint{where} missing terrain 364 contract")
+        prior=supplied.get('old_sensor_contract')
+        front=supplied.get('front')
+        if not isinstance(prior,dict) or not isinstance(front,dict):
+            raise ValueError(f"checkpoint{where} missing complete nested sensor contract")
+        if not isinstance(prior.get('settings'),dict):
+            raise ValueError(f"checkpoint{where} missing old sensor settings")
+        canonical=terrain_observation_contract(
+            prior['settings'],front_visible=front.get('visible_to_actor',None))
+        if supplied!=canonical or expected_sensor_contract!=canonical:
+            raise ValueError(f"checkpoint{where} terrain geometry/visibility fingerprint mismatch")
+        return TERRAIN_OBS_DIM
     if expected_observation_schema != OBS_SCHEMA_SENSOR:
         raise ValueError(f"unknown expected checkpoint observation schema {expected_observation_schema!r}")
     if disk_schema != SENSOR_CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_SENSOR:
@@ -150,9 +169,9 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     meta.setdefault('robot_model_sha256', ROBOT_MODEL_SHA256)
     meta.setdefault('created_unix', float(time.time()))
     schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
-    if schema == OBS_SCHEMA_SENSOR:
+    if schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
         dimension = _validate_observation_meta(
-            meta, f" at {path}", expected_observation_schema=OBS_SCHEMA_SENSOR,
+            meta, f" at {path}", expected_observation_schema=schema,
             expected_sensor_contract=meta.get('sensor_contract'))
     else:
         dimension = _validate_observation_meta(meta, f" at {path}")
