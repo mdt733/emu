@@ -171,6 +171,10 @@ class EnvState(NamedTuple):
     ep_step_evidence_sum: Any
     terrain_cross_streak: Any
     terrain_crossed: Any
+    # Ascent-only high-water marks, teacher state, never actor observations.
+    # Prevent repeated lip-rocking and foot-tapping from farming rewards.
+    terrain_ascent_root_peak: Any
+    terrain_ascent_foot_peak: Any
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1521,9 +1525,18 @@ class EmuMJXEnv(TaskSampler):
         terrain_cross_new = terrain_crossed & ~state.terrain_crossed
         terrain_up = terrain_active & ((self.env_index % 2) == 0)
         terrain_down = terrain_active & ((self.env_index % 2) == 1)
+        ascent_payment = jnp.zeros_like(reward)
+        root_peak = state.terrain_ascent_root_peak
+        foot_peak = state.terrain_ascent_foot_peak
         if self.observation_schema == OBS_SCHEMA_TERRAIN:
-            # One sparse episode reward for earning far-side support.
-            # Normal v5014/v5015 payments and all archived policies unchanged.
+            # A single bounded foothold/progress lesson for ASCENT, before
+            # the very sparse far-side completion. Both high-water marks are
+            # reset at the next episode birth; no pay for rocking backwards.
+            ascent_payment, root_peak, foot_peak = self._terrain_ascent_guidance(
+                state, data, metrics, terrain_up)
+            reward = reward + ascent_payment
+            ep_return = ep_return + ascent_payment
+            # Completion still requires real, sustained far-side MJX support.
             reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
             ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
 
@@ -1548,7 +1561,7 @@ class EmuMJXEnv(TaskSampler):
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
-                           terrain_streak,terrain_crossed,
+                           terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
@@ -1585,6 +1598,7 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            'terrain_ascent_guidance':ascent_payment,
             # Teacher-only direction: actor observations remain unchanged.
             'terrain_active_up': terrain_up.astype(jnp.float32),
             'terrain_active_down': terrain_down.astype(jnp.float32),
@@ -1924,6 +1938,7 @@ class EmuMJXEnv(TaskSampler):
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
@@ -2287,6 +2302,75 @@ class EmuMJXEnv(TaskSampler):
         streak=jnp.where(good,state.terrain_cross_streak+1,0)
         crossed=state.terrain_crossed | (streak>=5)
         return streak,crossed,active
+
+    def _terrain_ascent_guidance(self, state, data, metrics, terrain_up):
+        """Small, non-repeatable physical ascent teaching; NEVER an actor input.
+
+        Up to 6.6 progress + 2.4 foot-placement reward PER EPISODE.
+        Pay only near the real lip, when commanded forward and stable. Progress
+        needs new root travel and a real MJX floor-foot support pair; foot
+        placement needs the OTHER foot actually grounded and the swing ball
+        bottom above the upper platform. Merely lifting in place, moving while
+        falling, backwards rocking or an unsupported leap cannot farm rewards.
+        Real crossing remains scored independently in _terrain_crossing.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return (jnp.zeros_like(metrics['vx']), state.terrain_ascent_root_peak,
+                    state.terrain_ascent_foot_peak)
+        from .directional import contact_pair_mask
+        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
+        q = data.mocap_quat[:, self.terrain_step_mocap_id, :]
+        axis = jnp.stack((1.-2.*q[:,3]**2, 2.*q[:,0]*q[:,3]), axis=1)
+        edge = center[:,:2] - TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+        delta = data.qpos[:,:2] - edge
+        forward = jnp.sum(delta*axis, axis=1)
+        lateral = -delta[:,0]*axis[:,1] + delta[:,1]*axis[:,0]
+        moved = jnp.sum((data.qpos[:,:2]-state.data.qpos[:,:2])*axis, axis=1)
+
+        c = getattr(data, '_impl', data).contact
+        feet = tuple(int(x) for x in self.ids['foot_geoms'])
+        floor_pairs = contact_pair_mask(
+            jnp, c.geom1, c.geom2, c.dist, int(self.ids['floor_geom']), feet)
+        floor_stance = jnp.any(floor_pairs, axis=1)
+        healthy = (terrain_up & (metrics['terminal']<.5) &
+                   (metrics['bad_contact']<.5) & floor_stance &
+                   (metrics['cmd_vx']>=.08) &
+                   (jnp.abs(metrics['cmd_vy'])<.08) &
+                   (jnp.abs(metrics['cmd_yaw'])<.5) &
+                   (jnp.abs(lateral)<.22) & (forward>-.13))
+
+        # Positive *new* root progress, up to 10cm past the lip. It must
+        # actually move forward during this frame, while a foot is grounded.
+        eligible_root = healthy & (moved>.0005) & (forward<.12)
+        root_now = jnp.clip(forward, -.12, .10)
+        root_peak = jnp.where(
+            eligible_root, jnp.maximum(state.terrain_ascent_root_peak, root_now),
+            state.terrain_ascent_root_peak)
+        root_gain = root_peak - state.terrain_ascent_root_peak
+
+        # A forward-reaching airborne foot, safely above the actual ledge
+        # top, with the opposite foot's floor contact confirmed by MJX.
+        # This signal is monotonic; 1,000 taps at the edge pay at most once.
+        fp = data.xpos[:, self.foot_bodies, :]
+        foot_delta = fp[:,:,:2] - edge[:,None,:]
+        foot_forward = jnp.sum(foot_delta*axis[:,None,:], axis=2)
+        foot_lateral = (-foot_delta[:,:,0]*axis[:,None,1] +
+                        foot_delta[:,:,1]*axis[:,None,0])
+        upper_z = center[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
+        foot_bottom = fp[:,:,2] - .018  # real 18mm foot-ball radius
+        opposite_stance = jnp.flip(floor_pairs, axis=1)
+        reachable = ((~floor_pairs) & opposite_stance &
+                     (foot_bottom > upper_z[:,None]+.004) &
+                     (jnp.abs(foot_lateral)<.22))
+        reach = jnp.where(reachable, jnp.clip(foot_forward+.06, 0., .12), 0.)
+        best_reach = jnp.max(reach, axis=1)
+        eligible_foot = healthy & (forward<.06) & (forward>-.11)
+        foot_peak = jnp.where(
+            eligible_foot, jnp.maximum(state.terrain_ascent_foot_peak, best_reach),
+            state.terrain_ascent_foot_peak)
+        foot_gain = foot_peak - state.terrain_ascent_foot_peak
+        return 30.*root_gain + 20.*foot_gain, root_peak, foot_peak
 
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
