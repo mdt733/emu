@@ -2173,3 +2173,52 @@ class TerrainFrontier:
         else:
             self.last_action="hold"
         return self.params_dict()
+
+
+
+class TerrainRegimeGovernor(RegimeGovernor):
+    """Main governor unchanged + opt-in serializable physical terrain dial.
+
+    Recovery checkpoints already own governor.state_dict(), so the new
+    terrain frontier travels with PPO/optimizer/health/field on every
+    resume or rollback, not in an untracked JSON sidecar.
+    """
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.terrain=TerrainFrontier()
+        self._terrain_metrics=None
+        self._terrain_step=0
+
+    def record_terrain(self,metrics,step):
+        self._terrain_metrics=metrics
+        self._terrain_step=int(step)
+
+    def params_dict(self):
+        return {**super().params_dict(),**self.terrain.params_dict()}
+
+    def state_dict(self):
+        return {**super().state_dict(),
+                "terrain_frontier":self.terrain.state_dict()}
+
+    def load_state_dict(self,data):
+        if not isinstance(data,dict) or "terrain_frontier" not in data:
+            raise ValueError("v5022 checkpoint requires physical terrain frontier")
+        plain=dict(data)
+        terrain=plain.pop("terrain_frontier")
+        super().load_state_dict(plain)
+        self.terrain.load_state_dict(terrain)
+
+    def update(self,row,*,kl_ok_to_expand=True):
+        report=super().update(row,kl_ok_to_expand=kl_ok_to_expand)
+        if self._terrain_metrics is not None:
+            self.terrain.update(self._terrain_step,self,row,self._terrain_metrics)
+            self._terrain_metrics=None
+        report.update({
+            "terrain_height_max_m":self.terrain.height_max_m,
+            "terrain_exposure_fraction":self.terrain.exposure_fraction,
+            "terrain_frontier_action":self.terrain.last_action,
+            "terrain_completed_exposed_episodes":
+                self.terrain.total_terrain_episodes,
+            "terrain_last_cross_rate":self.terrain.last_crossing_rate,
+        })
+        return report
