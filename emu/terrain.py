@@ -141,7 +141,9 @@ def ray_spheres(xp, origins, directions, centres, radii):
                   axis=-1)
 
 
-def camera_rays(xp, torso_world, body_to_world):
+def camera_rays(xp, torso_world, body_to_world, *,
+                tilt_down_deg=SENSOR_DOWN_TILT_DEG,
+                mount_body_m=SENSOR_MOUNT_BODY_M):
     """[W,16,5,3] origins and unit directions from ONE optical centre.
 
     Array is in spatial row-major order: upper/far rows first, columns
@@ -153,7 +155,7 @@ def camera_rays(xp, torso_world, body_to_world):
     sub = xp.asarray(_ZONE_OFFSETS_DEG)
     y = coord[None, :, None] + sub[None, None, :, 0]
     # Row 0 is the shallowest downward angle (farthest patch).
-    down = SENSOR_DOWN_TILT_DEG + coord[:, None, None] + sub[None, :, 1][None]
+    down = tilt_down_deg + coord[:, None, None] + sub[None, :, 1][None]
     az = xp.broadcast_to(y, (4,4,5))
     el = xp.broadcast_to(down, (4,4,5))
     x = xp.cos(xp.deg2rad(el))*xp.cos(xp.deg2rad(az))
@@ -161,7 +163,7 @@ def camera_rays(xp, torso_world, body_to_world):
     vertical = -xp.sin(xp.deg2rad(el))
     body_rays = xp.stack((x, lateral, vertical), axis=-1).reshape(16,5,3)
     direction = xp.einsum("wij,rsj->wrsi", R, body_rays)
-    mount = xp.asarray(SENSOR_MOUNT_BODY_M)
+    mount = xp.asarray(mount_body_m)
     origin = p+xp.einsum("wij,j->wi",R,mount)
     return xp.broadcast_to(origin[:,None,None,:], direction.shape), direction
 
@@ -169,24 +171,37 @@ def camera_rays(xp, torso_world, body_to_world):
 def scan_forward(xp, torso_world, body_to_world,
                  box_centres, box_rotations, box_half_sizes,
                  *, foot_centres=None, foot_radii=.018,
-                 noise_m=None, dropout=None):
+                 noise_m=None, dropout=None,
+                 tilt_down_deg=SENSOR_DOWN_TILT_DEG,
+                 mount_body_m=SENSOR_MOUNT_BODY_M,
+                 subrays=5):
     """Raw 4x4 front depth packet: range [W,16], validity [W,16].
 
     Rays intersect the real physical solid boxes and optionally moving
     feet. Foot occlusion is NOT magically removed: a nearby foot can
-    become the first return. Five subray distances approximate broad zones;
-    >=3 valid subrays needed, and the median is not a hardware guarantee.
+    become the first return. 1 / 4 / 5 subrays represent 16 / 64 / 80
+    geometric samples; output is ALWAYS 16 zone ranges. A 60% valid
+    subray threshold and lower median are not hardware guarantees.
     The environment must add capture/arrival age, delay and dropout.
     """
-    origin, direction = camera_rays(xp, torso_world, body_to_world)
+    if subrays not in (1, 4, 5):
+        raise ValueError('subrays must be 1, 4 or 5')
+    origin, direction = camera_rays(
+        xp, torso_world, body_to_world, tilt_down_deg=tilt_down_deg,
+        mount_body_m=mount_body_m)
+    # Python and browser sample identical centre/quarter-zone directions.
+    origin = origin[:, :, :1 if subrays == 1 else 5, :]
+    direction = (direction[:, :, :1, :] if subrays == 1 else
+                 direction[:, :, 1:5, :] if subrays == 4 else direction)
     worlds = xp.asarray(torso_world).shape[0]
-    o, d = origin.reshape(worlds,80,3), direction.reshape(worlds,80,3)
+    origin = xp.broadcast_to(origin, direction.shape)
+    o, d = origin.reshape(worlds, 16*subrays, 3), direction.reshape(worlds, 16*subrays, 3)
     ranges = ray_boxes(xp, o, d, box_centres,
                        box_rotations, box_half_sizes)
     if foot_centres is not None:
         ranges = xp.minimum(ranges, ray_spheres(
             xp, o, d, foot_centres, foot_radii))
-    subranges = ranges.reshape(worlds,16,5)
+    subranges = ranges.reshape(worlds,16,subrays)
     inside = (xp.isfinite(subranges) &
               (subranges >= SENSOR_RANGE_M[0]) &
               (subranges <= SENSOR_RANGE_M[1]))
@@ -194,7 +209,7 @@ def scan_forward(xp, torso_world, body_to_world,
     sorted_r = xp.sort(xp.where(inside,subranges,xp.inf),axis=-1)
     mid = xp.maximum(0,(count-1)//2).astype(int)
     value = xp.take_along_axis(sorted_r,mid[...,None],axis=-1)[...,0]
-    valid = (count >= 3) & xp.isfinite(value)
+    valid = (count >= (3*subrays + 4)//5) & xp.isfinite(value)
     if noise_m is not None:
         value = value+xp.asarray(noise_m)
     valid &= (value >= SENSOR_RANGE_M[0]) & (value <= SENSOR_RANGE_M[1])
