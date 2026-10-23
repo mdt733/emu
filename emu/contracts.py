@@ -53,12 +53,28 @@ OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
 # 55x4 Pitch15 actor or its observation normalizer as this 58x4 interface.
 OBS_SCHEMA_LEGACY = "pitch15_220"
 OBS_SCHEMA_SENSOR = "sim2real_232"
+# Opt-in G5: 4x4 physically intersected, occlusion-aware raw ranges plus
+# independent per-cell validity. 58 + 32 = 90 fields, 4 history frames.
+# The original 55x4 and 58x4 actor contracts NEVER change.
+OBS_SCHEMA_TERRAIN = "terrain_360"
 SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
     "ground_forward_grade_rad", "ground_sideways_grade_rad",
     "ground_visibility_confidence",
 )
 SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
 SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+TERRAIN_RANGE_FIELDS = tuple(f"tof4x4_range_{r}{c}_m" for r in range(4) for c in range(4))
+TERRAIN_VALID_FIELDS = tuple(f"tof4x4_valid_{r}{c}" for r in range(4) for c in range(4))
+TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FIELDS
+TERRAIN_BASE_OBS_DIM = len(TERRAIN_OBS_FIELDS)
+TERRAIN_OBS_DIM = TERRAIN_BASE_OBS_DIM * HISTORY_LEN
+TERRAIN_SENSOR_REVISION = "forward_tof4x4_real_plane_box_foot_1"
+TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
+# Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
+# pitched 70 degrees below horizontal with 60-degree vertical spread.
+# Horizontal fan spans 45 degrees. These physical extrinsics are hashed.
+TERRAIN_TOF_PITCH_DEG = (40., 60., 80., 100.)
+TERRAIN_TOF_YAW_DEG = (-22.5, -7.5, 7.5, 22.5)
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -74,7 +90,8 @@ SENSOR_SETTINGS_DEFAULTS = {
 }
 
 
-def sensor_observation_contract(settings: dict | None = None) -> dict:
+def sensor_observation_contract(settings: dict | None = None, *,
+                                schema: str = OBS_SCHEMA_SENSOR) -> dict:
     """Canonical, independently verifiable v5016 observation identity.
 
     Sensor mount geometry and fields are part of the meaning of a saved
@@ -87,6 +104,8 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
     from .directional import (TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
                               TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
 
+    if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
+        raise ValueError(f"unknown sensor actor schema {schema!r}")
     values = dict(SENSOR_SETTINGS_DEFAULTS if settings is None else settings)
     if set(values) != set(SENSOR_SETTINGS_DEFAULTS):
         raise ValueError("sensor observation settings keys mismatch")
@@ -116,6 +135,18 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
         "tof_range_limits_m": [TOF_MIN_RANGE_M, TOF_MAX_RANGE_M],
         "settings": values,
     }
+    if schema == OBS_SCHEMA_TERRAIN:
+        body.update(
+            schema=OBS_SCHEMA_TERRAIN,
+            sensor_model_revision=TERRAIN_SENSOR_REVISION,
+            base_fields=list(TERRAIN_OBS_FIELDS),
+            tof4x4_mount_body_m=[0., 0., 0.],
+            tof4x4_pitch_from_horizontal_deg=list(TERRAIN_TOF_PITCH_DEG),
+            tof4x4_yaw_deg=list(TERRAIN_TOF_YAW_DEG),
+            tof4x4_range_limits_m=[TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
+            tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
+            tof4x4_validity="one bit per cell, delayed, zero on dropout",
+        )
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {**body, "sha256": digest}
 
@@ -123,6 +154,7 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
 OBS_FIELDS_BY_SCHEMA = {
     OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
     OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+    OBS_SCHEMA_TERRAIN: TERRAIN_OBS_FIELDS,
 }
 
 
