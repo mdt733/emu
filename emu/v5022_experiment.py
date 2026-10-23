@@ -329,8 +329,12 @@ def run_main_arm(*, arm: str, root: Path, envs: int, steps: int,
         raise RuntimeError("v5022 requires a clean, named feature branch; main must remain protected")
     run_dir=root/arm
     run_dir.mkdir(parents=True,exist_ok=True)
+    from .contracts import SENSOR_SETTINGS_DEFAULTS
+    sensor_settings=dict(SENSOR_SETTINGS_DEFAULTS)
+    sensor_settings["sensor_noise_scale"]=1.5  # main's SENSOR_NOISE_SCALE
     identity=dict(format=FORMAT,arm=arm,source=source,seed=seed,envs=envs,
-                  contract=terrain_observation_contract(front_visible=arm=="visible"))
+                  contract=terrain_observation_contract(
+                      sensor_settings,front_visible=arm=="visible"))
     manifest=run_dir/"v5022_identity.json"
     if manifest.is_file():
         if json.loads(manifest.read_text())!=identity:
