@@ -149,7 +149,7 @@ To try it without replacing your working checkout:
 ```bash
 git clone --branch feature/v5022-forward-terrain https://github.com/mdt733/emu.git ~/emu-v5022
 cd ~/emu-v5022
-bash scripts/setup_wsl.sh --install-node
+bash scripts/setup_wsl.sh --install-node --viewer-only
 source .venv/bin/activate
 emu viewer showcase/champion.emupolicy --no-open
 # In your browser: http://127.0.0.1:8765/
@@ -236,3 +236,57 @@ Known limits before first interactive acceptance:
 
 **Do not freeze NN input shapes or begin a big cold-start training campaign
 until the above visible behaviour is accepted.**
+
+
+### Copy-paste verification on a WSL PC (no GPU run)
+
+The `--viewer-only` switch is opt-in: it reuses the existing setup script,
+runs the consolidated physical MJX terrain tests and protected sensor schema
+test, builds the browser from the lockfile, and runs existing Node tests.
+It does **not** call the known-incompatible legacy schema-1-only examiner or
+run training. Normal setup flags retain their previous semantics.
+
+**Fresh separate checkout, installation, targeted tests and viewer launch:**
+
+```bash
+git clone --branch feature/v5022-forward-terrain \
+  https://github.com/mdt733/emu.git ~/emu-v5022
+cd ~/emu-v5022
+git branch --show-current
+bash scripts/setup_wsl.sh --install-node --viewer-only
+source .venv/bin/activate
+python -m pytest -q tests/test_terrain.py \
+  tests/test_physics.py::test_versioned_sensor_actor_schema_keeps_pitch15_frozen
+npm test --prefix emu/viewer_src
+emu viewer-build
+emu viewer showcase/champion.emupolicy --no-open
+```
+
+**If the separate checkout already exists**, replace just the initial clone
+with:
+
+```bash
+cd ~/emu-v5022
+git switch feature/v5022-forward-terrain
+git pull --ff-only origin feature/v5022-forward-terrain
+```
+
+The viewer's copy-reading button exports 16 centimetre values and valid/null
+markers with tilt/forward mount, geometry category, number of rays, measured
+scan milliseconds, and zone indices hit by robot parts or multiple visible
+meshes. Use those snapshots for reproducible before/after comparisons.
+
+**Manual acceptance questions (not automated assertions):**
+
+- Flat: far-to-near monotonic geometry at typical orientation; no fake seam
+  from different oblique ranges on one surface; chassis pitch changes scan.
+- Step up/down: observe the edge at a distance before the feet arrive;
+  physical contact and front measurements refer to the *same* boxes.
+- Crest/trough: changing grade is continuous, not a vertical step.
+- Moving legs: orange self-occluded cells appear when real visible geometry
+  crosses the optical frustum; do not suppress them in PPO.
+- Benchmark: pause on the same scene and compare 16/64/80 rays/scan
+  and FPS; warm up several scans and report typical cost rather than a
+  single first-use value (browser JIT, shader, cache, GC effects).
+- Disable depth entirely and check the champion walks just as previously;
+  the sensor must never modify its NN observation history or actuator loop.
