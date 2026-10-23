@@ -39,6 +39,28 @@ def test_capability_evidence_keeps_success_quality_and_confidence_separate():
     assert field.fingerprint()==before  # report does not teach or update PPO
 
 
+def test_capability_field_evidence_projects_existing_three_families_without_mutation():
+    from emu.results import capability_field_evidence_snapshot
+    field=CapabilityField()
+    idx=(0,)*len(field.shape)
+    field.node_success[idx]=21.
+    field.node_failure[idx]=3.
+    field.node_quality_sum[idx]=12.
+    field.rec_success[idx+(0,)]=18.
+    field.rec_failure[idx+(0,)]=3.
+    field.edge_success[idx+(0,)]=22.
+    field.edge_failure[idx+(0,)]=2.
+    before=field.fingerprint()
+    report=capability_field_evidence_snapshot(field,min_events=20)
+    assert report["training_only"] is True
+    assert report["command_nodes"]["known_bins"]==1
+    assert report["command_nodes"]["observed_quality_known"]==pytest.approx(.5)
+    assert report["recovery"]["known_bins"]==1
+    assert report["recovery"]["observed_quality_known"] is None
+    assert report["transitions"]["known_bins"]==1
+    assert field.fingerprint()==before
+
+
 def test_capability_evidence_never_confuses_unknown_with_failure():
     from emu.results import capability_evidence_report
     success=np.array([0.,0.,0.,35.])
