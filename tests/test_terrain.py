@@ -402,7 +402,9 @@ def test_browser_and_python_sensor_extrinsics_remain_identical():
     cases=[dict(t=[-.18,0,.2584],tilt=35.,forward=.085,
                 R=[[1,0,0],[0,1,0],[0,0,1]]),
            dict(t=[0,.03,.274],tilt=65.,forward=.160,
-                R=[[0,-1,0],[1,0,0],[0,0,1]])]
+                R=[[0,-1,0],[1,0,0],[0,0,1]]),
+           dict(t=[.025,0,.26],tilt=90.,forward=0.,
+                R=[[1,0,0],[0,1,0],[0,0,1]])]
     js_code=(
         "import {depthProbeRays} from './emu/viewer_src/src/sensor.js';"
         f"const cases={json.dumps(cases)};"
@@ -482,3 +484,38 @@ def test_viewer_generated_worlds_load_in_real_mujoco(variant,obstacle,features):
     data=mujoco.MjData(model)
     mujoco.mj_forward(model,data)
     assert np.isfinite(data.geom_xpos).all()
+
+
+
+def test_vertical_square_camera_projects_a_non_degenerate_rectangular_4x4():
+    """Vertical VL53L8CX on a horizontal surface must give a real 2D grid.
+
+    Old Euler-like independent pitch/yaw made the horizontal axis vanish
+    at 90° down, giving V-shaped rays instead of a square detector field.
+    """
+    p,R=pose()
+    origin,rays=camera_rays(np,p,R,tilt_down_deg=90.,
+                           mount_body_m=(0.,0.,0.))
+    direction=rays[0,:,0,:].reshape(4,4,3)
+    assert np.all(direction[...,2]<0)
+    hit=origin[0,:,0,:].reshape(4,4,3)
+    hit=hit+(-hit[...,2]/direction[...,2])[...,None]*direction
+    half=.2584*math.tan(math.pi/8)
+    expected_x=(np.asarray([.75,.25,-.25,-.75])*half)
+    expected_y=(np.asarray([-.75,-.25,.25,.75])*half)
+    np.testing.assert_allclose(hit[:,:,0],
+        np.broadcast_to(expected_x[:,None],(4,4)),atol=1e-7)
+    np.testing.assert_allclose(hit[:,:,1],
+        np.broadcast_to(expected_y[None,:],(4,4)),atol=1e-7)
+    np.testing.assert_allclose(hit[:,:,2],0,atol=1e-7)
+    assert np.ptp(hit[:,:,0])>.1 and np.ptp(hit[:,:,1])>.1
+
+
+@pytest.mark.parametrize("tilt",[0.,25.,50.,75.,90.])
+def test_camera_axes_do_not_collapse_across_mount_tilt(tilt):
+    p,R=pose()
+    _,rays=camera_rays(np,p,R,tilt_down_deg=tilt)
+    assert rays.shape==(1,16,5,3)
+    np.testing.assert_allclose(np.linalg.norm(rays,axis=-1),1,atol=1e-7)
+    assert np.linalg.norm(rays[0,0,0]-rays[0,3,0])>.25
+    assert np.linalg.norm(rays[0,0,0]-rays[0,12,0])>.25
