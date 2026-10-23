@@ -126,8 +126,11 @@ def run(worlds: int = 2, steps: int = 12, height_m: float = STEP_HEIGHT_M):
     initial = initial.replace(qpos=qpos)
 
     def contact_flags(data):
-        a, b = data.contact.geom1, data.contact.geom2
-        near = data.contact.dist < 0.002
+        # MJX 3.17 exposes the implementation's contact arrays directly;
+        # older MJX versions keep the same arrays on Data.
+        contact = getattr(data, "_impl", data).contact
+        a, b = contact.geom1, contact.geom2
+        near = contact.dist < 0.002
         foot = ((a == feet[0]) | (a == feet[1]) |
                 (b == feet[0]) | (b == feet[1]))
         on_floor = jnp.any(near & foot & ((a == floor) | (b == floor)), axis=1)
@@ -146,11 +149,11 @@ def run(worlds: int = 2, steps: int = 12, height_m: float = STEP_HEIGHT_M):
         return data, hit_history
 
     t0 = time.perf_counter()
-    final, contacts = settle(initial)
+    _, contacts = settle(initial)
     contacts.block_until_ready()
     compile_and_run_s = time.perf_counter() - t0
     t1 = time.perf_counter()
-    final, contacts = settle(initial)
+    _, contacts = settle(initial)
     contacts.block_until_ready()
     steady_s = time.perf_counter() - t1
 
