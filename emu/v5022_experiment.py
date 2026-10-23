@@ -206,6 +206,12 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             if not smoke and (step-last_save>=1_000_000 or step>=target_step):
                 save()
                 last_save=step
+        # Evaluate with compilation caches released on GPU; this avoids
+        # retaining a huge PPO executable alongside the long trace exam.
+        if device=="cuda":
+            import gc
+            jax.clear_caches()
+            gc.collect()
         # Independent fixed-seed policy evaluation, not the training reward.
         p=env.params_array(governor.params_dict())
         std=jnp.sqrt(jnp.maximum(obs_var,1e-6))
@@ -213,23 +219,28 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         # Passing x=.96 alive and supported is a physical result, not reward.
         crossing=trainer["evaluate_terrain_crossing"](
             state.params,p,obs_mean,std,
-            jax.random.PRNGKey(seed+9017),8 if smoke else 300,.22)
+            jax.random.PRNGKey(seed+9017),
+            300 if (not smoke or device=="cuda") else 8,.22)
         crossing_names=("step_crossed_live_fraction","step_approached_live_fraction",
                         "episode_ended_fraction","max_x_mean_m")
         cross_report=dict(zip(crossing_names,map(float,np.asarray(crossing))))
         if not all(math.isfinite(v) for v in cross_report.values()):
             raise FloatingPointError("nonfinite held-out terrain exam")
-        if not smoke:
+        if not smoke or device=="cuda":
+            # CUDA smoke also checks full-sized FIXED EVALUATION memory.
             ev=trainer["evaluate_summary"](
                 state.params,p,obs_mean,std,
                 jax.random.PRNGKey(seed+90919),150)
             measured={k:float(v) for k,v in zip(EVAL_NAMES,np.asarray(ev))}
-            (target/"fixed_eval.json").write_text(json.dumps(
-                {"step":step,"arm":arm,"values":measured,
-                 "terrain_crossing":cross_report},indent=2))
+            if not all(math.isfinite(v) for v in measured.values()):
+                raise FloatingPointError("nonfinite held-out fixed evaluation")
+            if not smoke:
+                (target/"fixed_eval.json").write_text(json.dumps(
+                    {"step":step,"arm":arm,"values":measured,
+                     "terrain_crossing":cross_report},indent=2))
             print(f"[v5022 {arm}] fixed eval {measured} crossing={cross_report}",flush=True)
         else:
-            print(f"[v5022 {arm}] smoke held-out crossing {cross_report}",flush=True)
+            print(f"[v5022 {arm}] CPU smoke held-out crossing {cross_report}",flush=True)
         return {"arm":arm,"step":step,"latest":records[-1] if records else None,
                 "held_out_crossing":cross_report,
                 "fixed_eval":measured if not smoke else None}
