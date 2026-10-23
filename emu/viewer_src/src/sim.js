@@ -127,6 +127,7 @@ export class EmuBrowserSim {
     this.depthMountMarker.visible=false;
     this.scene.add(this.depthMountMarker);
     this.parkTreesEnabled = true;
+    this.parkFeaturesEnabled = true;
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
@@ -352,6 +353,12 @@ export class EmuBrowserSim {
     this.depthConfig=values;
     this.depthLastMs=0;
   }
+  setParkFeaturesEnabled(enabled) {
+    const next=Boolean(enabled);
+    if(next===this.parkFeaturesEnabled)return;
+    this.parkFeaturesEnabled=next;
+    if(this.terrainMode==='park')this.loadModel();
+  }
   setTreesEnabled(enabled) {
     const next=Boolean(enabled);
     if (next===this.parkTreesEnabled) return;
@@ -380,7 +387,8 @@ export class EmuBrowserSim {
   loadModel() {
     this.disposeModel();
     this.park = this.terrainMode==='park'
-      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,trees:this.parkTreesEnabled})
+      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
+                             trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled})
       : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
@@ -507,8 +515,17 @@ export class EmuBrowserSim {
   }
 
   navigationTrees() {
-    return this.terrainMode==='park' && this.parkTreesEnabled
-      ? this.park?.trees || [] : [];
+    if(this.terrainMode!=='park'||!this.park)return [];
+    // The existing pose-lattice planner assumes a 62cm circular clearance
+    // around each supplied obstacle. Feature waypoints make autonomous
+    // navigation avoid untrained steps/logs, but manual joystick can inspect.
+    return [
+      ...(this.parkTreesEnabled?this.park.trees:[]),
+      ...(this.parkFeaturesEnabled ? this.park.features.flatMap(f=>
+        f.id==='crest'?[{x:f.x,y:f.y-.26},{x:f.x,y:f.y+.26}]
+        : f.id==='trough'?[{x:f.x-.28,y:f.y},{x:f.x+.28,y:f.y}]
+        : [{x:f.x,y:f.y}]) : []),
+    ];
   }
 
   setNavigationPresentation(active) {
