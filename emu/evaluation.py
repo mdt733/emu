@@ -1061,6 +1061,19 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
                 break
         fully_survived = n == horizon and not bool(np.any(ended[:,i]))
         collision_pass = passed_at is not None and fully_survived
+        if fully_survived:
+            failure_reason = None
+        else:
+            flags = (
+                ('height', 'terrain_fall_height'),
+                ('tilt', 'terrain_fall_tilt'),
+                ('roll_rate', 'terrain_fall_roll_rate'),
+                ('pitch_rate', 'terrain_fall_pitch_rate'),
+                ('timeout', 'terrain_timeout'),
+            )
+            reasons = [name for name, key in flags
+                       if key in frames and bool(np.asarray(frames[key])[n-1,i] > .5)]
+            failure_reason = '+'.join(reasons) if reasons else 'unknown_or_diverged'
         travel = float(relative[-1])
         tracking_mae = float(np.mean(np.abs(vx[settle_frames:n,i]-speed))) if n>settle_frames else None
         motor_work = float(np.sum(np.maximum(0,watts[:n,i]))*.02)
@@ -1070,7 +1083,11 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
             world=i, lesson=direction,
             maximum_requested_step_cm=round(float(height_m*100),2),
             actual_step_height_cm=round(float(actual_height_cm),2),
-            frames_before_reset=n, full_horizon_survival=fully_survived,
+            frames_before_reset=n, elapsed_s=round(n*.02,2),
+            first_failure_reason=failure_reason,
+            height_at_end_m=(round(float(frames['terrain_height'][n-1,i]),4)
+                             if 'terrain_height' in frames else None),
+            full_horizon_survival=fully_survived,
             fell=bool(np.any(fell[:n,i])), reached_far_side=bool(np.any(far)),
             far_side_contact_held_100ms=passed_at is not None,
             crossing_pass=(bool(collision_pass) if active else None),
@@ -1128,9 +1145,9 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     import jax.numpy as jnp
     require_backend(device=='cpu')
     max_height = max(.001,max(heights_cm)/100)
-    env = EmuMJXEnv(
-        str(ROBOT_XML), num_envs=worlds, seed=seed,
-        terrain_step_max_m=max_height, attitude_profile=export['training']['attitude_profile'],
+    env_args = dict(
+        robot_xml=str(ROBOT_XML), num_envs=worlds, seed=seed,
+        attitude_profile=export['training']['attitude_profile'],
         pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
         phase_speed_gain=float(export['control']['phase_speed_gain']),
         max_episode_steps=700, push_max_force_n=0.,
@@ -1139,11 +1156,19 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         observation_schema=actor_schema,
         **{k:v for k,v in sensor_settings.items() if k!='sensor_noise_scale'},
         combo_mix_frac=0.,combo_probe_frac=0.,
-        field_teach_recovery=False)
-    trainer = make_trainer(
-        env,seed=seed,lr=PPO_LR,rollout=ROLLOUT_STEPS,
-        epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
-        value_cost=PPO_VALUE_COST)
+        field_teach_recovery=False,
+    )
+    def examiner(topology_height):
+        args = dict(env_args)
+        path = args.pop('robot_xml')
+        env = EmuMJXEnv(path, terrain_step_max_m=topology_height, **args)
+        trainer = make_trainer(
+            env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
+            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
+            value_cost=PPO_VALUE_COST)
+        return env, trainer
+
+    env, trainer = examiner(max_height)
     import numpy as np
     packet = dict(
         regime_frac_steady=1.,regime_frac_transition=0.,
@@ -1155,32 +1180,70 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         probe_angvel_rad_s=0.,probe_joint_rad=0.,
         terrain_exposure=1.,
     )
-    cases=[]
-    for height_cm in heights_cm:
-        packet['terrain_height_m']=height_cm/100.
-        start=time.perf_counter()
-        # Same frozen actor, identical seeds and compiled model; only the
-        # physical task-packet height changes. First invocation includes JIT.
-        trace=trainer['evaluate_trace'](
-            params,env.params_array(packet),
+    def one_course(exam_env, exam_trainer, difficulty, label):
+        task=dict(packet,terrain_height_m=difficulty/100.)
+        t0=time.perf_counter()
+        trace=exam_trainer['evaluate_trace'](
+            params,exam_env.params_array(task),
             jnp.asarray(norm['mean']),jnp.asarray(norm['std']),
             jax.random.PRNGKey(seed),horizon,0.,(speed,0.,0.))
         frames=jax.device_get(trace)
-        seconds=time.perf_counter()-start
-        rows=score_terrain_course_trace(frames,height_m=height_cm/100,
-                                        speed=speed)
+        seconds=time.perf_counter()-t0
+        if exam_env.terrain_step_mocap_id < 0:
+            # The same scorer receives real dynamics, contacts and faults
+            # from the original unmodified model. Only nonexistent platform
+            # telemetry is explicitly marked absent, never invented as
+            # physical support or success.
+            frames['terrain_platform_contact']=np.zeros_like(frames['floor_contact'])
+            frames['initial_terrain_mocap_pos']=np.tile(
+                np.asarray([0.,0.,-1.]),(worlds,1))
+            frames['initial_terrain_mocap_quat']=np.tile(
+                np.asarray([1.,0.,0.,0.]),(worlds,1))
+        rows=score_terrain_course_trace(frames,height_m=difficulty/100.,speed=speed)
         case=dict(
-            max_height_cm=height_cm,
+            case=label, max_height_cm=difficulty,
             actual_heights_cm=[x['actual_step_height_cm'] for x in rows],
             seconds=round(seconds,3),
             worlds=rows,survived=sum(x['full_horizon_survival'] for x in rows),
-            crossing_pass=(None if height_cm==0 else sum(x['crossing_pass'] for x in rows)),
-            mean_progress_m=round(float(np.mean([x['progress_m'] for x in rows])),4))
-        cases.append(case)
-        print(f"Terrain up to {height_cm:g}cm: survival {case['survived']}/{worlds}, "
-              f"crossing {('not scored' if height_cm==0 else str(case['crossing_pass'])+'/'+str(worlds))}, "
-              f"mean progress {case['mean_progress_m']:+.3f}m, "
-              f"wall {case['seconds']:.1f}s", flush=True)
+            crossing_pass=(None if difficulty==0 else sum(x['crossing_pass'] for x in rows)),
+            mean_progress_m=round(float(np.mean([x['progress_m'] for x in rows])),4),
+            mean_first_episode_s=round(float(np.mean([x['elapsed_s'] for x in rows])),3),
+            failure_reasons={
+                reason:sum(x['first_failure_reason']==reason for x in rows)
+                for reason in sorted({x['first_failure_reason'] for x in rows
+                                      if x['first_failure_reason'] is not None})
+            },
+        )
+        print(f"{label}: survival {case['survived']}/{worlds}, "
+              f"crossing {('not scored' if difficulty==0 else str(case['crossing_pass'])+'/'+str(worlds))}, "
+              f"progress {case['mean_progress_m']:+.3f}m, "
+              f"first episode {case['mean_first_episode_s']:.2f}s, "
+              f"failures {case['failure_reasons']}, "
+              f"wall {seconds:.1f}s", flush=True)
+        return case
+
+    # An independent A/B physics control: if the original exact flat
+    # topology also collapses, do NOT attribute failure to the step.
+    old_env, old_trainer = examiner(0.)
+    cases=[one_course(old_env,old_trainer,0.,'original_flat_physics')]
+    for height_cm in heights_cm:
+        cases.append(one_course(env,trainer,height_cm,
+                                f"terrain_topology_{height_cm:g}cm"))
+    reference=cases[0]
+    dormant=next((c for c in cases[1:] if c['max_height_cm']==0.),None)
+    paired_diagnostics=(
+        dict(
+            original_flat_survived=reference['survived'],
+            dormant_flat_survived=dormant['survived'],
+            per_world_first_failure_frame_deltas=[
+                d['frames_before_reset']-o['frames_before_reset']
+                for o,d in zip(reference['worlds'],dormant['worlds'])
+            ],
+            per_world_progress_deltas_m=[
+                round(d['progress_m']-o['progress_m'],4)
+                for o,d in zip(reference['worlds'],dormant['worlds'])
+            ])
+        if dormant else None)
 
     report=dict(
         schema='emu_terrain_exam_v1',source_commit=source_commit(),
@@ -1193,12 +1256,14 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
                   horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
                   model='single movable finite MJX platform, paired step up/down',
                   support='actual foot-floor and foot-platform collision contacts'),
-        cases=cases, cautions=[
+        cases=cases, flat_topology_comparison=paired_diagnostics, cautions=[
             'No PPO or curriculum update performed.',
             ('232-input actor still uses the legacy tripod flat-contact-plane estimator: '
              'its depth estimate does NOT yet intersect step geometry; score is '
              'diagnostic only, NOT sensor-honest skill evidence.' if actor_schema==OBS_SCHEMA_SENSOR
              else '220-input actor has no 4x4 terrain preview; score is diagnostic only.'),
+            'Original flat physics and dormant-platform flat physics are compared separately.',
+            'If both flat controls fail, terrain crossing is NOT a meaningful skill estimate.',
             'Flat reference has no step-crossing score, only progress/survival.',
             'First fall/timeout truncates assessment; resets cannot earn passage.',
             'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
@@ -1213,15 +1278,17 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
            f"Source commit: {report['source_commit']}",
            f"JAX backend: {jax.default_backend()}",
            f"Actor schema: {actor_schema}; sensor evidence: DIAGNOSTIC ONLY",'',
-           '| Height | Survive | Genuine crossings | Mean progress | Wall time |',
-           '|---:|---:|---:|---:|---:|']
+           '| Course | Survive | Genuine crossings | Mean progress | First episode | Wall time |',
+           '|---|---:|---:|---:|---:|---:|']
     for case in cases:
         crossings='N/A (flat)' if case['crossing_pass'] is None else f"{case['crossing_pass']}/{worlds}"
-        lines.append(f"| ≤{case['max_height_cm']:g} cm | {case['survived']}/{worlds} | "
-                     f"{crossings} | {case['mean_progress_m']:+.3f} m | {case['seconds']:.1f} s |")
+        lines.append(f"| {case['case']} | {case['survived']}/{worlds} | "
+                     f"{crossings} | {case['mean_progress_m']:+.3f} m | "
+                     f"{case['mean_first_episode_s']:.2f} s | {case['seconds']:.1f} s |")
     lines += ['', 'The flat row is a command-competence control, not an obstacle.',
               'A passed contact check is NOT a passed uninterrupted crossing.',
-              'Each world additionally reports fall, progress, real support, motor effort and tracking.',
+              'Original-flat vs dormant-platform control reveals physics regressions separately from policy failures.',
+              'Each world additionally reports first failure frame/reason, progress, real support, motor effort and tracking.',
               'Exam data never enters PPO, rewards or the curriculum.']
     md_path=output/'terrain_exam.md'
     md_path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
