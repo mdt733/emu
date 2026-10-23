@@ -401,7 +401,8 @@ $('depthCopy').addEventListener('click',async()=>{
     obstacle:terrainMode.value==='sensor'?depthCourse.value:'viewer terrain',
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
-    rays_per_scan:reading.subrays*16,
+    depth_sample_rays:reading.subrays*16,
+    visual_footprint_rays:reading.footprintRays||0,
     scan_time_ms:Number(reading.costMs.toFixed(2)),
     ranges_cm:Array.from({length:4},(_,row)=>
       Array.from({length:4},(_,col)=>{
@@ -441,7 +442,7 @@ function updateDepthGrid(){
   $('depthNote').textContent=!depthOn.checked
     ? 'Diagnostic off · champion unchanged'
     : !data?'Waiting for robot · no scan yet'
-    : hits+'/16 zones · '+(data.subrays*16)+' rays · '+data.costMs.toFixed(1)+' ms/scan · cm';
+    : hits+'/16 zones · '+(data.subrays*16)+' depth rays'+(data.footprintRays?' + '+data.footprintRays+' grid':'')+' · '+data.costMs.toFixed(1)+' ms · cm';
 }
 
 terrainMode.addEventListener('change',updateTerrain);
