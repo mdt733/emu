@@ -37,6 +37,26 @@ files or old contract tests. CI currently has five previously known
 legacy schema-1 examiner failures against the protected schema-2 champion,
 which must be reported separately rather than papered over.
 
+## Main-baseline continuity: mandatory invariant
+
+This experiment is an **add-on to main's 700-commit learned engineering
+foundation**. `emu.training.train` is the only supported long-run
+learner. It owns the original RegimeGovernor/TrainingHealth, KL adaptation,
+frontier retreats, capability field, full-schema validated checkpoints,
+automatic recovery and canonical fixed examinations. The A/B wrapper
+selects the visibility flag and strict source identity; it **must not**
+implement a second long-term PPO update, governor or checkpoint loop.
+Older 220/232 training remains byte-for-byte identical on its original
+schema/geometry paths; the new 364 schema is separately fingerprinted
+as checkpoint schema 9 and can't load as either old schema.
+
+A clean run should begin with level-ground survival and walk competence.
+A raised-step crossing score has no meaning if one arm never learns to
+stand or walk on the baseline. Do not disable TrainingHealth retreat/
+recovery to increase apparent reward. Stop/review if the core learner
+fails its survival and stepping gates, rather than paying millions of
+steps for a physically incapable policy.
+
 ## The actual questions
 
 1. **Does physical forward terrain sensing help a robot learn to cross a
@@ -79,9 +99,11 @@ which must be reported separately rather than papered over.
 - The original down-looking ToF and flow forward models are also given
   physical-course intersections. Only reward/exams can read exact
   support heights or labels. No future terrain heights in observations.
-- The full **experimental** checkpoint stores actor, value function,
-  optimizer, observation normalizer, teacher governor, RNG key, source
-  commit/branch/cleanliness and physical sensor fingerprint.
+- The full **schema-9 checkpoint managed by main's checkpoint_io** stores
+  actor, value function, optimizer, observation normalizer, teacher
+  governor, training-health, capability field and physical sensor
+  fingerprint. The A/B wrapper additionally enforces clean branch and
+  exact source identity at resume.
   A resumed process starts NEW robot episodes; it does not pretend to
   replay the exact mid-episode simulator state.
 
@@ -109,6 +131,17 @@ python -m emu.v5022_experiment --smoke --device cuda --envs 256 --arm visible
 # GPU gate B: same real batch and network as the planned big run:
 python -m emu.v5022_experiment --smoke --device cuda --envs 2048 --arm visible
 
+# Full canonical main-engine gate, ONE 32-frame rollout in each arm.
+# Unlike --smoke, this exercises main's real training loop, checkpoint
+# writer, health/curriculum, source validation and held-out evaluation.
+# Keep separate roots because identical manifests require identical git SHA.
+python -m emu.v5022_experiment --run \
+  --root ~/robot_lab/emu_runs/v5022_main_engine_gate01 \
+  --arm visible --envs 256 --steps 8192 --seed 733 --device cuda
+python -m emu.v5022_experiment --run \
+  --root ~/robot_lab/emu_runs/v5022_main_engine_gate02 \
+  --arm blinded --envs 256 --steps 8192 --seed 733 --device cuda
+
 # Only after the smoke succeeds: two 10M-step cold-start arms.
 # Each arm is a separate complete run with its own checkpoint/CSV/eval.
 python -m emu.v5022_experiment --run \
@@ -132,9 +165,9 @@ still match. Both arms continue their independent PPO lineages.
 
 ## What the output can, and cannot, say
 
-Each arm writes an experiment identity JSON, a metrics CSV, an atomic
-`checkpoint.pkl` (after up to 1M steps and at termination), and a
-`fixed_eval.json`. A completed pair also writes a `summary.json`
+Each arm writes an experiment identity JSON, a metrics CSV, the **canonical** `checkpoints/latest.pkl`, snapshots, recovery and
+`checkpoints/final.pkl` (through `emu.training.train`), established
+`fixed_eval.csv`, plus a separate `v5022_crossing.json`. A completed pair also writes a `summary.json`
 with **visible-minus-blinded** measured deltas.
 
 The held-out test uses an identical fixed-seed forward command. A
