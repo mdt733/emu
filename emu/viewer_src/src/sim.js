@@ -1118,6 +1118,7 @@ export class EmuBrowserSim {
       this.depthFootprint.visible=written>0;
     }else this.depthFootprint.visible=false;
     this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,
+      footprintRays:this.depthConfig.showFootprint?25:0,
       costMs:performance.now()-begin};
     this.depthMountMarker.position.copy(origin);
     this.depthMountMarker.visible=true;
