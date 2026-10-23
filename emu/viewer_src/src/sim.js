@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver, depthProbeRays, readDepthProbe } from './sensor.js';
+import { SensorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -110,7 +110,7 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.sensorObstacle = 'flat';
-    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -123,6 +123,18 @@ export class EmuBrowserSim {
     this.depthLines.frustumCulled=false;
     this.depthLines.visible=false;
     this.scene.add(this.depthLines);
+    // Optional 5x5 boundary grid maps the physical 4x4 footprint directly
+    // onto the same MuJoCo-rendered ground used by the range inspector.
+    const footprintGeometry=new THREE.BufferGeometry();
+    this.depthFootprintPositions=new Float32Array(40*6);
+    footprintGeometry.setAttribute('position',
+      new THREE.BufferAttribute(this.depthFootprintPositions,3).setUsage(THREE.DynamicDrawUsage));
+    footprintGeometry.setDrawRange(0,0);
+    this.depthFootprint=new THREE.LineSegments(footprintGeometry,
+      new THREE.LineBasicMaterial({color:0x66edda,transparent:true,opacity:.90,depthTest:true}));
+    this.depthFootprint.frustumCulled=false;
+    this.depthFootprint.visible=false;
+    this.scene.add(this.depthFootprint);
     this.depthMountMarker = new THREE.Mesh(new THREE.SphereGeometry(.010,10,8),new THREE.MeshBasicMaterial({color:0xffcc80,depthTest:true}));
     this.depthMountMarker.visible=false;
     this.scene.add(this.depthMountMarker);
@@ -283,6 +295,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.depthLines.geometry.dispose();
     this.depthLines.material.dispose();
+    this.depthFootprint.geometry.dispose();
+    this.depthFootprint.material.dispose();
     this.depthMountMarker.geometry.dispose();
     this.depthMountMarker.material.dispose();
     this.routeLine.geometry.dispose();
@@ -345,11 +359,12 @@ export class EmuBrowserSim {
     this.sensorObstacle=id;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,showRays,subrays='auto'}) {
-    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),showRays:Boolean(showRays),subrays};
+  setDepthInspector({enabled,forward,tilt,showRays,showFootprint=true,subrays='auto'}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),
+      showRays:Boolean(showRays),showFootprint:Boolean(showFootprint),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
-    if(values.forward<0||values.forward>.2||values.tilt<15||values.tilt>85)throw new Error('Invalid depth mount');
+    if(values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)throw new Error('Invalid depth mount');
     this.depthConfig=values;
     this.depthLastMs=0;
   }
@@ -1025,6 +1040,7 @@ export class EmuBrowserSim {
     // Observer only; never feeds the 220/232 policy's neural observations.
     if(!this.depthConfig.enabled || !this.data){
       this.depthLines.visible=false;
+      this.depthFootprint.visible=false;
       this.depthMountMarker.visible=false;
       this.depthReading=null;
       return;
@@ -1036,7 +1052,8 @@ export class EmuBrowserSim {
     const begin=performance.now();
     const o=this.torsoId*3;
     const torso=Array.from(this.data.xpos.slice(o,o+3));
-    const pose=depthProbeRays(torso,this.bodyRotation(),this.depthConfig);
+    const rotation=this.bodyRotation();
+    const pose=depthProbeRays(torso,rotation,this.depthConfig);
     // Shared viewer geometry (including movable robot parts) matches the
     // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
     const targets=this.meshes.filter(mesh=>mesh.visible);
@@ -1056,8 +1073,6 @@ export class EmuBrowserSim {
       const hit=raycaster.intersectObjects(targets,false)[0];
       return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain',surface:hit.object.uuid}:Infinity;
     },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
-    const costMs=performance.now()-begin;
-    this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,costMs};
     const points=this.depthLinePositions,colors=this.depthLineColors;
     for(let i=0;i<16;i++){
       const end=reading.hitPoints[i];
@@ -1073,6 +1088,37 @@ export class EmuBrowserSim {
     this.depthLines.geometry.attributes.position.needsUpdate=true;
     this.depthLines.geometry.attributes.color.needsUpdate=true;
     this.depthLines.visible=this.depthConfig.showRays;
+    if(this.depthConfig.showFootprint){
+      // Footprint boundary casts are purely for visualisation and never
+      // become privileged actor observations. They stop at the first
+      // physical surface; missing, body-blocked edges remain open.
+      const rays=depthGridRays(rotation,this.depthConfig);
+      const hits=rays.map(ray=>{
+        raycaster.set(origin,direction.set(...ray).normalize());
+        raycaster.far=1.5;
+        const hit=raycaster.intersectObjects(targets,false)[0];
+        return hit && !hit.object.userData.robotPart?hit.point:null;
+      });
+      let written=0;
+      const addEdge=(a,b)=>{
+        if(!hits[a]||!hits[b])return;
+        for(const p of [hits[a],hits[b]]){
+          this.depthFootprintPositions[written++]=p.x;
+          this.depthFootprintPositions[written++]=p.y;
+          this.depthFootprintPositions[written++]=p.z+.004;
+        }
+      };
+      for(let row=0;row<5;row++)for(let col=0;col<5;col++){
+        const i=row*5+col;
+        if(col<4)addEdge(i,i+1);
+        if(row<4)addEdge(i,i+5);
+      }
+      this.depthFootprint.geometry.attributes.position.needsUpdate=true;
+      this.depthFootprint.geometry.setDrawRange(0,written/3);
+      this.depthFootprint.visible=written>0;
+    }else this.depthFootprint.visible=false;
+    this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,
+      costMs:performance.now()-begin};
     this.depthMountMarker.position.copy(origin);
     this.depthMountMarker.visible=true;
   }
