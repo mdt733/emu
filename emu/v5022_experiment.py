@@ -203,15 +203,29 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                 save()
                 last_save=step
         # Independent fixed-seed policy evaluation, not the training reward.
+        p=env.params_array(governor.params_dict())
+        std=jnp.sqrt(jnp.maximum(obs_var,1e-6))
+        # Both arms face EXACTLY the same held-out 0.22m/s forward request.
+        # Passing x=.96 alive and supported is a physical result, not reward.
+        crossing=trainer["evaluate_terrain_crossing"](
+            state.params,p,obs_mean,std,
+            jax.random.PRNGKey(seed+9017),8 if smoke else 300,.22)
+        crossing_names=("step_crossed_live_fraction","step_approached_live_fraction",
+                        "episode_ended_fraction","max_x_mean_m")
+        cross_report=dict(zip(crossing_names,map(float,np.asarray(crossing))))
+        if not all(math.isfinite(v) for v in cross_report.values()):
+            raise FloatingPointError("nonfinite held-out terrain exam")
         if not smoke:
-            p=env.params_array(governor.params_dict())
             ev=trainer["evaluate_summary"](
-                state.params,p,obs_mean,jnp.sqrt(jnp.maximum(obs_var,1e-6)),
+                state.params,p,obs_mean,std,
                 jax.random.PRNGKey(seed+90919),150)
             measured={k:float(v) for k,v in zip(EVAL_NAMES,np.asarray(ev))}
             (target/"fixed_eval.json").write_text(json.dumps(
-                {"step":step,"arm":arm,"values":measured},indent=2))
-            print(f"[v5022 {arm}] final eval {measured}",flush=True)
+                {"step":step,"arm":arm,"values":measured,
+                 "terrain_crossing":cross_report},indent=2))
+            print(f"[v5022 {arm}] fixed eval {measured} crossing={cross_report}",flush=True)
+        else:
+            print(f"[v5022 {arm}] smoke held-out crossing {cross_report}",flush=True)
         return {"arm":arm,"step":step,"latest":records[-1] if records else None}
     finally:
         # Checkpoint current entire learned state on graceful interruption
