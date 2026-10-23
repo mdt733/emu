@@ -348,7 +348,7 @@ export class EmuBrowserSim {
     const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),showRays:Boolean(showRays),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
-    if(values.forward<.078||values.forward>.2||values.tilt<15||values.tilt>85)throw new Error('Invalid depth mount');
+    if(values.forward<0||values.forward>.2||values.tilt<15||values.tilt>85)throw new Error('Invalid depth mount');
     this.depthConfig=values;
     this.depthLastMs=0;
   }
