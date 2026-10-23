@@ -189,13 +189,103 @@ def run(worlds: int = 2, steps: int = 12, height_m: float = STEP_HEIGHT_M):
     return True
 
 
+def run_environment(worlds: int = 4):
+    """Exercise the EXISTING EmuMJXEnv episodic physics, not a second trainer.
+
+    Prove that changing data.mocap_pos affects real contact inside a single
+    compiled model. Teleported stance is a contact diagnostic, not walking.
+    """
+    import jax
+    import jax.numpy as jnp
+    import mujoco
+    from .environment import EmuMJXEnv, NEUTRAL_ROOT_Z
+
+    if worlds < 2:
+        raise ValueError('environment probe needs at least 2 worlds')
+    env = EmuMJXEnv(str(ROBOT_XML), num_envs=worlds, seed=5023,
+                    terrain_step_max_m=.04, sensor_noise_scale=0,
+                    attitude_profile='v5015')
+    state, _ = env.reset()
+    idx = env.terrain_step_mocap_id
+    geom = mujoco.mj_name2id(env.mj_model, mujoco.mjtObj.mjOBJ_GEOM,
+                             'episode_terrain_surface')
+    floor = env.ids['floor_geom']
+    feet = env.ids['foot_geoms']
+    positions = np.asarray(jax.device_get(state.data.mocap_pos))[:, idx, :]
+    top = positions[:, 2] + .15
+    if not (np.all(top > 0.011) and np.all(top <= .04001)):
+        raise AssertionError('episode terrain sampled invalid platform heights')
+    # x<0 => raised starting support/step-down; x>0 => approach a step-up.
+    down = positions[:, 0] < 0
+    if not (down.any() and (~down).any()):
+        raise AssertionError('no mixture of step-up and step-down worlds')
+    root = np.asarray(jax.device_get(state.data.qpos))
+    if not np.allclose(root[:, 2] - top*down, NEUTRAL_ROOT_Z, atol=.04):
+        raise AssertionError('step-down births must start at raised support height')
+
+    p = env.params_array({})
+    differently_seeded = env.reset_jit(jax.random.PRNGKey(5024), p)
+    next_pos = np.asarray(jax.device_get(differently_seeded.data.mocap_pos))[:, idx, :]
+    if np.array_equal(positions, next_pos):
+        raise AssertionError('episode reset did not move physical terrain')
+
+    centers = jnp.asarray(positions[:, :2], dtype=jnp.float32)
+    heights = jnp.asarray(top, dtype=jnp.float32)
+    beyond = jnp.stack((jnp.full((worlds,), 3.0), jnp.zeros((worlds,))), axis=1)
+    zero = jnp.zeros((worlds,), dtype=jnp.float32)
+    @jax.jit
+    def contacts_at(xy, elevation):
+        q = state.data.qpos.at[:, 0:2].set(xy)
+        q = q.at[:, 2].set(NEUTRAL_ROOT_Z + elevation)
+        q = q.at[:, 3:7].set(jnp.broadcast_to(
+            jnp.asarray([1., 0., 0., 0.], dtype=jnp.float32), (worlds, 4)))
+        d = state.data.replace(qpos=q, qvel=jnp.zeros_like(state.data.qvel))
+        d = env.forward_batched(env.mjx_model, d)
+        def one(_, prev):
+            return env.step_batched(env.mjx_model, prev)
+        d = jax.lax.fori_loop(0, 12, one, d)
+        contact = getattr(d, '_impl', d).contact
+        a, b = contact.geom1, contact.geom2
+        near = contact.dist < .003
+        foot = ((a == feet[0]) | (a == feet[1]) |
+                (b == feet[0]) | (b == feet[1]))
+        platform = jnp.any(near & foot & ((a == geom) | (b == geom)), axis=1)
+        ground = jnp.any(near & foot & ((a == floor) | (b == floor)), axis=1)
+        return platform, ground, d.qpos[:, :3]
+
+    platform_contact, _, on_top = jax.device_get(contacts_at(centers, heights))
+    _, floor_contact, on_floor = jax.device_get(contacts_at(beyond, zero))
+    if not np.all(platform_contact):
+        raise AssertionError('MJX could not physically support feet on movable platforms')
+    if not np.all(floor_contact):
+        raise AssertionError('MJX missed true floor contact beyond the platform')
+    if not (np.isfinite(on_top).all() and np.isfinite(on_floor).all()):
+        raise AssertionError('unstable episode terrain stance')
+    # Full stepping path must accept the opt-in data schema and keep it finite.
+    stepped = env.step(state, jnp.zeros((worlds, 6), dtype=jnp.float32), p)
+    stepped.obs.block_until_ready()
+    if not bool(jax.device_get(jnp.all(jnp.isfinite(stepped.obs)))):
+        raise AssertionError('episode terrain step produced nonfinite actor observations')
+    print(f'PASS: existing environment {worlds} worlds; '
+          f'{int(down.sum())} step-down / {int((~down).sum())} step-up; '
+          f'platform contact {int(np.sum(platform_contact))}/{worlds}, '
+          f'floor beyond {int(np.sum(floor_contact))}/{worlds}, '
+          'same topology and different geometry after reset')
+    print('NOT YET: traversed step, accurate 4x4 actor sensing, governor, GPU memory')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worlds", type=int, default=2)
     parser.add_argument("--steps", type=int, default=12)
     parser.add_argument("--height-m", type=float, default=STEP_HEIGHT_M)
+    parser.add_argument("--environment", action="store_true",
+                        help="probe reset-varying real terrain inside production EmuMJXEnv")
     args = parser.parse_args(argv)
-    run(worlds=args.worlds, steps=args.steps, height_m=args.height_m)
+    if args.environment:
+        run_environment(worlds=max(args.worlds, 4))
+    else:
+        run(worlds=args.worlds, steps=args.steps, height_m=args.height_m)
 
 
 if __name__ == "__main__":
