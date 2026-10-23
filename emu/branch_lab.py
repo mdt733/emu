@@ -703,6 +703,16 @@ def train_one(args) -> int:
     if final is None:
         raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
     print(f'Completed validated run: {final}')
+    # A finished standalone experiment deserves the same human-readable
+    # evidence as tournament arms. This only reads CSV/JSON and hashes the
+    # finished checkpoint; reporting cannot invalidate successful training.
+    try:
+        from .results import write_report
+        for report_path in write_report(Path(config.run_dir)):
+            print(f'Run report: {report_path}')
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        print(f'WARNING: checkpoint is validated but offline report failed: {exc}; '
+              f'run python -m emu.results --root {config.run_dir}')
     return 0
 
 if __name__ == '__main__':
