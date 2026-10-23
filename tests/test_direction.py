@@ -260,6 +260,12 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     target.write_text(json.dumps(obj))
     with pytest.raises(ValueError, match='robot XML'):
         load_exported_actor_for_exam(target)
+    # The modern 232-input actor is NOT validated by width alone.
+    obj=json.loads(champion.read_text())
+    obj['observation']['sensor_contract']['settings']['tof_delay_frames']=2
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='sensor contract'):
+        load_exported_actor_for_exam(target)
 
 
 def test_transition_exam_measures_real_response_not_reward_or_foot_lift():
