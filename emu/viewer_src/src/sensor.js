@@ -174,7 +174,7 @@ function opticalRay(R, tilt, u, v) {
   ];
 }
 
-export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}) {
+export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.018}={}) {
   if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
       forward>.20 || tilt<0 || tilt>90)
     throw new Error('Depth mount must be forward 0–200 mm, tilt 0–90°');
@@ -200,7 +200,7 @@ export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}
 // Five-by-five BEAM BOUNDARIES outline the true square 4x4 zone footprint.
 // On uneven ground the viewer casts each boundary ray onto actual geoms;
 // edges with no real hit are left open, never drawn as imaginary surfaces.
-export function depthGridRays(R,{tilt=50}={}) {
+export function depthGridRays(R,{tilt=70}={}) {
   if(!Number.isFinite(tilt)||tilt<0||tilt>90)
     throw new Error('Depth grid tilt must be 0–90°');
   return Array.from({length:25},(_,i)=>{
