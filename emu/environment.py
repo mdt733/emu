@@ -1518,6 +1518,22 @@ class EmuMJXEnv(TaskSampler):
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,
             'episode_support': ep_support_sum / denom,
+            **({
+              # Truth belongs ONLY in training/evaluation diagnostics,
+              # never the deployable 364-channel actor history.
+              'terrain_step_approach': (
+                (data.xpos[:,self.torso_id,0]>.22)&
+                (data.xpos[:,self.torso_id,0]<.44)).astype(jnp.float32),
+              'terrain_step_reached': (
+                (data.xpos[:,self.torso_id,0]>.96)&
+                (metrics['support']>.5)&
+                (metrics['episode_fell']<.5)).astype(jnp.float32)
+                if 'episode_fell' in metrics else
+                ((data.xpos[:,self.torso_id,0]>.96)&
+                 (metrics['support']>.5)&(~terminal_fail)).astype(jnp.float32),
+              'front_valid_fraction': jnp.mean(
+                 front.valid[:,HISTORY_LEN-2,:].astype(jnp.float32),axis=1),
+            } if self.use_front else {}),
         }
         return StepOut(
             new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
