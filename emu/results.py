@@ -752,7 +752,9 @@ def compare_fixed_exam_evidence(
     regressed=[]
     for field,(direction,tolerance) in FIXED_EXAM_GUARDS.items():
         change=after[field]-before[field]
-        bad=(change < -tolerance) if direction=="floor" else (change > tolerance)
+        # Guardrails have an explicit inclusive boundary, irrespective of
+        # binary float representation of values loaded from fixed_eval.csv.
+        bad=(change < -tolerance-1e-10) if direction=="floor" else (change > tolerance+1e-10)
         metrics[field]=dict(
             reference=before[field],candidate=after[field],delta=change,
             direction=direction,allowed_worsening=tolerance,
