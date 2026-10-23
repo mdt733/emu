@@ -15,6 +15,7 @@ See README.md for the teaching-to-physics overview.
 from __future__ import annotations
 
 from typing import Any, NamedTuple
+import xml.etree.ElementTree as ET
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
@@ -90,6 +91,38 @@ STEADY_RESILIENCE_BORROW_FRAC = 0.15
 #     softening the tracking exponential's sharpness overall -- real room
 #     to deviate for balance recovery without the tracking term collapsing
 #     toward zero the moment a push lands.
+
+# Opt-in G3 platform. These are collision dimensions, NOT a terrain teacher.
+# Episode height/direction/yaw live in mjx.Data.mocap_pos/mocap_quat, which
+# can change at reset without rebuilding the shared model or JIT structure.
+TERRAIN_PLATFORM_HALF_LENGTH_M = 0.90
+TERRAIN_PLATFORM_HALF_WIDTH_M = 0.48
+TERRAIN_PLATFORM_HALF_DEPTH_M = 0.15
+TERRAIN_PLATFORM_EDGE_X_M = 0.25
+
+
+def add_episode_platform(robot_xml: str) -> str:
+    """Augment the existing robot model with one finite collision platform.
+
+    A mocap body's real geom is moved only at episode boundaries.  It has
+    no degrees of freedom and introduces no hidden channels to the policy.
+    The on-disk robot.xml and default training configuration are untouched.
+    """
+    root = ET.parse(robot_xml).getroot()
+    world = root.find('worldbody')
+    if world is None:
+        raise ValueError('robot.xml has no worldbody')
+    platform = ET.SubElement(world, 'body', {
+        'name': 'episode_terrain_platform', 'mocap': 'true',
+        'pos': '0 0 -1',
+    })
+    ET.SubElement(platform, 'geom', {
+        'name': 'episode_terrain_surface', 'type': 'box',
+        'size': f'{TERRAIN_PLATFORM_HALF_LENGTH_M} {TERRAIN_PLATFORM_HALF_WIDTH_M} {TERRAIN_PLATFORM_HALF_DEPTH_M}',
+        'friction': '1.5 0.005 0.0001', 'rgba': '0.65 0.50 0.24 1',
+    })
+    return ET.tostring(root, encoding='unicode')
+
 
 class EnvState(NamedTuple):
     data: Any
@@ -1071,7 +1104,8 @@ class EmuMJXEnv(TaskSampler):
                  flow_delay_frames: int = 1,
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
-                 gyro_bias_std_rad_s: float = 0.015):
+                 gyro_bias_std_rad_s: float = 0.015,
+                 terrain_step_max_m: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1131,13 +1165,33 @@ class EmuMJXEnv(TaskSampler):
         self.num_envs = int(num_envs)
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
-        self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
+        # Experimental G3 only. Default zero uses the exact old XML path,
+        # collision topology and JAX shapes. Never activate mid-checkpoint.
+        if not np.isfinite(terrain_step_max_m) or not 0 <= terrain_step_max_m <= .08:
+            raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
+        self.terrain_step_max_m = float(terrain_step_max_m)
+        self.mj_model = (
+            mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
+            if self.terrain_step_max_m > 0 else
+            mujoco.MjModel.from_xml_path(self.robot_xml)
+        )
+        self.terrain_step_mocap_id = -1
+        if self.terrain_step_max_m:
+            platform_body = mujoco.mj_name2id(
+                self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
+            self.terrain_step_mocap_id = int(self.mj_model.body_mocapid[platform_body])
+            if self.terrain_step_mocap_id < 0:
+                raise RuntimeError('physical episode terrain requires a mocap body')
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
         # disabling MuJoCo's compiled identity-frame shortcut BEFORE put_model.
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
         self.contact_slope_deg = float(contact_slope_deg)
+        if self.terrain_step_max_m and (
+                self.contact_slope_deg != 0 or
+                (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
+            raise ValueError('finite-step G3 probe cannot yet mix with inclined terrain')
         self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
         orientation = contact_plane_quaternion(self.contact_slope_deg,
                                                self.contact_uphill_xy)
@@ -1717,6 +1771,42 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
+    def _episode_terrain(self, data, keys):
+        """Sample one real movable platform per world, entirely in JAX.
+
+        Up: flat initial support, finite upper platform beyond +X edge.
+        Down: raised initial support, finite edge leading onto flat floor.
+        Episode resets can change height, angle and up/down independently
+        within a single precompiled model. The actor never receives these
+        coordinates; they are physical world state and teacher diagnostics.
+        """
+        if self.terrain_step_mocap_id < 0:
+            return data
+        jax, jnp = self.jax, self.jnp
+        k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
+        def choose(key):
+            kh, ka, kd = jax.random.split(key, 3)
+            h = self.terrain_step_max_m * (0.3 + 0.7*jax.random.uniform(kh, ()))
+            angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
+            down = jax.random.bernoulli(kd)
+            return h, angle, down
+        height, angle, down = jax.vmap(choose)(k)
+        ca, sa = jnp.cos(angle), jnp.sin(angle)
+        side = jnp.where(down, -1.0, 1.0)
+        mid_x = TERRAIN_PLATFORM_EDGE_X_M + side*TERRAIN_PLATFORM_HALF_LENGTH_M*ca
+        mid_y = side*TERRAIN_PLATFORM_HALF_LENGTH_M*sa
+        center = jnp.stack((mid_x, mid_y,
+                            height - TERRAIN_PLATFORM_HALF_DEPTH_M), axis=1)
+        zeros = jnp.zeros_like(angle)
+        yaw_quat = jnp.stack((jnp.cos(angle/2), zeros, zeros,
+                              jnp.sin(angle/2)), axis=1)
+        idx = self.terrain_step_mocap_id
+        return data.replace(
+            mocap_pos=data.mocap_pos.at[:, idx, :].set(center),
+            mocap_quat=data.mocap_quat.at[:, idx, :].set(yaw_quat),
+            qpos=data.qpos.at[:, 2].add(jnp.where(down, height, 0.0)),
+        )
+
     def _reset_with_keys(self, keys, params, carryover_qvel=None):
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
@@ -1740,6 +1830,9 @@ class EmuMJXEnv(TaskSampler):
              linvel_keys, joint_keys, carry_keys),
             carryover_qvel,
         )
+        # One episode-local collision course. The standard flat path above
+        # is bitwise untouched whenever terrain_step_max_m is zero.
+        data = self._episode_terrain(data, keys)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
@@ -1965,6 +2058,31 @@ class EmuMJXEnv(TaskSampler):
         origin = data.geom_xpos[:,floor,:]
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
+    def _support_signed_heights(self, data, positions):
+        """Teacher-only distance above real local support (plane OR box top).
+
+        This does NOT go to the 220/232 policy. The approximate top-surface
+        classifier is valid away from vertical side contacts; crossing
+        acceptance must still inspect real contact pairs and trajectory.
+        """
+        flat = self._floor_signed_heights(data, positions)
+        if self.terrain_step_mocap_id < 0:
+            return flat
+        jnp = self.jnp
+        i = self.terrain_step_mocap_id
+        center = data.mocap_pos[:, i, :]
+        quat = data.mocap_quat[:, i, :]
+        c = 1.0 - 2.0*quat[:, 3]**2
+        si = 2.0*quat[:, 0]*quat[:, 3]
+        delta = positions[:, :, :2] - center[:, None, :2]
+        local_x = delta[:, :, 0]*c[:, None] + delta[:, :, 1]*si[:, None]
+        local_y = -delta[:, :, 0]*si[:, None] + delta[:, :, 1]*c[:, None]
+        inside = ((jnp.abs(local_x) < TERRAIN_PLATFORM_HALF_LENGTH_M) &
+                  (jnp.abs(local_y) < TERRAIN_PLATFORM_HALF_WIDTH_M))
+        top = center[:, 2] + TERRAIN_PLATFORM_HALF_DEPTH_M
+        elevated = inside & (top[:, None] > 0.001)
+        return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
+
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
 
@@ -1998,8 +2116,8 @@ class EmuMJXEnv(TaskSampler):
         # Height means clearance above the actual contact plane, not world Z.
         # Otherwise a robot walking uphill appears higher and its grounded
         # uphill foot can be incorrectly rewarded as a swing foot.
-        height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
-        foot_ground_distance = self._floor_signed_heights(data,foot_pos)
+        height = self._support_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
+        foot_ground_distance = self._support_signed_heights(data,foot_pos)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -2028,7 +2146,7 @@ class EmuMJXEnv(TaskSampler):
         # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
+        bad_z = self._support_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
