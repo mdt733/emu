@@ -214,20 +214,30 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
-    # Execute the *actual protected* Pitch15 120M actor through the very
-    # same CPU MJX stepping kernel. This needs neither the historical
-    # training .pkl nor a synthetic stand-in for the trained weights.
+    # Evaluate the CURRENT approved 232-input v5016 actor, not a former
+    # 220-input policy that no longer lives at the public champion path.
+    # The legacy 220-input trainer above remains independently exercised.
     from emu.viewer_server import load_exported_actor_for_exam
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
     from pathlib import Path
     hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     actor, exported_norm, export = load_exported_actor_for_exam(hero)
-    assert export['source']['step'] == 120061952
+    assert export['source']['step'] == 260112384
+    assert export['source']['checkpoint_schema'] == 8
+    assert export['observation_schema'] == OBS_SCHEMA_SENSOR
     assert len(actor['pi']) == 3
-    assert actor['pi'][0]['w'].shape == (OBS_DIM,256)
-    # Two-world, four-control-frame smoke; physical performance is NOT
-    # inferred from an unconditioned four-frame sanity check.
-    actual = trainer['evaluate_trace'](
-        actor,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+    assert actor['pi'][0]['w'].shape == (SENSOR_OBS_DIM,256)
+    settings=export['sensor_settings']
+    sensor_env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
+                        sensor_noise_scale=settings['sensor_noise_scale'],
+                        observation_schema=OBS_SCHEMA_SENSOR,
+                        **{k:v for k,v in settings.items()
+                           if k!='sensor_noise_scale'})
+    sensor_trainer=make_trainer(sensor_env,seed=1701,lr=.0002,rollout=2,
+                                epochs=1,minibatches=1)
+    # Two worlds, four actual physics frames; no invented policy weights.
+    actual = sensor_trainer['evaluate_trace'](
+        actor,sensor_env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
         jnp.asarray(exported_norm['mean']),jnp.asarray(exported_norm['std']),
         jax.random.PRNGKey(199),4)
     actual=jax.device_get(actual)
@@ -292,8 +302,8 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     assert report['source_artifact_type']=='exported_actor'
     assert report['checkpoint_sha256'] is None
     assert len(report['source_artifact_sha256'])==64
-    assert report['checkpoint_training_step']==120061952
-    assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
+    assert report['checkpoint_training_step']==260112384
+    assert report['source_training_commit']=='ff7626e959a4cf2bb91d02818203ca9a74d1c577'
     assert len(report['worlds'])==2
     assert all('course_pass' in world for world in report['worlds'])
     for world in report['worlds']:
