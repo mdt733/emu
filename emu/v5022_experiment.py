@@ -11,22 +11,18 @@ import argparse
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import subprocess
 
 import numpy as np
 
-from .contracts import (ROBOT_XML, CONTROL_DT, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM,
+from .contracts import (ROBOT_XML, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM,
                         terrain_observation_contract)
 from .environment import EmuMJXEnv
-from .curriculum import RegimeGovernor, TrainingHealth, CapabilityField
-from .ppo import configure_jax, require_backend, make_trainer, update_running_stats
-from .results import summarize_rollout
+from .curriculum import RegimeGovernor
+from .ppo import configure_jax, require_backend, make_trainer
 from .training_config import (ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES,
-                              PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
-                              PPO_LR_SCALE_INIT, PPO_LR_SCALE_MIN, PPO_LR_SCALE_MAX,
-                              PPO_LR_ADJUST, PPO_TARGET_KL, foundation_config)
+                              PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST)
 
 FORMAT = "v5022_terrain_ppo_v2"
 EVAL_NAMES = ("survival","first_fall_step","vx_mae","vy_mae","yaw_mae",
