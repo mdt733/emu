@@ -126,7 +126,7 @@ diagnostic to the policy observations, learned weights, or servo commands.
 
 Controls:
 - **Downward tilt:** 25–75° in 5° increments, initial 50°.
-- **Forward sensor mount:** 80–180 mm from root, initial 90 mm.
+- **Forward sensor mount:** 0–180 mm from root, initial 90 mm.
   These are body coordinates, not world-X or feet-relative positions.
 - **Show rays:** 16 representative visible rays plus the optical mount.
 - **Ground:** existing viewer park, or switch into one real MuJoCo contact
@@ -374,3 +374,56 @@ define/fingerprint a new 4-frame actor schema, then test a from-scratch
 export/resume. Only then start a 10–20M cold-start foundation and a
 short branch tournament. The 364-wide observation concept is a **candidate**,
 not a validated or deployed contract yet.
+
+
+### Viewer feedback follow-up: zero mount, functioning courses and park ring
+
+After the first hands-on viewer run, the physical root-relative sensor's
+forward range is now **0–180 mm** instead of an arbitrary 80mm lower bound.
+Zero is a valid simulated optical-centre position, but might sit *inside*
+the torso enclosure: raycasts now use two-sided surfaces so the user
+can see this chassis self-occlusion rather than see through plastic.
+The ultimate real bracket/PCB geometry still needs validating.
+
+**Why depth disappeared in non-park modes:** the raw raycast still ran,
+but the viewer's underfoot grade telemetry threw on mode `sensor`,
+interrupting display updates. `surfaceSlope('sensor')` now explicitly
+reports "not supported" rather than pretending a smooth grade exists on
+discontinuous steps or raising a fatal error. A regression lives in the
+existing Node viewer suite.
+
+The default **radial terrain park** now has a wider **4.2 m level-centre
+radius** and six deterministic *collidable* features around its outer
+inner-flat ring: two different-direction 5cm raised ledges, a 6cm
+ramp/crest/ramp, a short transverse log, an angled ridge and a relative
+trough between raised banks. The centre (radius under ~1.7 m) is clear
+for safe initial standing/walking, and trees spawn further out.
+Features are **enabled by default** on v5022, with an independent
+`Park obstacle ring (solid)` toggle in the settings drawer.
+The existing pose-lattice mission planner gets approximate obstacle
+keep-outs; it has NOT learned to climb them, so manual testing and
+unexpected falls are still separate concerns.
+
+These are browser viewer changes only: PPO, trained policy and
+the protected `main` demonstration retain their existing contracts.
+
+**Update an existing v5022 WSL checkout:**
+
+```bash
+cd ~/emu-v5022
+git pull --ff-only origin feature/v5022-forward-terrain
+source .venv/bin/activate
+python -m pytest -q tests/test_terrain.py
+npm test --prefix emu/viewer_src
+emu viewer-build
+emu viewer showcase/champion.emupolicy --no-open
+```
+
+Restart the viewer process after rebuilding and do a hard reload in the
+browser so older JavaScript doesn't survive the update. Start in
+**Flat reference**, then try **Step up**; confirm live depth still
+updates even though the slope telemetry reads "No terrain underfoot".
+Next choose **Current viewer terrain** and explore the six new features
+with the **Park obstacle ring** toggle on and off. Compare forward
+mounts **0/30/60/90 mm** at the same tilt to find whether a near-root
+mount is obstructed by the body/legs.
