@@ -303,7 +303,7 @@ def run_environment(worlds: int = 4):
     edge_contacts = []
     for offset in (-.14, -.055, .055, .14):
         station_xy = jnp.asarray(edges + offset*axis, dtype=jnp.float32)
-        on_platform = (offset > 0) if not down.any() else np.where(down, offset < 0, offset > 0)
+        on_platform = np.where(down, offset < 0, offset > 0)
         station_z = jnp.asarray(np.where(on_platform, top, 0.0), dtype=jnp.float32)
         touched_platform, touched_floor, _, _, _ = jax.device_get(
             contacts_at(station_xy, station_z))
