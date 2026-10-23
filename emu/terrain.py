@@ -190,7 +190,9 @@ def scan_forward(xp, torso_world, body_to_world,
         xp, torso_world, body_to_world, tilt_down_deg=tilt_down_deg,
         mount_body_m=mount_body_m)
     # Python and browser sample identical centre/quarter-zone directions.
-    origin = origin[:, :, :1 if subrays == 1 else 5, :]
+    # All zone rays share the same optical centre. Broadcast one origin
+    # regardless of 1/4/5 subray mode; do not retain five origins for four rays.
+    origin = origin[:, :, :1, :]
     direction = (direction[:, :, :1, :] if subrays == 1 else
                  direction[:, :, 1:5, :] if subrays == 4 else direction)
     worlds = xp.asarray(torso_world).shape[0]
