@@ -103,10 +103,14 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                   max_episode_steps=700,**cfg)
     if env.obs_dim!=TERRAIN_OBS_DIM or env.sensor_contract!=contract:
         raise RuntimeError("New 364-input sensor/physics contract drift")
+    # A CUDA smoke compiles and updates the FULL training-shaped PPO batch;
+    # a CPU smoke is intentionally tiny and checks only correctness.
+    full_size=not smoke or device=="cuda"
+    rollout=ROLLOUT_STEPS if full_size else 2
     trainer=make_trainer(env,seed=seed,lr=PPO_LR,
-                         rollout=2 if smoke else ROLLOUT_STEPS,
-                         epochs=1 if smoke else PPO_EPOCHS,
-                         minibatches=1 if smoke else PPO_MINIBATCHES,
+                         rollout=rollout,
+                         epochs=PPO_EPOCHS if full_size else 1,
+                         minibatches=PPO_MINIBATCHES if full_size else 1,
                          entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
     governor=RegimeGovernor(difficulty_base_step=.0014,
                             regime_command_frac=.6,open_frontier=False)
@@ -136,7 +140,7 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         governor.load_state_dict(loaded["governor"])
         print(f"[v5022 {arm}] resumed {step:,} steps; fresh episodes, intact PPO/optimizer/normalizer/curriculum",flush=True)
 
-    nstep=envs*(2 if smoke else ROLLOUT_STEPS)
+    nstep=envs*rollout
     target_step=step+nstep if smoke else steps
     last_save=step
     records=[]
@@ -273,6 +277,12 @@ def main(argv=None):
         results.append(run_arm(arm=arm,root=args.root,envs=args.envs,
                      steps=args.steps,seed=args.seed,smoke=args.smoke,
                      device=args.device))
+        # Experiment arms have identical models but separate static captured
+        # JAX values. Release old compiled executables on an 8GB card.
+        import gc
+        import jax
+        gc.collect()
+        jax.clear_caches()
     if args.root is not None and args.run:
         (args.root/"summary.json").write_text(json.dumps(results,indent=2))
     print("[v5022] "+json.dumps(results),flush=True)
