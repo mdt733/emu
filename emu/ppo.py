@@ -778,7 +778,19 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
                 spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
                 shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
-                done=out.done,fell=out.metrics['episode_fell'])
+                done=out.done,fell=out.metrics['episode_fell'],
+                # Read-only physical diagnostics, using the same pre-reset
+                # reward measurements as the actual training environment.
+                terrain_support=out.metrics['support'],
+                terrain_bad_contact=out.metrics['bad_contact'],
+                terrain_vx=out.metrics['vx'],
+                terrain_height=out.metrics['height'],
+                terrain_gravity_z=out.metrics['gravity_z'],
+                terrain_fall_height=out.metrics['fall_height'],
+                terrain_fall_tilt=out.metrics['fall_tilt'],
+                terrain_fall_roll_rate=out.metrics['fall_roll_rate'],
+                terrain_fall_pitch_rate=out.metrics['fall_pitch_rate'],
+                terrain_timeout=out.metrics['episode_timeout'])
             if env.terrain_step_mocap_id >= 0:
                 # Examiner-only collision telemetry from the SAME real MJX
                 # contacts used by normal stepping. Never placed in actor obs,
@@ -791,9 +803,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 sample['terrain_platform_contact'] = contact_pair_mask(
                     jnp, contact.geom1, contact.geom2, contact.dist,
                     int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
-                sample['terrain_support'] = out.metrics['support']
-                sample['terrain_bad_contact'] = out.metrics['bad_contact']
-                sample['terrain_vx'] = out.metrics['vx']
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
