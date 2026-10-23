@@ -1,311 +1,133 @@
-# EMU — v5016 sim-to-real living handover
+# EMU v5023 — LIVE HANDOVER / start here
 
-**Authoritative baseline:** GitHub `main` at `77c468c5bd78eedfaedaa755937616fe5743cfe8` (verified 17 Oct 2026).
-**Development branch:** [`feature/v5016-sim2real`](https://github.com/mdt733/emu/tree/feature/v5016-sim2real).
-**CI-only draft review:** [PR #8](https://github.com/mdt733/emu/pull/8), **not for merge**.
-The approved Pitch15 120,061,952-step showcase remains protected by Git blob
-`067d6156f0f9de629eabb1a69cf1b0ceb86db24c`. Actor contract: 55 × 4 = 220
-observations, six actions; checkpoint schema 7. No changes to `main`, the
-published demo or any historical training directory without express approval.
+> **Last updated: 24 October 2026 (Australia/Sydney).** This is the **current** short handover for the ongoing capability-growth project. Update this file after each meaningful experiment, engineering change or new decision. The exhaustive charter, design rules, acceptance gates and dated session notes live in [docs/CAPABILITY_GROWTH.md](docs/CAPABILITY_GROWTH.md); do **not** duplicate that entire history here.
+>
+> **Important:** This document replaces a stale v5016 handover formerly at the same path. The prior text remains recoverable in Git history; it is not the active plan.
 
-## Physical-reality programme: execution gates, not a blind training schedule
+## 1. Project, ownership and inviolable constraints
 
-**Pass A — measurement correctness (IN PROGRESS).** Use the *existing*
-`evaluation.py`, `directional.py`, `results.py` and `ppo.py` tracer.
-Verify world-fixed signed distance, path error, complete alternating contact
-touchdowns, contact-conditioned foot slip, startup/braking/reversal response,
-yaw/heading error, falls and matched seed reproducibility. Overlay per-joint
-actual MJX shaft force and joint velocity, peak/p95 torque, nominal
-0.638 N m duty, absolute/positive/braking shaft work, squared-torque duty
-proxy, and stored spring energy. Keep reward, broad held-out score and
-physical evidence in distinct tables. Audit frame alignment and early
-termination with real MJX CPU traces **before** asserting physical results.
-Synthetic unit tests alone are not acceptance. Nominal duty is not a
-validated safe current/heat envelope; spring storage is not recovered energy.
+- Repository: **https://github.com/mdt733/emu**
+- Active **development** branch: **[feature/v5023-capability-growth](https://github.com/mdt733/emu/tree/feature/v5023-capability-growth)**; draft **[PR #14](https://github.com/mdt733/emu/pull/14)**. It is a work-in-progress branch, **not** approved for merge.
+- **Never modify/merge protected \`main\`, existing 260M v5016 Pinnacle, showcase policy, or GitHub Pages without explicit owner approval.** Main is the known working baseline; this branch must earn promotion in independent physical exams.
+- **CRITICAL: training checkpoint provenance is SHA-pinned.** The two real GPU campaigns below used exactly **\`0ba009fe7a046ff1e5a28cbdd55e2d05e8e4b75e\`**, regardless of how far the active GitHub feature branch has moved since. **DO NOT \`git pull\` in \`~/emu-v5023\` before further resume/fork from those checkpoints**, and do not weaken the source-provenance guard. Do new feature development in a separate clone/worktree; a migration to newer source requires a deliberate compatibility/evidence plan. The GitHub branch contains newer log/report-only and handover commits not present in the pinned training checkout.
+- User's machine: Windows 11 / WSL2, NVIDIA RTX 4060 Ti **8 GB**, CUDA 13 JAX backend \`gpu\`. Project's original \`bash scripts/setup_wsl.sh --cuda13 --install-node\` works. **2,048 simultaneous worlds have already trained full PPO at ~30–32k environment steps/s** with the 360-input actor. A \`warp\` import warning was nonfatal.
+- Development style: **read and fix the existing coherent code first**; minimal meaningful smoke tests, not a proliferating test harness or sidecar trainers. Small foundation, bounded continuations and small controlled forks. Save results as Markdown/JSON and share bundles.
 
-**Pass B — frozen baseline exam.**
-A 10-course protected-export plan is available through
-`emu directional-batch --policy showcase/champion.emupolicy --profile physical
---device cuda --worlds 4 --seed 1701 --output "$NEW_EXAM_ROOT"`.
-It **prints only** unless `--run` is supplied; separate results roots are
-required for independent seeds 1702/1703 and new source revisions.
-The legacy four-arm tournament profiles retain `--root` instead of `--policy`.
- First run CPU shape and determinism
-checks (2 worlds, short horizon). On WSL CUDA, expand to bounded
-4–8-world, 350-frame exams on flat ground with precisely fixed seeds;
-collect steady forward/backward, sidestep both directions, rest→walk,
-walk→stop→resume, reversals and turns, both controller OFF/ON.
-Then add held-out sensor perturbations and gravity-equivalent slope trials.
-A true ramp geometry is a separate later exam. Repeat seeds 1701, 1702,
-1703 rather than promoting one lucky run. Preserve raw world-level results,
-report per-world missingness, and do not collapse into one composite score.
-The approved `showcase/champion.emupolicy` can now enter the existing
-directional exam directly with `--policy`: the reader verifies its actor,
-normalizer, 55-channel order, delivery timing and exact `robot.xml` identity
-before running frozen JAX inference through the same MJX course trace.
-This is an actor-only baseline and cannot rewind PPO training. The selected
-historical full PKL checkpoint SHA remains
-`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`;
-if later available, compare exported actor against it, then retain the PKL
-outside Git. No run restarts or checkpoint changes are necessary.
+## 2. Vision and architecture
 
-**v5016 pitch doctrine (17 Oct 2026):** The Pitch15 tournament win did not isolate
-whether pitch was the useful improvement or simply a less stressful workload;
-no claim of trivial learning or confirmed physical headroom follows from that
-ranking. The new opt-in `emu train --profile sim2real` resolves a shared
-±30° chassis pitch-command envelope for future training (v5015 task
-sampler/transition reward and unchanged 220-input actor). This is a COMMON
-teaching setting, not a fifth arm or a repeat of Pitch15-vs-Pitch30. The
-historical `emu ladder` / `lab5015` recipe remains locked to its original
-four study arms for research reproducibility; it is **not** the v5016
-training tournament. Actual ±30° commanded motion still needs held-out
-posture/locomotion and servo-load examination before hardware assumptions.
+Train **one physically honest six-actuator biped** whose *reliable usable capability* grows across forward/reverse/sideways/yaw commands, combinations, acceleration/stop/reversal, posture, pushes/recovery, real inclines, physical upward/downward finite steps, sensor uncertainty and mechanically graceful movement. Reward, actual task success, safety, efficiency and confidence must remain distinct. No success from freezing, falling or exploiting scalar reward. Expand fronts on measured evidence, retreat struggling dimensions while preserving easy gait.
 
-**v5016 motor-guidance experiment (opt-in, untrained):** A bounded
-`motor_guidance_weight` 0..0.10 is now a logged ninth teaching term.
-Its per-frame magnitude is `weight*(0.65*clip(over-continuous fraction,0,1)
-+0.35*clip(absolute simulated actuator shaft watts/20,0,1))`, subtracted
-from PPO reward. Default weight zero retains the historical incentives and
-physics. It is not current/thermal data; a future matched experiment can
-compare zero against e.g. 0.06 with identical pitch30, physics and evaluator.
-Do not teach spring *motion* as a goal: measure energy cycling and useful
-physical progress first. `--plan` verifies parameters without training.
+- \`robot.xml\` + \`emu/environment.py\`: robot/MJX world, physical contacts, true episode terrain geometry, sensor acquisition and observations.
+- \`emu/contracts.py\`: versioned fields and immutable sensor contract. Current new \`terrain_360\` actor = **90 fields × 4 frames = 360**, six action targets. 58 existing sim2real fields + **16 4×4 slant-ToF ranges + 16 validity bits** per frame. Simulated rays/noise/latency/foot occlusion; **no privileged terrain map** in actor. Checkpoint schema **9**, export schema **3**; historical 220/232 remain unchanged. Hardware sensor placement is *provisional*, not calibrated.
+- \`emu/rewards.py\`: locomotion/commands/safety payments; current terrain-aware actor gets **sparse +10 only after real far-side crossing**.
+- \`emu/ppo.py\` + \`emu/training.py\` + \`emu/checkpoint_io.py\`: one PPO trainer, training/health/normalization, validated checkpoint/resume, strict provenance.
+- \`emu/curriculum.py\`: one \`RegimeGovernor\` for task difficulty plus \`CapabilityField\`. Finite terrain is layered onto walking (>=75% ordinary-world births), 20M totally flat foundation, then initial 1cm / 5% terrain dose if core gait healthy.
+- \`emu/evaluation.py\` + \`emu/results.py\`: **frozen, independent** held-out scores, MJX real foot/contact step examiner and offline \`results.md\`. \`emu/viewer_server.py\` handles .emupolicy export; browser parity of new schema-3 policy still needs actual verification.
 
-**Pass B2 — passive springs and actual contact geometry (IMPLEMENTED, CPU acceptance pending).**
-The frozen MJX trace now records eight separate spring angles with the XML's
-actual reference angles and stiffnesses. From consecutive pre-reset poses it
-measures elastic charging, releasing, right/left passive-shin release during
-sustained stance contact, and non-stance release. This establishes neither
-beneficial return nor physical damping/heat; reward currently has NO spring
-bonus. Keep signed travel, actuator work, gait and contact alongside the
-spring evidence before forming a hypothesis.
+**Known physics constraint:** current v5023 disallows finite physical steps and actual inclined contact floor together. Future mixed terrain requires an intentional, versioned world/sensor/evaluator upgrade, *not* claiming tilted-gravity alone is uneven ground.
 
-Read-only `emu directional-exam --policy showcase/champion.emupolicy
---angle 2 --contact-slope --direction uphill --device cuda ...` now rotates
-the actual floor collision plane once, BEFORE compiling the MJX model, while
-gravity stays (0,0,-9.81). The report records `ground_mode`,
-`actual_gravity_world`, and the grade reference used for course scoring.
-The 13-case protected-policy physical batch now includes three real-contact
-2° slope cases (up/down/cross) alongside the 10 flat cases. This is an
-**opt-in test world**, not per-world rough terrain randomization, and not a
-claim that the robot can ascend hills. MuJoCo vs MJX contact-plane normals
-and the actual frozen actor are exercised by new CPU integration tests.
-A follow-up may add per-world physical slopes/heightfields only if the
-CPU/GPU contact proof is sound and reset heights remain safe. A rotated
-infinite plane is a real slope but not uneven terrain.
+## 3. Important completed engineering
 
-**Pass C — actuator model sensitivity.** Inspect the existing
-±1.913 N m forcerange, damping-based torque-speed approximation, friction,
-spring terms and one-frame action delivery in the actual XML/MJX path.
-DO NOT apply a second torque-speed cap. Define a short measured/justified
-uncertainty table for torque-speed under battery voltage, tracking delay,
-gear backlash/stiction, motor torque-duty and sensor delay. Model only
-identifiable quantities, separately log nominal vs perturbed performance,
-and label any temperature proxy as uncalibrated. Add physical collision
-sentinels and actual contact slope/terrain only after a geometry parity check.
+- G3 finite-step physical geometry with a single episode-moved finite MJX platform, including actual **up and down** ledges, angle variation, physics reset, 16-zone actual simulated sensor returns.
+- Eliminated a **serious dormant-floor contact regression** using non-overlapping floor/platform collision masks. Frozen original-flat and dormant-platform controls must agree exactly. 34M independent exam: both **8/8 survival and +0.7137 m**, per-world progress deltas 0.
+- G5 360-input full PPO gradient + sensor acquisition confirmed on CPU CI; owner confirmed CUDA 4-world gradient and 2048-world sensor physics ~30,080 world-steps/s; **real 2048-world PPO trained successfully**.
+- Automated report generation, shorter console lines (vx frontier, slope, terrain exposure/height, resilience, mechanical shaft J/m approximation) were **implemented on newer feature commits**. They are NOT in the pinned 0ba009f training code, which still prints legacy v5015 lines and needs the offline reporter run manually.
+- Recent feature-branch reports/README/charter changes must not silently rewrite the source lineage of the two trained policies. The protected main and champion were not changed by this work.
 
-**Pass D — adaptive teaching.** Keep dynamic locomotion, not static pose
-holding, as the learning objective. Grow acquisition, acceleration, braking,
-reversing, yaw changes and push recovery according to observed course/
-contact/motor feasibility, *not* reward alone. Use bounded per-world
-variation and avoid changing sensor/actuator hardware assumptions inside
-one comparison. Explicitly test whether the 55 observable channels could
-be supplied/estimated on a real robot.
+## 4. Two real owner-GPU policies — preserve the checkpoints
 
-**Pass E — controlled training tournament (NOT STARTED).** First complete
-a fresh small CUDA two-update save→resume→fixed-eval→export lifecycle.
-Default to 512 worlds for resource acceptance, then assess 1024; only
-use 2048 if confirmed within the RTX 4060 Ti 8 GB limit. Reserve a
-new per-source-revision run root outside Git.
+Both: source **\`0ba009fe7a046ff1e5a28cbdd55e2d05e8e4b75e\`**, \`terrain_360\`, seed **733**, **2,048** worlds, \`--terrain-step-max-m 0.04 --pitch-deg 8\`, JAX/CUDA, same 360-input contract.
 
-Proposed first exploration budget, in total *environment transitions*:
-- 12M shared foundation at one seed, trained from cold start.
-- Four matched hypotheses continued 12M each: A hardware-aware
-  nominal control; B motion acquisition/transitions; C torque/power
-  guidance; D gentle contact/robustness (only once terrain is validated).
-- Two physically credible finalists gain 20M each; one finalist gains
-  a further 20M only if the independent examiner still improves.
-- Total budget: 12 + 4×12 + 2×20 + 20 = **120M aggregate steps**,
-  not one 120M unexamined trajectory. This is a staged *budget ceiling*,
-  not an instruction to start jobs. Earlier stop conditions are desirable.
-- After pilot evidence, rerun the winning teaching difference under at
-  least two further seeds with matched setups; avoid a single-seed
-  causal conclusion.
+| Experiment | Training result | Exact WSL checkpoint location | SHA-256 of final.pkl |
+| --- | --- | --- | --- |
+| **20M cold foundation** | \`20,054,016\` steps; \`--profile foundation\`; final reward +3.036, 700-frame episodes, 0% final training falls, \`core\` held-out survival 1.000. **No physical step lessons** before 20M. | \`~/robot_lab/emu_runs/v5023_foundation20_0ba009f_20261024_081113/checkpoints/final.pkl\` | \`287da5a235c2ba1b8534ada2af8744c5027b4aeb1c7bf6b1628398c022983f46\` |
+| **34M grown control** | \`34,013,184\` steps, \`--profile sim2real\`, resumed exact foundation weights/optimizer; final training reward +2.786; 100% held-out core survival; adaptive **real 1cm physical steps**, final ~16.7% terrain exposure, **no slope**. | \`~/robot_lab/emu_runs/v5023_growth34_control/checkpoints/final.pkl\` | \`c0320b46d83d78642c3f1108943d893c2c2a02c7c9148ddf9db9cf76258edaa7\` |
 
-At every checkpoint freeze policy and matched evaluator. A candidate
-must (i) produce positive signed progress, (ii) exhibit alternating
-contact-stride evidence, (iii) preserve survival/recovery and
-command tracking under held-out tasks, and (iv) improve or at minimum
-not hide worsening actuator load/shaft work. Publish the individual
-Pareto dimensions and worst-world distributions, not a hidden scalar
-promotion score. Use identical environment model and evaluation seeds
-for each controlled contrast.
+Original uploaded reports: \`results_bundle(5).zip\` = foundation; \`results_bundle(6).zip\` = growth. Each run root also has \`metrics.csv\`, \`fixed_eval.csv\`, \`training_config.json\`, \`run_meta.json\`, checkpoint and manually generated \`results.md\`, \`results_data.json\`, \`results_bundle.zip\`. These ZIPs **do NOT contain policy checkpoints**.
 
-**Pass F — real hardware identification and safety (PLANNED).** Map all
-55 observation channels to real sensors/estimators, identify servo
-torque-speed and delay on a guarded bench, measure voltage/current/
-temperature and tracking latency, then calibrate uncertainty ranges.
-Watchdogs, joint travel/torque limiting and fall-safe shutoff live
-outside the neural controller.
+**Matched frozen fixed evaluation** (higher overall score but score is not a universal gait grade):
 
-## Validation responsibilities
+| Independent panel (mostly survival fraction) | 20M | 34M |
+| --- | ---: | ---: |
+| Overall broad exam score | **−0.045** | **+0.638** |
+| Core survival | 100% | 100% |
+| Dynamic80 survival | 24.0% | 98.3% |
+| Combo70 survival | 51.0% | 99.8% |
+| Resilience75 survival | 24.1% | 76.9% |
+| Robust40 survival | 56.4% | 97.3% |
+| Growth110 survival | 18.9% | 73.0% |
+| Growthcombo110 survival | 29.3% | 97.2% |
 
-GitHub PR CI verifies imports, unit tests, browser tests and CPU-level
-source contracts; it does **not** establish hardware or CUDA/MJX training
-validity. WSL checks must demonstrate compiled physics, full lifecycle,
-8 GB allocation margin, and directional physical evidence. Keep a
-different run root for each source revision, never resume an older
-experiment into new source, and do not disturb any separate active
-120M WSL campaign. Every release gate records: hypothesis, source SHA,
-policy SHA, seeds, physical parameters, measured outcomes, known
-limits and next decision. Promote via reviewed PR only after explicit approval.
+34M has **significant broader survival and improved step-down behaviour** but still imperfect command precision. Capability field has 194 known/0 “competent” command nodes and 1528 known/0 “competent” transition edges at 34M despite high held-out survival; investigate tracking-confidence thresholds before granting it heavy curriculum authority. Servo loading is appreciable (late training shaft positive power ~8.6 W; ~57.5% samples over nominal continuous torque), **not battery electrical energy**; compare cost only under matched physical workloads.
 
----
+## 5. CRITICAL NEW FINDING — matched frozen real-terrain exams, now both completed
 
-## Historical v5015/refactor handover (preserved for context)
+Two original uploads: **34M** = \`terrain_exam(1).json\` / \`.md\`; **20M** = \`terrain_exam(2).json\` / \`.md\`. These are two distinct **frozen actor** exams on the **same source, seed 1701, 8 worlds, 350 frames (7 s), vx command 0.15 m/s, CPU**, and ceilings **0/1/2/4cm**, in the SAME cohort/physical geometry. Actual step height is sampled **30–100%** of the ceiling (identical sampled heights per world across these two exams). Four even-index **step-up** / four odd-index **step-down** worlds per nonflat height. Each true pass requires real far-side 100ms foot support AND completing the horizon without resetting.
 
-**Current stable release:** `main` at merge commit `252f6102dd813a451daad29fecf2fbebd586da6b`, containing the refactored trainer, single browser viewer, and real **Pitch15 120,061,952-step** `showcase/champion.emupolicy`. The public GitHub Pages site deploys only after manually dispatching the Pages workflow; do not confuse a code merge with a published site.
+| Exam condition | 20M flat trained | 34M terrain trained |
+| --- | ---: | ---: |
+| Original flat survival | **4/8**; +0.583 m mean progress | **8/8**; +0.714 m |
+| Dormant terrain platform 0cm | 4/8, flat-parity control | 8/8, flat-parity control |
+| **1cm step-ups** | **0/4** | **0/4** |
+| **1cm step-downs** | **2/4** | **4/4** |
+| **2cm step-ups** | **0/4** | **0/4** |
+| **2cm step-downs** | **1/4** | **3/4** |
+| **4cm step-ups** | **0/4** | **0/4** |
+| **4cm step-downs** | **2/4** | **2/4** |
+| **All ascent / descent** | **0/12 up; 5/12 down** | **0/12 up; 9/12 down** |
 
-**Current refactor:** `refactor/emu-minimal`. Target is roughly fifteen cohesive Python modules with obvious ownership, not a fixed line-count reduction. Large files are acceptable when they tell a coherent story. All development occurs on this branch; never edit or merge `main` without explicit user approval. Keep the working original available in Git history; do not rewrite `main` or active WSL run roots before CI and local acceptance.
+**Interpretation:** 34M is unambiguously better in same-seed broad locomotion/flat control and step-down success; a portion of improvement may come from improved general walking, not a separately proven sensor-learning effect. Neither model has demonstrated **ANY real upward crossing**, at any sampled height. **34M survived all 12 ascents but STALLED** (1cm avg +0.159m progress, 2cm +0.031m, 4cm −0.049m). This is an **ascent/approach/lifting skill failure**, not principally a falling/recovery failure. Blocked ascent has high simulated J/m due to small denominator; not battery energy. Direction cohorts have **different sampled height magnitudes**, although exactly reproducible across these 20M vs 34M runs; future examiner should pair **equal magnitudes and seeds** for up/down.
 
-## The essential ideas
+**Root-cause hypothesis in current code:** \`environment._terrain_crossing()\` and \`results.summarize_rollout()\` aggregate successful up/down traversal into \`terrain_episode_success\`; \`RegimeGovernor.advance_terrain()\` advances on the **combined** rate >=50%. With down-only success this can mistakenly unlock harder terrain even when upward ability is zero. Sparse +10 is awarded only after a complete crossing, so an actor with zero upward successes gets little *direction-specific* learning signal. At 34M, final terrain height was still **held at 1 cm**, not 4cm: the governor's exposure grew ~16.7% while average training-world 1cm completions remained modest. Across **22 logged** rollout samples: 245 completed terrain attempts / 70 complete successes (~28.6%, sample totals, NOT all 14M steps). **This is a verified asymmetry and a concrete hypothesis, not proof that the ray sensor itself is faulty.**
 
-Robot and universe → rewards → PPO/training → curriculum / capability evidence → branch experiment design → independent results → frozen browser viewer. Every retained file needs an understandable purpose. No one-off pass documents, old CSV result bundles or import-only compatibility stubs.
+## 6. Exact next task for new chat — fix learning before more blind GPU time
 
-## Proven experiment and lessons
+**Start with targeted read-only inspection; do not auto-run a long GPU continuation or modify main.**
 
-User's study from source commit `a5996b8cda2c394c7c65e3e938282a3808ded121`, seed 733, 2048 MJX worlds: shared 20M intro, four independent 80M arms, two 100M finalists and Pitch15 120M winner, total 320M aggregate environment steps.
+1. Review **\`environment._episode_terrain\`, \`_terrain_crossing\`, \`_terrain_4x4_ranges\`, the +10 crossing reward, \`results.summarize_rollout\`, \`curriculum.RegimeGovernor.advance_terrain\` and \`evaluation.evaluate_terrain_course\`**. Trace the actual physical up/down world reset/geometry, contact score and sensor signals. Especially why a policy can survive at an upward lip yet fail to lift/clear it.
+2. Fix **direction-conditioned evidence**: independent up/down completed attempts, supported crossing success, falls, tracking and cost. Gate future height/exposure expansion on **both directions or an explicit ascent minimum**, rather than pooled down-only success. Never give actor privileged geometry.
+3. Add **careful, bounded ascent progress/clearance teaching**, using actual physical progress/contact from teacher-only MJX state so the robot has learnable incremental ascent behaviour before a rare all-or-nothing +10. Require *real forward displacement* and support, not foot-flailing, spinning, reversing, standing at the riser or simply moving while falling. Protect flat locomotion and existing movement rewards.
+4. Improve **independent frozen exam** with matched up/down *actual heights*, early-lip approach and foot contacts, multiple seeds, true successful crossing and command/effort evidence. Preserve original-flat vs dormant-flat parity gate. Audit ToF 4×4 view of the approaching lip (occlusion/angle) before blaming training.
+5. Run one small cold/source-compatible smoke & **bounded 34M→~46M experimental fork** only after reviewing how the new source can validly inherit the pinned old weights/optimizer **without silently bypassing source provenance**. Another small from-scratch trial is acceptable if migration cannot be justified. Compare independently against 34M and 20M at the same fixed exams before granting further height.
+6. Broader roadmap after meaningful upward skill: staged command/resilience accuracy, physical slopes, graceful shaft work, held-out combined challenges, 1–3 seed replication, challenger vs approved 260M champion; keep one bounded multi-axis teaching budget. Absolutely no unexamined 120/400M marathon and no unapproved main merge.
 
-Pitch15 matched frozen-screen scores: .683903 at 80M; .712062 at 100M; .723497 at 120M (91.992% hard survival, 86.328% growth survival). Shadow second at earlier rounds; slope practice did not dominate the common gravity-equivalent slope exam. **These rankings do not prove actual hardware walking, and one seed isn't a universal result.** Late Pitch15 servo over-rated-torque sample fraction ~74.12%, aggregate simulated shaft |power| ~12.81 W. Real hardware motor limits/efficiency and signed footfall progress remain unresolved.
+## 7. Operational commands and caveats
 
-The selected raw PKL checkpoint (local-only) SHA-256:
-`ff115931b085792eb36f729b3d38248a58a9258cc8c3cd0e5601db5f5413be28`.
-Trained browser file tracked at `showcase/champion.emupolicy`, Git blob SHA
-`067d6156f0f9de629eabb1a69cf1b0ceb86db24c`, policy actor SHA-256
-`c836f0f179445c309aea3b9c87eb6b63c75a7cd2666801e262087b7663d5849c`.
-Preserve exact 220-input/six-action contract and checkpoint schema 7.
+**Pinned training checkout (\`~/emu-v5023\`): leave it at \`0ba009f\`; do not pull.** To produce archived reports, existing code uses **offline** reporter, because automatic \`results.md\` generation was implemented on later feature branch:
 
-## Operational safety
+~~~bash
+cd ~/emu-v5023 && source .venv/bin/activate
+git rev-parse --short HEAD                # MUST be 0ba009f
+python -m emu.results --root ~/robot_lab/emu_runs/v5023_growth34_control
+~~~
 
-- Keep large checkpoint roots outside Git; preserve source commit and normaliser/optimiser lineage. Never open an active trainer's branch for destructive experiments.
-- Changes to MJX environment, PPO, observation ordering, checkpoint storage and exporter need real CUDA save/resume/export acceptance, not just unit tests.
-- The static browser uses `emu/viewer_src/`; local live watcher uses validated read-only checkpoints. The GitHub Pages champion is a frozen exported brain, never the original `.pkl`.
-- Pages deployment is intentionally manual and pins the exact champion Git blob SHA.
+\`emu export-policy <checkpoint.pkl> <new-file.emupolicy>\` exports a frozen actor. Existing independent exam syntax:
 
-## Minimalisation status and honest scope (17 October 2026)
+~~~bash
+emu terrain-exam \
+  --policy ~/robot_lab/emu_runs/v5023_growth34_control/growth34.emupolicy \
+  --output ~/robot_lab/emu_runs/v5023_another_unique_exam_dir \
+  --device cpu --worlds 8 --horizon 350 --speed 0.15 \
+  --heights-cm 0 1 2 4
+~~~
 
-**PR #6:** [refactor/emu-minimal](https://github.com/mdt733/emu/pull/6), branched from the working 120M `main` release. **Do not merge yet.** The independent GitHub Pages champion Git blob remains `067d6156f0f9de629eabb1a69cf1b0ceb86db24c`, byte-for-byte the same as `main`.
+**New source development:** use another checkout, e.g. \`git clone -b feature/v5023-capability-growth https://github.com/mdt733/emu.git ~/emu-v5023-dev\`. Read the *latest* branch head/CI first. Make any code changes **only** there / through connected GitHub branch tools. New branch commits may be ahead of both actual trained checkpoints; after editing, the branch must pass its own CI and physical evidence before any new long experiment. Never assume that today's remote HEAD equals the exact code used for the 20M/34M runs.
 
-Tracked inventory: **132 → 56 files** (after empty media removal), `emu/` **42 → 15 Python files** (including `__init__.py`), `docs/` **30 → 2 Markdown files**, five maintained setup/check/showcase scripts, four test files, 20 browser source/dependency assets, one protected champion. All previous pass notes and tracked legacy result bundles can be found in Git history.
+## 8. Completion and handover discipline
 
-**Crucial honesty:** Python source volume only changed **609,546 → about 599,518 bytes**. Most gains are fewer module boundaries and discoverability, **NOT** a 70% reduction in logic. To shrink further, audit live usage and eliminate or simplify real training/exam features after careful CUDA acceptance, rather than coalescing into unreadable multi-thousand-line modules.
+**Current status:** 20M and 34M GPU runs **COMPLETED**, both checkpoint-validated; independent 20M-vs-34M terrain exams **COMPLETED**; **ascending real steps 0/12 in both**. Main and champion **protected**. Next work is **code-first ascending-learning correction and independent paired exam**, not more of the unchanged trainer.
 
-### Current code ownership (no import-only alias files)
+**Carry-over checklist:**
+- [x] Save the mission/architecture, protected branches, pinned source, both checkpoint paths/hashes and exact results.
+- [x] Validate real CUDA 360 actor/2,048 worlds; finish cold foundation and mature continuation.
+- [x] Frozen independent terrain A/B at both 20M and 34M with original/dormant physics parity.
+- [ ] Direction-separated up/down evidence and curriculum gates.
+- [ ] Bounded ascent guidance and actual confirmed up-crossings.
+- [ ] Matched-height, multiple-seed independent physical exam; preserved command/core ability.
+- [ ] Safe reviewed source/checkpoint migration or fresh suitable cold-start; short training fork.
+- [ ] Mixed actual contact slopes and finite terrain, servo/efficiency and browser 360 parity.
+- [ ] Independent broad comparison and **explicit owner approval** before PR merge or champion/showcase changes.
 
-- `robot.xml` + `environment.py`: physical universe, task commands, per-world domain variation, 220-dim actor observation.
-- `rewards.py`: eight training payments, with servo power diagnostic rather than a hidden PPO penalty.
-- `ppo.py`: PPO actor/value optimisation, JAX backend and performance timing.
-- `training.py`: one learning loop, rolling measurements, explicit checkpoint calls.
-- `curriculum.py`: regime governor, field teacher/evidence, held-out cloud probes, training health.
-- `branch_lab.py`: readable 20/80/100/120M hypothesis recipe, single-run and tournament/expt executor.
-- `evaluation.py`: frozen evaluation, fair matched branch screens, capability atlas, signed course/contact/gait and multi-branch batch plans.
-- `results.py`: rollout scoring metrics, CSV/log artefacts, training stories and optional posture drift diagnostics.
-- `viewer_server.py` + `viewer_src/`: actor export, local snapshot watching, field visualizer, browser physics/UI.
-- `directional.py`: independent pure geometry/heading/contact oracles imported by PPO; kept separate to avoid circular evaluation dependencies.
-- `contracts.py`, `training_config.py`, `checkpoint_io.py`, `cli.py`: explicit small boundaries for shared shapes/constants, user-controlled knobs, complete rewind/run lineage, public commands.
+**New-chat first instruction:** “Read \`HANDOVER.md\` and \`docs/CAPABILITY_GROWTH.md\` on branch \`feature/v5023-capability-growth\`. Preserve \`main\` and the Pinnacle champion. Verify the current branch HEAD, read the physical up/down code, and begin the direction-aware ascent teaching fix. The owner's trained 20M/34M checkpoints are pinned to \`0ba009f\`; do not casually \`git pull\` that WSL checkout or bypass provenance.”
 
-### Failures caught while truly moving source
-
-- Removed-field import in `try_restore_recovery`: corrected after checkpoint round-trip CI failed. **Reason:** changing a class module does not automatically update every lazy import.
-- Duplicate `summarize()` in moved posture/report logic silently overrode the campaign summary. Corrected by naming the optional function `summarize_posture()`; existing matched-scorecard roundtrip passed again.
-- Source audit found old `capability_field` and `domain_randomization` doctor imports, stale atlas `paths.py` import, and a stale policy-export import in the real CUDA acceptance verification path. Corrected; added explicit CPU doctor, CLI planning and import-path smoke to GitHub Actions.
-- Never declare the branch ready based on green tests alone. Exercise real WSL CUDA: 256→512 steps save/resume/verify, 20M cold start only if desired, export a tested actor and inspect the browser locally, including independent signed course/footfalls.
-
-**No change to PPO reward weights, physical motor parameters, trained actor source files or schema-7 checkpoint payload is intended.** Source relocation still changes training source provenance; use a fresh run root, do not resume a historical lineage with this revision.
-
-## Continuing in another chat
-
-Inspect `git diff main...refactor/emu-minimal` and `git status`; don't trust the summary alone. Read `README.md`, `docs/INSTALL.md` and this file. Make actual, CI-verified reductions, not docs-only passes. Before any merge, check 16 Python + four browser tests, real WSL CUDA acceptance and browser model playback. Keep the 120M champion's file bytes unchanged.
-
-
-## Research record and viewer work
-
-A curated, evidence-aware experiment history lives in
-[docs/RESEARCH_HISTORY.md](docs/RESEARCH_HISTORY.md). Keep public-facing
-instructions in README / INSTALL / PLAYGROUND; keep internal observations and
-future research hypotheses in that history. Preserve old raw logs through Git
-history or external run roots rather than stuffing them into documentation.
-
-Branch-only viewer additions: inverted pitch, split/hybrid joystick option,
-browser yaw-heading P hold and physical radial terrain park. These change no
-policy weights, source training environments, saved checkpoints or protected
-showcase actor. Browser/MuJoCo physics playback needs hands-on verification
-after automated JS checks. **Do not merge this branch yet.**
-
-## Audit refinements (v5016, 17 Oct 2026)
-
-Physical batch case recipes now carry explicit `speed`, `lateral`,
-`yaw_rate`, `turn_rate`, and `settle_frames`. A zero-lateral sidestep
-is rejected instead of producing a false pass. The same `exam_request()`
-contract defines recorded protocol, recovery and batch skip/resume decisions.
-A completed OFF/ON pair can be summarised offline after an interruption;
-an incomplete or stale run is deliberately untouched. All logic stays in
-existing `evaluation.py`; no new module architecture has been introduced.
-
-## Training contact geometry gate (v5016)
-
-An explicit shared real incline can now be set with `emu train --profile
-sim2real --contact-slope-deg 2 --plan`. The physical MuJoCo floor is rotated
-while gravity remains vertical, using the same contact implementation already
-tested by the frozen examiner. This is shared by all worlds, NOT true per-world
-randomized terrain, and no new training has been launched. Historical
-lineages and the Pitch15 showcase remain untouched. Existing fixed
-held-out panels retain flat ground as the common baseline.
-
-
-## Per-world contact terrain integration, v5016
-
-One opt-in per-world contact-geometry mode now fits inside the existing
-`environment.py` domain model batching and `TrainingConfig`: the public
-`--contact-terrain-radius` belongs only to new `sim2real` runs.
-Legacy `terrain_mode='gravity'` remains the saved-config default; all
-sampled real contact inclines share vertical gravity but have different
-fixed floor geom quaternions, with each world's spawn height derived from
-that same normal. No new core modules, rewards, observer channels,
-robot.xml changes or historical experiment overrides. CPU/MJX assertions
-and later a bounded CUDA acceptance must prove the actual contact
-normals before any sizeable training launch.
-
-
-## v5016 physical sensor tripod audit (before 20M foundation)
-
-An existing CPU three-ToF plane fitting primitive has been unified with
-a JAX-capable pure plane fit and a diagnostic MJX beam measurement source.
-Sensor mounts are provisional (three non-collinear down-looking rays under
-the torso). The simulation uses true ground *only to synthesize ranges*,
-then the estimator uses solely ranges and IMU gravity to reconstruct
-forward/lateral local slope and visibility. Missing beams explicitly yield
-invalid estimates. The optics, real TOF noise and occlusion are NOT yet
-validated. Optical flow vx/vy is planned but not implemented.
-
-**Do not commence v5016 neural training yet.** Decide the new versioned
-actor packet after validating these sensing assumptions, IMU angular-rate
-frame semantics and a realistic optical-flow + range velocity model.
-The protected 55x4 champion stays usable; no checkpoint interpretation
-or viewer export contracts were changed.
-
-
-## v5016 optical-flow/ground-ranging audit gate
-
-`directional.py` contains one shared NumPy/JAX inverse ToF fit and
-optical-flow velocity estimator, paired with forward measurement models.
-`EmuMJXEnv.optical_flow_probe` proves body-frame vx/vy can be reconstructed
-from **synthetic downward image motion, local IMU gyro and measured tripod
-distance** in physically tilted MJX worlds; no privileged true ground
-or velocity is handed to the inverse. The legacy 220-channel actor is
-untouched. Confirmed MuJoCo freejoint angular qvel is body-local;
-legacy _body_packets gyro double-rotation must be removed only when
-switching to a separately versioned new actor contract, to avoid
-silently corrupting the protected Pitch15 champion. Optical image
-noise, calibration, async updates, dropouts and latency are still
-diagnostic-only and not a hardware-specific implementation.
+**Every future session:** after any change, update **this very file**: newest evidence, blockers, exact next task, any new run path/commit/CI result; move long narratives into the dated charter. Keep it short, factual and reproducible.
