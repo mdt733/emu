@@ -1164,7 +1164,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     def examiner(topology_height):
         args = dict(env_args)
         path = args.pop('robot_xml')
-        env = EmuMJXEnv(path, terrain_step_max_m=topology_height, **args)
+        env = EmuMJXEnv(path, terrain_step_max_m=topology_height,
+                         paired_terrain_heights=topology_height>0, **args)
         trainer = make_trainer(
             env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
             epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
@@ -1203,6 +1204,13 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
             frames['initial_terrain_mocap_quat']=np.tile(
                 np.asarray([1.,0.,0.,0.]),(worlds,1))
         rows=score_terrain_course_trace(frames,height_m=difficulty/100.,speed=speed)
+        if difficulty>0:
+            # A matched physical comparison needs equal actual severity,
+            # not just an identical ceiling or PRNG seed.
+            for up, down in zip(rows[::2], rows[1::2]):
+                if (up['lesson']!='step-up' or down['lesson']!='step-down' or
+                    abs(up['actual_step_height_cm']-down['actual_step_height_cm'])>.01):
+                    raise RuntimeError('independent up/down exam height pairing failed')
         case=dict(
             case=label, max_height_cm=difficulty,
             actual_heights_cm=[x['actual_step_height_cm'] for x in rows],
@@ -1249,7 +1257,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         if dormant else None)
 
     report=dict(
-        schema='emu_terrain_exam_v1',source_commit=source_commit(),
+        schema='emu_terrain_exam_v2_paired_up_down',source_commit=source_commit(),
         actor_artifact_sha256=export['artifact_sha256'],
         actor_schema=actor_schema,policy_step=export['source']['step'],
         evidence_grade='diagnostic_only_until_real_step_sensor_and_independent_exam',
@@ -1258,7 +1266,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
                              else 'legacy_220_without_terrain_preview'),
         exam=dict(seed=seed,backend=jax.default_backend(),worlds=worlds,
                   horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
-                  model='single movable finite MJX platform, paired step up/down',
+                  model='single movable finite MJX platform, equal-height/yaw up/down pairs',
+                  paired_actual_heights_and_edge_yaws=True,
                   support='actual foot-floor and foot-platform collision contacts'),
         cases=cases, flat_topology_comparison=paired_diagnostics, cautions=[
             'No PPO or curriculum update performed.',
@@ -1274,7 +1283,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
             'First fall/timeout truncates assessment; resets cannot earn passage.',
             'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
             'These are simulated servo shaft-work estimates, not measured battery energy.',
-            'Each active world samples 30–100% of the requested height ceiling; actual centimetres are recorded.',
+            'Paired up/down worlds share actual 30–100%-of-ceiling height and edge yaw; actual centimetres are recorded.',
             'Identical cohorts across heights; times include first-run compilation.'])
     output.mkdir(parents=True,exist_ok=True)
     json_path=output/'terrain_exam.json'
@@ -1294,7 +1303,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     lines += ['', 'The flat row is a command-competence control, not an obstacle.',
               'A passed contact check is NOT a passed uninterrupted crossing.',
               'Original-flat vs dormant-platform control reveals physics regressions separately from policy failures.',
-              'Each world additionally reports first failure frame/reason, progress, real support, motor effort and tracking.',
+              'Paired up/down worlds share real height/yaw; each reports first failure, progress, actual support, effort and tracking.',
               'Exam data never enters PPO, rewards or the curriculum.']
     md_path=output/'terrain_exam.md'
     md_path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
