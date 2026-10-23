@@ -299,8 +299,9 @@ from .contracts import (
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
     OBS_DIM,
-    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
     SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
+    TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS,
     sensor_observation_contract,
     SIM_DT,
 )
@@ -341,20 +342,20 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
                                     bundle.get('control') or {})
     source = bundle.get('source') or {}
     training = bundle.get('training') or {}
-    if bundle.get('format') != FORMAT or bundle.get('schema') not in (1,2):
-        raise ValueError('not an EMU schema-1 or schema-2 exported actor')
+    if bundle.get('format') != FORMAT or bundle.get('schema') not in (1,2,3):
+        raise ValueError('not an EMU schema-1/2/3 exported actor')
     schema = bundle['schema']
-    obs_dim = SENSOR_OBS_DIM if schema == 2 else OBS_DIM
-    base_dim = SENSOR_BASE_OBS_DIM if schema == 2 else BASE_OBS_DIM
-    fields = SENSOR_OBS_FIELDS if schema == 2 else BASE_OBS_FIELDS
-    actor_schema = OBS_SCHEMA_SENSOR if schema == 2 else OBS_SCHEMA_LEGACY
-    if schema == 2:
+    obs_dim = TERRAIN_OBS_DIM if schema==3 else SENSOR_OBS_DIM if schema==2 else OBS_DIM
+    base_dim = TERRAIN_BASE_OBS_DIM if schema==3 else SENSOR_BASE_OBS_DIM if schema==2 else BASE_OBS_DIM
+    fields = TERRAIN_OBS_FIELDS if schema==3 else SENSOR_OBS_FIELDS if schema==2 else BASE_OBS_FIELDS
+    actor_schema = OBS_SCHEMA_TERRAIN if schema==3 else OBS_SCHEMA_SENSOR if schema==2 else OBS_SCHEMA_LEGACY
+    if schema in (2,3):
         # The public schema-2 bundle must agree with the REAL train-time
         # sensor timing, geometry and contract hash; size alone is unsafe.
         provided = observation.get('sensor_contract')
         if not isinstance(provided,dict):
             raise ValueError('missing schema-2 sensor contract')
-        expected = sensor_observation_contract(provided.get('settings'))
+        expected = sensor_observation_contract(provided.get('settings'),schema=actor_schema)
         if provided != expected:
             raise ValueError('schema-2 sensor contract hash/geometry mismatch')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
@@ -380,7 +381,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if (source.get('robot_model_sha256') != model_hash or
         bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
         raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
-    expected_ckpt_schema=8 if schema==2 else 7
+    expected_ckpt_schema=9 if schema==3 else 8 if schema==2 else 7
     if source.get('checkpoint_schema') != expected_ckpt_schema or not isinstance(source.get('step'), int):
         raise ValueError(f'export provenance is not a known schema-{expected_ckpt_schema} training lineage')
     if training.get('attitude_profile') not in ('v5014','v5015'):
@@ -575,14 +576,17 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     # cross the versioned schema-8 gate before any browser export takes place.
     unverified = load_checkpoint(checkpoint, validate=False)
     meta_hint = unverified.get('meta') or {}
-    is_sensor = meta_hint.get('observation_schema') == OBS_SCHEMA_SENSOR
+    actor_schema = meta_hint.get('observation_schema',OBS_SCHEMA_LEGACY)
+    is_sensor = actor_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
     if is_sensor:
         contract = meta_hint.get('sensor_contract')
         payload = load_checkpoint(
-            checkpoint, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            checkpoint, expected_observation_schema=actor_schema,
             expected_sensor_contract=contract)
-        obs_dim, base_dim = SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM
-        obs_fields = SENSOR_OBS_FIELDS
+        if actor_schema == OBS_SCHEMA_TERRAIN:
+            obs_dim,base_dim,obs_fields = TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS
+        else:
+            obs_dim,base_dim,obs_fields = SENSOR_OBS_DIM,SENSOR_BASE_OBS_DIM,SENSOR_OBS_FIELDS
     else:
         payload = load_checkpoint(checkpoint)
         contract = None
@@ -642,7 +646,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": 2 if is_sensor else SCHEMA,
+        "schema": 3 if actor_schema==OBS_SCHEMA_TERRAIN else 2 if is_sensor else SCHEMA,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -689,7 +693,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
             "normalize_mask": _f32_blob(build_obs_norm_mask(
-                OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY)),
+                actor_schema)),
         },
         "control": {
             "sim_dt": SIM_DT,
