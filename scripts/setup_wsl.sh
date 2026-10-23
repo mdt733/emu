@@ -102,6 +102,14 @@ if [[ $VIEWER_ONLY -eq 1 ]]; then
 else
   emu ladder --stage plan
 fi
-printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
-printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
+if [[ $VIEWER_ONLY -eq 1 ]]; then
+  printf '\nViewer acceptance setup complete. Launch the existing trained champion:\n'
+  printf '  source .venv/bin/activate\n'
+  printf '  emu viewer showcase/champion.emupolicy --no-open\n'
+  printf '  open http://127.0.0.1:8765/ in your browser\n'
+  printf 'No training, actor conversion or protected policy writes have occurred.\n'
+else
+  printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
+  printf 'Viewer URL: http://127.0.0.1:8765/\n'
+  printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
+fi
