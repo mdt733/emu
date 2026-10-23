@@ -299,7 +299,8 @@ def scan_forward(xp, torso_world, body_to_world,
 
 def scan_tripod(xp, torso_world, body_to_world,
                 box_centres, box_rotations, box_half_sizes,
-                *, noise_m=None, dropout=None):
+                *, noise_m=None, dropout=None,
+                floor_origin=None, floor_normal=None):
     """Legacy down-looking hardware geometry against the SAME solid course.
 
     This is opt-in for new terrain scenes; existing 232 policies retain
@@ -314,6 +315,11 @@ def scan_tripod(xp, torso_world, body_to_world,
     d = xp.einsum("wij,kj->wki", R,
                   xp.asarray(TOF_TRIPOD_BEAMS_BODY))
     ranges = ray_boxes(xp,o,d,box_centres,box_rotations,box_half_sizes)
+    if floor_origin is not None:
+        if floor_normal is None:
+            raise ValueError('floor normal required with floor origin')
+        ranges=xp.minimum(ranges,ray_plane(
+            xp,o,d,floor_origin,floor_normal))
     if noise_m is not None:
         ranges = ranges+xp.asarray(noise_m)
     valid = (xp.isfinite(ranges) & (ranges >= TOF_MIN_RANGE_M) &
