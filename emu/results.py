@@ -585,10 +585,14 @@ def write_capability_field_artifacts(
         node_frac=float(params.get('field_node_frac', 0.0)),
         edge_frac=float(params.get('field_edge_frac', 0.0)),
     )
-    # Report-only projection of the EXISTING capability events. Nothing in
-    # trainer or governor consumes this JSON as a lesson or PPO reward.
-    write_json(run_dir / 'capability_evidence.json',
-               capability_field_evidence_snapshot(field))
+    # Report-only projection for the real capability field. The old public
+    # writer contract also accepts minimal save_npz/write_summary fields
+    # (for example independent delivery/export test doubles). Don't demand
+    # new private array methods from those objects.
+    from .curriculum import CapabilityField
+    if isinstance(field, CapabilityField):
+        write_json(run_dir / 'capability_evidence.json',
+                   capability_field_evidence_snapshot(field))
 
 
 # PPO rollout observations: report facts, never pay training reward.
