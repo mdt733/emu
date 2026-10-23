@@ -231,6 +231,12 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
+        # A real 20M-step flat foundation, including resume and rewinds:
+        # nothing may expose finite terrain before the foundation boundary.
+        # This gate is independent of the governor's saved frontier values.
+        if step < FOUNDATION_STEPS:
+            d['terrain_exposure'] = 0.0
+            d['terrain_height_m'] = 0.0
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),
