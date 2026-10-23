@@ -19,14 +19,17 @@ The deliberately selected `v5015` posture profile is retained (main's
 general-purpose foundation helper defaults to the older v5014 profile),
 and new sensor/collision geometry is the explicit experimental change.
 
-The main `TrainingHealth` adaptive KL learning-rate controller, curriculum
-retreat/health evidence and capability-field *shadow* recorder are reused
-and checkpointed. Shadow evidence does not change lessons. The independent
-runner is still an **experimental A/B loop**, not a substitute for main's
-complete production lifecycle (which also includes richer automatic
-recovery, eval schedules and presentation/export). Do not promote this
-experimental runner to production or skip held-out acceptance because its
-first smoke succeeds.
+**Long GPU runs now call main's existing `training.train()` lifecycle**,
+rather than a newly abbreviated PPO loop. The existing `TrainingHealth`
+adaptive KL controller, curriculum retreat/recovery, validated checkpoints,
+capability-field *shadow* recorder, snapshot retention, normalisation and
+fixed-evaluation machinery are reused. The small A/B harness remains ONLY
+for optimizer and memory smokes. Shadow evidence does not steer lessons.
+
+A positive smoke or terrain result does not make this new observation
+schema a production release: the experiment still needs independent
+flat-ground baseline comparisons, terrain held-outs and a version-aware
+viewer/export before any promotion.
 
 **Baseline gate:** the existing baseline Python and browser suites must
 still run; a new experiment doesn't justify rewriting older policy
