@@ -286,6 +286,37 @@ def run_environment(worlds: int = 4):
         raise AssertionError('MJX missed true floor contact beyond the platform')
     if not (np.isfinite(on_top).all() and np.isfinite(on_floor).all()):
         raise AssertionError('unstable episode terrain stance')
+
+    # Inspect the real collision at four stations around the *actual*
+    # angled riser. There is no virtual ramp: both sides must support a foot
+    # on their own surfaces, in either travel direction. Each station is a
+    # deliberately posed physical contact check, NOT a continuous traversal.
+    # The later evaluator must measure uninterrupted progress with one actor.
+    yaw_quat = np.asarray(jax.device_get(state.data.mocap_quat))[:, idx, :]
+    yaw = 2.0*np.arctan2(yaw_quat[:, 3], yaw_quat[:, 0])
+    axis = np.stack((np.cos(yaw), np.sin(yaw)), axis=1)
+    # Mocap box centre is offset exactly one half-length into the elevated
+    # side from the crossing edge. This edge point is shared by up/down.
+    from .environment import TERRAIN_PLATFORM_HALF_LENGTH_M
+    side = np.where(down, -1.0, 1.0)
+    edges = positions[:, :2] - side[:, None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+    edge_contacts = []
+    for offset in (-.14, -.055, .055, .14):
+        station_xy = jnp.asarray(edges + offset*axis, dtype=jnp.float32)
+        on_platform = (offset > 0) if not down.any() else np.where(down, offset < 0, offset > 0)
+        station_z = jnp.asarray(np.where(on_platform, top, 0.0), dtype=jnp.float32)
+        touched_platform, touched_floor, _, _, _ = jax.device_get(
+            contacts_at(station_xy, station_z))
+        supported = np.where(on_platform, touched_platform, touched_floor)
+        if not np.all(supported):
+            print(f'G3 edge station offset {offset:+.3f} m: '
+                  f'expected raised={on_platform}, '
+                  f'platform={touched_platform}, floor={touched_floor}, '
+                  f'edge={edges}')
+            raise AssertionError('real MJX support was absent near an angled step edge')
+        edge_contacts.append(int(np.sum(supported)))
+    print('Angled edge station contacts (approach / before / after / exit): '
+          + ' / '.join(f'{n}/{worlds}' for n in edge_contacts))
     # Full stepping path must accept the opt-in data schema and keep it finite.
     stepped = env.step(state, jnp.zeros((worlds, 6), dtype=jnp.float32), p)
     stepped.obs.block_until_ready()
