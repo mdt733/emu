@@ -307,6 +307,93 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             save()
 
 
+
+def run_main_arm(*, arm: str, root: Path, envs: int, steps: int,
+                 seed: int, device: str) -> dict:
+    """The ONE production training lifecycle: main's trainer, no forked loop.
+
+    Reuse main training's KL controller, retreat/recovery, snapshots,
+    optimizer state, curriculum field, fixed evaluation and resume.
+    Only schema-9 sensor/physical geometry and A/B visibility differ.
+    """
+    from dataclasses import replace
+    import gc
+    import jax
+    import jax.numpy as jnp
+    from .training_config import foundation_config, training_sensor_contract
+    from .training import train, env_kwargs_from_args
+    from .checkpoint_io import load_checkpoint
+    from .ppo import make_trainer
+    source=source_info()
+    if source["branch"]!="feature/v5022-forward-terrain" or source["dirty"]:
+        raise RuntimeError("v5022 requires a clean, named feature branch; main must remain protected")
+    run_dir=root/arm
+    run_dir.mkdir(parents=True,exist_ok=True)
+    identity=dict(format=FORMAT,arm=arm,source=source,seed=seed,envs=envs,
+                  contract=terrain_observation_contract(front_visible=arm=="visible"))
+    manifest=run_dir/"v5022_identity.json"
+    if manifest.is_file():
+        if json.loads(manifest.read_text())!=identity:
+            raise ValueError("v5022 physical sensor/source identity changed; choose a new root")
+    else:
+        if (run_dir/"checkpoints").exists():
+            raise RuntimeError("Unidentified checkpoint directory: refusing to overwrite it")
+        manifest.write_text(json.dumps(identity,indent=2,sort_keys=True))
+
+    ckpt=run_dir/"checkpoints"/"latest.pkl"
+    final=run_dir/"checkpoints"/"final.pkl"
+    resume="auto" if ckpt.exists() or final.exists() else ""
+    base=foundation_config(run_dir=run_dir,seed=seed,device=device,envs=envs)
+    config=replace(
+        base,steps=steps,observation_schema=OBS_SCHEMA_TERRAIN,
+        front_visible=arm=="visible",attitude_profile="v5015",
+        allow_rollback=True,cloud_probes_per_eval=0,
+        cloud_final_probes=0,capability_field_mode="shadow",resume=resume)
+    expected=training_sensor_contract(config)
+    if expected != identity["contract"]:
+        raise RuntimeError("v5022 front+old sensor contract mismatch with main trainer")
+    print(f"[v5022 {arm}] running canonical EMU training.train "
+          "with main's health, recovery, snapshots and KL governor",flush=True)
+    train(config)
+    if not final.is_file():
+        raise RuntimeError(f"main trainer did not publish final checkpoint at {final}")
+    payload=load_checkpoint(
+        final,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+        expected_sensor_contract=expected)
+    final_step=int(payload["meta"]["step"])
+    # Use a small held-out cohort on a new seeded course; this is not PPO
+    # training and does not let trial labels reach the actor.
+    jax.clear_caches()
+    gc.collect()
+    check_env=EmuMJXEnv(str(ROBOT_XML),num_envs=min(128,envs),
+                       seed=seed+9017,max_episode_steps=700,
+                       **env_kwargs_from_args(config))
+    learner=make_trainer(check_env,seed=seed+9017,lr=PPO_LR,rollout=2,
+                         epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
+                         value_cost=PPO_VALUE_COST)
+    norm=payload["obs_norm"]
+    mean=jnp.asarray(norm["mean"])
+    std=jnp.sqrt(jnp.asarray(norm["var"]))
+    params=jax.device_put(payload["state"]["params"])
+    task=check_env.params_array({})
+    crossing=learner["evaluate_terrain_crossing"](
+        params,task,mean,std,jax.random.PRNGKey(seed+9017),300,.22)
+    names=("step_crossed_live_fraction","step_approached_live_fraction",
+           "episode_ended_fraction","max_x_mean_m")
+    crossing=dict(zip(names,map(float,np.asarray(crossing))))
+    ev=learner["evaluate_summary"](
+        params,task,mean,std,jax.random.PRNGKey(seed+90919),150)
+    metrics=dict(zip(EVAL_NAMES,map(float,np.asarray(ev))))
+    if not all(math.isfinite(v) for v in (*crossing.values(),*metrics.values())):
+        raise FloatingPointError("nonfinite v5022 held-out evaluation")
+    report={"step":final_step,"arm":arm,
+            "source_checkpoint":str(final),
+            "held_out_crossing":crossing,"fixed_eval":metrics}
+    (run_dir/"v5022_crossing.json").write_text(json.dumps(report,indent=2))
+    print(f"[v5022 {arm}] held-out {crossing}",flush=True)
+    return report
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description="Cold-start v5022 matched 364-input terrain/ToF experiment")
     mode=p.add_mutually_exclusive_group(required=True)
@@ -343,9 +430,13 @@ def main(argv=None):
     arms=("visible","blinded") if args.arm=="both" else (args.arm,)
     results=[]
     for arm in arms:
-        results.append(run_arm(arm=arm,root=args.root,envs=args.envs,
-                     steps=args.steps,seed=args.seed,smoke=args.smoke,
-                     device=args.device))
+        if args.run:
+            results.append(run_main_arm(arm=arm,root=args.root,envs=args.envs,
+                       steps=args.steps,seed=args.seed,device=args.device))
+        else:
+            results.append(run_arm(arm=arm,root=None,envs=args.envs,
+                       steps=args.steps,seed=args.seed,smoke=True,
+                       device=args.device))
         # Experiment arms have identical models but separate static captured
         # JAX values. Release old compiled executables on an 8GB card.
         import gc
