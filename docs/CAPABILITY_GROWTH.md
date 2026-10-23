@@ -43,6 +43,18 @@ Do NOT make a dense eight-dimensional grid. Preserve the existing command/recove
 - Choose a champion on independent capability coverage, quality and weak-area regressions. No policy promotion from a positive training reward alone.
 - Prefer one 20M cold-start foundation **forked into same-size visible/blinded terrain-learning arms** to isolate sensor benefit. Preserve optimizer, normalization and curriculum lineage on fork; new observation field values can be introduced gradually without changing width.
 
+## Code-first working style (explicit owner priority, 2026-10-23)
+
+**Clean, comprehensible, well-connected code takes priority over test volume.**
+Use the current code, not passing test counts, as the starting point for each session.
+Before adding another class, config flag, training arm, or v-numbered module, trace the full path from **physical world → sensor → observation → PPO reward → evaluation → curriculum → checkpoint** and decide whether existing owners can be extended simply.
+
+- Prefer one readable path over multiple parallel frameworks, forwarding wrappers, compatibility layers or oversized orchestration.
+- Keep only a *few meaningful acceptance/smoke tests* for risky behaviour (genuine contacts, JAX array shape, sensor/actor parity, cold start and checkpoint resume). Do not expand tests purely to make the checklist look complete.
+- A code review may identify unnecessary complexity and **remove it** even if it has tests. Tests protect essential semantics, not architectural clutter.
+- Known CI problems must be documented, but do **not** make every work session a seven-minute CI-watch exercise. Prioritise reviewing/refactoring the actual implementation. Never start a huge GPU run on unverified physical contact or broken cold-start training.
+- This changes **how** gates are completed: by small, understandable implementations and a convincing physical proof, not by counting test cases. It does not waive explicit review before touching `main`.
+
 ## Ownership: as few coherent modules as possible
 
 - `robot.xml`: robot hardware/physics.
@@ -87,11 +99,13 @@ The stage gates are **serial**. Mark complete only with a linked commit/test/evi
 - **2026-10-23 — baseline examination repair:** A full Python CI run `39926669293` found **79 passed and five inherited failures**: schema-1 examiner tests had been using the now-approved 232-input schema-2 champion. Added strict, versioned 220/232 reader and matching MJX evaluation, preserving the old 220 path; updated physical and tamper tests to inspect the true current 260,112,384-step champion. Added a fast focused CI step **without omitting the full suite**. Focused gate, browser and CPU viewer passed on `e69240f` (run `39928751958`); full Python suite was still in progress when recorded.
 - **Next G3 acceptance design:** After G1/G2 are *proven* green, build a tiny MJX physics spike with two physically distinct worlds of **identical topology** (flat/no active riser vs a real finite raised step), verify 0mm/variable-height MJX contacts with a settling probe and that ToF beams see the same geometry, then benchmark 256/2048 worlds. No curriculum, PPO architecture or new learner may depend on G3 until this proof passes.
 
+- **2026-10-23 — owner clarified priorities for handover:** Prefer **code clarity, tight architecture, and real physical correctness** over growing or repeatedly watching test suites. Latest branch at this handover: `d57cc72919b087655ab79f5d67fc1aa2bb2688cd`, draft PR #14, `main` still `2ec9e9d`. Latest CI run `39929953458` had browser/CPU-viewer and fast Python gate green while full Python still running. The test mismatch fixes are isolated; **next chat should inspect code first and then construct the smallest G3 proof**, rather than expand another test framework.
+
 ### Next-session entry point (read before touching code)
 
 1. `git switch feature/v5023-capability-growth && git pull --ff-only`. Inspect PR #14, the exact latest SHA and full CI. Do NOT resume v5022's abandoned learner or touch `main`.
-2. Check the **fast capability/exam gate**, browser and CPU viewer, then the *full* Python suite. If all pass, mark G1/G2 accepted here with the exact workflow SHA. Any remaining failure must be recorded and corrected, not ignored or suppressed.
-3. Independently verify the frozen **exam protocol fingerprint** before comparing old/new `fixed_eval.csv` across policy generations. This comparison must stay read-only, not silently feed the governor or select a champion.
-4. Only when G1/G2 are accepted, start **G3: two-world physical MJX step spike** (same topology, distinct real contact, honest ToF, memory/throughput). No fresh full training-run command until G6 proves cold start and GPU memory.
-5. Record source SHA, accepted/failed tests, next single actionable task in this same document. Keep one PPO, one governor, one trainer, one examiner.
+2. **Read the actual owners first** (`environment.py`, `curriculum.py`, `rewards.py`, `ppo.py`, `evaluation.py`, `training.py`) and sketch their existing responsibilities and signal paths. Identify actual duplication or poorly integrated layers; simplify before adding new features.
+3. Review G1/G2 evidence and the latest CI **once**, record any remaining failures without turning the session into an endless test chase. G2 remains *observational only*; fixed exam comparisons must use verifiably matching protocols.
+4. Advance **G3: one small two-world physical MJX step spike**, as a coherent extension of existing physics, not a parallel terrain/trainer system. Check real contact and honest ToF in one focused proof. Defer any long GPU run until the cold-start/shape/resume path is sound.
+5. Record the actual code changed, verified physics, source SHA, known problems, and next single actionable task **in this same document**. Keep one PPO, one governor, one trainer, one examiner.
 
