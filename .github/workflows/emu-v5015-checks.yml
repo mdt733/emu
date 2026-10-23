@@ -40,6 +40,10 @@ jobs:
         run: python -m compileall -q emu tests
       - name: v5022 terrain and VL53L8CX physical checks
         run: python -m pytest -q tests/test_terrain.py
+      - name: v5022 complete 364-input PPO optimizer smoke (both arms)
+        run: EMU_V5022_PPO_SMOKE=1 python -m pytest -q -s tests/test_terrain.py -k test_v5022_real_364_input_ppo_gradient_cpu
+      - name: v5022 matched campaign plan / CLI
+        run: python -m emu.v5022_experiment --plan --steps 10000000 --envs 2048
       - name: Run 16 Python checks
         run: python -m pytest -q tests
       - name: Smoke public doctor CLI (CPU-only)
