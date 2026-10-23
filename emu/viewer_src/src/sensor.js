@@ -248,3 +248,25 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
   }
   return {ranges,valid,origin:pose.origin,hitPoints,selfOccluded,mixed};
 }
+
+
+/**
+ * Diagnostic terrain elevation relative to a horizontal world-Z reference.
+ *
+ * A measured slant distance is NOT a vertical height: each zone has its own
+ * direction and may select a different subray on an obstacle edge. Use the
+ * actual chosen hit point, which also removes the flat-ground 20–30cm fan.
+ * World z=0 is the explicit default flat-ground datum, not a learned
+ * per-zone offset or a sensor channel granted to PPO.
+ *
+ * Invalid and self-occluded zones remain unknown (null), never "0cm terrain".
+ * Values are not clipped; the UI clamps only its +/-15cm colour scale.
+ */
+export function terrainHeightOffsetsCm(reading, referenceZ=0) {
+  if(!Number.isFinite(referenceZ))throw new Error('Invalid flat-ground reference');
+  return reading.ranges.map((_,i)=>{
+    if(!reading.valid[i]||reading.selfOccluded[i])return null;
+    const z=reading.hitPoints[i]?.[2];
+    return Number.isFinite(z)?100*(z-referenceZ):null;
+  });
+}
