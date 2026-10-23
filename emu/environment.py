@@ -1513,7 +1513,7 @@ class EmuMJXEnv(TaskSampler):
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
             else None)
         base = self._base_obs(data, task, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
@@ -1884,7 +1884,7 @@ class EmuMJXEnv(TaskSampler):
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
-                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
+                   if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else None)
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
@@ -2064,8 +2064,17 @@ class EmuMJXEnv(TaskSampler):
             flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
             gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
         ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        if self.observation_schema == OBS_SCHEMA_TERRAIN:
+            four_noise = jax.vmap(lambda k: jax.random.normal(
+                jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
+            ranges4, valid4 = self._terrain_4x4_ranges(
+                data,errors_m=scale[:,None]*.002*four_noise)
+        else:
+            ranges4 = jnp.zeros((self.num_envs,16),dtype=jnp.float32)
+            valid4 = jnp.zeros((self.num_envs,16),dtype=jnp.bool_)
         return SensorSample(
             probe['tof_ranges_m'], probe['tof_beam_valid'],
+            ranges4,valid4,
             probe['flow_rad_s'], probe['flow_return_valid'],
             probe['measured_gyro_body_rad_s'], ages, ages)
 
@@ -2101,10 +2110,13 @@ class EmuMJXEnv(TaskSampler):
         flow_failed = jax.vmap(lambda k: jax.random.uniform(
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
         tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
+        terrain_valid = raw.terrain_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
         latest = SensorSample(
             jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
             jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
+            jnp.where(tof_due[:,None],jnp.where(terrain_valid,raw.terrain_ranges_m,0.),old.terrain_ranges_m),
+            jnp.where(tof_due[:,None],terrain_valid,old.terrain_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
             jnp.where(flow_due, flow_valid, old.flow_valid),
             jnp.where(flow_due[:, None], raw.gyro_body_rad_s, old.gyro_body_rad_s),
@@ -2161,6 +2173,8 @@ class EmuMJXEnv(TaskSampler):
             ground_visibility_confidence=jnp.where(
                 ground_valid, ground['visibility_confidence'] * grade_freshness, 0.),
             ground_valid=ground_valid,
+            terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
+            terrain_valid=s.terrain_valid[:,tf,:],
             flow_valid=flow_valid,
             tof_age_frames=tof_age, flow_age_frames=flow_age)
 
@@ -2400,7 +2414,7 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema == OBS_SCHEMA_SENSOR:
+        if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
             # No direct access to simulated true velocity, floor normal or
             # even instantaneous raw ToF/flow readings: the persistent sensor
             # ring owns acquisition cadence, delay, dropout and gyro bias.
@@ -2419,6 +2433,9 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_sideways_grade_rad'],
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
+            if self.observation_schema == OBS_SCHEMA_TERRAIN:
+                base = jnp.concatenate((base,sensor['terrain_ranges_m'],
+                    sensor['terrain_valid'].astype(jnp.float32)),axis=1)
         assert base.shape[1] == self.base_obs_dim, (
             f"_base_obs produced {base.shape[1]} columns, "
             f"{self.observation_schema} requires {self.base_obs_dim}")
