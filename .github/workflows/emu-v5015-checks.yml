@@ -47,7 +47,7 @@ jobs:
           timeout 240s emu terrain-exam \
             --policy showcase/champion.emupolicy \
             --output "$RUNNER_TEMP/g4-terrain-course" \
-            --device cpu --worlds 2 --horizon 80 --heights-cm 0 2
+            --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
           python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==3 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
       - name: Capability evidence and approved 232-input examiner gate
         run: |
