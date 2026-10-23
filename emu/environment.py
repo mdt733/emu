@@ -112,6 +112,21 @@ def add_episode_platform(robot_xml: str) -> str:
     world = root.find('worldbody')
     if world is None:
         raise ValueError('robot.xml has no worldbody')
+    # CRITICAL: a MuJoCo ground *plane* is an infinite half-space.
+    # A platform buried BELOW it is not "out of contact": without
+    # collision filtering the plane/box pair is deeply interpenetrating,
+    # even in an episode where the terrain is disabled. That static pair
+    # must never consume constraint/contact slots or perturb normal gait.
+    #
+    # Bit 1 = floor, bit 2 = terrain. Only feet can touch BOTH.
+    # Mask original robot feet ONLY in this opt-in compiled model;
+    # the canonical on-disk robot and flat champion physics stay untouched.
+    for foot_name in ('r_foot_ball', 'l_foot_ball'):
+        foot = root.find(f".//geom[@name='{foot_name}']")
+        if foot is None:
+            raise ValueError(f'missing physical contact foot {foot_name}')
+        foot.set('contype', '3')
+        foot.set('conaffinity', '3')
     platform = ET.SubElement(world, 'body', {
         'name': 'episode_terrain_platform', 'mocap': 'true',
         'pos': '0 0 -1',
@@ -119,6 +134,7 @@ def add_episode_platform(robot_xml: str) -> str:
     ET.SubElement(platform, 'geom', {
         'name': 'episode_terrain_surface', 'type': 'box',
         'size': f'{TERRAIN_PLATFORM_HALF_LENGTH_M} {TERRAIN_PLATFORM_HALF_WIDTH_M} {TERRAIN_PLATFORM_HALF_DEPTH_M}',
+        'contype': '2', 'conaffinity': '2',
         'friction': '1.5 0.005 0.0001', 'rgba': '0.65 0.50 0.24 1',
     })
     return ET.tostring(root, encoding='unicode')
