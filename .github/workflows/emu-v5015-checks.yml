@@ -42,6 +42,8 @@ jobs:
         run: |
           timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
           timeout 180s python -m emu.terrain_spike --environment --worlds 4
+      - name: G5 real 4x4 actor + PPO gradient (production MJX CPU)
+        run: timeout 240s python -m emu.terrain_spike --actor --worlds 4 --device cpu
       - name: G4 matched uninterrupted terrain course (read-only CPU actor)
         run: |
           timeout 240s emu terrain-exam \
