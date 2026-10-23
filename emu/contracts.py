@@ -183,7 +183,19 @@ FIELD_NODE_START = FIELD_NODE_FRAC + 1
 FIELD_EDGE_FRAC = FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE
 FIELD_EDGE_START = FIELD_EDGE_FRAC + 1
 TASK_PARAM_DIM = FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
-P = SimpleNamespace(**_base_index, field_node_frac=FIELD_NODE_FRAC, field_edge_frac=FIELD_EDGE_FRAC)
+
+# G4: the existing flat/220/232 task vector is an immutable legacy contract.
+# Only the opt-in finite-terrain environment appends this v1 extension AFTER
+# all field anchors. No existing P indices or actor columns move.
+TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))
+TERRAIN_TASK_PARAM_DIM = TASK_PARAM_DIM + len(TERRAIN_TASK_FIELDS)
+P = SimpleNamespace(
+    **_base_index,
+    field_node_frac=FIELD_NODE_FRAC,
+    field_edge_frac=FIELD_EDGE_FRAC,
+    terrain_exposure=TASK_PARAM_DIM,
+    terrain_height_m=TASK_PARAM_DIM + 1,
+)
 
 
 def task_param_defaults() -> dict[str, float]:
