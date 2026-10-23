@@ -90,6 +90,74 @@ def surface_box_geometry(surface: Surface, *, thickness_m=.12, half_width_m=.4):
     return pos, size, quat
 
 
+# A limited first campaign: real raised slab (up/down edges) and a real
+# ramp/crest. Flat spawn is preserved; the legacy training model is untouched.
+# Geoms deliberately share one topology in all MJX worlds for fast batching.
+TERRAIN_COURSE_REVISION = "v5022_step_crest_r1"
+TERRAIN_COURSE_NAMES = ("front_step", "front_crest_up",
+                        "front_crest_top", "front_crest_down")
+TERRAIN_COURSE_SUPPORTS = (
+    # Named geoms, x0, x1, z0, z1, abs(y) <= half width.
+    ("front_step", .44, .94, .05, .05, .35),
+    ("front_crest_up", 1.16, 1.43, 0., .045, .35),
+    ("front_crest_top", 1.43, 1.58, .045, .045, .35),
+    ("front_crest_down", 1.58, 1.85, .045, 0., .35),
+)
+
+
+def training_course_xml(xml: str) -> str:
+    """Inject a real MJX/MuJoCo contact course in a separate experiment.
+
+    Uses the original infinite floor and four solid boxes. Steps have
+    vertical risers; a crest has continuous sloped top contact. Not a
+    modified gravity vector and not per-world ghost sensor terrain.
+    """
+    if not isinstance(xml,str) or "</worldbody>" not in xml:
+        raise ValueError("expected valid robot worldbody XML")
+    if any(f'name="{name}"' in xml for name in TERRAIN_COURSE_NAMES):
+        raise ValueError("terrain course already inserted")
+    geoms=[]
+    for name,x0,x1,z0,z1,width in TERRAIN_COURSE_SUPPORTS:
+        a=math.atan2(z1-z0,x1-x0)
+        p,size,quat=surface_box_geometry(
+            Surface(x0,x1,z0,a), thickness_m=.18,half_width_m=width)
+        fmt=lambda seq:" ".join(f"{float(v):.9g}" for v in seq)
+        geoms.append(
+            f'<geom name="{name}" type="box" pos="{fmt(p)}" '
+            f'size="{fmt(size)}" quat="{fmt(quat)}" '
+            'friction="1.5 0.005 0.0001" rgba="0.33 0.55 0.48 1"/>'
+        )
+    return xml.replace("</worldbody>","\n".join(geoms)+"\n</worldbody>")
+
+
+def course_ground_height(xp, points):
+    """Reward-only ground support height below [W,P,3] points.
+
+    The only raised surfaces are the same four physical boxes injected
+    above. Actor range packets must use intersections, NOT this height
+    oracle. The existing plane remains at ground z=0.
+    """
+    p=xp.asarray(points)
+    x,y=p[...,0],p[...,1]
+    result=xp.zeros_like(x)
+    for _,x0,x1,z0,z1,width in TERRAIN_COURSE_SUPPORTS:
+        z=z0+(x-x0)*(z1-z0)/(x1-x0)
+        inside=(x>=x0)&(x<=x1)&(xp.abs(y)<=width)
+        result=xp.maximum(result,xp.where(inside,z,0.))
+    return result
+
+
+def ray_plane(xp, origins, directions, plane_origin, plane_normal):
+    """Slant distance [W,R] to the SAME world plane as MuJoCo collision."""
+    o,d=xp.asarray(origins),xp.asarray(directions)
+    base=xp.asarray(plane_origin)
+    normal=xp.asarray(plane_normal)
+    dot=xp.sum(d*normal[:,None,:],axis=-1)
+    t=xp.sum((base[:,None,:]-o)*normal[:,None,:],axis=-1)/xp.where(
+        xp.abs(dot)>1e-8,dot,1.)
+    return xp.where((xp.abs(dot)>1e-8)&(t>=0.),t,xp.inf)
+
+
 def ray_boxes(xp, origins, directions, centres, rotations, half_sizes):
     """Nearest ray intersection with [B] or [W,B] real oriented MJX boxes.
 
@@ -179,7 +247,7 @@ def scan_forward(xp, torso_world, body_to_world,
                  noise_m=None, dropout=None,
                  tilt_down_deg=SENSOR_DOWN_TILT_DEG,
                  mount_body_m=SENSOR_MOUNT_BODY_M,
-                 subrays=5):
+                 subrays=5, floor_origin=None, floor_normal=None):
     """Raw 4x4 front depth packet: range [W,16], validity [W,16].
 
     Rays intersect the real physical solid boxes and optionally moving
@@ -205,6 +273,10 @@ def scan_forward(xp, torso_world, body_to_world,
     o, d = origin.reshape(worlds, 16*subrays, 3), direction.reshape(worlds, 16*subrays, 3)
     ranges = ray_boxes(xp, o, d, box_centres,
                        box_rotations, box_half_sizes)
+    if floor_origin is not None:
+        if floor_normal is None:
+            raise ValueError('floor normal required with floor origin')
+        ranges=xp.minimum(ranges,ray_plane(xp,o,d,floor_origin,floor_normal))
     if foot_centres is not None:
         ranges = xp.minimum(ranges, ray_spheres(
             xp, o, d, foot_centres, foot_radii))
