@@ -43,6 +43,25 @@ Do NOT make a dense eight-dimensional grid. Preserve the existing command/recove
 - Choose a champion on independent capability coverage, quality and weak-area regressions. No policy promotion from a positive training reward alone.
 - Prefer one 20M cold-start foundation **forked into same-size visible/blinded terrain-learning arms** to isolate sensor benefit. Preserve optimizer, normalization and curriculum lineage on fork; new observation field values can be introduced gradually without changing width.
 
+## Proposed multi-skill campaign after the first 20M foundation (2026-10-24)
+
+**Do not treat these milestones as required step quotas.** Continue only while held-out capabilities improve; every fork is from a validated, SHA-compatible checkpoint. The currently running 2048-world `terrain_360` foundation is pinned to its **original source commit**. Changes to log display or curriculum on the remote branch are **not** available inside that live process and MUST NOT be pulled into its checkpoint/resume lineage without reviewed compatibility/migration. `main` and champion remain untouched.
+
+| Stage (illustrative cumulative steps) | What actually trains | Independent decision |
+| --- | --- | --- |
+| 0–20M, existing run | Cold-start 360-input actor; fully dormant physical platforms; basic commands, gait, posture, small disturbances | Flat survival, speed tracking (not just speed), normalizer/finite PPO state |
+| 20–40M, first continuation | The SAME PPO/actor; stronger vX/vY/yaw/transition/resilience commands, mostly easy births, and evidence-gated ~1cm/5% real steps | Core gait and tracking must not regress before any terrain frontier grows |
+| 40–70M, **small matched forks** | Try a no-motor-guidance control vs a mild servo-effort teaching arm (existing `motor_guidance_weight`), and/or a lower terrain ceiling; don't turn every dial simultaneously | Compare same held-out flat and step worlds, fall/survival, tracking, real crossing, motor shaft work/forward metre and slips. Select Pareto-improving arm, not highest reward |
+| 70–140M, selected winners | Grow validated step ceiling toward 4cm and diversified commanded motions/recoveries; preserve >=75% ordinary terrain-free lesson births under current governor | Separate step-up/down/angle, commands, disturbance and mechanical-grace evidence; retreat the failing dimension |
+| Future mixed-ground branch | **Engineering prerequisite**: genuinely inclined MJX floor and finite steps must coexist, with correct actor ray intersections and correct contact/height rewards. Current v5023 explicitly rejects the combination. Build a new versioned physical contract before continuation/migration and then introduce slopes, transitions, irregular steps and compound demands | Matched, held-out slope/step and combined-condition exams against champion and prior policy; no unreviewed cross-source checkpoint loading |
+| Final promotion | Independent capability map: commands, slopes, resilience, steps, smoothness, effort and uncertainty | No major core regressions, credible lower-bound support for claimed new skills and explicit user approval for main/champion |
+
+**Single director, not curriculum soup.** Orthogonal terrain context is sampled on top of existing steady/transition/resilience and posture commands. Each hard dimension has a local exposure/severity frontier and retreats if evidence deteriorates; reserve ordinary gait and simple tasks so new step prowess does not erase mature walking. Add compound lessons only after isolated components are competent, never as a new parallel trainer. Cap new difficulty with a **shared** growth budget and robust checkpoint rollback.
+
+**Grace economics:** current per-frame MJX telemetry already exposes actuator positive shaft power, brake power, torque pressure and stored spring energy. New **console-only** `shaft≈J/m` uses positive mechanical work divided by measured net forward displacement for forward-commanded samples; a near-stationary rollout displays an unknown marker. It is **not** battery energy, a reward component or a thermal model; use the existing opt-in small motor guidance as a controlled A/B reward experiment, and never optimise J/m in isolation from successful walking. Train on task success first, then get more graceful.
+
+**Readable log policy:** one summary line with steps, reward, episode length, fall rate, wall FPS, commanded vx min/max frontier, actual/command vx, physical slope ceiling, **maximum** sampled step height and exposure, resilience curriculum scalar and approximate mechanical J/m. Full numerical diagnostics/health remain in the persisted console and metrics.csv. Foundation step/slope should both say 0, since lift-gait `step_evidence` is not obstacle height.
+
 ## Code-first working style (explicit owner priority, 2026-10-23)
 
 **Clean, comprehensible, well-connected code takes priority over test volume.**
