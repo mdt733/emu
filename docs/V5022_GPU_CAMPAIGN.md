@@ -4,6 +4,36 @@
 protected 60M/400M policies nor existing 220/232-channel actor contracts
 are edited. No auto-promote and no simulated-only "step" reward.
 
+## The proven main is the starting point
+
+Protected `main` is our behavioural reference (`2ec9e9db0a816c658131311129ef89ec7a595a12`).
+This branch changes only opt-in terrain schema/environment paths and a separate
+experimental runner. Every `pitch15_220` and `sim2real_232` environment
+continues to load the original `robot.xml`, receive the old observations,
+and use the original PPO, reward, task and controller code.
+
+The v5022 experiment now obtains its command limits, phase dynamics, push
+strength, difficulty steps and regime allocation from **main's own
+`foundation_config()`** rather than reinventing easier/harder settings.
+The deliberately selected `v5015` posture profile is retained (main's
+general-purpose foundation helper defaults to the older v5014 profile),
+and new sensor/collision geometry is the explicit experimental change.
+
+The main `TrainingHealth` adaptive KL learning-rate controller, curriculum
+retreat/health evidence and capability-field *shadow* recorder are reused
+and checkpointed. Shadow evidence does not change lessons. The independent
+runner is still an **experimental A/B loop**, not a substitute for main's
+complete production lifecycle (which also includes richer automatic
+recovery, eval schedules and presentation/export). Do not promote this
+experimental runner to production or skip held-out acceptance because its
+first smoke succeeds.
+
+**Baseline gate:** the existing baseline Python and browser suites must
+still run; a new experiment doesn't justify rewriting older policy
+files or old contract tests. CI currently has five previously known
+legacy schema-1 examiner failures against the protected schema-2 champion,
+which must be reported separately rather than papered over.
+
 ## The actual questions
 
 1. **Does physical forward terrain sensing help a robot learn to cross a
