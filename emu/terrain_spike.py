@@ -251,11 +251,25 @@ def run_environment(worlds: int = 4):
                 (b == feet[0]) | (b == feet[1]))
         platform = jnp.any(near & foot & ((a == geom) | (b == geom)), axis=1)
         ground = jnp.any(near & foot & ((a == floor) | (b == floor)), axis=1)
-        return platform, ground, d.qpos[:, :3]
+        # Diagnostic: distinguish broken mocap placement, contact generation,
+        # and a bad robot settling pose before changing the physics model.
+        relative = jnp.where(
+            ((a == geom) | (b == geom)) & foot,
+            contact.dist, jnp.inf)
+        min_step_dist = jnp.min(relative, axis=1)
+        return (platform, ground, d.qpos[:, :3],
+                d.geom_xpos[:, geom, :], min_step_dist)
 
-    platform_contact, _, on_top = jax.device_get(contacts_at(centers, heights))
-    _, floor_contact, on_floor = jax.device_get(contacts_at(beyond, zero))
+    platform_contact, _, on_top, geom_center, gap = jax.device_get(
+        contacts_at(centers, heights))
+    _, floor_contact, on_floor, _, _ = jax.device_get(
+        contacts_at(beyond, zero))
     if not np.all(platform_contact):
+        print('G3 physical diagnostics: platform centres', positions)
+        print('MJX geom centres after moving mocap body:', geom_center)
+        print('Robot pose after physical settling:', on_top)
+        print('Closest foot/platform MJX contact distances:', gap)
+        print('Per-world platform contact flags:', platform_contact)
         raise AssertionError('MJX could not physically support feet on movable platforms')
     if not np.all(floor_contact):
         raise AssertionError('MJX missed true floor contact beyond the platform')
