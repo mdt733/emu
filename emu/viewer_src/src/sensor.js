@@ -174,7 +174,7 @@ function opticalRay(R, tilt, u, v) {
   ];
 }
 
-export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.018}={}) {
+export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) {
   if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
       forward>.20 || tilt<0 || tilt>90)
     throw new Error('Depth mount must be forward 0–200 mm, tilt 0–90°');
