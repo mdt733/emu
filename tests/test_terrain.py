@@ -383,3 +383,42 @@ def test_optional_gpu_2048_world_ray_cost():
         print(f"V5022_SENSOR_BENCH backend={jax.default_backend()} "
               f"worlds={worlds} rays={subrays*16} "
               f"compile_s={compile_seconds:.2f} mean_scan_ms={mean_ms:.3f}")
+
+
+
+def test_browser_and_python_sensor_extrinsics_remain_identical():
+    """One compact cross-language parity guard, no duplicated ray equations.
+
+    Runs with the Node used by our existing viewer build; on Python-only
+    installations it skips without preventing independent MJX tests.
+    """
+    import json
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("Node not installed; browser tests run separately")
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    cases=[dict(t=[-.18,0,.2584],tilt=35.,forward=.085,
+                R=[[1,0,0],[0,1,0],[0,0,1]]),
+           dict(t=[0,.03,.274],tilt=65.,forward=.160,
+                R=[[0,-1,0],[1,0,0],[0,0,1]])]
+    js_code=(
+        "import {depthProbeRays} from './emu/viewer_src/src/sensor.js';"
+        f"const cases={json.dumps(cases)};"
+        "console.log(JSON.stringify(cases.map(c=>depthProbeRays("
+        "c.t,c.R.flat(),{tilt:c.tilt,forward:c.forward}))))"
+    )
+    result=subprocess.run(["node","--input-type=module","-e",js_code],
+                          cwd=root,capture_output=True,text=True,check=True)
+    actual=json.loads(result.stdout)
+    for case,got in zip(cases,actual):
+        p=np.asarray([case["t"]])
+        R=np.asarray([case["R"]])
+        expected_o,expected_d=camera_rays(
+            np,p,R,tilt_down_deg=case["tilt"],
+            mount_body_m=(case["forward"],0.,-.018))
+        np.testing.assert_allclose(
+            np.asarray(got["origin"]),expected_o[0,0,0],atol=1e-7)
+        np.testing.assert_allclose(
+            np.asarray(got["directions"]),expected_d[0],atol=1e-7)
