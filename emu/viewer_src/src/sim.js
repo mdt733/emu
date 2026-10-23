@@ -1027,7 +1027,7 @@ export class EmuBrowserSim {
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
-      return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain'}:Infinity;
+      return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain',surface:hit.object.uuid}:Infinity;
     },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
     const costMs=performance.now()-begin;
     this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,costMs};
