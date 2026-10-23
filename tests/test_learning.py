@@ -591,25 +591,57 @@ def test_training_config_roundtrip():
     assert inactive.params.frontier_vx_hi == 0.60
 
 def test_terrain_governor_refuses_down_only_success():
-    """A perfect descent score must not unlock real uphill steps."""
+    """Count distinct ascent/descent episodes across updates, then reset.
+
+    Small 5%-dose PPO rollouts are sparse; checkpointing the evidence
+    window must preserve the same decision after a restored run.
+    """
     g = RegimeGovernor()
     g.core_competence = .95
     g.fall_ema['posture'] = .05
     kwargs = dict(step=20_000_001, foundation_steps=20_000_000, max_height_m=.04)
     assert g.advance_terrain({}, **kwargs) == 'terrain_seed_1cm_5pct'
-    outcomes = dict(terrain_attempts=12., terrain_successes=6.,
-                    terrain_attempts_up=6., terrain_successes_up=0.,
-                    terrain_attempts_down=6., terrain_successes_down=6.)
-    assert g.advance_terrain(outcomes, **kwargs) == 'terrain_retreat_failed_ascent'
-    assert g.params.terrain_height_m == .01
-    assert g.params.terrain_exposure == .05
-    assert g.advance_terrain(dict(terrain_attempts=12.,
-                                  terrain_successes=12.), **kwargs) == 'await_3_terrain_episodes_each_direction'
-    outcomes['terrain_successes_up'] = 4.
-    assert g.advance_terrain(outcomes, **kwargs) == 'terrain_exposure_expand_real_cross'
-    assert g.params.terrain_exposure > .05
-    outcomes['terrain_attempts_up'] = 1.
-    assert g.advance_terrain(outcomes, **kwargs) == 'await_3_terrain_episodes_each_direction'
+    downhill_only = dict(terrain_attempts_up=6., terrain_successes_up=0.,
+                         terrain_falls_up=0., terrain_attempts_down=6.,
+                         terrain_successes_down=6., terrain_falls_down=0.)
+    for _ in range(3):
+        assert g.advance_terrain(downhill_only, **kwargs) == 'terrain_collect_directional_evidence'
+    saved = g.state_dict()
+    restored = RegimeGovernor()
+    restored.load_state_dict(saved)
+    assert restored.state_dict() == saved
+    assert restored.advance_terrain(downhill_only, **kwargs) == 'terrain_retreat_failed_ascent'
+    assert restored.params.terrain_height_m == .01
+    assert restored.params.terrain_exposure == .05
+    assert not any(restored.terrain_evidence.values())
+
+    # Historical pooled-only rows cannot advance a new frontier.
+    assert restored.advance_terrain(dict(terrain_attempts=100.,
+                                         terrain_successes=100.), **kwargs) == 'await_directional_terrain_evidence'
+
+    # Weak but genuine ascents can earn extra PRACTICE, NOT a taller step.
+    weak_ascent = dict(downhill_only, terrain_successes_up=1.)
+    for _ in range(3):
+        assert restored.advance_terrain(weak_ascent, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(weak_ascent, **kwargs) == 'terrain_exposure_practice_ascent'
+    assert restored.params.terrain_exposure == .055
+    assert restored.params.terrain_height_m == .01
+
+    # Height is still gated: both directions must genuinely complete >=50%.
+    strong_ascent = dict(downhill_only, terrain_successes_up=4.)
+    for _ in range(3):
+        assert restored.advance_terrain(strong_ascent, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(strong_ascent, **kwargs) == 'terrain_exposure_expand_real_cross'
+    assert restored.params.terrain_exposure > .055
+    assert restored.params.terrain_height_m == .01
+
+    # No episode proof means no improvement, even after a complete window.
+    missing = dict.fromkeys(downhill_only, 0.)
+    for _ in range(restored.TERRAIN_MAX_WINDOW_UPDATES-1):
+        assert restored.advance_terrain(missing, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(missing, **kwargs) == 'terrain_window_insufficient_attempts'
+    assert not any(restored.terrain_evidence.values())
+
 
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
