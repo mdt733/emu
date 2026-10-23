@@ -255,11 +255,17 @@ cd ~/emu-v5022
 git branch --show-current
 bash scripts/setup_wsl.sh --install-node --viewer-only
 source .venv/bin/activate
-python -m pytest -q tests/test_terrain.py \
-  tests/test_physics.py::test_versioned_sensor_actor_schema_keeps_pitch15_frozen
+emu viewer showcase/champion.emupolicy --no-open
+```
+
+**Optional repeatable checks after setup** (for example, after a later branch update):
+```bash
+cd ~/emu-v5022
+source .venv/bin/activate
+python -m pytest -q tests/test_terrain.py
+python -m pytest -q tests/test_physics.py::test_versioned_sensor_actor_schema_keeps_pitch15_frozen
 npm test --prefix emu/viewer_src
 emu viewer-build
-emu viewer showcase/champion.emupolicy --no-open
 ```
 
 **If the separate checkout already exists**, replace just the initial clone
