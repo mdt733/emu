@@ -8,6 +8,7 @@ import pytest
 
 from emu.terrain import (
     SENSOR_MODEL, SENSOR_RESOLUTION, SENSOR_FOV_DEG, SENSOR_MOUNT_BODY_M,
+    SENSOR_DOWN_TILT_DEG,
     course_surfaces, surface_box_geometry, camera_rays,
     ray_boxes, ray_spheres, scan_forward, scan_tripod,
 )
@@ -309,15 +310,15 @@ def test_optional_post_viewer_mount_sweep(capsys):
     """Print evidence for the mount chosen in the viewer, not a success score.
 
     Override EMU_SENSOR_TILT_DEG and EMU_SENSOR_FORWARD_MM to check an exact
-    user-selected mount; default sweeps three practical options per axis.
+    user-selected mount; default sweeps 0/30/60mm x 65/70/75°.
     """
     import json
     import os
     angles=([float(os.environ["EMU_SENSOR_TILT_DEG"])]
-            if os.environ.get("EMU_SENSOR_TILT_DEG") else [35.,50.,65.])
+            if os.environ.get("EMU_SENSOR_TILT_DEG") else [65.,70.,75.])
     forward=([float(os.environ["EMU_SENSOR_FORWARD_MM"])/1000.]
              if os.environ.get("EMU_SENSOR_FORWARD_MM")
-             else [.085,.120,.160])
+             else [0.,.03,.06])
     all_results=[]
     for angle in angles:
         for xmount in forward:
@@ -519,3 +520,59 @@ def test_camera_axes_do_not_collapse_across_mount_tilt(tilt):
     np.testing.assert_allclose(np.linalg.norm(rays,axis=-1),1,atol=1e-7)
     assert np.linalg.norm(rays[0,0,0]-rays[0,3,0])>.25
     assert np.linalg.norm(rays[0,0,0]-rays[0,12,0])>.25
+
+
+def test_preferred_0mm_70deg_mount_sees_near_lateral_and_forward_ground():
+    """Ground-only geometry for the viewer-selected provisional mount.
+
+    An actual robot may block some of these zones. We deliberately test
+    unoccluded rays first so feet/legs can be assessed independently.
+    """
+    p, R=pose()
+    origin, direction=camera_rays(np,p,R)
+    assert SENSOR_MOUNT_BODY_M == (0.,0.,-.018)
+    assert SENSOR_DOWN_TILT_DEG == 70.
+    np.testing.assert_allclose(origin[0,0,0],
+                               [0.,0.,.2404],atol=1e-8)
+    # Intersection on flat ground; row 0 sees ahead of rear row 3.
+    centre=direction[0,:,0,:].reshape(4,4,3)
+    places=origin[0,:,0,:].reshape(4,4,3)
+    t=-places[:,:,2]/centre[:,:,2]
+    ground=places +t[:,:,None]*centre
+    assert np.isfinite(ground).all()
+    # The two near outside corners sample opposite sides of the chassis.
+    assert ground[3,0,1] < -.05
+    assert ground[3,3,1] > .05
+    assert abs(ground[3,0,0]-ground[3,3,0]) < 1e-6
+    # Shallowest optical row provides a visible forward patch at 70°,
+    # while near corners remain behind it and can measure lateral grade.
+    assert ground[0,1,0] > .15
+    assert ground[0,2,0] > .15
+    assert ground[3,0,0] < .03
+    assert ground[0,1,0]-ground[3,1,0] > .14
+
+
+def test_preferred_mount_preserves_foot_occlusion_without_privileged_labels():
+    """Two swing-foot returns may occupy near-centre zones.
+
+    The raw sensor packet deliberately carries only range/validity;
+    privileged simulator foot identity MUST NOT leak to the actor.
+    """
+    p,R=pose()
+    world=scene(0.)
+    baseline,ok=scan_forward(np,p,R,*world,subrays=5)
+    origins,rays=camera_rays(np,p,R)
+    inner_near=(13,14)
+    foot_centres=np.asarray([
+        origins[0,i,0]+.19*rays[0,i,0] for i in inner_near
+    ])[None]
+    crossed,valid=scan_forward(np,p,R,*world,foot_centres=foot_centres,
+                              foot_radii=.018,subrays=5)
+    assert crossed.shape == valid.shape == (1,16)
+    assert (ok & valid).any()
+    assert any(crossed[0,i]<baseline[0,i]-.015
+               for i in inner_near if valid[0,i] and ok[0,i])
+    # No oracle body-part masks: training will see just the measured slant
+    # distance and validity, and must discover kinematic correlations.
+    result=scan_forward(np,p,R,*world,foot_centres=foot_centres)
+    assert len(result)==2
