@@ -493,7 +493,7 @@ test('0mm 70-degree provisional optical mount preserves side and front coverage'
   const R=[1,0,0,0,1,0,0,0,1],torso=[0,0,.2584];
   const probe=depthProbeRays(torso,R);
   assert.ok(Math.abs(probe.origin[0])<1e-10);
-  assert.ok(Math.abs(probe.origin[2]-.2404)<1e-10);
+  assert.ok(Math.abs(probe.origin[2]-.2184)<1e-10);
   const ground=(row,col)=>{
     const ray=probe.directions[row*4+col][0];
     const t=-probe.origin[2]/ray[2];
