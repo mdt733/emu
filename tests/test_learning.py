@@ -18,6 +18,50 @@ from emu.checkpoint_io import resume_training_lineage
 from emu.curriculum import TrainingHealth
 from emu.curriculum import RegimeGovernor
 
+def test_capability_evidence_keeps_success_quality_and_confidence_separate():
+    from emu.results import capability_evidence_report
+    field=CapabilityField()
+    known=(0,0,0)
+    field.node_success[known]=24.
+    field.node_failure[known]=6.
+    field.node_quality_sum[known]=18.
+    before=field.fingerprint()
+    report=capability_evidence_report(
+        family="commands",source="training_rollout",
+        success=field.node_success,failure=field.node_failure,
+        lower=field.node_lower(),quality_sum=field.node_quality_sum)
+    assert report["known_bins"]==1
+    assert report["unknown_bins"]==field.node_success.size-1
+    assert report["independent_trials_in_known_bins"]==30.
+    assert report["success_rate_known"]==pytest.approx(.8)
+    assert report["observed_quality_known"]==pytest.approx(.6)
+    assert 0.<report["conservative_success_lower_mean"]<.8
+    assert field.fingerprint()==before  # report does not teach or update PPO
+
+
+def test_capability_evidence_never_confuses_unknown_with_failure():
+    from emu.results import capability_evidence_report
+    success=np.array([0.,0.,0.,35.])
+    failure=np.array([0.,1.,2.,5.])
+    lower=np.array([0.,0.,0.,.72])
+    report=capability_evidence_report(
+        family="step_up",source="held_out_exam",
+        success=success,failure=failure,lower=lower,min_events=20)
+    assert report["known_bins"]==1
+    assert report["unknown_bins"]==3
+    assert report["success_rate_known"]==pytest.approx(.875)
+    assert report["observed_quality_known"] is None
+    assert report["conservative_success_lower_mean"]==pytest.approx(.72)
+    assert "score" not in report
+    with pytest.raises(ValueError,match="source"):
+        capability_evidence_report(family="step_up",source="reward",
+                                   success=success,failure=failure,lower=lower)
+    with pytest.raises(ValueError,match="quality"):
+        capability_evidence_report(family="step_up",source="held_out_exam",
+                                   success=success,failure=failure,lower=lower,
+                                   quality_sum=np.ones(4)*50.)
+
+
 def fake_policy_params(fill: float = 0.0):
     def build(spec):
         if isinstance(spec, dict):
