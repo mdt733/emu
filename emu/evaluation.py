@@ -1012,7 +1012,7 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
     A posed foot or an elevated world-Z value cannot earn a crossing.
     """
     import numpy as np
-    from .environment import TERRAIN_PLATFORM_HALF_LENGTH_M
+    from .environment import TERRAIN_PLATFORM_HALF_LENGTH_M, TERRAIN_PLATFORM_HALF_DEPTH_M
 
     xy = np.asarray(frames['position_xy'], dtype=float)
     ended = np.asarray(frames['done'], dtype=bool)
@@ -1033,6 +1033,8 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
         first_end = np.flatnonzero(ended[:, i])
         n = int(first_end[0]+1) if len(first_end) else horizon
         active = height_m > 1e-6 and centers[i, 2] > -.5
+        actual_height_cm = (100*(centers[i,2]+TERRAIN_PLATFORM_HALF_DEPTH_M)
+                            if active else 0.)
         direction = 'flat' if not active else 'step-down' if centers[i, 0] < 0 else 'step-up'
         sign = -1.0 if direction == 'step-down' else 1.0
         yaw = 2 * np.arctan2(quats[i,3], quats[i,0])
@@ -1065,7 +1067,9 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
         # Real completion and flat progress are NOT interchangeable:
         # baseline rows report progress but have no step-crossing verdict.
         rows.append(dict(
-            world=i, lesson=direction, elevation_cm=round(float(height_m*100),2),
+            world=i, lesson=direction,
+            maximum_requested_step_cm=round(float(height_m*100),2),
+            actual_step_height_cm=round(float(actual_height_cm),2),
             frames_before_reset=n, full_horizon_survival=fully_survived,
             fell=bool(np.any(fell[:n,i])), reached_far_side=bool(np.any(far)),
             far_side_contact_held_100ms=passed_at is not None,
@@ -1162,12 +1166,14 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         rows=score_terrain_course_trace(frames,height_m=height_cm/100,
                                         speed=speed)
         case=dict(
-            height_cm=height_cm,seconds=round(seconds,3),
+            max_height_cm=height_cm,
+            actual_heights_cm=[x['actual_step_height_cm'] for x in rows],
+            seconds=round(seconds,3),
             worlds=rows,survived=sum(x['full_horizon_survival'] for x in rows),
             crossing_pass=(None if height_cm==0 else sum(x['crossing_pass'] for x in rows)),
             mean_progress_m=round(float(np.mean([x['progress_m'] for x in rows])),4))
         cases.append(case)
-        print(f"Terrain {height_cm:g}cm: survival {case['survived']}/{worlds}, "
+        print(f"Terrain up to {height_cm:g}cm: survival {case['survived']}/{worlds}, "
               f"crossing {('not scored' if height_cm==0 else str(case['crossing_pass'])+'/'+str(worlds))}, "
               f"mean progress {case['mean_progress_m']:+.3f}m, "
               f"wall {case['seconds']:.1f}s", flush=True)
@@ -1187,7 +1193,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
             'First fall/timeout truncates assessment; resets cannot earn passage.',
             'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
             'These are simulated servo shaft-work estimates, not measured battery energy.',
-            'Identical cohorts across heights; times include first-run compilation.'])
+            'Each active world samples 30–100% of the requested height ceiling; actual centimetres are recorded.',\n            'Identical cohorts across heights; times include first-run compilation.'])
     output.mkdir(parents=True,exist_ok=True)
     json_path=output/'terrain_exam.json'
     json_path.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
@@ -1199,7 +1205,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
            '|---:|---:|---:|---:|---:|']
     for case in cases:
         crossings='N/A (flat)' if case['crossing_pass'] is None else f"{case['crossing_pass']}/{worlds}"
-        lines.append(f"| {case['height_cm']:g} cm | {case['survived']}/{worlds} | "
+        lines.append(f"| ≤{case['max_height_cm']:g} cm | {case['survived']}/{worlds} | "
                      f"{crossings} | {case['mean_progress_m']:+.3f} m | {case['seconds']:.1f} s |")
     lines += ['', 'The flat row is a command-competence control, not an obstacle.',
               'A passed contact check is NOT a passed uninterrupted crossing.',
