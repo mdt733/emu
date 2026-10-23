@@ -506,3 +506,19 @@ test('0mm 70-degree provisional optical mount preserves side and front coverage'
   assert.ok(Math.abs(nearL[0]-nearR[0])<1e-10);
   assert.ok(farL[0]-nearL[0]>.14);
 });
+
+
+test('near outer zones of 0/70 mount distinguish left-to-right ground grade',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  // Ground plane z=tan(10°)*worldY, not privileged future sample heights.
+  const m=Math.tan(10*Math.PI/180);
+  const scan=readDepthProbe(pose,(origin,dir)=>{
+    const denom=dir[2]-m*dir[1];
+    return denom<0?-origin[2]/denom:Infinity;
+  },{subrays:4});
+  assert.ok(scan.valid[12] && scan.valid[15]);
+  assert.ok(scan.ranges[12]-scan.ranges[15]>.012);
+  // The 4x4 grid represents slant range, not a precomputed ground angle.
+  assert.equal(scan.ranges.length,16);
+});
