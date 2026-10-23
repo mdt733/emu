@@ -5,14 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$ROOT"
 CUDA13=0
 INSTALL_NODE=0
+VIEWER_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --cuda13) CUDA13=1 ;;
     --install-node) INSTALL_NODE=1 ;;
+    --viewer-only) VIEWER_ONLY=1 ;;
     --help|-h)
-      printf 'Usage: bash scripts/setup_wsl.sh [--cuda13] [--install-node]\n'
+      printf 'Usage: bash scripts/setup_wsl.sh [--cuda13] [--install-node] [--viewer-only]\n'
       printf '  --cuda13         Install JAX CUDA 13 wheels for a compatible NVIDIA GPU\n'
       printf '  --install-node   Install Node 24 via official pinned nvm installer if missing\n'
+      printf '  --viewer-only   Verify physical terrain + browser viewer, not the legacy schema-1 examiner suite\n'
       exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -80,10 +83,25 @@ python -c 'import sys; assert sys.version_info >= (3,13), "Existing .venv uses t
 python -m pip install --upgrade pip
 if [[ $CUDA13 -eq 1 ]]; then python -m pip install 'jax[cuda13]'; fi
 python -m pip install -e '.[dev]'
-python -m pytest -q
-if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
+if [[ $VIEWER_ONLY -eq 1 ]]; then
+  printf '\nViewer-only acceptance: verifying terrain physics and frozen sensor interfaces.\n'
+  printf 'General Python suite is intentionally separate (five known 220-vs-232 examiner failures).\n'
+  python -m pytest -q tests/test_terrain.py \
+    tests/test_physics.py::test_versioned_sensor_actor_schema_keeps_pitch15_frozen
+else
+  python -m pytest -q
+fi
+if [[ $CUDA13 -eq 1 && $VIEWER_ONLY -eq 0 ]]; then
+  emu doctor --domain-smoke
+else
+  emu doctor --no-require-gpu --no-mjx-smoke
+fi
 emu viewer-build
-emu ladder --stage plan
+if [[ $VIEWER_ONLY -eq 1 ]]; then
+  npm test --prefix emu/viewer_src
+else
+  emu ladder --stage plan
+fi
 printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
 printf 'Viewer URL: http://127.0.0.1:8765/\n'
 printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
