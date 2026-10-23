@@ -96,7 +96,8 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
-        observation_schema=config.observation_schema, open_frontier=False, combo_mix_frac=combo_mix, combo_probe_frac=0.0,
+        observation_schema=config.observation_schema, front_visible=config.front_visible,
+        open_frontier=False, combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
