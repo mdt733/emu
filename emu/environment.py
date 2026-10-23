@@ -23,7 +23,7 @@ from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
-                       TASK_PARAM_FIELDS, P)
+                       TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
 
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
@@ -1371,6 +1371,18 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
+        if self.terrain_step_mocap_id >= 0:
+            # Explicit versioned task extension. Flat runs keep their old
+            # exact shape and P-index semantics, even on this feature branch.
+            terrain = np.asarray(
+                [float(params.get(name, default)) for name, default in TERRAIN_TASK_FIELDS],
+                dtype=np.float32)
+            if not (np.isfinite(terrain).all() and
+                    0.0 <= terrain[0] <= 1.0 and
+                    0.0 <= terrain[1] <= self.terrain_step_max_m):
+                raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
+            packed = np.concatenate((packed, terrain))
+            assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
@@ -1771,35 +1783,41 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
-    def _episode_terrain(self, data, keys):
-        """Sample one real movable platform per world, entirely in JAX.
+    def _episode_terrain(self, data, keys, params):
+        """Sample real episode terrain with an exactly flat dormant state.
 
-        Up: flat initial support, finite upper platform beyond +X edge.
-        Down: raised initial support, finite edge leading onto flat floor.
-        Episode resets change height and angle without recompilation; even
-        worlds face step-ups and odd worlds step-downs for paired evidence.
-        The actor never receives these physical teacher coordinates.
+        A zero terrain exposure or height buries the *same* physical box
+        below the ground. Up/down pairs, height and edge angle only matter
+        for exposed worlds. The task parameters affect geometry through the
+        actual MJX reset, not an actor-visible difficulty label.
         """
         if self.terrain_step_mocap_id < 0:
             return data
         jax, jnp = self.jax, self.jnp
         k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
         def choose(key):
-            kh, ka = jax.random.split(key)
-            h = self.terrain_step_max_m * (0.3 + 0.7*jax.random.uniform(kh, ()))
+            kh, ka, ke = jax.random.split(key, 3)
+            magnitude = 0.3 + 0.7*jax.random.uniform(kh, ())
             angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
-            return h, angle
-        height, angle = jax.vmap(choose)(k)
-        # Paired up/down worlds guarantee that a small batch actually
-        # exercises BOTH support geometries, not a lucky coin-flip subset.
-        # Only severity/edge angle resample at each birth in this G3 probe.
+            selected = jax.random.uniform(ke, ()) < params[P.terrain_exposure]
+            return magnitude, angle, selected
+        magnitude, angle, selected = jax.vmap(choose)(k)
+        ceiling = jnp.clip(params[P.terrain_height_m], 0.0, self.terrain_step_max_m)
+        active = selected & (ceiling > 1e-6)
+        height = jnp.where(active, ceiling * magnitude, 0.0)
+        # Stratified even/odd up/down worlds in the exposed subset, so a
+        # small batch with 100% exposure still sees both physical types.
         down = (self.env_index.astype(jnp.int32) % 2) == 1
         ca, sa = jnp.cos(angle), jnp.sin(angle)
         side = jnp.where(down, -1.0, 1.0)
         mid_x = TERRAIN_PLATFORM_EDGE_X_M + side*TERRAIN_PLATFORM_HALF_LENGTH_M*ca
         mid_y = side*TERRAIN_PLATFORM_HALF_LENGTH_M*sa
-        center = jnp.stack((mid_x, mid_y,
-                            height - TERRAIN_PLATFORM_HALF_DEPTH_M), axis=1)
+        center = jnp.stack((
+            mid_x, mid_y, height - TERRAIN_PLATFORM_HALF_DEPTH_M), axis=1)
+        # No ghost contacts or ray returns during the first 20M flat steps:
+        # absent terrain remains buried ~85cm below the real contact plane.
+        buried = jnp.asarray([0.0, 0.0, -1.0], dtype=jnp.float32)
+        center = jnp.where(active[:, None], center, buried)
         zeros = jnp.zeros_like(angle)
         yaw_quat = jnp.stack((jnp.cos(angle/2), zeros, zeros,
                               jnp.sin(angle/2)), axis=1)
@@ -1807,7 +1825,7 @@ class EmuMJXEnv(TaskSampler):
         return data.replace(
             mocap_pos=data.mocap_pos.at[:, idx, :].set(center),
             mocap_quat=data.mocap_quat.at[:, idx, :].set(yaw_quat),
-            qpos=data.qpos.at[:, 2].add(jnp.where(down, height, 0.0)),
+            qpos=data.qpos.at[:, 2].add(jnp.where(active & down, height, 0.0)),
         )
 
     def _reset_with_keys(self, keys, params, carryover_qvel=None):
@@ -1835,7 +1853,7 @@ class EmuMJXEnv(TaskSampler):
         )
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
-        data = self._episode_terrain(data, keys)
+        data = self._episode_terrain(data, keys, params)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
