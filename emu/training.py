@@ -45,7 +45,7 @@ from .training_config import (
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
-from .curriculum import RegimeGovernor
+from .curriculum import RegimeGovernor, TerrainRegimeGovernor
 from .curriculum import TrainingHealth
 from .ppo import make_trainer, update_running_stats
 from .results import summarize_rollout, augment_rollout_row
@@ -195,7 +195,9 @@ def train(args: TrainingConfig) -> int:
         cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
-    governor = RegimeGovernor(fall_target=args.fall_target,
+    governor_class=(TerrainRegimeGovernor if args.observation_schema==OBS_SCHEMA_TERRAIN
+                    else RegimeGovernor)
+    governor = governor_class(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
                               athletic_rehearsal_frac=args.athletic_rehearsal_frac,
@@ -447,6 +449,8 @@ def train(args: TrainingConfig) -> int:
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
+        if args.observation_schema == OBS_SCHEMA_TERRAIN:
+            governor.record_terrain(rollout_metrics,total_steps)
         report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -667,6 +671,8 @@ def train(args: TrainingConfig) -> int:
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
+    if args.observation_schema == OBS_SCHEMA_TERRAIN:
+        governor.record_terrain(rollout_metrics,total_steps)
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
