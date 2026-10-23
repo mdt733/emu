@@ -74,7 +74,7 @@ def test_matched_exam_tolerances_and_incomplete_evidence_are_honest():
         compare_fixed_exam_evidence(
             baseline,candidate,reference_protocol="exam-A",
             candidate_protocol="exam-B")
-    with pytest.raises(ValueError,match="missing held-out"):
+    with pytest.raises(ValueError,match="invalid eval_core_pitch_mae"):
         compare_fixed_exam_evidence(
             baseline,{**candidate,"eval_core_pitch_mae":None},
             reference_protocol="exam-A",candidate_protocol="exam-A")
