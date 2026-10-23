@@ -504,12 +504,31 @@ def _fmt_len(v: float) -> str:
 
 
 def format_line(version: str, step: int, reward: float, row: dict[str, float], report: dict[str, Any], train_fps: float,
-                 wall_fps: float | None = None, nan_grad_skips: int = 0) -> str:
-    fail = f"{100*row['fall_height']:.0f}/{100*row['fall_tilt']:.0f}/{100*row['fall_roll_rate']:.0f}/{100*row['fall_pitch_rate']:.0f}"
-    line1 = (f"[{version}] step={step:,} rew={reward:+.3f} len={row['ep_len_mean']:.0f} "
-             f"fall={100*row['fall_rate']:.1f}% train_fps={train_fps:.0f} wall_fps={(wall_fps if wall_fps is not None else train_fps):.0f} fail(h/t/r/p)={fail} "
-             f"vx={row['vx_mean']:+.3f}/{row['cmd_vx_mean']:+.3f} cone={row['foot_mid_angle_deg']:.1f}deg "
-             f"step={row['step_evidence']:.2f} sync={row['phase_sync']:.2f}")
+                wall_fps: float | None = None, nan_grad_skips: int = 0,
+                *, slope_deg: float = 0.0, contact_terrain_radius: float = 0.0) -> str:
+    """Readable first line; detailed diagnostics remain in the run's console.log.
+
+    The \u201cstep\u201d height is an exposure ceiling, not the sampled ledge height.
+    Shaft J/m is simulated positive mechanical work, not battery energy.
+    """
+    if contact_terrain_radius > 0.0:
+        slope = f"≤{5.0*contact_terrain_radius:.1f}°"
+    else:
+        slope = f"{slope_deg:.1f}°"
+    exposure = 100.0 * float(report.get('terrain_exposure', 0.0))
+    ceiling_cm = 100.0 * float(report.get('terrain_height_m', 0.0))
+    jpm = float(row.get('shaft_j_per_m_forward', -1.0))
+    efficiency = f"{jpm:.1f}" if math.isfinite(jpm) and jpm >= 0.0 else "–"
+    line1 = (
+        f"[{version}] step={step:,} rew={reward:+.3f} "
+        f"len={row['ep_len_mean']:.0f} fall={100*row['fall_rate']:.1f}% "
+        f"fps={(wall_fps if wall_fps is not None else train_fps):.0f} "
+        f"vx=[{report.get('frontier_vx_lo',0.0):+.2f},{report.get('frontier_vx_hi',0.0):+.2f}] "
+        f"act/cmd={row['vx_mean']:+.2f}/{row['cmd_vx_mean']:+.2f} "
+        f"slope={slope} step≤{ceiling_cm:.1f}cm({exposure:.0f}%) "
+        f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m"
+        f"{' NAN-SKIPS='+str(nan_grad_skips) if nan_grad_skips else ''}"
+    )
     # Three regimes' difficulty + live env-allocation fraction, plus
     # posture's own global dial.
     line2 = (f"[{version}]   steady={report['steady_difficulty']:.2f}(env={report['regime_frac_steady']:.2f}) "
@@ -1153,6 +1172,22 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # CPU-only arithmetic on rollout metrics already transferred from JAX.
+    # Positive mechanical actuator work divided by NET forward displacement
+    # in frames requesting forward walking. Never infer battery consumption,
+    # and refuse an unstable ratio for near-zero or backwards displacement.
+    row['shaft_j_per_m_forward'] = -1.0
+    if all(name in metrics for name in ('servo_shaft_drive_power_w', 'vx', 'cmd_vx')):
+        cmd = np.asarray(metrics['cmd_vx'], dtype=float)
+        actual = np.asarray(metrics['vx'], dtype=float)
+        drive = np.asarray(metrics['servo_shaft_drive_power_w'], dtype=float)
+        forward = ((cmd >= 0.075) & np.isfinite(cmd) &
+                   np.isfinite(actual) & np.isfinite(drive))
+        if np.count_nonzero(forward) >= max(1, cmd.size // 20):
+            forward_vx = float(actual[forward].mean())
+            if forward_vx >= 0.04:
+                row['shaft_j_per_m_forward'] = max(
+                    0.0, float(drive[forward].sum() / actual[forward].sum()))
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
     # transition_*_err = mean |vel - cmd| over the steps that were MID-RAMP;
