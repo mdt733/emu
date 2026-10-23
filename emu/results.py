@@ -681,6 +681,102 @@ def capability_field_evidence_snapshot(field, min_events: int = 20) -> dict[str,
     }
 
 
+# Provisional engineering guardrails for comparable FROZEN-policy panels.
+# These are tolerances for regression alerts, not statistically justified
+# significance bounds or reward coefficients. Core practice must survive a
+# new capability (such as stepping over terrain).
+FIXED_EXAM_GUARDS = {
+    "eval_core_survival": ("floor", 0.05),
+    "eval_core_support": ("floor", 0.08),
+    "eval_core_step_evidence": ("floor", 0.15),
+    "eval_core_vx_mae": ("ceiling", 0.025),
+    "eval_core_vy_mae": ("ceiling", 0.025),
+    "eval_core_yaw_mae": ("ceiling", 0.12),
+    "eval_core_pitch_mae": ("ceiling", 0.07),
+    "eval_core_height_shortfall_m": ("ceiling", 0.007),
+    "eval_dynamic80_survival": ("floor", 0.075),
+    "eval_combo70_survival": ("floor", 0.075),
+    "eval_resilience75_survival": ("floor", 0.10),
+    "eval_robust40_survival": ("floor", 0.08),
+}
+
+
+def compare_fixed_exam_evidence(
+    reference: dict[str, Any], candidate: dict[str, Any], *,
+    reference_protocol: str, candidate_protocol: str,
+) -> dict[str, Any]:
+    """Independent matched-exam regression report; NEVER a PPO lesson.
+
+    Both inputs must be REAL fixed-evaluation aggregate rows from the same
+    frozen environment/commands/sensor support. The caller must supply a
+    nonempty verifiable exam-protocol fingerprint for each run. Missing data
+    and changed exam setup are **not comparisons**. This is a conservative
+    regression alert, not a new champion rank or a confidence interval.
+    """
+    if (not reference_protocol or not candidate_protocol
+            or reference_protocol != candidate_protocol):
+        raise ValueError("fixed exams require identical nonempty protocol fingerprints")
+    required=set(FIXED_EXAM_GUARDS)|{
+        "eval_policy_step","perf_eval_cohorts_used","perf_eval_env_steps"}
+    def checked(name: str, row: dict[str, Any]) -> dict[str,float]:
+        missing=sorted(required-row.keys())
+        if missing:
+            raise ValueError(f"{name} missing held-out fields: {', '.join(missing)}")
+        result={}
+        for key in required:
+            try:
+                result[key]=float(row[key])
+            except (TypeError,ValueError) as exc:
+                raise ValueError(f"{name} has invalid {key}") from exc
+            if not math.isfinite(result[key]):
+                raise ValueError(f"{name} has nonfinite {key}")
+        if (result["perf_eval_cohorts_used"]<1
+                or result["perf_eval_env_steps"]<1
+                or result["eval_policy_step"]<0):
+            raise ValueError(f"{name} has insufficient fixed-exam provenance")
+        if any(not (0 <= result[k] <= 1) for k in (
+              "eval_core_survival","eval_core_support","eval_core_step_evidence",
+              "eval_dynamic80_survival","eval_combo70_survival",
+              "eval_resilience75_survival","eval_robust40_survival")):
+            raise ValueError(f"{name} has out-of-range success/support evidence")
+        if any(result[k]<0 for k in required if k.endswith("_mae") or k.endswith("_m")):
+            raise ValueError(f"{name} has negative physical errors")
+        return result
+    before=checked("reference",reference)
+    after=checked("candidate",candidate)
+    if (before["perf_eval_cohorts_used"]!=after["perf_eval_cohorts_used"]
+            or before["perf_eval_env_steps"]!=after["perf_eval_env_steps"]):
+        raise ValueError("fixed exam cohort/size mismatch; no valid comparison")
+
+    metrics={}
+    regressed=[]
+    for field,(direction,tolerance) in FIXED_EXAM_GUARDS.items():
+        change=after[field]-before[field]
+        bad=(change < -tolerance) if direction=="floor" else (change > tolerance)
+        metrics[field]=dict(
+            reference=before[field],candidate=after[field],delta=change,
+            direction=direction,allowed_worsening=tolerance,
+            regressed=bool(bad))
+        if bad:regressed.append(field)
+    return {
+        "schema":"emu_held_out_core_regression_1",
+        "source":"held_out_exam",
+        "protocol_fingerprint":reference_protocol,
+        "reference_step":int(before["eval_policy_step"]),
+        "candidate_step":int(after["eval_policy_step"]),
+        "matched_cohorts":int(before["perf_eval_cohorts_used"]),
+        "matched_eval_env_steps":int(before["perf_eval_env_steps"]),
+        "guardrail_status":"regression" if regressed else "no_guardrail_regression",
+        "regressed_fields":regressed,
+        "metrics":metrics,
+        "qualification":(
+            "Alert-only matched physical panel comparison. Thresholds are "
+            "provisional and cohort averages are not independent confidence "
+            "intervals. No ranking, curriculum teaching, or promotion."
+        ),
+    }
+
+
 def mean_metric(metrics: dict[str, Any], name: str) -> float:
     if name not in metrics:
         return 0.0
