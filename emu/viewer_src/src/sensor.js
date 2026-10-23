@@ -158,9 +158,9 @@ const DEPTH_OFFSETS = [
 ];
 
 export function depthProbeRays(torso, R, {forward=.09, tilt=50, height=-.018}={}) {
-  if (![forward,tilt,height].every(Number.isFinite) || forward<.078 ||
+  if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
       forward>.20 || tilt<15 || tilt>85)
-    throw new Error('Depth mount must be forward 78–200 mm, tilt 15–85°');
+    throw new Error('Depth mount must be forward 0–200 mm, tilt 15–85°');
   const rotate = ([x,y,z]) => [
     R[0]*x+R[1]*y+R[2]*z,
     R[3]*x+R[4]*y+R[5]*z,
