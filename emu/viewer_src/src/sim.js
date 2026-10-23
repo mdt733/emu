@@ -110,7 +110,7 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.sensorObstacle = 'flat';
-    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
