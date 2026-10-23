@@ -27,7 +27,7 @@ STEP_HEIGHT_M = 0.04
 BURIED_Z_M = -0.50
 
 
-def spike_model():
+def spike_model(height_m: float):
     """Compile the actual robot with ONE finite box; no production XML edits.
 
     Flat worlds bury this same geom completely below the ground plane.
@@ -41,8 +41,8 @@ def spike_model():
         raise RuntimeError("robot.xml has no worldbody")
     ET.SubElement(world, "geom", {
         "name": "g3_step", "type": "box",
-        "pos": f"{STEP_X_M} 0 {STEP_HEIGHT_M / 2}",
-        "size": f"{STEP_HALF_LENGTH_M} {STEP_HALF_WIDTH_M} {STEP_HEIGHT_M / 2}",
+        "pos": f"{STEP_X_M} 0 {height_m / 2}",
+        "size": f"{STEP_HALF_LENGTH_M} {STEP_HALF_WIDTH_M} {height_m / 2}",
         "rgba": "0.75 0.45 0.15 1", "friction": "1.5 0.005 0.0001",
         "group": "4",
     })
@@ -63,26 +63,32 @@ def spike_model():
 def sensor_rays_cpu(model, step_id: int, height_m: float):
     """Actual MuJoCo collision rays, not fitted floor or synthetic grades.
 
-    A provisional 4x4 fan from the torso origin: down-pitch varies by row,
-    azimuth by column. These measure floor/step surfaces only, deliberately
-    NOT leg occlusion or a production hardware mount.
+    These are the 16 centre rays of the viewer's 45-degree-square FOV
+    at 0 mm forward, 70 degrees down and 40 mm below torso centre.
+    They measure floor/step only, deliberately NOT leg self-occlusion,
+    return histogram, sub-ray aggregation or acquisition delays.
     """
     import mujoco
 
     model.geom_pos[step_id, 2] = height_m / 2 if height_m else BURIED_Z_M
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
-    origin = np.array([0.0, 0.0, 0.2584], dtype=np.float64)
+    origin = np.array([0.0, 0.0, 0.2584 - 0.040], dtype=np.float64)
     geomgroup = np.array([0, 0, 0, 0, 1, 0], dtype=np.uint8)
     rays = []
-    for pitch_deg in (55, 65, 70, 75):
-        for yaw_deg in (-15, -5, 5, 15):
-            pitch, yaw = math.radians(pitch_deg), math.radians(yaw_deg)
+    tilt = math.radians(70)
+    half_fov = math.tan(math.radians(45) / 2)
+    for row in range(4):
+        for col in range(4):
+            # Identical image-plane basis to viewer_src/src/sensor.js
+            u = (col - 1.5) * half_fov / 2
+            v = (1.5 - row) * half_fov / 2
             direction = np.array([
-                math.cos(pitch) * math.cos(yaw),
-                math.cos(pitch) * math.sin(yaw),
-                -math.sin(pitch),
+                math.cos(tilt) + math.sin(tilt) * v,
+                u,
+                -math.sin(tilt) + math.cos(tilt) * v,
             ], dtype=np.float64)
+            direction /= np.linalg.norm(direction)
             geom_id = np.array([-1], dtype=np.int32)
             distance = mujoco.mj_ray(
                 model, data, origin, direction, geomgroup, 1, -1, geom_id)
@@ -101,7 +107,7 @@ def run(worlds: int = 2, steps: int = 12, height_m: float = STEP_HEIGHT_M):
     if steps < 1 or not 0 < height_m <= STEP_HEIGHT_M:
         raise ValueError("steps must be positive; height must be in (0, 0.04] m")
 
-    model, floor, step, feet = spike_model()
+    model, floor, step, feet = spike_model(height_m)
     base = mjx.put_model(model)
     active = np.arange(worlds) % 2 == 1
     positions = np.tile(np.asarray(model.geom_pos), (worlds, 1, 1))
