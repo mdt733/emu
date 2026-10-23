@@ -893,9 +893,12 @@ export class EmuBrowserSim {
       if (!mesh) {
         const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
         const isParkHeightfield = Number(vg.type) === mj.mjtGeom.mjGEOM_HFIELD.value;
+        // Two-sided raycasting is essential when the configurable optical
+        // origin sits INSIDE the torso at 0mm, and for floor/support normals.
+        // Otherwise Three.js ignores the exit face and sees through the body.
         const material = isFloor
-          ? new THREE.MeshStandardMaterial({map: this.showGrid ? this.gridTexture : null, roughness: 0.98, metalness: 0, color: this.showGrid ? 0xffffff : 0x40515e})
-          : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
+          ? new THREE.MeshStandardMaterial({map: this.showGrid ? this.gridTexture : null, roughness: 0.98, metalness: 0, color: this.showGrid ? 0xffffff : 0x40515e, side: THREE.DoubleSide})
+          : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06, side: THREE.DoubleSide });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
         mesh.userData.floor = isFloor;
         // mjvGeom.objid is the actual MuJoCo geom ID. The unrelated
