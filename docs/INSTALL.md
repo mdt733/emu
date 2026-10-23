@@ -37,7 +37,35 @@ bash scripts/check.sh
 emu ladder --stage plan
 ```
 
-For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu doctor --no-require-gpu --no-mjx-smoke`. The installer builds the viewer, not a long run.
+The same `scripts/setup_wsl.sh` supports ordinary installs and lightweight viewer work
+without introducing another setup wrapper:
+
+| Command | Installs/does | Does not do |
+| --- | --- | --- |
+| `bash scripts/setup_wsl.sh --install-node --viewer-only` | Python package, locked browser dependencies and viewer build | Full test suite, GPU install, training or training plans |
+| `bash scripts/setup_wsl.sh --install-node` | Python package, viewer build, basic doctor and training plan | Full test suite or training |
+| `bash scripts/setup_wsl.sh --install-node --cuda13` | Same, plus CUDA 13 JAX for supported NVIDIA/WSL configurations | Launch training automatically |
+| Add `--check` | Explicit full Python and browser test suite | Changes to main or trained policies |
+
+The installer reuses a compatible `.venv`, refuses to delete one, and never
+changes the current Git branch. Node 24 can be reused without `--install-node`
+when already available. Run `bash scripts/check.sh` separately for the
+full repository checks when needed.
+
+For the experimental capability-growth branch, **G3 is a focused physical
+contact proof, not a training run**. In an already-installed checkout:
+
+```bash
+git switch feature/v5023-capability-growth
+git pull --ff-only
+source .venv/bin/activate
+python -m emu.terrain_spike --worlds 2
+```
+
+The proof requires the Python/MJX dependencies but not Node, a GPU, or the
+browser viewer. Its 16 CPU MuJoCo terrain-only rays are diagnostics and do not
+replace actual actor sensors or prove step traversal. For the browser, launch
+`emu viewer showcase/champion.emupolicy --no-open` after setup.
 
 **The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
 
