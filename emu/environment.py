@@ -18,9 +18,13 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .terrain import (training_course_xml, course_ground_height, scan_forward,
+                      TERRAIN_COURSE_NAMES)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
+from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
+                         actor_observation_fields, sensor_observation_contract,
+                         terrain_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TASK_PARAM_FIELDS, P)
 
@@ -138,6 +142,7 @@ class EnvState(NamedTuple):
     # The v5016 opt-in sensor queue persists independent acquisition and
     # delivery timing. Legacy policies leave this at None.
     sensor_state: Any = None
+    front_state: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -156,6 +161,13 @@ class SensorState(NamedTuple):
     samples: SensorSample
     gyro_bias_rad_s: Any
     current_gyro_body_rad_s: Any
+
+
+class FrontState(NamedTuple):
+    """Independent four-frame front acquisition ring; no teacher features."""
+    ranges_m: Any
+    valid: Any
+    age_frames: Any
 
 
 class PhysicalFrame(NamedTuple):
@@ -1071,7 +1083,8 @@ class EmuMJXEnv(TaskSampler):
                  flow_delay_frames: int = 1,
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
-                 gyro_bias_std_rad_s: float = 0.015):
+                 gyro_bias_std_rad_s: float = 0.015,
+                 front_visible: bool = True):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1089,6 +1102,8 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
         self.observation_schema = observation_schema
+        self.front_visible = bool(front_visible)
+        self.use_front = observation_schema == OBS_SCHEMA_TERRAIN
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
         self.obs_dim = self.base_obs_dim * HISTORY_LEN
@@ -1115,7 +1130,7 @@ class EmuMJXEnv(TaskSampler):
         self.tof_dropout_prob = float(tof_dropout_prob)
         self.flow_dropout_prob = float(flow_dropout_prob)
         self.gyro_bias_std_rad_s = float(gyro_bias_std_rad_s)
-        self.sensor_contract = (sensor_observation_contract({
+        old_sensor_contract = (sensor_observation_contract({
             'tof_period_frames': tof_period_frames,
             'flow_period_frames': flow_period_frames,
             'tof_delay_frames': tof_delay_frames,
@@ -1124,14 +1139,26 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
+        }) if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
+        self.sensor_contract = (terrain_observation_contract(
+            old_sensor_contract['settings'], front_visible=self.front_visible)
+            if self.use_front else old_sensor_contract)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
         self.num_envs = int(num_envs)
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
-        self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
+        # Only the explicitly opt-in v5022 world has non-continuous,
+        # REAL collidable geometry. Archived policy physics stay identical.
+        if self.use_front:
+            if contact_slope_deg or (domain_config and domain_config.terrain_radius):
+                raise ValueError('v5022 real terrain cannot mix with tilted plane domain')
+            from pathlib import Path
+            self.mj_model = mujoco.MjModel.from_xml_string(
+                training_course_xml(Path(self.robot_xml).read_text()))
+        else:
+            self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
@@ -1164,6 +1191,14 @@ class EmuMJXEnv(TaskSampler):
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
         self.mjx_model_template = mjx.put_model(self.mj_model)
         self.ids = self._resolve_ids()
+        self.terrain_ids = (np.asarray([
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,name)
+            for name in TERRAIN_COURSE_NAMES],dtype=np.int32)
+            if self.use_front else None)
+        if self.use_front and np.any(self.terrain_ids<0):
+            raise RuntimeError('training terrain collision geoms missing')
+        self.terrain_sizes = (jnp.asarray(self.mj_model.geom_size[self.terrain_ids])
+                              if self.use_front else None)
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
@@ -1426,9 +1461,12 @@ class EmuMJXEnv(TaskSampler):
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
             else None)
-        base = self._base_obs(data, task, action, phase, ctrl, sensors)
+        front = (self._advance_front_state(state.front_state,data,physics.next_keys,
+                                         state.ep_len+1)
+                 if self.use_front else None)
+        base = self._base_obs(data, task, action, phase, ctrl, sensors, front)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1444,7 +1482,7 @@ class EmuMJXEnv(TaskSampler):
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left, sensors)
+                           physics.push_force, physics.push_steps_left, sensors, front)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1749,15 +1787,17 @@ class EmuMJXEnv(TaskSampler):
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
-                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
-        base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
+                   if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
+        front = (self._initial_front_state(data,noise_keys)
+                 if self.use_front else None)
+        base = self._base_obs(data, task, prev_action, phase, prev_action, sensors, front)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors, front)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -1963,6 +2003,10 @@ class EmuMJXEnv(TaskSampler):
         floor = int(self.ids['floor_geom'])
         normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
         origin = data.geom_xpos[:,floor,:]
+        if self.use_front:
+            # Reward ONLY. Supports exactly the injected collision boxes;
+            # never a privileged actor observation or hidden sensor depth.
+            return positions[...,2]-course_ground_height(self.jnp,positions)
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
@@ -2127,7 +2171,7 @@ class EmuMJXEnv(TaskSampler):
             **spring_energy,
         }
 
-    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
+    def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None, front_state=None):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
         projected_gravity, body_vel, body_ang = self._body_packets(data)
@@ -2164,7 +2208,7 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema == OBS_SCHEMA_SENSOR:
+        if self.observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
             # No direct access to simulated true velocity, floor normal or
             # even instantaneous raw ToF/flow readings: the persistent sensor
             # ring owns acquisition cadence, delay, dropout and gyro bias.
@@ -2183,6 +2227,19 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_sideways_grade_rad'],
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
+        if self.use_front:
+            if front_state is None: raise ValueError('v5022 needs delayed front packet')
+            # Relative capture age, explicit masks, physical slant ranges.
+            # Both experimental arms have IDENTICAL 364-wide actor networks.
+            frame=HISTORY_LEN-2  # one-frame sensor delivery delay
+            rng=front_state.ranges_m[:,frame,:]
+            ok=front_state.valid[:,frame,:]
+            visible=ok & self.front_visible
+            rng=jnp.where(visible,rng,0.)
+            age=jnp.where(self.front_visible,
+                front_state.age_frames[:,frame],0).astype(jnp.float32)
+            base=jnp.concatenate([base,rng,visible.astype(jnp.float32),
+                                  age[:,None]],axis=1)
         assert base.shape[1] == self.base_obs_dim, (
             f"_base_obs produced {base.shape[1]} columns, "
             f"{self.observation_schema} requires {self.base_obs_dim}")
