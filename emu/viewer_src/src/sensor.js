@@ -142,3 +142,109 @@ export class SensorObserver {
             groundConfidence:valid?ground.confidence*gradeFresh:0};
   }
 }
+
+
+// Diagnostic-only ST VL53L8CX (8x8-capable package in native 4x4 mode).
+// Four sub-rays per zone geometrically approximate a sampled 8x8 footprint;
+// the real hardware does NOT return 64 measurements when configured as 4x4.
+// No output enters the champion observation history.
+export const DEPTH_FOV_DEG = 45;
+export const DEPTH_ZONES = 4;
+export const DEPTH_MAX_M = 1.5;
+// 45° square angular frustum on a single sensor image plane. Independent
+// image-plane axes prevent horizontal FoV collapsing at 90° downward tilt.
+// A 4x4 zone occupies 1/4 of each image-plane extent. Each quarter-zone
+// offset is 1/8 of the half-extent; these approximate footprints, not ST
+// ranging/histogram sub-pixels.
+const DEPTH_HALF = Math.tan(DEPTH_FOV_DEG*Math.PI/360);
+const DEPTH_OFFSETS = [[0,0],[-1,-1],[-1,1],[1,-1],[1,1]];
+
+function opticalRay(R, tilt, u, v) {
+  const t=tilt*Math.PI/180, c=Math.cos(t), s=Math.sin(t);
+  // The sensor looks forward (+X) until pitched down towards -Z.
+  // Its horizontal image axis is body Y; vertical image axis is the
+  // tilted local optical "up" vector. At tilt=90° the footprint is
+  // square on horizontal flat ground, not a degenerate V/line.
+  const length=1/Math.hypot(1,u,v);
+  const x=(c+s*v)*length, y=u*length, z=(-s+c*v)*length;
+  return [
+    R[0]*x+R[1]*y+R[2]*z,
+    R[3]*x+R[4]*y+R[5]*z,
+    R[6]*x+R[7]*y+R[8]*z,
+  ];
+}
+
+export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) {
+  if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
+      forward>.20 || tilt<0 || tilt>90)
+    throw new Error('Depth mount must be forward 0–200 mm, tilt 0–90°');
+  const mounted=[
+    R[0]*forward+R[1]*0+R[2]*height,
+    R[3]*forward+R[4]*0+R[5]*height,
+    R[6]*forward+R[7]*0+R[8]*height,
+  ];
+  const origin=torso.map((v,i)=>v+mounted[i]);
+  const directions=[];
+  for(let row=0;row<4;row++)for(let col=0;col<4;col++){
+    const zone=[];
+    const u=(col-1.5)*DEPTH_HALF/2;
+    const v=(1.5-row)*DEPTH_HALF/2;
+    for(const [offU,offV] of DEPTH_OFFSETS)
+      zone.push(opticalRay(R,tilt,u+offU*DEPTH_HALF/8,
+                          v+offV*DEPTH_HALF/8));
+    directions.push(zone);
+  }
+  return {origin,directions};
+}
+
+// Five-by-five BEAM BOUNDARIES outline the true square 4x4 zone footprint.
+// On uneven ground the viewer casts each boundary ray onto actual geoms;
+// edges with no real hit are left open, never drawn as imaginary surfaces.
+export function depthGridRays(R,{tilt=70}={}) {
+  if(!Number.isFinite(tilt)||tilt<0||tilt>90)
+    throw new Error('Depth grid tilt must be 0–90°');
+  return Array.from({length:25},(_,i)=>{
+    const row=Math.floor(i/5),col=i%5;
+    const u=(col/2-1)*DEPTH_HALF;
+    const v=(1-row/2)*DEPTH_HALF;
+    return opticalRay(R,tilt,u,v);
+  });
+}
+
+export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
+  // cast() returns a first physical intersection distance or
+  // {distance,kind:'self'|'terrain'}; no hidden surface-height lookup.
+  if(![1,4,5].includes(subrays))throw new Error('Expected 1, 4 or 5 depth rays per zone');
+  const samples=subrays===1?[0]:subrays===4?[1,2,3,4]:[0,1,2,3,4];
+  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],mixed=[];
+  for(const zone of pose.directions){
+    const values=[];
+    for(const j of samples){
+      const result=cast(pose.origin,zone[j],DEPTH_MAX_M);
+      const distance=Number(typeof result==='number'?result:result?.distance);
+      if(Number.isFinite(distance)&&distance>=.02&&distance<=DEPTH_MAX_M)
+        values.push({distance,kind:result?.kind||'terrain',surface:result?.surface??null,ray:zone[j]});
+    }
+    values.sort((a,b)=>a.distance-b.distance);
+    const coverage=values.length/samples.length;
+    let ok=coverage>=.60;
+    // Lower median: edge zones prefer an actual nearer surface instead of
+    // averaging lower and upper platforms into a fictitious "ramp".
+    const picked=ok?values[Math.floor((values.length-1)/2)]:null;
+    let value=picked?picked.distance:0;
+    if(ok && noise) value+=noise*(Math.random()-.5)*2;
+    ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
+    ranges.push(ok?value:0);
+    valid.push(ok);
+    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'));
+    // Raw slant-range variation happens even on perfectly FLAT ground;
+    // a mixed-zone warning instead means rays actually hit different
+    // visible objects/surfaces. This flag is diagnostic-only privilege.
+    const distinct=new Set(values.map(v=>v.surface??v.kind));
+    mixed.push(ok&&distinct.size>1);
+    const direction=ok?picked.ray:zone[0];
+    const length=ok?picked.distance:.55;
+    hitPoints.push(pose.origin.map((p,k)=>p+length*direction[k]));
+  }
+  return {ranges,valid,origin:pose.origin,hitPoints,selfOccluded,mixed};
+}
