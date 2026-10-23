@@ -110,7 +110,7 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.sensorObstacle = 'flat';
-    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true};
+    this.depthConfig = {enabled:true,forward:.09,tilt:50,showRays:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -344,8 +344,9 @@ export class EmuBrowserSim {
     this.sensorObstacle=id;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,showRays}) {
-    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),showRays:Boolean(showRays)};
+  setDepthInspector({enabled,forward,tilt,showRays,subrays='auto'}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),showRays:Boolean(showRays),subrays};
+    if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
     if(values.forward<.078||values.forward>.2||values.tilt<15||values.tilt>85)throw new Error('Invalid depth mount');
     this.depthConfig=values;
@@ -880,6 +881,10 @@ export class EmuBrowserSim {
           : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
         mesh.userData.floor = isFloor;
+        // Scene dataid identifies MuJoCo geometry; non-world bodies are the
+        // moving robot, including feet and leg links. Do not hide them.
+        mesh.userData.robotPart = dataId>=0 && dataId<Number(this.model.ngeom) &&
+          Number(this.model.geom_bodyid[dataId])>0;
         mesh.userData.parkHeightfield = isParkHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
@@ -990,20 +995,23 @@ export class EmuBrowserSim {
   }
 
   updateDepthInspector(nowMs) {
-    // Diagnostics are independent of the actor observations and commands.
+    // Observer only; never feeds the 220/232 policy's neural observations.
     if(!this.depthConfig.enabled || !this.data){
       this.depthLines.visible=false;
       this.depthMountMarker.visible=false;
       this.depthReading=null;
       return;
     }
-    if(this.depthLastMs && nowMs-this.depthLastMs<75)return;
+    const oldCost=this.depthReading?.costMs||0;
+    const interval=Math.max(75,Math.min(350,oldCost*3));
+    if(this.depthLastMs && nowMs-this.depthLastMs<interval)return;
     this.depthLastMs=nowMs;
+    const begin=performance.now();
     const o=this.torsoId*3;
     const torso=Array.from(this.data.xpos.slice(o,o+3));
     const pose=depthProbeRays(torso,this.bodyRotation(),this.depthConfig);
-    // Only MuJoCo geoms rendered by the viewer, plus its exact hfield mesh.
-    // That deliberately INCLUDES moving feet/shins: self occlusion is real.
+    // Shared viewer geometry (including movable robot parts) matches the
+    // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
     const targets=this.meshes.filter(mesh=>mesh.visible);
     if(this.parkSurface)targets.push(this.parkSurface);
     for(const mesh of targets)mesh.updateMatrixWorld(true);
@@ -1011,23 +1019,27 @@ export class EmuBrowserSim {
     raycaster.near=.018;
     const origin=new THREE.Vector3(...pose.origin);
     const direction=new THREE.Vector3();
-    const sampleCount=this.terrainMode==='park'?1:5; // avoid 80 expensive park hfield casts
+    const n=this.depthConfig.subrays;
+    // Auto protects the large hfield mesh from 64 costly triangle casts.
+    // Selecting 4 or 5 overrides this and shows the actual cost.
+    const sampleCount=n==='auto'?(this.terrainMode==='park'?1:4):n;
     const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
-      return hit?hit.distance:Infinity;
+      return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain'}:Infinity;
     },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
-    this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount};
+    const costMs=performance.now()-begin;
+    this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,costMs};
     const points=this.depthLinePositions,colors=this.depthLineColors;
     for(let i=0;i<16;i++){
-      const ray=pose.directions[i][0];
-      const range=reading.valid[i]?reading.ranges[i]:.50;
-      const end=pose.origin.map((v,k)=>v+ray[k]*range);
+      const end=reading.hitPoints[i];
+      const c=reading.selfOccluded[i]?[1,.63,.24]:
+        reading.mixed[i]?[1,.87,.40]:
+        reading.valid[i]?[.31,.95,.65]:[1,.38,.40];
       for(let k=0;k<3;k++){
         points[i*6+k]=pose.origin[k];
         points[i*6+3+k]=end[k];
-        const c=reading.valid[i]?[.31,.95,.65]:[1,.53,.38];
         colors[i*6+k]=colors[i*6+3+k]=c[k];
       }
     }
