@@ -645,3 +645,55 @@ def test_v5022_real_364_input_ppo_gradient_cpu():
                        smoke=True,device="cpu")
         assert report["step"]==8
         assert np.isfinite(report["latest"]["reward_mean"])
+
+
+
+def test_v5022_uses_mains_training_config_checkpoint_and_health_doctrine(tmp_path):
+    """Guard against a second trainer replacing main's mature lifecycle.
+
+    Existing schema-7/8 policy meaning remains protected. The terrain
+    experiment has schema-9 and the blind/visible arms cannot cross-load.
+    """
+    from dataclasses import replace
+    from emu.training_config import foundation_config, training_sensor_contract
+    from emu.training import env_kwargs_from_args
+    from emu.checkpoint_io import _validate_observation_meta
+    from emu.contracts import (
+        OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN,TERRAIN_OBS_DIM,
+        terrain_observation_contract)
+    visible=replace(
+        foundation_config(run_dir=tmp_path/"visible",seed=733,
+                          device="cpu",envs=4),
+        steps=10_000_000,observation_schema=OBS_SCHEMA_TERRAIN,
+        front_visible=True,allow_rollback=True)
+    blind=replace(visible,run_dir=str(tmp_path/"blinded"),
+                  front_visible=False)
+    v=training_sensor_contract(visible)
+    b=training_sensor_contract(blind)
+    assert v!=b
+    assert v["schema"]==OBS_SCHEMA_TERRAIN
+    assert v["old_sensor_contract"]["settings"]["sensor_noise_scale"]==1.5
+    assert env_kwargs_from_args(visible)["front_visible"] is True
+    assert env_kwargs_from_args(blind)["front_visible"] is False
+    meta={"checkpoint_schema":9,"observation_schema":OBS_SCHEMA_TERRAIN,
+          "sensor_contract":v,"obs_dim":TERRAIN_OBS_DIM}
+    assert _validate_observation_meta(
+        meta,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+        expected_sensor_contract=v)==364
+    with pytest.raises(ValueError,match="fingerprint"):
+        _validate_observation_meta(
+            meta,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+            expected_sensor_contract=b)
+    with pytest.raises(ValueError,match="schema"):
+        _validate_observation_meta(
+            meta,expected_observation_schema=OBS_SCHEMA_SENSOR)
+    with pytest.raises(ValueError,match="legacy"):
+        _validate_observation_meta(meta)
+    # Only the shared trainer's actual public run implementation is the
+    # route for long runs, never an alternate source of checkpoint truth.
+    from emu import v5022_experiment
+    assert hasattr(v5022_experiment,"run_main_arm")
+    with pytest.raises(ValueError,match="main training.train"):
+        v5022_experiment.run_arm(
+            arm="visible",root=None,envs=4,steps=8,seed=733,
+            smoke=False,device="cpu")
