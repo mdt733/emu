@@ -1875,6 +1875,60 @@ class EmuMJXEnv(TaskSampler):
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
 
+    def _front_probe(self, data, keys):
+        """Exactly the collidable MJX boxes, world floor and live foot balls.
+
+        The actor NEVER gets course height, box IDs or foot identity.
+        These geometric truths are used only to SYNTHESISE optical returns.
+        """
+        jax,jnp=self.jax,self.jnp
+        boxes=self.terrain_ids
+        floor=int(self.ids['floor_geom'])
+        floor_o=data.geom_xpos[:,floor,:]
+        floor_n=data.geom_xmat[:,floor,:].reshape(
+            (self.num_envs,3,3))[:,:,2]
+        bpos=data.geom_xpos[:,boxes,:]
+        brot=data.geom_xmat[:,boxes,:].reshape(
+            (self.num_envs,len(boxes),3,3))
+        # Foot-ball centres are measured from live MuJoCo geom poses.
+        feet=data.geom_xpos[:,self.ids['foot_geoms'],:]
+        ranges,valid=scan_forward(
+            jnp,data.xpos[:,self.torso_id,:],
+            self._rotation_body_to_world(data),
+            bpos,brot,self.terrain_sizes,foot_centres=feet,
+            foot_radii=.018,subrays=4,floor_origin=floor_o,
+            floor_normal=floor_n)
+        # Noise is measured slant range noise, never privileged height.
+        noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5022),(16,),dtype=jnp.float32))(keys)
+        distances=ranges+noise*.0015
+        valid=valid & (distances>=.02) & (distances<=1.5)
+        return jnp.where(valid,distances,0.),valid
+
+    def _initial_front_state(self,data,keys):
+        jnp=self.jnp
+        ranges,valid=self._front_probe(data,keys)
+        ages=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        return FrontState(
+            jnp.repeat(ranges[:,None,:],HISTORY_LEN,axis=1),
+            jnp.repeat(valid[:,None,:],HISTORY_LEN,axis=1),
+            jnp.repeat(ages[:,None],HISTORY_LEN,axis=1))
+
+    def _advance_front_state(self,state,data,keys,age_frames):
+        jnp,jax=self.jnp,self.jax
+        ranges,valid=self._front_probe(data,keys)
+        # 50Hz capture at the 20ms control rate, one control frame delay;
+        # 2% independent zone dropout; no stale echoes masquerading as 0m.
+        dropout=jax.vmap(lambda k:jax.random.uniform(
+            jax.random.fold_in(k,5023),(16,)))(keys)<.02
+        valid=valid & ~dropout
+        r=jnp.where(valid,ranges,0.)
+        nxt_age=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        return FrontState(
+            jnp.concatenate([state.ranges_m[:,1:,:],r[:,None,:]],axis=1),
+            jnp.concatenate([state.valid[:,1:,:],valid[:,None,:]],axis=1),
+            jnp.concatenate([state.age_frames[:,1:],nxt_age[:,None]],axis=1))
+
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
 
