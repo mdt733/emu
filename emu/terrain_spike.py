@@ -362,6 +362,78 @@ def run_environment(worlds: int = 4):
     print('NOT YET: traversed step, accurate 4x4 actor sensing, governor, GPU memory')
 
 
+def run_terrain_actor(worlds: int = 4, *, device: str = 'cpu',
+                      geometry_only: bool = False):
+    """G5: real 4x4 policy inputs, matched flat/step geometry, PPO smoke.
+
+    This calls the ONE production environment/trainer with its versioned
+    sensor pipeline and never simulates a second actor.
+    """
+    import time
+    from .ppo import configure_jax, require_backend, make_trainer, build_obs_norm_mask
+    configure_jax(device)
+    import jax
+    import jax.numpy as jnp
+    from .environment import EmuMJXEnv
+    from .contracts import OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, ROBOT_XML
+
+    require_backend(device=='cpu')
+    if worlds < 2 or worlds%2:
+        raise ValueError('G5 4x4 actor probe needs even >=2 worlds')
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=worlds,seed=5023,
+                  terrain_step_max_m=.04,observation_schema=OBS_SCHEMA_TERRAIN,
+                  attitude_profile='v5015',sensor_noise_scale=0.,
+                  tof_dropout_prob=0.,flow_dropout_prob=0.)
+    flat=dict(terrain_exposure=0.,terrain_height_m=0.)
+    stepped=dict(terrain_exposure=1.,terrain_height_m=.04)
+    t0=time.perf_counter()
+    original, flat_obs=env.reset(flat)
+    raised,obs=env.reset(stepped)
+    obs.block_until_ready()
+    if obs.shape != (worlds,TERRAIN_OBS_DIM):
+        raise AssertionError(f'new actor must have {TERRAIN_OBS_DIM} inputs, got {obs.shape}')
+    if build_obs_norm_mask(OBS_SCHEMA_TERRAIN).shape != (TERRAIN_OBS_DIM,):
+        raise AssertionError('terrain observation normalizer dimension mismatch')
+    r0=original.sensor_state.samples.terrain_ranges_m[:,-1,:]
+    v0=original.sensor_state.samples.terrain_valid[:,-1,:]
+    r1=raised.sensor_state.samples.terrain_ranges_m[:,-1,:]
+    v1=raised.sensor_state.samples.terrain_valid[:,-1,:]
+    geometry_changed=(jnp.abs(r1-r0)>.005)&v0&v1
+    per_world = np.asarray(jax.device_get(jnp.sum(geometry_changed,axis=1)))
+    if not np.any(per_world):
+        raise AssertionError('4x4 neural actor is BLIND to real finite step geometry')
+    if not bool(jax.device_get(jnp.all(jnp.isfinite(obs)))):
+        raise AssertionError('invalid raw sensor neural input')
+    p=env.params_array(stepped)
+    t_compile=time.perf_counter()
+    stepped_frame=env.step(raised,jnp.zeros((worlds,6),dtype=jnp.float32),p)
+    stepped_frame.obs.block_until_ready()
+    after_compile=time.perf_counter()
+    repeated=env.step(stepped_frame.state,jnp.zeros((worlds,6),dtype=jnp.float32),p)
+    repeated.obs.block_until_ready()
+    elapsed=time.perf_counter()-after_compile
+    if not bool(jax.device_get(jnp.all(jnp.isfinite(repeated.obs)))):
+        raise AssertionError('G5 terrain physical step produced NaN')
+    print(f'G5 360 input: {worlds} worlds, differing raw ranges per world={per_world.tolist()}, '
+          f'compile_step_s={after_compile-t_compile:.2f} repeat_step_s={elapsed:.4f} '
+          f'world_steps_per_s={worlds/max(elapsed,1e-6):.0f} '
+          f'backend={jax.default_backend()}',flush=True)
+    if not geometry_only:
+        if worlds > 16:
+            raise ValueError('full gradient smoke limited to 16 worlds; use --geometry-only for scaling')
+        trainer=make_trainer(env,seed=5023,lr=2e-4,rollout=2,
+                            epochs=1,minibatches=1)
+        state=trainer['make_initial_state'](stepped)
+        mean=jnp.zeros((TERRAIN_OBS_DIM,),dtype=jnp.float32)
+        std=jnp.ones((TERRAIN_OBS_DIM,),dtype=jnp.float32)
+        updated,*_ = trainer['train_update'](
+            state,p,mean,std,jnp.asarray(.25,dtype=jnp.float32))
+        if not all(bool(jax.device_get(jnp.all(jnp.isfinite(leaf))))
+                   for leaf in jax.tree_util.tree_leaves(updated.params)):
+            raise AssertionError('G5 real 360-input PPO update was nonfinite')
+        print('PASS: same PPO optimized a 360-input physically sensing actor',flush=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worlds", type=int, default=2)
@@ -369,8 +441,16 @@ def main(argv=None):
     parser.add_argument("--height-m", type=float, default=STEP_HEIGHT_M)
     parser.add_argument("--environment", action="store_true",
                         help="probe reset-varying real terrain inside production EmuMJXEnv")
+    parser.add_argument('--actor',action='store_true',
+                        help='check real 4x4 actor sensing and full PPO gradient')
+    parser.add_argument('--geometry-only',action='store_true',
+                        help='limit G5 smoke to physical sensor/step throughput')
+    parser.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
     args = parser.parse_args(argv)
-    if args.environment:
+    if args.actor:
+        run_terrain_actor(worlds=max(args.worlds,4),device=args.device,
+                          geometry_only=args.geometry_only)
+    elif args.environment:
         run_environment(worlds=max(args.worlds, 4))
     else:
         run(worlds=args.worlds, steps=args.steps, height_m=args.height_m)
