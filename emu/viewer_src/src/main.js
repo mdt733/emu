@@ -397,6 +397,7 @@ depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
   const reading=sim?.depthReading;
   if(!reading){$('depthNote').textContent='No scan to copy yet';return;}
+  const terrainHeightCm=terrainHeightOffsetsCm(reading);
   const info={
     sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
     policy:bundle?.source?.run_name||'unknown',
@@ -412,7 +413,7 @@ $('depthCopy').addEventListener('click',async()=>{
     height_colours_saturate_at_cm:15,
     terrain_height_cm:Array.from({length:4},(_,row)=>
       Array.from({length:4},(_,col)=>{
-        const z=terrainHeightOffsetsCm(reading)[row*4+col];
+        const z=terrainHeightCm[row*4+col];
         return z===null?null:Number(z.toFixed(1));
       })),
     ranges_cm:Array.from({length:4},(_,row)=>
@@ -463,15 +464,18 @@ function updateDepthGrid(){
     }else if(valid){
       hits++;
       const cm=data.ranges[i]*100;
-      cell.textContent=mode==='height'?signedHeightText(height):cm.toFixed(1);
+      cell.textContent=mode==='height'
+        ?(height===null?'—':signedHeightText(height)):cm.toFixed(1);
       cell.title=(height===null?'Terrain unknown':signedHeightText(height)+' cm above flat z=0')+
         ' · raw '+cm.toFixed(1)+' cm';
       if(data.mixed[i]){
+        // A yellow outline warns of a discontinuity without hiding the
+        // sign of the measured height inside the cell.
         cell.className+=' mixed';
-        cell.style.background='#74651a';
         cell.title+=' · mixed edge, interpret cautiously';
-      }else if(mode==='height'){
-        cell.style.background=heightColor(height);
+      }
+      if(mode==='height'){
+        cell.style.background=height===null?'':heightColor(height);
       }else{
         // Raw physical slant range remains available and unmodified.
         const fraction=Math.max(0,Math.min(1,(cm-5)/145));
