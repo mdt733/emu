@@ -1776,21 +1776,24 @@ class EmuMJXEnv(TaskSampler):
 
         Up: flat initial support, finite upper platform beyond +X edge.
         Down: raised initial support, finite edge leading onto flat floor.
-        Episode resets can change height, angle and up/down independently
-        within a single precompiled model. The actor never receives these
-        coordinates; they are physical world state and teacher diagnostics.
+        Episode resets change height and angle without recompilation; even
+        worlds face step-ups and odd worlds step-downs for paired evidence.
+        The actor never receives these physical teacher coordinates.
         """
         if self.terrain_step_mocap_id < 0:
             return data
         jax, jnp = self.jax, self.jnp
         k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
         def choose(key):
-            kh, ka, kd = jax.random.split(key, 3)
+            kh, ka = jax.random.split(key)
             h = self.terrain_step_max_m * (0.3 + 0.7*jax.random.uniform(kh, ()))
             angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
-            down = jax.random.bernoulli(kd)
-            return h, angle, down
-        height, angle, down = jax.vmap(choose)(k)
+            return h, angle
+        height, angle = jax.vmap(choose)(k)
+        # Paired up/down worlds guarantee that a small batch actually
+        # exercises BOTH support geometries, not a lucky coin-flip subset.
+        # Only severity/edge angle resample at each birth in this G3 probe.
+        down = (self.env_index.astype(jnp.int32) % 2) == 1
         ca, sa = jnp.cos(angle), jnp.sin(angle)
         side = jnp.where(down, -1.0, 1.0)
         mid_x = TERRAIN_PLATFORM_EDGE_X_M + side*TERRAIN_PLATFORM_HALF_LENGTH_M*ca
