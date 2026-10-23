@@ -138,8 +138,8 @@ emu terrain-exam \
 ~~~bash
 git clone --branch feature/v5023-capability-growth --single-branch https://github.com/mdt733/emu.git ~/emu-v5023-ascent
 cd ~/emu-v5023-ascent
-# DETACH AT AN EXACT REVIEWED SHA, supplied with the handover; never pull during the run.
-git checkout --detach <REVIEWED_SOURCE_SHA>
+# After checking the branch CI, detach at the checkout's exact SHA and never pull during this run.
+git checkout --detach "$(git rev-parse HEAD)"  # freeze new checkout exactly once
 bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
