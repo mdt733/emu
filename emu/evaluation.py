@@ -1097,7 +1097,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     """
     import json
     import time
-    from .contracts import OBS_SCHEMA_LEGACY, ROBOT_XML
+    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, ROBOT_XML
     from .viewer_server import load_exported_actor_for_exam
     from .ppo import configure_jax, require_backend
 
@@ -1118,9 +1118,10 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         raise ValueError('exam cannot write into policy source directory')
 
     params, norm, export = load_exported_actor_for_exam(policy)
-    if export['observation_schema'] != OBS_SCHEMA_LEGACY:
-        raise ValueError('G5 incomplete: cannot fairly examine 232-input tripod actor '
-                         'using unimplemented 4x4 step sensor observations')
+    actor_schema=export['observation_schema']
+    if actor_schema not in (OBS_SCHEMA_LEGACY,OBS_SCHEMA_SENSOR):
+        raise ValueError('unsupported exported actor contract')
+    sensor_settings=export['sensor_settings'] if actor_schema==OBS_SCHEMA_SENSOR else {}
     # Select the intended JAX platform BEFORE initializing JAX/JIT.
     configure_jax(device)
     import jax
@@ -1134,7 +1135,10 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         phase_speed_gain=float(export['control']['phase_speed_gain']),
         max_episode_steps=700, push_max_force_n=0.,
         vx_hi_max=.6, vx_lo_min=-.2, vy_max_mps=.25, yaw_max_rad_s=1.5,
-        sensor_noise_scale=0., combo_mix_frac=0.,combo_probe_frac=0.,
+        sensor_noise_scale=sensor_settings.get('sensor_noise_scale',0.),
+        observation_schema=actor_schema,
+        **{k:v for k,v in sensor_settings.items() if k!='sensor_noise_scale'},
+        combo_mix_frac=0.,combo_probe_frac=0.,
         field_teach_recovery=False)
     trainer = make_trainer(
         env,seed=seed,lr=PPO_LR,rollout=ROLLOUT_STEPS,
@@ -1181,14 +1185,20 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     report=dict(
         schema='emu_terrain_exam_v1',source_commit=source_commit(),
         actor_artifact_sha256=export['artifact_sha256'],
-        actor_schema=export['observation_schema'],policy_step=export['source']['step'],
+        actor_schema=actor_schema,policy_step=export['source']['step'],
+        evidence_grade='diagnostic_only_until_real_step_sensor_and_independent_exam',
+        active_sensor_model=('legacy_flat_plane_tripod_232' if actor_schema==OBS_SCHEMA_SENSOR
+                             else 'legacy_220_without_terrain_preview'),
         exam=dict(seed=seed,backend=jax.default_backend(),worlds=worlds,
                   horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
                   model='single movable finite MJX platform, paired step up/down',
                   support='actual foot-floor and foot-platform collision contacts'),
         cases=cases, cautions=[
             'No PPO or curriculum update performed.',
-            'No VL53L8CX 4x4 actor inputs yet; a legacy actor is intentionally blind to discontinuities.',
+            ('232-input actor still uses the legacy tripod flat-contact-plane estimator: '
+             'its depth estimate does NOT yet intersect step geometry; score is '
+             'diagnostic only, NOT sensor-honest skill evidence.' if actor_schema==OBS_SCHEMA_SENSOR
+             else '220-input actor has no 4x4 terrain preview; score is diagnostic only.'),
             'Flat reference has no step-crossing score, only progress/survival.',
             'First fall/timeout truncates assessment; resets cannot earn passage.',
             'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
@@ -1201,7 +1211,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     lines=['# EMU finite-terrain course · frozen-policy evidence','',
            f"Policy artifact SHA256: {export['artifact_sha256']}",
            f"Source commit: {report['source_commit']}",
-           f"JAX backend: {jax.default_backend()}",'',
+           f"JAX backend: {jax.default_backend()}",
+           f"Actor schema: {actor_schema}; sensor evidence: DIAGNOSTIC ONLY",'',
            '| Height | Survive | Genuine crossings | Mean progress | Wall time |',
            '|---:|---:|---:|---:|---:|']
     for case in cases:
