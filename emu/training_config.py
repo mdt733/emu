@@ -173,6 +173,12 @@ class TrainingConfig:
     # The historical tilted-gravity terrain randomizer remains separate.
     contact_slope_deg: float = 0.0
 
+    # G4 opt-in: allocate a fixed-topology finite platform from episode zero,
+    # but keep it physically buried throughout the flat foundation. Exposure
+    # and height are controlled independently by RegimeGovernor; both start 0.
+    # No learner/curriculum automatically activates terrain yet.
+    terrain_step_max_m: float = 0.0
+
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
     pitch_command_max_deg: float = 8.0214
@@ -224,7 +230,8 @@ class TrainingConfig:
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode', 'observation_schema'}
+                    'domain_terrain_mode', 'observation_schema',
+                    'terrain_step_max_m'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
