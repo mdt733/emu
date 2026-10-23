@@ -590,6 +590,28 @@ def test_training_config_roundtrip():
     assert untracked['frontier_event_vx_hi'] == 'off'
     assert inactive.params.frontier_vx_hi == 0.60
 
+def test_terrain_governor_refuses_down_only_success():
+    """A perfect descent score must not unlock real uphill steps."""
+    g = RegimeGovernor()
+    g.core_competence = .95
+    g.fall_ema['posture'] = .05
+    kwargs = dict(step=20_000_001, foundation_steps=20_000_000, max_height_m=.04)
+    assert g.advance_terrain({}, **kwargs) == 'terrain_seed_1cm_5pct'
+    outcomes = dict(terrain_attempts=12., terrain_successes=6.,
+                    terrain_attempts_up=6., terrain_successes_up=0.,
+                    terrain_attempts_down=6., terrain_successes_down=6.)
+    assert g.advance_terrain(outcomes, **kwargs) == 'terrain_retreat_failed_ascent'
+    assert g.params.terrain_height_m == .01
+    assert g.params.terrain_exposure == .05
+    assert g.advance_terrain(dict(terrain_attempts=12.,
+                                  terrain_successes=12.), **kwargs) == 'await_3_terrain_episodes_each_direction'
+    outcomes['terrain_successes_up'] = 4.
+    assert g.advance_terrain(outcomes, **kwargs) == 'terrain_exposure_expand_real_cross'
+    assert g.params.terrain_exposure > .05
+    outcomes['terrain_attempts_up'] = 1.
+    assert g.advance_terrain(outcomes, **kwargs) == 'await_3_terrain_episodes_each_direction'
+
+
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
     from emu.checkpoint_io import promote_checkpoint
     source = tmp_path / 'latest.pkl'
