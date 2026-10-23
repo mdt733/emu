@@ -205,7 +205,10 @@ def run_environment(worlds: int = 4):
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=worlds, seed=5023,
                     terrain_step_max_m=.04, sensor_noise_scale=0,
                     attitude_profile='v5015')
-    state, _ = env.reset()
+    # Explicit diagnostic packet activates all worlds. Production default is
+    # now intentionally flat even when the platform topology exists.
+    terrain_packet = {'terrain_exposure': 1.0, 'terrain_height_m': .04}
+    state, _ = env.reset(terrain_packet)
     idx = env.terrain_step_mocap_id
     geom = mujoco.mj_name2id(env.mj_model, mujoco.mjtObj.mjOBJ_GEOM,
                              'episode_terrain_surface')
@@ -223,8 +226,23 @@ def run_environment(worlds: int = 4):
     if not np.allclose(root[:, 2] - top*down, NEUTRAL_ROOT_Z, atol=.04):
         raise AssertionError('step-down births must start at raised support height')
 
-    p = env.params_array({})
-    differently_seeded = env.reset_jit(jax.random.PRNGKey(5024), p)
+    p = env.params_array(terrain_packet)
+    legacy_env = EmuMJXEnv(str(ROBOT_XML), num_envs=worlds, seed=5023,
+                            sensor_noise_scale=0, attitude_profile='v5015')
+    if env.params_array({}).shape[0] != legacy_env.params_array({}).shape[0] + 2:
+        raise AssertionError('opt-in terrain task must append exactly two fields')
+    flat_packet = env.params_array({})
+    flat_state = env.reset_jit(jax.random.PRNGKey(5024), flat_packet)
+    dormant = np.asarray(jax.device_get(flat_state.data.mocap_pos))[:, idx, :]
+    if not np.allclose(dormant, [0., 0., -1.], atol=1e-7):
+        raise AssertionError('zero terrain lesson left a physical obstacle active')
+    if not np.allclose(
+        np.asarray(jax.device_get(flat_state.data.qpos))[:, 2],
+        np.asarray(jax.device_get(legacy_env.reset()[0].data.qpos))[:, 2],
+        atol=.02,
+    ):
+        raise AssertionError('flat foundation unexpectedly shifted root birth height')
+    differently_seeded = env.reset_jit(jax.random.PRNGKey(5025), p)
     next_pos = np.asarray(jax.device_get(differently_seeded.data.mocap_pos))[:, idx, :]
     if np.array_equal(positions, next_pos):
         raise AssertionError('episode reset did not move physical terrain')
@@ -322,6 +340,8 @@ def run_environment(worlds: int = 4):
     stepped.obs.block_until_ready()
     if not bool(jax.device_get(jnp.all(jnp.isfinite(stepped.obs)))):
         raise AssertionError('episode terrain step produced nonfinite actor observations')
+    print('PASS: zero-exposure flat foundation buries the same collision '
+          'platform; two appended terrain fields leave the old task shape intact')
     print(f'PASS: existing environment {worlds} worlds; '
           f'{int(down.sum())} step-down / {int((~down).sum())} step-up; '
           f'platform contact {int(np.sum(platform_contact))}/{worlds}, '
