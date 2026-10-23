@@ -37,7 +37,7 @@ jobs:
       - name: Capability evidence and approved 232-input examiner gate
         run: |
           python -m pytest -q tests/test_learning.py tests/test_direction.py \
-            -k "capability_evidence or capability_field_evidence or independent_exam or matched_exam or offline_fixed_exam or protected_export_reader"
+            -k "capability_evidence or capability_field_evidence or independent_exam or matched_exam or offline_fixed_exam or protected_export_reader or schema8_viewer_bundle"
           python -m pytest -q tests/test_delivery.py \
             -k "full_fourway_report_roundtrips"
       - name: Run full Python checks (do not hide pre-existing failures)
