@@ -235,6 +235,18 @@ def run_environment(worlds: int = 4):
     dormant = np.asarray(jax.device_get(flat_state.data.mocap_pos))[:, idx, :]
     if not np.allclose(dormant, [0., 0., -1.], atol=1e-7):
         raise AssertionError('zero terrain lesson left a physical obstacle active')
+    # The ground plane is an infinite half-space. A geometrically buried
+    # box must also be COLLISION-EXCLUDED from that plane, otherwise it can
+    # consume solver constraints even while it looks absent.
+    def forbid_plane_platform_contact(episode):
+        contact = getattr(episode.data, '_impl', episode.data).contact
+        a = np.asarray(jax.device_get(contact.geom1))
+        b = np.asarray(jax.device_get(contact.geom2))
+        static_pair = ((a == floor) & (b == geom)) | ((a == geom) & (b == floor))
+        if bool(np.any(static_pair)):
+            raise AssertionError('ground-plane/platform ghost collision in MJX')
+    forbid_plane_platform_contact(state)
+    forbid_plane_platform_contact(flat_state)
     if not np.allclose(
         np.asarray(jax.device_get(flat_state.data.qpos))[:, 2],
         NEUTRAL_ROOT_Z, atol=.03,
@@ -338,6 +350,8 @@ def run_environment(worlds: int = 4):
     stepped.obs.block_until_ready()
     if not bool(jax.device_get(jnp.all(jnp.isfinite(stepped.obs)))):
         raise AssertionError('episode terrain step produced nonfinite actor observations')
+    print('PASS: floor/platform collision pair is excluded in raised and '
+          'dormant worlds; feet retain real contacts with each')
     print('PASS: zero-exposure flat foundation buries the same collision '
           'platform; two appended terrain fields leave the old task shape intact')
     print(f'PASS: existing environment {worlds} worlds; '
