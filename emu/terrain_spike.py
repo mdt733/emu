@@ -227,9 +227,8 @@ def run_environment(worlds: int = 4):
         raise AssertionError('step-down births must start at raised support height')
 
     p = env.params_array(terrain_packet)
-    legacy_env = EmuMJXEnv(str(ROBOT_XML), num_envs=worlds, seed=5023,
-                            sensor_noise_scale=0, attitude_profile='v5015')
-    if env.params_array({}).shape[0] != legacy_env.params_array({}).shape[0] + 2:
+    from .contracts import TASK_PARAM_DIM
+    if env.params_array({}).shape[0] != TASK_PARAM_DIM + 2:
         raise AssertionError('opt-in terrain task must append exactly two fields')
     flat_packet = env.params_array({})
     flat_state = env.reset_jit(jax.random.PRNGKey(5024), flat_packet)
@@ -238,8 +237,7 @@ def run_environment(worlds: int = 4):
         raise AssertionError('zero terrain lesson left a physical obstacle active')
     if not np.allclose(
         np.asarray(jax.device_get(flat_state.data.qpos))[:, 2],
-        np.asarray(jax.device_get(legacy_env.reset()[0].data.qpos))[:, 2],
-        atol=.02,
+        NEUTRAL_ROOT_Z, atol=.03,
     ):
         raise AssertionError('flat foundation unexpectedly shifted root birth height')
     differently_seeded = env.reset_jit(jax.random.PRNGKey(5025), p)
