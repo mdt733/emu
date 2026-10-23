@@ -32,8 +32,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Compile
-        run: python -m compileall -q emu tests
+      - name: Compile and validate setup syntax
+        run: |
+          python -m compileall -q emu tests
+          bash -n scripts/setup_wsl.sh
+          bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
       - name: G3 paired finite-step MJX contact smoke (CPU)
         run: timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
