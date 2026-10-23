@@ -1370,9 +1370,10 @@ class EmuMJXEnv(TaskSampler):
             # teacher vector. Main's P indices and their meanings stay fixed.
             ceiling=float(params.get('terrain_height_max_m',0.))
             fraction=float(params.get('terrain_fraction',0.))
-            if not 0.<=ceiling<=.08 or not 0.<=fraction<=.30:
-                raise ValueError("terrain height must be 0–8cm; exposed share 0–30%")
-            packed=np.concatenate([packed,np.asarray([ceiling,fraction],
+            fixed=float(params.get('terrain_fixed_height_m',0.))
+            if not 0.<=ceiling<=.08 or not 0.<=fraction<=.30 or not 0.<=fixed<=.075:
+                raise ValueError("terrain height must be 0–8cm; exposed share 0–30%; exam 0–7.5cm")
+            packed=np.concatenate([packed,np.asarray([ceiling,fraction,fixed],
                                                     dtype=np.float32)])
         return jnp.asarray(packed, dtype=jnp.float32)
 
@@ -1843,6 +1844,10 @@ class EmuMJXEnv(TaskSampler):
                 jnp.abs(task[:,T.yaw])<.75)
             terrain_height=jnp.where(
                 eligible & (roll<fraction),ceiling*dose,0.)
+            # Only held-out exam callers supply a positive fixed height;
+            # all training worlds use the adaptive max and bounded dose.
+            terrain_height=jnp.where(params[TASK_PARAM_DIM+2]>0.,
+                                     params[TASK_PARAM_DIM+2],terrain_height)
         else:
             terrain_height=None
         data = self._birth_physics(
