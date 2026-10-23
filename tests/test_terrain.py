@@ -422,3 +422,63 @@ def test_browser_and_python_sensor_extrinsics_remain_identical():
             np.asarray(got["origin"]),expected_o[0,0,0],atol=1e-7)
         np.testing.assert_allclose(
             np.asarray(got["directions"]),expected_d[0],atol=1e-7)
+
+
+
+@pytest.mark.parametrize("variant,obstacle,features",[
+    ("park","flat",True),
+    ("park","flat",False),
+    ("sensor","flat",False),
+    ("sensor","step-up",False),
+    ("sensor","step-down",False),
+    ("sensor","crest",False),
+    ("sensor","trough",False),
+    ("sensor","log",False),
+    ("sensor","angled",False),
+])
+def test_viewer_generated_worlds_load_in_real_mujoco(variant,obstacle,features):
+    """Catch scene XML issues that syntax-only browser tests cannot detect.
+
+    The actual archived robot_xml is used; the browser's pure terrain builder
+    supplies physical geoms. No policy inference or training is performed.
+    """
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+    mujoco=pytest.importorskip("mujoco")
+    if not shutil.which("node"):
+        pytest.skip("Node required to inspect browser terrain XML")
+    root=Path(__file__).resolve().parents[1]
+    bundle=json.loads((root/"showcase/champion.emupolicy").read_text())
+    src=str(bundle["robot_xml"])
+    js=(
+        "import {withTerrain,generateTerrainPark} from "
+        "'./emu/viewer_src/src/terrain.js';"
+        "import {readFileSync} from 'node:fs';"
+        "const xml=readFileSync(0,'utf-8');"
+        f"const kind={json.dumps(variant)},obstacle={json.dumps(obstacle)};"
+        f"const features={json.dumps(features)};"
+        "const park=kind==='park'?generateTerrainPark({features,trees:false}):null;"
+        "console.log(withTerrain(xml,kind,{park,obstacle}));"
+    )
+    cmd=subprocess.run(["node","--input-type=module","-e",js],
+                       input=src,text=True,capture_output=True,
+                       cwd=root,check=True)
+    xml=cmd.stdout.strip()
+    assert '<mujoco' in xml
+    model=mujoco.MjModel.from_xml_string(xml)
+    assert model.ngeom>0
+    floor=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,"floor")
+    if variant=="park":
+        assert floor == -1
+        geom=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,
+                              "park_feature_step_up")
+        assert (geom>=0)==features
+    elif obstacle in ("step-up","step-down","crest","trough"):
+        assert floor == -1
+    else:
+        assert floor>=0
+    data=mujoco.MjData(model)
+    mujoco.mj_forward(model,data)
+    assert np.isfinite(data.geom_xpos).all()
