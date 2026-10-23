@@ -599,6 +599,53 @@ from .contracts import (
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
 )
 
+def capability_evidence_report(*, family: str, source: str,
+                               success: np.ndarray, failure: np.ndarray,
+                               lower: np.ndarray, quality_sum: np.ndarray | None = None,
+                               min_events: int = 20) -> dict[str, Any]:
+    """Read-only evidence summary across an existing capability family.
+
+    Each bucket must supply independent SUCCESS/FAILURE counts and a
+    conservative lower confidence bound (e.g. CapabilityField.node_lower).
+    This does not invent an overall quality score, mutate curriculum or
+    treat unsampled conditions as either success or failure. Reward is
+    intentionally not an input. Mechanical grace is not claimed unless
+    its own quality measurements actually exist.
+    """
+    if source not in ("training_rollout", "held_out_exam"):
+        raise ValueError("evidence source must distinguish training and held-out")
+    if not family or min_events < 1:
+        raise ValueError("family required; min_events must be >= 1")
+    yes,no,lo=(np.asarray(x, dtype=np.float64) for x in (success,failure,lower))
+    if yes.shape!=no.shape or yes.shape!=lo.shape or not yes.size:
+        raise ValueError("success/failure/lower must have matching nonempty shapes")
+    if any(not np.isfinite(x).all() for x in (yes,no,lo)):
+        raise ValueError("evidence values must be finite")
+    if (yes<0).any() or (no<0).any() or (lo<0).any() or (lo>1).any():
+        raise ValueError("evidence counts/bounds must be nonnegative and bounded")
+    samples=yes+no
+    quality=None
+    if quality_sum is not None:
+        quality=np.asarray(quality_sum, dtype=np.float64)
+        if (quality.shape!=yes.shape or not np.isfinite(quality).all()
+                or (quality<0).any() or (quality>samples+1e-5).any()):
+            raise ValueError("observed quality must be in [0, sample count]")
+    known=samples>=min_events
+    count=int(known.sum())
+    attempted=float(samples[known].sum())
+    return dict(
+        family=family,source=source,min_events=min_events,
+        total_bins=int(yes.size),known_bins=count,unknown_bins=int(yes.size-count),
+        known_fraction=float(count/yes.size),
+        independent_trials_in_known_bins=attempted,
+        success_rate_known=float(yes[known].sum()/attempted) if attempted else None,
+        conservative_success_lower_mean=float(lo[known].mean()) if count else None,
+        observed_quality_known=float(quality[known].sum()/attempted)
+        if quality is not None and attempted else None,
+        # Deliberately no aggregate grade/rank or motor efficiency claim here.
+    )
+
+
 def mean_metric(metrics: dict[str, Any], name: str) -> float:
     if name not in metrics:
         return 0.0
