@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields as dataclass_fields
 from typing import Any
+import math
 
 from .contracts import CONTROL_DT
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
