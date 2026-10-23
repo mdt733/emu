@@ -46,6 +46,11 @@ class RegimeParams:
     frontier_combo_radius: float = 1.00
     frontier_transition_hold_s: float = 0.90
     frontier_ramp_steps: float = 4.0
+    # Opt-in physical terrain, NOT a new regime. Both remain dormant until
+    # real held-out crossing evidence is available for adaptive advancement.
+    # Saved with ordinary governor rollback/resume state.
+    terrain_exposure: float = 0.0
+    terrain_height_m: float = 0.0
 
 
 class RegimeGovernor:
@@ -170,9 +175,17 @@ class RegimeGovernor:
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
-        if not isinstance(d['params'], dict) or set(d['params']) != param_names:
-            got = sorted(d['params']) if isinstance(d['params'], dict) else type(d['params']).__name__
-            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={got}")
+        if not isinstance(d['params'], dict):
+            raise ValueError('curriculum params must be a dictionary')
+        legacy_names = param_names - {'terrain_exposure', 'terrain_height_m'}
+        if set(d['params']) == legacy_names:
+            # Strictly recognise the OLD complete schema, not an arbitrary
+            # missing-field packet. Historical flat checkpoints stay resumable.
+            saved_params = dict(d['params'], terrain_exposure=0.0, terrain_height_m=0.0)
+        elif set(d['params']) == param_names:
+            saved_params = d['params']
+        else:
+            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(d['params'])}")
         expected_regimes = set(self.REGIMES)
         expected_falls = expected_regimes | {'posture'}
         expected_frontier = {'vx_hi', 'vx_lo', 'vy', 'yaw', 'combo', 'accel'}
@@ -181,7 +194,7 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
-        self.params = RegimeParams(**d['params'])
+        self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
             setattr(self, name, dict(d[name]))
