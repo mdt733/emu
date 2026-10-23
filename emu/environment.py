@@ -1519,6 +1519,8 @@ class EmuMJXEnv(TaskSampler):
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
         terrain_cross_new = terrain_crossed & ~state.terrain_crossed
+        terrain_up = terrain_active & ((self.env_index % 2) == 0)
+        terrain_down = terrain_active & ((self.env_index % 2) == 1)
         if self.observation_schema == OBS_SCHEMA_TERRAIN:
             # One sparse episode reward for earning far-side support.
             # Normal v5014/v5015 payments and all archived policies unchanged.
@@ -1583,6 +1585,15 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            # Teacher-only direction: actor observations remain unchanged.
+            'terrain_active_up': terrain_up.astype(jnp.float32),
+            'terrain_active_down': terrain_down.astype(jnp.float32),
+            'terrain_episode_attempt_up': (done & terrain_up).astype(jnp.float32),
+            'terrain_episode_attempt_down': (done & terrain_down).astype(jnp.float32),
+            'terrain_episode_success_up': (timeout & ~terminal_fail & terrain_up & terrain_crossed).astype(jnp.float32),
+            'terrain_episode_success_down': (timeout & ~terminal_fail & terrain_down & terrain_crossed).astype(jnp.float32),
+            'terrain_episode_fall_up': (terminal_fail & terrain_up).astype(jnp.float32),
+            'terrain_episode_fall_down': (terminal_fail & terrain_down).astype(jnp.float32),
             'episode_vx_mean': ep_vx_sum / denom,
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,

@@ -1180,6 +1180,28 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # Direction-separated terrain evidence. A quality metric without any
+    # active frames is UNKNOWN (-1), not success/zero error.
+    for direction in ('up', 'down'):
+        for outcome, plural in (('attempt', 'attempts'), ('success', 'successes'),
+                                ('fall', 'falls')):
+            name = f'terrain_episode_{outcome}_{direction}'
+            row[f'terrain_{plural}_{direction}'] = (
+                float(np.asarray(metrics[name]).sum()) if name in metrics else 0.0)
+        mask_name = f'terrain_active_{direction}'
+        mask = (np.asarray(metrics[mask_name]) > 0.5 if mask_name in metrics
+                else np.zeros_like(np.asarray(metrics.get('vx', 0.0)), dtype=bool))
+        row[f'terrain_frames_{direction}'] = float(mask.sum())
+        for key, label in (('support', 'support'), ('bad_contact', 'bad_contact'),
+                           ('servo_shaft_drive_power_w', 'shaft_drive_power_w')):
+            row[f'terrain_{label}_{direction}'] = (
+                float(np.asarray(metrics[key])[mask].mean())
+                if mask.any() and key in metrics else -1.0)
+        row[f'terrain_vx_mae_{direction}'] = (
+            float(np.abs(np.asarray(metrics['vx'])[mask] -
+                         np.asarray(metrics['cmd_vx'])[mask]).mean())
+            if mask.any() and 'vx' in metrics and 'cmd_vx' in metrics else -1.0)
+
     # CPU-only arithmetic on rollout metrics already transferred from JAX.
     # Positive mechanical actuator work divided by NET forward displacement
     # in frames requesting forward walking. Never infer battery consumption,

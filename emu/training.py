@@ -459,7 +459,11 @@ def train(args: TrainingConfig) -> int:
         report.update(terrain_exposure=governor.params.terrain_exposure,
             terrain_height_m=governor.params.terrain_height_m,
             terrain_attempts=row.get('terrain_attempts',0.),
-            terrain_successes=row.get('terrain_successes',0.))
+            terrain_successes=row.get('terrain_successes',0.),
+            **{key:row.get(key,0.) for key in (
+                'terrain_attempts_up','terrain_attempts_down',
+                'terrain_successes_up','terrain_successes_down',
+                'terrain_falls_up','terrain_falls_down')})
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -688,7 +692,11 @@ def train(args: TrainingConfig) -> int:
     report.update(terrain_exposure=governor.params.terrain_exposure,
                   terrain_height_m=governor.params.terrain_height_m,
                   terrain_attempts=row.get('terrain_attempts',0.),
-                  terrain_successes=row.get('terrain_successes',0.))
+                  terrain_successes=row.get('terrain_successes',0.),
+                  **{key:row.get(key,0.) for key in (
+                      'terrain_attempts_up','terrain_attempts_down',
+                      'terrain_successes_up','terrain_successes_down',
+                      'terrain_falls_up','terrain_falls_down')})
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)

@@ -425,18 +425,24 @@ class RegimeGovernor:
             p.terrain_height_m=min(.010,max_height_m)
             return 'terrain_seed_1cm_5pct'
 
-        attempts=float(row.get('terrain_attempts',0.))
-        successes=float(row.get('terrain_successes',0.))
+        # Pooled downhill passes cannot prove uphill competence.
+        up_n=float(row.get('terrain_attempts_up',0.))
+        down_n=float(row.get('terrain_attempts_down',0.))
+        up_ok=float(row.get('terrain_successes_up',0.))
+        down_ok=float(row.get('terrain_successes_down',0.))
         # Hard core regression is a terrain-local retreat regardless of how
         # many challenging episodes happened to finish this update.
         if not core_ok:
             p.terrain_exposure=max(.05,p.terrain_exposure*.90)
             p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.98)
             return 'terrain_retreat_core'
-        if attempts<6.:
-            return 'await_6_terrain_episodes'
-        ratio=successes/max(attempts,1.)
-        if ratio>=.50:
+        # Missing directional evidence is not a pass. Keep terrain easy
+        # when either direction is undersampled in this PPO rollout.
+        if min(up_n,down_n)<3.:
+            return 'await_3_terrain_episodes_each_direction'
+        up_rate=up_ok/max(up_n,1.)
+        down_rate=down_ok/max(down_n,1.)
+        if min(up_rate,down_rate)>=.50:
             # Tiny shared dose: a larger surface lesson and increased
             # exposure do not both advance by an unrestricted amount.
             if p.terrain_exposure < .25:
@@ -444,11 +450,12 @@ class RegimeGovernor:
                 return 'terrain_exposure_expand_real_cross'
             p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
             return 'terrain_height_expand_real_cross'
-        if ratio<.12:
+        if min(up_rate,down_rate)<.12:
             p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.985)
             p.terrain_exposure=max(.05,p.terrain_exposure*.975)
-            return 'terrain_retreat_failed_cross'
-        return 'terrain_hold_learning'
+            return ('terrain_retreat_failed_ascent' if up_rate<.12
+                    else 'terrain_retreat_failed_descent')
+        return 'terrain_hold_directional_learning'
 
 
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
