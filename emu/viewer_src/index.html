@@ -61,7 +61,7 @@
         <option value="angled">Angled ridge</option>
       </select></label>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">50°</output>
-        <input id="depthTilt" type="range" min="25" max="75" value="50" step="5"/></label>
+        <input id="depthTilt" type="range" min="0" max="90" value="50" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">90 mm</output>
         <input id="depthMount" type="range" min="0" max="180" value="90" step="5"/></label>
       <label class="depth-row">Ray samples per zone
@@ -71,9 +71,10 @@
           <option value="4">4 (64 rays)</option>
           <option value="5">5 (80 rays)</option>
         </select></label>
-      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show rays in 3D</label>
+      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show beams from sensor</label>
+      <label class="depth-visual"><input id="depthFootprint" type="checkbox" checked/> Show 4×4 ground footprint</label>
       <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 depth readings in centimetres"></div>
-      <div class="depth-far">↑ Farther ahead · nearer below</div>
+      <div class="depth-far">↑ Farther ahead · nearer below · one sensor, square optical field</div>
       <div class="depth-legend">Teal: terrain · <span style="color:#ffbb65">orange: robot</span> · <span style="color:#ffe175">yellow: mixed edge</span> · red: invalid</div>
       <div id="depthNote" class="depth-foot">Waiting for robot · raw line-of-sight range</div>
       <button id="depthCopy" class="depth-copy" type="button">Copy 4×4 reading + settings</button>
