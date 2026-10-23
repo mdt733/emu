@@ -397,12 +397,42 @@ def write_report(root, *, bundle=True):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Offline EMU results.md and shareable evidence ZIP')
-    parser.add_argument('--root',required=True,type=Path)
+    parser = argparse.ArgumentParser(description='Offline EMU reports and independent fixed-exam comparison')
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--root',type=Path,help='campaign directory for results.md and evidence ZIP')
+    mode.add_argument('--compare-fixed',nargs=2,type=Path,
+                      metavar=('REFERENCE_CSV','CANDIDATE_CSV'),
+                      help='compare latest held-out fixed_eval.csv rows; NO PPO updates')
     parser.add_argument('--no-bundle',action='store_true')
+    parser.add_argument('--reference-protocol',help='frozen exam+physics fingerprint for reference')
+    parser.add_argument('--candidate-protocol',help='frozen exam+physics fingerprint for candidate')
+    parser.add_argument('--output',type=Path,help='optional JSON destination for the comparison report')
     args = parser.parse_args(argv)
-    for path in write_report(args.root,bundle=not args.no_bundle):
-        print(path)
+    if args.root is not None:
+        if args.reference_protocol or args.candidate_protocol or args.output:
+            parser.error('exam protocol/output flags are only for --compare-fixed')
+        for path in write_report(args.root,bundle=not args.no_bundle):
+            print(path)
+        return 0
+    if (not args.reference_protocol or not args.candidate_protocol):
+        parser.error('--compare-fixed requires both frozen exam protocol fingerprints')
+    if args.no_bundle:
+        parser.error('--no-bundle is only for --root')
+    reference,candidate=args.compare_fixed
+    def last_row(path):
+        rows=read_csv_rows(path)
+        if not rows:
+            raise ValueError(f'no fixed-eval evidence: {path}')
+        return rows[-1]
+    report=compare_fixed_exam_evidence(
+        last_row(reference),last_row(candidate),
+        reference_protocol=args.reference_protocol,
+        candidate_protocol=args.candidate_protocol)
+    if args.output is not None:
+        write_json(args.output,report)
+        print(args.output)
+    else:
+        print(json.dumps(report,indent=2,sort_keys=True))
     return 0
 
 
