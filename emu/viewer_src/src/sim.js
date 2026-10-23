@@ -881,10 +881,9 @@ export class EmuBrowserSim {
           : new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.06 });
         mesh = new THREE.Mesh(this.geometryFor(vg), material);
         mesh.userData.floor = isFloor;
-        // Scene dataid identifies MuJoCo geometry; non-world bodies are the
-        // moving robot, including feet and leg links. Do not hide them.
-        mesh.userData.robotPart = dataId>=0 && dataId<Number(this.model.ngeom) &&
-          Number(this.model.geom_bodyid[dataId])>0;
+        // mjvGeom.objid is the actual MuJoCo geom ID. The unrelated
+        // dataid identifies a mesh/heightfield asset, NOT a physical geom.
+        // Recomputed for each rendered geom below, as display order may vary.
         mesh.userData.parkHeightfield = isParkHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
@@ -892,6 +891,14 @@ export class EmuBrowserSim {
         this.meshes.push(mesh);
         this.scene.add(mesh);
       }
+      // mjv_updateScene may reorder geoms. Only MuJoCo GEOM objects whose
+      // parent body is non-world are visible self-occluders (legs/feet).
+      // A contact-visualization or world terrain mesh is not robot geometry.
+      const geomId = Number(vg.objid);
+      mesh.userData.robotPart = Number(vg.objtype) === Number(mj.mjtObj.mjOBJ_GEOM.value)
+        && Number.isInteger(geomId) && geomId >= 0
+        && geomId < Number(this.model.ngeom)
+        && Number(this.model.geom_bodyid[geomId]) > 0;
       // Heightfield collision is rendered by the seamless grass mesh above.
       mesh.visible = !mesh.userData.parkHeightfield;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
