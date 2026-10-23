@@ -1001,6 +1001,215 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
 
 
 
+# G3/G4: independent, read-only terrain course. Uses make_trainer's existing
+# frozen-policy evaluate_trace, never a second actor simulator or reward path.
+def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
+                               settle_frames: int = 12) -> list[dict]:
+    """Judge uninterrupted crossings from observed root motion and MJX contacts.
+
+    The single reset at the start of evaluate_trace is the only allowed birth.
+    Frames after a fall/timeout are discarded; restarting never earns passage.
+    A posed foot or an elevated world-Z value cannot earn a crossing.
+    """
+    import numpy as np
+    from .environment import TERRAIN_PLATFORM_HALF_LENGTH_M
+
+    xy = np.asarray(frames['position_xy'], dtype=float)
+    ended = np.asarray(frames['done'], dtype=bool)
+    fell = np.asarray(frames['fell'], dtype=bool)
+    ground = np.asarray(frames['floor_contact'], dtype=bool)
+    platform = np.asarray(frames['terrain_platform_contact'], dtype=bool)
+    supported = np.asarray(frames['terrain_support'], dtype=float)
+    bad = np.asarray(frames['terrain_bad_contact'], dtype=float)
+    vx = np.asarray(frames['terrain_vx'], dtype=float)
+    watts = np.asarray(frames['servo_shaft_drive_power_w'], dtype=float)
+    centers = np.asarray(frames['initial_terrain_mocap_pos'], dtype=float)
+    quats = np.asarray(frames['initial_terrain_mocap_quat'], dtype=float)
+    if xy.ndim != 3 or xy.shape[2] != 2 or ended.shape != xy.shape[:2]:
+        raise ValueError('invalid terrain examination trace shape')
+    horizon, worlds, _ = xy.shape
+    rows = []
+    for i in range(worlds):
+        first_end = np.flatnonzero(ended[:, i])
+        n = int(first_end[0]+1) if len(first_end) else horizon
+        active = height_m > 1e-6 and centers[i, 2] > -.5
+        direction = 'flat' if not active else 'step-down' if centers[i, 0] < 0 else 'step-up'
+        sign = -1.0 if direction == 'step-down' else 1.0
+        yaw = 2 * np.arctan2(quats[i,3], quats[i,0])
+        axis = np.asarray((np.cos(yaw), np.sin(yaw)))
+        edge = centers[i,:2] - sign*TERRAIN_PLATFORM_HALF_LENGTH_M*axis if active else np.array((.25,0.))
+        progress = (xy[:n,i,:] - edge) @ axis
+        lateral = (xy[:n,i,:] - edge) @ np.asarray((-axis[1],axis[0]))
+        first = float(progress[0])
+        relative = progress - first
+        # A real raised/lowered crossing requires reaching the *far side*
+        # and having real contacts with that target surface after arrival.
+        far = progress > .10
+        target_contacts = (platform if direction == 'step-up' else ground)[:n,i,:]
+        valid = (np.arange(n) >= settle_frames) & far & (np.abs(lateral) < .27)
+        valid &= (supported[:n,i] > .05) & (bad[:n,i] < .5)
+        valid &= np.any(target_contacts, axis=-1)
+        # Five consecutive good samples = >=100 ms real contact after the edge.
+        streak = 0
+        passed_at = None
+        for t in range(n):
+            streak = (streak+1) if valid[t] else 0
+            if streak >= 5:
+                passed_at = t
+                break
+        fully_survived = n == horizon and not bool(np.any(ended[:,i]))
+        collision_pass = passed_at is not None and fully_survived
+        travel = float(relative[-1])
+        tracking_mae = float(np.mean(np.abs(vx[settle_frames:n,i]-speed))) if n>settle_frames else None
+        motor_work = float(np.sum(np.maximum(0,watts[:n,i]))*.02)
+        # Real completion and flat progress are NOT interchangeable:
+        # baseline rows report progress but have no step-crossing verdict.
+        rows.append(dict(
+            world=i, lesson=direction, elevation_cm=round(float(height_m*100),2),
+            frames_before_reset=n, full_horizon_survival=fully_survived,
+            fell=bool(np.any(fell[:n,i])), reached_far_side=bool(np.any(far)),
+            far_side_contact_held_100ms=passed_at is not None,
+            crossing_pass=(bool(collision_pass) if active else None),
+            first_pass_frame=passed_at, progress_m=round(travel,4),
+            commanded_speed_m_s=float(speed),
+            velocity_mae_m_s=(round(tracking_mae,4) if tracking_mae is not None else None),
+            max_abs_lateral_m=round(float(np.max(np.abs(lateral))),4),
+            support_fraction=round(float(np.mean(supported[:n,i]>.05)),4),
+            bad_contact_fraction=round(float(np.mean(bad[:n,i]>.5)),4),
+            drive_shaft_work_j=round(motor_work,4),
+            drive_j_per_progress_m=(round(motor_work/travel,3) if travel>.01 else None),
+        ))
+    return rows
+
+
+def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
+                            horizon: int = 260, speed: float = .15,
+                            heights_cm: tuple[float,...] = (0.,2.,4.),
+                            seed: int = 1701, device: str = 'cpu') -> tuple[Path,Path]:
+    """Matched flat/raised true-collision episodes, frozen actor, no training.
+
+    This is the future terrain teacher's *independent* exam evidence; until
+    4x4 actor sensing exists it cannot justify curriculum expansion.
+    """
+    import hashlib
+    import json
+    import time
+    import jax
+    import jax.numpy as jnp
+    from .contracts import OBS_SCHEMA_LEGACY, ROBOT_XML
+    from .viewer_server import load_exported_actor_for_exam
+    from .ppo import configure_jax, require_backend
+
+    if not 2 <= worlds <= 32 or worlds%2 or not 80 <= horizon <= 700:
+        raise ValueError('terrain exam requires even 2–32 worlds and 80–700 frames')
+    if not .02 <= speed <= .35:
+        raise ValueError('terrain speed must be in [0.02, 0.35] m/s')
+    if not heights_cm or any(not math.isfinite(x) or not 0 <= x <= 8 for x in heights_cm):
+        raise ValueError('heights must be nonempty, finite centimetres within [0,8]')
+    heights_cm = tuple(sorted(set(heights_cm)))
+    policy = Path(policy).expanduser().resolve()
+    output = Path(output).expanduser().resolve()
+    if not policy.is_file() or policy.suffix != '.emupolicy':
+        raise ValueError('pass an existing verified .emupolicy file')
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise FileExistsError('terrain exam output must be new or empty')
+    if output in policy.parents or output == policy.parent:
+        raise ValueError('exam cannot write into policy source directory')
+
+    params, norm, export = load_exported_actor_for_exam(policy)
+    if export['observation_schema'] != OBS_SCHEMA_LEGACY:
+        raise ValueError('G5 incomplete: cannot fairly examine 232-input tripod actor '
+                         'using unimplemented 4x4 step sensor observations')
+    configure_jax(device)
+    require_backend(device=='cpu')
+    max_height = max(.001,max(heights_cm)/100)
+    env = EmuMJXEnv(
+        str(ROBOT_XML), num_envs=worlds, seed=seed,
+        terrain_step_max_m=max_height, attitude_profile=export['training']['attitude_profile'],
+        pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
+        phase_speed_gain=float(export['control']['phase_speed_gain']),
+        max_episode_steps=700, push_max_force_n=0.,
+        vx_hi_max=.6, vx_lo_min=-.2, vy_max_mps=.25, yaw_max_rad_s=1.5,
+        sensor_noise_scale=0., combo_mix_frac=0.,combo_probe_frac=0.,
+        field_teach_recovery=False)
+    trainer = make_trainer(
+        env,seed=seed,lr=PPO_LR,rollout=ROLLOUT_STEPS,
+        epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
+        value_cost=PPO_VALUE_COST)
+    import numpy as np
+    packet = dict(
+        regime_frac_steady=1.,regime_frac_transition=0.,
+        regime_frac_resilience=0.,steady_difficulty=0.,
+        transition_difficulty=0.,resilience_difficulty=0.,
+        posture_difficulty=0.,probe_cmd_vx=speed,
+        probe_cmd_vy=0.,probe_cmd_yaw=0.,
+        probe_tilt_rad=0.,probe_linvel_mps=0.,
+        probe_angvel_rad_s=0.,probe_joint_rad=0.,
+        terrain_exposure=1.,
+    )
+    cases=[]
+    for height_cm in heights_cm:
+        packet['terrain_height_m']=height_cm/100.
+        start=time.perf_counter()
+        # Same frozen actor, identical seeds and compiled model; only the
+        # physical task-packet height changes. First invocation includes JIT.
+        trace=trainer['evaluate_trace'](
+            params,env.params_array(packet),
+            jnp.asarray(norm['mean']),jnp.asarray(norm['std']),
+            jax.random.PRNGKey(seed),horizon,0.,(speed,0.,0.))
+        frames=jax.device_get(trace)
+        seconds=time.perf_counter()-start
+        rows=score_terrain_course_trace(frames,height_m=height_cm/100,
+                                        speed=speed)
+        case=dict(
+            height_cm=height_cm,seconds=round(seconds,3),
+            worlds=rows,survived=sum(x['full_horizon_survival'] for x in rows),
+            crossing_pass=(None if height_cm==0 else sum(x['crossing_pass'] for x in rows)),
+            mean_progress_m=round(float(np.mean([x['progress_m'] for x in rows])),4))
+        cases.append(case)
+        print(f"Terrain {height_cm:g}cm: survival {case['survived']}/{worlds}, "
+              f"crossing {('not scored' if height_cm==0 else str(case['crossing_pass'])+'/'+str(worlds))}, "
+              f"mean progress {case['mean_progress_m']:+.3f}m, "
+              f"wall {case['seconds']:.1f}s", flush=True)
+
+    report=dict(
+        schema='emu_terrain_exam_v1',source_commit=source_commit(),
+        actor_artifact_sha256=export['artifact_sha256'],
+        actor_schema=export['observation_schema'],policy_step=export['source']['step'],
+        exam=dict(seed=seed,backend=jax.default_backend(),worlds=worlds,
+                  horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
+                  model='single movable finite MJX platform, paired step up/down',
+                  support='actual foot-floor and foot-platform collision contacts'),
+        cases=cases, cautions=[
+            'No PPO or curriculum update performed.',
+            'No VL53L8CX 4x4 actor inputs yet; a legacy actor is intentionally blind to discontinuities.',
+            'Flat reference has no step-crossing score, only progress/survival.',
+            'First fall/timeout truncates assessment; resets cannot earn passage.',
+            'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
+            'These are simulated servo shaft-work estimates, not measured battery energy.',
+            'Identical cohorts across heights; times include first-run compilation.'])
+    output.mkdir(parents=True,exist_ok=True)
+    json_path=output/'terrain_exam.json'
+    json_path.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+    lines=['# EMU finite-terrain course · frozen-policy evidence','',
+           f"Policy artifact SHA256: {export['artifact_sha256']}",
+           f"Source commit: {report['source_commit']}",
+           f"JAX backend: {jax.default_backend()}",'',
+           '| Height | Survive | Genuine crossings | Mean progress | Wall time |',
+           '|---:|---:|---:|---:|---:|']
+    for case in cases:
+        crossings='N/A (flat)' if case['crossing_pass'] is None else f"{case['crossing_pass']}/{worlds}"
+        lines.append(f"| {case['height_cm']:g} cm | {case['survived']}/{worlds} | "
+                     f"{crossings} | {case['mean_progress_m']:+.3f} m | {case['seconds']:.1f} s |")
+    lines += ['', 'The flat row is a command-competence control, not an obstacle.',
+              'A passed contact check is NOT a passed uninterrupted crossing.',
+              'Each world additionally reports fall, progress, real support, motor effort and tracking.',
+              'Exam data never enters PPO, rewards or the curriculum.']
+    md_path=output/'terrain_exam.md'
+    md_path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    return json_path,md_path
+
+
 def _summarize_worlds(worlds):
     """Keep survival and course/gait obedience distinct; do not merge them."""
     def mean_optional(key):
