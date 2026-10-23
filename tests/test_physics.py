@@ -229,6 +229,9 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert actor['pi'][0]['w'].shape == (SENSOR_OBS_DIM,256)
     settings=export['sensor_settings']
     sensor_env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
+                        phase_speed_gain=export['control']['phase_speed_gain'],
+                        attitude_profile=export['training']['attitude_profile'],
+                        pitch_command_max_deg=export['training']['pitch_command_max_deg'],
                         sensor_noise_scale=settings['sensor_noise_scale'],
                         observation_schema=OBS_SCHEMA_SENSOR,
                         **{k:v for k,v in settings.items()
