@@ -405,6 +405,52 @@ class RegimeGovernor:
 
         return frontier_events
 
+    def advance_terrain(self, row: dict[str,float], *, step: int,
+                        max_height_m: float, foundation_steps: int) -> str:
+        """Conservative physical terrain frontier, one shared learning budget.
+
+        No reward proxy or perfect terrain oracle can expand this. A rollout
+        must contain complete active-terrain episodes with measured far-side
+        contact and no fall. The base gait retains >=75% of episode births.
+        Separate retreat never shrinks healthy speed/recovery frontiers.
+        """
+        if max_height_m <= 0. or step < foundation_steps:
+            return 'foundation_flat'
+        p=self.params
+        core_ok=(self.core_competence>=.55 and self.fall_ema['posture']<=.32)
+        if p.terrain_exposure<=0.:
+            if not core_ok:
+                return 'await_core_walk'
+            p.terrain_exposure=.05
+            p.terrain_height_m=min(.010,max_height_m)
+            return 'terrain_seed_1cm_5pct'
+
+        attempts=float(row.get('terrain_attempts',0.))
+        successes=float(row.get('terrain_successes',0.))
+        # Hard core regression is a terrain-local retreat regardless of how
+        # many challenging episodes happened to finish this update.
+        if not core_ok:
+            p.terrain_exposure=max(.05,p.terrain_exposure*.90)
+            p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.98)
+            return 'terrain_retreat_core'
+        if attempts<6.:
+            return 'await_6_terrain_episodes'
+        ratio=successes/max(attempts,1.)
+        if ratio>=.50:
+            # Tiny shared dose: a larger surface lesson and increased
+            # exposure do not both advance by an unrestricted amount.
+            if p.terrain_exposure < .25:
+                p.terrain_exposure=min(.25,p.terrain_exposure+.005)
+                return 'terrain_exposure_expand_real_cross'
+            p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
+            return 'terrain_height_expand_real_cross'
+        if ratio<.12:
+            p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.985)
+            p.terrain_exposure=max(.05,p.terrain_exposure*.975)
+            return 'terrain_retreat_failed_cross'
+        return 'terrain_hold_learning'
+
+
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
