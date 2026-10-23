@@ -32,6 +32,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Validate optional WSL viewer-only setup CLI
+        run: |
+          bash -n scripts/setup_wsl.sh
+          bash scripts/setup_wsl.sh --help | grep -- '--viewer-only'
       - name: Compile
         run: python -m compileall -q emu tests
       - name: v5022 terrain and VL53L8CX physical checks
