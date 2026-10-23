@@ -145,6 +145,7 @@ class EnvState(NamedTuple):
     sensor_state: Any = None
     front_state: Any = None
     terrain_height: Any = None
+    terrain_crossed: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1487,6 +1488,9 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        terrain_crossed = (state.terrain_crossed |
+            ((data.xpos[:,self.torso_id,0]>.96)&
+             (metrics['support']>.5)&(~terminal_fail))) if self.use_front else None
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1514,7 +1518,7 @@ class EmuMJXEnv(TaskSampler):
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors, front,
-                           state.terrain_height)
+                           state.terrain_height,terrain_crossed)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1561,6 +1565,8 @@ class EmuMJXEnv(TaskSampler):
                 (metrics['support']>.5)&
                 (~terminal_fail)).astype(jnp.float32),
               'terrain_height_m': state.terrain_height,
+              'terrain_exposed_episodes': (done & (state.terrain_height>.0005)).astype(jnp.float32),
+              'terrain_crossed_episodes': (done & (state.terrain_height>.0005) & terrain_crossed).astype(jnp.float32),
               'terrain_exposed': (state.terrain_height>.0005).astype(jnp.float32),
               'front_valid_fraction': jnp.mean(
                  front.valid[:,HISTORY_LEN-2,:].astype(jnp.float32),axis=1),
@@ -1866,7 +1872,7 @@ class EmuMJXEnv(TaskSampler):
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors, front, terrain_height)
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors, front, terrain_height, jnp.zeros((self.num_envs,),dtype=jnp.bool_) if self.use_front else None)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
