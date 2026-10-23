@@ -20,8 +20,11 @@ SENSOR_FOV_DEG = (45.0, 45.0)
 SENSOR_MOUNT_BODY_M = (.090, .0, -.018)  # provisional; CAD clearance needed
 SENSOR_DOWN_TILT_DEG = 50.0
 SENSOR_RANGE_M = (.020, 1.5)  # deliberate training ROI, not rated max of 4m
-# Five sub-rays are a footprint surrogate, not actual ST histogram processing.
-_ZONE_OFFSETS_DEG = ((0., 0.), (-3., 0.), (3., 0.), (0., -3.), (0., 3.))
+# Centre + 4 quarter-zone rays shared with the browser reference.
+# These are footprint surrogates, NOT actual ST histogram processing.
+_ZONE_OFFSETS_DEG = ((0., 0.), (-2.8125, -2.8125),
+                     (-2.8125, 2.8125), (2.8125, -2.8125),
+                     (2.8125, 2.8125))
 
 
 @dataclass(frozen=True)
