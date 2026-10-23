@@ -68,6 +68,13 @@ class RegimeGovernor:
     """
 
     REGIMES = ('steady', 'transition', 'resilience')
+    # At 5% births, each PPO rollout contains too few finished terrain
+    # episodes for reliable up/down decisions. Keep a short saved window.
+    TERRAIN_MIN_ATTEMPTS_PER_DIRECTION = 20
+    TERRAIN_MAX_WINDOW_UPDATES = 40
+    TERRAIN_ASCENT_PRACTICE_MIN = 0.10
+    TERRAIN_DESCENT_PRACTICE_MIN = 0.50
+    TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
 
     # One shared step size for ALL FOUR difficulty scalars (steady/
     # transition/resilience/posture) -- see environment.py's module
@@ -136,6 +143,7 @@ class RegimeGovernor:
         self._falls_ema = {k: 0.0 for k in self.fall_ema}
         self._episodes_ema = {k: 0.0 for k in self.fall_ema}
         self._updates_done_total = 0
+        self.terrain_evidence = self._empty_terrain_evidence()
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -151,6 +159,12 @@ class RegimeGovernor:
         self.frontier_combo_safety = max(self.FRONTIER_FLOOR_COMBO, float(frontier_combo_safety))
         self.frontier_push_safety_n = max(0.70, float(frontier_push_safety_n))
 
+    @staticmethod
+    def _empty_terrain_evidence() -> dict[str, float]:
+        return dict(up_attempts=0., up_successes=0., up_falls=0.,
+                    down_attempts=0., down_successes=0., down_falls=0.,
+                    updates=0.)
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -162,6 +176,7 @@ class RegimeGovernor:
             'core_bad_streak': self.core_bad_streak, 'fall_ema': dict(self.fall_ema),
             '_falls_ema': dict(self._falls_ema), '_episodes_ema': dict(self._episodes_ema),
             '_updates_done_total': self._updates_done_total,
+            'terrain_evidence': dict(self.terrain_evidence),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
         }
@@ -172,7 +187,11 @@ class RegimeGovernor:
             'fall_ema', '_falls_ema', '_episodes_ema', '_updates_done_total',
             'frontier_precision_ema', 'frontier_bad_streak',
         }
-        if not isinstance(d, dict) or set(d) != expected:
+        legacy = set(expected)
+        expected.add('terrain_evidence')
+        # Preserve exactly-known older flat governor state (empty new
+        # window), without bypassing external checkpoint source provenance.
+        if not isinstance(d, dict) or set(d) not in (legacy, expected):
             raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
@@ -194,6 +213,19 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
+        evidence = d.get('terrain_evidence', self._empty_terrain_evidence())
+        names = set(self._empty_terrain_evidence())
+        if (not isinstance(evidence, dict) or set(evidence) != names or
+                any(not math.isfinite(float(v)) or float(v) < 0. for v in evidence.values())):
+            raise ValueError('curriculum terrain evidence window mismatch')
+        if (int(evidence['updates']) != evidence['updates'] or
+                evidence['updates'] > self.TERRAIN_MAX_WINDOW_UPDATES):
+            raise ValueError('curriculum terrain evidence age out of range')
+        for direction in ('up','down'):
+            if (evidence[f'{direction}_successes'] > evidence[f'{direction}_attempts'] or
+                    evidence[f'{direction}_falls'] > evidence[f'{direction}_attempts']):
+                raise ValueError('curriculum terrain evidence outcome exceeds attempts')
+        self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -407,56 +439,85 @@ class RegimeGovernor:
 
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int) -> str:
-        """Conservative physical terrain frontier, one shared learning budget.
+        """Physically verified up/down growth, using a checkpointed cohort.
 
-        No reward proxy or perfect terrain oracle can expand this. A rollout
-        must contain complete active-terrain episodes with measured far-side
-        contact and no fall. The base gait retains >=75% of episode births.
-        Separate retreat never shrinks healthy speed/recovery frontiers.
+        A single PPO rollout at 5% terrain exposure sees only a handful of
+        completed episodes. Aggregate direction-conditioned outcomes across
+        updates, then judge a CLOSED evidence batch; never pool down-only
+        successes or spend old/easier evidence after difficulty changes.
         """
         if max_height_m <= 0. or step < foundation_steps:
             return 'foundation_flat'
-        p=self.params
-        core_ok=(self.core_competence>=.55 and self.fall_ema['posture']<=.32)
-        if p.terrain_exposure<=0.:
+        p = self.params
+        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
+        if p.terrain_exposure <= 0.:
             if not core_ok:
                 return 'await_core_walk'
-            p.terrain_exposure=.05
-            p.terrain_height_m=min(.010,max_height_m)
+            self.terrain_evidence = self._empty_terrain_evidence()
+            p.terrain_exposure = .05
+            p.terrain_height_m = min(.010,max_height_m)
             return 'terrain_seed_1cm_5pct'
-
-        # Pooled downhill passes cannot prove uphill competence.
-        up_n=float(row.get('terrain_attempts_up',0.))
-        down_n=float(row.get('terrain_attempts_down',0.))
-        up_ok=float(row.get('terrain_successes_up',0.))
-        down_ok=float(row.get('terrain_successes_down',0.))
-        # Hard core regression is a terrain-local retreat regardless of how
-        # many challenging episodes happened to finish this update.
         if not core_ok:
-            p.terrain_exposure=max(.05,p.terrain_exposure*.90)
-            p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.98)
+            self.terrain_evidence = self._empty_terrain_evidence()
+            p.terrain_exposure = max(.05,p.terrain_exposure*.90)
+            p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
             return 'terrain_retreat_core'
-        # Missing directional evidence is not a pass. Keep terrain easy
-        # when either direction is undersampled in this PPO rollout.
-        if min(up_n,down_n)<3.:
-            return 'await_3_terrain_episodes_each_direction'
-        up_rate=up_ok/max(up_n,1.)
-        down_rate=down_ok/max(down_n,1.)
-        if min(up_rate,down_rate)>=.50:
-            # Tiny shared dose: a larger surface lesson and increased
-            # exposure do not both advance by an unrestricted amount.
+
+        required = tuple(f'terrain_{outcome}_{direction}'
+                         for direction in ('up','down')
+                         for outcome in ('attempts','successes','falls'))
+        if not all(key in row for key in required):
+            return 'await_directional_terrain_evidence'
+        window = self.terrain_evidence
+        for direction in ('up','down'):
+            attempts = float(row[f'terrain_attempts_{direction}'])
+            successes = float(row[f'terrain_successes_{direction}'])
+            falls = float(row[f'terrain_falls_{direction}'])
+            if (not all(math.isfinite(v) for v in (attempts,successes,falls)) or
+                    min(attempts,successes,falls)<0. or
+                    successes>attempts or falls>attempts):
+                raise ValueError('invalid direction-conditioned terrain outcomes')
+            window[f'{direction}_attempts'] += attempts
+            window[f'{direction}_successes'] += successes
+            window[f'{direction}_falls'] += falls
+        window['updates'] += 1.
+
+        up_n = window['up_attempts']
+        down_n = window['down_attempts']
+        if min(up_n,down_n) < self.TERRAIN_MIN_ATTEMPTS_PER_DIRECTION:
+            if window['updates'] >= self.TERRAIN_MAX_WINDOW_UPDATES:
+                self.terrain_evidence = self._empty_terrain_evidence()
+                return 'terrain_window_insufficient_attempts'
+            return 'terrain_collect_directional_evidence'
+
+        up_rate = window['up_successes'] / up_n
+        down_rate = window['down_successes'] / down_n
+        # No evidence can be recycled after a decision, including holds.
+        self.terrain_evidence = self._empty_terrain_evidence()
+        if min(up_rate,down_rate) >= .50:
             if p.terrain_exposure < .25:
-                p.terrain_exposure=min(.25,p.terrain_exposure+.005)
+                p.terrain_exposure = min(.25,p.terrain_exposure+.005)
                 return 'terrain_exposure_expand_real_cross'
-            p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
+            p.terrain_height_m = min(max_height_m,p.terrain_height_m+.00025)
             return 'terrain_height_expand_real_cross'
-        if min(up_rate,down_rate)<.12:
-            p.terrain_height_m=max(min(.010,max_height_m),p.terrain_height_m*.985)
-            p.terrain_exposure=max(.05,p.terrain_exposure*.975)
-            return ('terrain_retreat_failed_ascent' if up_rate<.12
+
+        # Practice dose != earned obstacle height. A small genuine ascent
+        # foothold and strong descent may justify at most 10% terrain births
+        # while preserving >=90% normal flat lessons.
+        if (up_rate >= self.TERRAIN_ASCENT_PRACTICE_MIN and
+                down_rate >= self.TERRAIN_DESCENT_PRACTICE_MIN and
+                p.terrain_exposure < self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE):
+            p.terrain_exposure = min(self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE,
+                                     p.terrain_exposure+.005)
+            return 'terrain_exposure_practice_ascent'
+
+        if min(up_rate,down_rate) < .12:
+            p.terrain_height_m = max(min(.010,max_height_m),
+                                     p.terrain_height_m*.985)
+            p.terrain_exposure = max(.05,p.terrain_exposure*.975)
+            return ('terrain_retreat_failed_ascent' if up_rate < .12
                     else 'terrain_retreat_failed_descent')
         return 'terrain_hold_directional_learning'
-
 
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
