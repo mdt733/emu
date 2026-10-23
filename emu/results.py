@@ -527,6 +527,18 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
     ceiling_cm = 100.0 * float(report.get('terrain_height_m', 0.0))
     jpm = float(row.get('shaft_j_per_m_forward', -1.0))
     efficiency = f"{jpm:.1f}" if math.isfinite(jpm) and jpm >= 0.0 else "–"
+    # Make the physical asymmetry visible during GPU training, not only in
+    # offline CSV reports. Omit fractions when a direction has no completed
+    # terrain episodes in this rollout.
+    def directional_course(label):
+        attempts = int(row.get(f'terrain_attempts_{label}', 0.))
+        passes = int(row.get(f'terrain_successes_{label}', 0.))
+        return f"{passes}/{attempts}" if attempts else "-"
+    terrain_pair = (
+        f" up={directional_course('up')} down={directional_course('down')}"
+        if float(row.get('terrain_frames_up', 0.)) + float(row.get('terrain_frames_down', 0.)) > 0.
+        else ""
+    )
     line1 = (
         f"[{version}] step={step:,} rew={reward:+.3f} "
         f"len={row['ep_len_mean']:.0f} fall={100*row['fall_rate']:.1f}% "
@@ -535,6 +547,7 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
         f"act/cmd={row['vx_mean']:+.2f}/{row['cmd_vx_mean']:+.2f} "
         f"slope={slope} step≤{ceiling_cm:.1f}cm({exposure:.0f}%) "
         f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m"
+        f"{terrain_pair}"
         f"{' NAN-SKIPS='+str(nan_grad_skips) if nan_grad_skips else ''}"
     )
     # Three regimes' difficulty + live env-allocation fraction, plus
