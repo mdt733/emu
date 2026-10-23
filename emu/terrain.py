@@ -17,7 +17,7 @@ import math
 SENSOR_MODEL = "VL53L8CX"
 SENSOR_RESOLUTION = (4, 4)
 SENSOR_FOV_DEG = (45.0, 45.0)
-SENSOR_MOUNT_BODY_M = (.0, .0, -.018)  # 0mm forward viewer candidate; CAD clearance TBD
+SENSOR_MOUNT_BODY_M = (.0, .0, -.040)  # root-centred, 15mm below torso box; bracket TBD
 SENSOR_DOWN_TILT_DEG = 70.0  # viewer candidate, not frozen hardware specification
 SENSOR_RANGE_M = (.020, 1.5)  # deliberate training ROI, not rated max of 4m
 # Centre + four quarter-zone rays, shared with viewer's square image plane.
