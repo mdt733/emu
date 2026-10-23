@@ -244,11 +244,11 @@ def test_real_mjx_hillcrest_contact_and_depth_ray_parity():
 @pytest.mark.parametrize("forward_m", [.085, .120, .160])
 def test_mount_candidates_keep_zone_order_and_physical_preview(down_deg, forward_m):
     p,R = pose()
-    mount=(forward_m,0.,-.018)
+    mount=(forward_m,0.,-.040)
     origin,rays = camera_rays(np,p,R,tilt_down_deg=down_deg,
                               mount_body_m=mount)
     assert origin.shape == rays.shape == (1,16,5,3)
-    np.testing.assert_allclose(origin[0,0,0], [forward_m,0,.2404],atol=1e-7)
+    np.testing.assert_allclose(origin[0,0,0], [forward_m,0,.2184],atol=1e-7)
     np.testing.assert_allclose(np.linalg.norm(rays,axis=-1),1,atol=1e-7)
     assert rays[0,0,0,2] > rays[0,15,0,2]
     for subrays in (1,4,5):
@@ -267,8 +267,8 @@ def test_forward_mount_translation_tracks_chassis_rotation_not_world_x():
     R[0] = [[np.cos(yaw),-np.sin(yaw),0],
             [np.sin(yaw), np.cos(yaw),0],
             [0,0,1]]
-    near,_=camera_rays(np,p,R,mount_body_m=(.085,0,-.018))
-    far,_=camera_rays(np,p,R,mount_body_m=(.160,0,-.018))
+    near,_=camera_rays(np,p,R,mount_body_m=(.085,0,-.040))
+    far,_=camera_rays(np,p,R,mount_body_m=(.160,0,-.040))
     np.testing.assert_allclose((far-near)[0,0,0],[0,.075,0],atol=1e-7)
 
 
@@ -294,7 +294,7 @@ def test_jax_mount_and_sampling_modes_match_numpy_for_two_worlds():
     p[1,0] = 0.
     boxes,orient,size=scene(.05)
     for subrays in (1,4,5):
-        kw=dict(tilt_down_deg=42.,mount_body_m=(.135,0.,-.018),
+        kw=dict(tilt_down_deg=42.,mount_body_m=(.135,0.,-.040),
                 subrays=subrays)
         want,mask=scan_forward(np,p,R,boxes,orient,size,**kw)
         work=jax.jit(lambda t:scan_forward(
@@ -328,7 +328,7 @@ def test_optional_post_viewer_mount_sweep(capsys):
             for x in (-.35,-.25,-.15,-.05,0.):
                 p,R=pose(x=x)
                 kw=dict(tilt_down_deg=angle,
-                        mount_body_m=(xmount,0.,-.018),subrays=4)
+                        mount_body_m=(xmount,0.,-.040),subrays=4)
                 flat,flat_ok=scan_forward(np,p,R,*scene(0.),**kw)
                 up,up_ok=scan_forward(np,p,R,*scene(.05),**kw)
                 down,down_ok=scan_forward(np,p,R,*scene(-.05),**kw)
@@ -422,7 +422,7 @@ def test_browser_and_python_sensor_extrinsics_remain_identical():
         R=np.asarray([case["R"]])
         expected_o,expected_d=camera_rays(
             np,p,R,tilt_down_deg=case["tilt"],
-            mount_body_m=(case["forward"],0.,-.018))
+            mount_body_m=(case["forward"],0.,-.040))
         np.testing.assert_allclose(
             np.asarray(got["origin"]),expected_o[0,0,0],atol=1e-7)
         np.testing.assert_allclose(
@@ -532,10 +532,10 @@ def test_preferred_0mm_70deg_mount_sees_near_lateral_and_forward_ground():
     """
     p, R=pose()
     origin, direction=camera_rays(np,p,R)
-    assert SENSOR_MOUNT_BODY_M == (0.,0.,-.018)
+    assert SENSOR_MOUNT_BODY_M == (0.,0.,-.040)
     assert SENSOR_DOWN_TILT_DEG == 70.
     np.testing.assert_allclose(origin[0,0,0],
-                               [0.,0.,.2404],atol=1e-8)
+                               [0.,0.,.2184],atol=1e-8)
     # Intersection on flat ground; row 0 sees ahead of rear row 3.
     centre=direction[0,:,0,:].reshape(4,4,3)
     places=origin[0,:,0,:].reshape(4,4,3)
@@ -590,7 +590,7 @@ def test_v5022_contract_is_364_and_does_not_alias_old_actor_schemas():
     blinded=terrain_observation_contract(front_visible=False)
     assert visible['sha256']!=blinded['sha256']
     assert visible['old_sensor_contract']['schema']=="sim2real_232"
-    assert visible['front']['mount_body_m']==[0.,0.,-.018]
+    assert visible['front']['mount_body_m']==[0.,0.,-.040]
     assert visible['front']['tilt_down_deg']==70.
     from emu.ppo import build_obs_norm_mask
     mask=build_obs_norm_mask(OBS_SCHEMA_TERRAIN)
