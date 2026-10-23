@@ -296,3 +296,81 @@ meshes. Use those snapshots for reproducible before/after comparisons.
   single first-use value (browser JIT, shader, cache, GC effects).
 - Disable depth entirely and check the champion walks just as previously;
   the sensor must never modify its NN observation history or actuator loop.
+
+
+### Stage 2 — tests ready after your FIRST viewer results
+
+These options remain **opt-in**, and reuse the two maintained test files.
+They do not start training, modify a checkpoint, or generate a new lab module.
+
+**1. Confirm the sensor contract + solid-world parity after tweaking the mount:**
+
+```bash
+cd ~/emu-v5022
+source .venv/bin/activate
+python -m pytest -q tests/test_terrain.py
+npm test --prefix emu/viewer_src
+```
+
+This checks the new 16/64/80 geometry modes, 35°/50°/65° angle
+and 85/120/160mm position candidates, true contact on steps/crests,
+batched JAX, and exact browser/Python beam directions on two rotated
+robot poses. Node-less CPU-only Python installs skip only the
+cross-language comparison; WSL viewer-only setup installs Node.
+
+**2. Inspect the range of visibility *before* contact, with no GPU needed:**
+
+```bash
+EMU_SENSOR_SWEEP=1 python -m pytest -q -s tests/test_terrain.py -k optional_post_viewer_mount_sweep
+```
+
+This prints a JSON report of how many of the 16 depth zones distinguish
+a real +5cm or -5cm step from level ground over five approach positions,
+at 64 rays/scan. The default compares all 9 mount candidates. For the
+mount you identify as promising in the viewer, specify it exactly:
+
+```bash
+EMU_SENSOR_SWEEP=1 EMU_SENSOR_TILT_DEG=50 EMU_SENSOR_FORWARD_MM=120 \
+  python -m pytest -q -s tests/test_terrain.py -k optional_post_viewer_mount_sweep
+```
+
+Replace 50 and 120 with **your actual chosen tilt and forward mount**.
+The output is a diagnostic, **not a pass/fail terrain-learning score**.
+Ranges are line-of-sight measurements, and changed-zone counts are
+geometric contrast, not proof that the network will use the signal.
+
+**3. Measure prospective GPU cost (optional; JAX CUDA needed):**
+
+```bash
+EMU_SENSOR_BENCH=1 python -m pytest -q -s tests/test_terrain.py -k optional_gpu_2048_world_ray_cost
+```
+
+This JIT-compiles the pure forward sensor model for 2,048 worlds,
+compares **16 / 64 / 80 rays**, includes two moving-foot spheres,
+and prints compilation seconds separately from average steady-state
+scan milliseconds. It does **not** include PPO, whole-robot MJX
+contact or end-to-end training FPS, and does not start a training run.
+CPU-only installations explicitly skip the GPU benchmark.
+
+**4. Decide the next code change using viewer + test results:**
+
+- If up/down steps are visible early, flat surfaces read sensibly, and
+  self-occlusion is tolerable: lock forward position, tilt, valid range
+  and 4×4 orientation in a NEW sensor-contract revision. Do not mutate
+  `sim2real_232` or reinterpret its checkpoints.
+- If previews are too distant/close: run the same angle/forward sweep
+  around your preferred candidate before freezing it.
+- If the leg obscures frequent cells: investigate vertical/lateral
+  mount position or orientation and update simulator occluders.
+  Never filter leg returns from simulated NN inputs without a
+  matching physical sensor intervention.
+- If GPU/park scans prove costly: compare 16/64/80 options and measure
+  the *full* 2,048-world trainer before selecting the training footprint.
+
+**Following this stage:** integrate raw 16-zone ranges, 16 validity
+flags and a scan-age signal into the existing asynchronous sensor queue,
+define/fingerprint a new 4-frame actor schema, then test a from-scratch
+256-world PPO update, 2,048-world memory/performance smoke and checkpoint
+export/resume. Only then start a 10–20M cold-start foundation and a
+short branch tournament. The 364-wide observation concept is a **candidate**,
+not a validated or deployed contract yet.
