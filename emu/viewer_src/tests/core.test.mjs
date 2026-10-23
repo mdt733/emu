@@ -438,3 +438,51 @@ test('default park has real obstacle ring, clear spawn, and opt-out parity',()=>
   // Feature toggling must not mutate the physical hfield itself.
   assert.deepEqual(Array.from(park.heights),Array.from(noFeatures.heights));
 });
+
+
+test('square 45-degree optical footprint stays square at 90-degree downward tilt',()=>{
+  const {depthProbeRays,depthGridRays}=depthLabSensor;
+  const eye=[0,0,.26],R=[1,0,0,0,1,0,0,0,1];
+  const footprint=depthGridRays(R,{tilt:90});
+  assert.equal(footprint.length,25);
+  const hit=footprint.map(ray=>{
+    assert.ok(ray[2]<0);
+    const t=-eye[2]/ray[2];
+    return eye.map((p,k)=>p+t*ray[k]);
+  });
+  const half=.26*Math.tan(Math.PI/8);
+  for(let row=0;row<5;row++)for(let col=0;col<5;col++){
+    const p=hit[row*5+col];
+    assert.ok(Math.abs(p[0]-(1-row/2)*half)<1e-10);
+    assert.ok(Math.abs(p[1]-(col/2-1)*half)<1e-10);
+    assert.ok(Math.abs(p[2])<1e-10);
+  }
+  // Corner cells form a true nondegenerate square, not a V/triangle.
+  assert.ok(Math.abs(hit[0][0]-hit[4][0])<1e-10);
+  assert.ok(Math.abs(hit[0][1]-hit[20][1])<1e-10);
+  const zones=depthProbeRays(eye,R,{forward:0,tilt:90,height:0});
+  assert.equal(zones.directions.length,16);
+  for(let row=0;row<4;row++)for(let col=0;col<4;col++){
+    const ray=zones.directions[row*4+col][0];
+    const t=-eye[2]/ray[2],p=eye.map((x,k)=>x+t*ray[k]);
+    assert.ok(Math.abs(p[0]-(.75-row*.5)*half)<1e-10);
+    assert.ok(Math.abs(p[1]-(col*.5-.75)*half)<1e-10);
+  }
+});
+
+test('sensor square FoV remains independent in both axes at all pitch settings',()=>{
+  const {depthGridRays,depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const tilt of [0,25,50,75,90]){
+    const rays=depthGridRays(R,{tilt});
+    assert.ok(rays.every(ray=>Math.abs(Math.hypot(...ray)-1)<1e-10));
+    // Centre row left/right spread exists at 90 degrees too.
+    assert.ok(Math.abs(rays[10][1]-rays[14][1])>.6);
+    // Upper/lower spread is independent of horizontal image-plane axis.
+    assert.ok(Math.hypot(...rays[2].map((x,i)=>x-rays[22][i]))>.6);
+    const probe=depthProbeRays([0,0,.26],R,{tilt,forward:0});
+    assert.equal(probe.directions.length,16);
+    assert.ok(probe.directions.every(zone=>zone.length===5));
+  }
+  assert.throws(()=>depthGridRays(R,{tilt:91}));
+});
