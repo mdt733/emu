@@ -486,3 +486,23 @@ test('sensor square FoV remains independent in both axes at all pitch settings',
   }
   assert.throws(()=>depthGridRays(R,{tilt:91}));
 });
+
+
+test('0mm 70-degree provisional optical mount preserves side and front coverage',()=>{
+  const {depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1],torso=[0,0,.2584];
+  const probe=depthProbeRays(torso,R);
+  assert.ok(Math.abs(probe.origin[0])<1e-10);
+  assert.ok(Math.abs(probe.origin[2]-.2404)<1e-10);
+  const ground=(row,col)=>{
+    const ray=probe.directions[row*4+col][0];
+    const t=-probe.origin[2]/ray[2];
+    return probe.origin.map((v,k)=>v+t*ray[k]);
+  };
+  const farL=ground(0,1),farR=ground(0,2);
+  const nearL=ground(3,0),nearR=ground(3,3);
+  assert.ok(farL[0]>.15 && farR[0]>.15);
+  assert.ok(nearL[1]<-.05 && nearR[1]>.05);
+  assert.ok(Math.abs(nearL[0]-nearR[0])<1e-10);
+  assert.ok(farL[0]-nearL[0]>.14);
+});
