@@ -123,6 +123,38 @@ emu terrain-exam \
 - Limitations: per-rollout counts may be sparse at 5% terrain dose; do not infer competence or relax the gate without validated serialized accumulation. New feature-branch source is NOT yet approved to resume the 20M/34M source-pinned 0ba009f checkpoints. No new GPU run or new ascent claim.
 - **CI state at this update:** original handover-head workflow 40032619063 was green; new engineering-head checks [40034943266](https://github.com/mdt733/emu/actions/runs/40034943266) are queued/pending, so these corrections are NOT yet a verified full CI pass.
 - **Exact next task:** implement bounded monotonic ascent progress and supported clearance teaching without privileged actor information or reward loops for rocking/flailing; next verify actual height-matched up/down exams, near-lip ToF visibility and original-flat/dormant-flat parity before planning source-compatible bounded GPU fork.
+### 2026-10-24 — ascent teaching built; owner approves NEW 34M cold-start campaign
+
+**Owner decision:** Rather than attempting to migrate the old 0ba009f 34M optimizer/brain across source revisions, train a new terrain_360 policy from scratch using the latest reviewed v5023 source. First **20M physically flat foundation**, then 20M→**34M cumulative sim2real growth**, 2,048 GPU worlds, seed 733, max terrain topology 4cm, 8deg pitch. NO cold-start of hard sim2real profile from step zero. Run only from ONE pinned clean Git commit for both phases; keep original 0ba009f checkout/checkpoints unchanged.
+
+**New code on feature branch:** `0385dc9` adds one-episode high-water marks for real forward ascent approach and a properly lifted/reaching foot while the *other* foot has a real MJX floor-contact pair. Requires commanded positive vx, controlled vy/yaw, a supported nonfallen body and physically forward root displacement. Both gains are monotonically one-time: max **6.6** points root + **2.4** foot per ascent episode, plus unchanged **+10** only for genuine sustained far-side contact. Flat/foundation and descent rewards get zero new shaping. No changes to 360 actor channels, actions or old checkpoint schema; new state is process-local episode state. `3a037da` logs the ascent guidance separately from actual crossings.
+
+**Better frozen exam:** `3f4a0d3` adds optional **paired_terrain_heights** in `EmuMJXEnv`, used ONLY by the frozen terrain examiner. Each adjacent up/down pair is assigned identical **actual** 30–100%-of-ceiling height and edge yaw from seed/pair index, whereas training retains normal per-episode randomness. `4c42c6a` turns this on for the exam and rejects mismatched pair heights, records new v2 protocol. Old v1 exams can still be compared as historical baselines, but they do NOT have direction-matched heights. Run v2 on both the new 34M and original 34M policy (using updated separate examiner code if available) for truly matched A/B.
+
+**Review caveats:** None of the new code proves climbing yet; a successful independent ascent remains 0/12 on BOTH archived policies. New episode-state paths and paired frozen examiner require current GitHub CI physical/PPO smoke before committing overnight GPU time. CPU GitHub checks on intervening commits may be cancelled as the branch advances; the FINAL head needs its own clean pass. No full 2048-GPU run was performed in-chat. The expanded teacher compute may change throughput. Leave protected main, 260M Pinnacle, showcase and GitHub Pages untouched.
+
+**Run recipe, from clean WSL checkout (new folder only):**
+
+~~~bash
+git clone --branch feature/v5023-capability-growth --single-branch https://github.com/mdt733/emu.git ~/emu-v5023-ascent
+cd ~/emu-v5023-ascent
+# DETACH AT AN EXACT REVIEWED SHA, supplied with the handover; never pull during the run.
+git checkout --detach <REVIEWED_SOURCE_SHA>
+bash scripts/setup_wsl.sh --cuda13 --install-node
+source .venv/bin/activate
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+ROOT="$HOME/robot_lab/emu_runs/v5023_ascent_fresh733"
+emu doctor --require-gpu
+emu train --run-dir "$ROOT/foundation20" --profile foundation --steps 20000000 --envs 2048 --seed 733 --device cuda --terrain-actor --terrain-step-max-m .04 --pitch-deg 8
+emu train --run-dir "$ROOT/growth34" --profile sim2real --steps 34000000 --envs 2048 --seed 733 --device cuda --terrain-actor --terrain-step-max-m .04 --pitch-deg 8 --resume "$ROOT/foundation20/checkpoints/final.pkl"
+emu export-policy "$ROOT/growth34/checkpoints/final.pkl" "$ROOT/growth34/growth34.emupolicy"
+emu terrain-exam --policy "$ROOT/growth34/growth34.emupolicy" --output "$ROOT/exam34_seed1701" --device cpu --worlds 8 --horizon 350 --speed .15 --heights-cm 0 1 2 4 --seed 1701
+emu terrain-exam --policy "$ROOT/growth34/growth34.emupolicy" --output "$ROOT/exam34_seed1702" --device cpu --worlds 8 --horizon 350 --speed .15 --heights-cm 0 1 2 4 --seed 1702
+~~~
+
+**Expected evidence:** first 20M contain NO real steps (even though allocated terrain topology); new code's up/down console indicators show dashes until episodes complete; thereafter look at actual completed ascents vs descents, near-lip progress, standard core/speed tracking and failure rates. Each phase is separately SHA-pinned and checkpoint validated, and standalone runs create automatic results. If stopped mid-run, `--resume auto` for the SAME run directory/config is supported, but do not change SHA. Checkpoint source lineage must remain identical between the phases.
+
+**Exact next engineering task once run results arrive:** compare frozen v2 paired-height multiple-seed ascents and core gait to old policy; if upward crossing remains zero, inspect visibility/timing of 4x4 rays and actual floor/foot impulses at the lip before increasing reward or terrain height. Do not grant promotion merely from positive training reward.
 ## 8. Completion and handover discipline
 
 **Current status:** 20M and 34M GPU runs **COMPLETED**, both checkpoint-validated; independent 20M-vs-34M terrain exams **COMPLETED**; **ascending real steps 0/12 in both**. Directional reports/governor fixed on updated feature source; no new physical training result yet. Main and champion **protected**. Next work is **code-first ascending-learning correction and independent paired exam**, not more of the unchanged trainer.
@@ -132,9 +164,9 @@ emu terrain-exam \
 - [x] Validate real CUDA 360 actor/2,048 worlds; finish cold foundation and mature continuation.
 - [x] Frozen independent terrain A/B at both 20M and 34M with original/dormant physics parity.
 - [x] Direction-separated up/down evidence and curriculum gates (implemented; GPU verification pending).
-- [ ] Bounded ascent guidance and actual confirmed up-crossings.
+- [ ] Bounded ascent guidance and actual confirmed up-crossings (shaping code implemented; physical successes NOT yet observed).
 - [ ] Matched-height, multiple-seed independent physical exam; preserved command/core ability.
-- [ ] Safe reviewed source/checkpoint migration or fresh suitable cold-start; short training fork.
+- [ ] Fresh source-pinned 20M→34M cold-start campaign (owner approved; GPU run not yet performed).
 - [ ] Mixed actual contact slopes and finite terrain, servo/efficiency and browser 360 parity.
 - [ ] Independent broad comparison and **explicit owner approval** before PR merge or champion/showcase changes.
 
