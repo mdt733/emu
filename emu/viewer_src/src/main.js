@@ -31,6 +31,7 @@ const depthCells=Array.from({length:16},()=>{
   $('depthGrid').appendChild(cell);return cell;
 });
 const treesToggle = $('treesToggle');
+const parkFeaturesToggle = $('parkFeaturesToggle');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
@@ -261,6 +262,7 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
+    sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
     if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     updateDepthSettings();
@@ -358,6 +360,7 @@ cameraBtn.addEventListener('click', () => {
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
+  parkFeaturesToggle.disabled = terrainMode.value!=='park';
   if(terrainMode.value==='sensor'&&demoActive)stopDemo();
   if(terrainMode.value!=='sensor')depthCourse.value='viewer';
   else if(depthCourse.value==='viewer'){depthCourse.value='flat';sim?.setSensorObstacle('flat');}
@@ -443,6 +446,7 @@ function updateDepthGrid(){
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Park obstacle collision unavailable: ${err.message}`,'error');}});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
