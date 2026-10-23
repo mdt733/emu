@@ -427,3 +427,44 @@ Next choose **Current viewer terrain** and explore the six new features
 with the **Park obstacle ring** toggle on and off. Compare forward
 mounts **0/30/60/90 mm** at the same tilt to find whether a near-root
 mount is obstructed by the body/legs.
+
+
+### Optical footprint correction after first viewer inspection
+
+The earlier diagnostic ray builder applied horizontal image-plane angle as
+global yaw AFTER rotating each row's pitch. At downward tilt approaching 90°,
+its horizontal component was multiplied by `cos(pitch)` and therefore
+collapsed: the field appeared as a V/triangle rather than a 2D matrix.
+**That was incorrect for this sensor.**
+
+Both `emu/terrain.py` and `viewer_src/src/sensor.js` now use the same
+square **45° × 45° optical image plane** and rotate the entire optical
+basis downward together. Each of 16 zones remains a real 2D square
+angular patch; 1, 4 or 5 subray samples produce 16 zone measurements.
+At **90° straight down over flat ground**, 4×4 zone centres lie in a
+regular square grid. At **50° oblique** incidence the ground projection
+naturally becomes a stretched trapezoid. All beams still originate from
+one physical sensor centre, so a pyramid of converging beams in a
+side view is *not itself* a sensor fault.
+
+Viewer changes:
+- Tilt now ranges **0° (ahead) to 90° (straight down)**, including true
+  90° rather than previously stopping at 75°.
+- **Show beams from sensor** keeps the actual 16 depth directions.
+- **Show 4×4 ground footprint** uses 25 extra boundary ray intersections
+  to draw a surface-projected 4×4 outline. Missing or occluded corners
+  remain open rather than being filled in with imaginary terrain.
+- Milliseconds per scan **includes** that extra ray work. Copied readings
+  and the HUD separately identify the 16/64/80 range samples and the
+  optional 25 drawing-only footprint intersections. Disable footprint
+  during ray-count benchmarking for comparable numbers.
+- Python/JS cross-language direction parity and separate 90° flat-plane
+  square-footprint tests now protect against the original regression.
+
+**Recheck the viewer** after pulling/rebuilding. Start with *Flat
+reference*, set **Tilt 90°**, **Mount 0 or 30mm**, leave footprint ON,
+and orbit directly above the robot. Four rows and four columns must be
+visible as a square grid on the ground (subject to real chassis
+occlusion). Try Tilt 50° next: the patch elongates forward. If the grid
+breaks or shows orange blocked readings at 0mm, the mounting origin
+may be inside the chassis; move it a little forward and compare.
