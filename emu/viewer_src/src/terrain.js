@@ -225,6 +225,10 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
       gx=Math.tan(Math.PI/180);
     else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
       gx=-Math.tan(Math.PI/180);
+  } else if(mode==='sensor') {
+    // The diagnostic courses have discontinuous steps. Their ground cannot
+    // be represented by a single underfoot grade, but depth still works.
+    return {supported:false,degrees:0,arrowDegrees:0,flat:false};
   } else if(mode!=='flat') throw new Error('Unknown terrain mode');
   const grade=Math.hypot(gx,gy);
   const degrees=Math.atan(grade)*180/Math.PI;
