@@ -1037,7 +1037,9 @@ def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
                             if active else 0.)
         direction = 'flat' if not active else 'step-down' if centers[i, 0] < 0 else 'step-up'
         sign = -1.0 if direction == 'step-down' else 1.0
-        yaw = 2 * np.arctan2(quats[i,3], quats[i,0])
+        yaw = 2 * np.arctan2(quats[i,3], quats[i,0]) if active else 0.0
+        # Dormant box yaw is randomized but physically meaningless. Both
+        # original-flat and dormant-flat controls MUST grade world +X.
         axis = np.asarray((np.cos(yaw), np.sin(yaw)))
         edge = centers[i,:2] - sign*TERRAIN_PLATFORM_HALF_LENGTH_M*axis if active else np.array((.25,0.))
         progress = (xy[:n,i,:] - edge) @ axis
