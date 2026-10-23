@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
-from .terrain import (training_course_xml, course_ground_height, scan_forward,
+from .terrain import (training_course_xml, course_ground_height, scan_forward,scan_tripod,
                       TERRAIN_COURSE_NAMES)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
@@ -1838,8 +1838,17 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
-        ranges,beam_valid=simulate_tripod_ranges(
-            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        if self.use_front:
+            boxes=self.terrain_ids
+            ranges,beam_valid=scan_tripod(
+                jnp,torso,R,data.geom_xpos[:,boxes,:],
+                data.geom_xmat[:,boxes,:].reshape(
+                    (self.num_envs,len(boxes),3,3)),self.terrain_sizes,
+                floor_origin=floor_o,floor_normal=floor_n,
+                noise_m=range_errors_m)
+        else:
+            ranges,beam_valid=simulate_tripod_ranges(
+                jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
@@ -1864,6 +1873,11 @@ class EmuMJXEnv(TaskSampler):
         distance=jnp.sum((origin-torso)*normal,axis=-1)
         true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
         true_depth=jnp.where(denom<-.3,true_depth,0.)
+        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
+        if self.use_front:
+            # Flow capture also tracks physical terrain depth. Its packet
+            # sees the noisy tripod estimate, never the true course top.
+            true_depth=jnp.where(ground['valid'],ground['optical_depth_m'],0.)
         _,body_velocity,_=self._body_packets(data)
         # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
         # the second world-to-body rotation used by the legacy 220 actor.
@@ -1871,7 +1885,6 @@ class EmuMJXEnv(TaskSampler):
         measured_flow,flow_valid=simulate_downward_optical_flow(
             jnp,body_velocity,body_gyro,true_depth,
             flow_error_rad_s=flow_errors_rad_s)
-        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
         measured_gyro=body_gyro+(jnp.asarray(gyro_errors_rad_s)
                                  if gyro_errors_rad_s is not None else 0.)
         estimate=estimate_flow_velocity(
