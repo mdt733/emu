@@ -24,7 +24,7 @@ const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
 const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
-const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples');
+const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthCells=Array.from({length:16},()=>{
   const cell=document.createElement('span');
   cell.className='depth-cell invalid';cell.textContent='—';
@@ -374,6 +374,7 @@ function updateDepthSettings(){
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
     forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    showFootprint:depthFootprint.checked,
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
@@ -387,7 +388,7 @@ function changeDepthCourse(){
     navigator.reset();updateStickLabels();
   }catch(error){setStatus('Depth lab course: '+error.message,'error');}
 }
-for(const input of [depthOn,depthTilt,depthMount,depthRays,depthSamples])
+for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthCourse.addEventListener('change',changeDepthCourse);
 $('depthCopy').addEventListener('click',async()=>{
