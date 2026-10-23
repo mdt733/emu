@@ -235,30 +235,41 @@ def run_environment(worlds: int = 4):
     zero = jnp.zeros((worlds,), dtype=jnp.float32)
     @jax.jit
     def contacts_at(xy, elevation):
+        # Deliberately position neutral ball feet 2mm into the requested
+        # support, then measure contacts before and DURING settling.
+        # Contact only at the final frame is not required: these robots
+        # can legitimately rebound or lift a foot within 12 substeps.
         q = state.data.qpos.at[:, 0:2].set(xy)
-        q = q.at[:, 2].set(NEUTRAL_ROOT_Z + elevation)
+        q = q.at[:, 2].set(NEUTRAL_ROOT_Z + elevation - .002)
         q = q.at[:, 3:7].set(jnp.broadcast_to(
             jnp.asarray([1., 0., 0., 0.], dtype=jnp.float32), (worlds, 4)))
+        q = q.at[:, env.act_qpos].set(0.)
         d = state.data.replace(qpos=q, qvel=jnp.zeros_like(state.data.qvel))
         d = env.forward_batched(env.mjx_model, d)
-        def one(_, prev):
-            return env.step_batched(env.mjx_model, prev)
-        d = jax.lax.fori_loop(0, 12, one, d)
-        contact = getattr(d, '_impl', d).contact
-        a, b = contact.geom1, contact.geom2
-        near = contact.dist < .003
-        foot = ((a == feet[0]) | (a == feet[1]) |
-                (b == feet[0]) | (b == feet[1]))
-        platform = jnp.any(near & foot & ((a == geom) | (b == geom)), axis=1)
-        ground = jnp.any(near & foot & ((a == floor) | (b == floor)), axis=1)
-        # Diagnostic: distinguish broken mocap placement, contact generation,
-        # and a bad robot settling pose before changing the physics model.
-        relative = jnp.where(
-            ((a == geom) | (b == geom)) & foot,
-            contact.dist, jnp.inf)
-        min_step_dist = jnp.min(relative, axis=1)
-        return (platform, ground, d.qpos[:, :3],
-                d.geom_xpos[:, geom, :], min_step_dist)
+
+        def flags(physical):
+            contact = getattr(physical, '_impl', physical).contact
+            a, b = contact.geom1, contact.geom2
+            near = contact.dist < .003
+            foot = ((a == feet[0]) | (a == feet[1]) |
+                    (b == feet[0]) | (b == feet[1]))
+            platform = jnp.any(near & foot & ((a == geom) | (b == geom)), axis=1)
+            ground = jnp.any(near & foot & ((a == floor) | (b == floor)), axis=1)
+            gap = jnp.min(jnp.where(
+                ((a == geom) | (b == geom)) & foot,
+                contact.dist, jnp.inf), axis=1)
+            return platform, ground, gap
+
+        seen_platform, seen_ground, gap = flags(d)
+        def one(_, carry):
+            physical, p, g, nearest = carry
+            physical = env.step_batched(env.mjx_model, physical)
+            pn, gn, distance = flags(physical)
+            return (physical, p | pn, g | gn, jnp.minimum(nearest, distance))
+        d, seen_platform, seen_ground, gap = jax.lax.fori_loop(
+            0, 12, one, (d, seen_platform, seen_ground, gap))
+        return (seen_platform, seen_ground, d.qpos[:, :3],
+                d.geom_xpos[:, geom, :], gap)
 
     platform_contact, _, on_top, geom_center, gap = jax.device_get(
         contacts_at(centers, heights))
