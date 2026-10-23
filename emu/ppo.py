@@ -779,6 +779,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
                 shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
                 done=out.done,fell=out.metrics['episode_fell'])
+            if env.terrain_step_mocap_id >= 0:
+                # Examiner-only collision telemetry from the SAME real MJX
+                # contacts used by normal stepping. Never placed in actor obs,
+                # teacher reward or checkpoint state.
+                import mujoco
+                platform_id = mujoco.mj_name2id(
+                    env.mj_model, mujoco.mjtObj.mjOBJ_GEOM,
+                    'episode_terrain_surface')
+                contact = getattr(es.data, '_impl', es.data).contact
+                sample['terrain_platform_contact'] = contact_pair_mask(
+                    jnp, contact.geom1, contact.geom2, contact.dist,
+                    int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
+                sample['terrain_support'] = out.metrics['support']
+                sample['terrain_bad_contact'] = out.metrics['bad_contact']
+                sample['terrain_vx'] = out.metrics['vx']
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
@@ -787,6 +802,20 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
+        if env.terrain_step_mocap_id >= 0:
+            return dict(
+                **frames,
+                initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],
+                initial_terrain_mocap_quat=initial.data.mocap_quat[:, env.terrain_step_mocap_id, :],
+                last_position_xy=last_xy,
+                last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                last_floor_contact=last_contacts,
+                last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                spring_reference_rad=env.spring_reference,
+                spring_stiffness_nm_rad=env.spring_stiffness,
+                servo_peak_limit_nm=env.servo_stall_torque_nm)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,
