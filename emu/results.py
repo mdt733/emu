@@ -1078,6 +1078,14 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     episodes = int(done.sum())
     row = {
         'episodes': float(episodes),
+        # G4 physically completed finite-terrain episodes, counted only
+        # from true MJX contact/trajectory evidence (NOT proxy foot lift).
+        'terrain_attempts': float(np.asarray(metrics['terrain_episode_attempt']).sum())
+            if 'terrain_episode_attempt' in metrics else 0.0,
+        'terrain_successes': float(np.asarray(metrics['terrain_episode_success']).sum())
+            if 'terrain_episode_success' in metrics else 0.0,
+        'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
+            if 'terrain_cross_new' in metrics else 0.0,
         'ep_len_mean': done_mean(metrics, 'episode_length', default=0.0),
         'ep_rew_mean': done_mean(metrics, 'episode_return', default=0.0),
         'fall_rate': done_mean(metrics, 'episode_fell', default=mean_metric(metrics, 'terminal')),
