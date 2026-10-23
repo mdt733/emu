@@ -387,6 +387,35 @@ function changeDepthCourse(){
 for(const input of [depthOn,depthTilt,depthMount,depthRays,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthCourse.addEventListener('change',changeDepthCourse);
+$('depthCopy').addEventListener('click',async()=>{
+  const reading=sim?.depthReading;
+  if(!reading){$('depthNote').textContent='No scan to copy yet';return;}
+  const info={
+    sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
+    policy:bundle?.source?.run_name||'unknown',
+    terrain:terrainMode.value,
+    obstacle:terrainMode.value==='sensor'?depthCourse.value:'viewer terrain',
+    tilt_down_deg:Number(depthTilt.value),
+    mount_forward_mm:Number(depthMount.value),
+    rays_per_scan:reading.subrays*16,
+    scan_time_ms:Number(reading.costMs.toFixed(2)),
+    ranges_cm:Array.from({length:4},(_,row)=>
+      Array.from({length:4},(_,col)=>{
+        const i=row*4+col;
+        return reading.valid[i]?Number((100*reading.ranges[i]).toFixed(1)):null;
+      })),
+    self_occluded_zones:reading.selfOccluded.map((v,i)=>v?i:null).filter(v=>v!==null),
+    mixed_edge_zones:reading.mixed.map((v,i)=>v?i:null).filter(v=>v!==null),
+  };
+  try {
+    if(!window.navigator.clipboard?.writeText)throw new Error('Clipboard unavailable');
+    await window.navigator.clipboard.writeText(JSON.stringify(info,null,2));
+    $('depthNote').textContent='Copied sensor reading · paste it into chat';
+  }catch(error){
+    $('depthNote').textContent='Clipboard blocked · take a screenshot instead';
+  }
+});
+
 function updateDepthGrid(){
   const data=sim?.depthReading;
   let hits=0;
