@@ -24,7 +24,7 @@ const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
 const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
-const depthMount=$('depthMount'),depthRays=$('depthRays');
+const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples');
 const depthCells=Array.from({length:16},()=>{
   const cell=document.createElement('span');
   cell.className='depth-cell invalid';cell.textContent='—';
@@ -371,6 +371,7 @@ function updateDepthSettings(){
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
     forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
 function changeDepthCourse(){
@@ -383,7 +384,7 @@ function changeDepthCourse(){
     navigator.reset();updateStickLabels();
   }catch(error){setStatus('Depth lab course: '+error.message,'error');}
 }
-for(const input of [depthOn,depthTilt,depthMount,depthRays])
+for(const input of [depthOn,depthTilt,depthMount,depthRays,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthCourse.addEventListener('change',changeDepthCourse);
 function updateDepthGrid(){
@@ -397,7 +398,9 @@ function updateDepthGrid(){
       cell.textContent=cm.toFixed(0);
       // Near = teal, far = blue. Zero is NEVER treated as near terrain.
       const fraction=Math.max(0,Math.min(1,(cm-5)/145));
-      cell.style.background='hsl('+(174+fraction*52).toFixed(0)+' 42% '+(29+fraction*11).toFixed(0)+'%)';
+      cell.style.background=data.selfOccluded[i]?'#855524':
+        data.mixed[i]?'#74651a':
+        'hsl('+(174+fraction*52).toFixed(0)+' 42% '+(29+fraction*11).toFixed(0)+'%)';
     }else{
       cell.textContent='—';cell.style.background='';
     }
@@ -405,7 +408,7 @@ function updateDepthGrid(){
   $('depthNote').textContent=!depthOn.checked
     ? 'Diagnostic off · champion unchanged'
     : !data?'Waiting for robot · no scan yet'
-    : hits+'/16 zones · '+data.subrays+' ray'+(data.subrays!==1?'s':'')+'/zone · '+terrainMode.value+' scene · cm';
+    : hits+'/16 zones · '+(data.subrays*16)+' rays · '+data.costMs.toFixed(1)+' ms/scan · cm';
 }
 
 terrainMode.addEventListener('change',updateTerrain);
