@@ -322,6 +322,32 @@ test('v5022 front sensor uses 4x4 raw range geometry and adjustable physical mou
   assert.ok(missing.ranges.every(x=>x===0));
 });
 
+test('viewer height display removes geometric slant and never promotes a blocked ray',()=>{
+  const {depthProbeRays,readDepthProbe,terrainHeightOffsetsCm}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const tilt of [45,70,90]){
+    const pose=depthProbeRays([0,0,.2584],R,{tilt});
+    const onPlane=z=>readDepthProbe(pose,(origin,ray)=>{
+      return ray[2]<-.001?(z-origin[2])/ray[2]:Infinity;
+    },{subrays:4});
+    const flat=onPlane(0);
+    const heights=terrainHeightOffsetsCm(flat);
+    assert.ok(flat.valid.every(Boolean));
+    assert.ok(Math.max(...flat.ranges)-Math.min(...flat.ranges)>.001);
+    assert.ok(heights.every(cm=>cm!==null&&Math.abs(cm)<1e-8),
+      'flat should read 0cm despite different oblique range values');
+    assert.ok(terrainHeightOffsetsCm(onPlane(.05)).every(cm=>Math.abs(cm-5)<1e-8));
+    assert.ok(terrainHeightOffsetsCm(onPlane(-.05)).every(cm=>Math.abs(cm+5)<1e-8));
+    assert.ok(terrainHeightOffsetsCm(onPlane(.05),.05).every(cm=>Math.abs(cm)<1e-8));
+  }
+  const pose=depthProbeRays([0,0,.2584],R);
+  const self=readDepthProbe(pose,()=>({distance:.11,kind:'self'}),{subrays:1});
+  assert.ok(self.valid.every(Boolean));
+  assert.ok(terrainHeightOffsetsCm(self).every(cm=>cm===null));
+  const missing=readDepthProbe(pose,()=>Infinity,{subrays:1});
+  assert.ok(terrainHeightOffsetsCm(missing).every(cm=>cm===null));
+});
+
 test('v5022 diagnostic obstacle courses alter REAL MuJoCo support geometry',()=>{
   const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05" /></worldbody></mujoco>';
   const rise=withTerrain(xml,'sensor',{obstacle:'step-up'});
