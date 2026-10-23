@@ -20,12 +20,10 @@ SENSOR_FOV_DEG = (45.0, 45.0)
 SENSOR_MOUNT_BODY_M = (.090, .0, -.018)  # provisional; CAD clearance needed
 SENSOR_DOWN_TILT_DEG = 50.0
 SENSOR_RANGE_M = (.020, 1.5)  # deliberate training ROI, not rated max of 4m
-# Centre + 4 quarter-zone rays shared with the browser reference.
-# These are footprint surrogates, NOT actual ST histogram processing.
-_ZONE_OFFSETS_DEG = ((0., 0.), (-2.8125, -2.8125),
-                     (-2.8125, 2.8125), (2.8125, -2.8125),
-                     (2.8125, 2.8125))
-
+# Centre + four quarter-zone rays, shared with viewer's square image plane.
+# These are footprint surrogates, NOT hardware ST histogram sub-pixels.
+_ZONE_OFFSETS = ((0., 0.), (-1., -1.), (-1., 1.),
+                 (1., -1.), (1., 1.))
 
 @dataclass(frozen=True)
 class Surface:
@@ -151,17 +149,24 @@ def camera_rays(xp, torso_world, body_to_world, *,
     validated against ST zone numbering before robot deployment.
     """
     p, R = xp.asarray(torso_world), xp.asarray(body_to_world)
-    coord = xp.asarray((-16.875, -5.625, 5.625, 16.875))
-    sub = xp.asarray(_ZONE_OFFSETS_DEG)
-    y = coord[None, :, None] + sub[None, None, :, 0]
-    # Row 0 is the shallowest downward angle (farthest patch).
-    down = tilt_down_deg + coord[:, None, None] + sub[None, :, 1][None]
-    az = xp.broadcast_to(y, (4,4,5))
-    el = xp.broadcast_to(down, (4,4,5))
-    x = xp.cos(xp.deg2rad(el))*xp.cos(xp.deg2rad(az))
-    lateral = xp.cos(xp.deg2rad(el))*xp.sin(xp.deg2rad(az))
-    vertical = -xp.sin(xp.deg2rad(el))
-    body_rays = xp.stack((x, lateral, vertical), axis=-1).reshape(16,5,3)
+    # The detector has a square 45° by 45° image plane. Its two optical
+    # axes rotate TOGETHER with mount tilt. Treating elevation and azimuth
+    # as independent global pitch/yaw angles collapsed the horizontal FoV
+    # to a V/line when the sensor approached straight down (90°).
+    half = xp.tan(xp.deg2rad(xp.asarray(22.5)))
+    coord = xp.asarray((-0.75, -0.25, 0.25, 0.75)) * half
+    sub = xp.asarray(_ZONE_OFFSETS) * (half/8)
+    u = coord[None, :, None] + sub[None, None, :, 0]
+    v = -coord[:, None, None] + sub[None, None, :, 1]
+    u = xp.broadcast_to(u, (4,4,5))
+    v = xp.broadcast_to(v, (4,4,5))
+    tilt = xp.deg2rad(xp.asarray(tilt_down_deg))
+    c, st = xp.cos(tilt), xp.sin(tilt)
+    denom = xp.sqrt(1 + u*u + v*v)
+    forward = (c + st*v) / denom
+    lateral = u / denom
+    vertical = (-st + c*v) / denom
+    body_rays = xp.stack((forward, lateral, vertical), axis=-1).reshape(16,5,3)
     direction = xp.einsum("wij,rsj->wrsi", R, body_rays)
     mount = xp.asarray(mount_body_m)
     origin = p+xp.einsum("wij,j->wi",R,mount)
