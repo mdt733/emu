@@ -18,6 +18,82 @@ from emu.checkpoint_io import resume_training_lineage
 from emu.curriculum import TrainingHealth
 from emu.curriculum import RegimeGovernor
 
+def _held_out_core_fixture():
+    """Complete summary-shaped subset from independently evaluated panels."""
+    from emu.results import FIXED_EXAM_GUARDS
+    row={}
+    for key,(direction,_) in FIXED_EXAM_GUARDS.items():
+        if key.endswith("_survival") or key.endswith("_support") or key.endswith("_evidence"):
+            row[key]=.92
+        elif key.endswith("_m"):
+            row[key]=.003
+        else:
+            row[key]=.05
+    row.update(eval_policy_step=20_000_000,perf_eval_cohorts_used=2,
+               perf_eval_env_steps=700_000)
+    return row
+
+
+def test_independent_exam_detects_core_regression_despite_other_gains():
+    from emu.results import compare_fixed_exam_evidence
+    baseline=_held_out_core_fixture()
+    candidate={**baseline, "eval_policy_step":60_000_000,
+               "eval_core_survival":baseline["eval_core_survival"]-.08,
+               "eval_core_vx_mae":baseline["eval_core_vx_mae"]+.04,
+               "eval_dynamic80_survival":1.0,
+               "eval_robust40_survival":1.0}
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="frozen-core-v1-physics-abcdef",
+        candidate_protocol="frozen-core-v1-physics-abcdef")
+    assert out["source"]=="held_out_exam"
+    assert out["guardrail_status"]=="regression"
+    assert out["regressed_fields"]==["eval_core_survival","eval_core_vx_mae"]
+    assert out["metrics"]["eval_dynamic80_survival"]["delta"]>0
+    assert out["matched_cohorts"]==2
+    assert out["reference_step"]==20_000_000
+    assert "ranking" not in out
+    assert "reward" not in out
+
+
+def test_matched_exam_tolerances_and_incomplete_evidence_are_honest():
+    from emu.results import compare_fixed_exam_evidence
+    baseline=_held_out_core_fixture()
+    candidate=dict(baseline,eval_policy_step=30_000_000)
+    candidate["eval_core_survival"]-=.05
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="exam-A",
+        candidate_protocol="exam-A")
+    assert out["guardrail_status"]=="no_guardrail_regression"
+    assert baseline["eval_core_survival"]==pytest.approx(.92)
+    candidate["eval_core_survival"]-=.001
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="exam-A",
+        candidate_protocol="exam-A")
+    assert "eval_core_survival" in out["regressed_fields"]
+    with pytest.raises(ValueError,match="fingerprints"):
+        compare_fixed_exam_evidence(
+            baseline,candidate,reference_protocol="exam-A",
+            candidate_protocol="exam-B")
+    with pytest.raises(ValueError,match="missing held-out"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"eval_core_pitch_mae":None},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+    no_core=dict(candidate)
+    no_core.pop("eval_core_support")
+    with pytest.raises(ValueError,match="missing held-out"):
+        compare_fixed_exam_evidence(
+            baseline,no_core,reference_protocol="exam-A",
+            candidate_protocol="exam-A")
+    with pytest.raises(ValueError,match="cohort/size mismatch"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"perf_eval_cohorts_used":1},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+    with pytest.raises(ValueError,match="insufficient fixed-exam provenance"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"perf_eval_env_steps":0},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+
+
 def test_capability_evidence_keeps_success_quality_and_confidence_separate():
     from emu.results import capability_evidence_report
     field=CapabilityField()
