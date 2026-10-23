@@ -115,7 +115,7 @@ def training_story(logged, changes):
     return notes or ['Comparable training trends unavailable; inspect the frozen-policy exam.']
 
 
-def summarize(run, expected=None):
+def summarize(run, expected=None, *, require_screen=True):
     logged = [r for r in read_csv(run / 'metrics.csv') if number(r, 'step') is not None]
     unique = {int(number(r, 'step')): r for r in logged}
     logged = [unique[k] for k in sorted(unique)]
@@ -148,7 +148,7 @@ def summarize(run, expected=None):
         fixed_step = number(fixed[-1], 'step')
         if fixed_step is not None and fixed_step < step:
             problems.append('fixed evaluation predates latest logged policy')
-    if not screen and run.name != 'foundation20':
+    if not screen and require_screen:
         problems.append('independent screening details missing')
     if not sha:
         problems.append('checkpoint absent; identity cannot be verified')
@@ -191,7 +191,13 @@ def collect(root):
         stage, _, arm = name.partition('/')
         scored = next((r for r in boards.get(stage, {}).get('results', [])
                        if r.get('arm') == arm), None)
-        runs[name] = summarize(path, scored)
+        runs[name] = summarize(path, scored,
+                               require_screen=path != root and path.name != 'foundation20')
+    if 'single' in runs and not context:
+        single = runs['single']
+        context = dict(git_commit=single['source'].get('git_commit','unknown'),
+                       seed=single['config'].get('seed','unknown'),
+                       envs=single['config'].get('envs','unknown'))
     foundation = runs.get('foundation20', {}).get('checkpoint_sha256')
     for name, run in runs.items():
         original = context.get('git_commit')
@@ -264,7 +270,9 @@ def markdown(info):
              '## Provenance', '',
              '- Training Git commit: ' + MARK + text(ctx.get('git_commit', 'unknown')) + MARK,
              '- Seed: ' + text(ctx.get('seed', 'unknown')) + '; worlds: ' + text(ctx.get('envs', 'unknown')),
-             '- Foundation checkpoint is shared. Per-policy steps are cumulative.', '']
+             ('- Foundation checkpoint is shared. Per-policy steps are cumulative.'
+              if 'foundation20' in info['runs'] else
+              '- Standalone training run; no multi-arm screen or shared tournament parent.'), '']
     for stage, board in info['boards'].items():
         lines.extend(['## ' + stage + ': common held-out ranking', '',
                       'Matched exam: ' + text(board.get('screen_envs', '?')) + ' worlds × ' +
