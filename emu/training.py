@@ -88,6 +88,7 @@ def env_kwargs_from_args(args) -> dict:
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
         contact_slope_deg=args.contact_slope_deg,
+        terrain_step_max_m=args.terrain_step_max_m,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -259,6 +260,10 @@ def train(args: TrainingConfig) -> int:
 
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
+    if args.terrain_step_max_m:
+        print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
+              "but physical exposure/height remain ZERO until independently proven crossing-based "
+              "curriculum activation is implemented.", flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
     import jax.numpy as jnp
     obs_mean = jnp.zeros((obs_dim,), dtype=jnp.float32)
