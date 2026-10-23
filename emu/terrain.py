@@ -130,21 +130,85 @@ def training_course_xml(xml: str) -> str:
     return xml.replace("</worldbody>","\n".join(geoms)+"\n</worldbody>")
 
 
-def course_ground_height(xp, points):
-    """Reward-only ground support height below [W,P,3] points.
+def course_ground_height(xp, points, height_max_m=None):
+    """Reward-only support heights for the actual variable collidable course.
 
-    The only raised surfaces are the same four physical boxes injected
-    above. Actor range packets must use intersections, NOT this height
-    oracle. The existing plane remains at ground z=0.
+    The lower slab/crest geometry is mutated in the same batched MJX model
+    used by contact and range scans. No elevation here is an actor input.
     """
     p=xp.asarray(points)
     x,y=p[...,0],p[...,1]
-    result=xp.zeros_like(x)
-    for _,x0,x1,z0,z1,width in TERRAIN_COURSE_SUPPORTS:
-        z=z0+(x-x0)*(z1-z0)/(x1-x0)
-        inside=(x>=x0)&(x<=x1)&(xp.abs(y)<=width)
-        result=xp.maximum(result,xp.where(inside,z,0.))
-    return result
+    floor=xp.zeros_like(x)
+    if height_max_m is None:
+        h=xp.asarray(.05,dtype=p.dtype)
+    else:
+        h=xp.asarray(height_max_m,dtype=p.dtype)
+        while h.ndim < x.ndim:
+            h=h[...,None]
+    for name,x0,x1,z0,z1,width in TERRAIN_COURSE_SUPPORTS:
+        scale=(h/.05 if name=="front_step" else .9*h/.045)
+        top=(z0+(x-x0)*(z1-z0)/(x1-x0))*scale
+        inside=(x>=x0)&(x<=x1)&(xp.abs(y)<=width)&(h>1e-5)
+        floor=xp.maximum(floor,xp.where(inside,top,0.))
+    return floor
+
+
+def batched_course_model(jnp, template, course_ids, heights_m):
+    """Generate *actual per-world* MJX collision geoms, fixed topology.
+
+    Four named solid boxes are sunk 1m below the original plane for the
+    complete 0–20M foundation. Afterward, each world receives its sampled
+    0–8cm step height and proportionally scaled 0–7.2cm crest.
+
+    Geom poses, quaternions and sizes all change together; a sensor cannot
+    see a different feature from the one the physics solver contacts.
+    This model is a dynamic argument to mjx.forward/step, not a cached
+    world with a virtual terrain-height scalar.
+    """
+    heights=jnp.asarray(heights_m,dtype=jnp.float32).reshape((-1,))
+    if len(course_ids)!=4:
+        raise ValueError("v5022 requires four real course geoms")
+    if template.geom_pos.ndim!=2:
+        raise ValueError("terrain template must be unbatched")
+    W=heights.shape[0]
+    pos=jnp.broadcast_to(template.geom_pos[None,:,:],
+                         (W,)+template.geom_pos.shape)
+    quat=jnp.broadcast_to(template.geom_quat[None,:,:],
+                          (W,)+template.geom_quat.shape)
+    size=jnp.broadcast_to(template.geom_size[None,:,:],
+                          (W,)+template.geom_size.shape)
+    active=heights>1e-5
+    for i,(_,x0,x1,z0,z1,width) in enumerate(TERRAIN_COURSE_SUPPORTS):
+        z_scale=(heights/.05 if i==0 else (.9*heights)/.045)
+        zz0=z0*z_scale
+        zz1=z1*z_scale
+        angle=jnp.arctan2(zz1-zz0,x1-x0)
+        t=.18
+        midx=(x0+x1)/2.
+        midz=(zz0+zz1)/2.
+        # Exactly the convention in surface_box_geometry.
+        # Inactive course pieces live below the world floor and cannot
+        # interfere with foundation collisions, lidar or rewards.
+        px=midx+t*jnp.sin(angle)
+        pz=midz-t*jnp.cos(angle)
+        z=jnp.where(active,pz,-1.)
+        xyz=jnp.stack([px,jnp.zeros_like(px),z],axis=-1)
+        wxyz=jnp.stack([jnp.cos(angle/2),jnp.zeros_like(angle),
+                         -jnp.sin(angle/2),jnp.zeros_like(angle)],axis=-1)
+        halves=jnp.stack([(x1-x0)/(2*jnp.cos(angle)),
+                          jnp.full_like(angle,width),jnp.full_like(angle,t)],axis=-1)
+        pos=pos.at[:,int(course_ids[i]),:].set(xyz)
+        quat=quat.at[:,int(course_ids[i]),:].set(wxyz)
+        size=size.at[:,int(course_ids[i]),:].set(halves)
+    return template.tree_replace({
+        "geom_pos":pos, "geom_quat":quat, "geom_size":size})
+
+
+def course_model_axes(jax,template):
+    """Three per-world leaves; all other main MJX model data is unchanged."""
+    return jax.tree_util.tree_map(lambda _:None,template).tree_replace({
+        "geom_pos":0,"geom_quat":0,"geom_size":0})
+
 
 
 def ray_plane(xp, origins, directions, plane_origin, plane_normal):
