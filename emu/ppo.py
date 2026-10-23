@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -96,8 +96,12 @@ def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
     import numpy as _np
     fields = actor_observation_fields(observation_schema)
     normalised = OBS_NORMALIZED_FIELDS
-    if observation_schema == OBS_SCHEMA_SENSOR:
+    if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
         normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
+    if observation_schema == OBS_SCHEMA_TERRAIN:
+        # Bounded validity/age stay raw. Physical slant ranges are normalized.
+        normalised = normalised | {f"front_range_{r}_{c}_m"
+                                  for r in range(4) for c in range(4)}
     base = _np.asarray(
         [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
