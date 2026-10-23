@@ -1193,7 +1193,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
             'First fall/timeout truncates assessment; resets cannot earn passage.',
             'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
             'These are simulated servo shaft-work estimates, not measured battery energy.',
-            'Each active world samples 30–100% of the requested height ceiling; actual centimetres are recorded.',\n            'Identical cohorts across heights; times include first-run compilation.'])
+            'Each active world samples 30–100% of the requested height ceiling; actual centimetres are recorded.',
+            'Identical cohorts across heights; times include first-run compilation.'])
     output.mkdir(parents=True,exist_ok=True)
     json_path=output/'terrain_exam.json'
     json_path.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
