@@ -752,8 +752,10 @@ def test_v5016_sensor_actor_cli_plan_is_explicit(capsys, tmp_path):
 
 
 def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
-    """A real schema-8 checkpoint must export to 232-input browser schema 2."""
-    from emu.contracts import (OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM,
+    """Schema-8 export must be valid for BOTH browser and frozen MJX examiner."""
+    import hashlib
+    import json
+    from emu.contracts import (OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, ROBOT_XML,
                                sensor_observation_contract)
     from emu.viewer_server import build_bundle, load_exported_actor_for_exam
     contract = sensor_observation_contract({
@@ -772,6 +774,7 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     save_checkpoint(saved,FakeState(params,{'count':np.asarray(1,np.int32)}),
         {'step':20_054_016,'lr_scale':.25,'checkpoint_schema':8,
          'obs_dim':SENSOR_OBS_DIM,'observation_schema':OBS_SCHEMA_SENSOR,
+         'robot_model_sha256':hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest(),
          'sensor_contract':contract},norm,curriculum_state={'params':{}},
         health_state={},field_state=CapabilityField().state_dict())
     bundle=build_bundle(saved)
@@ -782,9 +785,19 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     assert bundle['observation']['sensor_contract']==contract
     assert len(bundle['observation']['base_fields'])==58
     assert bundle['policy']['layers'][0]['w']['shape'][0]==232
-    # Old physical directional examiner must not misinterpret a sensor actor.
+    # The current physical examiner now supports schema 2, but must never
+    # reinterpret its 232 observations as legacy 220-input channels.
     from emu.viewer_server import write_bundle
     artifact=tmp_path/'sensor.emupolicy'
     write_bundle(bundle,artifact)
-    with pytest.raises(ValueError,match='schema-1'):
+    pi,normalizer,provenance=load_exported_actor_for_exam(artifact)
+    assert provenance['observation_schema']==OBS_SCHEMA_SENSOR
+    assert provenance['obs_dim']==SENSOR_OBS_DIM
+    assert provenance['source']['checkpoint_schema']==8
+    assert pi['pi'][0]['w'].shape[0]==SENSOR_OBS_DIM
+    assert normalizer['mean'].shape==(SENSOR_OBS_DIM,)
+    bad=json.loads(artifact.read_text())
+    bad['observation']['sensor_contract']['settings']['tof_delay_frames']=2
+    artifact.write_text(json.dumps(bad))
+    with pytest.raises(ValueError,match='sensor contract'):
         load_exported_actor_for_exam(artifact)
