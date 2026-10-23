@@ -59,7 +59,8 @@ def test_sensor_is_4x4_65_diagonal_variant_and_one_optical_centre():
     assert SENSOR_MODEL == "VL53L8CX"
     assert SENSOR_RESOLUTION == (4,4)
     assert SENSOR_FOV_DEG == (45.,45.)
-    assert SENSOR_MOUNT_BODY_M[0] > .076
+    # Operator-selected candidate allows the optical centre at the torso root.
+    assert SENSOR_MOUNT_BODY_M[0] == pytest.approx(0.)
     assert origins.shape == rays.shape == (2,16,5,3)
     np.testing.assert_allclose(origins,np.broadcast_to(
         origins[:,0:1,0:1,:],origins.shape))
