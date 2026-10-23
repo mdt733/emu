@@ -1116,7 +1116,7 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     """
     import json
     import time
-    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, ROBOT_XML
+    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, ROBOT_XML
     from .viewer_server import load_exported_actor_for_exam
     from .ppo import configure_jax, require_backend
 
@@ -1138,9 +1138,10 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
 
     params, norm, export = load_exported_actor_for_exam(policy)
     actor_schema=export['observation_schema']
-    if actor_schema not in (OBS_SCHEMA_LEGACY,OBS_SCHEMA_SENSOR):
+    if actor_schema not in (OBS_SCHEMA_LEGACY,OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         raise ValueError('unsupported exported actor contract')
-    sensor_settings=export['sensor_settings'] if actor_schema==OBS_SCHEMA_SENSOR else {}
+    sensor_settings=(export['sensor_settings']
+        if actor_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else {})
     # Select the intended JAX platform BEFORE initializing JAX/JIT.
     configure_jax(device)
     import jax
@@ -1252,7 +1253,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
         actor_artifact_sha256=export['artifact_sha256'],
         actor_schema=actor_schema,policy_step=export['source']['step'],
         evidence_grade='diagnostic_only_until_real_step_sensor_and_independent_exam',
-        active_sensor_model=('legacy_flat_plane_tripod_232' if actor_schema==OBS_SCHEMA_SENSOR
+        active_sensor_model=('physical_16cell_depth_and_valid_360' if actor_schema==OBS_SCHEMA_TERRAIN
+                             else 'legacy_flat_plane_tripod_232' if actor_schema==OBS_SCHEMA_SENSOR
                              else 'legacy_220_without_terrain_preview'),
         exam=dict(seed=seed,backend=jax.default_backend(),worlds=worlds,
                   horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
@@ -1260,10 +1262,12 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
                   support='actual foot-floor and foot-platform collision contacts'),
         cases=cases, flat_topology_comparison=paired_diagnostics, cautions=[
             'No PPO or curriculum update performed.',
-            ('232-input actor still uses the legacy tripod flat-contact-plane estimator: '
-             'its depth estimate does NOT yet intersect step geometry; score is '
-             'diagnostic only, NOT sensor-honest skill evidence.' if actor_schema==OBS_SCHEMA_SENSOR
-             else '220-input actor has no 4x4 terrain preview; score is diagnostic only.'),
+            ('360-input actor receives real 16-zone slant depth and per-cell validity, '
+             'with simulated noise/latency/foot occlusion; simulated competence '
+             'is not hardware validation.' if actor_schema==OBS_SCHEMA_TERRAIN else
+             '232-input actor still uses legacy tripod flat-contact-plane grade; '
+             'not terrain-aware step sensing.' if actor_schema==OBS_SCHEMA_SENSOR
+             else '220-input actor has no 4x4 preview, hence diagnostic only.'),
             'Original flat physics and dormant-platform flat physics are compared separately.',
             'If both flat controls fail, terrain crossing is NOT a meaningful skill estimate.',
             'Flat reference has no step-crossing score, only progress/survival.',
