@@ -453,6 +453,13 @@ def train(args: TrainingConfig) -> int:
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
         report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        report['terrain_event'] = governor.advance_terrain(
+            row,step=total_steps,max_height_m=args.terrain_step_max_m,
+            foundation_steps=FOUNDATION_STEPS)
+        report.update(terrain_exposure=governor.params.terrain_exposure,
+            terrain_height_m=governor.params.terrain_height_m,
+            terrain_attempts=row.get('terrain_attempts',0.),
+            terrain_successes=row.get('terrain_successes',0.))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -673,6 +680,13 @@ def train(args: TrainingConfig) -> int:
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+    report['terrain_event'] = governor.advance_terrain(
+        row,step=total_steps,max_height_m=args.terrain_step_max_m,
+        foundation_steps=FOUNDATION_STEPS)
+    report.update(terrain_exposure=governor.params.terrain_exposure,
+                  terrain_height_m=governor.params.terrain_height_m,
+                  terrain_attempts=row.get('terrain_attempts',0.),
+                  terrain_successes=row.get('terrain_successes',0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
