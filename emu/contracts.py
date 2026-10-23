@@ -59,6 +59,56 @@ SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
 )
 SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
 SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+
+# v5022 experiment only. The legacy 220 / v5016 232 fields NEVER change.
+# 16 physical slant ranges + 16 validity flags + one capture age per frame.
+# Two matched arms use identical 364-wide networks; the blinded arm gets
+# zero/invalid front packets, not a smaller or privileged input architecture.
+OBS_SCHEMA_TERRAIN = "terrain4x4_364"
+FRONT_OBS_FIELDS = (
+    *(f"front_range_{row}_{col}_m" for row in range(4) for col in range(4)),
+    *(f"front_valid_{row}_{col}" for row in range(4) for col in range(4)),
+    "front_capture_age_frames",
+)
+TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + FRONT_OBS_FIELDS
+TERRAIN_OBS_DIM = len(TERRAIN_OBS_FIELDS) * HISTORY_LEN
+
+def terrain_observation_contract(settings: dict | None = None, *,
+                                 front_visible: bool = True) -> dict:
+    """Independent 364-input experiment identity; never aliases schema-8."""
+    import hashlib
+    import json
+    from .terrain import (SENSOR_MODEL, SENSOR_RESOLUTION,
+                          SENSOR_MOUNT_BODY_M, SENSOR_DOWN_TILT_DEG,
+                          SENSOR_FOV_DEG, SENSOR_RANGE_M)
+    prior = sensor_observation_contract(settings)
+    body = {
+        "schema": OBS_SCHEMA_TERRAIN,
+        "base_fields": list(TERRAIN_OBS_FIELDS),
+        "history_len": HISTORY_LEN,
+        "action_dim": ACTION_DIM,
+        "control_dt": CONTROL_DT,
+        "old_sensor_contract": prior,
+        "front": {
+            "model": SENSOR_MODEL,
+            "resolution": list(SENSOR_RESOLUTION),
+            "field_of_view_deg": list(SENSOR_FOV_DEG),
+            "mount_body_m": list(SENSOR_MOUNT_BODY_M),
+            "tilt_down_deg": SENSOR_DOWN_TILT_DEG,
+            "range_m": list(SENSOR_RANGE_M),
+            "subrays_per_zone": 4,
+            "period_frames": 1,
+            "delivery_delay_frames": 1,
+            "dropout_probability": 0.02,
+            "range_noise_std_m": 0.0015,
+            "visible_to_actor": bool(front_visible),
+        },
+        "physical_course_revision": "v5022_step_crest_r1",
+    }
+    sha = hashlib.sha256(json.dumps(body,sort_keys=True,
+                         separators=(",",":")).encode()).hexdigest()
+    return {**body,"sha256":sha}
+
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -123,6 +173,7 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
 OBS_FIELDS_BY_SCHEMA = {
     OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
     OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+    OBS_SCHEMA_TERRAIN: TERRAIN_OBS_FIELDS,
 }
 
 
