@@ -27,13 +27,15 @@ import numpy as np
 from .contracts import (ROBOT_XML, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM,
                         terrain_observation_contract)
 from .environment import EmuMJXEnv
-from .curriculum import RegimeGovernor
+from .curriculum import RegimeGovernor, TrainingHealth
 from .ppo import configure_jax, require_backend, make_trainer, update_running_stats
 from .results import summarize_rollout
 from .training_config import (ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES,
-                              PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST)
+                              PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
+                              PPO_LR_SCALE_INIT, PPO_LR_SCALE_MIN, PPO_LR_SCALE_MAX,
+                              PPO_LR_ADJUST, PPO_TARGET_KL, foundation_config)
 
-FORMAT = "v5022_terrain_ppo_v1"
+FORMAT = "v5022_terrain_ppo_v2"
 EVAL_NAMES = ("survival","first_fall_step","vx_mae","vy_mae","yaw_mae",
               "gravity_z","foot_mid_cone","step_evidence","support",
               "pitch_mae","height_shortfall_m")
@@ -70,6 +72,15 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
     visible = arm == "visible"
     contract = terrain_observation_contract(front_visible=visible)
     source = source_info()
+    # MAIN owns the cold-start recipe. A/B arms differ in front visibility,
+    # NOT an invented set of vx/vy/yaw/phase/push teaching values.
+    foundation=foundation_config(run_dir=(root or Path.cwd()), seed=seed,
+                                 device=device, envs=envs)
+    foundation_fields=('difficulty_base_step','regime_command_frac',
+        'fall_target','open_frontier','vx_hi_max','vx_lo_min','vy_max_mps',
+        'yaw_max_rad_s','phase_speed_gain','push_max_force_n',
+        'ppo_lr','ppo_entropy_cost','ppo_value_cost')
+    main_recipe={k:getattr(foundation,k) for k in foundation_fields}
     if not smoke:
         if source["branch"]!="feature/v5022-forward-terrain" or source["dirty"]:
             raise RuntimeError("Refusing unreviewed training: use the clean v5022 feature branch")
@@ -80,7 +91,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         output_path=target/"metrics.csv"
         manifest_path=target/"experiment.json"
         identity=dict(format=FORMAT,contract=contract,seed=seed,
-                      envs=envs,source=source,rollout=ROLLOUT_STEPS)
+                      envs=envs,source=source,rollout=ROLLOUT_STEPS,
+                      main_foundation_recipe=main_recipe)
         if manifest_path.exists():
             old=json.loads(manifest_path.read_text())
             if old!=identity:
@@ -96,9 +108,16 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         identity={}
 
     cfg=dict(observation_schema=OBS_SCHEMA_TERRAIN,front_visible=visible,
-             attitude_profile="v5015",pitch_command_max_deg=8.0,
-             domain_config=None,vx_hi_max=.32,vx_lo_min=-.10,
-             vy_max_mps=.12,yaw_max_rad_s=.8,sensor_noise_scale=1.)
+             # Use the established production v5015 posture model.
+             attitude_profile="v5015",
+             pitch_command_max_deg=foundation.pitch_command_max_deg,
+             domain_config=None,
+             vx_hi_max=foundation.vx_hi_max,vx_lo_min=foundation.vx_lo_min,
+             vy_max_mps=foundation.vy_max_mps,yaw_max_rad_s=foundation.yaw_max_rad_s,
+             phase_speed_gain=foundation.phase_speed_gain,
+             push_max_force_n=foundation.push_max_force_n,
+             open_frontier=foundation.open_frontier,
+             sensor_noise_scale=1.)
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=envs,seed=seed,
                   max_episode_steps=700,**cfg)
     if env.obs_dim!=TERRAIN_OBS_DIM or env.sensor_contract!=contract:
@@ -112,12 +131,18 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                          epochs=PPO_EPOCHS if full_size else 1,
                          minibatches=PPO_MINIBATCHES if full_size else 1,
                          entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
-    governor=RegimeGovernor(difficulty_base_step=.0014,
-                            regime_command_frac=.6,open_frontier=False)
-    governor.params.frontier_vx_hi=.32
-    governor.params.frontier_vx_lo=-.10
-    governor.params.frontier_vy=.12
-    governor.params.frontier_yaw=.8
+    governor=RegimeGovernor(
+        fall_target=foundation.fall_target,
+        difficulty_base_step=foundation.difficulty_base_step,
+        regime_command_frac=foundation.regime_command_frac,
+        athletic_rehearsal_frac=foundation.athletic_rehearsal_frac,
+        open_frontier=foundation.open_frontier)
+    for suffix,limit in (
+        ('vx_hi',foundation.vx_hi_max),('vx_lo',foundation.vx_lo_min),
+        ('vy',foundation.vy_max_mps),('yaw',foundation.yaw_max_rad_s)):
+        setattr(governor.params,'frontier_'+suffix,float(limit))
+    health=TrainingHealth()
+    lr_scale=float(PPO_LR_SCALE_INIT)
     obs_mean=jnp.zeros((TERRAIN_OBS_DIM,),dtype=jnp.float32)
     obs_var=jnp.ones((TERRAIN_OBS_DIM,),dtype=jnp.float32)
     obs_count=1e-4
@@ -138,6 +163,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
         obs_var=jax.device_put(loaded["obs_var"])
         obs_count=float(loaded["obs_count"])
         governor.load_state_dict(loaded["governor"])
+        health.load_state_dict(loaded["health"])
+        lr_scale=float(loaded["lr_scale"])
         print(f"[v5022 {arm}] resumed {step:,} steps; fresh episodes, intact PPO/optimizer/normalizer/curriculum",flush=True)
 
     nstep=envs*rollout
@@ -156,7 +183,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                      opt_state=jax.device_get(state.opt_state),
                      key=jax.device_get(state.key),
                      obs_mean=np.asarray(obs_mean),obs_var=np.asarray(obs_var),
-                     obs_count=obs_count,governor=governor.state_dict())
+                     obs_count=obs_count,governor=governor.state_dict(),
+                     health=health.state_dict(),lr_scale=lr_scale)
         atomic_pickle(ckpt_path,payload)
 
     try:
@@ -165,7 +193,7 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             params=env.params_array(current)
             norm_std=jnp.sqrt(jnp.maximum(obs_var,1e-6))
             state,metrics,aux,raw,_=trainer["train_update"](
-                state,params,obs_mean,norm_std,jnp.asarray(.25,jnp.float32))
+                state,params,obs_mean,norm_std,jnp.asarray(lr_scale,jnp.float32))
             obs_mean,obs_var,obs_count=update_running_stats(
                 obs_mean,obs_var,obs_count,raw)
             step+=nstep
@@ -173,7 +201,22 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
             m=jax.device_get(metrics)
             aux=jax.device_get(aux)
             row=summarize_rollout(m,current)
-            report=governor.update(row)
+            row['ppo_kl_stopped_frac']=float(aux.get('kl_stopped',0.))
+            ppo_health=health.observe_ppo(row)
+            report=governor.update(
+                row,kl_ok_to_expand=bool(ppo_health['kl_ok_to_expand']))
+            collapse=health.observe_collapse(
+                float(report['fall_ema_posture']))
+            # Preserve MAIN's conservative adaptive-KL LR controller.
+            lr_scale=health.adjust_learning_rate(
+                lr_scale,approx_kl=float(aux.get('approx_kl_final',0.)),
+                target_kl=PPO_TARGET_KL,factor=PPO_LR_ADJUST,
+                min_scale=PPO_LR_SCALE_MIN,max_scale=PPO_LR_SCALE_MAX)
+            if collapse['needs_recovery'] and not smoke:
+                print(f"[v5022 {arm}] WARNING sustained collapse "
+                      f"({health.stepping_collapse_streak} updates); "
+                      "main foundation does not roll back automatically",
+                      flush=True)
             record={
                 "arm":arm,"step":step,
                 "reward_mean":float(aux["rollout_reward_mean"]),
@@ -184,6 +227,8 @@ def run_arm(*, arm: str, root: Path | None, envs: int, steps: int,
                 "front_valid_fraction":float(np.mean(m["front_valid_fraction"])),
                 "ppo_approx_kl":float(aux["approx_kl"]),
                 "governor_steady":float(governor.params.steady_difficulty),
+                "ppo_lr_scale":lr_scale,
+                "collapse_streak":float(health.stepping_collapse_streak),
             }
             if not all(math.isfinite(v) for k,v in record.items()
                        if isinstance(v,float)):
