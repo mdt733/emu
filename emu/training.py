@@ -573,7 +573,9 @@ def train(args: TrainingConfig) -> int:
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips,
+                              slope_deg=args.contact_slope_deg,
+                              contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
@@ -721,7 +723,9 @@ def train(args: TrainingConfig) -> int:
         params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips,
+                      slope_deg=args.contact_slope_deg,
+                      contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
     print(f'{LOG_PREFIX} training complete', flush=True)
     return 0
 
