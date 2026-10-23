@@ -194,7 +194,7 @@ def main(argv=None) -> int:
         q.add_argument('--arm',action='append',default=[])
         q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('terrain-exam',help='frozen-policy continuous MJX terrain course: flat vs step up/down')
-    q.add_argument('--policy',required=True,help='verified 220-input .emupolicy (read only)')
+    q.add_argument('--policy',required=True,help='verified 220/232-input .emupolicy (diagnostic, read only)')
     q.add_argument('--output',required=True,help='new/empty directory OUTSIDE checkout')
     q.add_argument('--worlds',type=int,default=4,help='even worlds, paired up/down, max 32')
     q.add_argument('--horizon',type=int,default=260,help='control frames, 80..700')
