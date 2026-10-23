@@ -233,3 +233,153 @@ def test_real_mjx_hillcrest_contact_and_depth_ray_parity():
     assert np.all(np.asarray(which)>=0)
     np.testing.assert_allclose(np.asarray(expected)[0],np.asarray(hit),
                                atol=.003)
+
+
+# Post-viewer acceptance gates live HERE instead of another v5022 harness.
+# Optical placement is adjustable without changing the archived 232 actor.
+@pytest.mark.parametrize("down_deg", [35., 50., 65.])
+@pytest.mark.parametrize("forward_m", [.085, .120, .160])
+def test_mount_candidates_keep_zone_order_and_physical_preview(down_deg, forward_m):
+    p,R = pose()
+    mount=(forward_m,0.,-.018)
+    origin,rays = camera_rays(np,p,R,tilt_down_deg=down_deg,
+                              mount_body_m=mount)
+    assert origin.shape == rays.shape == (1,16,5,3)
+    np.testing.assert_allclose(origin[0,0,0], [forward_m,0,.2404],atol=1e-7)
+    np.testing.assert_allclose(np.linalg.norm(rays,axis=-1),1,atol=1e-7)
+    assert rays[0,0,0,2] > rays[0,15,0,2]
+    for subrays in (1,4,5):
+        readings,valid=scan_forward(
+            np,p,R,*scene(.05),mount_body_m=mount,
+            tilt_down_deg=down_deg,subrays=subrays)
+        assert readings.shape == valid.shape == (1,16)
+        assert np.isfinite(readings).all()
+        assert (readings[~valid]==0).all()
+        assert np.all((readings[valid]>=.020)&(readings[valid]<=1.5))
+
+
+def test_forward_mount_translation_tracks_chassis_rotation_not_world_x():
+    p,R=pose()
+    yaw=np.deg2rad(90)
+    R[0] = [[np.cos(yaw),-np.sin(yaw),0],
+            [np.sin(yaw), np.cos(yaw),0],
+            [0,0,1]]
+    near,_=camera_rays(np,p,R,mount_body_m=(.085,0,-.018))
+    far,_=camera_rays(np,p,R,mount_body_m=(.160,0,-.018))
+    np.testing.assert_allclose((far-near)[0,0,0],[0,.075,0],atol=1e-7)
+
+
+def test_all_three_sampling_modes_keep_16_zone_outputs_and_invalid_semantics():
+    p,R=pose()
+    for subrays in (1,4,5):
+        flat,valid=scan_forward(np,p,R,*scene(0.),subrays=subrays)
+        assert flat.shape == valid.shape == (1,16)
+        dropped,mask=scan_forward(
+            np,p,R,*scene(.05),subrays=subrays,
+            dropout=np.ones((1,16),dtype=bool))
+        assert not mask.any()
+        assert not dropped.any()
+    with pytest.raises(ValueError,match="1, 4 or 5"):
+        scan_forward(np,p,R,*scene(),subrays=8)
+
+
+def test_jax_mount_and_sampling_modes_match_numpy_for_two_worlds():
+    jax=pytest.importorskip("jax")
+    import jax.numpy as jnp
+    p,R=pose(worlds=2)
+    p[0,0] = -.1
+    p[1,0] = 0.
+    boxes,orient,size=scene(.05)
+    for subrays in (1,4,5):
+        kw=dict(tilt_down_deg=42.,mount_body_m=(.135,0.,-.018),
+                subrays=subrays)
+        want,mask=scan_forward(np,p,R,boxes,orient,size,**kw)
+        work=jax.jit(lambda t:scan_forward(
+            jnp,t,jnp.asarray(R),jnp.asarray(boxes),
+            jnp.asarray(orient),jnp.asarray(size),**kw))
+        got,valid=work(jnp.asarray(p))
+        np.testing.assert_allclose(np.asarray(got),want,rtol=2e-5,atol=1e-5)
+        np.testing.assert_array_equal(np.asarray(valid),mask)
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("EMU_SENSOR_SWEEP")!="1",
+    reason="opt-in post-viewer geometry sweep (EMU_SENSOR_SWEEP=1)")
+def test_optional_post_viewer_mount_sweep(capsys):
+    """Print evidence for the mount chosen in the viewer, not a success score.
+
+    Override EMU_SENSOR_TILT_DEG and EMU_SENSOR_FORWARD_MM to check an exact
+    user-selected mount; default sweeps three practical options per axis.
+    """
+    import json
+    import os
+    angles=([float(os.environ["EMU_SENSOR_TILT_DEG"])]
+            if os.environ.get("EMU_SENSOR_TILT_DEG") else [35.,50.,65.])
+    forward=([float(os.environ["EMU_SENSOR_FORWARD_MM"])/1000.]
+             if os.environ.get("EMU_SENSOR_FORWARD_MM")
+             else [.085,.120,.160])
+    all_results=[]
+    for angle in angles:
+        for xmount in forward:
+            visible=[]
+            for x in (-.35,-.25,-.15,-.05,0.):
+                p,R=pose(x=x)
+                kw=dict(tilt_down_deg=angle,
+                        mount_body_m=(xmount,0.,-.018),subrays=4)
+                flat,flat_ok=scan_forward(np,p,R,*scene(0.),**kw)
+                up,up_ok=scan_forward(np,p,R,*scene(.05),**kw)
+                down,down_ok=scan_forward(np,p,R,*scene(-.05),**kw)
+                def changed(value,good):
+                    return int(np.count_nonzero(
+                        good & flat_ok & (np.abs(value-flat)>.012)))
+                visible.append(dict(
+                    torso_x_m=x,up_changed_zones=changed(up,up_ok),
+                    down_changed_zones=changed(down,down_ok),
+                    up_valid=int(up_ok.sum()),down_valid=int(down_ok.sum())))
+            all_results.append(dict(
+                tilt_down_deg=angle,mount_forward_mm=round(1000*xmount,2),
+                geometry_preview=visible))
+    assert len(all_results)==len(angles)*len(forward)
+    print("\\nV5022_SENSOR_MOUNT_SWEEP "+json.dumps(all_results))
+    # Intentional report-only: your physical design decision is not
+    # determined by one invented numerical preference metric.
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("EMU_SENSOR_BENCH")!="1",
+    reason="opt-in GPU microbenchmark (EMU_SENSOR_BENCH=1)")
+def test_optional_gpu_2048_world_ray_cost():
+    """Compile vs steady-state 16/64/80 rays in the forward model ONLY.
+
+    This is NOT an MJX/PPO FPS result; it helps choose the zone footprint
+    before integrating rays into the actual batched training environment.
+    """
+    import time
+    jax=pytest.importorskip("jax")
+    import jax.numpy as jnp
+    if jax.default_backend()!="gpu":
+        pytest.skip("Requires a JAX GPU backend for comparable throughput")
+    worlds=2048
+    p=np.tile([[0.,0.,.2584]],(worlds,1)).astype(np.float32)
+    p[:,0]=np.linspace(-.34,.10,worlds)
+    R=np.tile(np.eye(3,dtype=np.float32)[None],(worlds,1,1))
+    centres,orient,size=scene(.05)
+    P=jnp.asarray(p)
+    M=jnp.asarray(R)
+    C,O,S=map(jnp.asarray,(centres,orient,size))
+    foot=jnp.asarray(p[:,None,:])+jnp.asarray([[[.12,0.,-.13],[.02,.06,-.23]]])
+    for subrays in (1,4,5):
+        fn=jax.jit(lambda pts:scan_forward(
+            jnp,pts,M,C,O,S,foot_centres=foot,subrays=subrays)[0])
+        begin=time.perf_counter()
+        output=fn(P)
+        output.block_until_ready()
+        compile_seconds=time.perf_counter()-begin
+        begin=time.perf_counter()
+        for _ in range(12):
+            fn(P).block_until_ready()
+        mean_ms=1000*(time.perf_counter()-begin)/12
+        assert output.shape==(worlds,16)
+        print(f"V5022_SENSOR_BENCH backend={jax.default_backend()} "
+              f"worlds={worlds} rays={subrays*16} "
+              f"compile_s={compile_seconds:.2f} mean_scan_ms={mean_ms:.3f}")
