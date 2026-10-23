@@ -34,6 +34,39 @@ def _held_out_core_fixture():
     return row
 
 
+def test_offline_fixed_exam_compare_uses_only_frozen_exam_csv(tmp_path):
+    import csv
+    import json
+    from emu.results import main
+    baseline=_held_out_core_fixture()
+    improved=dict(baseline,eval_policy_step=50_000_000,
+                  eval_dynamic80_survival=.97)
+    a,b=(tmp_path/n for n in ("baseline.csv","candidate.csv"))
+    for file,row in ((a,baseline),(b,improved)):
+        with file.open("w",newline="") as f:
+            writer=csv.DictWriter(f,fieldnames=list(row))
+            writer.writeheader()
+            writer.writerow(row)
+    output=tmp_path/"evidence.json"
+    assert main(["--compare-fixed",str(a),str(b),
+                 "--reference-protocol","frozen-physics-1",
+                 "--candidate-protocol","frozen-physics-1",
+                 "--output",str(output)])==0
+    report=json.loads(output.read_text())
+    assert report["source"]=="held_out_exam"
+    assert report["guardrail_status"]=="no_guardrail_regression"
+    assert report["reference_step"]==20_000_000
+    assert report["candidate_step"]==50_000_000
+    with pytest.raises(ValueError,match="protocol fingerprints"):
+        main(["--compare-fixed",str(a),str(b),
+              "--reference-protocol","frozen-physics-1",
+              "--candidate-protocol","other-world"])
+    with pytest.raises(ValueError,match="no fixed-eval evidence"):
+        main(["--compare-fixed",str(a),str(tmp_path/"missing.csv"),
+              "--reference-protocol","frozen-physics-1",
+              "--candidate-protocol","frozen-physics-1"])
+
+
 def test_independent_exam_detects_core_regression_despite_other_gains():
     from emu.results import compare_fixed_exam_evidence
     baseline=_held_out_core_fixture()
