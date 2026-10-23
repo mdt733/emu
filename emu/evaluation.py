@@ -1091,11 +1091,8 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     This is the future terrain teacher's *independent* exam evidence; until
     4x4 actor sensing exists it cannot justify curriculum expansion.
     """
-    import hashlib
     import json
     import time
-    import jax
-    import jax.numpy as jnp
     from .contracts import OBS_SCHEMA_LEGACY, ROBOT_XML
     from .viewer_server import load_exported_actor_for_exam
     from .ppo import configure_jax, require_backend
@@ -1120,7 +1117,10 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
     if export['observation_schema'] != OBS_SCHEMA_LEGACY:
         raise ValueError('G5 incomplete: cannot fairly examine 232-input tripod actor '
                          'using unimplemented 4x4 step sensor observations')
+    # Select the intended JAX platform BEFORE initializing JAX/JIT.
     configure_jax(device)
+    import jax
+    import jax.numpy as jnp
     require_backend(device=='cpu')
     max_height = max(.001,max(heights_cm)/100)
     env = EmuMJXEnv(
