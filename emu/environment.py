@@ -169,6 +169,8 @@ class EnvState(NamedTuple):
     # "has this episode shown a sustained pattern of stepping", which a
     # real gait clears easily and true freezing does not.
     ep_step_evidence_sum: Any
+    terrain_cross_streak: Any
+    terrain_crossed: Any
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1197,10 +1199,13 @@ class EmuMJXEnv(TaskSampler):
             mujoco.MjModel.from_xml_path(self.robot_xml)
         )
         self.terrain_step_mocap_id = -1
+        self.terrain_step_geom_id = -1
         if self.terrain_step_max_m:
             platform_body = mujoco.mj_name2id(
                 self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
             self.terrain_step_mocap_id = int(self.mj_model.body_mocapid[platform_body])
+            self.terrain_step_geom_id = mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
             if self.terrain_step_mocap_id < 0:
                 raise RuntimeError('physical episode terrain requires a mocap body')
         self.mj_model.opt.timestep = SIM_DT
@@ -1508,6 +1513,17 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        # G4 examiner/teacher: evidence comes exclusively from actual
+        # root travel AND far-side MJX foot contacts. No privileged terrain
+        # height or approach position is ever passed to the actor.
+        terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
+            state, data, metrics)
+        terrain_cross_new = terrain_crossed & ~state.terrain_crossed
+        if self.observation_schema == OBS_SCHEMA_TERRAIN:
+            # One sparse episode reward for earning far-side support.
+            # Normal v5014/v5015 payments and all archived policies unchanged.
+            reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
+            ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1530,6 +1546,7 @@ class EmuMJXEnv(TaskSampler):
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
+                           terrain_streak,terrain_crossed,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
@@ -1563,6 +1580,9 @@ class EmuMJXEnv(TaskSampler):
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             'episode_timeout': timeout.astype(jnp.float32),
+            'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
+            'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
+            'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
             'episode_vx_mean': ep_vx_sum / denom,
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,
@@ -1892,6 +1912,7 @@ class EmuMJXEnv(TaskSampler):
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+                         izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
@@ -2214,6 +2235,47 @@ class EmuMJXEnv(TaskSampler):
         top = center[:, 2] + TERRAIN_PLATFORM_HALF_DEPTH_M
         elevated = inside & (top[:, None] > 0.001)
         return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
+
+    def _terrain_crossing(self, state, data, metrics):
+        """Sustained physical far-side crossing, teacher telemetry only.
+
+        Real foot-floor/box contacts come from MJX. A step-down is not a
+        zero-height reading: its target support is the actual lower floor.
+        The initial edge location is known ONLY to this independent examiner.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return state.terrain_cross_streak*0,state.terrain_crossed & False,(
+                jnp.zeros((self.num_envs,),dtype=jnp.bool_))
+        from .directional import contact_pair_mask
+        i = self.terrain_step_mocap_id
+        centre=data.mocap_pos[:,i,:]
+        q=data.mocap_quat[:,i,:]
+        ca=1.0-2.0*q[:,3]**2
+        sa=2.0*q[:,0]*q[:,3]
+        axis=jnp.stack((ca,sa),axis=1)
+        down=(self.env_index.astype(jnp.int32)%2)==1
+        side=jnp.where(down,-1.,1.)
+        edge=centre[:,:2]-side[:,None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+        delta=data.qpos[:,:2]-edge
+        forward=jnp.sum(delta*axis,axis=1)
+        lateral=-delta[:,0]*sa+delta[:,1]*ca
+        contact=getattr(data,'_impl',data).contact
+        feet=tuple(int(x) for x in self.ids['foot_geoms'])
+        box_geom=int(self.terrain_step_geom_id)
+        floor=int(self.ids['floor_geom'])
+        box_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                                      contact.dist,box_geom,feet)
+        floor_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                                        contact.dist,floor,feet)
+        supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
+        active=centre[:,2]>-.5
+        good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
+              supported & (metrics['vx']>.02) &
+              (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
+        streak=jnp.where(good,state.terrain_cross_streak+1,0)
+        crossed=state.terrain_crossed | (streak>=5)
+        return streak,crossed,active
 
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
