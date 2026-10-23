@@ -335,3 +335,37 @@ test('v5022 diagnostic obstacle courses alter REAL MuJoCo support geometry',()=>
   assert.ok(log.includes('depth_log')&&log.includes('name="floor"'));
   assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'unknown'}));
 });
+
+
+test('v5022 depth inspector compares 16/64/80 casts without averaging a step into a ramp',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  for(const [subrays,expected] of [[1,16],[4,64],[5,80]]){
+    let calls=0;
+    const r=readDepthProbe(pose,()=>{calls++;return .25;},{subrays});
+    assert.equal(calls,expected);
+    assert.ok(r.valid.every(Boolean));
+    assert.ok(r.ranges.every(x=>Math.abs(x-.25)<1e-8));
+    assert.equal(r.selfOccluded.length,16);
+    assert.equal(r.hitPoints.length,16);
+  }
+  assert.throws(()=>readDepthProbe(pose,()=>.2,{subrays:8}));
+});
+
+test('v5022 4-ray edge zones report mixed step returns and robot occlusion',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  // Across each zone, two rays see a riser and two see ground.
+  let calls=0;
+  const mixed=readDepthProbe(pose,()=>{
+    const j=calls++%4;
+    return {distance:j<2?.18:.27,kind:j===0?'self':'terrain'};
+  },{subrays:4});
+  assert.ok(mixed.valid.every(Boolean));
+  assert.ok(mixed.mixed.every(Boolean));
+  assert.ok(mixed.selfOccluded.every(Boolean));
+  // Lower median of .18/.18/.27/.27 is the measured .18 surface,
+  // NOT the non-existent averaged .225 intermediate height.
+  assert.ok(mixed.ranges.every(x=>Math.abs(x-.18)<1e-8));
+  assert.ok(mixed.hitPoints.every(p=>p.every(Number.isFinite)));
+});
