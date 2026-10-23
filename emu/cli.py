@@ -276,6 +276,10 @@ def main(argv=None) -> int:
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
+    q.add_argument('--terrain-actor',action='store_true',
+                   help='train NEW 360-input 4x4 actual-depth ToF policy, not the 232 champion')
+    q.add_argument('--terrain-step-max-m',type=float,default=0.,
+                   help='fixed physical finite-step topology, 0.01..0.08m for terrain actor')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
