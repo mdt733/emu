@@ -414,7 +414,10 @@ def run_terrain_actor(worlds: int = 4, *, device: str = 'cpu',
     elapsed=time.perf_counter()-after_compile
     if not bool(jax.device_get(jnp.all(jnp.isfinite(repeated.obs)))):
         raise AssertionError('G5 terrain physical step produced NaN')
-    print(f'G5 360 input: {worlds} worlds, differing raw ranges per world={per_world.tolist()}, '
+    print(f'G5 360 input: {worlds} worlds; 4x4 rays detecting height change '
+          f'{int(np.count_nonzero(per_world))}/{worlds} worlds; '
+          f'changed cells min/mean/max={int(per_world.min())}/'
+          f'{float(per_world.mean()):.2f}/{int(per_world.max())} of 16; '
           f'compile_step_s={after_compile-t_compile:.2f} repeat_step_s={elapsed:.4f} '
           f'world_steps_per_s={worlds/max(elapsed,1e-6):.0f} '
           f'backend={jax.default_backend()}',flush=True)
