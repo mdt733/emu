@@ -211,7 +211,7 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
     ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
     ranges.push(ok?value:0);
     valid.push(ok);
-    selfOccluded.push(ok&&picked.kind==='self');
+    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'));
     mixed.push(ok&&values[values.length-1].distance-values[0].distance>.035);
     const direction=ok?picked.ray:zone[0];
     const length=ok?picked.distance:.55;
