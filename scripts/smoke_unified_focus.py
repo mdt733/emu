@@ -12,9 +12,14 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--device",choices=("cpu","cuda"),default="cpu")
     ap.add_argument("--envs",type=int,default=12)
+    ap.add_argument("--full-update",action="store_true",
+                    help="explicit 2048-world CUDA PPO preflight (no checkpoints/training campaign)")
     args=ap.parse_args()
-    if args.envs<12 or args.envs>32:
-        raise SystemExit("use 12–32 worlds so all six specialists are represented")
+    if args.full_update:
+        if args.envs!=2048 or args.device!="cuda":
+            ap.error("--full-update requires --device cuda --envs 2048")
+    elif not 12<=args.envs<=32:
+        ap.error("ordinary smoke uses 12..32 worlds; use --full-update for 2048 CUDA worlds")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax, require_backend, make_trainer, build_obs_norm_mask
     configure_jax(args.device)
@@ -27,10 +32,12 @@ def main():
     ids=focus_indices(args.envs)
     assert len(set(int(x) for x in ids))==6
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=args.envs,seed=733,
-        max_episode_steps=40,observation_schema=OBS_SCHEMA_TERRAIN,
+        max_episode_steps=(700 if args.full_update else 40),
+        observation_schema=OBS_SCHEMA_TERRAIN,
         attitude_profile="v5015",terrain_step_max_m=.04,
-        unified_capability_focus=True,phase_speed_gain=1.25,
-        open_frontier=True,combo_mix_frac=.88)
+        unified_capability_focus=True,
+        phase_speed_gain=(.75 if args.full_update else 1.25),
+        open_frontier=True,combo_mix_frac=(0. if args.full_update else .88))
     governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     params=governor.params_dict()
     params.update(terrain_exposure=.15,terrain_height_m=.004)
@@ -168,9 +175,21 @@ def main():
         arr=stepped.metrics[key]
         assert arr.shape==(args.envs,),(key,arr.shape)
         assert bool(jax.device_get(jnp.all(jnp.isfinite(arr)))),key
-    trainer=make_trainer(env,seed=733,lr=2e-4,rollout=2,
-                         epochs=1,minibatches=1)
+    # Large mode exercises the ACTUAL production update shape, not a tiny
+    # two-frame proxy. Use physically plausible post-foundation challenges
+    # rather than the geometric acceptance overrides above.
+    if args.full_update:
+        params.update(terrain_pitch_deg=float("nan"),terrain_roll_deg=float("nan"),
+                      terrain_fixed_height_m=float("nan"),terrain_edge_angle_deg=float("nan"),
+                      terrain_exposure=.15,terrain_height_m=.004,
+                      slope_exposure=.15,slope_max_deg=.7,specialist_mix=.35)
+    rollout=32 if args.full_update else 2
+    trainer=make_trainer(env,seed=733,lr=2e-4,rollout=rollout,
+                         epochs=(4 if args.full_update else 1),
+                         minibatches=(8 if args.full_update else 1))
     first=trainer["make_initial_state"](params)
+    import time
+    started=time.perf_counter()
     updated,rolled,diag,_,_=trainer["train_update"](
         first,env.params_array(params),
         jnp.zeros((TERRAIN_OBS_DIM,),jnp.float32),
@@ -179,6 +198,18 @@ def main():
     assert all(bool(jax.device_get(jnp.all(jnp.isfinite(p))))
                for p in jax.tree_util.tree_leaves(updated.params))
     assert bool(jax.device_get(jnp.isfinite(diag["rollout_reward_mean"])))
+    if args.full_update:
+        elapsed=time.perf_counter()-started
+        print(f"CUDA 2048 production-shape PPO: {args.envs*rollout:,} frames, "
+              f"{elapsed:.1f}s including compile, "
+              f"{args.envs*rollout/max(elapsed,1e-6):,.0f} compile-inclusive fps",flush=True)
+        try:
+            stats=jax.devices("gpu")[0].memory_stats()
+            if stats:
+                print("GPU memory: "+str({k:v for k,v in stats.items()
+                      if "peak" in k or "limit" in k}),flush=True)
+        except (AttributeError,RuntimeError,ValueError):
+            pass
     from emu.results import summarize_rollout
     row=summarize_rollout(rolled,frontier_params=params)
     for k in ("focus_worlds_command","focus_worlds_control",
