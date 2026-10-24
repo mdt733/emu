@@ -1333,6 +1333,10 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
     bad=np.asarray(frames['terrain_bad_contact'],dtype=float)
     power=np.asarray(frames['servo_shaft_drive_power_w'],dtype=float)
     pushes=np.asarray(frames['applied_push_force_n'],dtype=float)
+    actions=(np.asarray(frames['actor_action'],dtype=float)
+             if 'actor_action' in frames else None)
+    slip=(np.asarray(frames['stance_slip_proxy'],dtype=float)
+          if 'stance_slip_proxy' in frames else None)
     root_quat=np.asarray(frames['initial_root_quat'],dtype=float)
     if (xyz.ndim!=3 or xyz.shape[2]!=2 or done.shape!=xyz.shape[:2]
         or command.shape!=(*done.shape,3) or not np.isfinite(xyz).all()):
@@ -1426,6 +1430,10 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         else:
             passed=tracking
         work_per_m=work/achieved if achieved>.01 else None
+        action_delta=(float(np.mean(np.abs(np.diff(actions[:stop,world],axis=0))))
+                      if actions is not None and stop>1 else None)
+        slip_mean=(float(np.mean(slip[:stop,world]))
+                   if slip is not None else None)
         results.append(dict(
             world=world,lesson=case['name'],
             direction=('step-up' if side>0 else 'step-down') if is_step else case.get('direction','flat'),
@@ -1446,6 +1454,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             requested_path_m=round(commanded,4),
             drive_work_j=round(work,4),
             mechanical_j_per_travel_m=round(work_per_m,2) if work_per_m is not None else None,
+            mean_abs_actor_action_delta=round(action_delta,5) if action_delta is not None else None,
+            mean_stance_slip_proxy=round(slip_mean,5) if slip_mean is not None else None,
             delivered_push_peak_n=round(float(np.max(pushes[:stop,world])),3),
             case_pass=bool(passed)))
     return results
@@ -1504,6 +1514,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                         value_cost=PPO_VALUE_COST)
     cases=[
         dict(name='flat',kind='flat'),
+        dict(name='control_easy_0p08',kind='control',vx=.08),
         dict(name='uphill_2deg',kind='slope',slope_deg=2.,direction='uphill'),
         dict(name='downhill_2deg',kind='slope',slope_deg=2.,direction='downhill'),
         dict(name='cross_left_2deg',kind='slope',slope_deg=2.,direction='cross_left'),
@@ -1524,7 +1535,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     ]
     if quick:
         cases=[c for c in cases if c['name'] in (
-            'flat','uphill_2deg','downhill_2deg','paired_steps_0p8cm',
+            'flat','control_easy_0p08','uphill_2deg','downhill_2deg','paired_steps_0p8cm',
             'mixed_incline_step','diamond_mixture','push_1N')]
     results=[]
     for case in cases:
@@ -1603,7 +1614,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     for item in results:
         md.append(f"| {item['case']['name']} | {item['passed']}/{worlds} | {item['survived']}/{worlds} |")
     md.extend(['','Per-world support, true step contact, commanded vs achieved',
-               'body velocities, recovery and shaft work are in unified_exam.json.',
+               'body velocities, recovery, slip proxy, actor action changes and shaft work',
+               'are in unified_exam.json. The control lesson has no fabricated',
+               'electrical-energy or arbitrary energy-efficiency passing threshold.',
                'No training, policy selection or promotion was performed.'])
     md_path.write_text('\n'.join(md)+'\n')
     return data_path,md_path
