@@ -496,12 +496,15 @@ class RegimeGovernor:
                 return 'await_core_walk'
             self.terrain_evidence = self._empty_terrain_evidence()
             p.terrain_exposure = .15 if speed_lesson else .05
-            p.terrain_height_m = min(.010,max_height_m)
-            return 'terrain_speed_seed_1cm_15pct' if speed_lesson else 'terrain_seed_1cm_5pct'
+            p.terrain_height_m = min(.004 if teaching_arm=='unified' else .010,
+                                     max_height_m)
+            return ('terrain_unified_seed_4mm' if teaching_arm=='unified'
+                    else 'terrain_speed_seed_1cm_15pct' if speed_lesson
+                    else 'terrain_seed_1cm_5pct')
         if not core_ok:
             self.terrain_evidence = self._empty_terrain_evidence()
             p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
-            p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
+            p.terrain_height_m = max(min(.004 if teaching_arm=='unified' else .010,max_height_m),p.terrain_height_m*.98)
             return 'terrain_retreat_core'
 
         required = tuple(f'terrain_{outcome}_{direction}'
@@ -553,7 +556,7 @@ class RegimeGovernor:
             return 'terrain_exposure_practice_ascent'
 
         if min(up_rate,down_rate) < .12:
-            p.terrain_height_m = max(min(.010,max_height_m),
+            p.terrain_height_m = max(min(.004 if teaching_arm=='unified' else .010,max_height_m),
                                      p.terrain_height_m*.985)
             p.terrain_exposure = max(exposure_min,p.terrain_exposure*.975)
             return ('terrain_retreat_failed_ascent' if up_rate < .12
