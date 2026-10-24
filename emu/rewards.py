@@ -51,7 +51,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -88,11 +88,16 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
     # Zero cost weight exactly reproduces pre-v5016 scalar economics.
     motor_kwargs = {}
-    if motor_guidance_weight > 0.0:
+    if motor_guidance_weight > 0.0 or motor_guidance_per_world is not None:
         overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
         shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
         motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
-        motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
+        # Per-world emphasis is an *additive, bounded lesson*, not a
+        # replacement for locomotion or a special policy. All worlds still
+        # receive the ordinary smoothness/stance-slip rewards.
+        weight = (motor_guidance_weight if motor_guidance_per_world is None
+                  else motor_guidance_per_world + motor_guidance_weight)
+        motor_kwargs = {'motor_cost': weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
