@@ -81,6 +81,22 @@ jobs:
           print('All public entrypoint owners import cleanly')
           PY
 
+  # Two fresh G6 teaching arms, real schema-9 MJX world + PPO gradient.
+  # Separate budget so the existing Python regression job is unaffected.
+  g6-arms-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install CPU learning dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Exercise real G6 speed and foothold teacher on MJX CPU
+        run: timeout 600s python scripts/smoke_v5023_arms.py --device cpu --envs 2
+
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
