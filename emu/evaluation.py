@@ -1138,6 +1138,13 @@ def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
 
     params, norm, export = load_exported_actor_for_exam(policy)
     actor_schema=export['observation_schema']
+    if export.get('array_only'):
+        raise ValueError(
+            'This 360-input actor uses two inclined collision slabs and an '
+            'array-only sensor. The old single-platform terrain-exam scorer '
+            'cannot certify its physical step performance. Use the mixed '
+            'MJX acceptance smoke until a two-slab frozen examiner is added.'
+        )
     if actor_schema not in (OBS_SCHEMA_LEGACY,OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         raise ValueError('unsupported exported actor contract')
     sensor_settings=(export['sensor_settings']
