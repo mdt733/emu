@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { SensorObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -153,8 +153,10 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.sensorObserver = bundle.schema === 2
+    this.sensorObserver = [2,3].includes(bundle.schema)
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
+    this.terrainObserver = bundle.schema === 3
+      ? new TerrainActorObserver(bundle.observation.sensor_contract) : null;
     this.fallenFor = 0;
     this.controlFrames = 0; // visible proof of live policy inference
     this.motorTravelRad = 0; // integrated actuated joint movement (rad)
@@ -459,6 +461,8 @@ export class EmuBrowserSim {
     this.shinQvel = sj.map(j => Number(this.model.jnt_dofadr[j]));
     this.torsoId = this.name2id(mj.mjtObj.mjOBJ_BODY, 'torso');
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
+    this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
+      this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
   }
 
   reset() {
@@ -483,6 +487,8 @@ export class EmuBrowserSim {
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
     if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
+    if (this.terrainObserver) this.terrainObserver.reset(
+      this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
@@ -702,6 +708,8 @@ export class EmuBrowserSim {
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
+    if (this.terrainObserver) this.terrainObserver.advance(
+      this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -748,6 +756,15 @@ export class EmuBrowserSim {
       return 0;
     };
     return {R,torso,vbody,gyro,heightAt};
+  }
+
+  terrainActorPose() {
+    // Same torso-origin physical rays as MJX. On the park hfield, sample its
+    // shared height surface rather than pretending it is a flat plane.
+    const R=this.bodyRotation(),offset=this.torsoId*3;
+    return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
+      terrainHeightAt:this.terrainMode==='park'&&this.park ?
+        (x,y)=>this.park.sampleHeight(x,y):null};
   }
 
   buildBaseObs() {
@@ -822,6 +839,11 @@ export class EmuBrowserSim {
       base[k++] = sensor.forwardGrade;
       base[k++] = sensor.sideGrade;
       base[k++] = sensor.groundConfidence;
+    }
+    if (this.terrainObserver) {
+      const grid=this.terrainObserver.read();
+      for(const range of grid.ranges) base[k++]=range;
+      for(const valid of grid.valid) base[k++]=valid?1:0;
     }
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
@@ -1037,7 +1059,8 @@ export class EmuBrowserSim {
   }
 
   updateDepthInspector(nowMs) {
-    // Observer only; never feeds the 220/232 policy's neural observations.
+    // Optional visual inspector is independent of actor measurements; schema-9
+    // 4x4 actor rays use their own truthful, timed physical observation ring.
     if(!this.depthConfig.enabled || !this.data){
       this.depthLines.visible=false;
       this.depthFootprint.visible=false;
