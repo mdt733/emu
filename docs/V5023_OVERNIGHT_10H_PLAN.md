@@ -1,4 +1,4 @@
-# EMU v5023 — 10-hour overnight GPU campaign proposal
+> **RETIRED — DO NOT RUN.** Owner replaced the flat/slope-free A/B campaign with a single shared-policy, all-capabilities specialist-world curriculum. See [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md). The old launcher now refuses to start.\n\n# EMU v5023 — 10-hour overnight GPU campaign proposal
 
 **Status: experimental design, NOT yet an executable launcher or approved model promotion.** Written 2026-10-24 using the new governor policy from source `411b841`, the 0.10–0.30m/s frozen speed-sweep console logs, and uploaded `results_bundle(8).zip`. The per-world ZIP of speed sweep is still absent; inspect it BEFORE freezing new teaching rules. All source work stays off `main`; PIN the existing `~/emu-v5023-window` / `411b841` source and all existing checkpoints.
 
