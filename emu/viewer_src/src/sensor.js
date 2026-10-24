@@ -427,11 +427,20 @@ export function fitArrayGround(ranges,valid,gravity){
   const fwd=normalized(sub([1,0,0],scale(up,up[0])));
   const side=cross(up,fwd);
   const depth=-c;
-  if(residual>=.008||cosine<=.25||depth<.035||depth>.60
-     ||!Number.isFinite(depth))return {...invalid,count,residual};
-  return {valid:true,depth,forward:Math.atan2(-dot(n,fwd),cosine),
-    side:Math.atan2(-dot(n,side),cosine),
-    confidence:clamp(count/12,0,1)*clamp(1-residual/.008,0,1),
+  const planeValid=residual<.008&&cosine>.25&&depth>=.035&&depth<=.60
+    &&Number.isFinite(depth);
+  const steepIndices=[9,10,13,14],projected=[];
+  for(const i of steepIndices)if(valid[i]&&Number.isFinite(ranges[i])&&ranges[i]>=.04)
+    projected.push(ranges[i]*-rays[i][2]);
+  const fallback=projected.length>=2?
+    projected.reduce((a,b)=>a+b,0)/projected.length:0;
+  const opticalDepth=planeValid?depth:fallback;
+  const depthValid=planeValid||(
+    projected.length>=2&&opticalDepth>=.035&&opticalDepth<=.60);
+  return {valid:planeValid,depthValid,depth:depthValid?opticalDepth:0,
+    forward:planeValid?Math.atan2(-dot(n,fwd),cosine):0,
+    side:planeValid?Math.atan2(-dot(n,side),cosine):0,
+    confidence:planeValid?clamp(count/12,0,1)*clamp(1-residual/.008,0,1):0,
     residual,count};
 }
 
@@ -481,7 +490,7 @@ export class ArrayFlowObserver {
   read(gravity,array){
     const s=this.settings,flow=this.ring[3-s.flow_delay_frames];
     const ground=fitArrayGround(array.ranges,array.valid,gravity);
-    const good=ground.valid&&flow.flowValid;
+    const good=ground.depthValid&&flow.flowValid;
     const depth=ground.valid?ground.depth:0;
     const velocity=good?[
       -depth*(flow.flow[0]-flow.flowGyro[1]),
