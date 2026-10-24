@@ -98,6 +98,47 @@ position alone or the requested speed. Genuine steps demand supported
 crossing and upper-platform contact, not just root x>lip. Inclines require
 real MJX *contact* and normal evidence, not tilted gravity or a UI label.
 
+## The single real terrain geometry (implemented, still under acceptance)
+
+**No triangle-mesh soup.** The proposed six-triangle illustration has become
+two *solid, convex oriented boxes* (lower + higher slab), always present in
+the unified MJX topology. Their upper faces are co-planar at zero step
+height and differ by a proper surface-normal displacement `h` when a
+sharp finite step appears. Both slabs share the same pitch/roll normal and
+independently chosen edge yaw, with movable MJX `mocap_pos/mocap_quat` sampled
+per episode. Thus an actual foot, contact solver and all 16 depth rays see
+the same non-flat world, with no per-episode model recompilation. A dormant
+raised slab is buried well below the contact range, and slab-slab collisions
+are excluded via complementary contact bits.
+
+The source supports *exact reproducible exam parameters* for slope
+`terrain_pitch_deg`, `terrain_roll_deg`, step
+`terrain_fixed_height_m`, and rotated lip `terrain_edge_angle_deg`; omit
+those to sample episodes, including mixed pitch+roll+step. Current early
+frontier is intentionally conservative: physical geometry supports up to
+15° **test** inclination (not a claim the controller can walk it); the
+ordinary adaptive teaching frontier still needs robust slope evidence.
+
+**No physical tripod in the NEW unified policy.** The earlier three ToFs
+are retained only to load/replay historical 232-input and schema-9 360-input
+policies; the new unified actor still has 90×4=360 observations but now
+generates raw 4×4 distance/valid cells, body IMU and optical flow only.
+Three existing grade/confidence channels are estimated from the delayed
+4×4 returns with a residual-checked planar fit (reject mixed riser/top).
+Optical flow scale uses actual collision-box rays, never a fabricated infinite
+plane. Source provenance has a NEW `array-only` sensor revision, so old
+policies cannot be silently interpreted as this new sensor model.
+
+**Important correction:** the active array is **4×4 = 16 cells** today, not
+8×8. An actual 8×8 array would change the observation interface, runtime
+budget, policy weights and viewer parser, and needs its own explicit decision.
+
+**Acceptance still pending**: current `scripts/smoke_unified_focus.py` must
+pass 12-world mixed real contact, 2cm step height, exact 3° pitch /
+−2° roll / 17° edge yaw, 4×4 rays and one full PPO gradient on Ubuntu CPU.
+Then require a 4060Ti MJX GPU smoke and a live-viewer observation match.
+Neither a source commit nor a drawn floor counts as physical proof.
+
 ## Physical engineering prerequisite: mixed real slopes and steps
 
 The old trainer's source forbids `terrain_step_max_m>0` alongside
