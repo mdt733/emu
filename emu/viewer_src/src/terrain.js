@@ -184,7 +184,8 @@ function parkXml(park) {
 // Depth inspection courses use real MuJoCo support geometry, never painted
 // obstacles. These courses are DIAGNOSTIC ONLY: the champion is not retrained.
 export const DEPTH_COURSES = Object.freeze([
-  ['flat','Flat reference'], ['step-up','5 cm step up'],
+  ['flat','Flat reference'], ['step-up-1cm','1 cm training step up'],
+  ['step-up-2cm','2 cm training step up'], ['step-up','5 cm step up'],
   ['step-down','5 cm step down'], ['crest','Hill crest'],
   ['trough','Hill trough'], ['log','Half-round log'],
   ['angled','Angled ridge'],
@@ -208,11 +209,13 @@ function depthCourseXml(kind) {
   if(kind==='angled')return {
     removeFloor:false,geoms:'<geom name="depth_angled_ridge" type="box" pos=".85 0 .03" size=".052 .52 .03" euler="0 0 22" friction="1.5 .005 .0001" rgba=".67 .50 .29 1"/>',
   };
-  if(kind==='step-up'||kind==='step-down'){
-    const z=kind==='step-up'?.05:-.05;
+  if(['step-up','step-down','step-up-1cm','step-up-2cm'].includes(kind)){
+    const z=kind==='step-up-1cm'?.01:kind==='step-up-2cm'?.02:
+      kind==='step-up'?.05:-.05;
+    const edge=kind==='step-up-1cm'||kind==='step-up-2cm'?.25:.65;
     return {removeFloor:true,geoms: [
-      surface('approach',-4,.65,0,0),
-      surface('landing',.65,5,z,z),
+      surface('approach',-4,edge,0,0),
+      surface('landing',edge,5,z,z),
     ].join('\n')};
   }
   const z=kind==='crest'?.065:-.065;
