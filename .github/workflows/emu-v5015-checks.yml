@@ -52,19 +52,12 @@ jobs:
             --output "$RUNNER_TEMP/g4-terrain-course" \
             --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
           python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==4 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
-      - name: Capability evidence and approved 232-input examiner gate
-        run: |
-          python -m pytest -q tests/test_learning.py tests/test_direction.py \
-            -k "capability_evidence or capability_field_evidence or independent_exam or matched_exam or offline_fixed_exam or protected_export_reader or schema8_viewer_bundle"
-          python -m pytest -q tests/test_delivery.py \
-            -k "full_fourway_report_roundtrips"
       - name: Run full Python checks (do not hide pre-existing failures)
         run: python -m pytest -q tests
       - name: Smoke public doctor CLI (CPU-only)
         run: emu doctor --no-require-gpu --no-mjx-smoke
       - name: Smoke public planning, exams and exporter imports
         run: |
-          emu ladder --stage plan > /dev/null
           emu directional-exam --help > /dev/null
           emu terrain-exam --help > /dev/null
           emu directional-batch --help > /dev/null
@@ -74,7 +67,7 @@ jobs:
           emu export-policy --help > /dev/null
           python - <<'PY'
           from emu.checkpoint_io import resume_training_lineage, git_provenance
-          from emu.branch_lab import train_one, plan_dict
+          from emu.run import train_one, one_run_config
           from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
           from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
           print('All public entrypoint owners import cleanly')

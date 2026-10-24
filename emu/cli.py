@@ -5,15 +5,10 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 from .contracts import VERSION, ROBOT_XML, seed_root
 from .checkpoint_io import find_evaluation
-
-
-def _run(module: str, *args: str) -> int:
-    return subprocess.call([sys.executable, '-m', f'emu.{module}', *args])
 
 
 def doctor(args) -> int:
@@ -178,21 +173,6 @@ def main(argv=None) -> int:
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)'); q.add_argument('--v5016-smoke',action='store_true',help='compile the opt-in 232-input sensor MJX and one PPO update (no checkpoint/training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    for ladder_command in ('ladder', 'lab5015'):
-        q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
-                                             if ladder_command=='ladder'
-                                             else argparse.SUPPRESS))
-        q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
-        q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
-        q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
-        q.add_argument('--root',default='')
-        q.add_argument('--seed',type=int,default=733)
-        q.add_argument('--envs',type=int,default=2048)
-        q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-        q.add_argument('--screen-envs',type=int,default=256)
-        q.add_argument('--screen-horizon',type=int,default=350)
-        q.add_argument('--arm',action='append',default=[])
-        q.add_argument('--select',nargs='+',default=[])
     q=sub.add_parser('terrain-exam',help='frozen-policy continuous MJX terrain course: flat vs step up/down')
     q.add_argument('--policy',required=True,help='verified 220/232-input .emupolicy (diagnostic, read only)')
     q.add_argument('--output',required=True,help='new/empty directory OUTSIDE checkout')
@@ -243,24 +223,10 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=.75)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--run',action='store_true',help='execute rather than plan only')
-    q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
-    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
-    q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
-    q.add_argument('--hours',type=float,default=12.)
-    q.add_argument('--envs',type=int,default=2048)
-    q.add_argument('--screen-envs',type=int,default=128)
-    q.add_argument('--screen-horizon',type=int,default=300)
-    q.add_argument('--seed',type=int,default=733)
-    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
-    q.add_argument('--plan',action='store_true')
-    q.add_argument('--status',action='store_true')
-    q.add_argument('--run',action='store_true',help='run the GPU campaign (default only plans)')
-    q.add_argument('--resume-after-screen-fix',action='store_true',
-                   help='audit original training revision and resume failed Round-1 screen')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
-    q=sub.add_parser('train',help='train one protected experiment (no ladder)')
+    q=sub.add_parser('train',help='one source-pinned training lineage (foundation or unified research)')
     q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
     q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
     q.add_argument('--envs',type=int,default=2048)
@@ -305,14 +271,6 @@ def main(argv=None) -> int:
     if args.cmd=='posture-report':
         from .results import posture_report
         return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd in ('ladder','lab5015'):
-        av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
-            '--envs',str(args.envs),'--device',args.device,
-            '--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon)]
-        if args.root: av += ['--root',args.root]
-        for arm in args.arm: av += ['--arm',arm]
-        if args.select: av += ['--select',*args.select]
-        return _run('branch_lab',*av)
     if args.cmd=='terrain-exam':
         from .evaluation import evaluate_terrain_course
         paths=evaluate_terrain_course(
@@ -356,25 +314,13 @@ def main(argv=None) -> int:
                   policy_file=args.policy)
         execute(jobs,source_commit(),actually_run=args.run)
         return 0
-    if args.cmd=='campaign5016':
-        from .campaign5016 import main as pinnacle
-        argv=['--root',args.root,'--foundation',args.foundation,
-              '--hours',str(args.hours),'--envs',str(args.envs),
-              '--screen-envs',str(args.screen_envs),
-              '--screen-horizon',str(args.screen_horizon),
-              '--seed',str(args.seed),'--device',args.device]
-        if args.plan: argv.append('--plan')
-        if args.status: argv.append('--status')
-        if args.run: argv.append('--run')
-        if args.resume_after_screen_fix: argv.append('--resume-after-screen-fix')
-        return pinnacle(argv)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
             print(output)
         return 0
     if args.cmd=='train':
-        from .branch_lab import train_one
+        from .run import train_one
         return train_one(args)
     if args.cmd=='export-policy':
         from .viewer_server import build_bundle, write_bundle

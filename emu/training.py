@@ -11,7 +11,7 @@ Read this file in order:
 6. The final checkpoint and report are published only after validation.
 
 Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-winning training strategy (see ladder_recipe.py / branch_lab.py).
+stable cold-start training followed by evidence-driven capability growth.
 
 KNOWN DEBT: most of these stages still inhabit a long `train` body.
 See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.

@@ -2,9 +2,17 @@
 
 **Updated:** 24 October 2026 · **Work only on:** `feature/v5023-capability-growth`  
 **Read the design once:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md)  
-**For old results:** [historical capability research](docs/CAPABILITY_GROWTH.md) and Git history.
+**For old results:** Git history (the previous capability-growth notes and working `main` reference).
 
 **Mission in one sentence:** train **one** cold-startable, six-actuator policy in **2,048 MJX worlds**, with complementary lessons for commands, recovery, real slopes, real steps, transitions and efficient walking, expanding difficulty only on physical evidence. The charter owns *why and how*; this file owns *where we are and what is next*.
+
+## 24 Oct cleanup: fewer paths, same foundation
+
+- Retired historical `emu ladder`, `lab5015`, `campaign5016` and upgrade runners, their exclusive tests/scripts, and the old bulky dated runbooks. Everything remains in earlier Git commits (and `main` for the old campaign).
+- The single maintained launcher lives in `emu/run.py` and backs `emu train`; `foundation_config` and its 70-update steady bootstrap are retained, along with PPO, physics, reward, checkpoints and viewer/release safeguards.
+- Documentation is now `README` (entry), `UNIFIED_CAPABILITY_GROWTH` (design), `HANDOVER` (status), `INSTALL` (commands), `PLAYGROUND` (viewer). Research and old campaigns are Git history, not live instructions.
+- **Do not confuse successful legacy 220-input foundation with a successful new 360-input cold start.** The latter remains fail-closed until physical/GPU acceptance.
+- **Next:** inspect remaining reporting/directional/field code for genuinely unused functions, then close joint physical examiner, cold-start parity and CUDA lifecycle. Do not launch a long campaign yet.
 
 ## What works in the branch
 

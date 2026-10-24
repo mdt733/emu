@@ -434,7 +434,7 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
 def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     """New run only; v5015 historical recipe stays pinned and reproducible."""
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config, ARMS
+    from emu.run import one_run_config
     def config(profile, pitch=None):
         return one_run_config(SimpleNamespace(
             profile=profile, run_dir=str(tmp_path/profile),steps=2048,
@@ -445,9 +445,6 @@ def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     assert config('mature').pitch_command_max_deg == pytest.approx(8.0)
     assert config('foundation').pitch_command_max_deg == pytest.approx(8.0)
     assert config('sim2real',18).pitch_command_max_deg == pytest.approx(18.)
-    # Pitch15 is only part of the preserved *historical* lab5015 recipe.
-    # Future v5016 arms must use identical common 30deg range.
-    assert 'pitch15' in {a.name for a in ARMS}
     assert modern.run_dir != config('mature').run_dir
     with pytest.raises(ValueError,match='pitch-deg'):
         config('sim2real',31.0)
@@ -469,23 +466,15 @@ def test_public_sim2real_plan_resolves_common_pitch_30(tmp_path,capsys):
     assert not run.exists()
 
 
-def test_motor_guidance_keeps_historical_config_compatible_and_rejects_bad_arm(tmp_path):
+def test_motor_guidance_keeps_historical_config_compatible(tmp_path):
     import json
     from dataclasses import asdict
-    from emu.training_config import TrainingConfig, apply_experiment_knobs
+    from emu.training_config import TrainingConfig
     old=asdict(TrainingConfig())
     old.pop('motor_guidance_weight')
-    p=tmp_path/'old_training_config.json'
-    p.write_text(json.dumps(old))
-    restored=TrainingConfig.load(p)
-    assert restored.motor_guidance_weight == 0.0
-    arm=apply_experiment_knobs(restored,(('motor_guidance_weight',.06),))
-    assert arm.motor_guidance_weight == pytest.approx(.06)
-    assert restored.motor_guidance_weight == 0.0
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',.25),))
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',-0.01),))
+    path=tmp_path/'old_config.json'
+    path.write_text(json.dumps(old))
+    assert TrainingConfig.load(path).motor_guidance_weight == 0.0
 
 
 def test_passive_spring_accounting_at_stance_and_reset_boundary():
@@ -634,7 +623,7 @@ def test_shared_real_contact_slope_training_plan_is_explicit(tmp_path,capsys):
     import json
     from dataclasses import asdict
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config
+    from emu.run import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
     from emu import cli
@@ -675,7 +664,7 @@ def test_contact_terrain_mode_is_explicit_in_public_training_plan(tmp_path,capsy
     from dataclasses import asdict
     from types import SimpleNamespace
     from emu import cli
-    from emu.branch_lab import one_run_config
+    from emu.run import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
 
