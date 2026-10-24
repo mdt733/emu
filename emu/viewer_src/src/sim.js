@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { SensorObserver, ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -153,7 +153,11 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.sensorObserver = [2,3].includes(bundle.schema)
+    this.arraySensor = bundle.schema===3 &&
+      bundle.observation.sensor_contract?.sensor_model_revision===
+        'forward_tof4x4_array_plane_fit_no_tripod_2'
+      ? new ArrayFlowObserver(bundle.observation.sensor_contract) : null;
+    this.sensorObserver = [2,3].includes(bundle.schema) && !this.arraySensor
       ? new SensorObserver(bundle.observation.sensor_contract) : null;
     this.terrainObserver = bundle.schema === 3
       ? new TerrainActorObserver(bundle.observation.sensor_contract) : null;
@@ -489,6 +493,8 @@ export class EmuBrowserSim {
     if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
     if (this.terrainObserver) this.terrainObserver.reset(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
+    if (this.arraySensor) this.arraySensor.reset(
+      this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
@@ -710,6 +716,8 @@ export class EmuBrowserSim {
     if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
     if (this.terrainObserver) this.terrainObserver.advance(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
+    if (this.arraySensor) this.arraySensor.advance(
+      this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
     this.history[1].set(this.history[2]);
@@ -789,9 +797,12 @@ export class EmuBrowserSim {
     base[k++] = bodyAng[0] + ns*0.025*n1;
     base[k++] = bodyAng[1] + ns*0.025*n0;
     base[k++] = bodyAng[2] - ns*0.025*n1;
-    const sensor = this.sensorObserver?.read([
+    const noisyGravity=[
       grav[0]+ns*.008*n0,grav[1]+ns*.008*n1,grav[2]-ns*.004*n0
-    ]);
+    ];
+    const sensor = this.arraySensor
+      ? this.arraySensor.read(noisyGravity,this.terrainObserver.read())
+      : this.sensorObserver?.read(noisyGravity);
     if (sensor) {
       base[3]=sensor.gyro[0];
       base[4]=sensor.gyro[1];
