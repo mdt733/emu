@@ -26,7 +26,7 @@ from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
-                       TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
+                       TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
 
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
@@ -1489,6 +1489,15 @@ class EmuMJXEnv(TaskSampler):
                 raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
             packed = np.concatenate((packed, terrain))
             assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
+            if self.unified_capability_focus:
+                slope = np.asarray(
+                    [float(params.get(name, default))
+                     for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
+                if (not np.isfinite(slope).all() or not 0.<=slope[0]<=1. or
+                        not 0.<=slope[1]<=5.0):
+                    raise ValueError('slope exposure must be [0,1], physical maximum 5 degrees')
+                packed=np.concatenate((packed,slope))
+                assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
