@@ -1,11 +1,12 @@
-> **HISTORICAL RESEARCH RECORD (superseded as implementation charter).** It contains valuable experiment history and prior hypotheses, but older training plans here are NOT current launch instructions. The active design is [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md), and current next actions are [HANDOVER.md](../HANDOVER.md). Do not revive the retired dual-arm overnight plan.\n\n# EMU capability-growth charter and running handover
+# EMU — archived capability-growth research
 
-**CURRENT START-HERE HANDOVER:** [../HANDOVER.md](../HANDOVER.md) — active checkpoint lineage, verified 20M/34M GPU results, independent terrain A/B findings, precise next steps. This document is the design charter, stage checklist and dated research history; older entries are historical, not the latest operating instructions.
+> **HISTORICAL NOTES, NOT AN ACTIVE CHARTER OR RUNBOOK.**
+> These are old hypotheses, experiments, dated session logs and superseded campaign proposals.
+> **Current design:** [Unified learning contract](UNIFIED_CAPABILITY_GROWTH.md).
+> **Current implementation and next steps:** [HANDOVER](../HANDOVER.md).
+> Earlier instructions below (including checklists and next-session steps) must not be used to launch training. Git history preserves the original file.
 
-**Canonical design and running checklist for `feature/v5023-capability-growth`.**
-This branch starts at tested `main` commit `2ec9e9db0a816c658131311129ef89ec7a595a12`. Do not edit or merge `main` without explicit approval. Do not copy the experimental v5022 learner wholesale.
-
-## The mission (do not drift)
+## Original mission statement (historical)
 
 Grow **the range and quality of situations in which one cold-start EMU policy can follow its commands, remain stable, recover, and move with mechanical grace**. A better result is a wider *reliably competent* capability envelope, not one highest speed, step height or reward.
 
@@ -45,7 +46,7 @@ Do NOT make a dense eight-dimensional grid. Preserve the existing command/recove
 - Choose a champion on independent capability coverage, quality and weak-area regressions. No policy promotion from a positive training reward alone.
 - Prefer one 20M cold-start foundation **forked into same-size visible/blinded terrain-learning arms** to isolate sensor benefit. Preserve optimizer, normalization and curriculum lineage on fork; new observation field values can be introduced gradually without changing width.
 
-## Proposed multi-skill campaign after the first 20M foundation (2026-10-24)
+## Superseded multi-skill campaign proposal (2026-10-24)
 
 **Do not treat these milestones as required step quotas.** Continue only while held-out capabilities improve; every fork is from a validated, SHA-compatible checkpoint. The currently running 2048-world `terrain_360` foundation is pinned to its **original source commit**. Changes to log display or curriculum on the remote branch are **not** available inside that live process and MUST NOT be pulled into its checkpoint/resume lineage without reviewed compatibility/migration. `main` and champion remain untouched.
 
@@ -87,7 +88,7 @@ Before adding another class, config flag, training arm, or v-numbered module, tr
 - `training.py` and existing checkpoint code: single lifecycle; do not clone its entire trainer for a v-number.
 - `viewer_src/`: diagnostic viewing, never a substitute for MJX contact evidence.
 
-## Permanent stage checklist (update this SAME file each working session)
+## Retired stage checklist (for research history only)
 
 The stage gates are **serial**. Mark complete only with a linked commit/test/evidence; a feature that looks plausible is not a pass.
 
@@ -170,7 +171,7 @@ The stage gates are **serial**. Mark complete only with a linked commit/test/evi
 
 - **2026-10-24 — independent 20M-vs-34M matched terrain A/B COMPLETE; living handover refreshed:** Owner supplied `terrain_exam(2).json`/`.md` for the frozen 20,054,016-step 360 actor; earlier `terrain_exam(1).json`/`.md` is the 34,013,184-step actor. Both source `0ba009f`, same seed 1701, 8 CPU worlds, 350 frames, command +0.15m/s, actual sampled per-world heights identical across policies and 0/1/2/4cm ceiling bands. **20M vs 34M original-flat survival 4/8 → 8/8**, mean progress +0.583 → +0.7137m; original flat and dormant-platform flat match within each policy (20M 4/8 both, 34M 8/8 both). **Real ascent pass 0/12 → 0/12, unchanged failure; real descent pass 5/12 → 9/12.** Breakdown by 1/2/4cm ceilings: 20M down 2/4,1/4,2/4 and 34M down 4/4,3/4,2/4; no ascents in any band. 34M survived all 12 attempted ascents but largely stalls at the uphill edge; 20M often fell even on flat and larger steps. This is **credible evidence of better general walking and descending**, *not* proof that learned 4×4 sensors alone caused improvement, and **no evidence whatsoever of climbing**. The previous single combined governor success hides the up/down difference; fix direction-conditioned metrics/requirements, bounded progress and foot-support teaching, and paired equal-magnitude ascending/descending tests before another large campaign. The older root `HANDOVER.md` was **stale v5016** despite being linked from README; it has now been replaced on this branch by a current v5023 living handover (old content still in Git history). **Update root HANDOVER.md on every future meaningful session** and link longer technical evidence here. Pin GPU source `0ba009f` — never pull newer branch code into a direct resume from the two checkpoints. `main` and existing champion remain untouched.
 
-### Next-session entry point (read before touching code)
+### Historical next-session plan (superseded)
 
 1. `git switch feature/v5023-capability-growth && git pull --ff-only`. Inspect PR #14, the exact latest SHA and full CI. Do NOT resume v5022's abandoned learner or touch `main`.
 2. **Read the actual owners first** (`environment.py`, `curriculum.py`, `rewards.py`, `ppo.py`, `evaluation.py`, `training.py`) and sketch their existing responsibilities and signal paths. Identify actual duplication or poorly integrated layers; simplify before adding new features.
