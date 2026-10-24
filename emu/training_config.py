@@ -235,7 +235,7 @@ class TrainingConfig:
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
-                    'terrain_step_max_m'}
+                    'terrain_step_max_m', 'terrain_training_arm'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
