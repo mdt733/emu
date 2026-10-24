@@ -26,7 +26,7 @@ os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
 from emu.contracts import source_repo_root
 from emu.checkpoint_io import git_provenance, run_training
-from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config
+from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config, training_sensor_contract
 
 SEED = 733
 ENVS = 8
@@ -101,10 +101,14 @@ def require_pinned_source(run_dir: Path, git_commit: str) -> None:
             'return to the original pinned source or choose a NEW run root.')
 
 
-def checkpoint(path: Path, expected_step: int) -> dict:
+def checkpoint(path: Path, expected_step: int, *, config: TrainingConfig) -> dict:
+    """Only accept a checkpoint for this exact requested training/sensor lineage."""
     if not path.is_file():
         raise RuntimeError(f"expected checkpoint not found: {path}")
-    payload = load_checkpoint(path, validate=True)
+    payload = load_checkpoint(
+        path, validate=True,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
     observed = int(payload["meta"]["step"])
     if observed != expected_step:
         raise RuntimeError(f"{path}: expected step {expected_step}, got {observed}")
@@ -165,10 +169,13 @@ def first_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None:
     first, _ = configs(root, unified=unified, envs=envs)
     print(f"Acceptance stage 1: one PPO update ({updates} steps), {envs} MJX worlds", flush=True)
     run_training(first, provenance=provenance)
-    checkpoint(root / "first/checkpoints/final.pkl", updates)
-    fixed_exam_exists(root / "first", updates)
+    checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
+    if not unified:
+        fixed_exam_exists(root / "first", updates)
     physical_telemetry_exists(root / "first")
-    print("PASS stage 1: trained checkpoint and read-only held-out exam", flush=True)
+    print("PASS stage 1: bounded PPO, physical metrics and valid checkpoint "
+          "(independent walking exam not claimed)" if unified else
+          "PASS stage 1: trained checkpoint and read-only held-out exam", flush=True)
 
 
 def continue_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None:
@@ -176,7 +183,7 @@ def continue_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> No
     provenance = current_source()
     first, second = configs(root, unified=unified, envs=envs)
     parent = root / "first/checkpoints/final.pkl"
-    checkpoint(parent, updates)
+    checkpoint(parent, updates, config=first)
     first_config = TrainingConfig.load(root / "first/training_config.json")
     if asdict(first_config) != asdict(first):
         raise RuntimeError("stage-1 saved config does not match this smoke recipe")
@@ -188,8 +195,9 @@ def continue_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> No
     run_training(second, provenance=provenance)
     if digest(parent) != parent_hash:
         raise RuntimeError("the parent checkpoint changed during continuation")
-    checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates)
-    fixed_exam_exists(root / "continued", 2 * updates)
+    checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
+    if not unified:
+        fixed_exam_exists(root / "continued", 2 * updates)
     physical_telemetry_exists(root / "continued")
     print("PASS stage 2: fresh continuation from untouched validated ancestor", flush=True)
 
@@ -201,10 +209,11 @@ def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None
     for name in ('first', 'continued'):
         require_pinned_source(root / name, provenance['commit'])
     first, second = configs(root, unified=unified, envs=envs)
-    p1 = checkpoint(root / "first/checkpoints/final.pkl", updates)
-    p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates)
+    p1 = checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
+    p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
     for folder, step in (("first", updates), ("continued", 2 * updates)):
-        fixed_exam_exists(root / folder, step)
+        if not unified:
+            fixed_exam_exists(root / folder, step)
         physical_telemetry_exists(root / folder)
     run_meta = json.loads((root / "continued/run_meta.json").read_text(encoding="utf-8"))
     if int(run_meta.get("resumed_from_step") or -1) != updates:
@@ -248,7 +257,9 @@ def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None
             raise RuntimeError("exported 360 actor failed array-only replay contract")
     print(f"PASS checkpoint lineage: {updates} -> {2*updates}", flush=True)
     print(f"PASS observation normaliser: count {first_count:.0f} -> {second_count:.0f}", flush=True)
-    print("PASS held-out examinations, completed-resume no-op, and browser actor export", flush=True)
+    print("PASS completed-resume no-op, source-pinned browser actor export"
+          + (" and array-only replay contract (walking exam intentionally separate)"
+             if unified else " and held-out examinations"), flush=True)
     print(f"Smoke export (NOT walking trained): {exported}", flush=True)
 
 
