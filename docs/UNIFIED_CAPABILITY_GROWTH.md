@@ -133,11 +133,13 @@ policies cannot be silently interpreted as this new sensor model.
 8×8. An actual 8×8 array would change the observation interface, runtime
 budget, policy weights and viewer parser, and needs its own explicit decision.
 
-**Acceptance still pending**: current `scripts/smoke_unified_focus.py` must
-pass 12-world mixed real contact, 2cm step height, exact 3° pitch /
-−2° roll / 17° edge yaw, 4×4 rays and one full PPO gradient on Ubuntu CPU.
-Then require a 4060Ti MJX GPU smoke and a live-viewer observation match.
-Neither a source commit nor a drawn floor counts as physical proof.
+**Acceptance status:** intermediate commit `f6fd2218` passed real mixed-contact
+12-world MJX CPU geometry, physical foot/upper-face contact and a PPO
+optimizer update; browser and clean Ubuntu viewer checks passed too. Latest
+code also adds four-direction evidence-based physical slope growth, so freeze
+and re-check final HEAD CI. RTX4060Ti **2048-world CUDA** lifecycle, frozen
+joint-terrain examiner and live viewer sensor parity are NOT yet verified.
+Neither a source commit nor a drawn floor proves walking competence.
 
 ## Physical engineering prerequisite: mixed real slopes and steps
 
@@ -244,19 +246,22 @@ single-policy overnight launcher are not all accepted yet.
       specification (this document).
 - [x] Fail-close obsolete ten-hour A/B-only launcher and mark old runbooks retired.
 - [x] Teacher-only 20/20/20/20/10/10 world assignment; real low-dose step crossover,
-      command/resilience/transition/control role emphasis. **Mixed physical slope birth sampler now exists; acceptance remains pending.**
+      command/resilience/transition/control role emphasis. **Physical mixed slope birth and 12-world CPU MJX contact accepted; 2048 CUDA still pending.**
 - [x] Opt-in command-specialist L1 probes and persisted episode-quality/sector
       evidence (24-edge-sample gate, signed directions); needs CUDA smoke and held-out audit.
 - [x] Bootstrap specialist activation as steady difficulty is earned (0 at ≤.10;
       gradually to 100% by .32), preserving the main learning sequence.
-- [ ] Build and physically smoke real mixed slope+step topology plus valid
-      4x4 actor rays; this is the main launch blocker.
-- [ ] Link resilience, slope, step, transition/posture growth to one
-      evidence contract with sampled difficulty; retain legacy state for
-      existing frozen policies, start NEW source-pinned lineage.
+- [x] Build and CPU-smoke real tilted-slab mixed slope+step collision, 4x4
+      actor rays and physical foot contact. Intermediate f6fd2218 CI passed;
+      GPU capacity, final HEAD CI, and frozen examiner are still gated.
+- [ ] Completed-episode slope and command frontier growth are now wired and
+      persistent, plus separately evaluated real supported step crossings.
+      Finish shared evidence/complexity budget for resilience, transition and
+      posture; preserve all historical saved policy schema identities.
 - [x] Opt-in stronger bounded motor/smoothness lesson in easy, moving control worlds,
       mechanical-work/m and episode-quality reports; **true long-run efficiency not verified**.
-- [ ] Add focused diagnostics plus an actual production MJX PPO CUDA smoke.
+- [ ] Intermediate mixed-contact CPU and browser smokes passed. Still need
+      final HEAD CI and actual RTX4060Ti 2048-world PPO memory/fps smoke.
 - [ ] Replace old A/B overnight runner with a single unified 10h run,
       time-budget gate, checkpoints and live schema-9 viewer.
 - [ ] Verify held-out composite challenges, preserve old champion and ask
