@@ -39,6 +39,16 @@ def main():
     cold, cold_obs = env.reset(params)
     cold_obs.block_until_ready()
     assert not bool(jax.device_get(jnp.any(cold.specialist_active)))
+    # Even if a governor has seeded a prospective slope/step envelope,
+    # the first-20M teacher blend keeps real collision terrain dormant.
+    import numpy as np
+    cold_n=np.asarray(jax.device_get(
+        cold.data.geom_xmat[:,int(env.ids['floor_geom']),:])).reshape(
+        (args.envs,3,3))[:,:,2]
+    assert np.allclose(cold_n,np.tile([0.,0.,1.],(args.envs,1)),atol=1e-5)
+    cold_upper=np.asarray(jax.device_get(
+        cold.data.mocap_pos[:,env.terrain_step_mocap_id,2]))
+    assert np.all(cold_upper<-1.),'foundation terrain slab must stay buried'
     # Exercise ALL six live branches without simulating millions of frames.
     # The teacher blend is explicit: 20M foundation must NEVER activate them
     # simply because steady difficulty rose prematurely.

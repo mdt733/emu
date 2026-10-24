@@ -10,7 +10,7 @@
 
 The six mature emphases target **20/20/20/20/10/10%**. Every world still sees gentler doses of other challenges. Every completed episode adds directional, severity-aware evidence; frontiers expand only on enough real success and share one bounded growth budget. No invented step crossings or PPO reward masquerading as independent walking ability.
 
-**Important open design/behaviour distinction:** the current unified experiment *begins* activating specialists as steady competence is earned **within** the first 20M; it does **not** implement a hard 20M-only flat phase. Before real training, review this against the requested main-equivalent first-20M behaviour. Keep the new 360 observation contract constant from cold birth; do not silently migrate a 220-input checkpoint.
+**Foundation→growth now implemented (unverified walking):** the unified 360 actor starts with main's command ramp and foundation resilience burden; its teacher-only specialist dose is zero through 20M, then blends in over ~2M steps weighted by earned steady difficulty. This controls role assignments, real slope/step births, and the switch toward evidence-backed command limits. Sensor schema remains 360 throughout; no 220-to-360 checkpoint migration.
 
 ## What is implemented
 
@@ -27,8 +27,8 @@ The six mature emphases target **20/20/20/20/10/10%**. Every world still sees ge
 
 ## Next actions — code before complexity
 
-- [ ] **Check current HEAD CI** and correct any actual import/behaviour regressions introduced by the cleanup. Avoid reviving removed campaign infrastructure.
-- [ ] **Cold-start parity audit:** trace the resolved 360 unified config against `main`'s true first 20M, especially frontiers versus the original steady command ramp, specialist activation timing, inherited mature ceilings, rollback, normalizer and physical motor burden. Decide the simplest main-first experience distribution without changing policy schema at 20M.
+- [ ] **Check current HEAD CI** for the new teacher-packet field, cold solid-slab acceptance, CPU gradient and legacy replay. Fix any real failures; do not revive retired campaign infrastructure.
+- [x] **Code-level foundation parity:** align starting 360-actor command caps (0.40/−0.12/0.14/0.90), early 0.70N physical push teaching, steady-only 70 updates, LR, rollout, rewards, normalizer and early no-rollback behaviour with `main`; zero specialist/physical terrain dose until 20M, then gradual earned blend. **Real 20M walking parity remains unproved.**
 - [ ] **One real mixed-physics examiner:** fixed physical flat, 4 incline directions, matched genuine supported step up/down and mixed slope+step, command and disturbance trials, gait quality and mechanical J/m. Keep frozen evaluations separate from training decisions.
 - [ ] **Freeze one source and prove real CUDA lifecycle:** small PPO → 2,048-world memory/fps → checkpoint/resume → export → local viewer. Only then request permission for a fresh 20M run and consider a checkpointed single-lineage continuation.
 

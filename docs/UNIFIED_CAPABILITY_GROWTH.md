@@ -70,7 +70,7 @@ Historical `main` foundation: `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 - **20M steps; 2,048 worlds; seed 733; 32-frame PPO rollout; 4 epochs × 8 minibatches; LR 2e-4; maximum 700 control frames/episode.**
 - First **70 updates (~4.59M steps) steady-only**. Initial `vx` requests were **+0.020…+0.060 m/s**. Later mix steady, transition and resilience in response to achieved gait rather than a schedule.
 - Preserve the eight original gait/contact/clearance/smoothness/safety rewards, pooled completed-episode fall EMA, faster retreat, shared regime growth limit and PPO recovery behaviour.
-- Specialist *birth activation* starts at zero while steady difficulty is ≤0.10 and gradually reaches its planned share around 0.32. Gentle real terrain can enter **when walking is earned**, not at an arbitrary 20M unlock. If competence retreats, challenge exposure can retreat.
+- Specialist births and new physical terrain remain dormant through the **first 20M foundation** to preserve main's early gait. Thereafter an approximately 2M-step fade-in multiplies earned steady competence (zero at difficulty ≤0.10, full around 0.32); poor gait can keep difficult specialists absent. The actor and ToF observation contract stay fixed from birth. This 20M boundary is a deliberately **protected foundation transition**, not proof that walking is mastered at that count.
 
 These numbers are a reference to reproduce deliberately, not permission to copy mature training-profile defaults. The new 360-input actor will **not** reproduce the historical 220/232-input weights. Compare *walking quality* after its own fresh 20M foundation, not weight identity.
 

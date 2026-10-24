@@ -665,6 +665,16 @@ class TaskSampler:
                 birth_resilience_d = jnp.clip(resilience_d, 0.0, 1.0)
             if self.open_frontier:
                 resilience_frac = jnp.clip(params[P.frontier_push_n] / jnp.maximum(self.push_max_force_n, 1e-6), 0.0, 1.0)
+                if self.unified_capability_focus:
+                    # Main's foundation scaled pushes with earned resilience
+                    # difficulty and a 0.70 N physical maximum. Unified has
+                    # 3.2 N *headroom* but must not use its whole frontier
+                    # merely because open-frontier sampling is enabled.
+                    foundation_frac = birth_resilience_d * (
+                        .70 / jnp.maximum(self.push_max_force_n, 1e-6))
+                    resilience_frac = self._lerp(
+                        foundation_frac, resilience_frac,
+                        jnp.clip(params[P.specialist_mix], 0., 1.))
             else:
                 resilience_frac = birth_resilience_d
             resilience_task = jnp.where(regime > 1.5, jnp.maximum(resilience_frac, 0.08 / jnp.maximum(self.push_max_force_n, 1e-6)),
