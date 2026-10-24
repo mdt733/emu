@@ -796,7 +796,8 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body,
     # an imaginary ground depth at the camera.
     reg=xp.asarray([.00005,.00005,.0000001],dtype=xp.float32)
     coefficients=xp.linalg.solve(
-        gram+xp.eye(3,dtype=xp.float32)[None,:,:]*reg[None,None,:],rhs)
+        gram+xp.eye(3,dtype=xp.float32)[None,:,:]*reg[None,None,:],
+        rhs[...,None])[...,0]
     a,b,c=coefficients[:,0],coefficients[:,1],coefficients[:,2]
     normal=xp.stack((-a,-b,xp.ones_like(a)),axis=1)
     normal=normal/xp.maximum(xp.linalg.norm(normal,axis=1,keepdims=True),1e-7)
