@@ -436,7 +436,10 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
         'robot_model_sha256': model_hash,
         'observation_schema': actor_schema,
-        'sensor_settings': dict(observation['sensor_contract']['settings']) if schema==2 else {},
+        'sensor_settings': dict(observation['sensor_contract']['settings']) if schema in (2,3) else {},
+        'array_only': bool(schema==3 and
+            observation['sensor_contract'].get('sensor_model_revision') ==
+                'forward_tof4x4_array_plane_fit_no_tripod_2'),
         'obs_dim': obs_dim,
     }
 
