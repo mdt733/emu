@@ -179,7 +179,6 @@ class EnvState(NamedTuple):
     # Prevent repeated lip-rocking and foot-tapping from farming rewards.
     terrain_ascent_root_peak: Any
     terrain_ascent_foot_peak: Any
-    terrain_foothold_paid: Any  # once-per-episode top contact
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1138,7 +1137,6 @@ class EmuMJXEnv(TaskSampler):
                  gyro_bias_std_rad_s: float = 0.015,
                  terrain_step_max_m: float = 0.0,
                  paired_terrain_heights: bool = False,
-                 terrain_training_arm: str = 'off',
                  unified_capability_focus: bool = False):
         import jax
         import jax.numpy as jnp
@@ -1206,11 +1204,6 @@ class EmuMJXEnv(TaskSampler):
         # collision topology and JAX shapes. Never activate mid-checkpoint.
         if not np.isfinite(terrain_step_max_m) or not 0 <= terrain_step_max_m <= .08:
             raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
-        if terrain_training_arm not in ('off','speed','foothold'):
-            raise ValueError('unknown terrain teaching arm')
-        if terrain_training_arm != 'off' and (observation_schema != OBS_SCHEMA_TERRAIN or terrain_step_max_m <= 0.):
-            raise ValueError('terrain teaching needs finite terrain_360 observations')
-        self.terrain_training_arm = terrain_training_arm
         self.terrain_step_max_m = float(terrain_step_max_m)
         self.paired_terrain_heights = bool(paired_terrain_heights)
         self.terrain_pair_seed = int(seed)
@@ -1556,8 +1549,6 @@ class EmuMJXEnv(TaskSampler):
         ascent_payment = jnp.zeros_like(reward)
         root_peak = state.terrain_ascent_root_peak
         foot_peak = state.terrain_ascent_foot_peak
-        foothold_paid = state.terrain_foothold_paid
-        foothold_payment = jnp.zeros_like(reward)
         if self.observation_schema == OBS_SCHEMA_TERRAIN:
             # A single bounded foothold/progress lesson for ASCENT, before
             # the very sparse far-side completion. Both high-water marks are
@@ -1566,13 +1557,6 @@ class EmuMJXEnv(TaskSampler):
                 state, data, metrics, terrain_up)
             reward = reward + ascent_payment
             ep_return = ep_return + ascent_payment
-            if self.terrain_training_arm == 'foothold':
-                landed = self._terrain_first_upper_foothold(state, data, metrics, terrain_up)
-                new_landing = landed & ~state.terrain_foothold_paid
-                foothold_paid = state.terrain_foothold_paid | new_landing
-                foothold_payment = 2.0 * new_landing.astype(jnp.float32)
-                reward = reward + foothold_payment
-                ep_return = ep_return + foothold_payment
             # Completion still requires real, sustained far-side MJX support.
             reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
             ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
@@ -1598,7 +1582,7 @@ class EmuMJXEnv(TaskSampler):
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
-                           terrain_streak,terrain_crossed,root_peak,foot_peak,foothold_paid,
+                           terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
@@ -1653,7 +1637,6 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
             'terrain_ascent_guidance':ascent_payment,
-            'terrain_foothold_payment':foothold_payment,
             # Teacher-only direction: actor observations remain unchanged.
             'terrain_active_up': terrain_up.astype(jnp.float32),
             'terrain_active_down': terrain_down.astype(jnp.float32),
@@ -1994,66 +1977,6 @@ class EmuMJXEnv(TaskSampler):
                                 task[:,T.birth_resilience_d])))
         return task
 
-    def _terrain_speed_task(self, task, keys, params):
-        """Rehearse three speed bins on real ascents and matched flat births.
-
-        Recompute the gait phase rate at the new command speed. This runs
-        before _birth_physics so initial momentum agrees with task velocity.
-        The old 'off' path is bitwise unchanged.
-        """
-        if self.terrain_training_arm == 'off':
-            return task
-        jax, jnp = self.jax, self.jnp
-        k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
-        def terrain_pick(key):
-            _, _, selected_key = jax.random.split(key, 3)
-            return jax.random.uniform(selected_key, ())
-        active = ((jax.vmap(terrain_pick)(k) < params[P.terrain_exposure]) &
-                  (params[P.terrain_height_m] > 1e-6))
-        up = (self.env_index.astype(jnp.int32) % 2) == 0
-        k_flat = jax.vmap(lambda x: jax.random.fold_in(x, 5026))(keys)
-        flat_roll = jax.vmap(lambda x: jax.random.uniform(x, ()))(k_flat)
-        flat_match = (~active) & (flat_roll < .5*params[P.terrain_exposure])
-        chosen = ((active & up) | flat_match) & (task[:,T.regime] < .5) & (
-            task[:,T.athletic_rehearsal] < .5)
-        k_speed = jax.vmap(lambda x: jax.random.fold_in(x, 5027))(keys)
-        uv = jax.vmap(lambda x: jax.random.uniform(x, (2,)))(k_speed)
-        b = jnp.minimum(2, (uv[:,0]*3).astype(jnp.int32))
-        vx_new = jnp.where(b == 0, .10+.05*uv[:,1],
-                          jnp.where(b == 1, .16+.06*uv[:,1], .23+.07*uv[:,1]))
-        vx = jnp.where(chosen,vx_new,task[:,T.vx])
-        old_frac=jnp.clip(jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2) /
-                          jnp.maximum(.05,self.vx_hi_max),0.,1.5)
-        base_rate=jnp.clip(task[:,T.phase_rate]-self.phase_speed_gain*old_frac,.85,1.20)
-        new_rate=command_phase_rate(vx,task[:,T.vy],self.vx_hi_max,
-                                    self.phase_speed_gain,base_rate)
-        return (task.at[:,T.vx].set(vx)
-                .at[:,T.phase_rate].set(jnp.where(chosen,new_rate,task[:,T.phase_rate])))
-
-    def _terrain_first_upper_foothold(self, state, data, metrics, terrain_up):
-        """One true supported top landing, not a vertical wall touch."""
-        jnp=self.jnp
-        from .directional import contact_pair_mask
-        c=getattr(data,'_impl',data).contact
-        feet=tuple(int(x) for x in self.ids['foot_geoms'])
-        box=contact_pair_mask(jnp,c.geom1,c.geom2,c.dist,
-                              int(self.terrain_step_geom_id),feet)
-        floor=contact_pair_mask(jnp,c.geom1,c.geom2,c.dist,
-                                int(self.ids['floor_geom']),feet)
-        centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
-        quat=data.mocap_quat[:,self.terrain_step_mocap_id,:]
-        axis=jnp.stack((1.-2*quat[:,3]**2,2*quat[:,0]*quat[:,3]),axis=1)
-        edge=centre[:,:2]-TERRAIN_PLATFORM_HALF_LENGTH_M*axis
-        forward=jnp.sum((data.qpos[:,:2]-edge)*axis,axis=1)
-        ball_bottom=data.xpos[:,self.foot_bodies,2]-.018
-        upper=centre[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
-        # Do not credit a real collision with the VERTICAL riser.
-        top_contact=box & (ball_bottom>=upper[:,None]-.006)
-        supported=jnp.any(top_contact & jnp.flip(floor,axis=1),axis=1)
-        return (terrain_up & supported & (forward>-.11) & (forward<.14) &
-                (metrics['vx']>.02) & (metrics['cmd_vx']>=.08) &
-                (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
-
     def _episode_terrain(self, data, keys, params):
         """Sample real episode terrain with an exactly flat dormant state.
 
@@ -2137,7 +2060,6 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
-        task = self._terrain_speed_task(task, keys, params)
         task = self._specialist_task(task, keys, params)
         data = self._birth_physics(
             data, task, params,
@@ -2167,7 +2089,6 @@ class EmuMJXEnv(TaskSampler):
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
 
     def _rotation_body_to_world(self, data):
