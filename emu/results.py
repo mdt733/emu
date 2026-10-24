@@ -519,7 +519,12 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
     The \u201cstep\u201d height is an exposure ceiling, not the sampled ledge height.
     Shaft J/m is simulated positive mechanical work, not battery energy.
     """
-    if contact_terrain_radius > 0.0:
+    if 'slope_max_deg' in report:
+        # Real-world sampled slope, not a static compiled terrain setting.
+        # The fraction is the ACTUAL physical slant-world occupancy seen.
+        slope = (f"≤{report['slope_max_deg']:.1f}°"
+                 f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
+    elif contact_terrain_radius > 0.0:
         slope = f"≤{5.0*contact_terrain_radius:.1f}°"
     else:
         slope = f"{slope_deg:.1f}°"
