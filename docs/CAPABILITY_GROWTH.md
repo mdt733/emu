@@ -1,4 +1,4 @@
-# EMU capability-growth charter and running handover
+> **HISTORICAL RESEARCH RECORD (superseded as implementation charter).** It contains valuable experiment history and prior hypotheses, but older training plans here are NOT current launch instructions. The active design is [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md), and current next actions are [HANDOVER.md](../HANDOVER.md). Do not revive the retired dual-arm overnight plan.\n\n# EMU capability-growth charter and running handover
 
 **CURRENT START-HERE HANDOVER:** [../HANDOVER.md](../HANDOVER.md) — active checkpoint lineage, verified 20M/34M GPU results, independent terrain A/B findings, precise next steps. This document is the design charter, stage checklist and dated research history; older entries are historical, not the latest operating instructions.
 
