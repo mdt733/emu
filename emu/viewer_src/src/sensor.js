@@ -378,3 +378,119 @@ export class TerrainActorObserver {
     return {ranges:s.ranges,valid:s.valid};
   }
 }
+
+
+// Unified 360-input actor: no physical tripod ToFs. Infer one *optional*
+// smooth ground-plane estimate from the same delayed 16 rays that the network
+// receives directly. Reject mixed-level/riser fits rather than invent a slope.
+export function fitArrayGround(ranges,valid,gravity){
+  const invalid={valid:false,depth:0,forward:0,side:0,confidence:0,
+                 residual:Infinity,count:0};
+  const rays=terrainActorRays([1,0,0,0,1,0,0,0,1]);
+  const G=[[.00005,0,0],[0,.00005,0],[0,0,.0000001]],rhs=[0,0,0];
+  let count=0;
+  const points=[];
+  for(let i=0;i<16;i++){
+    const d=ranges[i];
+    if(!valid[i]||!Number.isFinite(d)||d<.04||d>1.5)continue;
+    const pt=scale(rays[i],d),v=[pt[0],pt[1],1];
+    points.push(pt);count++;
+    for(let j=0;j<3;j++){
+      rhs[j]+=v[j]*pt[2];
+      for(let k=0;k<3;k++)G[j][k]+=v[j]*v[k];
+    }
+  }
+  if(count<6 || norm(gravity)<.1)return {...invalid,count};
+  // Tiny, regularised 3x3 least-squares solve; no external libraries.
+  const aug=G.map((row,i)=>[...row,rhs[i]]);
+  for(let col=0;col<3;col++){
+    let pivot=col;
+    for(let r=col+1;r<3;r++)
+      if(Math.abs(aug[r][col])>Math.abs(aug[pivot][col]))pivot=r;
+    if(Math.abs(aug[pivot][col])<1e-9)return {...invalid,count};
+    [aug[pivot],aug[col]]=[aug[col],aug[pivot]];
+    const v=aug[col][col];
+    for(let j=col;j<4;j++)aug[col][j]/=v;
+    for(let r=0;r<3;r++){
+      if(r===col)continue;
+      const mul=aug[r][col];
+      for(let j=col;j<4;j++)aug[r][j]-=mul*aug[col][j];
+    }
+  }
+  const [a,b,c]=aug.map(row=>row[3]);
+  const residual=Math.sqrt(points.reduce((acc,p)=>
+    acc+(a*p[0]+b*p[1]+c-p[2])**2,0)/count);
+  const up=scale(normalized(gravity),-1);
+  let n=normalized([-a,-b,1]);
+  if(dot(n,up)<0)n=scale(n,-1);
+  const cosine=dot(n,up);
+  const fwd=normalized(sub([1,0,0],scale(up,up[0])));
+  const side=cross(up,fwd);
+  const depth=-c;
+  if(residual>=.008||cosine<=.25||depth<.035||depth>.60
+     ||!Number.isFinite(depth))return {...invalid,count,residual};
+  return {valid:true,depth,forward:Math.atan2(-dot(n,fwd),cosine),
+    side:Math.atan2(-dot(n,side),cosine),
+    confidence:clamp(count/12,0,1)*clamp(1-residual/.008,0,1),
+    residual,count};
+}
+
+export class ArrayFlowObserver {
+  constructor(contract){
+    if(contract?.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2')
+      throw new Error('Expected array-only terrain sensor');
+    this.settings=contract.settings;this.ring=[];this.frame=0;this.bias=[0,0,0];
+  }
+  synth(pose,model,data,noisy=true){
+    const st=this.settings,ns=noisy?st.sensor_noise_scale:0;
+    const dir=bodyToWorld(pose.R,[0,0,-1]);
+    const depth=actorTerrainDistance(pose.torso,dir,model,data,[],
+                                    pose.terrainHeightAt||null);
+    const gyro=pose.gyro.map((x,i)=>x+this.bias[i]+gaussian()*ns*.025);
+    const good=depth>=.035&&depth<=.60;
+    const flow=good?[
+      -pose.vbody[0]/depth+pose.gyro[1]+gaussian()*ns*.035,
+      -pose.vbody[1]/depth-pose.gyro[0]+gaussian()*ns*.035
+    ]:[0,0];
+    return {gyro,flow,flowGyro:gyro.slice(),flowValid:good,flowAge:0};
+  }
+  reset(pose,model,data,noisy=true){
+    this.frame=0;
+    this.bias=noisy?this.bias.map(()=>gaussian()*this.settings.gyro_bias_std_rad_s):[0,0,0];
+    const sample=this.synth(pose,model,data,noisy);
+    this.ring=Array.from({length:4},()=>({
+      ...sample,gyro:sample.gyro.slice(),flow:sample.flow.slice(),
+      flowGyro:sample.flowGyro.slice()
+    }));
+  }
+  advance(pose,model,data,noisy=true){
+    this.frame++;
+    const st=this.settings,last=this.ring[3];
+    const raw=this.synth(pose,model,data,noisy);
+    const due=this.frame%st.flow_period_frames===0;
+    const missed=noisy&&Math.random()<st.flow_dropout_prob;
+    const next={
+      gyro:raw.gyro,
+      flow:due?(missed?[0,0]:raw.flow):last.flow.slice(),
+      flowGyro:due?raw.flowGyro:last.flowGyro.slice(),
+      flowValid:due?(raw.flowValid&&!missed):last.flowValid,
+      flowAge:due?0:last.flowAge+1
+    };
+    this.ring.shift();this.ring.push(next);
+  }
+  read(gravity,array){
+    const s=this.settings,flow=this.ring[3-s.flow_delay_frames];
+    const ground=fitArrayGround(array.ranges,array.valid,gravity);
+    const good=ground.valid&&flow.flowValid;
+    const depth=ground.valid?ground.depth:0;
+    const velocity=good?[
+      -depth*(flow.flow[0]-flow.flowGyro[1]),
+      -depth*(flow.flow[1]+flow.flowGyro[0])
+    ]:[0,0];
+    const fresh=clamp(1-.25*(flow.flowAge/s.flow_period_frames),.25,1);
+    return {gyro:this.ring[3].gyro,velocity,
+      velocityConfidence:good?fresh:0,depth,
+      forwardGrade:ground.forward,sideGrade:ground.side,
+      groundConfidence:ground.confidence};
+  }
+}
