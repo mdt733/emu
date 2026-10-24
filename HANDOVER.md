@@ -258,13 +258,14 @@ Owner supplied `terrain_exam(6).json`/`terrain_exam(4).md` = seed **1701**, and 
 - [x] Save the mission/architecture, protected branches, pinned source, both checkpoint paths/hashes and exact results.
 - [x] Validate real CUDA 360 actor/2,048 worlds; finish cold foundation and mature continuation.
 - [x] Frozen independent terrain A/B at both 20M and 34M with original/dormant physics parity.
-- [x] Direction-separated up/down evidence and curriculum gates (implemented; GPU verification pending).
-- [x] Bounded ascent guidance and small-step confirmed up-crossings (only <=0.67cm; NOT improved vs old matched cohort).
+- [x] Direction-conditioned crossing metrics and persistent multi-rollout governor; exercised by separate source-411b841 34M GPU run, exposure rose to 8.37%, height stayed 1cm.
+- [x] Bounded ascent guidance; source-411b841 succeeded up to 0.73cm (5/24 over both seeds vs old 4/24). NO 1cm+ mastery.
 - [x] Matched-height multiple-seed independent physical exam; flat physics parity and 8/8 survival. Larger ascent ability NOT proven.
-- [x] Source-pinned 20M→34M new-brain campaign at `19d2bc7`; fresh campaign of new governor code NOT yet run.
-- [ ] Mixed actual contact slopes and finite terrain, servo/efficiency and browser 360 parity.
+- [x] Separate source-pinned 20M→34M campaigns at 19d2bc7 and 411b841; retained checkpoint lineage, model hashes and paired exams.
+- [ ] Frozen trace diagnosis of FIRST upper-foot contact / unsupported far-side / weight transfer, alongside joint and 4x4-ToF observation; compare same 1701/1702 seeds. Preserve historical data.
+- [ ] Quantify locomotion shaft-work/forward-progress tradeoff on more seeds and investigate 4cm downhill falls before any promotion.
 - [ ] Independent broad comparison and **explicit owner approval** before PR merge or champion/showcase changes.
 
-**New-chat first instruction:** “Read `HANDOVER.md` and `docs/CAPABILITY_GROWTH.md` on branch `feature/v5023-capability-growth`. Preserve `main` and the Pinnacle champion. Verify the current branch HEAD, read the physical up/down code, and begin the direction-aware ascent teaching fix. The owner's trained 20M/34M checkpoints are pinned to `0ba009f`; do not casually `git pull` that WSL checkout or bypass provenance.”
+**New-chat first instruction:** “Read the **LATEST DATED SECTION** of `HANDOVER.md` and `docs/CAPABILITY_GROWTH.md` on `feature/v5023-capability-growth` and verify branch HEAD. Three source-pinned 34M campaigns (0ba009f, 19d2bc7, 411b841) have completed; the latest actor only adds 1/24 uphill pass and loses gait efficiency, so do not promote it. Next isolate near-lip first upper-foot contact and supported transfer with diagnostic-only frozen-policy tracing; compare exactly paired seeds. Preserve `main`, Pinnacle champion, actor schema and archived WSL checkouts. Never `git pull` pinned training directories or resume across SHA without provenance review.”
 
 **Every future session:** after any change, update **this very file**: newest evidence, blockers, exact next task, any new run path/commit/CI result; move long narratives into the dated charter. Keep it short, factual and reproducible.
