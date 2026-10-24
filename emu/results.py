@@ -1127,6 +1127,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
             if 'terrain_cross_new' in metrics else 0.0,
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
+        'terrain_foothold_payment_per_frame': mean_metric(metrics, 'terrain_foothold_payment'),
         'ep_len_mean': done_mean(metrics, 'episode_length', default=0.0),
         'ep_rew_mean': done_mean(metrics, 'episode_return', default=0.0),
         'fall_rate': done_mean(metrics, 'episode_fell', default=mean_metric(metrics, 'terminal')),
@@ -1266,6 +1267,14 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             ended = (np.asarray(metrics['episode_done']) > 0.5) & (np.asarray(metrics[rmask]) > 0.5)
             row[f'episodes_{regime}'] = float(ended.sum())
             row[f'falls_{regime}'] = float((np.asarray(metrics['episode_fell'])[ended] > 0.5).sum()) if 'episode_fell' in metrics else 0.0
+    # Keep separate true up-crossing evidence by commanded speed; no pooled
+    # DOWN result or metric of mere lip approach can certify this ability.
+    for speed_band in ('slow','medium','fast'):
+        for outcome,plural in (('attempt','attempts'),('success','successes'),('fall','falls')):
+            key = f'terrain_episode_{outcome}_up_{speed_band}'
+            row[f'terrain_{plural}_up_{speed_band}'] = (
+                float(np.asarray(metrics[key]).sum()) if key in metrics else 0.0)
+
     return row
 
 
