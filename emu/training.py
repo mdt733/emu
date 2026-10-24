@@ -242,7 +242,7 @@ def train(args: TrainingConfig) -> int:
         # A real 20M-step flat foundation, including resume and rewinds:
         # nothing may expose finite terrain before the foundation boundary.
         # This gate is independent of the governor's saved frontier values.
-        if step < FOUNDATION_STEPS:
+        if step < FOUNDATION_STEPS and not args.unified_capability_focus:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
         source_field = field if teaching_field is None else teaching_field
@@ -458,8 +458,8 @@ def train(args: TrainingConfig) -> int:
         report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         report['terrain_event'] = governor.advance_terrain(
             row,step=total_steps,max_height_m=args.terrain_step_max_m,
-            foundation_steps=FOUNDATION_STEPS,
-            teaching_arm=args.terrain_training_arm)
+            foundation_steps=0 if args.unified_capability_focus else FOUNDATION_STEPS,
+            teaching_arm='unified' if args.unified_capability_focus else args.terrain_training_arm)
         report.update(terrain_exposure=governor.params.terrain_exposure,
             terrain_height_m=governor.params.terrain_height_m,
             terrain_attempts=row.get('terrain_attempts',0.),
@@ -700,7 +700,8 @@ def train(args: TrainingConfig) -> int:
     report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report['terrain_event'] = governor.advance_terrain(
         row,step=total_steps,max_height_m=args.terrain_step_max_m,
-        foundation_steps=FOUNDATION_STEPS)
+        foundation_steps=0 if args.unified_capability_focus else FOUNDATION_STEPS,
+        teaching_arm='unified' if args.unified_capability_focus else args.terrain_training_arm)
     report.update(terrain_exposure=governor.params.terrain_exposure,
                   terrain_height_m=governor.params.terrain_height_m,
                   terrain_attempts=row.get('terrain_attempts',0.),
