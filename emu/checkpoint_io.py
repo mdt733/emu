@@ -19,7 +19,7 @@ import numpy as np
 
 from .curriculum import FIELD_VERSION
 from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
-                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, sensor_observation_contract)
+                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
@@ -95,7 +95,16 @@ def _validate_observation_meta(meta: dict[str, Any], where: str = '',
     supplied = meta.get('sensor_contract')
     if not isinstance(supplied, dict) or not isinstance(supplied.get('settings'), dict):
         raise ValueError(f"checkpoint{where} missing complete sensor contract")
-    canonical = sensor_observation_contract(supplied['settings'],schema=expected_observation_schema)
+    # The legacy tripod+array and the new array-only terrain actors both
+    # contain 360 observations, but their physical sensor meanings differ.
+    # Reconstruct the *declared* geometry independently before trusting a
+    # hash or ever opening the optimizer state. The explicit caller's
+    # expected_sensor_contract below still forbids cross-lineage resume.
+    array_only = (expected_observation_schema == OBS_SCHEMA_TERRAIN
+                  and supplied.get('sensor_model_revision') == TERRAIN_ARRAY_ONLY_REVISION)
+    canonical = sensor_observation_contract(
+        supplied['settings'],schema=expected_observation_schema,
+        array_only=array_only)
     if supplied != canonical:
         raise ValueError(f"checkpoint{where} sensor contract fingerprint/geometry mismatch")
     if expected_sensor_contract is None or expected_sensor_contract != canonical:
