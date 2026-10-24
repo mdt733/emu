@@ -89,7 +89,6 @@ def env_kwargs_from_args(args) -> dict:
         motor_guidance_weight=args.motor_guidance_weight,
         contact_slope_deg=args.contact_slope_deg,
         terrain_step_max_m=args.terrain_step_max_m,
-        terrain_training_arm=args.terrain_training_arm,
         unified_capability_focus=args.unified_capability_focus,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
@@ -468,7 +467,7 @@ def train(args: TrainingConfig) -> int:
         report['terrain_event'] = governor.advance_terrain(
             row,step=total_steps,max_height_m=args.terrain_step_max_m,
             foundation_steps=0 if args.unified_capability_focus else FOUNDATION_STEPS,
-            teaching_arm='unified' if args.unified_capability_focus else args.terrain_training_arm)
+            unified=args.unified_capability_focus)
         report.update(terrain_exposure=governor.params.terrain_exposure,
             terrain_height_m=governor.params.terrain_height_m,
             terrain_attempts=row.get('terrain_attempts',0.),
@@ -483,8 +482,6 @@ def train(args: TrainingConfig) -> int:
                        row.get(f'terrain_{outcome}_up_{band}', 0.)
                        for outcome in ('attempts','successes','falls')
                        for band in ('slow','medium','fast')})
-        report['terrain_foothold_payment_per_frame'] = row.get(
-            'terrain_foothold_payment_per_frame', 0.)
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -710,7 +707,7 @@ def train(args: TrainingConfig) -> int:
     report['terrain_event'] = governor.advance_terrain(
         row,step=total_steps,max_height_m=args.terrain_step_max_m,
         foundation_steps=0 if args.unified_capability_focus else FOUNDATION_STEPS,
-        teaching_arm='unified' if args.unified_capability_focus else args.terrain_training_arm)
+        unified=args.unified_capability_focus)
     report.update(terrain_exposure=governor.params.terrain_exposure,
                   terrain_height_m=governor.params.terrain_height_m,
                   terrain_attempts=row.get('terrain_attempts',0.),
