@@ -57,7 +57,10 @@ def diamond_commands(jax, jnp, keys, vx_hi, vx_lo, vy_max, yaw_max,
         r=jax.random.uniform(k_radius,())
         u=jax.random.uniform(k_mix,())
         radius=jnp.where(r<.25,.3+.55*u,
-                jnp.where(r<.80,.85+.15*u,1.0+.12*u))*probe_scale
+                jnp.where(r<.80,.85+.15*u,1.0+.12*u))
+        # The mixed-axes frontier may grow independently. Pure velocity
+        # axis limits still have their own real-world physical boundaries.
+        radius=radius*jnp.where(kind<.27,1.0,probe_scale)
         unit=weights*sign*radius
         return jnp.asarray((
             jnp.where(unit[0]>=0,unit[0]*vx_hi,unit[0]*jnp.abs(vx_lo)),
