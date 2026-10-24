@@ -355,7 +355,13 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         provided = observation.get('sensor_contract')
         if not isinstance(provided,dict):
             raise ValueError('missing schema-2 sensor contract')
-        expected = sensor_observation_contract(provided.get('settings'),schema=actor_schema)
+        # Both archived 360-tripod and the new 360-array-only contracts
+        # may be examined, but never interpreted as each other.
+        array_only = (schema==3 and
+            provided.get('sensor_model_revision') ==
+                'forward_tof4x4_array_plane_fit_no_tripod_2')
+        expected = sensor_observation_contract(
+            provided.get('settings'),schema=actor_schema,array_only=array_only)
         if provided != expected:
             raise ValueError('schema-2 sensor contract hash/geometry mismatch')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
