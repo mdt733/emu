@@ -2697,12 +2697,22 @@ class EmuMJXEnv(TaskSampler):
         from .directional import contact_pair_mask
         center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
         q = data.mocap_quat[:, self.terrain_step_mocap_id, :]
-        axis = jnp.stack((1.-2.*q[:,3]**2, 2.*q[:,0]*q[:,3]), axis=1)
-        edge = center[:,:2] - TERRAIN_PLATFORM_HALF_LENGTH_M*axis
-        delta = data.qpos[:,:2] - edge
-        forward = jnp.sum(delta*axis, axis=1)
-        lateral = -delta[:,0]*axis[:,1] + delta[:,1]*axis[:,0]
-        moved = jnp.sum((data.qpos[:,:2]-state.data.qpos[:,:2])*axis, axis=1)
+        if self.unified_capability_focus:
+            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
+                (self.num_envs,3,3))
+            axis,across,normal=R[:,:,0],R[:,:,1],R[:,:,2]
+            edge=center-UNIFIED_SLAB_HALF_LENGTH_M*axis
+            delta=data.qpos[:,:3]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=jnp.sum(delta*across,axis=1)
+            moved=jnp.sum((data.qpos[:,:3]-state.data.qpos[:,:3])*axis,axis=1)
+        else:
+            axis = jnp.stack((1.-2.*q[:,3]**2, 2.*q[:,0]*q[:,3]), axis=1)
+            edge = center[:,:2] - TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+            delta = data.qpos[:,:2] - edge
+            forward = jnp.sum(delta*axis, axis=1)
+            lateral = -delta[:,0]*axis[:,1] + delta[:,1]*axis[:,0]
+            moved = jnp.sum((data.qpos[:,:2]-state.data.qpos[:,:2])*axis, axis=1)
 
         c = getattr(data, '_impl', data).contact
         feet = tuple(int(x) for x in self.ids['foot_geoms'])
@@ -2729,15 +2739,25 @@ class EmuMJXEnv(TaskSampler):
         # top, with the opposite foot's floor contact confirmed by MJX.
         # This signal is monotonic; 1,000 taps at the edge pay at most once.
         fp = data.xpos[:, self.foot_bodies, :]
-        foot_delta = fp[:,:,:2] - edge[:,None,:]
-        foot_forward = jnp.sum(foot_delta*axis[:,None,:], axis=2)
-        foot_lateral = (-foot_delta[:,:,0]*axis[:,None,1] +
-                        foot_delta[:,:,1]*axis[:,None,0])
-        upper_z = center[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
-        foot_bottom = fp[:,:,2] - .018  # real 18mm foot-ball radius
+        if self.unified_capability_focus:
+            foot_delta=fp-edge[:,None,:]
+            foot_forward=jnp.sum(foot_delta*axis[:,None,:],axis=2)
+            foot_lateral=jnp.sum(foot_delta*across[:,None,:],axis=2)
+            # Measured surface-normal clearance above the ACTUAL inclined
+            # upper top face; world Z would reward fake footholds on camber.
+            foot_clearance=jnp.sum((fp-center[:,None,:])*normal[:,None,:],
+                                   axis=2)-UNIFIED_SLAB_HALF_DEPTH_M-.018
+        else:
+            foot_delta = fp[:,:,:2] - edge[:,None,:]
+            foot_forward = jnp.sum(foot_delta*axis[:,None,:], axis=2)
+            foot_lateral = (-foot_delta[:,:,0]*axis[:,None,1] +
+                            foot_delta[:,:,1]*axis[:,None,0])
+            upper_z = center[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
+            foot_bottom = fp[:,:,2] - .018  # 18mm ball radius
+            foot_clearance=foot_bottom-upper_z[:,None]
         opposite_stance = jnp.flip(floor_pairs, axis=1)
         reachable = ((~floor_pairs) & opposite_stance &
-                     (foot_bottom > upper_z[:,None]+.004) &
+                     (foot_clearance>.004) &
                      (jnp.abs(foot_lateral)<.22))
         reach = jnp.where(reachable, jnp.clip(foot_forward+.06, 0., .12), 0.)
         best_reach = jnp.max(reach, axis=1)
