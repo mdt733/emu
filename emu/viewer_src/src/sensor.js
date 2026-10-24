@@ -62,7 +62,7 @@ function gaussian(){
 
 export class SensorObserver {
   constructor(contract){
-    if(contract?.schema!=='sim2real_232')throw new Error('Sensor contract missing');
+    if(!['sim2real_232','terrain_360'].includes(contract?.schema))throw new Error('Sensor contract missing');
     this.settings=contract.settings;
     this.ring=[];
     this.frame=0;
@@ -269,4 +269,112 @@ export function terrainHeightOffsetsCm(reading, referenceZ=0) {
     const z=reading.hitPoints[i]?.[2];
     return Number.isFinite(z)?100*(z-referenceZ):null;
   });
+}
+
+
+// v5023 actor-observed ToF: exactly one geometric ray in each of 16 zones,
+// unlike the optional 5-sample diagnostic depth inspector above. Row order is
+// far-to-near (pitch 40,60,80,100deg), column yaw -22.5..+22.5deg.
+// The contract uses the torso origin (no forward/height mount offset).
+export function terrainActorRays(R) {
+  const out = [];
+  for (const pitch of [40,60,80,100]) for (const yaw of [-22.5,-7.5,7.5,22.5]) {
+    const p=pitch*Math.PI/180,y=yaw*Math.PI/180;
+    out.push(bodyToWorld(R,[Math.cos(p)*Math.cos(y), Math.cos(p)*Math.sin(y), -Math.sin(p)]));
+  }
+  return out;
+}
+
+// First physical floor or world-box intersection, masked by nearest 18mm foot
+// sphere. This mirrors environment._terrain_4x4_ranges at frozen inference.
+// Other robot parts do NOT masquerade as a known terrain surface. The park's
+// shared rendered heightfield is supplied as a fallback when no plane exists.
+export function actorTerrainDistance(origin, ray, model, data, footGeomIds, heightAt=null) {
+  let terrain=Infinity;
+  const gpos=data.geom_xpos,gmat=data.geom_xmat,types=model.geom_type,
+        sizes=model.geom_size, bodies=model.geom_bodyid;
+  for(let g=0;g<Number(model.ngeom);g++) {
+    if(Number(bodies[g])!==0)continue; // static world collision geometry
+    const t=Number(types[g]);
+    const ix=3*g,im=9*g;
+    const delta=[origin[0]-gpos[ix],origin[1]-gpos[ix+1],origin[2]-gpos[ix+2]];
+    if(t===0) { // plane: geom-xmat local Z is the upward world normal
+      const nz=[gmat[im+2],gmat[im+5],gmat[im+8]];
+      const denom=dot(ray,nz);
+      if(denom < -1e-6){
+        const dist=-dot(delta,nz)/denom;
+        if(dist>0)terrain=Math.min(terrain,dist);
+      }
+    } else if(t===6) { // arbitrarily oriented finite box: slab intersection
+      let near=-Infinity,far=Infinity;
+      for(let axis=0;axis<3;axis++){
+        const v=[gmat[im+axis],gmat[im+3+axis],gmat[im+6+axis]];
+        const o=dot(delta,v),d=dot(ray,v),half=sizes[ix+axis];
+        if(Math.abs(d)<1e-7) {
+          if(Math.abs(o)>half){far=-Infinity;break;}
+        } else {
+          const ta=(-half-o)/d,tb=(half-o)/d;
+          near=Math.max(near,Math.min(ta,tb));
+          far=Math.min(far,Math.max(ta,tb));
+        }
+      }
+      if(far>=Math.max(near,0)){
+        const dist=near>0?near:far;
+        if(dist>0)terrain=Math.min(terrain,dist);
+      }
+    }
+  }
+  if(heightAt) {
+    const h=rayHeight(origin,ray,heightAt);
+    if(h>0)terrain=Math.min(terrain,h);
+  }
+  let foot=Infinity;
+  for(const g of footGeomIds){
+    const i=g*3;
+    const delta=[origin[0]-gpos[i],origin[1]-gpos[i+1],origin[2]-gpos[i+2]];
+    const b=dot(ray,delta),c=dot(delta,delta)-sizes[i]*sizes[i],disc=b*b-c;
+    if(disc<0)continue;
+    const first=-b-Math.sqrt(disc),last=-b+Math.sqrt(disc),hit=first>1e-6?first:last;
+    if(hit>1e-6)foot=Math.min(foot,hit);
+  }
+  return foot>=terrain && terrain>=.04 && terrain<=1.5 ? terrain : 0;
+}
+
+export class TerrainActorObserver {
+  constructor(contract) {
+    if(contract?.schema!=='terrain_360')throw new Error('Schema-9 terrain contract required');
+    this.settings=contract.settings;
+    this.frame=0;
+    this.ring=[];
+  }
+  sample(pose,model,data,footGeomIds,noisy=true) {
+    const scale=noisy?this.settings.sensor_noise_scale:0;
+    const h=pose.terrainHeightAt||null;
+    const ranges=terrainActorRays(pose.R).map(ray=>{
+      const measured=actorTerrainDistance(pose.torso,ray,model,data,footGeomIds,h);
+      return measured ? clamp(measured+scale*.002*gaussian(),.04,1.5) : 0;
+    });
+    return {ranges,valid:ranges.map(x=>x>0)};
+  }
+  reset(pose,model,data,feet,noisy=true) {
+    this.frame=0;
+    const s=this.sample(pose,model,data,feet,noisy);
+    this.ring=Array.from({length:4},()=>({ranges:s.ranges.slice(),valid:s.valid.slice()}));
+  }
+  advance(pose,model,data,feet,noisy=true) {
+    this.frame++;
+    const old=this.ring[3],st=this.settings;
+    const due=this.frame%st.tof_period_frames===0;
+    const missed=noisy&&Math.random()<st.tof_dropout_prob;
+    const fresh=due?this.sample(pose,model,data,feet,noisy):old;
+    const next={
+      ranges:due?(missed?Array(16).fill(0):fresh.ranges.slice()):old.ranges.slice(),
+      valid:due?(missed?Array(16).fill(false):fresh.valid.slice()):old.valid.slice()
+    };
+    this.ring.shift();this.ring.push(next);
+  }
+  read(){
+    const s=this.ring[3-this.settings.tof_delay_frames];
+    return {ranges:s.ranges,valid:s.valid};
+  }
 }
