@@ -2338,6 +2338,26 @@ class EmuMJXEnv(TaskSampler):
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
 
+    def _ray_box_distance(self, data, geom_id, origin, rays):
+        """Full 3-D ray/OBB slab test, including pitch, roll and edge yaw."""
+        jnp=self.jnp
+        R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
+        centre=data.geom_xpos[:,geom_id,:]
+        local_o=jnp.einsum('ei,eij->ej',origin-centre,R)
+        local_d=jnp.einsum('eki,eij->ekj',rays,R)
+        half=jnp.asarray(self.mj_model.geom_size[geom_id,:3],dtype=jnp.float32)
+        parallel=jnp.abs(local_d)<1e-7
+        safe=jnp.where(parallel,1.,local_d)
+        t1=(-half-local_o[:,None,:])/safe
+        t2=(half-local_o[:,None,:])/safe
+        inside=jnp.abs(local_o[:,None,:])<=half
+        near=jnp.max(jnp.where(
+            parallel,jnp.where(inside,-jnp.inf,jnp.inf),jnp.minimum(t1,t2)),axis=-1)
+        far=jnp.min(jnp.where(
+            parallel,jnp.where(inside,jnp.inf,-jnp.inf),jnp.maximum(t1,t2)),axis=-1)
+        return jnp.where(far>=jnp.maximum(near,0.),
+                         jnp.where(near>0.,near,far),jnp.inf)
+
     def _terrain_4x4_ranges(self, data, errors_m=None):
         """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
 
@@ -2354,47 +2374,57 @@ class EmuMJXEnv(TaskSampler):
         R = self._rotation_body_to_world(data)
         origin = data.xpos[:, self.torso_id, :]
         ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
-        floor = int(self.ids['floor_geom'])
-        normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
-        floor_orig = data.geom_xpos[:, floor, :]
-        denom = jnp.einsum('eki,ei->ek', ray, normal)
-        plane_t = jnp.einsum('ei,ei->e',floor_orig-origin,normal)[:,None] / jnp.where(
-            jnp.abs(denom)>1e-7,denom,1.)
-        plane_t = jnp.where(denom< -1e-6,plane_t,jnp.inf)
-
-        if self.terrain_step_mocap_id >= 0:
-            i = self.terrain_step_mocap_id
-            centre = data.mocap_pos[:,i,:]
-            q = data.mocap_quat[:,i,:]
-            ca = 1.-2.*q[:,3]**2
-            sa = 2.*q[:,0]*q[:,3]
-            offset = origin-centre
-            local_o = jnp.stack((
-                ca*offset[:,0]+sa*offset[:,1],
-                -sa*offset[:,0]+ca*offset[:,1],offset[:,2]),axis=-1)
-            local_d = jnp.stack((
-                ca[:,None]*ray[:,:,0]+sa[:,None]*ray[:,:,1],
-                -sa[:,None]*ray[:,:,0]+ca[:,None]*ray[:,:,1],
-                ray[:,:,2]),axis=-1)
-            half = jnp.asarray((TERRAIN_PLATFORM_HALF_LENGTH_M,
-                                TERRAIN_PLATFORM_HALF_WIDTH_M,
-                                TERRAIN_PLATFORM_HALF_DEPTH_M),dtype=jnp.float32)
-            parallel = jnp.abs(local_d)<1e-7
-            safe = jnp.where(parallel,1.,local_d)
-            first = (-half-local_o[:,None,:])/safe
-            last = (half-local_o[:,None,:])/safe
-            inside = jnp.abs(local_o[:,None,:])<=half
-            entering = jnp.where(parallel,jnp.where(inside,-jnp.inf,jnp.inf),
-                                 jnp.minimum(first,last))
-            leaving = jnp.where(parallel,jnp.where(inside,jnp.inf,-jnp.inf),
-                                jnp.maximum(first,last))
-            near = jnp.max(entering,axis=-1)
-            far = jnp.min(leaving,axis=-1)
-            box_t = jnp.where(far>=jnp.maximum(near,0.),
-                              jnp.where(near>0.,near,far),jnp.inf)
-            terrain_t = jnp.minimum(plane_t,box_t)
+        if self.unified_capability_focus:
+            # Both measured slant ranges are to actual collidable boxes.
+            # Infinite-plane fallback would create phantom upper/lower
+            # support beyond the sharp step discontinuity.
+            floor_t=self._ray_box_distance(
+                data,int(self.ids['floor_geom']),origin,ray)
+            box_t=self._ray_box_distance(
+                data,int(self.terrain_step_geom_id),origin,ray)
+            terrain_t=jnp.minimum(floor_t,box_t)
         else:
-            terrain_t = plane_t
+            floor = int(self.ids['floor_geom'])
+            normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
+            floor_orig = data.geom_xpos[:, floor, :]
+            denom = jnp.einsum('eki,ei->ek', ray, normal)
+            plane_t = jnp.einsum('ei,ei->e',floor_orig-origin,normal)[:,None] / jnp.where(
+                jnp.abs(denom)>1e-7,denom,1.)
+            plane_t = jnp.where(denom< -1e-6,plane_t,jnp.inf)
+
+            if self.terrain_step_mocap_id >= 0:
+                i = self.terrain_step_mocap_id
+                centre = data.mocap_pos[:,i,:]
+                q = data.mocap_quat[:,i,:]
+                ca = 1.-2.*q[:,3]**2
+                sa = 2.*q[:,0]*q[:,3]
+                offset = origin-centre
+                local_o = jnp.stack((
+                    ca*offset[:,0]+sa*offset[:,1],
+                    -sa*offset[:,0]+ca*offset[:,1],offset[:,2]),axis=-1)
+                local_d = jnp.stack((
+                    ca[:,None]*ray[:,:,0]+sa[:,None]*ray[:,:,1],
+                    -sa[:,None]*ray[:,:,0]+ca[:,None]*ray[:,:,1],
+                    ray[:,:,2]),axis=-1)
+                half = jnp.asarray((TERRAIN_PLATFORM_HALF_LENGTH_M,
+                                    TERRAIN_PLATFORM_HALF_WIDTH_M,
+                                    TERRAIN_PLATFORM_HALF_DEPTH_M),dtype=jnp.float32)
+                parallel = jnp.abs(local_d)<1e-7
+                safe = jnp.where(parallel,1.,local_d)
+                first = (-half-local_o[:,None,:])/safe
+                last = (half-local_o[:,None,:])/safe
+                inside = jnp.abs(local_o[:,None,:])<=half
+                entering = jnp.where(parallel,jnp.where(inside,-jnp.inf,jnp.inf),
+                                     jnp.minimum(first,last))
+                leaving = jnp.where(parallel,jnp.where(inside,jnp.inf,-jnp.inf),
+                                    jnp.maximum(first,last))
+                near = jnp.max(entering,axis=-1)
+                far = jnp.min(leaving,axis=-1)
+                box_t = jnp.where(far>=jnp.maximum(near,0.),
+                                  jnp.where(near>0.,near,far),jnp.inf)
+                terrain_t = jnp.minimum(plane_t,box_t)
+            else:
+                terrain_t = plane_t
 
         foot_ids = jnp.asarray(self.ids['foot_geoms'],dtype=jnp.int32)
         foot_centres = data.geom_xpos[:,foot_ids,:]
