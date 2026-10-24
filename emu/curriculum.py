@@ -737,6 +737,8 @@ class RegimeGovernor:
         seed is exempt, as it is not evidence-based frontier expansion.
         No new persistent state or new controller.
         """
+        if not self.unified_capability_focus:
+            return {}
         p = self.params
         base = max(self.difficulty_base_step * self.MAX_STEP_MULT, 1e-9)
         core = ('steady_difficulty', 'transition_difficulty',
