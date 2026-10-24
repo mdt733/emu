@@ -1936,6 +1936,9 @@ class EmuMJXEnv(TaskSampler):
                jnp.where(focus==RESILIENCE,2.,
                jnp.where(focus==TRANSITION,1.,0.)))
         task=task.at[:,T.regime].set(regime)
+        ordinary=(focus!=COMMAND)&(focus!=CONTROL)
+        task=task.at[:,T.athletic_rehearsal].set(
+            jnp.where(ordinary,task[:,T.athletic_rehearsal],0.))
         key_probe=jax.vmap(lambda k:jax.random.fold_in(k,50241))(keys)
         # In unified mode the governor's frontiers START SMALL and expand
         # on proven episodes; don't add a second hard-coded 20M ramp.
@@ -1979,6 +1982,11 @@ class EmuMJXEnv(TaskSampler):
              task[:,T.resilience])
         resilience=jnp.where(focus==CONTROL,resilience*.35,resilience)
         task=task.at[:,T.resilience].set(resilience)
+        # Control keeps modest variations in posture even during the early
+        # gait-efficiency lesson, rather than hiding those capabilities.
+        for column in (T.height,T.pitch,T.roll):
+            task=task.at[:,column].set(jnp.where(
+                focus==CONTROL,.25*task[:,column],task[:,column]))
         task=task.at[:,T.birth_resilience_d].set(
             jnp.where(focus==RESILIENCE,params[P.resilience_difficulty],
                       jnp.where(focus==CONTROL,
