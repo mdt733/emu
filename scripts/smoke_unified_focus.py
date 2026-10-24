@@ -122,6 +122,19 @@ def main():
           f"{int(((tilt>1)&active).sum())} mixed, "
           f"normal rise {float(rise[active].min()):.4f}.."
           f"{float(rise[active].max()):.4f}m",flush=True)
+    # No simulated 3-ToF hardware exists in the new actor. The archived
+    # 232-input and earlier 360-input sensor identities remain untouched.
+    from emu.contracts import TERRAIN_ARRAY_ONLY_REVISION
+    assert env.sensor_contract['sensor_model_revision']==TERRAIN_ARRAY_ONLY_REVISION
+    assert 'tripod_mounts_body_m' not in env.sensor_contract
+    assert bool(jax.device_get(jnp.all(state.sensor_state.samples.tof_ranges_m==0)))
+    from emu.directional import fit_forward_array_ground
+    delayed=state.sensor_state.samples
+    estimate=fit_forward_array_ground(jnp,delayed.terrain_ranges_m[:,-1,:],
+          delayed.terrain_valid[:,-1,:],
+          -env._body_packets(state.data)[0])
+    assert bool(jax.device_get(jnp.all(jnp.isfinite(
+        estimate['ground_visibility_confidence']))))
     assert obs.shape==(args.envs,TERRAIN_OBS_DIM),obs.shape
     assert state.hist.shape==(args.envs,4,90),state.hist.shape
     assert build_obs_norm_mask(OBS_SCHEMA_TERRAIN).shape==(TERRAIN_OBS_DIM,)
