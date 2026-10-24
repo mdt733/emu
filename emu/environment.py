@@ -172,6 +172,7 @@ class EnvState(NamedTuple):
     # "has this episode shown a sustained pattern of stepping", which a
     # real gait clears easily and true freezing does not.
     ep_step_evidence_sum: Any
+    ep_command_quality_sum: Any   # physical vx/vy/yaw tracking across entire episode
     terrain_cross_streak: Any
     terrain_crossed: Any
     # Ascent-only high-water marks, teacher state, never actor observations.
@@ -1535,6 +1536,15 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        # Teacher-only episode quality: using one good final frame would let
+        # the robot coast into a high velocity for a moment and 'pass'.
+        vx_e=metrics['vx']-metrics['cmd_vx']
+        vy_e=metrics['vy']-metrics['cmd_vy']
+        yaw_e=metrics['yaw_rate']-metrics['cmd_yaw']
+        tracking_frame=jnp.exp(-(35.*vx_e*vx_e+28.*vy_e*vy_e+2.0*yaw_e*yaw_e))
+        ep_command_quality_sum = state.ep_command_quality_sum + tracking_frame * (
+            .50 + .50*jnp.clip(metrics['support'],0.,1.)) * (
+            1. - jnp.clip(metrics['bad_contact'],0.,1.))
         # G4 examiner/teacher: evidence comes exclusively from actual
         # root travel AND far-side MJX foot contacts. No privileged terrain
         # height or approach position is ever passed to the actor.
@@ -1587,7 +1597,7 @@ class EmuMJXEnv(TaskSampler):
             return step_val
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
-                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
+                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
                            terrain_streak,terrain_crossed,root_peak,foot_peak,foothold_paid,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors)
@@ -1601,8 +1611,22 @@ class EmuMJXEnv(TaskSampler):
         vx_err = jnp.abs(metrics['vx'] - metrics['cmd_vx'])
         vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
         yaw_err = jnp.abs(metrics['yaw_rate'] - metrics['cmd_yaw'])
+        # Normalized L1 radius at the actual episode's requested command.
+        # This is evidence context, not an observation/reward. For COMMAND
+        # specialists the target remains fixed for the full episode.
+        fx=jnp.where(metrics['cmd_vx']>=0.,
+                     jnp.maximum(.05,params[P.frontier_vx_hi]),
+                     jnp.maximum(.05,-params[P.frontier_vx_lo]))
+        unit_x=jnp.abs(metrics['cmd_vx'])/fx
+        unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
+        unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
+        unit_radius=unit_x+unit_y+unit_z
         out_metrics = {
             **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
+            'command_probe_radius':unit_radius,
+            'command_probe_weight_x':unit_x/jnp.maximum(1e-5,unit_radius),
+            'command_probe_weight_y':unit_y/jnp.maximum(1e-5,unit_radius),
+            'command_probe_weight_z':unit_z/jnp.maximum(1e-5,unit_radius),
             'transition_frac': ramping,
             'cmd_resampled': resampled,
             # One maneuver verdict per source-to-target transition. These
@@ -1618,7 +1642,9 @@ class EmuMJXEnv(TaskSampler):
             **{f'reward_{k}': v for k, v in terms.items()},
             'reward_weighted_fall_penalty': fall_payment,
             'episode_done': done.astype(jnp.float32),
-            'specialist_focus': self.focus_id.astype(jnp.float32),
+            'specialist_focus': jnp.where(self.unified_capability_focus,
+                                           self.focus_id,-1).astype(jnp.float32),
+            'episode_command_quality': ep_command_quality_sum/jnp.maximum(ep_len,1.),
             'episode_length': ep_len,
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
@@ -2121,7 +2147,7 @@ class EmuMJXEnv(TaskSampler):
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
