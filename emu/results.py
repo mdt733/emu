@@ -1275,6 +1275,57 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             row[f'terrain_{plural}_up_{speed_band}'] = (
                 float(np.asarray(metrics[key]).sum()) if key in metrics else 0.0)
 
+    # Outcome ledgers use COMPLETED episodes only. Fast/slow partial frames
+    # and a short-lived lucky speed spike never count as full competence.
+    # Focus is a teacher label; old experiments expose -1 for all worlds.
+    if 'specialist_focus' in metrics:
+        focus=np.asarray(metrics['specialist_focus'],dtype=np.int32)
+        for i,name in enumerate(('command','resilience','slope','step','transition','control')):
+            row[f'focus_worlds_{name}'] = float(np.count_nonzero(focus[0]==i))
+            world_done=done & (focus==i)
+            row[f'focus_episodes_{name}']=float(world_done.sum())
+            row[f'focus_falls_{name}']=float((
+                world_done & (np.asarray(metrics['episode_fell'])>.5)).sum())
+        cmd=done & (focus==0)
+        quality=np.asarray(metrics['episode_command_quality'])
+        radius=np.asarray(metrics['command_probe_radius'])
+        xshare=np.asarray(metrics['command_probe_weight_x'])
+        yshare=np.asarray(metrics['command_probe_weight_y'])
+        zshare=np.asarray(metrics['command_probe_weight_z'])
+        vx=np.asarray(metrics['cmd_vx'])
+        vy=np.asarray(metrics['cmd_vy'])
+        yaw=np.asarray(metrics['cmd_yaw'])
+        near=cmd & (radius>=.88) & (radius<=1.14)
+        success=(np.asarray(metrics['episode_fell'])<.5) & (
+            np.asarray(metrics['episode_length'])>=120.) & (quality>=.68) & (
+            np.asarray(metrics['episode_bad_contact'])<.3) & (
+            np.asarray(metrics['episode_support'])>.10)
+        sectors={
+            'vx_hi':(xshare>=.80)&(vx>0.),
+            'vx_lo':(xshare>=.80)&(vx<0.),
+            'vy_pos':(yshare>=.80)&(vy>0.),
+            'vy_neg':(yshare>=.80)&(vy<0.),
+            'yaw_pos':(zshare>=.80)&(yaw>0.),
+            'yaw_neg':(zshare>=.80)&(yaw<0.),
+            'mixed':(np.maximum(np.maximum(xshare,yshare),zshare)<.80)
+        }
+        for label,mask in sectors.items():
+            tested=near & mask
+            row[f'command_probe_attempts_{label}']=float(tested.sum())
+            row[f'command_probe_successes_{label}']=float((tested & success).sum())
+        ctl=(focus==5)
+        moving=(ctl & (np.asarray(metrics['cmd_vx'])>=.075) &
+                (np.asarray(metrics['vx'])>=.04))
+        if np.any(moving):
+            row['control_shaft_j_per_m'] = float(
+                np.asarray(metrics['servo_shaft_drive_power_w'])[moving].sum() /
+                max(.01,np.asarray(metrics['vx'])[moving].sum()))
+        else:
+            row['control_shaft_j_per_m']=-1.
+        ctl_done=done & ctl
+        row['control_episode_quality']=float(quality[ctl_done].mean()) if ctl_done.any() else -1.
+        smooth=np.asarray(metrics.get('reward_weighted_smoothness',0.))
+        row['control_smoothness_payment']=float(smooth[ctl].mean()) if ctl.any() else -1.
     return row
 
 
