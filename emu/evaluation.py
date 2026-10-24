@@ -1596,9 +1596,12 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                       backend=jax.default_backend(),quick=bool(quick),
                       model='actual paired inclined MJX collision slabs',
                       contact='real foot contact, five supported far-side frames',
-                      no_reward_or_curriculum_feedback=True),
+                      no_reward_or_curriculum_feedback=True,
+                      recovery_azimuth_bins_sampled=min(worlds,8),
+                      recovery_azimuth_bins_total=8),
         results=results,
         cautions=['A graded physical skill is not proof of real-hardware safety.',
+                  'Recovery direction assessment needs at least 8 worlds to exercise all azimuth bins.',
                   'Shaft mechanical J/m is not electrical battery energy.',
                   'Newly trained unified 360 policies require source-pinned export.'])
     output.mkdir(parents=True,exist_ok=True)

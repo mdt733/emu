@@ -59,6 +59,25 @@ emu viewer --no-open
 
 CPU smoke/CI does not establish CUDA capacity or successful locomotion. The local viewer is read-only and **not authenticated**; do not expose its port publicly. See [PLAYGROUND](PLAYGROUND.md) for viewer behaviour and protected public release.
 
+## Short CUDA acceptance without launching training
+
+On the RTX 4060 Ti, explicitly opt in to **one** production-shaped PPO update:
+
+```bash
+python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
+```
+
+This reuses the existing physical/sensor smoke and uses 32-frame rollouts, four PPO epochs and eight minibatches. It does **not** open the unified campaign or write checkpoints. Capture its GPU memory/errors and throughput before attempting training. A successful isolated update does **not** prove long-run stability, resume/export or walking competence.
+
+Once a source-pinned, trained 360-input array-only policy exists, the independent frozen assessment is:
+
+```bash
+emu capability-exam --policy /path/to/new360.emupolicy \
+  --output /path/to/new-empty-exam --device cpu --worlds 4 --quick
+```
+
+Run with `--worlds 8` for all eight recovery push directions and without `--quick` for the complete 19-case assessment. It grades genuine physical support, not training reward or battery consumption.
+
 ## Safety
 
 No writes to `main`, showcase or approved Pinnacle without owner approval. Treat reward as training incentive, not real physical walking evidence. Simulated shaft work is not measured battery energy, and untested learned servo commands are **not hardware-safe**. Check source provenance and matched physical exams before any extended GPU campaign.

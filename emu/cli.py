@@ -191,7 +191,7 @@ def main(argv=None) -> int:
     q.add_argument('--speed',type=float,default=.10)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
-    q.add_argument('--quick',action='store_true',help='seven essential physical cases instead of the full eighteen')
+    q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
