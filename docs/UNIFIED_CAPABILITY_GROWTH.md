@@ -42,6 +42,20 @@ comparable longitudinal reference. Mechanical shaft work is NOT calibrated
 battery joules; evaluate work/m, movement, tracking, gait jerk, support,
 slip and recovery simultaneously.
 
+## Preserve main's successful cold-start gait
+
+Direct audit of `main` (Git SHA `2ec9e9db0a816c658131311129ef89ec7a595a12`):
+
+- `foundation_config` sets **20,000,000 environment steps**, **2048 MJX worlds**, `seed=733`, 32-frame PPO rollout, **4 epochs ×8 minibatches**, LR **2e-4**, at most 700 physical control frames per episode. The same shared PPO model and 8 transparent reward payments are NONNEGOTIABLE foundation invariants.
+- The controller uses **70 steady-only bootstrap updates** (~4,587,520 env-steps at 2048 worlds), then gradually mixes STEADY, TRANSITION, RESILIENCE with a per-regime allocation floor. It does NOT make the robot master everything at frame zero.
+- Gentle *initial* command seed `vx=+0.020…+0.060 m/s`; `foundation_config` ultimate per-task command scale is `vx_hi=0.40`, `vx_lo=-0.12`, `vy=0.14`, `yaw=0.90`. Those are **bounds on curriculum sampling, not a declaration that the newborn policy can track them**. Physical command tracking and supported gait develop progressively. Foundation `phase_speed_gain=0.75` and `push_max_force_n=0.70`, not the much more aggressive mature-profile gain/push.
+- The main governor uses closed-loop pooled episode-count fall EMA (not noisy per-rollout ratio), proportional difficulty growth and faster retreat, a **shared total per-update difficulty growth budget** so all aspects cannot jump together, and hard global rollback only for sustained collapse. These protect the learned gait from an exploding task distribution.
+- From the first update, the policy learns locomotion against *real* contact, with contact/clearance/smoothness/stepping/activity and early-death shaping. The first foundation policy had **no v5023 finite-step/360 actor**; therefore there can be no exact neural/observation parity with a future terrain_360 cold run. Preserve *physics, reward, algorithm and progression doctrine*; report differences explicitly.
+
+**How unified improves, rather than discards, main:** the six-world-group shares are the eventual target, not an immediate cold-start recipe. The actual activation fraction is a **smoothed earned ramp** derived from the proven steady difficulty: 0 while steady difficulty ≤0.08; rising linearly toward 100% as it reaches 0.30. Early nonactivated births keep the main-style task, and their rewards have no new control-specific motor lesson. Once activated, each episode receives ONE teacher-only emphasis without replacing the network. When competence retreats, exposure can retreat too. Unlike a hard 20M terrain unlock, extremely easy real slope and small step practice should begin **when steady support and recovery are demonstrated**, without starving the control gait. The exact ramp is an experimental design choice to validate against main-style 20M cold-start quality, not a proven result.
+
+**First 20M acceptance gate** (non-negotiable): compare a true fresh unified 20M actor against historical foundation reference on matched flat-gait, speed tracking, recovery, action jerk, attitude and mechanical shaft work/m; require no substantial collapse. Also verify specialist occupancy grows from near 0 to useful nonzero values, all six specialty roles receive actual completed episodes by 20M, and real incline+steps were present once earned. If the actor walks worse, correct the curriculum before extending to 100M+. Never assume a theoretical architecture automatically performs better.
+
 ## Diamond / octahedral command boundary (not a rectangle)
 
 For a requested vx,vy,yaw, compute independent signed axis limits:
@@ -138,6 +152,8 @@ that limitation. This is a physics constraint to solve openly, not hide.
       command/resilience/transition/control role emphasis. **Real slope crossover remains blocked.**
 - [x] Opt-in command-specialist L1 probes and persisted episode-quality/sector
       evidence (24-edge-sample gate, signed directions); needs CUDA smoke and held-out audit.
+- [x] Bootstrap specialist activation as steady difficulty is earned (0 at ≤.08;
+      gradually to 100% by .30), preserving the main learning sequence.
 - [ ] Build and physically smoke real mixed slope+step topology plus valid
       4x4 actor rays; this is the main launch blocker.
 - [ ] Link resilience, slope, step, transition/posture growth to one
@@ -151,6 +167,4 @@ that limitation. This is a physics constraint to solve openly, not hide.
 - [ ] Verify held-out composite challenges, preserve old champion and ask
       for explicit promotion before any main merge.
 
-**Legacy note:** `docs/V5023_OVERNIGHT_10H_PLAN.md` and
-`docs/V5023_OVERNIGHT_RUNBOOK.md` represent a superseded experiment.
-DO NOT follow their launch instructions for this design.
+**Legacy note:** the retired v5023 dual-arm runbooks and launcher were deleted from the feature branch; their history remains in Git. Only this unified charter is authoritative. There is no unified GPU overnight launcher yet.
