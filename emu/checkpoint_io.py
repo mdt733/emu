@@ -657,14 +657,24 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
         "EMU_GIT_DESCRIBE": str(provenance.get("describe", "")),
         "EMU_GIT_DIRTY": "true" if provenance.get("dirty") else "false",
     })
+    # A subprocess traceback is useless if we only echo its first
+    # "Traceback" line. Keep a small bounded diagnostic tail while still
+    # writing the FULL uncropped output to the canonical run console.log.
+    from collections import deque
+    error_tail = deque(maxlen=40)
     with (run_dir / "console.log").open("a", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         assert proc.stdout is not None
         for line in proc.stdout:
             log.write(line); log.flush()
             t = line.strip()
+            if t:
+                error_tail.append(t)
             if t.startswith(LOG + " step=") or "fixed-eval step=" in t or "AUTO-RECOVERY" in t or "training complete" in t or "Traceback" in t:
                 print("    " + t[:260], flush=True)
         rc = proc.wait()
     if rc:
+        print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)
+        for line in error_tail:
+            print("    " + line[:600], flush=True)
         raise RuntimeError(f"training failed for {run_dir.name}; see {run_dir/'console.log'}")
