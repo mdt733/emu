@@ -2076,6 +2076,76 @@ class EmuMJXEnv(TaskSampler):
                                 task[:,T.birth_resilience_d])))
         return task,active
 
+    def _unified_terrain(self, data, keys, params):
+        """Solid pair of independently sampled inclined contact surfaces.
+
+        Local top faces share n, tangent e/w; the discontinuity is along
+        their common normal. Both slabs always exist in model topology.
+        A dormant upper slab is buried and the lower slab spans the world;
+        non-dormant upper/lower slabs abut exactly at the sharp lip.
+        Changing ONLY mocap_pos/quat at reset keeps JAX compilation fixed.
+        """
+        jax,jnp=self.jax,self.jnp
+        def draw(key):
+            ks=jax.random.split(jax.random.fold_in(key,50245),5)
+            return jnp.stack([jax.random.uniform(ks[i],()) for i in range(5)])
+        u=jax.vmap(draw)(keys)
+        focused=self._specialist_enabled(keys,params)
+        focus=self.focus_id
+        step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
+        slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
+        step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose)
+        slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose)
+        step_active=(u[:,0]<step_p) & (params[P.terrain_height_m]>1e-6)
+        slope_active=(u[:,1]<slope_p) & (params[P.slope_max_deg]>1e-6)
+        slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]
+        slope_rad=jnp.deg2rad(jnp.where(slope_active,slope_mag,0.))
+        # Azimuth 0,180deg: longitudinal uphill/downhill. 90,270deg:
+        # sideways camber. Both components can be nonzero simultaneously.
+        azimuth=2.*jnp.pi*u[:,3]
+        gx=jnp.tan(slope_rad)*jnp.cos(azimuth)
+        gy=jnp.tan(slope_rad)*jnp.sin(azimuth)
+        normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
+        normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
+        # Shortest quaternion taking world +Z into physical support normal.
+        qt=jnp.stack((1.+normal[:,2],-normal[:,1],normal[:,0],
+                      jnp.zeros_like(gx)),axis=1)
+        qt=qt/jnp.linalg.norm(qt,axis=1,keepdims=True)
+        edge_yaw=(u[:,4]-.5)*.70
+        qy=jnp.stack((jnp.cos(edge_yaw/2),jnp.zeros_like(gx),
+                      jnp.zeros_like(gx),jnp.sin(edge_yaw/2)),axis=1)
+        q=self._quat_mul(qt,qy)
+        qw,qx,qyy,qz=q[:,0],q[:,1],q[:,2],q[:,3]
+        direction=jnp.stack((1.-2.*(qyy*qyy+qz*qz),
+                             2.*(qx*qyy+qw*qz),
+                             2.*(qx*qz-qw*qyy)),axis=1)
+        edge=jnp.stack((jnp.full_like(gx,TERRAIN_PLATFORM_EDGE_X_M),
+                        jnp.zeros_like(gx),
+                        gx*TERRAIN_PLATFORM_EDGE_X_M),axis=1)
+        # Up: left lower / right upper; down: left upper / right lower.
+        down=(self.env_index.astype(jnp.int32)%2)==1
+        side=jnp.where(down,-1.,1.)[:,None]
+        L=UNIFIED_SLAB_HALF_LENGTH_M
+        D=UNIFIED_SLAB_HALF_DEPTH_M
+        floor_active=edge-side*L*direction-D*normal
+        floor_dormant=-D*normal
+        floor_pos=jnp.where(step_active[:,None],floor_active,floor_dormant)
+        ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
+        # Height is the physical normal displacement, not an impossible
+        # world-vertical offset that would force the two faces to overlap.
+        height=ceiling*(.30+.70*u[:,2])
+        upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
+        buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
+        upper_pos=jnp.where(step_active[:,None],upper_pos,buried)
+        floor_i=self.unified_ground_mocap_id
+        upper_i=self.terrain_step_mocap_id
+        return data.replace(
+            mocap_pos=data.mocap_pos.at[:,floor_i,:].set(floor_pos).at[:,upper_i,:].set(upper_pos),
+            mocap_quat=data.mocap_quat.at[:,floor_i,:].set(q).at[:,upper_i,:].set(q),
+            qpos=data.qpos.at[:,2].add(
+                jnp.where(step_active & down,height*normal[:,2],0.))
+        )
+
     def _episode_terrain(self, data, keys, params):
         """Sample real episode terrain with an exactly flat dormant state.
 
@@ -2086,6 +2156,8 @@ class EmuMJXEnv(TaskSampler):
         """
         if self.terrain_step_mocap_id < 0:
             return data
+        if self.unified_capability_focus:
+            return self._unified_terrain(data,keys,params)
         jax, jnp = self.jax, self.jnp
         k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
         def choose(key):
