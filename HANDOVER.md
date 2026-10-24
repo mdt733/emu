@@ -43,6 +43,13 @@ The six mature emphases target **20/20/20/20/10/10%**. Every world still sees ge
 
 **Never claim a replacement is better** using reward, a green CPU smoke, an examiner with zero trained-policy runs, or a single terrain case. Preserve `main`, approved 260M Pinnacle, public showcase and archived checkpoints. **Next action:** finish current-HEAD CI, then isolate GPU lifecycle and frozen policy examination. 
 
+## 25 Oct WSL acceptance — observed evidence and correction
+
+- **GPU preflight PASS on RTX 4060 Ti:** real 2,048 mixed-physics worlds, 360 observation channels, six roles (410/410/409/409/205/205), one full 32×4×8 PPO update/65,536 frames; 63.5s compile-inclusive and reported JAX peak allocation ~811MB. No learned walking claimed; that FPS includes compilation.
+- **First actual trainer stage at 8 worlds reached its PPO update**, then failed on best checkpoint save with `sensor contract fingerprint/geometry mismatch`. The independent checkpoint reader was reconstructing *legacy 360 tripod+array* while training supplied *new 360 array-only*. The mismatch, not PPO divergence, was the fatal traceback. CUDA preallocator logged unsuccessful large reservation attempts, but the first update completed.
+- **Corrected on branch:** `checkpoint_io.py` now reconstructs canonical geometry from the declared sensor revision and still requires caller-pinned lineage; archived 360 tripod and new array-only 360 remain strictly distinct. Fixed evaluation worlds also now instantiate the actual unified two-slab, array-only sensor physics. Added regression tests covering on-disk checkpoint save/load, tamper rejection, old-vs-new 360 separation and frozen-world topology. Bounded lifecycle acceptance also uses the same non-preallocating allocator mode as the successful GPU preflight.
+- **Still pending:** current HEAD CI and a *fresh-root* 8-world lifecycle first→continue→verify, followed by fresh-root 2,048-world lifecycle and independent 360 exported exam. **Do not reuse the failed `unified_accept_7d3d6ae_8` root, silently patch its provenance or delete its evidence.** No new trained 20M policy exists; long-run guard remains closed.
+
 ## Path to an overnight growth run (current priority)
 
 1. **Source gate:** latest feature-branch CI must be green (Python, physical MJX, unified gradient, browser, viewer). The numeric main-foundation test is now in `tests/test_learning.py`. Record *the exact passing SHA*.
