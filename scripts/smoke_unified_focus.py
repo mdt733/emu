@@ -132,7 +132,7 @@ def main():
     delayed=state.sensor_state.samples
     estimate=fit_forward_array_ground(jnp,delayed.terrain_ranges_m[:,-1,:],
           delayed.terrain_valid[:,-1,:],
-          -env._body_packets(state.data)[0])
+          env._body_packets(state.data)[0])
     assert bool(jax.device_get(jnp.all(jnp.isfinite(
         estimate['ground_visibility_confidence']))))
     assert obs.shape==(args.envs,TERRAIN_OBS_DIM),obs.shape
