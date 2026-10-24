@@ -184,17 +184,71 @@ that limitation. This is a physics constraint to solve openly, not hide.
   flat-only models. One 10h run will now be a **unified policy campaign** with
   checkpoints and adaptive duration, not multiple divergent old-source arms.
 
+## Shortest credible path from this branch to one overnight run
+
+**Stop on incorrect physics or a regressed gait; do not stop because a
+particular frontier is learning more slowly than another.**
+
+1. **Freeze an integrated source candidate and complete CI.** Rapid commits
+   cancel older workflow runs, so a green older commit does not validate the
+   current HEAD. Confirm browser, clean Ubuntu install, real 12-world
+   rotated-box/foot-contact/4×4-array/JAX PPO smoke, and legacy tests at the
+   *same* SHA. Keep the 10-hour launcher disabled until a full clean result.
+2. **Prove the terrain contract with four distinct worlds:** ordinary flat;
+   inclined floor without a step; pure step on flat; and an actual inclined
+   step with nonzero pitch + roll + rotated riser. Require true foot-ground
+   and upper-contact geometry, accurate physical normals and 16 finite or
+   invalid depth rays, no phantom floor under a descent, no dormant-slab
+   collision. Test different seeds and both up/down directions.
+3. **Close every frontier's episode-to-birth loop.** Command signed L1
+   envelope; real slope (up/down/cross both ways) and step-up/step-down height;
+   resilient push/recovery severity; commanded transitions/posture. Record
+   attempted episodes, successes, physical severity, confidence/quality,
+   earned boundary, and updated next birth distribution. Ensure no focus can
+   remain zero *silently*. Keep a shared bounded expansion budget and
+   localized retreats, with global retreat reserved for real gait collapse.
+4. **Audit actual first-20M foundation settings against `main`.** The
+   currently selected `sim2real` profile inherits mature defaults in
+   addition to explicit foundation-like overrides. Audit *all* values,
+   particularly initial command distribution, motor loading, posture
+   range, normalizer freeze at 25M, push scaling and PPO settings. Retain
+   the 70-update steady-only bootstrap, baseline eight locomotion rewards
+   and validated cold-start. Do not mistake mature physical ceilings for
+   earned cold-start capability.
+5. **Run a small real GPU lifecycle on the operator's RTX 4060Ti.** Reset,
+   actuate, sample all six cohorts, PPO update, create a validated checkpoint,
+   resume, export array-only 360 policy, and open that actor in the live viewer.
+   The browser is inference visualization, not a direct 2048-world feed;
+   its geometry and array ground fit should agree within a known tolerance
+   with the physical MJX world.
+6. **Train to the first 20M checkpoint, examine, then allocate the rest of
+   the 10h budget.** Compare flat gait, controlled speed, actual slope/contact
+   angles, genuine supported up/down crossings, resilience, command/transition
+   tracking and control shaft work/metre against original main's first 20M.
+   If foundation performance regresses, fix sampling/reward before any
+   100M+ campaign. Long training remains one new-source shared policy and
+   optimizer lineage, not separate speed/slope/step policies.
+7. **Promote nothing automatically.** Keep the current main, existing brains,
+   public champion and pinned historical source untouched. Reports should
+   show changes in actual physical competence, not scalar PPO reward alone.
+
+**Current honest status:** six roles, physical two-slab world and array-only
+sensor are implemented, and real slope evidence wiring is being integrated.
+Full latest-SHA CI, long-horizon mixed-physics evaluator, independent
+resilience/posture specialization, real 2048-world CUDA lifecycle and new
+single-policy overnight launcher are not all accepted yet.
+
 ## Priorities and the concrete reimplementation order
 
 - [x] Owner-approved architectural direction and protected feature-branch
       specification (this document).
 - [x] Fail-close obsolete ten-hour A/B-only launcher and mark old runbooks retired.
 - [x] Teacher-only 20/20/20/20/10/10 world assignment; real low-dose step crossover,
-      command/resilience/transition/control role emphasis. **Real slope crossover remains blocked.**
+      command/resilience/transition/control role emphasis. **Mixed physical slope birth sampler now exists; acceptance remains pending.**
 - [x] Opt-in command-specialist L1 probes and persisted episode-quality/sector
       evidence (24-edge-sample gate, signed directions); needs CUDA smoke and held-out audit.
-- [x] Bootstrap specialist activation as steady difficulty is earned (0 at ≤.08;
-      gradually to 100% by .30), preserving the main learning sequence.
+- [x] Bootstrap specialist activation as steady difficulty is earned (0 at ≤.10;
+      gradually to 100% by .32), preserving the main learning sequence.
 - [ ] Build and physically smoke real mixed slope+step topology plus valid
       4x4 actor rays; this is the main launch blocker.
 - [ ] Link resilience, slope, step, transition/posture growth to one
