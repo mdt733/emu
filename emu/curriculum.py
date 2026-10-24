@@ -580,11 +580,12 @@ class RegimeGovernor:
         practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
         expansion_max = .20 if speed_lesson else .25
         height_increment = .0005 if speed_lesson else .00025
-        core_ok = (self.core_competence >= .55 and self.fall_ema['posture'] <= .32
-                   and (kl_ok or not unified))
+        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
         if p.terrain_exposure <= 0.:
             if not core_ok:
                 return 'await_core_walk'
+            if unified and not kl_ok:
+                return 'terrain_hold_ppo_health'
             self.terrain_evidence = self._empty_terrain_evidence()
             p.terrain_exposure = .15 if speed_lesson else .05
             p.terrain_height_m = min(.004 if unified else .010,max_height_m)
