@@ -755,7 +755,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
                 actor_action=jnp.clip(mean,-1.,1.),
-                stance_slip_proxy=out.metrics['stance_slip'],
+                stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
                 floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
