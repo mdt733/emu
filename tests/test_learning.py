@@ -644,6 +644,29 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_unified_overnight_guard_allows_only_explicit_bounded_acceptance(monkeypatch):
+    """The lifecycle probe cannot silently turn into an overnight campaign."""
+    from dataclasses import replace
+    from emu.training import train
+    from emu.training_config import TrainingConfig, ROLLOUT_STEPS
+    from emu.contracts import OBS_SCHEMA_TERRAIN
+    cfg=replace(TrainingConfig(), unified_capability_focus=True,
+                observation_schema=OBS_SCHEMA_TERRAIN, terrain_step_max_m=.04,
+                device='cuda', envs=8, open_frontier=True, steps=8*ROLLOUT_STEPS)
+    monkeypatch.delenv('EMU_UNIFIED_ACCEPTANCE', raising=False)
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(cfg)
+    monkeypatch.setenv('EMU_UNIFIED_ACCEPTANCE','bounded-ppo-lifecycle')
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,steps=3*8*ROLLOUT_STEPS))
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,envs=2048,steps=3*2048*ROLLOUT_STEPS))
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,observation_schema='legacy_220'))
+    # The bounded positive path runs through real CUDA in the existing
+    # smoke_training_lifecycle.py --unified stages, not this CPU unit test.
+
+
 def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
     """Guard the verified main 20M recipe against mature-profile drift.
 
