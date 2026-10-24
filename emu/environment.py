@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
-from .capability_focus import (focus_indices, diamond_commands, safe_command_scale,
+from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
@@ -1937,14 +1937,14 @@ class EmuMJXEnv(TaskSampler):
                jnp.where(focus==TRANSITION,1.,0.)))
         task=task.at[:,T.regime].set(regime)
         key_probe=jax.vmap(lambda k:jax.random.fold_in(k,50241))(keys)
-        span=safe_command_scale(jnp,params[P.steady_difficulty],
-                                  params[P.steady_difficulty])
+        # In unified mode the governor's frontiers START SMALL and expand
+        # on proven episodes; don't add a second hard-coded 20M ramp.
+        span=jnp.asarray(1.0,dtype=jnp.float32)
         candidate=diamond_commands(
             jax,jnp,key_probe,
-            params[P.frontier_vx_hi]*span,
-            params[P.frontier_vx_lo]*span,
-            params[P.frontier_vy]*span,
-            params[P.frontier_yaw]*span)
+            params[P.frontier_vx_hi],params[P.frontier_vx_lo],
+            params[P.frontier_vy],params[P.frontier_yaw],
+            probe_scale=params[P.frontier_combo_radius])
         # The control reference must still WALK; no zero-velocity energy
         # farming. Other commands remain small but not all exactly zero.
         k_control=jax.vmap(lambda k:jax.random.fold_in(k,50242))(keys)
