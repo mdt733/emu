@@ -69,6 +69,7 @@ TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FI
 TERRAIN_BASE_OBS_DIM = len(TERRAIN_OBS_FIELDS)
 TERRAIN_OBS_DIM = TERRAIN_BASE_OBS_DIM * HISTORY_LEN
 TERRAIN_SENSOR_REVISION = "forward_tof4x4_real_plane_box_foot_1"
+TERRAIN_ARRAY_ONLY_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
 TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
 # Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
 # pitched 70 degrees below horizontal with 60-degree vertical spread.
@@ -91,7 +92,8 @@ SENSOR_SETTINGS_DEFAULTS = {
 
 
 def sensor_observation_contract(settings: dict | None = None, *,
-                                schema: str = OBS_SCHEMA_SENSOR) -> dict:
+                                schema: str = OBS_SCHEMA_SENSOR,
+                                array_only: bool = False) -> dict:
     """Canonical, independently verifiable v5016 observation identity.
 
     Sensor mount geometry and fields are part of the meaning of a saved
@@ -106,6 +108,8 @@ def sensor_observation_contract(settings: dict | None = None, *,
 
     if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
         raise ValueError(f"unknown sensor actor schema {schema!r}")
+    if array_only and schema != OBS_SCHEMA_TERRAIN:
+        raise ValueError('array-only mode requires terrain_360 actor')
     values = dict(SENSOR_SETTINGS_DEFAULTS if settings is None else settings)
     if set(values) != set(SENSOR_SETTINGS_DEFAULTS):
         raise ValueError("sensor observation settings keys mismatch")
@@ -147,6 +151,19 @@ def sensor_observation_contract(settings: dict | None = None, *,
             tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
             tof4x4_validity="one bit per cell, delayed, zero on dropout",
         )
+        if array_only:
+            # New cold-source lineage: no physical tripod. The three existing
+            # grade/confidence actor columns are estimated from the SAME 4x4
+            # delayed rays; 360 width is retained but source identity changes.
+            body.pop('tripod_mounts_body_m')
+            body.pop('tripod_beams_body')
+            body.pop('tof_range_limits_m')
+            body.update(
+                sensor_model_revision=TERRAIN_ARRAY_ONLY_REVISION,
+                array_ground_estimator="weighted_4x4_plane_residual_8mm_v1",
+                array_ground_max_fit_residual_m=.008,
+                array_ground_min_valid_cells=6,
+            )
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {**body, "sha256": digest}
 
