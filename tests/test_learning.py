@@ -860,6 +860,72 @@ def test_sensor_checkpoint_requires_explicit_schema_and_matching_physical_contra
         save_checkpoint(tmp_path / 'bad_legacy.pkl', state, bad, norm, **kwargs)
 
 
+def test_array_only_360_checkpoint_save_resume_keeps_sensor_geometry(tmp_path):
+    """New 360 array-only and archived tripod 360 must never be swapped."""
+    from copy import deepcopy
+    from emu.contracts import (
+        OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, TERRAIN_ARRAY_ONLY_REVISION,
+        sensor_observation_contract)
+    from emu.training_config import TrainingConfig, training_sensor_contract
+    from emu.checkpoint_io import (
+        save_checkpoint, load_checkpoint, validate_resume_payload,
+        TERRAIN_CHECKPOINT_SCHEMA)
+
+    cfg = TrainingConfig(observation_schema=OBS_SCHEMA_TERRAIN,
+                         unified_capability_focus=True)
+    array = training_sensor_contract(cfg)
+    tripod = sensor_observation_contract(array['settings'], schema=OBS_SCHEMA_TERRAIN)
+    assert array['sensor_model_revision'] == TERRAIN_ARRAY_ONLY_REVISION
+    assert array != tripod
+    assert array['sha256'] != tripod['sha256']
+    assert 'tripod_mounts_body_m' not in array
+    assert 'tripod_mounts_body_m' in tripod
+
+    params=fake_policy_params()
+    for family in ('pi','vf'):
+        old=params[family][0]['w']
+        params[family][0]['w']=np.zeros((TERRAIN_OBS_DIM,old.shape[1]),np.float32)
+    state=FakeState(params=params,opt_state={'count': np.asarray(1,np.int32)})
+    norm={'mean': np.zeros(TERRAIN_OBS_DIM,np.float32),
+          'var': np.ones(TERRAIN_OBS_DIM,np.float32),'count': 8.0}
+    kwargs=dict(curriculum_state={'params': {}},health_state={},field_state={})
+    meta=dict(step=256,lr_scale=.25,
+              checkpoint_schema=TERRAIN_CHECKPOINT_SCHEMA,
+              observation_schema=OBS_SCHEMA_TERRAIN,
+              obs_dim=TERRAIN_OBS_DIM,sensor_contract=array)
+
+    checkpoint=tmp_path/'array_only_360.pkl'
+    save_checkpoint(checkpoint,state,meta,norm,**kwargs)
+    saved=load_checkpoint(checkpoint,
+                          expected_observation_schema=OBS_SCHEMA_TERRAIN,
+                          expected_sensor_contract=array)
+    assert saved['meta']['sensor_contract']==array
+    with pytest.raises(ValueError,match='differs from requested run'):
+        load_checkpoint(checkpoint,
+                        expected_observation_schema=OBS_SCHEMA_TERRAIN,
+                        expected_sensor_contract=tripod)
+    with pytest.raises(ValueError,match='observation schema mismatch'):
+        load_checkpoint(checkpoint)
+
+    # The historical 360 tripod contract remains separately readable.
+    old_path=tmp_path/'tripod_360.pkl'
+    save_checkpoint(old_path,state,dict(meta,sensor_contract=tripod),norm,**kwargs)
+    load_checkpoint(old_path,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+                    expected_sensor_contract=tripod)
+    with pytest.raises(ValueError,match='differs from requested run'):
+        load_checkpoint(old_path,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+                        expected_sensor_contract=array)
+
+    # Even if the caller expects the tampered manifest, its independent
+    # canonical geometry/hash must still fail validation.
+    altered=deepcopy(saved)
+    altered['meta']['sensor_contract']['tof4x4_yaw_deg'][0]=-10.0
+    with pytest.raises(ValueError,match='fingerprint/geometry mismatch'):
+        validate_resume_payload(
+            altered,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+            expected_sensor_contract=altered['meta']['sensor_contract'])
+
+
 def test_old_schema_7_cannot_lie_about_sensor_semantics():
     from emu.checkpoint_io import _validate_observation_meta
     from emu.contracts import OBS_SCHEMA_SENSOR
