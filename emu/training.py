@@ -117,6 +117,15 @@ def env_kwargs_from_args(args) -> dict:
 # ---------------------------------------------------------------------------
 
 def train(args: TrainingConfig) -> int:
+    # This profile is intentionally not launchable while real continuously
+    # inclined MJX contact plus finite step support share no accepted model.
+    # Do not run 2048 fake slope-specialists under a 0-degree floor.
+    if args.unified_capability_focus:
+        raise RuntimeError(
+            'Unified capability training is PRE-LAUNCH: real mixed MJX '
+            'slope + step geometry/ToF contact smoke has not passed. '
+            'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
+        )
     """Run one checkpoint lineage; no branch-selection logic lives here.
 
     The main loop is organised in evidence time:
