@@ -1601,8 +1601,8 @@ class EmuMJXEnv(TaskSampler):
         # This is evidence context, not an observation/reward. For COMMAND
         # specialists the target remains fixed for the full episode.
         fx=jnp.where(metrics['cmd_vx']>=0.,
-                     jnp.maximum(.05,params[P.frontier_vx_hi]),
-                     jnp.maximum(.05,-params[P.frontier_vx_lo]))
+                     jnp.maximum(.01,params[P.frontier_vx_hi]),
+                     jnp.maximum(.01,jnp.abs(params[P.frontier_vx_lo])))
         unit_x=jnp.abs(metrics['cmd_vx'])/fx
         unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
         unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
