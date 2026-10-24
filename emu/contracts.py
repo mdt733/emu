@@ -221,12 +221,18 @@ TASK_PARAM_DIM = FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
 # all field anchors. No existing P indices or actor columns move.
 TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))
 TERRAIN_TASK_PARAM_DIM = TASK_PARAM_DIM + len(TERRAIN_TASK_FIELDS)
+# Second independent extension ONLY for the new two-solid-slab world. The
+# historical 360-input single-platform model keeps its exact task packet.
+UNIFIED_TERRAIN_FIELDS = (('slope_exposure',0.0),('slope_max_deg',0.0))
+UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
     **_base_index,
     field_node_frac=FIELD_NODE_FRAC,
     field_edge_frac=FIELD_EDGE_FRAC,
     terrain_exposure=TASK_PARAM_DIM,
     terrain_height_m=TASK_PARAM_DIM + 1,
+    slope_exposure=TERRAIN_TASK_PARAM_DIM,
+    slope_max_deg=TERRAIN_TASK_PARAM_DIM + 1,
 )
 
 
