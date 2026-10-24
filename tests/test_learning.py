@@ -644,6 +644,54 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
+    """Guard the verified main 20M recipe against mature-profile drift.
+
+    The new 360 sensor actor and physically dormant slabs are intentional
+    differences; gait competence still needs a REAL 20M comparison.
+    """
+    from types import SimpleNamespace
+    from emu.training_config import (
+        foundation_config, FOUNDATION_STEPS, ROLLOUT_STEPS,
+        PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, MAX_EPISODE_STEPS)
+    from emu.rewards import PAYMENT_NAMES
+    from emu.run import one_run_config
+    from emu.contracts import OBS_SCHEMA_TERRAIN
+
+    old = foundation_config(run_dir=tmp_path/'main_ref',seed=733,
+                            device='cuda',envs=2048)
+    new = one_run_config(SimpleNamespace(
+        run_dir=str(tmp_path/'new360'),profile='sim2real',
+        seed=733,device='cuda',envs=2048,steps=FOUNDATION_STEPS,
+        unified_capabilities=True,terrain_actor=True,
+        terrain_step_max_m=.04))
+    assert (FOUNDATION_STEPS,ROLLOUT_STEPS,PPO_EPOCHS,
+            PPO_MINIBATCHES,PPO_LR,MAX_EPISODE_STEPS) == (
+            20_000_000,32,4,8,2e-4,700)
+    assert PAYMENT_NAMES == ('alive','locomotion','posture','contact',
+                             'anti_slip','clearance','smoothness','joint_safety')
+    for key in ('envs','seed','ppo_lr','ppo_entropy_cost','ppo_value_cost',
+                'difficulty_base_step','vx_hi_max','vx_lo_min',
+                'vy_max_mps','yaw_max_rad_s','phase_speed_gain',
+                'regime_command_frac','athletic_rehearsal_frac',
+                'combo_mix_frac','combo_probe_frac','fall_target',
+                'motor_guidance_weight','freeze_obs_norm_after_steps',
+                'cloud_probes_per_eval','cloud_final_probes'):
+        a,b=getattr(old,key),getattr(new,key)
+        # main uses the governor's standard .30 when fall_target=None;
+        # unified spells out that exact same effective target.
+        if key=='fall_target':
+            a=.30 if a is None else a
+        assert a==b, f'foundation mismatch: {key}: {a!r} != {b!r}'
+    assert old.push_max_force_n==.70
+    assert new.push_max_force_n==3.2  # headroom, NOT early episode dose
+    assert not old.allow_rollback
+    assert new.observation_schema==OBS_SCHEMA_TERRAIN
+    assert new.unified_capability_focus and new.terrain_step_max_m==.04
+    assert new.pitch_command_max_deg==8.
+    assert new.capability_field_mode=='shadow'
+
+
 def test_unified_main_first_20m_then_earned_specialists():
     """Same actor contract, no specialist growth before the 20M boundary."""
     from emu.capability_focus import growth_mix
