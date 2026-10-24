@@ -817,16 +817,28 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body,
     good=(count>=6.) & (residual<.008) & (cosine>.25) & (
         depth>=.035) & (depth<=.60) & (
         xp.linalg.norm(gravity,axis=1)>.1)
+    # A real step can invalidate the *single-plane slope*, yet optical flow
+    # still needs a depth scale. Infer it from the four steep central array
+    # rays (rather than returning zero velocity at precisely a step).
+    middle=xp.asarray((9,10,13,14),dtype=xp.int32)
+    middle_valid=xp.take(mask,middle,axis=1)
+    central_count=xp.sum(middle_valid.astype(xp.float32),axis=1)
+    centre_dirs=xp.take(-rays[:,2],middle,axis=0)
+    central=xp.sum(xp.take(d,middle,axis=1)*centre_dirs[None,:]*
+                   middle_valid.astype(xp.float32),axis=1)/xp.maximum(central_count,1.)
+    optical_depth=xp.where(good,depth,central)
+    depth_valid=(good | (central_count>=2)) & (
+        optical_depth>=.035)&(optical_depth<=.60)
     confidence=xp.where(good,
         xp.clip(count/12.,0.,1.)*xp.clip(1.-residual/.008,0.,1.),0.)
     return dict(
-        valid=good,
+        valid=good,depth_valid=depth_valid,
         ground_forward_grade_rad=xp.where(
             good,xp.arctan2(-xp.sum(normal*forward,axis=1),cosine),0.),
         ground_sideways_grade_rad=xp.where(
             good,xp.arctan2(-xp.sum(normal*sideways,axis=1),cosine),0.),
         ground_visibility_confidence=confidence,
-        optical_depth_m=xp.where(good,depth,0.),
+        optical_depth_m=xp.where(depth_valid,optical_depth,0.),
         fit_residual_m=residual,
         valid_count=count,
     )
