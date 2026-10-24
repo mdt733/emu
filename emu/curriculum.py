@@ -132,10 +132,13 @@ class RegimeGovernor:
         if self.unified_capability_focus:
             # These are initial *proven/being-probed* limits, not a
             # declaration that a cold robot can already do 0.6m/s.
-            self.params.frontier_vx_hi = .12
-            self.params.frontier_vx_lo = -.06
-            self.params.frontier_vy = .06
-            self.params.frontier_yaw = .25
+            # Main's initial steady seed is +.02…+.06m/s, NOT mature .6.
+            # Other axes get small nonzero probe magnitudes so they can
+            # eventually earn competence and escape a zero-sized frontier.
+            self.params.frontier_vx_hi = .06
+            self.params.frontier_vx_lo = .02
+            self.params.frontier_vy = .035
+            self.params.frontier_yaw = .14
             self.params.frontier_combo_radius = 1.0
         if regime_command_frac is not None:
             self.params.regime_command_frac = float(regime_command_frac)
@@ -560,68 +563,73 @@ class RegimeGovernor:
 
     def _advance_specialist_commands(self, row, *, global_retreat: bool,
                                       kl_ok: bool) -> dict[str,str]:
-        """Persist complete-episode *local* boundary evidence.
+        """Advance only demonstrated L1 directions on CLOSED episode windows.
 
-        Probe bins are disjoint: a diagonal trial never passes two Cartesian
-        axes. No global fall rate veto unless the core actually collapsed.
-        Every unsupported direction keeps its own denominator and can HOLD.
+        A diagonal success never expands a pure axis. Sideways and yaw
+        share symmetric physical limits, so both signs must qualify before
+        they move. A bad policy-health window consumes evidence without
+        earning growth; sparse windows simply keep collecting.
         """
         events={}
         for sector in self.COMMAND_SECTORS:
-            attempts=float(row.get(f'command_probe_attempts_{sector}',0.))
-            successes=float(row.get(f'command_probe_successes_{sector}',0.))
-            if (not all(math.isfinite(x) for x in (attempts,successes)) or
-                attempts<0. or successes<0. or successes>attempts):
-                raise ValueError(f'invalid command boundary evidence {sector}')
-            window=self.command_evidence[sector]
-            window['attempts']+=attempts
-            window['successes']+=successes
-            if window['attempts']<self.COMMAND_MIN_EDGE_EPISODES:
-                events[sector]='collect'
+            n=float(row.get(f'command_probe_attempts_{sector}',0.))
+            good=float(row.get(f'command_probe_successes_{sector}',0.))
+            if (not math.isfinite(n) or not math.isfinite(good) or
+                not 0. <= good <= n):
+                raise ValueError(f'invalid command evidence {sector}')
+            self.command_evidence[sector]['attempts']+=n
+            self.command_evidence[sector]['successes']+=good
+            events[sector]='collect'
+
+        def closed(sector):
+            evidence=self.command_evidence[sector]
+            n=evidence['attempts']
+            if n < self.COMMAND_MIN_EDGE_EPISODES:
+                return None
+            score=evidence['successes']/n
+            evidence.update(attempts=0.,successes=0.)
+            return score
+
+        safe=not global_retreat and kl_ok
+        for sector in ('vx_hi','vx_lo','mixed'):
+            score=closed(sector)
+            if score is None:
                 continue
-            n=window['attempts'];success_rate=window['successes']/n
-            window.update(attempts=0.,successes=0.)
-            if global_retreat or not kl_ok:
+            if not safe:
                 events[sector]='hold_health'
-                continue
-            # For paired sign dimensions, require evidence on BOTH sides
-            # before widening symmetric yaw/vy bounds. Retain the last
-            # successful sign's evidence until its counterpart is ready.
-            if sector in ('vy_pos','vy_neg','yaw_pos','yaw_neg'):
-                peer={'vy_pos':'vy_neg','vy_neg':'vy_pos',
-                      'yaw_pos':'yaw_neg','yaw_neg':'yaw_pos'}[sector]
-                # Other sign can be unproven. Independent evidence is
-                # recorded but symmetric frontier growth waits.
-                peer_n=self.command_evidence[peer]['attempts']
-                if peer_n<self.COMMAND_MIN_EDGE_EPISODES:
-                    window.update(attempts=n,successes=success_rate*n)
-                    events[sector]='hold_peer_evidence'
-                    continue
-                peer_r=self.command_evidence[peer]['successes']/max(1.,peer_n)
-                self.command_evidence[peer].update(attempts=0.,successes=0.)
-                if min(success_rate,peer_r)<.72:
-                    events[sector]='hold_weak_pair'
-                    continue
-            elif success_rate<.72:
+            elif score<.72:
                 events[sector]='hold_weak_edge'
-                continue
-            if sector=='vx_hi':
+            elif sector=='vx_hi':
                 self.params.frontier_vx_hi=min(
                     self.frontier_vx_hi_safety,self.params.frontier_vx_hi*1.025)
+                events[sector]='expand'
             elif sector=='vx_lo':
+                current=abs(self.params.frontier_vx_lo)
                 self.params.frontier_vx_lo=-min(
-                    self.frontier_vx_lo_safety,-self.params.frontier_vx_lo*1.025)
-            elif sector.startswith('vy_'):
-                self.params.frontier_vy=min(
-                    self.frontier_vy_safety,self.params.frontier_vy*1.025)
-            elif sector.startswith('yaw_'):
-                self.params.frontier_yaw=min(
-                    self.frontier_yaw_safety,self.params.frontier_yaw*1.025)
+                    self.frontier_vx_lo_safety,current*1.025)
+                events[sector]='expand'
             else:
                 self.params.frontier_combo_radius=min(
-                    min(1.35,self.frontier_combo_safety),
-                    self.params.frontier_combo_radius*1.01)
-            events[sector]='expand_qualified_episode_boundary'
+                    self.frontier_combo_safety,self.params.frontier_combo_radius*1.01)
+                events[sector]='expand'
+
+        for axis in ('vy','yaw'):
+            positive,negative=axis+'_pos',axis+'_neg'
+            if min(self.command_evidence[s]['attempts'] for s in
+                   (positive,negative)) < self.COMMAND_MIN_EDGE_EPISODES:
+                continue
+            scores=[closed(s) for s in (positive,negative)]
+            if not safe:
+                result='hold_health'
+            elif min(scores)<.72:
+                result='hold_weak_pair'
+            else:
+                field='frontier_'+axis
+                limit=getattr(self,field+'_safety')
+                setattr(self.params,field,min(
+                    limit,getattr(self.params,field)*1.025))
+                result='expand'
+            events[positive]=events[negative]=result
         return events
 
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
