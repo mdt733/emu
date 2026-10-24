@@ -468,6 +468,12 @@ def train(args: TrainingConfig) -> int:
                 'terrain_falls_up','terrain_falls_down')})
         report.update({f'terrain_window_{k}':v
                        for k,v in governor.terrain_evidence.items()})
+        report.update({f'terrain_{outcome}_up_{band}':
+                       row.get(f'terrain_{outcome}_up_{band}', 0.)
+                       for outcome in ('attempts','successes','falls')
+                       for band in ('slow','medium','fast')})
+        report['terrain_foothold_payment_per_frame'] = row.get(
+            'terrain_foothold_payment_per_frame', 0.)
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
