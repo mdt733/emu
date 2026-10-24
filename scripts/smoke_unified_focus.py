@@ -35,8 +35,17 @@ def main():
     governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     params=governor.params_dict()
     params.update(terrain_exposure=.15,terrain_height_m=.004)
+    # Verify the true cold start retains main's steady-only curriculum:
+    # role IDs exist but specialty lessons and motor burden are inactive.
+    cold, cold_obs = env.reset(params)
+    cold_obs.block_until_ready()
+    assert not bool(jax.device_get(jnp.any(cold.specialist_active)))
+    # Exercise ALL six live branches without simulating millions of frames.
+    # This synthetic difficulty is test input, not a training curriculum jump.
+    params['steady_difficulty']=.35
     state,obs=env.reset(params)
     obs.block_until_ready()
+    assert bool(jax.device_get(jnp.all(state.specialist_active)))
     assert obs.shape==(args.envs,TERRAIN_OBS_DIM),obs.shape
     assert state.hist.shape==(args.envs,4,90),state.hist.shape
     assert build_obs_norm_mask(OBS_SCHEMA_TERRAIN).shape==(TERRAIN_OBS_DIM,)
