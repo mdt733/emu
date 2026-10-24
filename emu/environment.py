@@ -23,6 +23,7 @@ from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
+                          fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
                           TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
                           TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
@@ -2510,6 +2511,45 @@ class EmuMJXEnv(TaskSampler):
                                         TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
                 valid)
 
+    def _unified_sensor_sample(self, data, task, keys, gyro_bias):
+        """Array-only sensor: 4x4 ranges, optical flow and gyro, NO tripod.
+
+        Physics truth is used only to produce the simulated optical signal,
+        exactly as in old sensor forward synthesis. Actual actor readout
+        uses the delayed array fit; no privileged slope or exact root velocity.
+        """
+        jax,jnp=self.jax,self.jnp
+        scale=jnp.where(task[:,T.sensor_scale]>=0.,
+                        task[:,T.sensor_scale],self.sensor_noise_scale)
+        noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5016),(8,),dtype=jnp.float32))(keys)
+        four_noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
+        four,valid=self._terrain_4x4_ranges(
+            data,errors_m=scale[:,None]*.002*four_noise)
+        R=self._rotation_body_to_world(data)
+        torso=data.xpos[:,self.torso_id,:]
+        down=(-R[:,:,2])[:,None,:]
+        floor_depth=self._ray_box_distance(
+            data,int(self.ids['floor_geom']),torso,down)[:,0]
+        upper_depth=self._ray_box_distance(
+            data,int(self.terrain_step_geom_id),torso,down)[:,0]
+        depth=jnp.minimum(floor_depth,upper_depth)
+        depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
+                        depth,0.)
+        _,vbody,_=self._body_packets(data)
+        physical_gyro=data.qvel[:,3:6]
+        flow,flow_valid=simulate_downward_optical_flow(
+            jnp,vbody,physical_gyro,depth,
+            flow_error_rad_s=scale[:,None]*.035*noise[:,3:5])
+        measured_gyro=physical_gyro+gyro_bias+scale[:,None]*.025*noise[:,5:8]
+        zero_ranges=jnp.zeros((self.num_envs,3),dtype=jnp.float32)
+        return SensorSample(
+            zero_ranges,jnp.zeros_like(zero_ranges,dtype=jnp.bool_),
+            four,valid,flow,flow_valid,measured_gyro,
+            jnp.zeros((self.num_envs,),dtype=jnp.int32),
+            jnp.zeros((self.num_envs,),dtype=jnp.int32))
+
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
 
@@ -2518,6 +2558,8 @@ class EmuMJXEnv(TaskSampler):
         the simulated ground normal or qvel. Fold-in does not perturb
         physics/lesson RNG streams or the old 220-input behavior.
         """
+        if self.unified_capability_focus:
+            return self._unified_sensor_sample(data,task,keys,gyro_bias)
         jax, jnp = self.jax, self.jnp
         scale = jnp.where(task[:, T.sensor_scale] >= 0.,
                           task[:, T.sensor_scale], self.sensor_noise_scale)
@@ -2603,6 +2645,36 @@ class EmuMJXEnv(TaskSampler):
         s = state.samples
         tf = HISTORY_LEN - 1 - self.tof_delay_frames
         ff = HISTORY_LEN - 1 - self.flow_delay_frames
+        if self.unified_capability_focus:
+            ground=fit_forward_array_ground(
+                jnp,s.terrain_ranges_m[:,tf,:],s.terrain_valid[:,tf,:],
+                gravity_body)
+            flow_valid=s.flow_valid[:,ff]
+            estimate=estimate_flow_velocity(
+                jnp,s.flow_rad_s[:,ff,:],s.gyro_body_rad_s[:,ff,:],
+                ground['optical_depth_m'],flow_valid=flow_valid,
+                tof_valid=ground['valid'])
+            tof_age=s.tof_age_frames[:,tf]
+            flow_age=s.flow_age_frames[:,ff]
+            freshness=jnp.clip(
+                1.-.25*(tof_age.astype(jnp.float32)/self.tof_period_frames+
+                         flow_age.astype(jnp.float32)/self.flow_period_frames),
+                .25,1.)
+            return dict(
+                measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
+                velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
+                velocity_confidence=estimate['velocity_confidence']*freshness,
+                tof_estimated_depth_m=ground['optical_depth_m'],
+                ground_forward_grade_rad=ground['ground_forward_grade_rad'],
+                ground_sideways_grade_rad=ground['ground_sideways_grade_rad'],
+                ground_visibility_confidence=ground['ground_visibility_confidence']*
+                    jnp.clip(1.-.25*tof_age.astype(jnp.float32)/
+                             self.tof_period_frames,.25,1.),
+                ground_valid=ground['valid'],
+                terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
+                terrain_valid=s.terrain_valid[:,tf,:],
+                flow_valid=flow_valid,
+                tof_age_frames=tof_age,flow_age_frames=flow_age)
         ranges = s.tof_ranges_m[:, tf, :]
         beams_valid = jnp.all(s.tof_beam_valid[:, tf, :], axis=1)
         ground = fit_tripod_ground(jnp, ranges, gravity_body)
