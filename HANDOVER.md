@@ -12,7 +12,7 @@
 - The single maintained launcher lives in `emu/run.py` and backs `emu train`; `foundation_config` and its 70-update steady bootstrap are retained, along with PPO, physics, reward, checkpoints and viewer/release safeguards.
 - Documentation is now `README` (entry), `UNIFIED_CAPABILITY_GROWTH` (design), `HANDOVER` (status), `INSTALL` (commands), `PLAYGROUND` (viewer). Research and old campaigns are Git history, not live instructions.
 - **Do not confuse successful legacy 220-input foundation with a successful new 360-input cold start.** The latter remains fail-closed until physical/GPU acceptance.
-- **Next:** inspect remaining reporting/directional/field code for genuinely unused functions, then close joint physical examiner, cold-start parity and CUDA lifecycle. Do not launch a long campaign yet.
+- **Next:** review remaining directional/field logic only when its actual consumers are mapped; close joint physical examiner, cold-start parity and CUDA lifecycle. The old tournament ranking/reporting layer has been replaced by a compact source-pinned single-run metrics report; viewer no longer carries dead ladder-priority sorting. Do not launch a long campaign yet.
 
 ## What works in the branch
 

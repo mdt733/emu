@@ -32,30 +32,14 @@ class Snapshot:
     phase: str
 
 
-def _run_priority(relative_parts: tuple[str, ...]) -> tuple[int, str]:
-    """Later ladder rounds outrank their parent, independent of runner version."""
-    first = relative_parts[0] if relative_parts else ''
-    if first.startswith('round') and first[5:].isdigit():
-        return (1000 + int(first[5:]), '/'.join(relative_parts))
-    if first == 'foundation20':
-        return (500, '/'.join(relative_parts))
-    # Historical 00_foundation/10_adapt/40_generalist directories, or any
-    # user-defined numbered stage. No dependency on a retired forge recipe.
-    if len(first) >= 3 and first[:2].isdigit() and first[2] == '_':
-        return (int(first[:2]) + 500, '/'.join(relative_parts))
-    return (100, '/'.join(relative_parts))
-
-
 def candidates(root: Path) -> list[tuple[str, Path]]:
-    """Newest logical ladder stages first, regardless of recipe filenames.
+    """Return the newest validated-looking checkpoint candidates first.
 
-    Only existing checkpoint directories are visited; this also recognises
-    arbitrary arm names and history without importing any training runners.
+    The live watcher checks source and actor validity before publishing.
+    No retired ladder/tournament ordering is used.
     """
     root = Path(root)
     dirs = [p for p in root.rglob('checkpoints') if p.is_dir()]
-    dirs.sort(key=lambda ck: _run_priority(ck.parent.relative_to(root).parts),
-              reverse=True)
     result: list[tuple[str, Path]] = []
     for ck in dirs:
         rel = ck.parent.relative_to(root)
@@ -64,10 +48,8 @@ def candidates(root: Path) -> list[tuple[str, Path]]:
         result.extend((phase, p) for p in sorted(
             ck.glob('snapshot_step_*.pkl'), reverse=True))
     result.append(('complete', root / 'final.pkl'))
-    # A 12-hour tournament starts several NEW runs from the same 20M
-    # ancestor, so neither round number nor absolute policy step says which
-    # branch is currently active. Watch the most recently published on-disk
-    # checkpoint; atomic writer signatures still protect against torn saves.
+    # Watch the newest on-disk checkpoint regardless of directory naming.
+    # Atomic writer signatures protect against torn or overwritten saves.
     result.sort(
         key=lambda candidate: (
             candidate[1].stat().st_mtime_ns if candidate[1].is_file() else -1,

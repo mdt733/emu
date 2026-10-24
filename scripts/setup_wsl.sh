@@ -94,7 +94,7 @@ fi
 # silently execute the full CPU/JAX test suite.
 if ((!VIEWER_ONLY)); then
   emu doctor --no-require-gpu --no-mjx-smoke
-  emu ladder --stage plan
+  emu train --help >/dev/null
 fi
 emu viewer-build
 if ((CHECK)); then
