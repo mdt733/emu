@@ -196,6 +196,12 @@ def ranking(root: Path, candidate_results: dict[str, dict]) -> list[str]:
 
 
 def main():
+    raise SystemExit(
+        "STOP: v5023 control/A/B-only campaign has been retired by owner. "
+        "It deliberately excludes concurrent real slope+step learning. "
+        "Do not run this launcher; see docs/UNIFIED_CAPABILITY_GROWTH.md. "
+        "No checkpoints were changed."
+    )
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--control-repo",type=Path,default=Path.home()/"emu-v5023-window")
     p.add_argument("--experiment-repo",type=Path,default=Path(__file__).resolve().parents[1])
