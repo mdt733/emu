@@ -644,6 +644,46 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
+    """Several qualified specialties cannot overwhelm main's growth budget."""
+    from dataclasses import asdict
+    g = RegimeGovernor(open_frontier=True, unified_capability_focus=True)
+    assert g.params.frontier_vx_lo < 0.  # Reverse remains signed.
+    g.params.resilience_difficulty = .3
+    before = asdict(g.params)
+    g.params.steady_difficulty += g.difficulty_base_step
+    g.params.resilience_difficulty -= .01   # Retreat is not rationed.
+    g.params.frontier_vx_hi *= 1.025
+    g.params.frontier_vx_lo *= 1.025
+    g.params.frontier_push_n *= 1.01
+    # A first gentle lesson is an activation, not a harder earned frontier.
+    g.params.slope_exposure, g.params.slope_max_deg = .15, .70
+    g.params.terrain_exposure, g.params.terrain_height_m = .15, .004
+    result = g._share_unified_growth(before)
+    assert result['growth_budget_demand'] > 1.
+    assert 0. < result['growth_budget_scale'] < 1.
+    assert 0. < g.params.steady_difficulty < g.difficulty_base_step
+    assert before['frontier_vx_lo'] * 1.025 < g.params.frontier_vx_lo < before['frontier_vx_lo']
+    assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
+    assert g.params.slope_max_deg == .70
+    assert g.params.terrain_height_m == .004
+
+    legacy = RegimeGovernor()
+    assert legacy._share_unified_growth(asdict(legacy.params)) == {}
+    # Main's initial regime curriculum still goes through the same API.
+    report = legacy.advance_curriculum(
+        {}, step=0, max_height_m=0., foundation_steps=20_000_000)
+    assert report['terrain_event'] == 'foundation_flat'
+    assert 'growth_budget_scale' not in report
+
+    unified = RegimeGovernor(unified_capability_focus=True)
+    report = unified.advance_curriculum(
+        {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
+    assert report['terrain_event'] == 'unified_bootstrap_steady'
+    assert report['slope_event'] == 'steady_bootstrap'
+    assert report['growth_budget_scale'] <= 1.
+
+
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
     from emu.checkpoint_io import promote_checkpoint
     source = tmp_path / 'latest.pkl'
