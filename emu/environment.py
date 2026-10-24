@@ -1913,7 +1913,7 @@ class EmuMJXEnv(TaskSampler):
         jax,jnp=self.jax,self.jnp
         if not self.unified_capability_focus:
             return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        mix=jnp.clip((params[P.steady_difficulty]-.08)/.22,0.,1.)
+        mix=jnp.clip((params[P.steady_difficulty]-.10)/.22,0.,1.)
         k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
         return jax.vmap(lambda x:jax.random.uniform(x,()))(k)<mix
 
