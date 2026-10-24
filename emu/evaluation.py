@@ -1411,6 +1411,10 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         upper_lip=upper[world]-side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]+UNIFIED_SLAB_HALF_DEPTH_M*normal[world]
         measured_h=float(np.dot(upper_lip-lower_lip,normal[world])) if is_step else 0.
         height_verified=(not is_step or abs(measured_h-case['step_m'])<.0005)
+        measured_edge=float(np.degrees(np.arctan2(axis[world,1],axis[world,0])))
+        requested_edge=float(case.get('edge_deg',0.))
+        edge_error=(measured_edge-requested_edge+180.)%360.-180.
+        edge_verified=(not is_step or abs(edge_error)<.35)
         displacement=xyz[:stop,world]-line[:2]
         forward=displacement@axis[world,:2]
         sideways=displacement@across[world,:2]
@@ -1428,7 +1432,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         # The robot must start on the near side (not spawned over the edge).
         initial_near=bool(forward[0]<-.03)
         crossing=(bool(initial_near and passed_at is not None and alive
-                       and grade_verified and height_verified) if is_step else None)
+                       and grade_verified and height_verified and edge_verified)
+                  if is_step else None)
         if case.get('kind')=='slope':
             passed=tracking and grade_verified
         elif case.get('kind') in ('step','mixed'):
@@ -1460,6 +1465,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             physical_slope_gx=round(gx,5),physical_slope_gy=round(gy,5),
             requested_step_m=float(case.get('step_m',0.)),
             measured_step_m=round(measured_h,5),height_verified=height_verified,
+            measured_edge_deg=round(measured_edge,3) if is_step else None,
+            edge_verified=edge_verified if is_step else None,
             started_near_side=initial_near if is_step else None,
             reached_far_side=bool(np.any(far)) if is_step else None,
             supported_crossing_frame=passed_at,
@@ -1596,7 +1603,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
             for up,down in zip(rows[::2],rows[1::2]):
                 if (up['direction']!='step-up' or down['direction']!='step-down'
                     or abs(up['measured_step_m']-down['measured_step_m'])>.0005
-                    or not up['height_verified'] or not down['height_verified']):
+                    or not up['height_verified'] or not down['height_verified']
+                    or not up['edge_verified'] or not down['edge_verified']):
                     raise RuntimeError('two-slab paired real geometry did not match')
         summary=dict(case=case,worlds=rows,passed=sum(r['case_pass'] for r in rows),
                      survived=sum(r['survived'] for r in rows),
