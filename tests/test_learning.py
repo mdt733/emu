@@ -709,9 +709,11 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     unified = RegimeGovernor(unified_capability_focus=True)
     report = unified.advance_curriculum(
         {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
-    assert report['terrain_event'] == 'unified_bootstrap_steady'
-    assert report['slope_event'] == 'steady_bootstrap'
-    assert report['growth_budget_scale'] <= 1.
+    assert report['terrain_event'] == 'foundation_flat'
+    assert report['slope_event'] == 'foundation_flat'
+    assert 'growth_budget_scale' not in report
+    assert unified.params.slope_exposure == 0.
+    assert unified.params.terrain_exposure == 0.
 
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
