@@ -792,15 +792,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 terrain_fall_tilt=out.metrics['fall_tilt'],
                 terrain_fall_roll_rate=out.metrics['fall_roll_rate'],
                 terrain_fall_pitch_rate=out.metrics['fall_pitch_rate'],
-                terrain_timeout=out.metrics['episode_timeout'])
+                terrain_timeout=out.metrics['episode_timeout'],
+                # Actual disturbance delivered in the previous MJX step;
+                # recorded only for frozen recovery assessment.
+                applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
             if env.terrain_step_mocap_id >= 0:
-                # Examiner-only collision telemetry from the SAME real MJX
-                # contacts used by normal stepping. Never placed in actor obs,
-                # teacher reward or checkpoint state.
-                import mujoco
-                platform_id = mujoco.mj_name2id(
-                    env.mj_model, mujoco.mjtObj.mjOBJ_GEOM,
-                    'episode_terrain_surface')
+                # Same collision pairs as the training environment; the
+                # frozen examiner never infers support from root altitude.
+                platform_id = int(env.terrain_step_geom_id)
                 contact = getattr(es.data, '_impl', es.data).contact
                 sample['terrain_platform_contact'] = contact_pair_mask(
                     jnp, contact.geom1, contact.geom2, contact.dist,
@@ -814,6 +813,28 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
         if env.terrain_step_mocap_id >= 0:
+            if env.unified_capability_focus:
+                # Same two actual MJX collision surfaces; no constructed
+                # heightfield or training-only success labels in the examiner.
+                return dict(
+                    **frames,
+                    initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
+                    initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
+                    initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
+                    initial_upper_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,env.terrain_step_geom_id,:],(env.num_envs,3,3)),
+                    initial_ground_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,int(env.ids['floor_geom']),:],(env.num_envs,3,3)),
+                    initial_root_quat=initial.data.qpos[:,3:7],
+                    last_position_xy=last_xy,
+                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
             return dict(
                 **frames,
                 initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],

@@ -754,3 +754,48 @@ def test_v5023_terrain_exam_requires_uninterrupted_real_far_side_support():
     assert not score_terrain_course_trace(ended,height_m=.04,speed=.15)[0]['crossing_pass']
     flat=score_terrain_course_trace(rows,height_m=0.,speed=.15)
     assert all(x['crossing_pass'] is None for x in flat)
+
+def test_unified_frozen_scorer_rejects_unsupported_step_and_reset():
+    """A far-side root alone is not an earned step or proof of survival."""
+    from emu.evaluation import score_unified_capability_trace
+    from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M,UNIFIED_SLAB_HALF_DEPTH_M
+    frames_n=110
+    worlds=2
+    xy=np.zeros((frames_n,worlds,2))
+    xy[:,:,0]=np.linspace(0.,.45,frames_n)[:,None]
+    completed=np.zeros((frames_n,worlds),dtype=bool)
+    floor=np.zeros((frames_n,worlds,2),dtype=bool)
+    upper=np.zeros_like(floor)
+    upper[65:75,0,0]=True
+    floor[65:75,1,0]=True
+    center_upper=np.tile(np.array([.40,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
+    center_lower=np.tile(np.array([.0,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
+    # Artificial, internally consistent lip around x=0.20.
+    L=UNIFIED_SLAB_HALF_LENGTH_M
+    center_upper[:,0]=.20+np.array([L,-L])
+    center_lower[:,0]=.20-np.array([L,-L])
+    center_upper[:,2]+=.02
+    ident=np.tile(np.eye(3),(worlds,1,1))
+    frames=dict(position_xy=xy,done=completed,fell=completed,
+        command=np.tile(np.array([.20,0.,0.]),(frames_n,worlds,1)),
+        heading_rad=np.zeros((frames_n,worlds)),
+        initial_ground_xmat=ident,initial_upper_xmat=ident,
+        initial_unified_ground_mocap_pos=center_lower,
+        initial_terrain_mocap_pos=center_upper,
+        initial_root_quat=np.tile([1.,0.,0.,0.],(worlds,1)),
+        floor_contact=floor,terrain_platform_contact=upper,
+        terrain_support=np.ones((frames_n,worlds)),
+        terrain_bad_contact=np.zeros((frames_n,worlds)),
+        servo_shaft_drive_power_w=np.ones((frames_n,worlds)),
+        applied_push_force_n=np.zeros((frames_n,worlds)))
+    case=dict(name='step',kind='step',step_m=.02)
+    rows=score_unified_capability_trace(frames,case=case,settle_frames=5)
+    assert rows[0]['crossing_pass'] and rows[1]['crossing_pass']
+    no_contact=dict(frames,terrain_platform_contact=np.zeros_like(upper))
+    assert not score_unified_capability_trace(no_contact,case=case,settle_frames=5)[0]['crossing_pass']
+    ended=completed.copy()
+    ended[82,0]=True
+    interrupted=dict(frames,done=ended)
+    assert not score_unified_capability_trace(interrupted,case=case,settle_frames=5)[0]['crossing_pass']
+    assert rows[0]['measured_step_m']==pytest.approx(.02,abs=1e-4)
+

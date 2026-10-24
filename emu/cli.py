@@ -183,6 +183,15 @@ def main(argv=None) -> int:
                    help='matched real collision heights in cm (default 0 2 4)')
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
+    q=sub.add_parser('capability-exam',help='frozen 360-input unified physics: command, slope, step, recovery and control')
+    q.add_argument('--policy',required=True,help='verified array-only 360 .emupolicy')
+    q.add_argument('--output',required=True,help='new/empty directory separate from actor')
+    q.add_argument('--worlds',type=int,default=4,help='even 2..32 paired physical worlds')
+    q.add_argument('--horizon',type=int,default=300)
+    q.add_argument('--speed',type=float,default=.10)
+    q.add_argument('--seed',type=int,default=1701)
+    q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
+    q.add_argument('--quick',action='store_true',help='seven essential physical cases instead of the full eighteen')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
@@ -264,6 +273,15 @@ def main(argv=None) -> int:
             policy=Path(args.policy),output=Path(args.output),
             worlds=args.worlds,horizon=args.horizon,speed=args.speed,
             heights_cm=tuple(args.heights_cm),seed=args.seed,device=args.device)
+        for path in paths:
+            print(path)
+        return 0
+    if args.cmd=='capability-exam':
+        from .evaluation import evaluate_unified_capabilities
+        paths=evaluate_unified_capabilities(
+            policy=Path(args.policy),output=Path(args.output),
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            seed=args.seed,device=args.device,quick=args.quick)
         for path in paths:
             print(path)
         return 0
