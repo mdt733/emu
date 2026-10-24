@@ -46,10 +46,20 @@ def main():
     # just simulated tilted gravity or inactive world labels.
     params.update(slope_exposure=1.0,slope_max_deg=5.0,
                   terrain_exposure=1.0,terrain_height_m=.035)
+    randomized,_=env.reset(params)
+    import numpy as np
+    random_n=np.asarray(jax.device_get(
+        randomized.data.geom_xmat[:,int(env.ids['floor_geom']),:])).reshape(
+            (args.envs,3,3))[:,:,2]
+    random_angles=np.rad2deg(np.arccos(np.clip(random_n[:,2],-1,1)))
+    assert np.any(random_angles>1.),"randomized physical incline absent"
+    # Exact replayable 3deg pitch, -2deg roll, 2cm sharp rise, +17deg
+    # edge yaw. Every world has both a slope AND a step for contact probing.
+    params.update(terrain_pitch_deg=3.0,terrain_roll_deg=-2.0,
+                  terrain_fixed_height_m=.020,terrain_edge_angle_deg=17.0)
     state,obs=env.reset(params)
     obs.block_until_ready()
     assert bool(jax.device_get(jnp.all(state.specialist_active)))
-    import numpy as np
     floor_id=int(env.ids['floor_geom'])
     upper_id=int(env.terrain_step_geom_id)
     n=np.asarray(jax.device_get(state.data.geom_xmat[:,floor_id,:])).reshape(
@@ -58,8 +68,12 @@ def main():
     ups=np.asarray(jax.device_get(state.data.mocap_pos[:,env.terrain_step_mocap_id,:]))
     base=np.asarray(jax.device_get(state.data.mocap_pos[:,env.unified_ground_mocap_id,:]))
     active=ups[:,2]>-1.
-    assert np.any(tilt>1.0),"NO real inclined collision world"
-    assert np.any(active),"NO real physical steps"
+    assert np.all(tilt>3.),"fixed pitch/roll did not rotate real collision"
+    assert np.all(active),"fixed physical step override did not activate"
+    expected=np.asarray([-np.tan(np.deg2rad(3.)),
+                         -np.tan(np.deg2rad(-2.)),1.])
+    expected=expected/np.linalg.norm(expected)
+    assert np.allclose(n,expected[None,:],atol=2e-4),"incorrect 2D pitch/roll normal"
     from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_DEPTH_M
     R=np.asarray(jax.device_get(state.data.geom_xmat[:,upper_id,:])).reshape(
         (args.envs,3,3))
@@ -68,7 +82,7 @@ def main():
     lower_lip=base+side[:,None]*UNIFIED_SLAB_HALF_LENGTH_M*axis+UNIFIED_SLAB_HALF_DEPTH_M*n
     upper_lip=ups-side[:,None]*UNIFIED_SLAB_HALF_LENGTH_M*axis+UNIFIED_SLAB_HALF_DEPTH_M*n
     rise=np.sum((upper_lip-lower_lip)*n,axis=1)
-    assert np.all((rise[active]>.005)&(rise[active]<=.036)),rise[active]
+    assert np.allclose(rise[active],.020,atol=2e-4),rise[active]
     assert np.allclose(np.sum((upper_lip-lower_lip)*axis,axis=1)[active],
                        0,atol=1e-4),"sharp lip does not align in common surface basis"
     assert np.allclose(
