@@ -1,410 +1,137 @@
-"""Offline EMU results.md + evidence ZIP, for shared-foundation and forked runs.
+"""EMU single-run reports, training telemetry, and held-out evidence.
 
-Never imports JAX, opens checkpoint pickle objects, or reruns evaluations.
-Use python3 -m emu.results --root /path/to/campaign.
+Training and examiner facts are kept separate. No Python/JAX training is
+invoked when making a report; checkpoints are never packaged.
 """
 from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 import math
-import statistics
 import zipfile
 from pathlib import Path
 
-FILES = ('metrics.csv', 'fixed_eval.csv', 'screen_eval.json', 'training_config.json',
-         'run_meta.json', 'lab_spec.json', 'envelope_summary.json',
-         'performance.json', 'capability_field_summary.json')
-FIELDS = ('reward_mean', 'fall_rate', 'ep_len_mean', 'height_error_m', 'step_evidence',
-          'vx_mean', 'cmd_vx_mean', 'servo_shaft_abs_power_w',
-          'servo_shaft_drive_power_w', 'servo_shaft_brake_power_w',
-          'servo_over_rated_frac', 'servo_peak_torque_limit_frac',
-          'spring_potential_energy_j', 'shin_spring_energy_j',
-          'steps_per_sec', 'ppo_approx_kl', 'nan_grad_skips_total')
-PAYMENTS = ('alive', 'locomotion', 'posture', 'contact', 'anti_slip',
-            'clearance', 'smoothness', 'joint_safety', 'fall_penalty', 'motor_cost')
-SCREENS = ('resilience100', 'robust70', 'growth140', 'growthcombo140', 'gentle_slope')
-FIXED = ('core', 'stress30', 'dynamic50', 'robust40', 'combo70',
-         'resilience50', 'resilience75', 'dynamic80', 'growth110', 'growthcombo110')
-STORY_FIELDS = ('field_known_nodes', 'field_known_edges', 'frontier_vx_hi')
-MARK = chr(96)
-
-
-def read_json(path):
-    try:
-        return json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
-    except (OSError, ValueError, UnicodeError) as exc:
-        return {'_read_error': str(exc)}
-
-
-def read_csv(path):
+def _last_finite_metrics(path: Path) -> dict:
     if not path.is_file():
-        return []
+        return {}
+    with path.open(newline='',encoding='utf-8-sig') as stream:
+        rows=list(csv.DictReader(stream))
+    def step(row):
+        try:
+            value=float(row.get('step','nan'))
+            return value if math.isfinite(value) else -1.
+        except (TypeError,ValueError):
+            return -1.
+    return max(rows,key=step,default={})
+
+def _read_optional_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
     try:
-        with path.open(newline='', encoding='utf-8-sig') as stream:
-            return list(csv.DictReader(stream))
-    except (OSError, csv.Error, UnicodeError):
-        return []
+        value=json.loads(path.read_text(encoding='utf-8'))
+        return value if isinstance(value,dict) else {}
+    except (OSError,UnicodeError,ValueError):
+        return {}
 
+def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
+    """Report ONE source-pinned run, not a superseded four-arm tournament.
 
-def number(row, key):
-    try:
-        x = float(row.get(key, ''))
-        return x if math.isfinite(x) else None
-    except (TypeError, ValueError, AttributeError):
-        return None
-
-
-def pretty(x, factor=1):
-    return '—' if x is None else f'{x * factor:.3f}'
-
-
-def text(x):
-    return str(x).replace('|', '/').replace('\r', ' ').replace('\n', ' ')
-
-
-def digest(path):
-    h = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1 << 20), b''):
-            h.update(block)
-    return h.hexdigest()
-
-
-def training_story(logged, changes):
-    """Describe changing-task training metrics, NOT independent walking ability."""
-    if len(logged) < 3:
-        return ['Too few logged observations to describe an early-to-late trend.']
-
-    def pair(key):
-        values = changes.get(key, {})
-        return values.get('early'), values.get('late')
-
-    notes = []
-    before, after = pair('reward_mean')
-    if before is not None and after is not None:
-        trend = 'rose' if after > before + .02 else ('fell' if after < before - .02 else 'changed little')
-        notes.append(f'On-policy teaching reward {trend}: early {before:.3f}, late {after:.3f}.')
-    before, after = pair('fall_rate')
-    if before is not None and after is not None:
-        trend = 'fell' if after < before - .02 else ('rose' if after > before + .02 else 'changed little')
-        notes.append(f'Training-episode fall fraction {trend}: early {before:.1%}, late {after:.1%}.')
-    for key, label in (('field_known_nodes', 'mapped command nodes'),
-                       ('field_known_edges', 'mapped transition edges')):
-        before, after = pair(key)
-        if before is not None and after is not None and after > before + .5:
-            notes.append(f'Capability evidence covered more {label}: {before:.0f} to {after:.0f}; this is coverage, not mastery.')
-    before, after = pair('frontier_vx_hi')
-    if before is not None and after is not None and after > before + .005:
-        notes.append(f'Allowed forward-command frontier expanded from {before:.3f} to {after:.3f} m/s; allowed is not achieved speed.')
-    if len(logged) >= 8:
-        width = max(2, min(12, len(logged)//5))
-        windows = []
-        for start in range(len(logged)-width+1):
-            rows = logged[start:start+width]
-            vals = [number(row, 'reward_mean') for row in rows]
-            if all(v is not None for v in vals):
-                windows.append((statistics.median(vals), int(number(rows[-1], 'step') or 0)))
-        if windows:
-            peak, peak_step = max(windows)
-            late_reward = pair('reward_mean')[1]
-            if late_reward is not None and peak-late_reward > max(.15, abs(peak)*.20):
-                notes.append(f'Possible training setback: best {width}-row reward median {peak:.3f} near step {peak_step:,}, versus late {late_reward:.3f}. Harder lessons may explain this.')
-    return notes or ['Comparable training trends unavailable; inspect the frozen-policy exam.']
-
-
-def summarize(run, expected=None):
-    logged = [r for r in read_csv(run / 'metrics.csv') if number(r, 'step') is not None]
-    unique = {int(number(r, 'step')): r for r in logged}
-    logged = [unique[k] for k in sorted(unique)]
-    count = len(logged)
-    window = max(1, min(12, math.ceil(.1 * count))) if count else 0
-
-    def median(rows, key):
-        values = [number(r, key) for r in rows]
-        values = [v for v in values if v is not None]
-        return statistics.median(values) if values else None
-
-    early, late = logged[:window], logged[-window:] if window else []
-    changes = {k: {'early': median(early, k), 'late': median(late, k)} for k in (*FIELDS, *STORY_FIELDS)}
-    rewards = {k: median(late, 'reward_weighted_' + k) for k in PAYMENTS}
-    config = read_json(run / 'training_config.json')
-    meta = read_json(run / 'run_meta.json')
-    spec = read_json(run / 'lab_spec.json')
-    screen = read_json(run / 'screen_eval.json')
-    fixed = read_csv(run / 'fixed_eval.csv')
-    final = logged[-1] if count else {}
-    step, target = number(final, 'step'), number(config, 'steps')
-    checkpoint = run / 'checkpoints' / 'final.pkl'
-    sha = digest(checkpoint) if checkpoint.is_file() and not checkpoint.is_symlink() else None
-    problems = []
-    if not logged:
-        problems.append('training metrics missing/empty')
-    if not fixed:
-        problems.append('fixed evaluation missing/empty')
-    if fixed and step is not None:
-        fixed_step = number(fixed[-1], 'step')
-        if fixed_step is not None and fixed_step < step:
-            problems.append('fixed evaluation predates latest logged policy')
-    if not screen and run.name != 'foundation20':
-        problems.append('independent screening details missing')
-    if not sha:
-        problems.append('checkpoint absent; identity cannot be verified')
-    if (expected or {}).get('checkpoint_sha256') and (expected['checkpoint_sha256'] != sha):
-        problems.append('SCORECARD CHECKPOINT HASH MISMATCH / MISSING')
-    if target is not None and (step is None or step < target):
-        problems.append('logged steps are below target')
-    if any(d.get('_read_error') for d in (config, meta, spec, screen)):
-        problems.append('a JSON evidence file is unreadable')
-    if logged and any(v is None for v in rewards.values()):
-        problems.append('reward payment columns are incomplete')
-    return dict(path=str(run), step=int(step) if step is not None else None,
-                target=int(target) if target is not None else None, log_rows=count,
-                changes=changes, story=training_story(logged, changes),
-                rewards=rewards, config=config,
-                source=meta.get('source_provenance', {}), parent=spec.get('parent', {}),
-                checkpoint_sha256=sha, screen=screen,
-                fixed=fixed[-1] if fixed else {}, problems=problems)
-
-
-def collect(root):
-    root = Path(root).expanduser().resolve()
-    if not root.is_dir():
-        raise ValueError(f'No campaign directory: {root}')
-    context = read_json(root / 'lab_context.json')
-    boards = {p.stem.split('_')[0]: read_json(p)
-              for p in sorted(root.glob('round?_scoreboard.json'))}
-    dirs = [root/'foundation20'] if (root/'foundation20').is_dir() else []
-    for stage in ('round1', 'round2', 'round3'):
-        folder = root / stage
-        if folder.is_dir():
-            dirs.extend(sorted(p for p in folder.iterdir() if p.is_dir() and not p.is_symlink()))
-    if not dirs and (root/'metrics.csv').is_file():
-        dirs = [root]  # one-run emu train experiments
-    if not dirs and not boards:
-        raise ValueError('No campaign runs or scoreboards found under root')
-    runs = {}
-    for path in dirs:
-        name = str(path.relative_to(root)) if path != root else 'single'
-        stage, _, arm = name.partition('/')
-        scored = next((r for r in boards.get(stage, {}).get('results', [])
-                       if r.get('arm') == arm), None)
-        runs[name] = summarize(path, scored)
-    foundation = runs.get('foundation20', {}).get('checkpoint_sha256')
-    for name, run in runs.items():
-        original = context.get('git_commit')
-        actual = run['source'].get('git_commit')
-        if original and actual and original != actual:
-            run['problems'].append('SOURCE COMMIT DIFFERS from campaign')
-        if name.startswith('round1/') and foundation:
-            parent = run['parent'].get('sha256')
-            if parent and parent != foundation:
-                run['problems'].append('PARENT HASH DIFFERS from foundation')
-    return dict(schema=1, campaign=root.name, context=context, boards=boards, runs=runs)
-
-
-def _table(lines, headers, rows):
-    lines.extend(['| ' + ' | '.join(headers) + ' |',
-                  '|' + '|'.join(['---'] * len(headers)) + '|'])
-    for row in rows:
-        lines.append('| ' + ' | '.join(map(text, row)) + ' |')
-    lines.append('')
-
-
-def _panel_table(lines, values, panels, prefix):
-    rows = []
-    for panel in panels:
-        s = number(values, prefix + panel + '_survival')
-        if s is None or s < 0:
-            continue
-        rows.append((panel, pretty(s, 100)+'%',
-                     pretty(number(values, prefix+panel+'_vx_mae')),
-                     pretty(number(values, prefix+panel+'_vy_mae')),
-                     pretty(number(values, prefix+panel+'_yaw_mae')),
-                     pretty(number(values, prefix+panel+'_height_shortfall_m'), 1000)))
-    if rows:
-        _table(lines, ('Panel', 'Survival', 'vx MAE', 'vy MAE', 'yaw MAE',
-                       'Height shortfall mm'), rows)
-    else:
-        lines.extend(['No panel-level evaluation data available.', ''])
-
-
-def comparison_story(board):
-    """Read-only interpretation of a matched screen; never promote policies."""
-    rows = board.get('results', [])
-    eligible = sorted((row for row in rows if row.get('eligible') is True
-                       and number(row, 'score') is not None),
-                      key=lambda row: (-number(row, 'score'), str(row.get('arm', ''))))
-    if not eligible:
-        return ['No eligible policy with a finite common-screen score; do not infer a winner.']
-    leader = eligible[0]
-    if len(eligible) > 1:
-        other = eligible[1]
-        margin = number(leader, 'score') - number(other, 'score')
-        story = [f"Under the common held-out screen, {leader['arm']} leads {other['arm']} by {margin:.3f} score points among {len(eligible)} eligible policies."]
-    else:
-        story = [f"Only {leader['arm']} has an eligible common-screen score; there is no eligible runner-up."]
-    excluded = [row for row in rows if row.get('eligible') is not True
-                or number(row, 'score') is None]
-    if excluded:
-        detail = '; '.join(
-            f"{row.get('arm', '?')}: {', '.join(row.get('reasons', [])) or 'missing eligible score'}"
-            for row in excluded)
-        story.append(f'Not eligible for automatic promotion: {detail}.')
-    story.append('Scores are from matched frozen-policy screens, not training rewards; one seed is not proof of walking.')
-    return story
-
-
-def markdown(info):
-    ctx = info['context']
-    lines = ['# EMU campaign results — ' + text(info['campaign']), '',
-             'Offline report: no training, evaluation or policy changes were performed.', '',
-             '## Provenance', '',
-             '- Training Git commit: ' + MARK + text(ctx.get('git_commit', 'unknown')) + MARK,
-             '- Seed: ' + text(ctx.get('seed', 'unknown')) + '; worlds: ' + text(ctx.get('envs', 'unknown')),
-             '- Foundation checkpoint is shared. Per-policy steps are cumulative.', '']
-    for stage, board in info['boards'].items():
-        lines.extend(['## ' + stage + ': common held-out ranking', '',
-                      'Matched exam: ' + text(board.get('screen_envs', '?')) + ' worlds × ' +
-                      text(board.get('screen_horizon', '?')) + ' steps; pitch ' +
-                      text(board.get('screen_pitch_deg', '?')) + ' degrees.', ''])
-        _table(lines, ('Arm', 'Eligible', 'Score', 'Hard survival', 'Growth survival',
-                       'Pitch MAE', 'Height shortfall mm'),
-               [(r.get('arm', '?'), 'yes' if r.get('eligible') is True else 'no',
-                 pretty(number(r, 'score')), pretty(number(r, 'hard_survival'),100)+'%',
-                 pretty(number(r, 'growth_survival'),100)+'%',
-                 pretty(number(r, 'pitch_mae_rad')),
-                 pretty(number(r, 'height_shortfall_m'),1000))
-                for r in board.get('results', [])])
-        lines.extend(['Rank is an existing eligibility-weighted score, not proof of walking.', ''])
-        lines.extend('- ' + text(line) for line in comparison_story(board))
-        lines.append('')
-        for r in board.get('results', []):
-            name = stage + '/' + str(r.get('arm', ''))
-            if name in info['runs']:
-                lines.extend(['**'+text(name)+' — detailed common exam**', ''])
-                _panel_table(lines, info['runs'][name]['screen'], SCREENS, 'screen_')
-    lines.extend(['## Training trends (not held-out comparisons)', '',
-                  'Early/late values are medians of first/last 10% of logged rows (up to 12 rows).', ''])
-    _table(lines, ('Run','Step','Reward early → late','Fall early → late',
-                   'Height error early → late (mm)','Torque over rating late'),
-           [(name, row['step'] or '—',
-             pretty(row['changes']['reward_mean']['early'])+' → '+pretty(row['changes']['reward_mean']['late']),
-             pretty(row['changes']['fall_rate']['early'],100)+' → '+pretty(row['changes']['fall_rate']['late'],100)+'%',
-             pretty(row['changes']['height_error_m']['early'],1000)+' → '+pretty(row['changes']['height_error_m']['late'],1000),
-             pretty(row['changes']['servo_over_rated_frac']['late'],100)+'%')
-            for name, row in info['runs'].items()])
-    for name, run in info['runs'].items():
-        lines.extend(['## Run: '+text(name), '',
-                      '- Logged/target steps: '+text(run['step'])+' / '+text(run['target']),
-                      '- CSV observations: '+str(run['log_rows']),
-                      '- Final policy SHA-256: '+MARK+text(run['checkpoint_sha256'] or 'unavailable')+MARK,
-                      '- Parent SHA-256: '+MARK+text(run['parent'].get('sha256', 'unavailable'))+MARK,
-                      '- Training commit: '+MARK+text(run['source'].get('git_commit', 'unavailable'))+MARK,
-                      '- Training profile: teacher '+text(run['config'].get('capability_field_mode', '?'))+
-                      ', terrain radius '+text(run['config'].get('domain_terrain_radius', '?'))+
-                      ', pitch '+text(run['config'].get('pitch_command_max_deg', '?'))+' degrees.', '',
-                      '### Training narrative (on-policy, not a walking grade)', ''])
-        lines.extend('- '+text(item) for item in run['story'])
-        lines.append('')
-        lines.extend(['### Reward payments (late on-policy samples)', ''])
-        _table(lines, ('Payment','Contribution'),
-               [(key, pretty(value)) for key,value in run['rewards'].items()])
-        lines.extend(['### Measurement trends', ''])
-        _table(lines, ('Measurement','Early','Late'),
-               [(k, pretty(v['early']), pretty(v['late'])) for k,v in run['changes'].items()])
-        lines.extend(['### Independent fixed evaluation', ''])
-        _panel_table(lines, run['fixed'], FIXED, 'eval_')
-        if run['problems']:
-            lines.extend(['**Warnings / missing evidence:** ' + '; '.join(map(text, run['problems'])), ''])
-    if not info['runs']:
-        lines.extend(['Only scorecards were found; branch logs and physical diagnostics are unavailable.', ''])
-    lines.extend(['## Interpretation and sharing', '',
-                  '- Foot lift and foot-height support are proxies, not certified completed strides.',
-                  '- Shaft torque times speed is mechanical, not electrical power; stall can draw current at zero shaft speed.',
-                  '- Spring potential is stored energy, not necessarily returned useful work.',
-                  '- On-policy effort/survival reflects different curricula; compare policies under matched exam conditions.',
-                  '- A one-seed ranking is exploratory, not proof of a superior gait.', '',
-                  'The results_bundle.zip archive contains the report, machine-readable results and underlying CSV/JSON',
-                  'for every available branch. No checkpoints or console logs are included.', ''])
-    return '\n'.join(lines)
-
-
-def write_scorecard(root: Path, board: dict) -> Path:
-    """Render one held-out study round; ranking/eligibility remain with lab.
-
-    This reporter does not load policy checkpoints or influence promotion.
-    The generated Markdown is intentionally independent of GPU or PPO.
+    Raw steps, motor work and physical contact counts are not independent
+    walking competence. Fixed-policy examination is a separate artefact.
     """
-    round_name = board['round']
-    rows = board['results']
-    target = int(board['target'])
-    pitch = float(board['screen_pitch_deg'])
-    lines = [f'# EMU v5015 {round_name} held-out comparisons', '',
-             f'Every policy at {target:,} absolute steps in the same {pitch:g} degree testing envelope.',
-             'Only eligible arms auto-advance; manual review remains available. Screen scores are not proof of locomotion; stepping and support lack calibrated minimum gates.', '',
-             '| arm | eligible | score | hard survival | growth survival | slope survival | motion MAE | step evidence | support | pitch MAE | height shortfall | reasons |',
-             '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
-    for row in rows:
-        lines.append(f"| {row['arm']} | {row['eligible']} | {row['score']} | "
-                     f"{row.get('hard_survival','—')} | {row.get('growth_survival','—')} | "
-                     f"{row.get('gentle_slope_survival','—')} | "
-                     f"{row.get('motion_mae','—')} | {row.get('step_evidence','—')} | "
-                     f"{row.get('support','—')} | {row.get('pitch_mae_rad','—')} rad | "
-                     f"{row.get('height_shortfall_m','—')} m | "
-                     f"{', '.join(row['reasons'])} |")
-    report = Path(root) / f'{round_name}_scorecard.md'
-    temp = report.with_name(report.name + '.tmp')
-    temp.write_text('\n'.join(lines)+'\n', encoding='utf-8')
-    temp.replace(report)
-    return report
-
-
-def write_report(root, *, bundle=True):
-    root = Path(root).expanduser().resolve()
-    data = collect(root)
-    outputs = []
-    for filename, content in (('results.md', markdown(data)),
-                              ('results_data.json', json.dumps(data, indent=2, sort_keys=True, allow_nan=False))):
-        dest = root / filename
-        temp = root / (filename+'.tmp')
-        temp.write_text(content+'\n', encoding='utf-8')
-        temp.replace(dest)
-        outputs.append(dest)
+    root=Path(root).expanduser().resolve()
+    row=_last_finite_metrics(root/'metrics.csv')
+    if not row:
+        raise ValueError(f'No metrics.csv with training data in {root}')
+    cfg=_read_optional_json(root/'training_config.json')
+    meta=_read_optional_json(root/'run_meta.json')
+    source=(meta.get('source_provenance') or {})
+    keys=(
+        ('reward_mean','Training reward'),
+        ('fall_rate','Completed-episode fall fraction'),
+        ('vx_mean','Achieved mean vx (m/s)'),
+        ('cmd_vx_mean','Requested mean vx (m/s)'),
+        ('control_shaft_j_per_m','Control mechanical J/m (proxy)'),
+        ('terrain_attempts_up','Step-up attempts'),
+        ('terrain_successes_up','Supported step-up successes'),
+        ('terrain_attempts_down','Step-down attempts'),
+        ('terrain_successes_down','Supported step-down successes'),
+        ('physical_slope_deg_max','Sampled real slope max (deg)'),
+        ('growth_budget_scale','Combined-growth scaling'),
+    )
+    values={label:row.get(key,'') for key,label in keys if row.get(key,'') not in ('',None)}
+    step=row.get('step','?')
+    lines=[
+        '# EMU — single-run observation report','',
+        f"- Run: `{root.name}`",
+        f"- Source SHA: `{source.get('git_commit','unavailable')}`",
+        f"- Recorded environment steps: {step}",
+        f"- Observation contract: {cfg.get('observation_schema','unknown')}",
+        f"- Unified specialists: {cfg.get('unified_capability_focus',False)}",
+        '','## Last recorded on-policy measurements','',
+        '| Measurement | Value |','| --- | ---: |',
+        *[f'| {label} | {value} |' for label,value in values.items()],
+        '','These are training-rollout observations, not held-out walking scores.',
+        'A requested velocity is not an achieved velocity. Mechanical J/m is',
+        'not verified battery consumption. Successful steps require actual',
+        'foot-supported upper-platform contact; compare direction-matched exams.',
+        '','## Independent evidence','',
+        'Inspect fixed_eval.csv and separate frozen physical terrain examinations',
+        'before increasing difficulty or promoting a policy.',''
+    ]
+    report={'run_dir':str(root),'step':step,'training_config':cfg,
+            'source_provenance':source,'latest_metrics':row,
+            'independent_exam_required':True}
+    txt=root/'results.md'
+    data=root/'results_data.json'
+    txt.write_text('\n'.join(lines),encoding='utf-8')
+    data.write_text(json.dumps(report,indent=2,sort_keys=True),encoding='utf-8')
+    outputs=[txt,data]
     if bundle:
-        dest = root / 'results_bundle.zip'
-        temp = root / 'results_bundle.zip.tmp'
-        with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
-            for path in outputs:
-                z.write(path,arcname=path.name)
-            for filename in ('lab_context.json', 'round1_scoreboard.json', 'round1_scorecard.md',
-                             'round2_scoreboard.json', 'round2_scorecard.md',
-                             'round3_scoreboard.json', 'round3_scorecard.md'):
-                path = root / filename
+        dest=root/'results_bundle.zip'; tmp=root/'results_bundle.tmp'
+        with zipfile.ZipFile(tmp,'w',compression=zipfile.ZIP_DEFLATED) as z:
+            for name in ('results.md','results_data.json','metrics.csv',
+                         'training_config.json','run_meta.json','fixed_eval.csv',
+                         'envelope_summary.json','capability_evidence.json',
+                         'capability_field_summary.json','performance.json'):
+                path=root/name
                 if path.is_file() and not path.is_symlink():
-                    z.write(path,arcname=filename)
-            for name,run in data['runs'].items():
-                folder = Path(run['path'])
-                for filename in FILES:
-                    path = folder / filename
-                    if path.is_file() and not path.is_symlink():
-                        z.write(path,arcname=name+'/'+filename)
-        temp.replace(dest)
+                    z.write(path,arcname=name)
+        tmp.replace(dest)
         outputs.append(dest)
     return outputs
 
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description='Offline EMU results.md and shareable evidence ZIP')
-    parser.add_argument('--root',required=True,type=Path)
+def main(argv=None) -> int:
+    parser=argparse.ArgumentParser(description='Read-only single-run report or held-out comparison')
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--root',type=Path)
+    mode.add_argument('--compare-fixed',type=Path,nargs=2,
+                      metavar=('REFERENCE_CSV','CANDIDATE_CSV'))
     parser.add_argument('--no-bundle',action='store_true')
-    args = parser.parse_args(argv)
-    for path in write_report(args.root,bundle=not args.no_bundle):
-        print(path)
+    parser.add_argument('--reference-protocol')
+    parser.add_argument('--candidate-protocol')
+    parser.add_argument('--output',type=Path)
+    args=parser.parse_args(argv)
+    if args.root:
+        for path in write_report(args.root,bundle=not args.no_bundle):
+            print(path)
+        return 0
+    if not args.reference_protocol or not args.candidate_protocol:
+        parser.error('--compare-fixed requires two matching exam protocol fingerprints')
+    reference,candidate=args.compare_fixed
+    a,b=read_csv_rows(reference),read_csv_rows(candidate)
+    if not a or not b:
+        raise ValueError('no fixed-eval evidence in one or both inputs')
+    result=compare_fixed_exam_evidence(a[-1],b[-1],
+                reference_protocol=args.reference_protocol,
+                candidate_protocol=args.candidate_protocol)
+    if args.output:
+        write_json(args.output,result)
+        print(args.output)
+    else:
+        print(json.dumps(result,indent=2,sort_keys=True))
     return 0
-
 
 
 # Run logging, metric tables and field evidence: same reporting owner.
@@ -474,12 +201,49 @@ def _fmt_len(v: float) -> str:
 
 
 def format_line(version: str, step: int, reward: float, row: dict[str, float], report: dict[str, Any], train_fps: float,
-                 wall_fps: float | None = None, nan_grad_skips: int = 0) -> str:
-    fail = f"{100*row['fall_height']:.0f}/{100*row['fall_tilt']:.0f}/{100*row['fall_roll_rate']:.0f}/{100*row['fall_pitch_rate']:.0f}"
-    line1 = (f"[{version}] step={step:,} rew={reward:+.3f} len={row['ep_len_mean']:.0f} "
-             f"fall={100*row['fall_rate']:.1f}% train_fps={train_fps:.0f} wall_fps={(wall_fps if wall_fps is not None else train_fps):.0f} fail(h/t/r/p)={fail} "
-             f"vx={row['vx_mean']:+.3f}/{row['cmd_vx_mean']:+.3f} cone={row['foot_mid_angle_deg']:.1f}deg "
-             f"step={row['step_evidence']:.2f} sync={row['phase_sync']:.2f}")
+                wall_fps: float | None = None, nan_grad_skips: int = 0,
+                *, slope_deg: float = 0.0, contact_terrain_radius: float = 0.0) -> str:
+    """Readable first line; detailed diagnostics remain in the run's console.log.
+
+    The \u201cstep\u201d height is an exposure ceiling, not the sampled ledge height.
+    Shaft J/m is simulated positive mechanical work, not battery energy.
+    """
+    if 'slope_max_deg' in report:
+        # Real-world sampled slope, not a static compiled terrain setting.
+        # The fraction is the ACTUAL physical slant-world occupancy seen.
+        slope = (f"≤{report['slope_max_deg']:.1f}°"
+                 f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
+    elif contact_terrain_radius > 0.0:
+        slope = f"≤{5.0*contact_terrain_radius:.1f}°"
+    else:
+        slope = f"{slope_deg:.1f}°"
+    exposure = 100.0 * float(report.get('terrain_exposure', 0.0))
+    ceiling_cm = 100.0 * float(report.get('terrain_height_m', 0.0))
+    jpm = float(row.get('shaft_j_per_m_forward', -1.0))
+    efficiency = f"{jpm:.1f}" if math.isfinite(jpm) and jpm >= 0.0 else "–"
+    # Make the physical asymmetry visible during GPU training, not only in
+    # offline CSV reports. Omit fractions when a direction has no completed
+    # terrain episodes in this rollout.
+    def directional_course(label):
+        attempts = int(row.get(f'terrain_attempts_{label}', 0.))
+        passes = int(row.get(f'terrain_successes_{label}', 0.))
+        return f"{passes}/{attempts}" if attempts else "-"
+    terrain_pair = (
+        f" up={directional_course('up')} down={directional_course('down')}"
+        if float(row.get('terrain_frames_up', 0.)) + float(row.get('terrain_frames_down', 0.)) > 0.
+        else ""
+    )
+    line1 = (
+        f"[{version}] step={step:,} rew={reward:+.3f} "
+        f"len={row['ep_len_mean']:.0f} fall={100*row['fall_rate']:.1f}% "
+        f"fps={(wall_fps if wall_fps is not None else train_fps):.0f} "
+        f"vx=[{report.get('frontier_vx_lo',0.0):+.2f},{report.get('frontier_vx_hi',0.0):+.2f}] "
+        f"act/cmd={row['vx_mean']:+.2f}/{row['cmd_vx_mean']:+.2f} "
+        f"slope={slope} step≤{ceiling_cm:.1f}cm({exposure:.0f}%) "
+        f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m"
+        f"{terrain_pair}"
+        f"{' NAN-SKIPS='+str(nan_grad_skips) if nan_grad_skips else ''}"
+    )
     # Three regimes' difficulty + live env-allocation fraction, plus
     # posture's own global dial.
     line2 = (f"[{version}]   steady={report['steady_difficulty']:.2f}(env={report['regime_frac_steady']:.2f}) "
@@ -585,6 +349,14 @@ def write_capability_field_artifacts(
         node_frac=float(params.get('field_node_frac', 0.0)),
         edge_frac=float(params.get('field_edge_frac', 0.0)),
     )
+    # Report-only projection for the real capability field. The old public
+    # writer contract also accepts minimal save_npz/write_summary fields
+    # (for example independent delivery/export test doubles). Don't demand
+    # new private array methods from those objects.
+    from .curriculum import CapabilityField
+    if isinstance(field, CapabilityField):
+        write_json(run_dir / 'capability_evidence.json',
+                   capability_field_evidence_snapshot(field))
 
 
 # PPO rollout observations: report facts, never pay training reward.
@@ -598,6 +370,178 @@ from .contracts import (
     FRONTIER_VX_ABS_TOL, FRONTIER_VX_REL_TOL, FRONTIER_VY_ABS_TOL, FRONTIER_VY_REL_TOL,
     FRONTIER_YAW_ABS_TOL, FRONTIER_YAW_REL_TOL, FRONTIER_EDGE_FRAC, FRONTIER_SETTLE_S,
 )
+
+def capability_evidence_report(*, family: str, source: str,
+                               success: np.ndarray, failure: np.ndarray,
+                               lower: np.ndarray, quality_sum: np.ndarray | None = None,
+                               min_events: int = 20) -> dict[str, Any]:
+    """Read-only evidence summary across an existing capability family.
+
+    Each bucket must supply independent SUCCESS/FAILURE counts and a
+    conservative lower confidence bound (e.g. CapabilityField.node_lower).
+    This does not invent an overall quality score, mutate curriculum or
+    treat unsampled conditions as either success or failure. Reward is
+    intentionally not an input. Mechanical grace is not claimed unless
+    its own quality measurements actually exist.
+    """
+    if source not in ("training_rollout", "held_out_exam"):
+        raise ValueError("evidence source must distinguish training and held-out")
+    if not family or min_events < 1:
+        raise ValueError("family required; min_events must be >= 1")
+    yes,no,lo=(np.asarray(x, dtype=np.float64) for x in (success,failure,lower))
+    if yes.shape!=no.shape or yes.shape!=lo.shape or not yes.size:
+        raise ValueError("success/failure/lower must have matching nonempty shapes")
+    if any(not np.isfinite(x).all() for x in (yes,no,lo)):
+        raise ValueError("evidence values must be finite")
+    if (yes<0).any() or (no<0).any() or (lo<0).any() or (lo>1).any():
+        raise ValueError("evidence counts/bounds must be nonnegative and bounded")
+    samples=yes+no
+    quality=None
+    if quality_sum is not None:
+        quality=np.asarray(quality_sum, dtype=np.float64)
+        if (quality.shape!=yes.shape or not np.isfinite(quality).all()
+                or (quality<0).any() or (quality>samples+1e-5).any()):
+            raise ValueError("observed quality must be in [0, sample count]")
+    known=samples>=min_events
+    count=int(known.sum())
+    attempted=float(samples[known].sum())
+    return dict(
+        family=family,source=source,min_events=min_events,
+        total_bins=int(yes.size),known_bins=count,unknown_bins=int(yes.size-count),
+        known_fraction=float(count/yes.size),
+        independent_trials_in_known_bins=attempted,
+        success_rate_known=float(yes[known].sum()/attempted) if attempted else None,
+        conservative_success_lower_mean=float(lo[known].mean()) if count else None,
+        observed_quality_known=float(quality[known].sum()/attempted)
+        if quality is not None and attempted else None,
+        # Deliberately no aggregate grade/rank or motor efficiency claim here.
+    )
+
+
+def capability_field_evidence_snapshot(field, min_events: int = 20) -> dict[str, Any]:
+    """Report, but do not change, main's three evidence families.
+
+    Command nodes have tracking/upright/support *observed* quality. Existing
+    recovery/transition records track success only; their quality is not
+    fabricated. Terrain and motor grace will require their OWN truth.
+    """
+    return {
+        "schema": "emu_capability_evidence_1",
+        "training_only": True,
+        "qualification": "descriptive diagnostics, not independent exam results",
+        "command_nodes": capability_evidence_report(
+            family="command_nodes",source="training_rollout",
+            success=field.node_success,failure=field.node_failure,
+            lower=field.node_lower(),quality_sum=field.node_quality_sum,
+            min_events=min_events),
+        "recovery": capability_evidence_report(
+            family="recovery",source="training_rollout",
+            success=field.rec_success,failure=field.rec_failure,
+            lower=field.recovery_lower(),min_events=min_events),
+        "transitions": capability_evidence_report(
+            family="transitions",source="training_rollout",
+            success=field.edge_success,failure=field.edge_failure,
+            lower=field.edge_lower(),min_events=min_events),
+    }
+
+
+# Provisional engineering guardrails for comparable FROZEN-policy panels.
+# These are tolerances for regression alerts, not statistically justified
+# significance bounds or reward coefficients. Core practice must survive a
+# new capability (such as stepping over terrain).
+FIXED_EXAM_GUARDS = {
+    "eval_core_survival": ("floor", 0.05),
+    "eval_core_support": ("floor", 0.08),
+    "eval_core_step_evidence": ("floor", 0.15),
+    "eval_core_vx_mae": ("ceiling", 0.025),
+    "eval_core_vy_mae": ("ceiling", 0.025),
+    "eval_core_yaw_mae": ("ceiling", 0.12),
+    "eval_core_pitch_mae": ("ceiling", 0.07),
+    "eval_core_height_shortfall_m": ("ceiling", 0.007),
+    "eval_dynamic80_survival": ("floor", 0.075),
+    "eval_combo70_survival": ("floor", 0.075),
+    "eval_resilience75_survival": ("floor", 0.10),
+    "eval_robust40_survival": ("floor", 0.08),
+}
+
+
+def compare_fixed_exam_evidence(
+    reference: dict[str, Any], candidate: dict[str, Any], *,
+    reference_protocol: str, candidate_protocol: str,
+) -> dict[str, Any]:
+    """Independent matched-exam regression report; NEVER a PPO lesson.
+
+    Both inputs must be REAL fixed-evaluation aggregate rows from the same
+    frozen environment/commands/sensor support. The caller must supply a
+    nonempty verifiable exam-protocol fingerprint for each run. Missing data
+    and changed exam setup are **not comparisons**. This is a conservative
+    regression alert, not a new champion rank or a confidence interval.
+    """
+    if (not reference_protocol or not candidate_protocol
+            or reference_protocol != candidate_protocol):
+        raise ValueError("fixed exams require identical nonempty protocol fingerprints")
+    required=set(FIXED_EXAM_GUARDS)|{
+        "eval_policy_step","perf_eval_cohorts_used","perf_eval_env_steps"}
+    def checked(name: str, row: dict[str, Any]) -> dict[str,float]:
+        missing=sorted(required-row.keys())
+        if missing:
+            raise ValueError(f"{name} missing held-out fields: {', '.join(missing)}")
+        result={}
+        for key in required:
+            try:
+                result[key]=float(row[key])
+            except (TypeError,ValueError) as exc:
+                raise ValueError(f"{name} has invalid {key}") from exc
+            if not math.isfinite(result[key]):
+                raise ValueError(f"{name} has nonfinite {key}")
+        if (result["perf_eval_cohorts_used"]<1
+                or result["perf_eval_env_steps"]<1
+                or result["eval_policy_step"]<0):
+            raise ValueError(f"{name} has insufficient fixed-exam provenance")
+        if any(not (0 <= result[k] <= 1) for k in (
+              "eval_core_survival","eval_core_support","eval_core_step_evidence",
+              "eval_dynamic80_survival","eval_combo70_survival",
+              "eval_resilience75_survival","eval_robust40_survival")):
+            raise ValueError(f"{name} has out-of-range success/support evidence")
+        if any(result[k]<0 for k in required if k.endswith("_mae") or k.endswith("_m")):
+            raise ValueError(f"{name} has negative physical errors")
+        return result
+    before=checked("reference",reference)
+    after=checked("candidate",candidate)
+    if (before["perf_eval_cohorts_used"]!=after["perf_eval_cohorts_used"]
+            or before["perf_eval_env_steps"]!=after["perf_eval_env_steps"]):
+        raise ValueError("fixed exam cohort/size mismatch; no valid comparison")
+
+    metrics={}
+    regressed=[]
+    for field,(direction,tolerance) in FIXED_EXAM_GUARDS.items():
+        change=after[field]-before[field]
+        # Guardrails have an explicit inclusive boundary, irrespective of
+        # binary float representation of values loaded from fixed_eval.csv.
+        bad=(change < -tolerance-1e-10) if direction=="floor" else (change > tolerance+1e-10)
+        metrics[field]=dict(
+            reference=before[field],candidate=after[field],delta=change,
+            direction=direction,allowed_worsening=tolerance,
+            regressed=bool(bad))
+        if bad:regressed.append(field)
+    return {
+        "schema":"emu_held_out_core_regression_1",
+        "source":"held_out_exam",
+        "protocol_fingerprint":reference_protocol,
+        "reference_step":int(before["eval_policy_step"]),
+        "candidate_step":int(after["eval_policy_step"]),
+        "matched_cohorts":int(before["perf_eval_cohorts_used"]),
+        "matched_eval_env_steps":int(before["perf_eval_env_steps"]),
+        "guardrail_status":"regression" if regressed else "no_guardrail_regression",
+        "regressed_fields":regressed,
+        "metrics":metrics,
+        "qualification":(
+            "Alert-only matched physical panel comparison. Thresholds are "
+            "provisional and cohort averages are not independent confidence "
+            "intervals. No ranking, curriculum teaching, or promotion."
+        ),
+    }
+
 
 def mean_metric(metrics: dict[str, Any], name: str) -> float:
     if name not in metrics:
@@ -868,6 +812,15 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     episodes = int(done.sum())
     row = {
         'episodes': float(episodes),
+        # G4 physically completed finite-terrain episodes, counted only
+        # from true MJX contact/trajectory evidence (NOT proxy foot lift).
+        'terrain_attempts': float(np.asarray(metrics['terrain_episode_attempt']).sum())
+            if 'terrain_episode_attempt' in metrics else 0.0,
+        'terrain_successes': float(np.asarray(metrics['terrain_episode_success']).sum())
+            if 'terrain_episode_success' in metrics else 0.0,
+        'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
+            if 'terrain_cross_new' in metrics else 0.0,
+        'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'ep_len_mean': done_mean(metrics, 'episode_length', default=0.0),
         'ep_rew_mean': done_mean(metrics, 'episode_return', default=0.0),
         'fall_rate': done_mean(metrics, 'episode_fell', default=mean_metric(metrics, 'terminal')),
@@ -935,6 +888,58 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # True mixed-geometry physical slope: never infer gradient from a
+    # curriculum target or fold downhill into successful uphill evidence.
+    # All four directional counters are COMPLETE episode facts.
+    if 'physical_slope_deg' in metrics:
+        raw_slope=np.asarray(metrics['physical_slope_deg'])
+        active=(raw_slope>=.25)
+        row['physical_slope_deg_mean']=float(raw_slope[active].mean()) if active.any() else 0.
+        row['physical_slope_deg_max']=float(raw_slope.max())
+        row['physical_slope_world_fraction']=float(active.mean())
+        for name in ('uphill','downhill','cross_left','cross_right'):
+            for outcome,word in (('attempt','attempts'),('success','successes')):
+                key=f'slope_episode_{outcome}_{name}'
+                row[f'slope_{word}_{name}']=(
+                    float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)
+    # Direction-separated terrain evidence. A quality metric without any
+    # active frames is UNKNOWN (-1), not success/zero error.
+    for direction in ('up', 'down'):
+        for outcome, plural in (('attempt', 'attempts'), ('success', 'successes'),
+                                ('fall', 'falls')):
+            name = f'terrain_episode_{outcome}_{direction}'
+            row[f'terrain_{plural}_{direction}'] = (
+                float(np.asarray(metrics[name]).sum()) if name in metrics else 0.0)
+        mask_name = f'terrain_active_{direction}'
+        mask = (np.asarray(metrics[mask_name]) > 0.5 if mask_name in metrics
+                else np.zeros_like(np.asarray(metrics.get('vx', 0.0)), dtype=bool))
+        row[f'terrain_frames_{direction}'] = float(mask.sum())
+        for key, label in (('support', 'support'), ('bad_contact', 'bad_contact'),
+                           ('servo_shaft_drive_power_w', 'shaft_drive_power_w')):
+            row[f'terrain_{label}_{direction}'] = (
+                float(np.asarray(metrics[key])[mask].mean())
+                if mask.any() and key in metrics else -1.0)
+        row[f'terrain_vx_mae_{direction}'] = (
+            float(np.abs(np.asarray(metrics['vx'])[mask] -
+                         np.asarray(metrics['cmd_vx'])[mask]).mean())
+            if mask.any() and 'vx' in metrics and 'cmd_vx' in metrics else -1.0)
+
+    # CPU-only arithmetic on rollout metrics already transferred from JAX.
+    # Positive mechanical actuator work divided by NET forward displacement
+    # in frames requesting forward walking. Never infer battery consumption,
+    # and refuse an unstable ratio for near-zero or backwards displacement.
+    row['shaft_j_per_m_forward'] = -1.0
+    if all(name in metrics for name in ('servo_shaft_drive_power_w', 'vx', 'cmd_vx')):
+        cmd = np.asarray(metrics['cmd_vx'], dtype=float)
+        actual = np.asarray(metrics['vx'], dtype=float)
+        drive = np.asarray(metrics['servo_shaft_drive_power_w'], dtype=float)
+        forward = ((cmd >= 0.075) & np.isfinite(cmd) &
+                   np.isfinite(actual) & np.isfinite(drive))
+        if np.count_nonzero(forward) >= max(1, cmd.size // 20):
+            forward_vx = float(actual[forward].mean())
+            if forward_vx >= 0.04:
+                row['shaft_j_per_m_forward'] = max(
+                    0.0, float(drive[forward].sum() / actual[forward].sum()))
     row.update(frontier_tracking_metrics(metrics, frontier_params, combo_p=combo_p))
     # Command-transition tracking (see environment.py's out_metrics).
     # transition_*_err = mean |vel - cmd| over the steps that were MID-RAMP;
@@ -969,6 +974,65 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             ended = (np.asarray(metrics['episode_done']) > 0.5) & (np.asarray(metrics[rmask]) > 0.5)
             row[f'episodes_{regime}'] = float(ended.sum())
             row[f'falls_{regime}'] = float((np.asarray(metrics['episode_fell'])[ended] > 0.5).sum()) if 'episode_fell' in metrics else 0.0
+    # Keep separate true up-crossing evidence by commanded speed; no pooled
+    # DOWN result or metric of mere lip approach can certify this ability.
+    for speed_band in ('slow','medium','fast'):
+        for outcome,plural in (('attempt','attempts'),('success','successes'),('fall','falls')):
+            key = f'terrain_episode_{outcome}_up_{speed_band}'
+            row[f'terrain_{plural}_up_{speed_band}'] = (
+                float(np.asarray(metrics[key]).sum()) if key in metrics else 0.0)
+
+    # Outcome ledgers use COMPLETED episodes only. Fast/slow partial frames
+    # and a short-lived lucky speed spike never count as full competence.
+    # Focus is a teacher label; old experiments expose -1 for all worlds.
+    if 'specialist_focus' in metrics:
+        focus=np.asarray(metrics['specialist_focus'],dtype=np.int32)
+        for i,name in enumerate(('command','resilience','slope','step','transition','control')):
+            row[f'focus_worlds_{name}'] = float(np.count_nonzero(focus[0]==i))
+            world_done=done & (focus==i)
+            row[f'focus_episodes_{name}']=float(world_done.sum())
+            row[f'focus_falls_{name}']=float((
+                world_done & (np.asarray(metrics['episode_fell'])>.5)).sum())
+        cmd=done & (focus==0)
+        quality=np.asarray(metrics['episode_command_quality'])
+        radius=np.asarray(metrics['command_probe_radius'])
+        xshare=np.asarray(metrics['command_probe_weight_x'])
+        yshare=np.asarray(metrics['command_probe_weight_y'])
+        zshare=np.asarray(metrics['command_probe_weight_z'])
+        vx=np.asarray(metrics['cmd_vx'])
+        vy=np.asarray(metrics['cmd_vy'])
+        yaw=np.asarray(metrics['cmd_yaw'])
+        near=cmd & (radius>=.88) & (radius<=1.14)
+        success=(np.asarray(metrics['episode_fell'])<.5) & (
+            np.asarray(metrics['episode_length'])>=120.) & (quality>=.68) & (
+            np.asarray(metrics['episode_bad_contact'])<.3) & (
+            np.asarray(metrics['episode_support'])>.10)
+        sectors={
+            'vx_hi':(xshare>=.80)&(vx>0.),
+            'vx_lo':(xshare>=.80)&(vx<0.),
+            'vy_pos':(yshare>=.80)&(vy>0.),
+            'vy_neg':(yshare>=.80)&(vy<0.),
+            'yaw_pos':(zshare>=.80)&(yaw>0.),
+            'yaw_neg':(zshare>=.80)&(yaw<0.),
+            'mixed':(np.maximum(np.maximum(xshare,yshare),zshare)<.80)
+        }
+        for label,mask in sectors.items():
+            tested=near & mask
+            row[f'command_probe_attempts_{label}']=float(tested.sum())
+            row[f'command_probe_successes_{label}']=float((tested & success).sum())
+        ctl=(focus==5)
+        moving=(ctl & (np.asarray(metrics['cmd_vx'])>=.075) &
+                (np.asarray(metrics['vx'])>=.04))
+        if np.any(moving):
+            row['control_shaft_j_per_m'] = float(
+                np.asarray(metrics['servo_shaft_drive_power_w'])[moving].sum() /
+                max(.01,np.asarray(metrics['vx'])[moving].sum()))
+        else:
+            row['control_shaft_j_per_m']=-1.
+        ctl_done=done & ctl
+        row['control_episode_quality']=float(quality[ctl_done].mean()) if ctl_done.any() else -1.
+        smooth=np.asarray(metrics.get('reward_weighted_smoothness',0.))
+        row['control_smoothness_payment']=float(smooth[ctl].mean()) if ctl.any() else -1.
     return row
 
 

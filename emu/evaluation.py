@@ -263,245 +263,6 @@ def record_fixed_exam(
     return out, best_score
 
 
-# Matched held-out branch screens; never fed to PPO's teacher.
-import argparse
-import json
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
-
-import numpy as np
-
-from .checkpoint_io import load_checkpoint
-from .contracts import task_param_defaults
-from .environment import EmuMJXEnv
-from .contracts import ROBOT_XML
-from .ppo import make_trainer
-from .ppo import configure_jax, require_backend
-from .training_config import (
-    TrainingConfig, MAX_EPISODE_STEPS, PPO_LR, ROLLOUT_STEPS,
-    PPO_ENTROPY_COST, PPO_VALUE_COST, EVAL_SEED,
-)
-
-SCREEN_FIELDS = ('survival', 'first_fall_step_mean', 'vx_mae', 'vy_mae', 'yaw_mae',
-                 'gravity_z', 'foot_mid_cone', 'step_evidence', 'support',
-                 'pitch_mae', 'height_shortfall_m')
-
-
-def _screen_episode(steady: float, transition: float, resilience: float, posture: float,
-             mix: tuple[float, float, float], command_frac: float) -> dict[str, float]:
-    ep = task_param_defaults()
-    ep.update(steady_difficulty=steady, transition_difficulty=transition,
-              resilience_difficulty=resilience, posture_difficulty=posture,
-              regime_frac_steady=mix[0], regime_frac_transition=mix[1],
-              regime_frac_resilience=mix[2], regime_command_frac=command_frac)
-    return ep
-
-
-SCREEN_PANELS = {
-    # Same conceptual coordinates that exposed the v5012 graph-vs-shadow trade.
-    # Current v5013 hardware doctrine keeps its one-frame target delay; these are
-    # therefore regression-style stress probes, not claims of physical limits.
-    'resilience100': ('robust', 1103, _screen_episode(.60, .65, 1.00, .65, (.08, .17, .75), .90)),
-    'robust70': ('robust', 1207, _screen_episode(.70, .78, .75, .60, (.20, .35, .45), .90)),
-    'growth140': ('growth', 1301, _screen_episode(1.0, .92, .35, .45, (.50, .38, .12), 1.0)),
-    'growthcombo140': ('growth_combo', 1409, _screen_episode(1.0, .92, .35, .45, (.50, .38, .12), 1.0)),
-}
-
-
-def _screen_world(config: TrainingConfig, *, envs: int, seed_offset: int,
-           limits: tuple[float, float, float, float], push_n: float,
-           sensor_scale: float, combo_mix: float, terrain_radius: float = 0.0,
-           terrain_mode: str = 'gravity'):
-    vx_hi, vx_lo, vy, yaw = limits
-    seed = EVAL_SEED + seed_offset
-    from .environment import DomainRandomizationConfig
-    domain = DomainRandomizationConfig(
-        enabled=terrain_radius > 0, terrain_radius=terrain_radius,
-        terrain_mode=terrain_mode)
-    env = EmuMJXEnv(
-        str(ROBOT_XML), num_envs=int(envs), seed=seed,
-        max_episode_steps=MAX_EPISODE_STEPS,
-        push_max_force_n=push_n,
-        vx_hi_max=vx_hi, vx_lo_min=vx_lo, vy_max_mps=vy, yaw_max_rad_s=yaw,
-        phase_speed_gain=config.phase_speed_gain,
-        attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
-        sensor_noise_scale=sensor_scale, observation_schema=config.observation_schema,
-        open_frontier=False,
-        combo_mix_frac=combo_mix, combo_probe_frac=0.0,
-        field_teach_recovery=False,
-        domain_config=domain,
-    )
-    trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
-                           epochs=1, minibatches=1,
-                           entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST)
-    return env, trainer
-
-
-def evaluate_runs(run_dirs: list[Path], *, envs: int = 512, horizon: int = 350,
-                  device: str | None = None, eval_pitch_deg: float | None = None,
-                  eval_phase_speed_gain: float | None = None,
-                  sensor_contact_exam: bool = False,
-                  key_by_path: bool = False, write_screen_files: bool = True
-                  ) -> dict[str, dict[str, Any]]:
-    """Evaluate multiple final checkpoints through one set of compiled worlds."""
-    if not run_dirs:
-        return {}
-    run_dirs=[Path(x).expanduser().resolve() for x in run_dirs]
-    # In sensor campaigns, an earlier held-out best.pkl from the same run
-    # may outrank final.pkl. Explicit file paths are read-only and remain
-    # uniquely addressable even when two candidates share a run directory.
-    cfg_dirs=[r.parent.parent if r.suffix == '.pkl' else r for r in run_dirs]
-    configs=[TrainingConfig.load(r/'training_config.json') for r in cfg_dirs]
-    config=configs[0]
-    # The stress worlds depend on physical/evaluation doctrine, not teacher
-    # settings. Guard the one config value they currently consume so batching
-    # can never silently compare arms through different evaluation dynamics.
-    if any(c.observation_schema != config.observation_schema for c in configs[1:]):
-        raise ValueError('batched screening requires identical observation schemas')
-    from .training_config import training_sensor_contract
-    expected_sensor_contract = training_sensor_contract(config)
-    if any(training_sensor_contract(c) != expected_sensor_contract for c in configs[1:]):
-        raise ValueError('batched screening requires identical sensor contracts')
-    if eval_phase_speed_gain is None:
-        if any(c.phase_speed_gain != config.phase_speed_gain for c in configs[1:]):
-            raise ValueError('batched screening requires identical phase_speed_gain')
-    else:
-        if not np.isfinite(eval_phase_speed_gain) or not 0 <= eval_phase_speed_gain <= 5:
-            raise ValueError('invalid common screening phase speed gain')
-        config = replace(config, phase_speed_gain=float(eval_phase_speed_gain))
-    if device is not None:
-        config=replace(config,device=device)
-    if eval_pitch_deg is not None:
-        # Freeze identical v5015 exam posture conditions for every contender,
-        # independent of the pitch and terrain distribution used for training.
-        if not (0 < eval_pitch_deg <= 45):
-            raise ValueError('eval_pitch_deg must be in (0, 45]')
-        config=replace(config,attitude_profile='v5015',pitch_command_max_deg=float(eval_pitch_deg))
-    configure_jax(config.device)
-    import jax
-    require_backend(config.device == 'cpu')
-
-    worlds={
-        'robust': _screen_world(config,envs=envs,seed_offset=1447,
-                         limits=(.80,-.32,.32,2.00),push_n=1.50,
-                         sensor_scale=2.0,combo_mix=.35),
-        'growth': _screen_world(config,envs=envs,seed_offset=1211,
-                         limits=(1.00,-.42,.40,2.40),push_n=.90,
-                         sensor_scale=1.5,combo_mix=0.0),
-        'growth_combo': _screen_world(config,envs=envs,seed_offset=1319,
-                               limits=(1.00,-.42,.40,2.40),push_n=.90,
-                               sensor_scale=1.5,combo_mix=1.0),
-    }
-    panels = dict(SCREEN_PANELS)
-    if eval_pitch_deg is not None:
-        # Fixed slope-equivalent stress for v5015: one additional compiled
-        # evaluation world for every arm, independent of training exposure.
-        worlds['gentle_slope'] = _screen_world(config,envs=envs,seed_offset=1555,
-            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
-            combo_mix=.20,terrain_radius=.20)
-        panels['gentle_slope'] = ('gentle_slope',1555,
-            _screen_episode(.70,.65,.35,.70,(.45,.40,.15),.80))
-    if sensor_contact_exam:
-        if config.observation_schema != 'sim2real_232':
-            raise ValueError('real contact sensor exam requires sim2real_232 actor')
-        worlds['core'] = _screen_world(
-            config,envs=envs,seed_offset=1661,
-            limits=(.45,-.12,.14,.90),push_n=.70,
-            sensor_scale=1.5,combo_mix=.10)
-        panels['core'] = ('core',1661,
-            _screen_episode(.05,.05,.05,.05,(.50,.30,.20),.50))
-        worlds['contact_slope'] = _screen_world(
-            config,envs=envs,seed_offset=1667,
-            limits=(.65,-.20,.24,1.50),push_n=.80,sensor_scale=1.5,
-            combo_mix=.35,terrain_radius=.32,terrain_mode='contact')
-        worlds['contact_harder'] = _screen_world(
-            config,envs=envs,seed_offset=1669,
-            limits=(.80,-.25,.27,1.85),push_n=1.0,sensor_scale=1.8,
-            combo_mix=.70,terrain_radius=.60,terrain_mode='contact')
-        panels['contact_slope'] = ('contact_slope',1667,
-            _screen_episode(.55,.55,.30,.55,(.45,.40,.15),.70))
-        panels['contact_harder'] = ('contact_harder',1669,
-            _screen_episode(.70,.70,.50,.65,(.25,.45,.30),.85))
-    key0=jax.random.PRNGKey(EVAL_SEED)
-    results: dict[str,dict[str,Any]]={}
-    for source in run_dirs:
-        run_dir=source.parent.parent if source.suffix == '.pkl' else source
-        ck=source if source.suffix == '.pkl' else run_dir/'checkpoints'/'final.pkl'
-        payload=load_checkpoint(
-            ck,validate=True,expected_observation_schema=config.observation_schema,
-            expected_sensor_contract=expected_sensor_contract)
-        params=payload['state']['params']; norm=payload['obs_norm']
-        obs_std=np.asarray(norm['var'])**.5
-        out: dict[str,Any]={'policy_step':int(payload['meta']['step']),
-            'envs_per_panel':int(envs),'horizon_steps':int(horizon),'checkpoint':str(ck),
-            'eval_pitch_deg': float(eval_pitch_deg) if eval_pitch_deg is not None else None,
-            'eval_phase_speed_gain':config.phase_speed_gain,
-            'sensor_contact_exam':bool(sensor_contact_exam),
-            'checkpoint_sha256':sha256_file(ck)}
-        for name,(world_name,salt,episode) in panels.items():
-            env,trainer=worlds[world_name]
-            compact=trainer['evaluate_summary'](
-                params,env.params_array(episode),norm['mean'],obs_std,
-                jax.random.fold_in(key0,salt),int(horizon))
-            vals=np.asarray(jax.device_get(compact),dtype=np.float64)
-            out.update({f'screen_{name}_{k}':float(v) for k,v in zip(SCREEN_FIELDS,vals)})
-        if sensor_contact_exam:
-            # Common independent conditions for each arm, regardless of what
-            # terrain/motor distribution it saw while learning.
-            for world_name, salt, episode in (
-                ('robust', 1881, panels['robust70'][2]),
-                ('contact_slope', 1883, panels['contact_slope'][2]),
-            ):
-                env, trainer = worlds[world_name]
-                measure = trainer['evaluate_efficiency'](
-                    params, env.params_array(episode),
-                    norm['mean'], obs_std, jax.random.fold_in(key0, salt),
-                    int(horizon))
-                numbers = np.asarray(jax.device_get(measure), dtype=np.float64)
-                if not np.all(np.isfinite(numbers)):
-                    raise RuntimeError(f'nonfinite motor efficiency exam for {run_dir.name}')
-                for key, value in zip((
-                    'shaft_abs_power_w', 'shaft_drive_power_w',
-                    'over_rated_frac', 'peak_limit_frac',
-                    'action_delta_norm'), numbers):
-                    out[f'power_{world_name}_{key}'] = float(value)
-        out['screen_hard_recovery']=float(np.mean([
-            out['screen_resilience100_survival'],out['screen_robust70_survival']]))
-        out['screen_growth_headroom']=float(np.mean([
-            out['screen_growth140_survival'],out['screen_growthcombo140_survival']]))
-        if write_screen_files:
-            (run_dir/'screen_eval.json').write_text(
-                json.dumps(out,indent=2,sort_keys=True),encoding='utf-8')
-        key=str(source) if key_by_path else run_dir.name
-        if key in results:
-            raise ValueError('duplicate screen result key; enable key_by_path')
-        results[key]=out
-    return results
-
-
-def evaluate_run(run_dir: Path, *, envs: int = 512, horizon: int = 350,
-                 device: str | None = None) -> dict[str, Any]:
-    run_dir=Path(run_dir).expanduser().resolve()
-    return evaluate_runs([run_dir],envs=envs,horizon=horizon,device=device)[run_dir.name]
-
-
-def screen_main(argv=None) -> int:
-    p=argparse.ArgumentParser(description='EMU tournament held-out stress screen')
-    p.add_argument('--run-dir',required=True,nargs='+')
-    p.add_argument('--envs',type=int,default=512)
-    p.add_argument('--horizon',type=int,default=350)
-    p.add_argument('--eval-pitch-deg',type=float,default=None)
-    p.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default=None)
-    a=p.parse_args(argv)
-    out=evaluate_runs([Path(x) for x in a.run_dir],envs=a.envs,horizon=a.horizon,device=a.device,eval_pitch_deg=a.eval_pitch_deg)
-    print(json.dumps(out,indent=2,sort_keys=True))
-    return 0
-
-
-
-
-
 # Physical command and recovery frontier examination.
 import argparse, json, math, time
 from pathlib import Path
@@ -818,6 +579,8 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
             attitude_profile=export['training']['attitude_profile'],
             pitch_command_max_deg=float(export['training']['pitch_command_max_deg']))
         actor_std = norm['std']
+        actor_schema=export['observation_schema']
+        sensor_settings=export['sensor_settings']
         artifact_sha = export['artifact_sha256']
         training_step = int(export['source']['step'])
         checkpoint_sha = None
@@ -826,6 +589,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_actor_sha = export['source'].get('actor_sha256')
     else:
         cfg=TrainingConfig.load(run_dir/'training_config.json')
+        actor_schema=cfg.observation_schema
+        from .training_config import training_sensor_contract
+        contract=training_sensor_contract(cfg)
+        sensor_settings=dict(contract['settings']) if contract else {}
         checkpoint=run_dir/'checkpoints/final.pkl'
         saved=load_checkpoint(checkpoint,validate=True)
         params=saved['state']['params']
@@ -837,8 +604,14 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         source_type = 'schema7_checkpoint'
         source_training_commit = (saved['meta'].get('source_provenance') or {}).get('git_commit')
         source_actor_sha = None
-    if int(np.asarray(params['pi'][0]['w']).shape[0]) != OBS_DIM:
-        raise ValueError('this examiner supports only the 220-input actor contract')
+    from .contracts import OBS_DIM, SENSOR_OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_LEGACY
+    if actor_schema not in (OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR):
+        raise ValueError('unsupported versioned directional examiner observation schema')
+    expected_dim = SENSOR_OBS_DIM if actor_schema==OBS_SCHEMA_SENSOR else OBS_DIM
+    if int(np.asarray(params['pi'][0]['w']).shape[0]) != expected_dim:
+        raise ValueError('directional examiner actor width and versioned schema disagree')
+    if np.asarray(norm['mean']).shape != (expected_dim,) or np.asarray(actor_std).shape != (expected_dim,):
+        raise ValueError('directional examiner normalizer and actor schema disagree')
     configure_jax(device)
     import jax
     import jax.numpy as jnp
@@ -854,7 +627,10 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         phase_speed_gain=cfg.phase_speed_gain,
         attitude_profile=cfg.attitude_profile,
         pitch_command_max_deg=cfg.pitch_command_max_deg,
-        sensor_noise_scale=0.,open_frontier=False,
+        sensor_noise_scale=sensor_settings.get('sensor_noise_scale',0.),
+        observation_schema=actor_schema,
+        **{k:v for k,v in sensor_settings.items() if k!='sensor_noise_scale'},
+        open_frontier=False,
         combo_mix_frac=0.,combo_probe_frac=0.,field_teach_recovery=False,
     )
     # Shared, nonrandom MJX gravity field. No robot XML modifications.
@@ -897,6 +673,7 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         'actor_sha256':source_actor_sha,
         'checkpoint_sha256':checkpoint_sha,
         'checkpoint_training_step':training_step,
+        'observation_schema':actor_schema,
         'exam':dict(**exam_request(
                     angle_deg=angle_deg,direction=direction,worlds=worlds,
                     horizon=horizon,settle_frames=settle_frames,
@@ -983,6 +760,322 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
     output_md.write_text('\n'.join(lines)+'\n')
     return output_json,output_md
 
+
+
+# G3/G4: independent, read-only terrain course. Uses make_trainer's existing
+# frozen-policy evaluate_trace, never a second actor simulator or reward path.
+def score_terrain_course_trace(frames: dict, *, height_m: float, speed: float,
+                               settle_frames: int = 12) -> list[dict]:
+    """Judge uninterrupted crossings from observed root motion and MJX contacts.
+
+    The single reset at the start of evaluate_trace is the only allowed birth.
+    Frames after a fall/timeout are discarded; restarting never earns passage.
+    A posed foot or an elevated world-Z value cannot earn a crossing.
+    """
+    import numpy as np
+    from .environment import TERRAIN_PLATFORM_HALF_LENGTH_M, TERRAIN_PLATFORM_HALF_DEPTH_M
+
+    xy = np.asarray(frames['position_xy'], dtype=float)
+    ended = np.asarray(frames['done'], dtype=bool)
+    fell = np.asarray(frames['fell'], dtype=bool)
+    ground = np.asarray(frames['floor_contact'], dtype=bool)
+    platform = np.asarray(frames['terrain_platform_contact'], dtype=bool)
+    supported = np.asarray(frames['terrain_support'], dtype=float)
+    bad = np.asarray(frames['terrain_bad_contact'], dtype=float)
+    vx = np.asarray(frames['terrain_vx'], dtype=float)
+    watts = np.asarray(frames['servo_shaft_drive_power_w'], dtype=float)
+    centers = np.asarray(frames['initial_terrain_mocap_pos'], dtype=float)
+    quats = np.asarray(frames['initial_terrain_mocap_quat'], dtype=float)
+    if xy.ndim != 3 or xy.shape[2] != 2 or ended.shape != xy.shape[:2]:
+        raise ValueError('invalid terrain examination trace shape')
+    horizon, worlds, _ = xy.shape
+    rows = []
+    for i in range(worlds):
+        first_end = np.flatnonzero(ended[:, i])
+        n = int(first_end[0]+1) if len(first_end) else horizon
+        active = height_m > 1e-6 and centers[i, 2] > -.5
+        actual_height_cm = (100*(centers[i,2]+TERRAIN_PLATFORM_HALF_DEPTH_M)
+                            if active else 0.)
+        direction = 'flat' if not active else 'step-down' if centers[i, 0] < 0 else 'step-up'
+        sign = -1.0 if direction == 'step-down' else 1.0
+        yaw = 2 * np.arctan2(quats[i,3], quats[i,0]) if active else 0.0
+        # Dormant box yaw is randomized but physically meaningless. Both
+        # original-flat and dormant-flat controls MUST grade world +X.
+        axis = np.asarray((np.cos(yaw), np.sin(yaw)))
+        edge = centers[i,:2] - sign*TERRAIN_PLATFORM_HALF_LENGTH_M*axis if active else np.array((.25,0.))
+        progress = (xy[:n,i,:] - edge) @ axis
+        lateral = (xy[:n,i,:] - edge) @ np.asarray((-axis[1],axis[0]))
+        first = float(progress[0])
+        relative = progress - first
+        # A real raised/lowered crossing requires reaching the *far side*
+        # and having real contacts with that target surface after arrival.
+        far = progress > .10
+        target_contacts = (platform if direction == 'step-up' else ground)[:n,i,:]
+        valid = (np.arange(n) >= settle_frames) & far & (np.abs(lateral) < .27)
+        valid &= (supported[:n,i] > .05) & (bad[:n,i] < .5)
+        valid &= np.any(target_contacts, axis=-1)
+        # Five consecutive good samples = >=100 ms real contact after the edge.
+        streak = 0
+        passed_at = None
+        for t in range(n):
+            streak = (streak+1) if valid[t] else 0
+            if streak >= 5:
+                passed_at = t
+                break
+        fully_survived = n == horizon and not bool(np.any(ended[:,i]))
+        collision_pass = passed_at is not None and fully_survived
+        if fully_survived:
+            failure_reason = None
+        else:
+            flags = (
+                ('height', 'terrain_fall_height'),
+                ('tilt', 'terrain_fall_tilt'),
+                ('roll_rate', 'terrain_fall_roll_rate'),
+                ('pitch_rate', 'terrain_fall_pitch_rate'),
+                ('timeout', 'terrain_timeout'),
+            )
+            reasons = [name for name, key in flags
+                       if key in frames and bool(np.asarray(frames[key])[n-1,i] > .5)]
+            failure_reason = '+'.join(reasons) if reasons else 'unknown_or_diverged'
+        travel = float(relative[-1])
+        tracking_mae = float(np.mean(np.abs(vx[settle_frames:n,i]-speed))) if n>settle_frames else None
+        motor_work = float(np.sum(np.maximum(0,watts[:n,i]))*.02)
+        # Real completion and flat progress are NOT interchangeable:
+        # baseline rows report progress but have no step-crossing verdict.
+        rows.append(dict(
+            world=i, lesson=direction,
+            maximum_requested_step_cm=round(float(height_m*100),2),
+            actual_step_height_cm=round(float(actual_height_cm),2),
+            frames_before_reset=n, elapsed_s=round(n*.02,2),
+            first_failure_reason=failure_reason,
+            height_at_end_m=(round(float(frames['terrain_height'][n-1,i]),4)
+                             if 'terrain_height' in frames else None),
+            full_horizon_survival=fully_survived,
+            fell=bool(np.any(fell[:n,i])), reached_far_side=bool(np.any(far)),
+            far_side_contact_held_100ms=passed_at is not None,
+            crossing_pass=(bool(collision_pass) if active else None),
+            first_pass_frame=passed_at, progress_m=round(travel,4),
+            commanded_speed_m_s=float(speed),
+            velocity_mae_m_s=(round(tracking_mae,4) if tracking_mae is not None else None),
+            max_abs_lateral_m=round(float(np.max(np.abs(lateral))),4),
+            support_fraction=round(float(np.mean(supported[:n,i]>.05)),4),
+            bad_contact_fraction=round(float(np.mean(bad[:n,i]>.5)),4),
+            drive_shaft_work_j=round(motor_work,4),
+            drive_j_per_progress_m=(round(motor_work/travel,3) if travel>.01 else None),
+        ))
+    return rows
+
+
+def evaluate_terrain_course(*, policy: Path, output: Path, worlds: int = 4,
+                            horizon: int = 260, speed: float = .15,
+                            heights_cm: tuple[float,...] = (0.,2.,4.),
+                            seed: int = 1701, device: str = 'cpu') -> tuple[Path,Path]:
+    """Matched flat/raised true-collision episodes, frozen actor, no training.
+
+    This is the future terrain teacher's *independent* exam evidence; until
+    4x4 actor sensing exists it cannot justify curriculum expansion.
+    """
+    import json
+    import time
+    from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, ROBOT_XML
+    from .viewer_server import load_exported_actor_for_exam
+    from .ppo import configure_jax, require_backend
+
+    if not 2 <= worlds <= 32 or worlds%2 or not 80 <= horizon <= 700:
+        raise ValueError('terrain exam requires even 2–32 worlds and 80–700 frames')
+    if not .02 <= speed <= .35:
+        raise ValueError('terrain speed must be in [0.02, 0.35] m/s')
+    if not heights_cm or any(not math.isfinite(x) or not 0 <= x <= 8 for x in heights_cm):
+        raise ValueError('heights must be nonempty, finite centimetres within [0,8]')
+    heights_cm = tuple(sorted(set(heights_cm)))
+    policy = Path(policy).expanduser().resolve()
+    output = Path(output).expanduser().resolve()
+    if not policy.is_file() or policy.suffix != '.emupolicy':
+        raise ValueError('pass an existing verified .emupolicy file')
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise FileExistsError('terrain exam output must be new or empty')
+    if output in policy.parents or output == policy.parent:
+        raise ValueError('exam cannot write into policy source directory')
+
+    params, norm, export = load_exported_actor_for_exam(policy)
+    actor_schema=export['observation_schema']
+    if export.get('array_only'):
+        raise ValueError(
+            'This 360-input actor uses two inclined collision slabs and an '
+            'array-only sensor. The old single-platform terrain-exam scorer '
+            'cannot certify its physical step performance. Use the mixed '
+            'MJX acceptance smoke until a two-slab frozen examiner is added.'
+        )
+    if actor_schema not in (OBS_SCHEMA_LEGACY,OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
+        raise ValueError('unsupported exported actor contract')
+    sensor_settings=(export['sensor_settings']
+        if actor_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else {})
+    # Select the intended JAX platform BEFORE initializing JAX/JIT.
+    configure_jax(device)
+    import jax
+    import jax.numpy as jnp
+    require_backend(device=='cpu')
+    max_height = max(.001,max(heights_cm)/100)
+    env_args = dict(
+        robot_xml=str(ROBOT_XML), num_envs=worlds, seed=seed,
+        attitude_profile=export['training']['attitude_profile'],
+        pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
+        phase_speed_gain=float(export['control']['phase_speed_gain']),
+        max_episode_steps=700, push_max_force_n=0.,
+        vx_hi_max=.6, vx_lo_min=-.2, vy_max_mps=.25, yaw_max_rad_s=1.5,
+        sensor_noise_scale=sensor_settings.get('sensor_noise_scale',0.),
+        observation_schema=actor_schema,
+        **{k:v for k,v in sensor_settings.items() if k!='sensor_noise_scale'},
+        combo_mix_frac=0.,combo_probe_frac=0.,
+        field_teach_recovery=False,
+    )
+    def examiner(topology_height):
+        args = dict(env_args)
+        path = args.pop('robot_xml')
+        env = EmuMJXEnv(path, terrain_step_max_m=topology_height,
+                         paired_terrain_heights=topology_height>0, **args)
+        trainer = make_trainer(
+            env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
+            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
+            value_cost=PPO_VALUE_COST)
+        return env, trainer
+
+    env, trainer = examiner(max_height)
+    import numpy as np
+    packet = dict(
+        regime_frac_steady=1.,regime_frac_transition=0.,
+        regime_frac_resilience=0.,steady_difficulty=0.,
+        transition_difficulty=0.,resilience_difficulty=0.,
+        posture_difficulty=0.,probe_cmd_vx=speed,
+        probe_cmd_vy=0.,probe_cmd_yaw=0.,
+        probe_tilt_rad=0.,probe_linvel_mps=0.,
+        probe_angvel_rad_s=0.,probe_joint_rad=0.,
+        terrain_exposure=1.,
+    )
+    def one_course(exam_env, exam_trainer, difficulty, label):
+        task=dict(packet,terrain_height_m=difficulty/100.)
+        t0=time.perf_counter()
+        trace=exam_trainer['evaluate_trace'](
+            params,exam_env.params_array(task),
+            jnp.asarray(norm['mean']),jnp.asarray(norm['std']),
+            jax.random.PRNGKey(seed),horizon,0.,(speed,0.,0.))
+        frames=jax.device_get(trace)
+        seconds=time.perf_counter()-t0
+        if exam_env.terrain_step_mocap_id < 0:
+            # The same scorer receives real dynamics, contacts and faults
+            # from the original unmodified model. Only nonexistent platform
+            # telemetry is explicitly marked absent, never invented as
+            # physical support or success.
+            frames['terrain_platform_contact']=np.zeros_like(frames['floor_contact'])
+            frames['initial_terrain_mocap_pos']=np.tile(
+                np.asarray([0.,0.,-1.]),(worlds,1))
+            frames['initial_terrain_mocap_quat']=np.tile(
+                np.asarray([1.,0.,0.,0.]),(worlds,1))
+        rows=score_terrain_course_trace(frames,height_m=difficulty/100.,speed=speed)
+        if difficulty>0:
+            # A matched physical comparison needs equal actual severity,
+            # not just an identical ceiling or PRNG seed.
+            for up, down in zip(rows[::2], rows[1::2]):
+                if (up['lesson']!='step-up' or down['lesson']!='step-down' or
+                    abs(up['actual_step_height_cm']-down['actual_step_height_cm'])>.01):
+                    raise RuntimeError('independent up/down exam height pairing failed')
+        case=dict(
+            case=label, max_height_cm=difficulty,
+            actual_heights_cm=[x['actual_step_height_cm'] for x in rows],
+            seconds=round(seconds,3),
+            worlds=rows,survived=sum(x['full_horizon_survival'] for x in rows),
+            crossing_pass=(None if difficulty==0 else sum(x['crossing_pass'] for x in rows)),
+            mean_progress_m=round(float(np.mean([x['progress_m'] for x in rows])),4),
+            mean_first_episode_s=round(float(np.mean([x['elapsed_s'] for x in rows])),3),
+            failure_reasons={
+                reason:sum(x['first_failure_reason']==reason for x in rows)
+                for reason in sorted({x['first_failure_reason'] for x in rows
+                                      if x['first_failure_reason'] is not None})
+            },
+        )
+        print(f"{label}: survival {case['survived']}/{worlds}, "
+              f"crossing {('not scored' if difficulty==0 else str(case['crossing_pass'])+'/'+str(worlds))}, "
+              f"progress {case['mean_progress_m']:+.3f}m, "
+              f"first episode {case['mean_first_episode_s']:.2f}s, "
+              f"failures {case['failure_reasons']}, "
+              f"wall {seconds:.1f}s", flush=True)
+        return case
+
+    # An independent A/B physics control: if the original exact flat
+    # topology also collapses, do NOT attribute failure to the step.
+    old_env, old_trainer = examiner(0.)
+    cases=[one_course(old_env,old_trainer,0.,'original_flat_physics')]
+    for height_cm in heights_cm:
+        cases.append(one_course(env,trainer,height_cm,
+                                f"terrain_topology_{height_cm:g}cm"))
+    reference=cases[0]
+    dormant=next((c for c in cases[1:] if c['max_height_cm']==0.),None)
+    paired_diagnostics=(
+        dict(
+            original_flat_survived=reference['survived'],
+            dormant_flat_survived=dormant['survived'],
+            per_world_first_failure_frame_deltas=[
+                d['frames_before_reset']-o['frames_before_reset']
+                for o,d in zip(reference['worlds'],dormant['worlds'])
+            ],
+            per_world_progress_deltas_m=[
+                round(d['progress_m']-o['progress_m'],4)
+                for o,d in zip(reference['worlds'],dormant['worlds'])
+            ])
+        if dormant else None)
+
+    report=dict(
+        schema='emu_terrain_exam_v2_paired_up_down',source_commit=source_commit(),
+        actor_artifact_sha256=export['artifact_sha256'],
+        actor_schema=actor_schema,policy_step=export['source']['step'],
+        evidence_grade='diagnostic_only_until_real_step_sensor_and_independent_exam',
+        active_sensor_model=('physical_16cell_depth_and_valid_360' if actor_schema==OBS_SCHEMA_TERRAIN
+                             else 'legacy_flat_plane_tripod_232' if actor_schema==OBS_SCHEMA_SENSOR
+                             else 'legacy_220_without_terrain_preview'),
+        exam=dict(seed=seed,backend=jax.default_backend(),worlds=worlds,
+                  horizon=horizon,speed_m_s=speed,heights_cm=list(heights_cm),
+                  model='single movable finite MJX platform, equal-height/yaw up/down pairs',
+                  paired_actual_heights_and_edge_yaws=True,
+                  support='actual foot-floor and foot-platform collision contacts'),
+        cases=cases, flat_topology_comparison=paired_diagnostics, cautions=[
+            'No PPO or curriculum update performed.',
+            ('360-input actor receives real 16-zone slant depth and per-cell validity, '
+             'with simulated noise/latency/foot occlusion; simulated competence '
+             'is not hardware validation.' if actor_schema==OBS_SCHEMA_TERRAIN else
+             '232-input actor still uses legacy tripod flat-contact-plane grade; '
+             'not terrain-aware step sensing.' if actor_schema==OBS_SCHEMA_SENSOR
+             else '220-input actor has no 4x4 preview, hence diagnostic only.'),
+            'Original flat physics and dormant-platform flat physics are compared separately.',
+            'If both flat controls fail, terrain crossing is NOT a meaningful skill estimate.',
+            'Flat reference has no step-crossing score, only progress/survival.',
+            'First fall/timeout truncates assessment; resets cannot earn passage.',
+            'Passing requires far-side approach, >=100ms physical target support and entire-horizon survival.',
+            'These are simulated servo shaft-work estimates, not measured battery energy.',
+            'Paired up/down worlds share actual 30–100%-of-ceiling height and edge yaw; actual centimetres are recorded.',
+            'Identical cohorts across heights; times include first-run compilation.'])
+    output.mkdir(parents=True,exist_ok=True)
+    json_path=output/'terrain_exam.json'
+    json_path.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+    lines=['# EMU finite-terrain course · frozen-policy evidence','',
+           f"Policy artifact SHA256: {export['artifact_sha256']}",
+           f"Source commit: {report['source_commit']}",
+           f"JAX backend: {jax.default_backend()}",
+           f"Actor schema: {actor_schema}; sensor evidence: DIAGNOSTIC ONLY",'',
+           '| Course | Survive | Genuine crossings | Mean progress | First episode | Wall time |',
+           '|---|---:|---:|---:|---:|---:|']
+    for case in cases:
+        crossings='N/A (flat)' if case['crossing_pass'] is None else f"{case['crossing_pass']}/{worlds}"
+        lines.append(f"| {case['case']} | {case['survived']}/{worlds} | "
+                     f"{crossings} | {case['mean_progress_m']:+.3f} m | "
+                     f"{case['mean_first_episode_s']:.2f} s | {case['seconds']:.1f} s |")
+    lines += ['', 'The flat row is a command-competence control, not an obstacle.',
+              'A passed contact check is NOT a passed uninterrupted crossing.',
+              'Original-flat vs dormant-platform control reveals physics regressions separately from policy failures.',
+              'Paired up/down worlds share real height/yaw; each reports first failure, progress, actual support, effort and tracking.',
+              'Exam data never enters PPO, rewards or the curriculum.']
+    md_path=output/'terrain_exam.md'
+    md_path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    return json_path,md_path
 
 
 def _summarize_worlds(worlds):
@@ -1210,298 +1303,350 @@ def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
         cmds[b:,:2] = 0.
     return cmds
 
+# Unified 360-actor frozen physical assessment. Reuses evaluate_trace;
+# only the reporter/scorer is new, never another world or PPO implementation.
+def score_unified_capability_trace(frames: dict, *, case: dict,
+                                   settle_frames: int = 25) -> list[dict]:
+    """Score observed two-slab contact, directed tracking and recovery.
 
-# Matched multi-branch GPU examination plans use the same physical examiner.
+    A successful root crossing *without five consecutive supported far-side
+    frames* is a failure. Everything ends at the first reset boundary; the
+    examiner is not allowed to turn a second episode into evidence.
+    """
+    import numpy as np
+    from .contracts import CONTROL_DT
+    from .environment import UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_DEPTH_M
 
-import argparse
-import csv
-import json
-import math
-from pathlib import Path
-import subprocess
-import sys
-import zipfile
-
-
-ARMS=('baseline','shadow','slope','pitch15')
-
-
-def cases(profile):
-    if profile=='physical':
-        return [('champion', label, angle, direction, scenario, 350)
-                for label,angle,direction,scenario in (
-                    ('flat_steady',0.,'uphill','steady'),
-                    ('rest_start',0.,'uphill','rest_start'),
-                    ('accelerate',0.,'uphill','speed_step'),
-                    ('brake_stop',0.,'uphill','brake_stop'),
-                    ('stop_resume',0.,'uphill','stop_resume'),
-                    ('reverse',0.,'uphill','reverse'),
-                    ('turn_left',0.,'uphill','turn_stop_left'),
-                    ('turn_right',0.,'uphill','turn_stop_right'),
-                    ('sidestep_left',0.,'uphill','sidestep_left'),
-                    ('sidestep_right',0.,'uphill','sidestep_right'),
-                    # Unlike the legacy gravity-equivalent tests, these
-                    # rotate the actual static collision plane. Do not
-                    # mistake them for per-world terrain randomization.
-                    ('contact_up_2deg',2.,'uphill','steady'),
-                    ('contact_down_2deg',2.,'downhill','steady'),
-                    ('contact_cross_2deg',2.,'cross_left','steady'))]
-    if profile=='smoke':
-        return [('baseline','flat',0.,'uphill','steady',40),
-                ('baseline','turn_stop',0.,'uphill','turn_stop_left',160)]
-    if profile=='pilot':
-        tasks=[('turn_left',0.,'uphill','turn_stop_left'),
-               ('turn_right',0.,'uphill','turn_stop_right'),
-               ('up_025',.25,'uphill','steady'),
-               ('up_050',.5,'uphill','steady'),
-               ('cross_050',.5,'cross_left','steady')]
-        return [(arm,name,angle,direction,scenario,350)
-                for arm in ARMS for name,angle,direction,scenario in tasks]
-    if profile=='sensor':
-        return [(arm,name,angle,direction,scenario,350)
-                for arm in ('baseline','slope')
-                for name,angle,direction,scenario in (
-                    ('noisy_turn',0.,'uphill','turn_stop_left'),
-                    ('noisy_up_025',.25,'uphill','steady'))]
-    if profile=='stretch':
-        return [(arm,'up_100',1.,'uphill','steady',350) for arm in ARMS]
-    raise ValueError('unknown profile')
-
-
-def plan(profile,root,output,*,worlds=None,seed=1701,kp=.75,device='cuda',
-         policy_file=None):
-    if policy_file is not None:
-        if root is not None or profile != 'physical':
-            raise ValueError('exported policy requires physical profile and no run root')
-        source=Path(policy_file).expanduser().resolve()
-        if not source.is_file() or source.suffix != '.emupolicy':
-            raise FileNotFoundError(source)
-    else:
-        if root is None or profile == 'physical':
-            raise ValueError('specify training run root, or --policy for physical profile')
-        source=Path(root).expanduser().resolve()
-    dest=Path(output).expanduser().resolve()
-    if source==dest or source in dest.parents or dest in source.parents:
-        raise ValueError('outputs and training sources must be separate')
-    n=int(worlds or (2 if profile=='smoke' else 4 if profile=='physical' else 8))
-    if not 2<=n<=64 or not math.isfinite(kp) or not 0<kp<=2:
-        raise ValueError('bounded worlds/gain required')
-    bias,noise,delay=(.015,.02,2) if profile=='sensor' else (0.,0.,0)
-    return [dict(arm=arm,label=label,angle=angle,direction=direction,
-          scenario=scenario,horizon=horizon,worlds=n,seed=int(seed),
-          heading_kp=kp,device=device,gyro_bias=bias,gyro_noise=noise,
-          gyro_delay_frames=delay,
-          speed=.10,lateral=.06 if scenario.startswith('sidestep_') else 0.,
-          yaw_rate=0.,turn_rate=.25,settle_frames=25,
-          run_dir=str(source if policy_file is not None else source/'round1'/arm),
-          is_exported_policy=policy_file is not None,
-          contact_slope=profile=='physical' and angle>0,
-          output=str(dest/profile/arm/label))
-          for arm,label,angle,direction,scenario,horizon in cases(profile)]
-
-
-def verify_existing(path,job,revision,checkpoint_hash):
-    if not path.exists():
-        return False
-    info=json.loads(path.read_text())
-    source_hash=info.get('source_artifact_sha256',info.get('checkpoint_sha256'))
-    if source_hash!=checkpoint_hash or (
-        info.get('examined_at_revision')!=revision):
-        raise ValueError('stale source or trained checkpoint in '+str(path))
-    wanted=exam_request(
-        angle_deg=job['angle'],direction=job['direction'],
-        worlds=job['worlds'],horizon=job['horizon'],
-        settle_frames=job['settle_frames'],speed=job['speed'],
-        lateral=job['lateral'],yaw_rate=job['yaw_rate'],
-        seed=job['seed'],device=job['device'],scenario=job['scenario'],
-        turn_rate=job['turn_rate'],gyro_bias=job['gyro_bias'],
-        gyro_noise=job['gyro_noise'],gyro_delay_frames=job['gyro_delay_frames'],
-        contact_slope=job['contact_slope'])
-    if info.get('schema')!=2 or any(info.get('protocol',{}).get(k)!=v
-                                     for k,v in wanted.items()) or (
-        info.get('heading_kp')!=job['heading_kp']):
-        raise ValueError('stale/changed exam parameters: '+str(path))
-    # Never trust a derived summary on its own. The archived raw exams
-    # must still be the same source, operator settings and OFF/ON controls.
-    for mode,gain in (('off',0.),('on',job['heading_kp'])):
-        raw=path.parent/mode/'directional_exam.json'
-        if not raw.is_file():
-            raise ValueError('incomplete paired evidence: '+str(path))
-        data=json.loads(raw.read_text())
-        if (data.get('source_artifact_sha256')!=checkpoint_hash
-            or data.get('source_commit')!=revision
-            or any(data.get('exam',{}).get(k)!=v for k,v in wanted.items())
-            or data.get('exam',{}).get('heading_kp')!=gain
-            or len(data.get('worlds',[]))!=wanted['worlds']):
-            raise ValueError('stale/changed raw paired evidence: '+str(raw))
-    return True
-
-
-def summarize(jobs,profile_root,revision):
-    rows=[]
-    for job in jobs:
-        p=Path(job['output'])/'heading_comparison.json'
-        if p.is_file():
-            data=json.loads(p.read_text())
-            rows.append(dict(arm=job['arm'],case=job['label'],angle_deg=job['angle'],
-                 checkpoint_sha256=data['checkpoint_sha256'],
-                 source_artifact_sha256=data['source_artifact_sha256'],
-                 source_artifact_type=data['source_artifact_type'],
-                 examined_at_revision=data['examined_at_revision'],
-                 protocol=data['protocol'],off=data['off'],on=data['on'],
-                 on_minus_off=data['on_minus_off']))
-    summary=dict(schema=1,profile=profile_root.name,source_commit=revision,
-                 expected=len(jobs),completed=len(rows),results=rows)
-    (profile_root/'results_data.json').write_text(json.dumps(summary,indent=2)+'\n')
-    lines=['# v5016 '+profile_root.name+' — matched heading and terrain tests','',
-        'Source commit: '+revision,
-        str(len(rows))+'/'+str(len(jobs))+' cases complete.',
-        'Same saved checkpoint and operator request for each ON/OFF pair.',
-        'No PPO training or promotion performed. Gait contact flags are estimates.',
-        'Servo duty is relative to nominal 0.638 Nm; shaft work is not electrical energy.',
-        'Work per metre is conditional on positive signed course progress; null is not zero.',
-        '',
-        '| Policy | Case | OFF survival | ON survival | OFF course | ON course | OFF over-rated % | ON over-rated % | OFF J/m | ON J/m |',
-        '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
-    def v(x,key,percent=False):
-        value=x.get(key)
-        if value is None:
-            return '—'
-        return format(100*value if percent else value,'.1f')+('%' if percent else '')
-    for row in rows:
-        a,b=row['off'],row['on']
-        lines.append('| '+' | '.join((row['arm'],row['case'],
-            v(a,'survived_full',True),v(b,'survived_full',True),
-            v(a,'course_pass',True),v(b,'course_pass',True),
-            v(a,'servo_over_continuous_frac',True),
-            v(b,'servo_over_continuous_frac',True),
-            v(a,'drive_work_per_progress_j_m'),
-            v(b,'drive_work_per_progress_j_m')))+' |')
-    lines+=['','Higher survival and actual requested-course progress must accompany',
-            'any claimed heading benefit. Inspect the raw paired episodes.']
-    (profile_root/'results.md').write_text('\n'.join(lines)+'\n')
-    with (profile_root/'results.csv').open('w',newline='') as file:
-        fields=('arm','case','mode','survived_full','course_pass',
-                'gait_candidate_pass','progress_m','heading_mae_deg',
-                'yaw_abs_error_1s','gyro_heading_error_mae_deg',
-                'maneuver_response_s','maneuver_unobserved_count',
-                'braking_path_first_0p5s_m',
-                'physical_worlds','positive_progress_worlds',
-                'servo_over_continuous_frac','servo_peak_abs_torque_nm',
-                'drive_work_j','abs_work_j','spring_potential_range_j',
-                'passive_shin_release_j','passive_shin_stance_release_j',
-                'passive_shin_stance_release_fraction',
-                'passive_shin_stance_release_per_progress_j_m',
-                'contact_pair_slip_speed_m_s','drive_work_per_progress_j_m',
-                'abs_work_per_progress_j_m')
-        w=csv.DictWriter(file,fieldnames=fields)
-        w.writeheader()
-        for r in rows:
-            for mode in ('off','on'):
-                item=r[mode]
-                w.writerow(dict(arm=r['arm'],case=r['case'],mode=mode,
-                    **{k:item.get(k) for k in fields[3:]}))
-    temp=profile_root/'results_bundle.zip.tmp'
-    bundle=profile_root/'results_bundle.zip'
-    with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_DEFLATED) as z:
-        for p in ('results.md','results.csv','results_data.json'):
-            z.write(profile_root/p,arcname=p)
-        for job in jobs:
-            base=Path(job['output'])
-            for p in ('heading_comparison.md','heading_comparison.json',
-                      'off/directional_exam.md','off/directional_exam.json',
-                      'on/directional_exam.md','on/directional_exam.json'):
-                f=base/p
-                if f.is_file() and not f.is_symlink():
-                    z.write(f,arcname=job['arm']+'/'+job['label']+'/'+p)
-    temp.replace(bundle)
-    return bundle,len(rows)
+    xyz=np.asarray(frames['position_xy'],dtype=float)
+    done=np.asarray(frames['done'],dtype=bool)
+    fell=np.asarray(frames['fell'],dtype=bool)
+    command=np.asarray(frames['command'],dtype=float)
+    heading=np.asarray(frames['heading_rad'],dtype=float)
+    normal=np.asarray(frames['initial_ground_xmat'],dtype=float)[:,:,2]
+    lower=np.asarray(frames['initial_unified_ground_mocap_pos'],dtype=float)
+    upper=np.asarray(frames['initial_terrain_mocap_pos'],dtype=float)
+    axis=np.asarray(frames['initial_upper_xmat'],dtype=float)[:,:,0]
+    across=np.asarray(frames['initial_upper_xmat'],dtype=float)[:,:,1]
+    contacts_lower=np.asarray(frames['floor_contact'],dtype=bool)
+    contacts_upper=np.asarray(frames['terrain_platform_contact'],dtype=bool)
+    support=np.asarray(frames['terrain_support'],dtype=float)
+    bad=np.asarray(frames['terrain_bad_contact'],dtype=float)
+    power=np.asarray(frames['servo_shaft_drive_power_w'],dtype=float)
+    pushes=np.asarray(frames['applied_push_force_n'],dtype=float)
+    actions=(np.asarray(frames['actor_action'],dtype=float)
+             if 'actor_action' in frames else None)
+    slip=(np.asarray(frames['stance_slip_proxy'],dtype=float)
+          if 'stance_slip_proxy' in frames else None)
+    root_quat=np.asarray(frames['initial_root_quat'],dtype=float)
+    if (xyz.ndim!=3 or xyz.shape[2]!=2 or done.shape!=xyz.shape[:2]
+        or command.shape!=(*done.shape,3) or not np.isfinite(xyz).all()):
+        raise ValueError('bad unified frozen trace dimensions or position values')
+    horizon,worlds=done.shape
+    if settle_frames>=horizon-5:
+        raise ValueError('settle window leaves no meaningful evidence')
+    results=[]
+    for world in range(worlds):
+        terminal=np.flatnonzero(done[:,world])
+        stop=int(terminal[0]+1) if len(terminal) else horizon
+        alive=stop==horizon and not bool(np.any(done[:,world]))
+        world_fell=bool(np.any(fell[:stop,world]))
+        sl=np.arange(settle_frames,max(settle_frames,stop-1))
+        dx=np.diff(xyz[:stop,world],axis=0)/CONTROL_DT
+        yaw=np.unwrap(heading[:stop,world])
+        if stop>settle_frames+2:
+            headings=yaw[sl]
+            c=np.cos(headings)
+            si=np.sin(headings)
+            body=np.stack((c*dx[sl,0]+si*dx[sl,1],
+                           -si*dx[sl,0]+c*dx[sl,1]),axis=1)
+            actual_yaw=np.diff(yaw)[sl]/CONTROL_DT
+            requested=command[sl,world]
+            errs=np.abs(np.concatenate(
+                (body- requested[:,:2],(actual_yaw-requested[:,2])[:,None]),
+                axis=1))
+            mae=np.mean(errs,axis=0)
+            speed=np.linalg.norm(body,axis=1)
+            achieved=float(np.sum(np.linalg.norm(np.diff(xyz[:stop,world],axis=0),axis=1)))
+            commanded=float(np.sum(np.linalg.norm(requested[:,:2],axis=1))*CONTROL_DT)
+        else:
+            mae=np.array([float('inf')]*3)
+            achieved=0.
+            commanded=0.
+        contact_any=np.any(contacts_lower[:stop,world] | contacts_upper[:stop,world],axis=1)
+        support_fraction=float(np.mean((support[:stop,world]>.05)&contact_any))
+        bad_fraction=float(np.mean(bad[:stop,world]>.5))
+        work=float(np.sum(np.maximum(0.,power[:stop,world]))*CONTROL_DT)
+        # A valid command is tracked while *supported*. Motion toward a
+        # small command is mandatory; standing still never passes.
+        # A zero-motion policy must not earn a pure-yaw vertex by hiding
+        # inside an overly broad absolute yaw tolerance.
+        yaw_target=float(np.mean(np.abs(requested[:,2]))) if stop>settle_frames+2 else 0.
+        yaw_response=float(np.mean(np.abs(actual_yaw))) if stop>settle_frames+2 else 0.
+        yaw_response_ok=(yaw_target<.04 or yaw_response>=.35*yaw_target)
+        tolerance=np.array([.07,.06,max(.08,.40*yaw_target)])
+        tracking=bool(
+            np.all(np.isfinite(mae)) and np.all(mae<=tolerance)
+            and (commanded<.01 or achieved>=.30*commanded)
+            and yaw_response_ok
+            and support_fraction>=.35 and bad_fraction<.20 and alive)
+        grade=float(np.degrees(np.arccos(np.clip(normal[world,2],-1.,1.))))
+        # Ground *direction* must match the requested task, not just the
+        # absolute inclination: uphill is not evidence for downhill.
+        gx=float(-normal[world,0]/max(.01,normal[world,2]))
+        gy=float(-normal[world,1]/max(.01,normal[world,2]))
+        desired_grade=float(case.get('slope_deg',0.))
+        expected=np.tan(np.deg2rad(desired_grade))
+        bearing=case.get('direction','uphill')
+        expected_xy={
+            'uphill':(expected,0.),'downhill':(-expected,0.),
+            'cross_left':(0.,expected),'cross_right':(0.,-expected)
+        }.get(bearing,(expected,0.))
+        grade_verified=(abs(grade-desired_grade)<=.20
+                        and abs(gx-expected_xy[0])<=np.tan(np.deg2rad(.20))
+                        and abs(gy-expected_xy[1])<=np.tan(np.deg2rad(.20)))
+        is_step=case.get('step_m',0.)>0.
+        side=1. if world%2==0 else -1.
+        line=upper[world]-side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]
+        lower_lip=lower[world]+side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]+UNIFIED_SLAB_HALF_DEPTH_M*normal[world]
+        upper_lip=upper[world]-side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]+UNIFIED_SLAB_HALF_DEPTH_M*normal[world]
+        measured_h=float(np.dot(upper_lip-lower_lip,normal[world])) if is_step else 0.
+        height_verified=(not is_step or abs(measured_h-case['step_m'])<.0005)
+        measured_edge=float(np.degrees(np.arctan2(axis[world,1],axis[world,0])))
+        requested_edge=float(case.get('edge_deg',0.))
+        edge_error=(measured_edge-requested_edge+180.)%360.-180.
+        edge_verified=(not is_step or abs(edge_error)<.35)
+        displacement=xyz[:stop,world]-line[:2]
+        forward=displacement@axis[world,:2]
+        sideways=displacement@across[world,:2]
+        far=(forward>.10)&(np.abs(sideways)<.27)
+        contact_target=(contacts_upper if side>0 else contacts_lower)[:stop,world]
+        sustained=((support[:stop,world]>.05)&(bad[:stop,world]<.5)
+                   &np.any(contact_target,axis=1)&far)
+        streak=0
+        passed_at=None
+        for t,ok in enumerate(sustained):
+            streak=streak+1 if t>=settle_frames and ok else 0
+            if streak>=5:
+                passed_at=t
+                break
+        # The robot must start on the near side (not spawned over the edge).
+        initial_near=bool(forward[0]<-.03)
+        crossing=(bool(initial_near and passed_at is not None and alive
+                       and grade_verified and height_verified and edge_verified)
+                  if is_step else None)
+        if case.get('kind')=='slope':
+            passed=tracking and grade_verified
+        elif case.get('kind') in ('step','mixed'):
+            passed=bool(crossing) and tracking
+        elif case.get('kind')=='recovery':
+            # A perturbation is only creditable if it was physically present;
+            # it must settle back into supported, command-following motion.
+            requested_push=float(case.get('push_n',0.))
+            seen_push=bool(np.max(pushes[:stop,world])>=.8*requested_push) if requested_push>0 else True
+            q=np.clip(abs(root_quat[world,0]),0.,1.)
+            measured_tilt=float(np.degrees(2*np.arccos(q)))
+            requested_tilt=float(case.get('tilt_deg',0.))
+            seen_tilt=(requested_tilt==0. or measured_tilt>=.75*requested_tilt)
+            tail=max(settle_frames,stop-12)
+            tail_supported=float(np.mean(contact_any[tail:stop])) if stop>tail else 0.
+            passed=bool(tracking and seen_push and seen_tilt and tail_supported>=.60)
+        else:
+            passed=tracking
+        work_per_m=work/achieved if achieved>.01 else None
+        action_delta=(float(np.mean(np.abs(np.diff(actions[:stop,world],axis=0))))
+                      if actions is not None and stop>1 else None)
+        slip_mean=(float(np.mean(slip[:stop,world]))
+                   if slip is not None else None)
+        results.append(dict(
+            world=world,lesson=case['name'],
+            direction=('step-up' if side>0 else 'step-down') if is_step else case.get('direction','flat'),
+            first_episode_frames=stop, survived=alive, fell=world_fell,
+            grade_deg=round(grade,3),grade_verified=grade_verified,
+            physical_slope_gx=round(gx,5),physical_slope_gy=round(gy,5),
+            requested_step_m=float(case.get('step_m',0.)),
+            measured_step_m=round(measured_h,5),height_verified=height_verified,
+            measured_edge_deg=round(measured_edge,3) if is_step else None,
+            edge_verified=edge_verified if is_step else None,
+            started_near_side=initial_near if is_step else None,
+            reached_far_side=bool(np.any(far)) if is_step else None,
+            supported_crossing_frame=passed_at,
+            crossing_pass=crossing,
+            tracking_mae_vx_mps=round(float(mae[0]),4) if np.isfinite(mae[0]) else None,
+            tracking_mae_vy_mps=round(float(mae[1]),4) if np.isfinite(mae[1]) else None,
+            tracking_mae_yaw_rad_s=round(float(mae[2]),4) if np.isfinite(mae[2]) else None,
+            supported_fraction=round(support_fraction,3),
+            bad_contact_fraction=round(bad_fraction,3),
+            path_travel_m=round(achieved,4),
+            requested_path_m=round(commanded,4),
+            drive_work_j=round(work,4),
+            mechanical_j_per_travel_m=round(work_per_m,2) if work_per_m is not None else None,
+            mean_abs_actor_action_delta=round(action_delta,5) if action_delta is not None else None,
+            mean_stance_slip_proxy=round(slip_mean,5) if slip_mean is not None else None,
+            delivered_push_peak_n=round(float(np.max(pushes[:stop,world])),3),
+            case_pass=bool(passed)))
+    return results
 
 
-def execute(jobs,revision,*,actually_run=False):
-    if not jobs:
-        raise ValueError('no experiment cases')
-    profile_root=Path(jobs[0]['output']).parents[1]
-    for i,j in enumerate(jobs,1):
-        print(f"{i:02d}/{len(jobs)} {j['arm']} {j['label']} "
-              f"{j['angle']}deg {j['worlds']} worlds x {j['horizon']} steps "
-              f"bias={j['gyro_bias']} noise={j['gyro_noise']} delay={j['gyro_delay_frames']}",
-              flush=True)
-    if not actually_run:
-        print('PLAN ONLY. Add --run to execute (saved training is read-only).')
-        return
-    hashes={}
-    for j in jobs:
-        source=Path(j['run_dir'])
-        artifact=source if j.get('is_exported_policy') else source/'checkpoints/final.pkl'
-        if not artifact.is_file():
-            raise FileNotFoundError(str(artifact))
-        if j['arm'] not in hashes:
-            hashes[j['arm']]=sha256_file(artifact)
-    profile_root.mkdir(parents=True,exist_ok=True)
-    for job in jobs:
-        dest=Path(job['output'])
-        report=dest/'heading_comparison.json'
-        if verify_existing(report,job,revision,hashes[job['arm']]):
-            print('Already validated: '+str(dest),flush=True)
-            continue
-        # One executable exam contract, whether starting a new job or
-        # recovering a pair whose physics already completed.
-        cmd=[sys.executable,'-m','emu.cli','directional-exam',
-             '--policy' if job.get('is_exported_policy') else '--run-dir',
-             job['run_dir'],'--output',str(dest),
-             '--angle',str(job['angle']),'--direction',job['direction'],
-             '--scenario',job['scenario'],
-             '--worlds',str(job['worlds']),'--horizon',str(job['horizon']),
-             '--settle-frames',str(job['settle_frames']),
-             '--speed',str(job['speed']),'--lateral',str(job['lateral']),
-             '--yaw-rate',str(job['yaw_rate']),'--turn-rate',str(job['turn_rate']),
-             '--seed',str(job['seed']),'--device',job['device'],
-             '--heading-kp',str(job['heading_kp']),'--compare-heading',
-             '--gyro-bias',str(job['gyro_bias']),
-             '--gyro-noise',str(job['gyro_noise']),
-             '--gyro-delay-frames',str(job['gyro_delay_frames']),
-             *(['--contact-slope'] if job.get('contact_slope') else [])]
-        if dest.exists() and any(dest.iterdir()):
-            # Only recover a finished OFF/ON pair. An incomplete or foreign
-            # run is not a valid reason to repeat/overwrite GPU work.
-            if report.exists():
-                raise FileExistsError('stale completed exam: '+str(dest))
-            raw=[dest/mode/'directional_exam.json' for mode in ('off','on')]
-            if not all(f.is_file() for f in raw):
-                raise FileExistsError('partial MJX run needs manual inspection: '+str(dest))
-            for saved in raw:
-                data=json.loads(saved.read_text())
-                if (data.get('source_commit')!=revision
-                    or data.get('source_artifact_sha256')!=hashes[job['arm']]):
-                    raise ValueError('cannot recover stale/foreign raw exam: '+str(saved))
-            cmd.append('--reuse-completed')
-            print('Recovering saved OFF/ON evidence without MJX: '+str(dest),flush=True)
-        subprocess.run(cmd,check=True)
-        if not verify_existing(report,job,revision,hashes[job['arm']]):
-            raise RuntimeError('no completed exam at '+str(report))
-        summarize(jobs,profile_root,revision)
-    zip_path,n=summarize(jobs,profile_root,revision)
-    print('Completed '+str(n)+'/'+str(len(jobs))+'; upload '+str(zip_path))
+def evaluate_unified_capabilities(*, policy: Path, output: Path,
+                                  worlds: int = 4, horizon: int = 300,
+                                  speed: float = .10, seed: int = 1701,
+                                  device: str = 'cpu', quick: bool = False) -> tuple[Path,Path]:
+    """One frozen array-only actor; identical MJX physics and seeds per case.
 
+    No optimizer update, no teacher decisions, no automatic promotion. Uses
+    real rotated slabs plus support pairs; refuses legacy 360 meaning.
+    """
+    import json
+    from .contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN,TERRAIN_ARRAY_ONLY_REVISION
+    from .viewer_server import load_exported_actor_for_exam
+    from .ppo import configure_jax,require_backend
+    if worlds<2 or worlds>32 or worlds%2 or horizon<100 or horizon>700:
+        raise ValueError('unified examiner requires even 2..32 worlds, 100..700 frames')
+    if not math.isfinite(speed) or not .04<=speed<=.30:
+        raise ValueError('unified examiner speed must be 0.04..0.30 m/s')
+    policy=Path(policy).expanduser().resolve()
+    output=Path(output).expanduser().resolve()
+    if not policy.is_file() or policy.suffix!='.emupolicy':
+        raise ValueError('unified assessment requires exported .emupolicy')
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise FileExistsError('unified exam output must be new or empty')
+    if output==policy.parent or output in policy.parents or policy in output.parents:
+        raise ValueError('exam output must be separate from source artifact')
+    params,norm,export=load_exported_actor_for_exam(policy)
+    if (export.get('observation_schema')!=OBS_SCHEMA_TERRAIN
+        or not export.get('array_only')
+        or export.get('sensor_model_revision',export.get('sensor_contract',{}).get('sensor_model_revision')) not in
+           (None,TERRAIN_ARRAY_ONLY_REVISION)):
+        raise ValueError('requires versioned array-only 360-input unified policy')
+    configure_jax(device)
+    import jax
+    import jax.numpy as jnp
+    require_backend(device=='cpu')
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=worlds,seed=seed,
+        max_episode_steps=700,observation_schema=OBS_SCHEMA_TERRAIN,
+        unified_capability_focus=True,terrain_step_max_m=.04,
+        push_max_force_n=3.2,
+        attitude_profile=export['training']['attitude_profile'],
+        pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
+        phase_speed_gain=float(export['control']['phase_speed_gain']),
+        sensor_noise_scale=export['sensor_settings'].get('sensor_noise_scale',0.),
+        **{k:v for k,v in export['sensor_settings'].items()
+           if k!='sensor_noise_scale'},
+        open_frontier=True,combo_mix_frac=0.,combo_probe_frac=0.,
+        field_teach_recovery=False)
+    trainer=make_trainer(env,seed=seed,lr=PPO_LR,rollout=ROLLOUT_STEPS,
+                        epochs=1,minibatches=1,entropy_cost=PPO_ENTROPY_COST,
+                        value_cost=PPO_VALUE_COST)
+    cases=[
+        dict(name='flat',kind='flat'),
+        dict(name='control_easy_0p08',kind='control',vx=.08),
+        dict(name='uphill_2deg',kind='slope',slope_deg=2.,direction='uphill'),
+        dict(name='downhill_2deg',kind='slope',slope_deg=2.,direction='downhill'),
+        dict(name='cross_left_2deg',kind='slope',slope_deg=2.,direction='cross_left'),
+        dict(name='cross_right_2deg',kind='slope',slope_deg=2.,direction='cross_right'),
+        dict(name='paired_steps_0p8cm',kind='step',step_m=.008),
+        dict(name='paired_steps_2cm',kind='step',step_m=.020),
+        dict(name='mixed_incline_step',kind='mixed',step_m=.008,slope_deg=2.,edge_deg=17.),
+        dict(name='reverse',kind='command',vx=-.06),
+        dict(name='lateral_left',kind='command',vx=0.,vy=.05),
+        dict(name='lateral_right',kind='command',vx=0.,vy=-.05),
+        dict(name='yaw_left',kind='command',vx=0.,yaw=.20),
+        dict(name='yaw_right',kind='command',vx=0.,yaw=-.20),
+        dict(name='diamond_mixture',kind='command',vx=.06,vy=.025,yaw=.12),
+        dict(name='start_from_rest',kind='transition',scenario='rest_start'),
+        dict(name='brake_to_stop',kind='transition',scenario='brake_stop'),
+        dict(name='push_1N',kind='recovery',push_n=1.0),
+        dict(name='tilt_10deg',kind='recovery',tilt_deg=10.),
+    ]
+    if quick:
+        cases=[c for c in cases if c['name'] in (
+            'flat','control_easy_0p08','uphill_2deg','downhill_2deg','paired_steps_0p8cm',
+            'mixed_incline_step','diamond_mixture','push_1N')]
+    results=[]
+    for case in cases:
+        grade=float(case.get('slope_deg',0.))
+        direction=case.get('direction','uphill')
+        pitch=grade if direction!='downhill' else -grade
+        roll=0.
+        if direction.startswith('cross_'):
+            pitch=0.
+            roll=grade if direction=='cross_left' else -grade
+        step=float(case.get('step_m',0.))
+        vx=float(case.get('vx',speed))
+        vy=float(case.get('vy',0.))
+        yaw=float(case.get('yaw',0.))
+        scenario=case.get('scenario','steady')
+        schedule=make_schedule(scenario,horizon,speed=vx,lateral=vy,
+                               yaw_rate=yaw,turn_rate=.25)
+        packet=dict(regime_frac_steady=1.,regime_frac_transition=0.,
+            regime_frac_resilience=0.,steady_difficulty=0.,
+            transition_difficulty=0.,resilience_difficulty=0.,
+            posture_difficulty=0.,specialist_mix=0.,
+            probe_cmd_vx=vx,probe_cmd_vy=vy,probe_cmd_yaw=yaw,
+            probe_tilt_rad=math.radians(case.get('tilt_deg',0.)),
+            probe_linvel_mps=0.,probe_angvel_rad_s=0.,probe_joint_rad=0.,
+            probe_push_n=float(case.get('push_n',0.)),
+            probe_push_steps=5.,
+            terrain_exposure=0.,terrain_height_m=step,
+            slope_exposure=0.,slope_max_deg=0.,
+            terrain_pitch_deg=pitch,terrain_roll_deg=roll,
+            terrain_fixed_height_m=step,terrain_edge_angle_deg=float(case.get('edge_deg',0.)))
+        t0=time.perf_counter()
+        trace=trainer['evaluate_trace'](
+            params,env.params_array(packet),
+            jnp.asarray(norm['mean']),jnp.asarray(norm['std']),
+            jax.random.PRNGKey(seed),horizon,0.,None,jnp.asarray(schedule))
+        data=jax.device_get(trace)
+        rows=score_unified_capability_trace(data,case=case)
+        if step>0:
+            # A real paired exam requires equal height in opposite directions.
+            for up,down in zip(rows[::2],rows[1::2]):
+                if (up['direction']!='step-up' or down['direction']!='step-down'
+                    or abs(up['measured_step_m']-down['measured_step_m'])>.0005
+                    or not up['height_verified'] or not down['height_verified']
+                    or not up['edge_verified'] or not down['edge_verified']):
+                    raise RuntimeError('two-slab paired real geometry did not match')
+        summary=dict(case=case,worlds=rows,passed=sum(r['case_pass'] for r in rows),
+                     survived=sum(r['survived'] for r in rows),
+                     wall_seconds=round(time.perf_counter()-t0,2))
+        results.append(summary)
+        print(f"{case['name']}: {summary['passed']}/{worlds} passes, "
+              f"{summary['survived']}/{worlds} survived",flush=True)
+    manifest=dict(
+        schema='emu_unified_frozen_exam_v1',source_commit=source_commit(),
+        actor_artifact_sha256=export['artifact_sha256'],
+        observation_schema=export['observation_schema'],
+        sensor_revision=TERRAIN_ARRAY_ONLY_REVISION,
+        source_training_step=export['source']['step'],
+        protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
+                      backend=jax.default_backend(),quick=bool(quick),
+                      model='actual paired inclined MJX collision slabs',
+                      contact='real foot contact, five supported far-side frames',
+                      no_reward_or_curriculum_feedback=True,
+                      recovery_azimuth_bins_sampled=min(worlds,8),
+                      recovery_azimuth_bins_total=8),
+        results=results,
+        cautions=['A graded physical skill is not proof of real-hardware safety.',
+                  'Recovery direction assessment needs at least 8 worlds to exercise all azimuth bins.',
+                  'Shaft mechanical J/m is not electrical battery energy.',
+                  'Newly trained unified 360 policies require source-pinned export.'])
+    output.mkdir(parents=True,exist_ok=True)
+    data_path=output/'unified_exam.json'
+    md_path=output/'unified_exam.md'
+    data_path.write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+    md=['# Unified EMU — frozen physical capability assessment','',
+        f"Source policy SHA256: {manifest['actor_artifact_sha256']}",
+        f"Actor schema: {manifest['observation_schema']} / {manifest['sensor_revision']}",
+        f"Exam source: {manifest['source_commit']}",'',
+        '| Physical lesson | Supported passes | Survival |',
+        '|---|---:|---:|']
+    for item in results:
+        md.append(f"| {item['case']['name']} | {item['passed']}/{worlds} | {item['survived']}/{worlds} |")
+    md.extend(['','Per-world support, true step contact, commanded vs achieved',
+               'body velocities, recovery, slip proxy, actor action changes and shaft work',
+               'are in unified_exam.json. The control lesson has no fabricated',
+               'electrical-energy or arbitrary energy-efficiency passing threshold.',
+               'No training, policy selection or promotion was performed.'])
+    md_path.write_text('\n'.join(md)+'\n')
+    return data_path,md_path
 
-def batch_main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__)
-    source=p.add_mutually_exclusive_group(required=True)
-    source.add_argument('--root',help='existing tournament run root')
-    source.add_argument('--policy',help='frozen exported actor for physical profile')
-    p.add_argument('--output',required=True)
-    p.add_argument('--profile',choices=('smoke','pilot','sensor','stretch','physical'),default='smoke')
-    p.add_argument('--worlds',type=int)
-    p.add_argument('--seed',type=int,default=1701)
-    p.add_argument('--heading-kp',type=float,default=.75)
-    p.add_argument('--device',choices=('auto','cpu','cuda','gpu'),default='cuda')
-    p.add_argument('--run',action='store_true')
-    a=p.parse_args(argv)
-    jobs=plan(a.profile,a.root,a.output,worlds=a.worlds,seed=a.seed,
-              kp=a.heading_kp,device=a.device,policy_file=a.policy)
-    execute(jobs,source_commit(),actually_run=a.run)
-    return 0
-
-if __name__ == '__main__':
-    raise SystemExit(screen_main())

@@ -11,14 +11,15 @@ Read this file in order:
 6. The final checkpoint and report are published only after validation.
 
 Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-winning training strategy (see ladder_recipe.py / branch_lab.py).
+stable cold-start training followed by evidence-driven capability growth.
 
 KNOWN DEBT: most of these stages still inhabit a long `train` body.
-See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
+Keep extraction local to existing modules; avoid new wrapper mazes.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ from .environment import EmuMJXEnv
 from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .curriculum import CapabilityField
 from .curriculum import record_capability_cloud_exam
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -88,6 +89,8 @@ def env_kwargs_from_args(args) -> dict:
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
         contact_slope_deg=args.contact_slope_deg,
+        terrain_step_max_m=args.terrain_step_max_m,
+        unified_capability_focus=args.unified_capability_focus,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -122,6 +125,28 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
+    # Keep the unified overnight campaign CLOSED. The existing lifecycle
+    # smoke has one explicit, source-pinned exception: at most TWO PPO
+    # updates, never a long run. The test opt-in is not a training config
+    # switch and cannot be used to resume beyond this absolute step budget.
+    if args.unified_capability_focus:
+        acceptance = (
+            os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
+            and args.device == 'cuda'
+            and args.envs in (8, 12, 2048)
+            and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS
+            and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_step_max_m >= .001
+            and args.open_frontier
+        )
+        if not acceptance:
+            raise RuntimeError(
+                'Unified training is PRE-LAUNCH. Only explicit, source-pinned '
+                'two-update lifecycle acceptance is permitted; 20M and '
+                'overnight training stay locked pending CUDA memory, '
+                'checkpoint/resume/export, frozen exam and owner approval. '
+                'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
+            )
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -136,10 +161,13 @@ def train(args: TrainingConfig) -> int:
     # Schema/physical sensor meaning is part of the learning state; never
     # confuse the legacy Pitch15 actor with a 232-channel learner.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM
-    obs_meta = (dict(checkpoint_schema=8, observation_schema=OBS_SCHEMA_SENSOR,
-                     sensor_contract=sensor_contract, obs_dim=obs_dim)
-                if sensor_contract is not None else {})
+    obs_dim = (TERRAIN_OBS_DIM if args.observation_schema == OBS_SCHEMA_TERRAIN else
+               SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
+    obs_meta = (dict(
+        checkpoint_schema=(9 if args.observation_schema == OBS_SCHEMA_TERRAIN else 8),
+        observation_schema=args.observation_schema,
+        sensor_contract=sensor_contract, obs_dim=obs_dim)
+        if sensor_contract is not None else {})
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
         run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs,
         expected_observation_schema=args.observation_schema,
@@ -157,6 +185,8 @@ def train(args: TrainingConfig) -> int:
                     max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
+    if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
+        raise ValueError('terrain_360 actor requires a physical terrain topology, including flat foundation')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     fixed_eval_worlds = build_eval_worlds(args)
@@ -192,7 +222,8 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_hi_safety=args.frontier_vx_hi_safety,
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
-                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n)
+                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
+                              unified_capability_focus=args.unified_capability_focus)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -230,6 +261,22 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
+        # This source-pinned 360 actor learns a MAIN-style gait for the
+        # first 20M steps, with real slabs present but physically dormant.
+        # Afterwards expose specialists smoothly, limited by actual steady
+        # competence. Rewinds/resume recompute the same dose from steps and
+        # restored governor state: no extra checkpoint controller.
+        if step < FOUNDATION_STEPS:
+            d['terrain_exposure'] = 0.0
+            d['terrain_height_m'] = 0.0
+            if args.unified_capability_focus:
+                d['slope_exposure'] = 0.0
+                d['slope_max_deg'] = 0.0
+        if args.unified_capability_focus:
+            from .capability_focus import growth_mix
+            d['specialist_mix'] = growth_mix(
+                step=step, foundation_steps=FOUNDATION_STEPS,
+                steady_difficulty=float(governor.params.steady_difficulty))
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),
@@ -259,6 +306,10 @@ def train(args: TrainingConfig) -> int:
 
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
+    if args.terrain_step_max_m:
+        print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
+              "but physical exposure/height remain ZERO until independently proven crossing-based "
+              "curriculum activation is implemented.", flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
     import jax.numpy as jnp
     obs_mean = jnp.zeros((obs_dim,), dtype=jnp.float32)
@@ -436,7 +487,10 @@ def train(args: TrainingConfig) -> int:
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
-        report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        report = governor.advance_curriculum(
+            row, step=total_steps, max_height_m=args.terrain_step_max_m,
+            foundation_steps=FOUNDATION_STEPS,
+            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -481,7 +535,11 @@ def train(args: TrainingConfig) -> int:
         # One explicit temporal rewind: policy/optimiser + teacher + health +
         # field + observation coordinates + LR, then fresh physics for EVERY
         # world. If recovery fails, retain the collapse streak and retry later.
-        if args.allow_rollback and report['needs_recovery']:
+        # The historical first-20M foundation deliberately disabled
+        # checkpoint rollbacks; resume and later unified recovery remain.
+        if (args.allow_rollback and
+                (not args.unified_capability_focus or total_steps >= FOUNDATION_STEPS)
+                and report['needs_recovery']):
             restored = try_restore_recovery(
                 recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,
@@ -550,7 +608,9 @@ def train(args: TrainingConfig) -> int:
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips,
+                              slope_deg=args.contact_slope_deg,
+                              contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
@@ -656,7 +716,10 @@ def train(args: TrainingConfig) -> int:
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
-    report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+    report = governor.advance_curriculum(
+        row, step=total_steps, max_height_m=args.terrain_step_max_m,
+        foundation_steps=FOUNDATION_STEPS,
+        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
@@ -691,7 +754,9 @@ def train(args: TrainingConfig) -> int:
         params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips,
+                      slope_deg=args.contact_slope_deg,
+                      contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
     print(f'{LOG_PREFIX} training complete', flush=True)
     return 0
 

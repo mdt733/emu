@@ -766,6 +766,84 @@ TOF_MIN_RANGE_M = .035
 TOF_MAX_RANGE_M = .60
 
 
+def fit_forward_array_ground(xp, ranges, valid, gravity_body,
+                             pitch_deg=(40.,60.,80.,100.),
+                             yaw_deg=(-22.5,-7.5,7.5,22.5)):
+    """Estimate grade, depth and *visibility*, solely from a 4x4 range array.
+
+    One least-squares plane fit to the actual returned ray endpoints, with
+    a residual rejection gate across all visible cells. It does not touch
+    simulator normals or the old three physical ToF mounts. Mixed riser/top
+    returns are NOT passed off as a smooth ground plane: low-confidence
+    estimates become invalid while the original 16 raw rays remain available.
+
+    Works in NumPy and JAX. Invalid rays cannot bias plane fitting.
+    """
+    rays=xp.asarray([
+        (math.cos(math.radians(p))*math.cos(math.radians(y)),
+         math.cos(math.radians(p))*math.sin(math.radians(y)),
+         -math.sin(math.radians(p)))
+        for p in pitch_deg for y in yaw_deg],dtype=xp.float32)
+    d=xp.asarray(ranges)
+    mask=xp.asarray(valid,dtype=xp.bool_) & xp.isfinite(d) & (d>=.04) & (d<=1.5)
+    weight=mask.astype(xp.float32)
+    points=rays[None,:,:]*xp.where(mask,d,0.)[:,:,None]
+    x,y,z=points[:,:,0],points[:,:,1],points[:,:,2]
+    design=xp.stack((x,y,xp.ones_like(x)),axis=-1)
+    gram=xp.einsum('eki,ek,ekj->eij',design,weight,design)
+    rhs=xp.einsum('eki,ek,ek->ei',design,weight,z)
+    # Bias only the plane slopes to avoid singular layouts without inventing
+    # an imaginary ground depth at the camera.
+    reg=xp.asarray([.00005,.00005,.0000001],dtype=xp.float32)
+    coefficients=xp.linalg.solve(
+        gram+xp.eye(3,dtype=xp.float32)[None,:,:]*reg[None,None,:],
+        rhs[...,None])[...,0]
+    a,b,c=coefficients[:,0],coefficients[:,1],coefficients[:,2]
+    normal=xp.stack((-a,-b,xp.ones_like(a)),axis=1)
+    normal=normal/xp.maximum(xp.linalg.norm(normal,axis=1,keepdims=True),1e-7)
+    gravity=xp.asarray(gravity_body)
+    up=-gravity/xp.maximum(xp.linalg.norm(gravity,axis=1,keepdims=True),1e-7)
+    normal=xp.where(xp.sum(normal*up,axis=1,keepdims=True)<0,-normal,normal)
+    forward=xp.asarray([1.,0.,0.],dtype=xp.float32)[None,:]-up[:,0:1]*up
+    forward=forward/xp.maximum(xp.linalg.norm(forward,axis=1,keepdims=True),1e-7)
+    sideways=xp.cross(up,forward)
+    cosine=xp.sum(normal*up,axis=1)
+    count=xp.sum(weight,axis=1)
+    estimated=xp.einsum('eki,ei->ek',design,coefficients)
+    residual=xp.sqrt(xp.sum(weight*(estimated-z)**2,axis=1)/xp.maximum(count,1.))
+    depth=-c
+    # At least six non-collinear returns. Planar residual <= 8mm avoids
+    # interpreting a step riser and upper platform as one smooth slope.
+    good=(count>=6.) & (residual<.008) & (cosine>.25) & (
+        depth>=.035) & (depth<=.60) & (
+        xp.linalg.norm(gravity,axis=1)>.1)
+    # A real step can invalidate the *single-plane slope*, yet optical flow
+    # still needs a depth scale. Infer it from the four steep central array
+    # rays (rather than returning zero velocity at precisely a step).
+    middle=xp.asarray((9,10,13,14),dtype=xp.int32)
+    middle_valid=xp.take(mask,middle,axis=1)
+    central_count=xp.sum(middle_valid.astype(xp.float32),axis=1)
+    centre_dirs=xp.take(-rays[:,2],middle,axis=0)
+    central=xp.sum(xp.take(d,middle,axis=1)*centre_dirs[None,:]*
+                   middle_valid.astype(xp.float32),axis=1)/xp.maximum(central_count,1.)
+    optical_depth=xp.where(good,depth,central)
+    depth_valid=(good | (central_count>=2)) & (
+        optical_depth>=.035)&(optical_depth<=.60)
+    confidence=xp.where(good,
+        xp.clip(count/12.,0.,1.)*xp.clip(1.-residual/.008,0.,1.),0.)
+    return dict(
+        valid=good,depth_valid=depth_valid,
+        ground_forward_grade_rad=xp.where(
+            good,xp.arctan2(-xp.sum(normal*forward,axis=1),cosine),0.),
+        ground_sideways_grade_rad=xp.where(
+            good,xp.arctan2(-xp.sum(normal*sideways,axis=1),cosine),0.),
+        ground_visibility_confidence=confidence,
+        optical_depth_m=xp.where(depth_valid,optical_depth,0.),
+        fit_residual_m=residual,
+        valid_count=count,
+    )
+
+
 def simulate_tripod_ranges(xp, torso_world, rotation_body_to_world,
                            floor_origin_world, floor_normal_world,
                            *, range_errors_m=None):

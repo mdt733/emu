@@ -2,7 +2,8 @@
 // and one matching Three.js triangle mesh for appearance. No training changes.
 export const GENTLE_SLOPE_DEGREES = 1;
 export const COURSE_START_X = 0.85;
-export const PARK_FLAT_RADIUS_M = 2;
+// Keep spawn clear; place diagnostic features around the expanded level area.
+export const PARK_FLAT_RADIUS_M = 4.2;
 export const PARK_MAX_DEGREES = 10;
 export const PARK_RADIUS_M = 11;
 export const PARK_GRID = 129;
@@ -49,7 +50,7 @@ export function parkHeight(x,y,maximum=PARK_MAX_DEGREES,seed=733) {
 // spawn flat and preventing cliffs between radial difficulty bands.
 export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
                                      radius=PARK_RADIUS_M,resolution=PARK_GRID,
-                                     trees=true}={}) {
+                                     trees=true,features=true}={}) {
   if(!Number.isFinite(maxDegrees)||maxDegrees<1||maxDegrees>20)
     throw new Error('Terrain maximum must be 1–20 degrees');
   if(!Number.isInteger(resolution)||resolution<17||resolution>257||resolution%2!==1)
@@ -98,7 +99,7 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
     const random=rng32(seed+9041);
     for(let attempt=0;attempt<650&&treeList.length<17;attempt++){
       const direction=random()*Math.PI*2;
-      const distance=3.5+Math.sqrt(random())*(radius-4.15);
+      const distance=5.4+Math.sqrt(random())*(radius-6.0);
       const x=Math.cos(direction)*distance,y=Math.sin(direction)*distance;
       if(treeList.some(t=>Math.hypot(x-t.x,y-t.y)<1.55))continue;
       const trunkHeight=1.05+random()*0.85;
@@ -108,12 +109,60 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
                      shade:random()});
     }
   }
-  return {radius,resolution,cell,heights,maxHeight:maximum,trees:treeList,sampleHeight,
-          maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
+  const featureList=features?createParkFeatures():[];
+  return {radius,resolution,cell,heights,maxHeight:maximum,trees:treeList,
+          features:featureList,sampleHeight,maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
+}
+
+
+// Real, deterministic collision features around the central park. None
+// crosses spawn (r < 1.7m); no separate obstacle system or new files.
+function createParkFeatures() {
+  const box=(name,x,y,z,hx,hy,hz,colour='0.47 0.59 0.40 1',yaw=0)=>
+    '<geom name="park_feature_'+name+'" type="box" pos="'+
+    [x,y,z].map(rounded).join(' ')+'" size="'+
+    [hx,hy,hz].map(rounded).join(' ')+'" euler="0 0 '+yaw+
+    '" friction="1.5 .005 .0001" rgba="'+colour+'"/>';
+  // A finite rotated support slab whose top passes through two real heights.
+  const slope=(name,x,y0,y1,z0,z1)=>{
+    const angle=Math.atan2(z1-z0,y1-y0),thickness=.18;
+    const ym=(y0+y1)/2,zm=(z0+z1)/2;
+    const cy=ym+thickness*Math.sin(angle),cz=zm-thickness*Math.cos(angle);
+    const cp=Math.cos(angle/2),sp=Math.sin(angle/2),c=Math.SQRT1_2;
+    // Quaternion yaw(+90°) * pitch(-angle) rotates local +X to +Y/uphill.
+    const quat=[c*cp,c*sp,-c*sp,c*cp];
+    return '<geom name="park_feature_'+name+'" type="box" pos="'+
+      [x,cy,cz].map(rounded).join(' ')+'" size="'+
+      [(y1-y0)/(2*Math.cos(angle)),.34,thickness].map(rounded).join(' ')+
+      '" quat="'+quat.map(rounded).join(' ')+
+      '" friction="1.5 .005 .0001" rgba="0.36 0.61 0.53 1"/>';
+  };
+  return [
+    {id:'step-up',x:2.80,y:0,radius:.55,
+      geoms:box('step_up',2.80,0,.025,.42,.33,.025)},
+    {id:'step-down',x:-2.80,y:0,radius:.56,
+      // Cross this raised slab from east to west to walk off a 5cm edge.
+      geoms:box('step_down_ledge',-2.80,0,.025,.45,.33,.025,'0.53 0.48 0.35 1')},
+    {id:'crest',x:0,y:2.85,radius:.77,
+      geoms:[
+        slope('crest_rise',0,2.20,2.64,0,.06),
+        box('crest_top',0,2.83,.035,.18,.34,.025,'0.36 0.61 0.53 1',90),
+        slope('crest_fall',0,3.02,3.46,.06,0),
+      ].join('\n')},
+    {id:'log',x:0,y:-2.80,radius:.59,
+      geoms:'<geom name="park_feature_log" type="cylinder" pos="0 -2.80 .025" size=".055 .47" euler="90 0 0" friction="1.5 .005 .0001" rgba=".58 .40 .24 1"/>'},
+    {id:'angled',x:-2.12,y:2.11,radius:.59,
+      geoms:box('angled_ridge',-2.12,2.11,.028,.045,.40,.028,'0.64 0.50 0.31 1',29)},
+    {id:'trough',x:2.08,y:-2.15,radius:.78,
+      // Level bottom between two raised banks. Not an impossible hole cut
+      // through the existing hfield: down/up transitions are real.
+      geoms:box('trough_near',1.70,-2.15,.021,.16,.38,.021,'0.50 0.55 0.40 1')+
+        '\n'+box('trough_far',2.48,-2.15,.021,.16,.38,.021,'0.50 0.55 0.40 1')},
+  ];
 }
 
 function parkXml(park) {
-  const {resolution,radius,maxHeight,heights,trees}=park;
+  const {resolution,radius,maxHeight,heights,trees,features=[]}=park;
   // The hfield parser normalizes the inline elevation itself. All elevations
   // are already nonnegative with a zero floor, so z=0 stays exactly at ground.
   const elevations=[];
@@ -127,15 +176,72 @@ function parkXml(park) {
     pos="${rounded(t.x)} ${rounded(t.y)} ${rounded(t.z+t.trunkHeight/2)}"
     size="${rounded(t.trunkRadius)} ${rounded(t.trunkHeight/2)}"
     friction="1.5 0.005 0.0001" rgba="0.29 0.18 0.10 1" />`).join('\n');
-  return {asset,geometry:terrain+'\n'+trunks};
+  const courses=features.map(f=>f.geoms).join('\n');
+  return {asset,geometry:terrain+'\n'+trunks+'\n'+courses};
 }
 
+
+// Depth inspection courses use real MuJoCo support geometry, never painted
+// obstacles. These courses are DIAGNOSTIC ONLY: the champion is not retrained.
+export const DEPTH_COURSES = Object.freeze([
+  ['flat','Flat reference'], ['step-up-1cm','1 cm training step up'],
+  ['step-up-2cm','2 cm training step up'], ['step-up','5 cm step up'],
+  ['step-down','5 cm step down'], ['crest','Hill crest'],
+  ['trough','Hill trough'], ['log','Half-round log'],
+  ['angled','Angled ridge'],
+]);
+function depthCourseXml(kind) {
+  if(!DEPTH_COURSES.some(([id])=>id===kind))
+    throw new Error('Unknown depth lab obstacle');
+  const surface=(name,x0,x1,z0,z1)=>{
+    const angle=Math.atan2(z1-z0,x1-x0);
+    const thickness=.25, midX=(x0+x1)/2, midZ=(z0+z1)/2;
+    const x=midX+thickness*Math.sin(angle);
+    const z=midZ-thickness*Math.cos(angle);
+    return '<geom name="depth_'+name+'" type="box" pos="'+x+' 0 '+z+
+      '" size="'+((x1-x0)/(2*Math.cos(angle)))+' 1.3 '+thickness+
+      '" euler="0 '+(-angle*180/Math.PI)+' 0" friction="1.5 0.005 0.0001" rgba="0.35 0.58 0.51 1"/>';
+  };
+  if(kind==='flat')return {removeFloor:false,geoms:''};
+  if(kind==='log')return {
+    removeFloor:false,geoms:'<geom name="depth_log" type="cylinder" pos=".83 0 .025" size=".055 .52" euler="90 0 0" friction="1.5 .005 .0001" rgba=".61 .43 .29 1"/>',
+  };
+  if(kind==='angled')return {
+    removeFloor:false,geoms:'<geom name="depth_angled_ridge" type="box" pos=".85 0 .03" size=".052 .52 .03" euler="0 0 22" friction="1.5 .005 .0001" rgba=".67 .50 .29 1"/>',
+  };
+  if(['step-up','step-down','step-up-1cm','step-up-2cm'].includes(kind)){
+    const z=kind==='step-up-1cm'?.01:kind==='step-up-2cm'?.02:
+      kind==='step-up'?.05:-.05;
+    const edge=kind==='step-up-1cm'||kind==='step-up-2cm'?.25:.65;
+    return {removeFloor:true,geoms: [
+      surface('approach',-4,edge,0,0),
+      surface('landing',edge,5,z,z),
+    ].join('\n')};
+  }
+  const z=kind==='crest'?.065:-.065;
+  return {removeFloor:true,geoms: [
+    surface('approach',-4,.65,0,0),
+    surface('rise',.65,1.20,0,z),
+    surface('top',1.20,1.55,z,z),
+    surface('exit',1.55,2.1,z,0),
+    surface('after',2.1,5,0,0),
+  ].join('\n')};
+}
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
+  if(mode==='sensor'){
+    const course=depthCourseXml(options.obstacle||'flat');
+    let xml=robotXml;
+    if(course.removeFloor){
+      xml=xml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
+      if(xml===robotXml)throw new Error('Sensor course requires named floor');
+    }
+    return xml.replace('</worldbody>',course.geoms+'\n</worldbody>');
+  }
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(mode!=='park')throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
@@ -172,6 +278,10 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
       gx=Math.tan(Math.PI/180);
     else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
       gx=-Math.tan(Math.PI/180);
+  } else if(mode==='sensor') {
+    // The diagnostic courses have discontinuous steps. Their ground cannot
+    // be represented by a single underfoot grade, but depth still works.
+    return {supported:false,degrees:0,arrowDegrees:0,flat:false};
   } else if(mode!=='flat') throw new Error('Unknown terrain mode');
   const grade=Math.hypot(gx,gy);
   const degrees=Math.atan(grade)*180/Math.PI;

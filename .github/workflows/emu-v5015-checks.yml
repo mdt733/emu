@@ -32,28 +32,61 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Compile
-        run: python -m compileall -q emu tests
-      - name: Run 16 Python checks
+      - name: Compile and validate setup syntax
+        run: |
+          python -m compileall -q emu tests
+          python -m py_compile scripts/smoke_unified_focus.py scripts/smoke_training_lifecycle.py
+          bash -n scripts/setup_wsl.sh
+          bash scripts/setup_wsl.sh --help > /dev/null
+      # One G3 physical acceptance probe; no PPO training or new test framework.
+      - name: G3 finite-step MJX contact and episode reset smoke (CPU)
+        run: |
+          timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
+          timeout 180s python -m emu.terrain_spike --environment --worlds 4
+      - name: G5 real 4x4 actor + PPO gradient (production MJX CPU)
+        run: timeout 240s python -m emu.terrain_spike --actor --worlds 4 --device cpu
+      - name: G4 matched uninterrupted terrain course (read-only CPU actor)
+        run: |
+          timeout 240s emu terrain-exam \
+            --policy showcase/champion.emupolicy \
+            --output "$RUNNER_TEMP/g4-terrain-course" \
+            --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
+          python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==4 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
+      - name: Run full Python checks (do not hide pre-existing failures)
         run: python -m pytest -q tests
       - name: Smoke public doctor CLI (CPU-only)
         run: emu doctor --no-require-gpu --no-mjx-smoke
       - name: Smoke public planning, exams and exporter imports
         run: |
-          emu ladder --stage plan > /dev/null
           emu directional-exam --help > /dev/null
-          emu directional-batch --help > /dev/null
+          emu terrain-exam --help > /dev/null
           emu train --help > /dev/null
+          python scripts/smoke_training_lifecycle.py --help > /dev/null
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
           python - <<'PY'
           from emu.checkpoint_io import resume_training_lineage, git_provenance
-          from emu.branch_lab import train_one, plan_dict
-          from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
+          from emu.run import train_one, one_run_config
+          from emu.evaluation import atlas_main, directional_main
           from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
           print('All public entrypoint owners import cleanly')
           PY
+
+  # One unified shared-policy, six-cohort physical PPO smoke on CPU.
+  unified-focus-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install CPU learning dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Exercise single shared-policy unified specialists on MJX CPU
+        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12
 
   browser:
     runs-on: ubuntu-latest

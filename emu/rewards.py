@@ -51,7 +51,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -88,19 +88,34 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
     # Zero cost weight exactly reproduces pre-v5016 scalar economics.
     motor_kwargs = {}
-    if motor_guidance_weight > 0.0:
+    if motor_guidance_weight > 0.0 or motor_guidance_per_world is not None:
         overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
         shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
         motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
-        motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
+        # Per-world emphasis is an *additive, bounded lesson*, not a
+        # replacement for locomotion or a special policy. All worlds still
+        # receive the ordinary smoothness/stance-slip rewards.
+        weight = (motor_guidance_weight if motor_guidance_per_world is None
+                  else motor_guidance_per_world + motor_guidance_weight)
+        motor_kwargs = {'motor_cost': weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
         anti_slip=stance_anti_slip, clearance=swing_clearance,
         smoothness=servo_smoothness, joint_safety=joint_safety,
         stepping_gate=stepping_gate, **motor_kwargs)
-    # Always expose the new diagnostic to rollout CSV, even for controls;
-    # the old eight-payment reducer remains mathematically identical.
+    # Control emphasis: an *extra* smooth-gait lesson, but only while
+    # genuinely walking and following a command. Static balancing has no
+    # free energy/jerk reward. All historical eight payments are unchanged.
+    control_smoothness=jnp.zeros_like(valid_alive)
+    if motor_guidance_per_world is not None:
+        control_world=(motor_guidance_per_world>.04).astype(jnp.float32)
+        walking=jnp.clip(jnp.abs(m['vx'])/.08,0.,1.)
+        control_smoothness=(.075*control_world*walking*locomotion_maturity*
+                             command_tracking*servo_smoothness*
+                             feet_only_contact*valid_alive)
+        reward=reward+control_smoothness
+        payments['control_smoothness']=control_smoothness
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
     return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
                     'weighted_motor_cost': motor_payment}

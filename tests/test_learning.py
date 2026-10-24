@@ -18,6 +18,181 @@ from emu.checkpoint_io import resume_training_lineage
 from emu.curriculum import TrainingHealth
 from emu.curriculum import RegimeGovernor
 
+def _held_out_core_fixture():
+    """Complete summary-shaped subset from independently evaluated panels."""
+    from emu.results import FIXED_EXAM_GUARDS
+    row={}
+    for key,(direction,_) in FIXED_EXAM_GUARDS.items():
+        if key.endswith("_survival") or key.endswith("_support") or key.endswith("_evidence"):
+            row[key]=.92
+        elif key.endswith("_m"):
+            row[key]=.003
+        else:
+            row[key]=.05
+    row.update(eval_policy_step=20_000_000,perf_eval_cohorts_used=2,
+               perf_eval_env_steps=700_000)
+    return row
+
+
+def test_offline_fixed_exam_compare_uses_only_frozen_exam_csv(tmp_path):
+    import csv
+    import json
+    from emu.results import main
+    baseline=_held_out_core_fixture()
+    improved=dict(baseline,eval_policy_step=50_000_000,
+                  eval_dynamic80_survival=.97)
+    a,b=(tmp_path/n for n in ("baseline.csv","candidate.csv"))
+    for file,row in ((a,baseline),(b,improved)):
+        with file.open("w",newline="") as f:
+            writer=csv.DictWriter(f,fieldnames=list(row))
+            writer.writeheader()
+            writer.writerow(row)
+    output=tmp_path/"evidence.json"
+    assert main(["--compare-fixed",str(a),str(b),
+                 "--reference-protocol","frozen-physics-1",
+                 "--candidate-protocol","frozen-physics-1",
+                 "--output",str(output)])==0
+    report=json.loads(output.read_text())
+    assert report["source"]=="held_out_exam"
+    assert report["guardrail_status"]=="no_guardrail_regression"
+    assert report["reference_step"]==20_000_000
+    assert report["candidate_step"]==50_000_000
+    with pytest.raises(ValueError,match="protocol fingerprints"):
+        main(["--compare-fixed",str(a),str(b),
+              "--reference-protocol","frozen-physics-1",
+              "--candidate-protocol","other-world"])
+    with pytest.raises(ValueError,match="no fixed-eval evidence"):
+        main(["--compare-fixed",str(a),str(tmp_path/"missing.csv"),
+              "--reference-protocol","frozen-physics-1",
+              "--candidate-protocol","frozen-physics-1"])
+
+
+def test_independent_exam_detects_core_regression_despite_other_gains():
+    from emu.results import compare_fixed_exam_evidence
+    baseline=_held_out_core_fixture()
+    candidate={**baseline, "eval_policy_step":60_000_000,
+               "eval_core_survival":baseline["eval_core_survival"]-.08,
+               "eval_core_vx_mae":baseline["eval_core_vx_mae"]+.04,
+               "eval_dynamic80_survival":1.0,
+               "eval_robust40_survival":1.0}
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="frozen-core-v1-physics-abcdef",
+        candidate_protocol="frozen-core-v1-physics-abcdef")
+    assert out["source"]=="held_out_exam"
+    assert out["guardrail_status"]=="regression"
+    assert out["regressed_fields"]==["eval_core_survival","eval_core_vx_mae"]
+    assert out["metrics"]["eval_dynamic80_survival"]["delta"]>0
+    assert out["matched_cohorts"]==2
+    assert out["reference_step"]==20_000_000
+    assert "ranking" not in out
+    assert "reward" not in out
+
+
+def test_matched_exam_tolerances_and_incomplete_evidence_are_honest():
+    from emu.results import compare_fixed_exam_evidence
+    baseline=_held_out_core_fixture()
+    candidate=dict(baseline,eval_policy_step=30_000_000)
+    candidate["eval_core_survival"]-=.05
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="exam-A",
+        candidate_protocol="exam-A")
+    assert out["guardrail_status"]=="no_guardrail_regression"
+    assert baseline["eval_core_survival"]==pytest.approx(.92)
+    candidate["eval_core_survival"]-=.001
+    out=compare_fixed_exam_evidence(
+        baseline,candidate,reference_protocol="exam-A",
+        candidate_protocol="exam-A")
+    assert "eval_core_survival" in out["regressed_fields"]
+    with pytest.raises(ValueError,match="fingerprints"):
+        compare_fixed_exam_evidence(
+            baseline,candidate,reference_protocol="exam-A",
+            candidate_protocol="exam-B")
+    with pytest.raises(ValueError,match="invalid eval_core_pitch_mae"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"eval_core_pitch_mae":None},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+    no_core=dict(candidate)
+    no_core.pop("eval_core_support")
+    with pytest.raises(ValueError,match="missing held-out"):
+        compare_fixed_exam_evidence(
+            baseline,no_core,reference_protocol="exam-A",
+            candidate_protocol="exam-A")
+    with pytest.raises(ValueError,match="cohort/size mismatch"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"perf_eval_cohorts_used":1},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+    with pytest.raises(ValueError,match="insufficient fixed-exam provenance"):
+        compare_fixed_exam_evidence(
+            baseline,{**candidate,"perf_eval_env_steps":0},
+            reference_protocol="exam-A",candidate_protocol="exam-A")
+
+
+def test_capability_evidence_keeps_success_quality_and_confidence_separate():
+    from emu.results import capability_evidence_report
+    field=CapabilityField()
+    known=(0,0,0)
+    field.node_success[known]=24.
+    field.node_failure[known]=6.
+    field.node_quality_sum[known]=18.
+    before=field.fingerprint()
+    report=capability_evidence_report(
+        family="commands",source="training_rollout",
+        success=field.node_success,failure=field.node_failure,
+        lower=field.node_lower(),quality_sum=field.node_quality_sum)
+    assert report["known_bins"]==1
+    assert report["unknown_bins"]==field.node_success.size-1
+    assert report["independent_trials_in_known_bins"]==30.
+    assert report["success_rate_known"]==pytest.approx(.8)
+    assert report["observed_quality_known"]==pytest.approx(.6)
+    assert 0.<report["conservative_success_lower_mean"]<.8
+    assert field.fingerprint()==before  # report does not teach or update PPO
+
+
+def test_capability_field_evidence_projects_existing_three_families_without_mutation():
+    from emu.results import capability_field_evidence_snapshot
+    field=CapabilityField()
+    idx=(0,)*len(field.shape)
+    field.node_success[idx]=21.
+    field.node_failure[idx]=3.
+    field.node_quality_sum[idx]=12.
+    field.rec_success[idx+(0,)]=18.
+    field.rec_failure[idx+(0,)]=3.
+    field.edge_success[idx+(0,)]=22.
+    field.edge_failure[idx+(0,)]=2.
+    before=field.fingerprint()
+    report=capability_field_evidence_snapshot(field,min_events=20)
+    assert report["training_only"] is True
+    assert report["command_nodes"]["known_bins"]==1
+    assert report["command_nodes"]["observed_quality_known"]==pytest.approx(.5)
+    assert report["recovery"]["known_bins"]==1
+    assert report["recovery"]["observed_quality_known"] is None
+    assert report["transitions"]["known_bins"]==1
+    assert field.fingerprint()==before
+
+
+def test_capability_evidence_never_confuses_unknown_with_failure():
+    from emu.results import capability_evidence_report
+    success=np.array([0.,0.,0.,35.])
+    failure=np.array([0.,1.,2.,5.])
+    lower=np.array([0.,0.,0.,.72])
+    report=capability_evidence_report(
+        family="step_up",source="held_out_exam",
+        success=success,failure=failure,lower=lower,min_events=20)
+    assert report["known_bins"]==1
+    assert report["unknown_bins"]==3
+    assert report["success_rate_known"]==pytest.approx(.875)
+    assert report["observed_quality_known"] is None
+    assert report["conservative_success_lower_mean"]==pytest.approx(.72)
+    assert "score" not in report
+    with pytest.raises(ValueError,match="source"):
+        capability_evidence_report(family="step_up",source="reward",
+                                   success=success,failure=failure,lower=lower)
+    with pytest.raises(ValueError,match="quality"):
+        capability_evidence_report(family="step_up",source="held_out_exam",
+                                   success=success,failure=failure,lower=lower,
+                                   quality_sum=np.ones(4)*50.)
+
+
 def fake_policy_params(fill: float = 0.0):
     def build(spec):
         if isinstance(spec, dict):
@@ -415,6 +590,203 @@ def test_training_config_roundtrip():
     assert untracked['frontier_event_vx_hi'] == 'off'
     assert inactive.params.frontier_vx_hi == 0.60
 
+def test_terrain_governor_refuses_down_only_success():
+    """Count distinct ascent/descent episodes across updates, then reset.
+
+    Small 5%-dose PPO rollouts are sparse; checkpointing the evidence
+    window must preserve the same decision after a restored run.
+    """
+    g = RegimeGovernor()
+    g.core_competence = .95
+    g.fall_ema['posture'] = .05
+    kwargs = dict(step=20_000_001, foundation_steps=20_000_000, max_height_m=.04)
+    assert g.advance_terrain({}, **kwargs) == 'terrain_seed_1cm_5pct'
+    downhill_only = dict(terrain_attempts_up=6., terrain_successes_up=0.,
+                         terrain_falls_up=0., terrain_attempts_down=6.,
+                         terrain_successes_down=6., terrain_falls_down=0.)
+    for _ in range(3):
+        assert g.advance_terrain(downhill_only, **kwargs) == 'terrain_collect_directional_evidence'
+    saved = g.state_dict()
+    restored = RegimeGovernor()
+    restored.load_state_dict(saved)
+    assert restored.state_dict() == saved
+    assert restored.advance_terrain(downhill_only, **kwargs) == 'terrain_retreat_failed_ascent'
+    assert restored.params.terrain_height_m == .01
+    assert restored.params.terrain_exposure == .05
+    assert not any(restored.terrain_evidence.values())
+
+    # Historical pooled-only rows cannot advance a new frontier.
+    assert restored.advance_terrain(dict(terrain_attempts=100.,
+                                         terrain_successes=100.), **kwargs) == 'await_directional_terrain_evidence'
+
+    # Weak but genuine ascents can earn extra PRACTICE, NOT a taller step.
+    weak_ascent = dict(downhill_only, terrain_successes_up=1.)
+    for _ in range(3):
+        assert restored.advance_terrain(weak_ascent, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(weak_ascent, **kwargs) == 'terrain_exposure_practice_ascent'
+    assert restored.params.terrain_exposure == .055
+    assert restored.params.terrain_height_m == .01
+
+    # Height is still gated: both directions must genuinely complete >=50%.
+    strong_ascent = dict(downhill_only, terrain_successes_up=4.)
+    for _ in range(3):
+        assert restored.advance_terrain(strong_ascent, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(strong_ascent, **kwargs) == 'terrain_exposure_expand_real_cross'
+    assert restored.params.terrain_exposure > .055
+    assert restored.params.terrain_height_m == .01
+
+    # No episode proof means no improvement, even after a complete window.
+    missing = dict.fromkeys(downhill_only, 0.)
+    for _ in range(restored.TERRAIN_MAX_WINDOW_UPDATES-1):
+        assert restored.advance_terrain(missing, **kwargs) == 'terrain_collect_directional_evidence'
+    assert restored.advance_terrain(missing, **kwargs) == 'terrain_window_insufficient_attempts'
+    assert not any(restored.terrain_evidence.values())
+
+
+
+def test_unified_overnight_guard_allows_only_explicit_bounded_acceptance(monkeypatch):
+    """The lifecycle probe cannot silently turn into an overnight campaign."""
+    from dataclasses import replace
+    from emu.training import train
+    from emu.training_config import TrainingConfig, ROLLOUT_STEPS
+    from emu.contracts import OBS_SCHEMA_TERRAIN
+    cfg=replace(TrainingConfig(), unified_capability_focus=True,
+                observation_schema=OBS_SCHEMA_TERRAIN, terrain_step_max_m=.04,
+                device='cuda', envs=8, open_frontier=True, steps=8*ROLLOUT_STEPS)
+    monkeypatch.delenv('EMU_UNIFIED_ACCEPTANCE', raising=False)
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(cfg)
+    monkeypatch.setenv('EMU_UNIFIED_ACCEPTANCE','bounded-ppo-lifecycle')
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,steps=3*8*ROLLOUT_STEPS))
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,envs=2048,steps=3*2048*ROLLOUT_STEPS))
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        train(replace(cfg,observation_schema='legacy_220'))
+    # The bounded positive path runs through real CUDA in the existing
+    # smoke_training_lifecycle.py --unified stages, not this CPU unit test.
+
+
+def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
+    """Guard the verified main 20M recipe against mature-profile drift.
+
+    The new 360 sensor actor and physically dormant slabs are intentional
+    differences; gait competence still needs a REAL 20M comparison.
+    """
+    from types import SimpleNamespace
+    from emu.training_config import (
+        foundation_config, FOUNDATION_STEPS, ROLLOUT_STEPS,
+        PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, MAX_EPISODE_STEPS)
+    from emu.rewards import PAYMENT_NAMES
+    from emu.run import one_run_config
+    from emu.contracts import OBS_SCHEMA_TERRAIN
+
+    old = foundation_config(run_dir=tmp_path/'main_ref',seed=733,
+                            device='cuda',envs=2048)
+    new = one_run_config(SimpleNamespace(
+        run_dir=str(tmp_path/'new360'),profile='sim2real',
+        seed=733,device='cuda',envs=2048,steps=FOUNDATION_STEPS,
+        unified_capabilities=True,terrain_actor=True,
+        terrain_step_max_m=.04))
+    assert (FOUNDATION_STEPS,ROLLOUT_STEPS,PPO_EPOCHS,
+            PPO_MINIBATCHES,PPO_LR,MAX_EPISODE_STEPS) == (
+            20_000_000,32,4,8,2e-4,700)
+    assert PAYMENT_NAMES == ('alive','locomotion','posture','contact',
+                             'anti_slip','clearance','smoothness','joint_safety')
+    for key in ('envs','seed','ppo_lr','ppo_entropy_cost','ppo_value_cost',
+                'difficulty_base_step','vx_hi_max','vx_lo_min',
+                'vy_max_mps','yaw_max_rad_s','phase_speed_gain',
+                'regime_command_frac','athletic_rehearsal_frac',
+                'combo_mix_frac','combo_probe_frac','fall_target',
+                'motor_guidance_weight','freeze_obs_norm_after_steps',
+                'cloud_probes_per_eval','cloud_final_probes'):
+        a,b=getattr(old,key),getattr(new,key)
+        # main uses the governor's standard .30 when fall_target=None;
+        # unified spells out that exact same effective target.
+        if key=='fall_target':
+            a=.30 if a is None else a
+        assert a==b, f'foundation mismatch: {key}: {a!r} != {b!r}'
+    assert old.push_max_force_n==.70
+    assert new.push_max_force_n==3.2  # headroom, NOT early episode dose
+    assert not old.allow_rollback
+    assert new.observation_schema==OBS_SCHEMA_TERRAIN
+    assert new.unified_capability_focus and new.terrain_step_max_m==.04
+    assert new.pitch_command_max_deg==8.
+    assert new.capability_field_mode=='shadow'
+
+
+def test_unified_main_first_20m_then_earned_specialists():
+    """Same actor contract, no specialist growth before the 20M boundary."""
+    from emu.capability_focus import growth_mix
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    g.core_competence=.90
+    g.fall_ema['posture']=.10
+    for steps in (0,4_587_520,19_999_999):
+        assert growth_mix(step=steps,foundation_steps=20_000_000,
+                          steady_difficulty=.50)==0.
+    assert growth_mix(step=20_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.50)==0.
+    assert 0. < growth_mix(step=21_000_000,foundation_steps=20_000_000,
+                          steady_difficulty=.50) < 1.
+    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.05)==0.
+    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.32)==1.
+    assert g.advance_curriculum({},step=19_999_999,
+               foundation_steps=20_000_000,max_height_m=.04)['terrain_event']=='foundation_flat'
+    assert g.params.terrain_exposure==0.
+    assert g.params.slope_exposure==0.
+    assert g.params.frontier_vx_hi==.06
+    assert g.params.frontier_push_n==.70
+    assert not any(v['attempts'] for v in g.command_evidence.values())
+    assert g.advance_curriculum({},step=20_000_000,
+               foundation_steps=20_000_000,max_height_m=.04)['terrain_event'] in (
+               'terrain_unified_seed_4mm','unified_bootstrap_steady','await_core_walk')
+    assert g.params.terrain_exposure>=0.
+
+
+def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
+    """Several qualified specialties cannot overwhelm main's growth budget."""
+    from dataclasses import asdict
+    g = RegimeGovernor(open_frontier=True, unified_capability_focus=True)
+    assert g.params.frontier_vx_lo < 0.  # Reverse remains signed.
+    g.params.resilience_difficulty = .3
+    before = asdict(g.params)
+    g.params.steady_difficulty += g.difficulty_base_step
+    g.params.resilience_difficulty -= .01   # Retreat is not rationed.
+    g.params.frontier_vx_hi *= 1.025
+    g.params.frontier_vx_lo *= 1.025
+    g.params.frontier_push_n *= 1.01
+    # A first gentle lesson is an activation, not a harder earned frontier.
+    g.params.slope_exposure, g.params.slope_max_deg = .15, .70
+    g.params.terrain_exposure, g.params.terrain_height_m = .15, .004
+    result = g._share_unified_growth(before)
+    assert result['growth_budget_demand'] > 1.
+    assert 0. < result['growth_budget_scale'] < 1.
+    assert 0. < g.params.steady_difficulty < g.difficulty_base_step
+    assert before['frontier_vx_lo'] * 1.025 < g.params.frontier_vx_lo < before['frontier_vx_lo']
+    assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
+    assert g.params.slope_max_deg == .70
+    assert g.params.terrain_height_m == .004
+
+    legacy = RegimeGovernor()
+    assert legacy._share_unified_growth(asdict(legacy.params)) == {}
+    # Main's initial regime curriculum still goes through the same API.
+    report = legacy.advance_curriculum(
+        {}, step=0, max_height_m=0., foundation_steps=20_000_000)
+    assert report['terrain_event'] == 'foundation_flat'
+    assert 'growth_budget_scale' not in report
+
+    unified = RegimeGovernor(unified_capability_focus=True)
+    report = unified.advance_curriculum(
+        {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
+    assert report['terrain_event'] == 'foundation_flat'
+    assert report['slope_event'] == 'foundation_flat'
+    assert 'growth_budget_scale' not in report
+    assert unified.params.slope_exposure == 0.
+    assert unified.params.terrain_exposure == 0.
+
+
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
     from emu.checkpoint_io import promote_checkpoint
     source = tmp_path / 'latest.pkl'
@@ -577,8 +949,10 @@ def test_v5016_sensor_actor_cli_plan_is_explicit(capsys, tmp_path):
 
 
 def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
-    """A real schema-8 checkpoint must export to 232-input browser schema 2."""
-    from emu.contracts import (OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM,
+    """Schema-8 export must be valid for BOTH browser and frozen MJX examiner."""
+    import hashlib
+    import json
+    from emu.contracts import (OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, ROBOT_XML,
                                sensor_observation_contract)
     from emu.viewer_server import build_bundle, load_exported_actor_for_exam
     contract = sensor_observation_contract({
@@ -597,6 +971,7 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     save_checkpoint(saved,FakeState(params,{'count':np.asarray(1,np.int32)}),
         {'step':20_054_016,'lr_scale':.25,'checkpoint_schema':8,
          'obs_dim':SENSOR_OBS_DIM,'observation_schema':OBS_SCHEMA_SENSOR,
+         'robot_model_sha256':hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest(),
          'sensor_contract':contract},norm,curriculum_state={'params':{}},
         health_state={},field_state=CapabilityField().state_dict())
     bundle=build_bundle(saved)
@@ -607,9 +982,19 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     assert bundle['observation']['sensor_contract']==contract
     assert len(bundle['observation']['base_fields'])==58
     assert bundle['policy']['layers'][0]['w']['shape'][0]==232
-    # Old physical directional examiner must not misinterpret a sensor actor.
+    # The current physical examiner now supports schema 2, but must never
+    # reinterpret its 232 observations as legacy 220-input channels.
     from emu.viewer_server import write_bundle
     artifact=tmp_path/'sensor.emupolicy'
     write_bundle(bundle,artifact)
-    with pytest.raises(ValueError,match='schema-1'):
+    pi,normalizer,provenance=load_exported_actor_for_exam(artifact)
+    assert provenance['observation_schema']==OBS_SCHEMA_SENSOR
+    assert provenance['obs_dim']==SENSOR_OBS_DIM
+    assert provenance['source']['checkpoint_schema']==8
+    assert pi['pi'][0]['w'].shape[0]==SENSOR_OBS_DIM
+    assert normalizer['mean'].shape==(SENSOR_OBS_DIM,)
+    bad=json.loads(artifact.read_text())
+    bad['observation']['sensor_contract']['settings']['tof_delay_frames']=2
+    artifact.write_text(json.dumps(bad))
+    with pytest.raises(ValueError,match='sensor contract'):
         load_exported_actor_for_exam(artifact)

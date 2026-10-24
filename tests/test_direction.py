@@ -238,11 +238,12 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     from emu.viewer_server import load_exported_actor_for_exam
     champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     layers,norm,details=load_exported_actor_for_exam(champion)
-    assert details['source']['step']==120061952
-    assert details['source']['checkpoint_schema']==7
-    assert layers['pi'][0]['w'].shape==(220,256)
-    assert norm['std'].shape==(220,)
+    assert details['source']['step']==260112384
+    assert details['source']['checkpoint_schema']==8
+    assert layers['pi'][0]['w'].shape==(232,256)
+    assert norm['std'].shape==(232,)
     assert (norm['std']>0).all()
+    assert details['observation_schema']=='sim2real_232'
     obj=json.loads(champion.read_text())
     obj['source']['actor_sha256']='0'*64
     target=tmp_path/'tampered_actor.emupolicy'
@@ -258,6 +259,12 @@ def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
     obj['source']['robot_model_sha256']='0'*64
     target.write_text(json.dumps(obj))
     with pytest.raises(ValueError, match='robot XML'):
+        load_exported_actor_for_exam(target)
+    # The modern 232-input actor is NOT validated by width alone.
+    obj=json.loads(champion.read_text())
+    obj['observation']['sensor_contract']['settings']['tof_delay_frames']=2
+    target.write_text(json.dumps(obj))
+    with pytest.raises(ValueError, match='sensor contract'):
         load_exported_actor_for_exam(target)
 
 
@@ -314,71 +321,7 @@ def test_explicit_start_speed_and_stop_schedules_are_physical_requests():
     assert np.allclose(brake[:80,0],.1)
 
 
-def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
-    from pathlib import Path
-    from emu.evaluation import plan, execute, verify_existing
-    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
-    root=tmp_path/'unique_exam_results'
-    jobs=plan('physical',None,root,policy_file=champion,worlds=4,seed=1701)
-    assert len(jobs)==13
-    assert {x['arm'] for x in jobs}=={'champion'}
-    assert all(x['is_exported_policy'] for x in jobs)
-    assert all(x['run_dir']==str(champion.resolve()) for x in jobs)
-    assert all(x['worlds']==4 and x['seed']==1701 for x in jobs)
-    assert sum(x['contact_slope'] for x in jobs)==3
-    assert all(x['lateral']==.06 for x in jobs if x['scenario'].startswith('sidestep_'))
-    assert all(x['lateral']==0. for x in jobs if not x['scenario'].startswith('sidestep_'))
-    assert {x['scenario'] for x in jobs} >= {'rest_start','brake_stop','reverse',
-                                               'turn_stop_left','sidestep_right'}
-    execute(jobs,'synthetic_revision',actually_run=False)
-    assert not root.exists(), 'planning must create no experiment directory'
-    assert verify_existing(root/'missing.json',jobs[0],'src','sha') is False
-    with pytest.raises(ValueError,match='exported policy'):
-        plan('pilot',None,root,policy_file=champion)
-    with pytest.raises(ValueError,match='specify training'):
-        plan('physical',tmp_path/'old_run',root)
-
-
-def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path):
-    import json
-    from pathlib import Path
-    from emu.evaluation import plan, verify_existing
-    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
-    job=plan('physical',None,tmp_path/'out',policy_file=hero)[0]
-    path=Path(job['output'])/'heading_comparison.json'
-    path.parent.mkdir(parents=True)
-    from emu.evaluation import exam_request
-    protocol=exam_request(
-        angle_deg=job['angle'],direction=job['direction'],
-        worlds=job['worlds'],horizon=job['horizon'],
-        settle_frames=job['settle_frames'],speed=job['speed'],
-        lateral=job['lateral'],yaw_rate=job['yaw_rate'],
-        seed=job['seed'],device=job['device'],scenario=job['scenario'],
-        turn_rate=job['turn_rate'],gyro_bias=job['gyro_bias'],
-        gyro_noise=job['gyro_noise'],gyro_delay_frames=job['gyro_delay_frames'],
-        contact_slope=job['contact_slope'])
-    for mode,gain in (('off',0.),('on',job['heading_kp'])):
-        (path.parent/mode).mkdir()
-        (path.parent/mode/'directional_exam.json').write_text(json.dumps(
-            dict(source_commit='revision',source_artifact_sha256='expected',
-                 exam=dict(protocol,heading_kp=gain),
-                 worlds=[{}]*job['worlds'])))
-    payload=dict(schema=2, source_artifact_sha256='expected',
-                 examined_at_revision='revision',protocol=protocol,
-                 heading_kp=job['heading_kp'])
-    path.write_text(json.dumps(payload))
-    assert verify_existing(path,job,'revision','expected')
-    with pytest.raises(ValueError,match='stale source'):
-        verify_existing(path,job,'revision','modified-export')
-    with pytest.raises(ValueError,match='stale source'):
-        verify_existing(path,job,'modified-revision','expected')
-    payload['protocol']['scenario']='wrong-way'
-    path.write_text(json.dumps(payload))
-    with pytest.raises(ValueError,match='changed exam parameters'):
-        verify_existing(path,job,'revision','expected')
-
-
-def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(monkeypatch,tmp_path):
+def test_public_cli_routes_exported_actor_without_hidden_checkpoint(monkeypatch,tmp_path):
     """Regression: public emu CLI must not require --run-dir for --policy."""
     from pathlib import Path
     from emu import cli, evaluation
@@ -409,25 +352,12 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
     with pytest.raises(SystemExit):
         cli.main(['directional-exam','--policy',str(policy),
                   '--output',str(tmp_path/'invalid'),'--reuse-completed'])
-    def plan_stub(*args,**kwargs):
-        received.append(('plan',args,kwargs))
-        return [{'sentinel':'read-only'}]
-    def execute_stub(jobs,source,*,actually_run):
-        received.append(('execute',jobs,actually_run))
-    monkeypatch.setattr(evaluation,'plan',plan_stub)
-    monkeypatch.setattr(evaluation,'execute',execute_stub)
-    assert cli.main(['directional-batch','--policy',str(policy),
-                     '--profile','physical','--output',str(tmp_path/'batch'),
-                     '--device','cpu']) == 0
-    assert received[2][2]['policy_file'] == str(policy)
-    assert received[3][2] is False
-    assert not (tmp_path/'batch').exists()
 
 
 def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     """New run only; v5015 historical recipe stays pinned and reproducible."""
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config, ARMS
+    from emu.run import one_run_config
     def config(profile, pitch=None):
         return one_run_config(SimpleNamespace(
             profile=profile, run_dir=str(tmp_path/profile),steps=2048,
@@ -438,9 +368,6 @@ def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
     assert config('mature').pitch_command_max_deg == pytest.approx(8.0)
     assert config('foundation').pitch_command_max_deg == pytest.approx(8.0)
     assert config('sim2real',18).pitch_command_max_deg == pytest.approx(18.)
-    # Pitch15 is only part of the preserved *historical* lab5015 recipe.
-    # Future v5016 arms must use identical common 30deg range.
-    assert 'pitch15' in {a.name for a in ARMS}
     assert modern.run_dir != config('mature').run_dir
     with pytest.raises(ValueError,match='pitch-deg'):
         config('sim2real',31.0)
@@ -462,23 +389,15 @@ def test_public_sim2real_plan_resolves_common_pitch_30(tmp_path,capsys):
     assert not run.exists()
 
 
-def test_motor_guidance_keeps_historical_config_compatible_and_rejects_bad_arm(tmp_path):
+def test_motor_guidance_keeps_historical_config_compatible(tmp_path):
     import json
     from dataclasses import asdict
-    from emu.training_config import TrainingConfig, apply_experiment_knobs
+    from emu.training_config import TrainingConfig
     old=asdict(TrainingConfig())
     old.pop('motor_guidance_weight')
-    p=tmp_path/'old_training_config.json'
-    p.write_text(json.dumps(old))
-    restored=TrainingConfig.load(p)
-    assert restored.motor_guidance_weight == 0.0
-    arm=apply_experiment_knobs(restored,(('motor_guidance_weight',.06),))
-    assert arm.motor_guidance_weight == pytest.approx(.06)
-    assert restored.motor_guidance_weight == 0.0
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',.25),))
-    with pytest.raises(ValueError,match='motor_guidance_weight'):
-        apply_experiment_knobs(restored,(('motor_guidance_weight',-0.01),))
+    path=tmp_path/'old_config.json'
+    path.write_text(json.dumps(old))
+    assert TrainingConfig.load(path).motor_guidance_weight == 0.0
 
 
 def test_passive_spring_accounting_at_stance_and_reset_boundary():
@@ -627,7 +546,7 @@ def test_shared_real_contact_slope_training_plan_is_explicit(tmp_path,capsys):
     import json
     from dataclasses import asdict
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config
+    from emu.run import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
     from emu import cli
@@ -668,7 +587,7 @@ def test_contact_terrain_mode_is_explicit_in_public_training_plan(tmp_path,capsy
     from dataclasses import asdict
     from types import SimpleNamespace
     from emu import cli
-    from emu.branch_lab import one_run_config
+    from emu.run import one_run_config
     from emu.training_config import TrainingConfig
     from emu.training import env_kwargs_from_args
 
@@ -796,3 +715,87 @@ def test_optical_flow_gyro_compensation_and_explicit_dropouts():
     assert missing['velocity_confidence'][0]==0.
     np.testing.assert_array_equal(missing['velocity_body_xy_mps'][0],[0,0])
     assert bool(missing['velocity_valid'][1])
+
+
+
+def test_v5023_terrain_exam_requires_uninterrupted_real_far_side_support():
+    """Exam verdict cannot be earned by resets, ghost contacts or world Z."""
+    from emu.evaluation import score_terrain_course_trace
+    horizon, worlds = 100, 2
+    positions = np.zeros((horizon,worlds,2))
+    positions[:,:,0] = np.linspace(0.,.52,horizon)[:,None]
+    centres = np.array([[1.15,0.,-.11],[-.65,0.,-.11]])
+    quats = np.tile([1.,0.,0.,0.],(worlds,1))
+    ground = np.zeros((horizon,worlds,2),dtype=bool)
+    platform = np.zeros_like(ground)
+    platform[:,0,:] = positions[:,0,0,None]>.32
+    ground[:,1,:] = positions[:,1,0,None]>.32
+    rows = dict(
+        position_xy=positions,
+        done=np.zeros((horizon,worlds),dtype=bool),
+        fell=np.zeros((horizon,worlds),dtype=bool),
+        floor_contact=ground,
+        terrain_platform_contact=platform,
+        terrain_support=np.ones((horizon,worlds)),
+        terrain_bad_contact=np.zeros((horizon,worlds)),
+        terrain_vx=np.full((horizon,worlds),.15),
+        servo_shaft_drive_power_w=np.ones((horizon,worlds)),
+        initial_terrain_mocap_pos=centres,
+        initial_terrain_mocap_quat=quats,
+    )
+    completed=score_terrain_course_trace(rows,height_m=.04,speed=.15)
+    assert [x['lesson'] for x in completed]==['step-up','step-down']
+    assert all(x['crossing_pass'] for x in completed)
+    without=dict(rows,terrain_platform_contact=np.zeros_like(platform))
+    assert not score_terrain_course_trace(without,height_m=.04,speed=.15)[0]['crossing_pass']
+    terminated=np.zeros((horizon,worlds),dtype=bool)
+    terminated[80,0]=True
+    ended=dict(rows,done=terminated)
+    assert not score_terrain_course_trace(ended,height_m=.04,speed=.15)[0]['crossing_pass']
+    flat=score_terrain_course_trace(rows,height_m=0.,speed=.15)
+    assert all(x['crossing_pass'] is None for x in flat)
+
+def test_unified_frozen_scorer_rejects_unsupported_step_and_reset():
+    """A far-side root alone is not an earned step or proof of survival."""
+    from emu.evaluation import score_unified_capability_trace
+    from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M,UNIFIED_SLAB_HALF_DEPTH_M
+    frames_n=110
+    worlds=2
+    xy=np.zeros((frames_n,worlds,2))
+    xy[:,:,0]=np.linspace(0.,.45,frames_n)[:,None]
+    completed=np.zeros((frames_n,worlds),dtype=bool)
+    floor=np.zeros((frames_n,worlds,2),dtype=bool)
+    upper=np.zeros_like(floor)
+    upper[65:105,0,0]=True
+    floor[65:105,1,0]=True
+    center_upper=np.tile(np.array([.40,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
+    center_lower=np.tile(np.array([.0,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
+    # Artificial, internally consistent lip around x=0.20.
+    L=UNIFIED_SLAB_HALF_LENGTH_M
+    center_upper[:,0]=.20+np.array([L,-L])
+    center_lower[:,0]=.20-np.array([L,-L])
+    center_upper[:,2]+=.02
+    ident=np.tile(np.eye(3),(worlds,1,1))
+    frames=dict(position_xy=xy,done=completed,fell=completed,
+        command=np.tile(np.array([.20,0.,0.]),(frames_n,worlds,1)),
+        heading_rad=np.zeros((frames_n,worlds)),
+        initial_ground_xmat=ident,initial_upper_xmat=ident,
+        initial_unified_ground_mocap_pos=center_lower,
+        initial_terrain_mocap_pos=center_upper,
+        initial_root_quat=np.tile([1.,0.,0.,0.],(worlds,1)),
+        floor_contact=floor,terrain_platform_contact=upper,
+        terrain_support=np.ones((frames_n,worlds)),
+        terrain_bad_contact=np.zeros((frames_n,worlds)),
+        servo_shaft_drive_power_w=np.ones((frames_n,worlds)),
+        applied_push_force_n=np.zeros((frames_n,worlds)))
+    case=dict(name='step',kind='step',step_m=.02)
+    rows=score_unified_capability_trace(frames,case=case,settle_frames=5)
+    assert rows[0]['crossing_pass'] and rows[1]['crossing_pass']
+    no_contact=dict(frames,terrain_platform_contact=np.zeros_like(upper))
+    assert not score_unified_capability_trace(no_contact,case=case,settle_frames=5)[0]['crossing_pass']
+    ended=completed.copy()
+    ended[82,0]=True
+    interrupted=dict(frames,done=ended)
+    assert not score_unified_capability_trace(interrupted,case=case,settle_frames=5)[0]['crossing_pass']
+    assert rows[0]['measured_step_m']==pytest.approx(.02,abs=1e-4)
+

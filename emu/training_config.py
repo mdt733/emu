@@ -18,7 +18,7 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
+from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -113,11 +113,12 @@ def training_sensor_contract(config) -> dict | None:
     """Shared checkpoint/evaluator identity of the simulated sensor package."""
     if config.observation_schema == OBS_SCHEMA_LEGACY:
         return None
-    if config.observation_schema != OBS_SCHEMA_SENSOR:
+    if config.observation_schema not in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
     settings = dict(SENSOR_SETTINGS_DEFAULTS)
     settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
-    return sensor_observation_contract(settings)
+    return sensor_observation_contract(settings,schema=config.observation_schema,
+                                       array_only=bool(config.unified_capability_focus))
 
 
 def doctrine_dict() -> dict[str, object]:
@@ -134,10 +135,10 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
-    observation_schema: str = OBS_SCHEMA_LEGACY  # explicitly opt in to sim2real_232
+    observation_schema: str = OBS_SCHEMA_LEGACY  # opt in to 232 or G5 360 actor
 
     # Tunable PPO economics. Original doctrine values are the defaults;
-    # only a ladder arm with an explicit override changes them. Rollout length,
+    # only an explicitly versioned experiment changes them. Rollout length,
     # network structure and optimiser algorithm remain fixed contracts.
     ppo_lr: float = PPO_LR
     ppo_entropy_cost: float = PPO_ENTROPY_COST
@@ -172,6 +173,16 @@ class TrainingConfig:
     # Opt-in real contact incline, uniform across all training worlds.
     # The historical tilted-gravity terrain randomizer remains separate.
     contact_slope_deg: float = 0.0
+
+    # G4 opt-in: allocate a fixed-topology finite platform from episode zero,
+    # but keep it physically buried throughout the flat foundation. Exposure
+    # and height are controlled independently by RegimeGovernor; both start 0.
+    # No learner/curriculum automatically activates terrain yet.
+    terrain_step_max_m: float = 0.0
+    # v5023 overnight: off=historical sampling, speed=matched speed × ledge
+    # coverage, foothold=same sampling plus first physical upper-foot touchdown.
+    # Contract is saved with the checkpoint, never inferred from a run name.
+    unified_capability_focus: bool = False  # single shared-policy six-cohort director
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -224,7 +235,8 @@ class TrainingConfig:
         optional = {'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode', 'observation_schema'}
+                    'domain_terrain_mode', 'observation_schema',
+                    'terrain_step_max_m', 'unified_capability_focus'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
@@ -234,67 +246,6 @@ class TrainingConfig:
 # These are run identity / motor-contract parameters, not experiment knobs.
 # Algorithm-independent aspects (physical commands, teaching, curriculum,
 # normalisation) are otherwise modifiable via TrainingConfig fields.
-IMMUTABLE_RUN_FIELDS = frozenset({
-    'steps', 'envs', 'seed', 'device', 'run_dir', 'resume', 'attitude_profile', 'observation_schema',
-})
-
-
-def apply_experiment_knobs(
-    config: TrainingConfig,
-    knobs: tuple[tuple[str, bool | int | float | str | None], ...],
-) -> TrainingConfig:
-    """Apply a ladder arm's explicit TrainingConfig overrides, fail closed.
-
-    This is the ONLY translation from a human experiment recipe to the stable
-    trainer's knobs. Unknown field, duplicated field, runtime identity override
-    or incompatible value raises before training ever starts.
-    """
-    import math
-    from typing import get_type_hints
-
-    field_types = get_type_hints(TrainingConfig)
-    valid = set(field_types)
-    values = {}
-    for key, value in knobs:
-        if key not in valid:
-            raise ValueError(f'Unknown TrainingConfig experiment knob: {key}')
-        if key in IMMUTABLE_RUN_FIELDS:
-            raise ValueError(f'Experiment cannot override run identity / contract: {key}')
-        if key in values:
-            raise ValueError(f'Duplicate experiment knob: {key}')
-        declared = field_types[key]
-        # Follow the declared TrainingConfig type, not the current numeric
-        # value: several float fields can legitimately hold integer zero.
-        if declared is bool:
-            valid_value = isinstance(value, bool)
-        elif declared is int:
-            valid_value = isinstance(value, int) and not isinstance(value, bool)
-        elif declared in (float, float | None):
-            valid_value = (value is None and declared == float | None) or (
-                isinstance(value, (float, int)) and not isinstance(value, bool)
-                and math.isfinite(float(value)))
-            if value is not None and valid_value:
-                value = float(value)
-        elif declared is str:
-            valid_value = isinstance(value, str)
-        else:
-            raise TypeError(f'Unsupported config knob annotation: {key} ({declared})')
-        if not valid_value:
-            raise ValueError(f'Invalid value for experiment knob {key}: {value!r}')
-        if key == 'ppo_lr' and value <= 0:
-            raise ValueError('ppo_lr must be positive')
-        if key == 'domain_terrain_mode' and value not in ('gravity','contact'):
-            raise ValueError('domain_terrain_mode must be gravity or contact')
-        if key == 'contact_slope_deg' and not 0.0 <= value <= 5.0:
-            raise ValueError('contact_slope_deg must be between 0 and 5 degrees')
-        if key == 'motor_guidance_weight' and not 0.0 <= value <= 0.10:
-            raise ValueError('motor_guidance_weight must be between 0 and 0.10')
-        if key in ('ppo_entropy_cost','ppo_value_cost') and value < 0:
-            raise ValueError(f'{key} cannot be negative')
-        values[key] = value
-    return replace(config, **values)
-
-
 def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, resume: Path | None) -> dict:
     return dict(
         run_dir=str(run_dir), steps=int(steps), seed=int(seed),
@@ -337,32 +288,7 @@ def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: st
         field_influence_start_steps=FOUNDATION_STEPS, field_influence_full_steps=30_000_000,
     )
 
-# Phase recipe and existing-run restart compatibility
-from dataclasses import asdict, replace
-from pathlib import Path
-
-def _phase_config(name, target, r, t, h, *, root, seed, device, envs, resume, profile='v5014', pitch_deg=8.0214):
-    run_dir = root / name
-    if target <= 20_000_000:
-        return replace(foundation_config(run_dir=run_dir, seed=seed, device=device, envs=envs, resume=resume),
-                       attitude_profile=profile, pitch_command_max_deg=pitch_deg)
-    cfg = mature_config('graph', run_dir=run_dir, steps=target, seed=seed, device=device, envs=envs, resume=resume)
-    return replace(
-        cfg,
-        attitude_profile=profile, pitch_command_max_deg=pitch_deg,
-        capability_field_mode='graph',
-        field_max_influence=0.10,
-        field_teach_nodes=True, field_teach_edges=True, field_teach_recovery=True,
-        field_evidence_from_taught=True,
-        # v5013's clearest reproducible lesson: low dose. Keep teacher and
-        # physical-domain severity independent.
-        field_influence_start_steps=20_000_000,
-        field_influence_full_steps=30_000_000,
-        domain_randomization=max(r,t,h) > 0.0,
-        domain_robot_radius=r, domain_terrain_radius=t, domain_hardware_radius=h,
-    )
-
-
+# Exact resumed-run configuration matching (also used by a standalone run).
 def verify_existing_phase_config(run_dir: Path, expected) -> None:
     """Refuse a same-path continuation with a different physical/learning contract.
 

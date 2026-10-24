@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_RANGE_FIELDS, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -96,8 +96,10 @@ def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
     import numpy as _np
     fields = actor_observation_fields(observation_schema)
     normalised = OBS_NORMALIZED_FIELDS
-    if observation_schema == OBS_SCHEMA_SENSOR:
+    if observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
+    if observation_schema == OBS_SCHEMA_TERRAIN:
+        normalised = normalised | set(TERRAIN_RANGE_FIELDS)
     base = _np.asarray(
         [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
@@ -752,6 +754,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                actor_action=jnp.clip(mean,-1.,1.),
+                stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
                 floor_normal_world=floor_normal,floor_origin_world=floor_origin,
                 command=cmd,issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
@@ -778,7 +782,30 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
                 spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
                 shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
-                done=out.done,fell=out.metrics['episode_fell'])
+                done=out.done,fell=out.metrics['episode_fell'],
+                # Read-only physical diagnostics, using the same pre-reset
+                # reward measurements as the actual training environment.
+                terrain_support=out.metrics['support'],
+                terrain_bad_contact=out.metrics['bad_contact'],
+                terrain_vx=out.metrics['vx'],
+                terrain_height=out.metrics['height'],
+                terrain_gravity_z=out.metrics['gravity_z'],
+                terrain_fall_height=out.metrics['fall_height'],
+                terrain_fall_tilt=out.metrics['fall_tilt'],
+                terrain_fall_roll_rate=out.metrics['fall_roll_rate'],
+                terrain_fall_pitch_rate=out.metrics['fall_pitch_rate'],
+                terrain_timeout=out.metrics['episode_timeout'],
+                # Actual disturbance delivered in the previous MJX step;
+                # recorded only for frozen recovery assessment.
+                applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
+            if env.terrain_step_mocap_id >= 0:
+                # Same collision pairs as the training environment; the
+                # frozen examiner never infers support from root altitude.
+                platform_id = int(env.terrain_step_geom_id)
+                contact = getattr(es.data, '_impl', es.data).contact
+                sample['terrain_platform_contact'] = contact_pair_mask(
+                    jnp, contact.geom1, contact.geom2, contact.dist,
+                    int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
@@ -787,6 +814,42 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
+        if env.terrain_step_mocap_id >= 0:
+            if env.unified_capability_focus:
+                # Same two actual MJX collision surfaces; no constructed
+                # heightfield or training-only success labels in the examiner.
+                return dict(
+                    **frames,
+                    initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
+                    initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
+                    initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
+                    initial_upper_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,env.terrain_step_geom_id,:],(env.num_envs,3,3)),
+                    initial_ground_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,int(env.ids['floor_geom']),:],(env.num_envs,3,3)),
+                    initial_root_quat=initial.data.qpos[:,3:7],
+                    last_position_xy=last_xy,
+                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
+            return dict(
+                **frames,
+                initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],
+                initial_terrain_mocap_quat=initial.data.mocap_quat[:, env.terrain_step_mocap_id, :],
+                last_position_xy=last_xy,
+                last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                last_floor_contact=last_contacts,
+                last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                spring_reference_rad=env.spring_reference,
+                spring_stiffness_nm_rad=env.spring_stiffness,
+                servo_peak_limit_nm=env.servo_stall_torque_nm)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,

@@ -1,89 +1,111 @@
 #!/usr/bin/env bash
-# Reproducible source-checkout setup. No sudo, no Git changes, no training.
+# Set up this EMU checkout in WSL. Installs dependencies but never trains,
+# changes Git refs, deletes a virtualenv or alters protected policies.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-cd "$ROOT"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
 CUDA13=0
 INSTALL_NODE=0
+VIEWER_ONLY=0
+CHECK=0
+usage() {
+  cat <<'EOF'
+Usage: bash scripts/setup_wsl.sh [--viewer-only] [--install-node] [--cuda13] [--check]
+  (default)       Install EMU Python + browser viewer and run basic doctor/plan
+  --viewer-only   Install EMU and build the viewer; skip training checks/plans
+  --install-node  Install/use repository Node 24 via user-local nvm
+  --cuda13        Install CUDA 13 JAX wheels for NVIDIA/WSL GPU experiments
+  --check         Also run full Python and browser tests (never implicit)
+No training is started, no Git state is changed.
+EOF
+}
 for arg in "$@"; do
   case "$arg" in
+    --viewer-only) VIEWER_ONLY=1 ;;
     --cuda13) CUDA13=1 ;;
     --install-node) INSTALL_NODE=1 ;;
-    --help|-h)
-      printf 'Usage: bash scripts/setup_wsl.sh [--cuda13] [--install-node]\n'
-      printf '  --cuda13         Install JAX CUDA 13 wheels for a compatible NVIDIA GPU\n'
-      printf '  --install-node   Install Node 24 via official pinned nvm installer if missing\n'
-      exit 0 ;;
-    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+    --check) CHECK=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
-command -v git >/dev/null || { echo 'Git required. On Ubuntu: sudo apt install git' >&2; exit 1; }
-command -v curl >/dev/null || { echo 'curl required. On Ubuntu: sudo apt install curl' >&2; exit 1; }
+if ((VIEWER_ONLY && CUDA13)); then
+  echo 'Choose viewer-only or CUDA training setup, not both.' >&2
+  exit 2
+fi
 
 if command -v python3.13 >/dev/null 2>&1; then
   PYTHON=python3.13
-elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys;sys.exit(sys.version_info < (3,13))'; then
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 13))'; then
   PYTHON=python3
 else
-  echo 'EMU requires Python >= 3.13. Install Python 3.13+ with venv for your distribution before retrying.' >&2
-  exit 1
-fi
-if [[ ! -f emu/viewer_src/package-lock.json ]]; then
-  echo 'STOP: emu/viewer_src/package-lock.json is missing from this checkout.' >&2
-  echo 'The lockfile from the tested npm build MUST be added and committed before a portable setup.' >&2
-  echo 'On the already-working development PC: cd emu/viewer_src && npm install; git add emu/viewer_src/package-lock.json' >&2
+  echo 'EMU needs Python 3.13+. Install it with venv support first.' >&2
   exit 1
 fi
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  if [[ $INSTALL_NODE -ne 1 ]]; then
-    echo 'Node/npm missing. Run setup with --install-node to install Node 24 via nvm.' >&2
-    exit 1
-  fi
-fi
-# --install-node also repairs an unsupported system Node, not just missing Node.
-if [[ $INSTALL_NODE -eq 1 ]]; then
-  [[ -s "$HOME/.nvm/nvm.sh" ]] || {
-    # Pin nvm installation script for predictability; user opted into this.
+# The single source-checkout viewer uses Node, even in viewer-only mode.
+[[ -f emu/viewer_src/package-lock.json ]] || {
+  echo 'Missing committed viewer package-lock.json; refusing unlocked installation.' >&2
+  exit 1
+}
+if ((INSTALL_NODE)); then
+  command -v curl >/dev/null || { echo 'curl is required to install Node.' >&2; exit 1; }
+  export NVM_DIR="$HOME/.nvm"
+  if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
     temp_script="$(mktemp)"
     trap 'rm -f "$temp_script"' EXIT
-    curl -fsSL 'https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh' -o "$temp_script"
-    bash "$temp_script"
+    curl --proto '=https' --tlsv1.2 -fsSL \
+      'https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh' -o "$temp_script"
+    PROFILE=/dev/null bash "$temp_script"
     rm -f "$temp_script"
     trap - EXIT
-  }
+  fi
 fi
-# Use the repo's Node version when nvm exists, even if a system Node is present.
 if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   export NVM_DIR="$HOME/.nvm"
   # shellcheck disable=SC1091
-  # Prevent nvm from auto-using Node 24 from .nvmrc before it is installed.
   source "$NVM_DIR/nvm.sh" --no-use
-  if [[ $INSTALL_NODE -eq 1 ]]; then
+  if ((INSTALL_NODE)); then
     nvm install "$(cat .nvmrc)"
-  elif nvm ls "$(cat .nvmrc)" 2>/dev/null | grep -q 'N/A'; then
-    echo 'Node 24 not installed in nvm. Run with --install-node.' >&2
-    exit 1
   else
-    nvm use "$(cat .nvmrc)" >/dev/null
+    nvm use "$(cat .nvmrc)" >/dev/null 2>&1 || true
   fi
 fi
-if ! node -e 'const [major,minor] = process.versions.node.split(".").map(Number); process.exit(major>=24 || (major===22 && minor>=12) || (major===20 && minor>=19) ? 0 : 1)' ; then
-  echo "Node $(node --version) is too old for Vite 7. Use Node 24 (nvm install 24)." >&2
+if ! command -v node >/dev/null || ! command -v npm >/dev/null || \
+   ! node -e 'const v=process.versions.node.split(".").map(Number); process.exit(v[0]>=24 || (v[0]===22 && v[1]>=12) || (v[0]===20 && v[1]>=19) ? 0 : 1)'; then
+  echo 'Compatible Node/npm missing. Rerun with --install-node.' >&2
   exit 1
 fi
 
 if [[ ! -d .venv ]]; then "$PYTHON" -m venv .venv; fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
-python -c 'import sys; assert sys.version_info >= (3,13), "Existing .venv uses the wrong Python; preserve it and recreate after review"'
-python -m pip install --upgrade pip
-if [[ $CUDA13 -eq 1 ]]; then python -m pip install 'jax[cuda13]'; fi
-python -m pip install -e '.[dev]'
-python -m pytest -q
-if [[ $CUDA13 -eq 1 ]]; then emu doctor --domain-smoke; else emu doctor --no-require-gpu --no-mjx-smoke; fi
+python -c 'import sys; assert sys.version_info >= (3,13), "Existing .venv uses older Python. Preserve it and recreate after review."'
+if ((CUDA13)); then
+  python -m pip install 'jax[cuda13]'
+fi
+if ((CHECK)); then
+  python -m pip install -e '.[dev]'
+else
+  python -m pip install -e .
+fi
+
+# Keep installation distinct from acceptance. A viewer checkout should not
+# silently execute the full CPU/JAX test suite.
+if ((!VIEWER_ONLY)); then
+  emu doctor --no-require-gpu --no-mjx-smoke
+  emu train --help >/dev/null
+fi
 emu viewer-build
-emu ladder --stage plan
-printf '\nSetup complete. In a separate terminal: source .venv/bin/activate && emu viewer emu/viewer_src/demo_zero.emupolicy --no-open\n'
-printf 'Viewer URL: http://127.0.0.1:8765/\n'
-printf 'Setup never starts training. On a supported GPU, run: emu doctor --v5015-smoke --domain-smoke\nThen: emu ladder --stage foundation --root "$HOME/robot_lab/emu_runs/new-study" --seed 733 --envs 2048 --device cuda\n'
+if ((CHECK)); then
+  python -m pytest -q tests
+  npm test --prefix emu/viewer_src
+fi
+
+printf '\nEMU setup complete (%s). No training was started.\n' "$([[ "$VIEWER_ONLY" == 1 ]] && echo viewer-only || echo full)"
+printf 'Viewer: source .venv/bin/activate && emu viewer showcase/champion.emupolicy --no-open\n'
+printf 'Open http://127.0.0.1:8765/ in your browser.\n'
+printf 'Focused physical terrain proof: python -m emu.terrain_spike --worlds 2\n'
+if ((CUDA13)); then
+  printf 'GPU acceptance is separate: emu doctor --v5015-smoke --domain-smoke\n'
+fi

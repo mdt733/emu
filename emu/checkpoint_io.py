@@ -18,13 +18,14 @@ from typing import Any
 import numpy as np
 
 from .curriculum import FIELD_VERSION
-from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
-                        SENSOR_OBS_DIM, sensor_observation_contract)
+from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
+                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
 CHECKPOINT_SCHEMA = 7  # Historical Pitch15 pickle format, never renumber.
 SENSOR_CHECKPOINT_SCHEMA = 8
+TERRAIN_CHECKPOINT_SCHEMA = 9
 ROBOT_MODEL_SHA256 = hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 
 
@@ -84,19 +85,22 @@ def _validate_observation_meta(meta: dict[str, Any], where: str = '',
         if 'sensor_contract' in meta:
             raise ValueError(f"checkpoint{where} has sensor metadata inside legacy schema 7")
         return OBS_DIM
-    if expected_observation_schema != OBS_SCHEMA_SENSOR:
+    schema_versions = {OBS_SCHEMA_SENSOR:(SENSOR_CHECKPOINT_SCHEMA,SENSOR_OBS_DIM),
+                       OBS_SCHEMA_TERRAIN:(TERRAIN_CHECKPOINT_SCHEMA,TERRAIN_OBS_DIM)}
+    if expected_observation_schema not in schema_versions:
         raise ValueError(f"unknown expected checkpoint observation schema {expected_observation_schema!r}")
-    if disk_schema != SENSOR_CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_SENSOR:
-        raise ValueError(f"checkpoint observation schema mismatch{where}: expected sim2real_232 schema 8")
+    expected_version, expected_dim = schema_versions[expected_observation_schema]
+    if disk_schema != expected_version or schema != expected_observation_schema:
+        raise ValueError(f"checkpoint observation schema mismatch{where}: expected {expected_observation_schema} schema {expected_version}")
     supplied = meta.get('sensor_contract')
     if not isinstance(supplied, dict) or not isinstance(supplied.get('settings'), dict):
         raise ValueError(f"checkpoint{where} missing complete sensor contract")
-    canonical = sensor_observation_contract(supplied['settings'])
+    canonical = sensor_observation_contract(supplied['settings'],schema=expected_observation_schema)
     if supplied != canonical:
         raise ValueError(f"checkpoint{where} sensor contract fingerprint/geometry mismatch")
     if expected_sensor_contract is None or expected_sensor_contract != canonical:
         raise ValueError(f"checkpoint{where} sensor contract differs from requested run")
-    return SENSOR_OBS_DIM
+    return expected_dim
 
 
 def _validate_rewind_meta(meta: dict[str, Any], where: str = '') -> None:
@@ -150,9 +154,9 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     meta.setdefault('robot_model_sha256', ROBOT_MODEL_SHA256)
     meta.setdefault('created_unix', float(time.time()))
     schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
-    if schema == OBS_SCHEMA_SENSOR:
+    if schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         dimension = _validate_observation_meta(
-            meta, f" at {path}", expected_observation_schema=OBS_SCHEMA_SENSOR,
+            meta, f" at {path}", expected_observation_schema=schema,
             expected_sensor_contract=meta.get('sensor_contract'))
     else:
         dimension = _validate_observation_meta(meta, f" at {path}")

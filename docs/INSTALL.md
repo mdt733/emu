@@ -1,268 +1,154 @@
-# Install & operate EMU
+# EMU — install and operate
 
-EMU has a Python JAX/MJX learning environment and a separate JavaScript MuJoCo/WebAssembly viewer. **GPU training requires a working NVIDIA driver exposed to WSL**; browser viewing does not.
+This guide documents the **current single-run entry point**, not retired ladder/Pinnacle campaigns. For the learning philosophy see [unified learning contract](UNIFIED_CAPABILITY_GROWTH.md); for launch blockers see [handover](../HANDOVER.md).
 
-## Fresh Windows / WSL2
+## Install on Windows 11 + WSL2
 
-From an administrator PowerShell on Windows 11:
-
-```powershell
-wsl --list --verbose
-wsl --install -d Ubuntu-24.04
-wsl --update
-```
-
-Do not reinstall or unregister an existing suitable Ubuntu environment. In Ubuntu, check Python 3.13+; Ubuntu 24.04's stock Python may be 3.12. One choice is the third-party deadsnakes PPA (evaluate its security/update policy before using it):
+Use a working Ubuntu distribution with Python 3.13 and NVIDIA WSL/CUDA drivers if GPU training is intended. In WSL:
 
 ```bash
-sudo apt update
-sudo apt install -y git curl ca-certificates software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install -y python3.13 python3.13-venv
-python3.13 --version
-```
-
-Do not replace `/usr/bin/python3`. Install the Windows NVIDIA driver, **not the Linux graphics driver inside WSL**. Check `nvidia-smi`. See [NVIDIA CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
-
-## Clone, install and verify
-
-```bash
-git clone https://github.com/mdt733/emu.git "$HOME/emu"
-cd "$HOME/emu"
+git clone https://github.com/mdt733/emu.git
+cd emu
+git switch feature/v5023-capability-growth
 bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
 emu doctor --v5015-smoke --domain-smoke
-bash scripts/check.sh
-emu ladder --stage plan
 ```
 
-For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu doctor --no-require-gpu --no-mjx-smoke`. The installer builds the viewer, not a long run.
+For CPU-only inspection omit `--cuda13`, then use `emu doctor --no-require-gpu --no-mjx-smoke`.
 
-**The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
+## One source-pinned training lineage
 
-
-
-### v5016 spring and real-contact slope checks
-
-The independent physical exam now accepts a genuinely inclined infinite
-MuJoCo collision plane (the original XML stays unchanged, and gravity stays
-vertical). This is **not** the earlier tilted-gravity approximation, and
-the printed report explicitly identifies which kind of slope was examined.
+**Main reference: the first 20M steps.** `foundation_config` retains the historical simple standing/walking bootstrap: seed 733, 2,048 worlds, 32-frame rollouts, 4 PPO epochs, 8 minibatches, LR 2e-4, original eight rewards, first 70 updates steady-only and restrained initial command requests.
 
 ```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
-OUT="$HOME/robot_lab/emu_exams/v5016_real_slope_$(date +%Y%m%d_%H%M%S)"
-emu directional-exam --policy showcase/champion.emupolicy \
-  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-  --seed 1701 --scenario steady --speed .10 \
-  --angle 2 --direction uphill --contact-slope --compare-heading
+RUN="$HOME/robot_lab/emu_runs/foundation20_example"
+emu train --run-dir "$RUN" --profile foundation --steps 20000000 \
+  --envs 2048 --seed 733 --device cuda --plan
 ```
 
-For a full planned protected-policy course campaign, the
-`--profile physical` batch now has **13 scenarios**, including real 2°
-uphill/downhill/cross slope cases. Run the planned command without `--run`
-first. These experiments never alter the protected actor or train PPO.
-
-The physical JSON records each passive shin's spring-energy charging/release
-and whether its release coincided with uninterrupted stance contact. Stance
-release is only an energy-timing observation—not energy delivered to the
-ground, an efficiency percentage, or proof of spring-assisted propulsion.
-`robot.xml` still lacks shin/torso sentinel contacts, and the actual
-incline is a single infinite plane rather than rocks, steps or varying
-per-world terrain.
-
-### v5016 read-only physical reality exam (do this BEFORE expensive training)
-
-The protected Pitch15 public policy is a legitimate **frozen actor** and now
-works as an examiner input without the historical training PKL. Use a new,
-isolated output directory outside Git; this creates reports only.
-
-For a matched 10-course exam (heading correction OFF/ON, seed-controlled),
-first print the planned jobs, then opt in explicitly with `--run`:
+Remove `--plan` **only for an explicitly intended real run**. This command uses the original 220-input contract, suitable for a working `main` foundation comparison. It is **not the new 360-input unified actor**. Interrupt/resume only with the **same commit and configuration** using `--resume auto`; checkpoints must remain outside the checkout. Export a verified checkpoint:
 
 ```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
-BASE="$HOME/robot_lab/emu_exams/pitch15_$(date +%Y%m%d_%H%M%S)"
-emu directional-batch --policy showcase/champion.emupolicy \
-  --profile physical --device cuda --worlds 4 --seed 1701 \
-  --output "$BASE"
-# When the plan looks right, append --run to the command above.
-# Repeat with a DIFFERENT BASE for held-out seeds 1702 and 1703.
-```
-
-The executable source is the approved exported policy, never any training root.
-Individual output directories are source- and checkpoint-hash checked; partial
-or stale results fail closed instead of being silently overwritten.
-For a single case, use:
-
-```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
-
-OUT="$HOME/robot_lab/emu_exams/pitch15_steady_$(date +%Y%m%d_%H%M%S)"
-emu directional-exam --policy showcase/champion.emupolicy \
-  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-  --seed 1701 --scenario steady --speed 0.10 --angle 0
-
-# Bounded independent stop/resume and turning checks, different output roots.
-for SCENE in rest_start speed_step brake_stop stop_resume reverse turn_stop_left turn_stop_right; do
-  OUT="$HOME/robot_lab/emu_exams/pitch15_${SCENE}_$(date +%Y%m%d_%H%M%S)"
-  emu directional-exam --policy showcase/champion.emupolicy \
-    --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-    --seed 1701 --scenario "$SCENE" --speed 0.10 --angle 0
-done
-```
-
-If the CUDA examiner fails due to VRAM, collect the error and consider
-`--worlds 2`; do not silently substitute a CPU pass for GPU acceptance.
-Exam markdown reports signed progress, alternating touchdown candidates,
-per-servo torque-duty evidence, shaft work per signed metre and maneuver
-latency. Inspect the corresponding raw JSON before judging any policy.
-These tests never update the 120M trained policy, the showcase or a
-running WSL experiment. They do **not** establish electrical consumption,
-winding temperature, calibrated ground reaction forces or safe hardware use.
-
-## GPU acceptance before a large campaign
-
-The following is a deliberately small but complete **two-update** fresh-checkpoint test. Use a never-used root outside Git:
-
-```bash
-ROOT="$HOME/robot_lab/emu_runs/acceptance_$(date +%Y%m%d_%H%M%S)"
-python scripts/smoke_training_lifecycle.py first --root "$ROOT"
-python scripts/smoke_training_lifecycle.py continue --root "$ROOT"
-python scripts/smoke_training_lifecycle.py verify --root "$ROOT"
-```
-
-This proves update, save, warm resume, independent fixed evaluation and actor export, **not walking ability**. Use `nvidia-smi` to watch VRAM. Earlier 8GB RTX 4060 Ti runs succeeded at 2048 worlds, but this is not a promise for other machines.
-
-## v5016 common pitch and opt-in motor teaching — future trials
-
-`emu train --profile sim2real` keeps the mature PPO, v5015 posture model and
-220-input/six-action actor, but sets the same ±30° commanded chassis pitch
-limit for every new physical-learning experiment. This does not change or
-retrain the protected Pitch15 policy. The historical `emu ladder` still
-describes the old Pitch15 comparison; **do not use that ladder as the v5016
-efficiency/terrain tournament**.
-
-Two pure plans for future matched experiments, with unique new run roots:
-
-```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
-BASE="$HOME/robot_lab/emu_runs/v5016_study_$(date +%Y%m%d_%H%M%S)"
-emu train --run-dir "$BASE/baseline" --profile sim2real \
-  --steps 12000000 --envs 512 --device cuda --seed 733 --plan
-emu train --run-dir "$BASE/motor_preview" --profile sim2real \
-  --steps 12000000 --envs 512 --device cuda --seed 733 \
-  --motor-guidance-weight 0.06 --plan
-```
-
-These are **plan-only previews**, not an instruction to launch independent
-cold starts or to compare unlike training ancestries. The actual study should
-use one short shared foundation, fork matched training arms from exactly the
-same checkpoint, retain source lineage and exam identical held-out courses.
-Only run after GPU acceptance and interpretation of the protected champion
-exams. The motor term is an uncalibrated training proxy for overload and
-mechanical shaft demand; spring return and electrical consumption are *not*
-inferred. Treat ±30° as an aspirational teaching envelope to verify in the
-presence of walking, not evidence that every physical angle is attainable.
-
-## Train and inspect
-
-```bash
-RUN="$HOME/robot_lab/emu_runs/study_$(date +%Y%m%d_%H%M%S)"
-emu ladder --stage foundation --root "$RUN" --seed 733 --envs 2048 --device cuda
-emu ladder --stage auto --root "$RUN" --seed 733 --envs 2048 --device cuda --stop-after round1
-emu report --root "$RUN"
+emu export-policy "$RUN/checkpoints/final.pkl" "$RUN/foundation.emupolicy"
+emu viewer-build
 emu viewer --live --root "$RUN" --no-open
 ```
 
-The 20M foundation is shared; four arms reach approximately 80M each. Two eligible finalists can reach 100M; a winner can reach 120M. See `emu ladder --stage plan` for the live recipe. Only completed validated checkpoints feed the viewer. Open `http://127.0.0.1:8765/`. The read-only viewer server is **unauthenticated and local-only**; never forward its port publicly.
-
-For one-off deterministic browser policy export:
+## Unified research: planned, not launchable
 
 ```bash
-emu export-policy /path/to/checkpoints/final.pkl /tmp/my_robot.emupolicy
+emu train --run-dir "$HOME/robot_lab/emu_runs/unified_candidate" \
+  --profile sim2real --terrain-actor --terrain-step-max-m 0.04 \
+  --unified-capabilities --steps 20000000 --envs 2048 --seed 733 \
+  --device cuda --plan
 ```
 
-## One continuous run (no experimental branches)
+That command prints a proposed configuration. **The matching live training invocation intentionally raises a pre-launch error** until true combined slope+step contact, independent held-out examination, GPU 2,048-world memory/PPO, checkpoint/resume/export, live viewer parity and cold-start review are accepted. Do not disable the guard to run overnight.
 
-For one 120M-step trajectory, use `emu train` rather than `emu ladder`.
-The mature profile starts from scratch (so this does **not** reproduce the
-historical 20M-foundation/forked Pitch15 experiment). `--pitch-deg 15` uses
-that study's promising pitch command range; 1024 worlds is a more conservative
-starting point for an 8 GB GPU, though it still needs real GPU validation.
-Use a unique run directory *outside* Git and do not change its source revision
-or options during training.
+The six teacher-only cohorts and realistic **4×4 array-based 360-input sensor** use a separate actor contract; an old 220/232/360 checkpoint must not be blindly resumed under it.
+
+## Checks and viewer
 
 ```bash
-RUN="$HOME/robot_lab/emu_runs/single120_pitch15"
-emu train --run-dir "$RUN" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15
+bash scripts/check.sh
+python scripts/smoke_unified_focus.py --device cpu --envs 12
+emu terrain-exam --help
+emu viewer --no-open
 ```
 
-In a second WSL terminal using the same checkout and environment:
+CPU smoke/CI does not establish CUDA capacity or successful locomotion. The local viewer is read-only and **not authenticated**; do not expose its port publicly. See [PLAYGROUND](PLAYGROUND.md) for viewer behaviour and protected public release.
+
+## Short CUDA acceptance without launching training
+
+On the RTX 4060 Ti, explicitly opt in to **one** production-shaped PPO update:
 
 ```bash
-emu viewer-build
-emu viewer --live --root "$HOME/robot_lab/emu_runs/single120_pitch15" --no-open
+python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
 ```
 
-Open http://127.0.0.1:8765/ in Windows. Viewer is read-only,
-runs inference on the browser CPU and loads completed checkpoints as they
-arrive; initially it may say 'Waiting for first checkpoint'. If interrupted,
-repeat the identical training command with `--resume auto`. A source
-revision change requires a new run root, not reuse of the existing one.
+This reuses the existing physical/sensor smoke and uses 32-frame rollouts, four PPO epochs and eight minibatches. It does **not** open the unified campaign or write checkpoints. Capture its GPU memory/errors and throughput before attempting training. A successful isolated update does **not** prove long-run stability, resume/export or walking competence.
 
-## Tests and troubleshooting
-
-`bash scripts/check.sh` runs the intentionally small Python and browser contract suite plus CLI/CPU-doctor checks. The GitHub browser CI job separately builds the static frontend and verifies the bundled policy/WASM assets. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
-
-If an install fails, do not delete old experiments. Verify `git status --short`, `git rev-parse HEAD`, `python -c "import emu; print(emu.__file__)"`, `nvidia-smi`, and the failing run's `console.log`. Optional `warp` import warnings don't necessarily mean MJX failed. If a checkpoint is corrupt, preserve the original and use the validated automatic recovery paths. Any source change requires a new campaign identity.
-
-## Public release
-
-The only deployable policy in Git is `showcase/champion.emupolicy`. The manual GitHub Pages workflow checks its pinned Git blob hash; training `.pkl` files stay local. [PLAYGROUND.md](PLAYGROUND.md) describes build and publishing.
-
-### v5016 optional real-contact slope training (planning only)
-
-The new sim2real training mode can use one shared, genuinely inclined contact
-floor per run, with vertical gravity. This is a conservative FIRST STEP,
-**not** per-world random terrain. Historical runs retain zero incline.
+Once a source-pinned, trained 360-input array-only policy exists, the independent frozen assessment is:
 
 ```bash
-OUT="$HOME/robot_lab/emu_runs/v5016_grade_$(date +%Y%m%d_%H%M%S)"
-emu train --profile sim2real --run-dir "$OUT/flat" --steps 12000000 \
-    --envs 512 --device cuda --seed 733 --plan
-emu train --profile sim2real --run-dir "$OUT/grade2" --steps 12000000 \
-    --envs 512 --device cuda --seed 733 --contact-slope-deg 2 --plan
+emu capability-exam --policy /path/to/new360.emupolicy \
+  --output /path/to/new-empty-exam --device cpu --worlds 4 --quick
 ```
 
-These commands do not launch training. Physical grading requires matched
-frozen-policy exams on both flat and real slopes and a separate GPU acceptance.
-Never combine this mode with the older tilted-gravity `domain_terrain_radius`.
+Run with `--worlds 8` for all eight recovery push directions and without `--quick` for the complete 19-case assessment. It grades genuine physical support, not training reward or battery consumption.
 
+## Overnight readiness — exact sequence (same source SHA)
 
-### v5016 per-world contact slope pilot — plan only
+A clean full CI run and green physical CPU smoke come first. Keep the Git
+checkout and all checkpoints source-pinned, with each acceptance root NEW,
+outside the repository. The first real overnight train command is **still
+deliberately blocked**, even after these diagnostics pass.
 
-The independently randomized physical terrain preview is now a single
-flag on the existing `sim2real` training command. **No training starts
-when `--plan` is present.** It is not the historical tilted-gravity
-domain study, and not a heightfield or loose/uneven ground.
+**1. Full 2,048-world GPU PPO preflight** (no file writes):
 
 ```bash
-RUN="$HOME/robot_lab/emu_runs/v5016_contact_pilot_$(date +%Y%m%d_%H%M%S)"
-emu train --run-dir "$RUN" --profile sim2real \
-  --contact-terrain-radius 0.4 --steps 2048 --envs 4 \
-  --device cpu --seed 733 --plan
+cd ~/emu
+git switch feature/v5023-capability-growth
+git pull --ff-only
+source .venv/bin/activate
+git status --short                    # must be empty
+git rev-parse HEAD                    # record this exact SHA
+python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
 ```
 
-Radius 1 corresponds to **up to 5° of actual inclination** in any azimuth,
-with world-specific friction variation and unchanged vertical gravity.
-Worlds have different fixed planes sampled once at environment creation.
-Do not combine `--contact-terrain-radius` with `--contact-slope-deg`.
-Separate CPU and bounded GPU memory/performance acceptance is needed before
-trying 512/2048 worlds or comparing teaching methods. This is a
-simulation capability, not validated servo or on-robot estimator fidelity.
+If there is CUDA OOM, a non-finite gradient, excessive memory use or a
+significant speed regression, **stop**. Fix the source (or deliberately
+redesign the accepted batch size) rather than launching training regardless.
+
+**2. Two-update 360-input checkpoint lifecycle** (bounded and explicit):
+
+```bash
+ROOT="$HOME/robot_lab/emu_runs/unified_accept_$(git rev-parse --short HEAD)_8"
+for STAGE in first continue verify; do
+  python scripts/smoke_training_lifecycle.py "$STAGE" \
+    --root "$ROOT" --unified --envs 8 || break
+done
+```
+
+After the small lifecycle passes, repeat with a **fresh** root and
+`--envs 2048` to verify real-sized checkpoint/restore/export. The smoke
+cannot request more than two updates even when explicitly opted in; it
+will not make a trained walking policy.
+
+**3. Exercise the actual exported 360 policy in the frozen examiner**:
+
+```bash
+emu capability-exam \
+  --policy "$ROOT/tiny_smoke_actor.emupolicy" \
+  --output "$ROOT/quick_physics" --device cpu --worlds 4 --quick
+```
+
+Set `ROOT` to the relevant successful lifecycle root. An untrained
+two-update policy should generally fail walking tasks; this stage only
+checks that array-only sensor decoding, real two-slab physics, scoring and
+artifact loading function end-to-end. **Do not interpret its pass fraction
+as earned walking competence.** Open the exported policy locally in the
+viewer too.
+
+**4. Owner-approved cold foundation, then the first overnight growth run.**
+
+Only after 1–3, source-pinned replay and current HEAD CI all pass is it
+appropriate to review removal of the *separate* long-run launch guard.
+The first actual run should target **20M from zero** on the 360 actor.
+Evaluate that checkpoint against `main` on matched flat tasks. If the
+foundation gait regresses, fix its causes; **do not launch the overnight
+growth continuation**. If acceptable, start a new run directory with
+`--resume /absolute/path/to/foundation20/checkpoints/final.pkl`, same
+source SHA, the same 360 actor/profile and a larger **absolute** steps
+target. The new directory protects the 20M ancestor while keeping a
+single continuous policy lineage.
+
+Inspect saved evidence and genuine supported contacts, not just reward.
+The longer campaign should have periodic source-pinned checkpoints,
+fixed-policy examinations and enough disk headroom; make no automated
+showcase promotion. **Explicit owner approval is still required.**
+
+## Safety
+
+No writes to `main`, showcase or approved Pinnacle without owner approval. Treat reward as training incentive, not real physical walking evidence. Simulated shaft work is not measured battery energy, and untested learned servo commands are **not hardware-safe**. Check source provenance and matched physical exams before any extended GPU campaign.

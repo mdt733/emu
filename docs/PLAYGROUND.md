@@ -59,6 +59,7 @@ assets, and deploys GitHub Pages. Check the workflow deployment status
 before considering the new public site live. The training checkpoint
 (.pkl) is never shipped to browsers.
 
-See [v5017 navigation internals](V5017_GOAL_NAVIGATION.md) and
-[v5016 release safeguards](V5016_RELEASE.md). Neither a successful browser
-build nor a visually stable walk proves servo safety on hardware.
+Release approval and public deployment remain enforced by
+`showcase/release_approval.json` and the existing GitHub Pages workflow.
+Historical navigation/release design notes remain in Git history. Neither a
+successful browser build nor a visually stable walk proves servo safety on hardware.
