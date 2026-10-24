@@ -90,6 +90,7 @@ def env_kwargs_from_args(args) -> dict:
         contact_slope_deg=args.contact_slope_deg,
         terrain_step_max_m=args.terrain_step_max_m,
         terrain_training_arm=args.terrain_training_arm,
+        unified_capability_focus=args.unified_capability_focus,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -199,7 +200,8 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_hi_safety=args.frontier_vx_hi_safety,
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
-                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n)
+                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
+                              unified_capability_focus=args.unified_capability_focus)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
