@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Small real MJX + PPO smoke for the ONE shared-policy six-specialist director.
+"""Physical mixed-terrain + one-policy six-specialist MJX PPO smoke.
 
-This is not acceptance of real slopes and does not write any policy files.
-The unified overnight trainer remains intentionally blocked until true
-incline+finite-step contact physics has been demonstrated separately.
+Checks both rotated contact boxes, step top displacement, actual four-by-four
+actor ranges, continuous ground angle and one real PPO gradient. No file writes.
 """
 from __future__ import annotations
 import argparse
@@ -43,9 +42,47 @@ def main():
     # Exercise ALL six live branches without simulating millions of frames.
     # This synthetic difficulty is test input, not a training curriculum jump.
     params['steady_difficulty']=.35
+    # Verify genuinely random pitch/roll and steps in one JAX model, not
+    # just simulated tilted gravity or inactive world labels.
+    params.update(slope_exposure=1.0,slope_max_deg=5.0,
+                  terrain_exposure=1.0,terrain_height_m=.035)
     state,obs=env.reset(params)
     obs.block_until_ready()
     assert bool(jax.device_get(jnp.all(state.specialist_active)))
+    import numpy as np
+    floor_id=int(env.ids['floor_geom'])
+    upper_id=int(env.terrain_step_geom_id)
+    n=np.asarray(jax.device_get(state.data.geom_xmat[:,floor_id,:])).reshape(
+        (args.envs,3,3))[:,:,2]
+    tilt=np.rad2deg(np.arccos(np.clip(n[:,2],-1.,1.)))
+    ups=np.asarray(jax.device_get(state.data.mocap_pos[:,env.terrain_step_mocap_id,:]))
+    base=np.asarray(jax.device_get(state.data.mocap_pos[:,env.unified_ground_mocap_id,:]))
+    active=ups[:,2]>-1.
+    assert np.any(tilt>1.0),"NO real inclined collision world"
+    assert np.any(active),"NO real physical steps"
+    from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_DEPTH_M
+    R=np.asarray(jax.device_get(state.data.geom_xmat[:,upper_id,:])).reshape(
+        (args.envs,3,3))
+    axis=R[:,:,0]
+    side=np.where(np.arange(args.envs)%2==1,-1.,1.)
+    lower_lip=base+side[:,None]*UNIFIED_SLAB_HALF_LENGTH_M*axis+UNIFIED_SLAB_HALF_DEPTH_M*n
+    upper_lip=ups-side[:,None]*UNIFIED_SLAB_HALF_LENGTH_M*axis+UNIFIED_SLAB_HALF_DEPTH_M*n
+    rise=np.sum((upper_lip-lower_lip)*n,axis=1)
+    assert np.all((rise[active]>.005)&(rise[active]<=.036)),rise[active]
+    assert np.allclose(np.sum((upper_lip-lower_lip)*axis,axis=1)[active],
+                       0,atol=1e-4),"sharp lip does not align in common surface basis"
+    assert np.allclose(
+        np.asarray(jax.device_get(state.data.geom_xmat[:,floor_id,:])),
+        np.asarray(jax.device_get(state.data.geom_xmat[:,upper_id,:])),
+        atol=1e-4),"upper/lower tangent planes disagree"
+    rays=np.asarray(jax.device_get(
+        state.sensor_state.samples.terrain_ranges_m[:,-1,:]))
+    assert np.all(np.isfinite(rays)) and np.any(rays>0),"terrain actor blind"
+    print(f"Real collision slabs: {int((tilt>1).sum())} slopes, "
+          f"{int(active.sum())} real steps, "
+          f"{int(((tilt>1)&active).sum())} mixed, "
+          f"normal rise {float(rise[active].min()):.4f}.."
+          f"{float(rise[active].max()):.4f}m",flush=True)
     assert obs.shape==(args.envs,TERRAIN_OBS_DIM),obs.shape
     assert state.hist.shape==(args.envs,4,90),state.hist.shape
     assert build_obs_norm_mask(OBS_SCHEMA_TERRAIN).shape==(TERRAIN_OBS_DIM,)
@@ -84,7 +121,8 @@ def main():
           f"360 actor channels; one PPO gradient; persistent evidence",flush=True)
     print("World allocation: "+", ".join(
         f"{FOCUS_NAMES[i]}={int((ids==i).sum())}" for i in range(6)),flush=True)
-    print("NOTE: real combined slope+step physics NOT accepted; GPU run blocked.")
+    print("Geometric MJX slope+step smoke passed; full curriculum and GPU "
+          "acceptance are separate launch gates.")
 
 if __name__=="__main__":
     main()
