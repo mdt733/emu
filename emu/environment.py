@@ -23,7 +23,9 @@ from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
-                          simulate_downward_optical_flow, estimate_flow_velocity)
+                          simulate_downward_optical_flow, estimate_flow_velocity,
+                          TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
+                          TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
@@ -2288,8 +2290,12 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
-        ranges,beam_valid=simulate_tripod_ranges(
-            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
+        if self.unified_capability_focus:
+            ranges,beam_valid=self._unified_tripod_ranges(
+                data,R,torso,range_errors_m)
+        else:
+            ranges,beam_valid=simulate_tripod_ranges(
+                jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
@@ -2306,14 +2312,26 @@ class EmuMJXEnv(TaskSampler):
         jnp=self.jnp
         R=self._rotation_body_to_world(data)
         torso=data.xpos[:,self.torso_id,:]
-        floor=int(self.ids['floor_geom'])
-        normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
-        origin=data.geom_xpos[:,floor,:]
-        beam=-R[:,:,2]
-        denom=jnp.sum(beam*normal,axis=-1)
-        distance=jnp.sum((origin-torso)*normal,axis=-1)
-        true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
-        true_depth=jnp.where(denom<-.3,true_depth,0.)
+        if self.unified_capability_focus:
+            # Flow scale is the measured surface distance from the actual
+            # downward camera, never a projected infinite plane.
+            down_ray=(-R[:,:,2])[:,None,:]
+            depth_floor=self._ray_box_distance(
+                data,int(self.ids['floor_geom']),torso,down_ray)[:,0]
+            depth_upper=self._ray_box_distance(
+                data,int(self.terrain_step_geom_id),torso,down_ray)[:,0]
+            true_depth=jnp.minimum(depth_floor,depth_upper)
+            true_depth=jnp.where(jnp.isfinite(true_depth)&
+                                  (true_depth>0.)&(true_depth<.60),true_depth,0.)
+        else:
+            floor=int(self.ids['floor_geom'])
+            normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
+            origin=data.geom_xpos[:,floor,:]
+            beam=-R[:,:,2]
+            denom=jnp.sum(beam*normal,axis=-1)
+            distance=jnp.sum((origin-torso)*normal,axis=-1)
+            true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
+            true_depth=jnp.where(denom<-.3,true_depth,0.)
         _,body_velocity,_=self._body_packets(data)
         # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
         # the second world-to-body rotation used by the legacy 220 actor.
@@ -2343,20 +2361,42 @@ class EmuMJXEnv(TaskSampler):
         jnp=self.jnp
         R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
         centre=data.geom_xpos[:,geom_id,:]
-        local_o=jnp.einsum('ei,eij->ej',origin-centre,R)
+        if origin.ndim == 3:
+            local_o=jnp.einsum('eki,eij->ekj',origin-centre[:,None,:],R)
+        else:
+            local_o=jnp.einsum('ei,eij->ej',origin-centre,R)[:,None,:]
         local_d=jnp.einsum('eki,eij->ekj',rays,R)
         half=jnp.asarray(self.mj_model.geom_size[geom_id,:3],dtype=jnp.float32)
         parallel=jnp.abs(local_d)<1e-7
         safe=jnp.where(parallel,1.,local_d)
-        t1=(-half-local_o[:,None,:])/safe
-        t2=(half-local_o[:,None,:])/safe
-        inside=jnp.abs(local_o[:,None,:])<=half
+        t1=(-half-local_o)/safe
+        t2=(half-local_o)/safe
+        inside=jnp.abs(local_o)<=half
         near=jnp.max(jnp.where(
             parallel,jnp.where(inside,-jnp.inf,jnp.inf),jnp.minimum(t1,t2)),axis=-1)
         far=jnp.min(jnp.where(
             parallel,jnp.where(inside,jnp.inf,-jnp.inf),jnp.maximum(t1,t2)),axis=-1)
         return jnp.where(far>=jnp.maximum(near,0.),
                          jnp.where(near>0.,near,far),jnp.inf)
+
+    def _unified_tripod_ranges(self,data,rotation,torso,range_errors_m):
+        """True three-ToF ground samples from exactly the same solid OBBs.
+
+        Old 232/220 model continues to use the historical plane-only sensor.
+        This new 360 family never gets an unphysical infinite-floor depth.
+        """
+        jnp=self.jnp
+        mounts=jnp.asarray(TOF_TRIPOD_MOUNTS_BODY_M,dtype=jnp.float32)
+        beams=jnp.asarray(TOF_TRIPOD_BEAMS_BODY,dtype=jnp.float32)
+        origin=torso[:,None,:]+jnp.einsum('eij,kj->eki',rotation,mounts)
+        ray=jnp.einsum('eij,kj->eki',rotation,beams)
+        floor=self._ray_box_distance(data,int(self.ids['floor_geom']),origin,ray)
+        upper=self._ray_box_distance(data,int(self.terrain_step_geom_id),origin,ray)
+        dist=jnp.minimum(floor,upper)
+        if range_errors_m is not None:
+            dist=dist+range_errors_m
+        valid=jnp.isfinite(dist)&(dist>=TOF_MIN_RANGE_M)&(dist<=TOF_MAX_RANGE_M)
+        return jnp.where(valid,dist,0.),valid
 
     def _terrain_4x4_ranges(self, data, errors_m=None):
         """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
