@@ -356,7 +356,7 @@ export class EmuBrowserSim {
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
   setSensorObstacle(id) {
-    if(!['flat','step-up','step-down','crest','trough','log','angled'].includes(id))throw new Error('Unknown sensor course');
+    if(!['flat','step-up','step-up-1cm','step-up-2cm','step-down','crest','trough','log','angled'].includes(id))throw new Error('Unknown sensor course');
     if(id===this.sensorObstacle)return;
     this.sensorObstacle=id;
     if(this.terrainMode==='sensor')this.loadModel();
