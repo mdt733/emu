@@ -2642,7 +2642,7 @@ class EmuMJXEnv(TaskSampler):
             estimate=estimate_flow_velocity(
                 jnp,s.flow_rad_s[:,ff,:],s.gyro_body_rad_s[:,ff,:],
                 ground['optical_depth_m'],flow_valid=flow_valid,
-                tof_valid=ground['valid'])
+                tof_valid=ground['depth_valid'])
             tof_age=s.tof_age_frames[:,tf]
             flow_age=s.flow_age_frames[:,ff]
             freshness=jnp.clip(
