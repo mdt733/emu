@@ -78,6 +78,77 @@ emu capability-exam --policy /path/to/new360.emupolicy \
 
 Run with `--worlds 8` for all eight recovery push directions and without `--quick` for the complete 19-case assessment. It grades genuine physical support, not training reward or battery consumption.
 
+## Overnight readiness — exact sequence (same source SHA)
+
+A clean full CI run and green physical CPU smoke come first. Keep the Git
+checkout and all checkpoints source-pinned, with each acceptance root NEW,
+outside the repository. The first real overnight train command is **still
+deliberately blocked**, even after these diagnostics pass.
+
+**1. Full 2,048-world GPU PPO preflight** (no file writes):
+
+```bash
+cd ~/emu
+git switch feature/v5023-capability-growth
+git pull --ff-only
+source .venv/bin/activate
+git status --short                    # must be empty
+git rev-parse HEAD                    # record this exact SHA
+python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
+```
+
+If there is CUDA OOM, a non-finite gradient, excessive memory use or a
+significant speed regression, **stop**. Fix the source (or deliberately
+redesign the accepted batch size) rather than launching training regardless.
+
+**2. Two-update 360-input checkpoint lifecycle** (bounded and explicit):
+
+```bash
+ROOT="$HOME/robot_lab/emu_runs/unified_accept_$(git rev-parse --short HEAD)_8"
+for STAGE in first continue verify; do
+  python scripts/smoke_training_lifecycle.py "$STAGE" \
+    --root "$ROOT" --unified --envs 8 || break
+done
+```
+
+After the small lifecycle passes, repeat with a **fresh** root and
+`--envs 2048` to verify real-sized checkpoint/restore/export. The smoke
+cannot request more than two updates even when explicitly opted in; it
+will not make a trained walking policy.
+
+**3. Exercise the actual exported 360 policy in the frozen examiner**:
+
+```bash
+emu capability-exam \
+  --policy "$ROOT/tiny_smoke_actor.emupolicy" \
+  --output "$ROOT/quick_physics" --device cpu --worlds 4 --quick
+```
+
+Set `ROOT` to the relevant successful lifecycle root. An untrained
+two-update policy should generally fail walking tasks; this stage only
+checks that array-only sensor decoding, real two-slab physics, scoring and
+artifact loading function end-to-end. **Do not interpret its pass fraction
+as earned walking competence.** Open the exported policy locally in the
+viewer too.
+
+**4. Owner-approved cold foundation, then the first overnight growth run.**
+
+Only after 1–3, source-pinned replay and current HEAD CI all pass is it
+appropriate to review removal of the *separate* long-run launch guard.
+The first actual run should target **20M from zero** on the 360 actor.
+Evaluate that checkpoint against `main` on matched flat tasks. If the
+foundation gait regresses, fix its causes; **do not launch the overnight
+growth continuation**. If acceptable, start a new run directory with
+`--resume /absolute/path/to/foundation20/checkpoints/final.pkl`, same
+source SHA, the same 360 actor/profile and a larger **absolute** steps
+target. The new directory protects the 20M ancestor while keeping a
+single continuous policy lineage.
+
+Inspect saved evidence and genuine supported contacts, not just reward.
+The longer campaign should have periodic source-pinned checkpoints,
+fixed-policy examinations and enough disk headroom; make no automated
+showcase promotion. **Explicit owner approval is still required.**
+
 ## Safety
 
 No writes to `main`, showcase or approved Pinnacle without owner approval. Treat reward as training incentive, not real physical walking evidence. Simulated shaft work is not measured battery energy, and untested learned servo commands are **not hardware-safe**. Check source provenance and matched physical exams before any extended GPU campaign.
