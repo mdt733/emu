@@ -22,6 +22,7 @@ git checkout --detach "$(git rev-parse HEAD)"
 bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
 emu doctor --require-gpu
+python3 scripts/smoke_v5023_arms.py --device cuda --envs 4
 emu viewer-build
 # Does NOT launch or write model checkpoints:
 python3 scripts/overnight_v5023.py --dry-run
