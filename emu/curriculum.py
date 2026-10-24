@@ -497,6 +497,66 @@ class RegimeGovernor:
 
         return frontier_events
 
+    def advance_slope(self, row: dict[str,float], *, kl_ok: bool = True):
+        """Grow actual inclined MJX contact challenges from CLOSED episodes.
+
+        Every direction must demonstrate sustainable tracking before the
+        next grade unlocks. A step-up success never substitutes for slope
+        evidence, and failure on slopes doesn't block command exploration.
+        This is a teacher decision, not a PPO reward or actor input.
+        """
+        if not self.unified_capability_focus:
+            return 'off'
+        if self._updates_done_total <= self.BOOTSTRAP_UPDATES:
+            return 'steady_bootstrap'
+        p=self.params
+        core_ok=(self.core_competence>=.50 and
+                 self.fall_ema['posture']<=.45)
+        if p.slope_exposure<=0.:
+            if not core_ok:
+                return 'await_walk'
+            # Geometry already supports a continuum of slopes; the earned
+            # initial probe is gentle, but the *safety* ceiling is not 1deg.
+            p.slope_exposure=.15
+            p.slope_max_deg=.70
+            self.slope_evidence={k:{'attempts':0.,'successes':0.}
+                                 for k in self.SLOPE_DIRECTIONS}
+            return 'seed_real_incline_0p7deg'
+        for direction in self.SLOPE_DIRECTIONS:
+            attempts=float(row.get(f'slope_attempts_{direction}',0.))
+            successes=float(row.get(f'slope_successes_{direction}',0.))
+            if (not math.isfinite(attempts) or not math.isfinite(successes)
+                or not 0.<=successes<=attempts):
+                raise ValueError(f'bad real slope episode outcomes {direction}')
+            window=self.slope_evidence[direction]
+            window['attempts']+=attempts
+            window['successes']+=successes
+        if not all(self.slope_evidence[k]['attempts']>=
+                   self.SLOPE_MIN_EPISODES_PER_DIRECTION
+                   for k in self.SLOPE_DIRECTIONS):
+            return 'collect_real_slope'
+        rates=[self.slope_evidence[k]['successes']/
+               self.slope_evidence[k]['attempts']
+               for k in self.SLOPE_DIRECTIONS]
+        self.slope_evidence={k:{'attempts':0.,'successes':0.}
+                             for k in self.SLOPE_DIRECTIONS}
+        if not kl_ok or not core_ok:
+            p.slope_exposure=max(.10,p.slope_exposure*.97)
+            return 'hold_health'
+        if min(rates)>=.72:
+            if p.slope_exposure<.25:
+                p.slope_exposure=min(.25,p.slope_exposure+.01)
+                return 'expand_slope_exposure'
+            # Protect main's shared slow-growth doctrine. Grade increases
+            # only after a fresh, closed cohort has mastered all 4 bearings.
+            p.slope_max_deg=min(12.,p.slope_max_deg+.12)
+            return 'expand_real_slope_angle'
+        if min(rates)<.25:
+            p.slope_max_deg=max(.70,p.slope_max_deg*.985)
+            p.slope_exposure=max(.10,p.slope_exposure*.98)
+            return 'retreat_real_slope'
+        return 'hold_incline_at_frontier'
+
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,
                         unified: bool = False) -> str:
