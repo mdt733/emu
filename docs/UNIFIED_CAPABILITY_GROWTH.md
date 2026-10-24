@@ -92,6 +92,56 @@ A credible examiner reports at least:
 
 The **first fresh 20M unified actor** is a major checkpoint: compare it with main's proven foundation on matched flat tasks and inspect earned physical capabilities. If the basic gait deteriorates substantially, fix the teaching distribution before committing to 100M+. A later ~10-hour run is a **single resumed lineage of the same shared actor**, not parallel bespoke speed/slope/step networks.
 
+## Non-regression contract — what must never be traded away
+
+Read this before accepting a curriculum, sensor, reward, physical-world or
+checkpoint change. **Code compatibility, a green smoke test and a larger
+training reward do not prove that we preserved a working walker.** Distinguish
+the protected main *recipe* from the new actor's independently measured gait.
+
+### Keep from `main` (reference `2ec9e9db`)
+
+| Contract | Acceptance |
+| --- | --- |
+| **Gait from cold birth** | A fresh run works with no imported policy or special initial pose; first 70 PPO updates remain steady-only (~4.59M sampled world frames at 2,048 × 32). Later transition/resilience/posture lessons are earned, not abruptly imposed. |
+| **Same optimizer economics** | 2,048 worlds, seed 733, rollout 32, PPO 4 epochs × 8 minibatches, LR 2e-4, 700-frame episodes, PPO health/KL protection and finite gradient/recovery behaviour. |
+| **The eight gait payments** | Alive, locomotion, posture, contact, anti-slip, clearance, smoothness and joint safety retain their weights, early-fall penalties and standing-still deterrence. No new cost may quietly dominate the first 20M. |
+| **Gentle initial commands and disturbances** | Main's initial +0.020–0.060 m/s forward requests, foundation caps (+0.40/−0.12 vx, ±0.14 vy, ±0.90 yaw), phase gain 0.75, regime-command fraction 0.60 and **effective** early push burden capped around the main 0.70N physical lesson—not the mature 3.2N headroom. |
+| **Responsive, unified retreat** | Completed-episode fall evidence, core gait competence, faster retreat than expansion, anti-collapse behaviour, shared difficulty budget and actual offered task mix. Avoid hard-coded success from reward or partial movement. |
+| **Reproducible ownership** | Real six-actuator robot XML, springs/contact, one-frame actuator delay, source-pinned checkpoints, exact normalizer/schema, resumable clean run and local inference/viewer. Preserve old 220/232/360 lineages as distinct protocols. |
+
+Some items are numerical source contracts, enforced by small checks.
+**The 360 actor cannot inherit main's learned weights:** it has new sensor
+semantics, so main-like 20M **walking performance** remains a separate,
+unproven behavioural acceptance gate. The new hardware-like 4×4 observations
+must exist from step zero without changing the teaching distribution.
+
+### Add through unified growth—without losing the above
+
+| Contract | Acceptance |
+| --- | --- |
+| **One policy, six teachers** | Commands/resilience/slopes/steps/transitions/control target 20/20/20/20/10/10%; roles never enter actor observations. Each cohort samples easier background challenges alongside its hard specialty. All six contribute gradients to one optimizer. |
+| **Protected handoff** | No new specialist terrain before 20M. Introduce the roles progressively afterward through an earned-competence blend; do not shrink the command range already learned in the foundation. A schedule boundary is not a declaration of mastery. |
+| **Proper command geometry** | Signed (vx,vy,yaw) **L1 octahedron**, not a Cartesian rectangle. Sample interior/boundary/modestly beyond; account for signed pure-axis limits and mixed-sector evidence separately. A diagonal victory cannot unlock every axis. |
+| **Honest terrain** | Two actual colliding tilted slabs; uphill, downhill, both cross-slopes, step up/down, rotated lip and incline+step mixture. Training contact, ToF measurements and examiner geometry refer to the **same** physics. Supported far-side foot contact is required for crossing credit. |
+| **Evidence before expansion** | Completed episodes, attempted severity and direction, movement/heading tracking, support, falls and sufficient observations at the *current* frontier. Retain local success windows and one **total** expansion budget; retreat more readily than expand. |
+| **Grace and practical efficiency** | Make accurate **moving** gait smoother with fewer unnecessary corrections, slip and *simulated* shaft joules per achieved metre; zero movement is never efficient success. Do not claim shaft joules are electrical battery energy. |
+| **No hidden oracle** | 90×4=360 versioned observations, delayed 4×4 ToF + validity, IMU and flow; simulator slope, contact truth, curriculum IDs and exact root velocity do not enter actor observations. Keep old viewer/exports correctly versioned. |
+| **Independent scorecard** | Freeze the actor. On matched tasks/seeds report flat gait quality, command-sector tracking, 4 incline directions, paired supported up/down steps, mixtures, disturbances, starts/stops, J/m, slip, jerk and failure reasons. Do not promote from PPO reward, prettier viewer animation or a favorable subset alone. |
+
+### Hard gates before a long run or promotion
+
+- [ ] **Source/CPU gate:** current HEAD passes CI, physical MJX contact, real 360-input PPO gradient, frozen examiner and browser replay. A passing historic SHA does not count for changed code.
+- [ ] **CUDA gate:** measured 2,048-world RTX 4060 Ti **production-shaped** 32×4×8 PPO update without OOM/divergence; checkpoint/resume/export and frozen/interactive inference from the exact same source/actor contract.
+- [ ] **20M gait gate:** one fresh **360** cold run compared to main on matched, frozen **flat** gait exams (survival, true achieved command tracking, supported strides, fall causes, posture, shaft work). Fix a substantial regression before growing more capabilities.
+- [ ] **Growth gate:** after foundation, observed command envelope and each directional terrain/recovery/transition frontier can advance, hold and retreat **without degrading the flat baseline**. No good grade should hide lost basic walking.
+- [ ] **Approval gate:** owner approval before a long unified GPU campaign, `main` merge, protected 260M Pinnacle replacement or showcase promotion.
+
+**Stop/retreat rule:** if the new source forgets how to walk, falls into
+reward hacking, starves a specialist, invents a step success or loses provenance,
+the correct move is to **hold the promotion, fix the cause and re-examine the
+same frozen baseline**—not to train another 200M steps and hope.
+
 ## Boundaries
 
 - Development stays on `feature/v5023-capability-growth`. **Do not edit or merge `main`**, its approved **260M Pinnacle**, or the public showcase without explicit approval.
