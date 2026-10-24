@@ -19,6 +19,9 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .capability_focus import (focus_indices, diamond_commands, safe_command_scale,
+                               control_effort_weights, COMMAND, RESILIENCE,
+                               SLOPE, STEP, TRANSITION, CONTROL)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
@@ -1134,7 +1137,8 @@ class EmuMJXEnv(TaskSampler):
                  gyro_bias_std_rad_s: float = 0.015,
                  terrain_step_max_m: float = 0.0,
                  paired_terrain_heights: bool = False,
-                 terrain_training_arm: str = 'off'):
+                 terrain_training_arm: str = 'off',
+                 unified_capability_focus: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1193,6 +1197,8 @@ class EmuMJXEnv(TaskSampler):
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
         self.num_envs = int(num_envs)
+        self.unified_capability_focus = bool(unified_capability_focus)
+        self.focus_id = jnp.asarray(focus_indices(self.num_envs))
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
         # Experimental G3 only. Default zero uses the exact old XML path,
@@ -1509,7 +1515,9 @@ class EmuMJXEnv(TaskSampler):
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
-            motor_guidance_weight=self.motor_guidance_weight)
+            motor_guidance_weight=self.motor_guidance_weight,
+            motor_guidance_per_world=(control_effort_weights(jnp, self.focus_id)
+                                      if self.unified_capability_focus else None))
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
@@ -1610,6 +1618,7 @@ class EmuMJXEnv(TaskSampler):
             **{f'reward_{k}': v for k, v in terms.items()},
             'reward_weighted_fall_penalty': fall_payment,
             'episode_done': done.astype(jnp.float32),
+            'specialist_focus': self.focus_id.astype(jnp.float32),
             'episode_length': ep_len,
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
@@ -1881,6 +1890,76 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
+    def _specialist_task(self, task, keys, params):
+        """Change difficulty emphasis, never policy or actor observation.
+
+        The 2048 worlds share the same robot, contacts, neural weights, and
+        optimizer. Commands sample the measured L1 boundary, while control
+        teaches cheaper/smoother gait inside an easier reliable envelope.
+        Real incline+step collision is a separate mandatory launch gate.
+        """
+        if not self.unified_capability_focus:
+            return task
+        jax,jnp=self.jax,self.jnp
+        focus=self.focus_id
+        # Command specialist gets a single steady target, so its *ended*
+        # episode is meaningful evidence of that command direction.
+        # Transition and resilience specialists keep their own existing
+        # dynamics, with all worlds still carrying normal contact tasks.
+        regime=jnp.where(focus==COMMAND,0.,
+               jnp.where(focus==RESILIENCE,2.,
+               jnp.where(focus==TRANSITION,1.,0.)))
+        task=task.at[:,T.regime].set(regime)
+        key_probe=jax.vmap(lambda k:jax.random.fold_in(k,50241))(keys)
+        span=safe_command_scale(jnp,params[P.steady_difficulty],
+                                  params[P.steady_difficulty])
+        candidate=diamond_commands(
+            jax,jnp,key_probe,
+            params[P.frontier_vx_hi]*span,
+            params[P.frontier_vx_lo]*span,
+            params[P.frontier_vy]*span,
+            params[P.frontier_yaw]*span)
+        # The control reference must still WALK; no zero-velocity energy
+        # farming. Other commands remain small but not all exactly zero.
+        k_control=jax.vmap(lambda k:jax.random.fold_in(k,50242))(keys)
+        u=jax.vmap(lambda k:jax.random.uniform(k,(3,)))(k_control)
+        steady_hi=jnp.minimum(params[P.frontier_vx_hi],.06+.22*span)
+        control_vx=.04+jnp.minimum(.15,steady_hi-.04)*u[:,0]
+        control_vy=(u[:,1]*2-1)*params[P.frontier_vy]*span*.18
+        control_yaw=(u[:,2]*2-1)*params[P.frontier_yaw]*span*.18
+        desired=jnp.stack([task[:,T.vx],task[:,T.vy],task[:,T.yaw]],axis=-1)
+        desired=jnp.where((focus==COMMAND)[:,None],candidate,desired)
+        easy=jnp.stack((control_vx,control_vy,control_yaw),axis=-1)
+        desired=jnp.where((focus==CONTROL)[:,None],easy,desired)
+        old_speed=jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2)
+        new_speed=jnp.sqrt(desired[:,0]**2+desired[:,1]**2)
+        base=jnp.clip(task[:,T.phase_rate]-
+                      self.phase_speed_gain*jnp.clip(
+                        old_speed/jnp.maximum(.05,self.vx_hi_max),0.,1.5),
+                      .85,1.20)
+        new_phase=command_phase_rate(desired[:,0],desired[:,1],
+                                    self.vx_hi_max,self.phase_speed_gain,base)
+        modified=(focus==COMMAND)|(focus==CONTROL)
+        task=task.at[:,T.vx].set(desired[:,0])
+        task=task.at[:,T.vy].set(desired[:,1])
+        task=task.at[:,T.yaw].set(desired[:,2])
+        task=task.at[:,T.phase_rate].set(
+            jnp.where(modified,new_phase,task[:,T.phase_rate]))
+        # Resilience focused worlds get current earned push severity. Control
+        # stays gentler in disturbed starts; neither makes pushes vanish
+        # from ordinary/terrain specialists.
+        resilience=jnp.where(focus==RESILIENCE,
+             jnp.clip(params[P.frontier_push_n]/jnp.maximum(.05,self.push_max_force_n),.02,1.),
+             task[:,T.resilience])
+        resilience=jnp.where(focus==CONTROL,resilience*.35,resilience)
+        task=task.at[:,T.resilience].set(resilience)
+        task=task.at[:,T.birth_resilience_d].set(
+            jnp.where(focus==RESILIENCE,params[P.resilience_difficulty],
+                      jnp.where(focus==CONTROL,
+                                .35*params[P.resilience_difficulty],
+                                task[:,T.birth_resilience_d])))
+        return task
+
     def _terrain_speed_task(self, task, keys, params):
         """Rehearse three speed bins on real ascents and matched flat births.
 
@@ -2015,6 +2094,7 @@ class EmuMJXEnv(TaskSampler):
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
         task = self._terrain_speed_task(task, keys, params)
+        task = self._specialist_task(task, keys, params)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
