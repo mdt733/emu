@@ -18,6 +18,11 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
+# Use the same JAX allocator behaviour as the successful 2,048-world CUDA
+# preflight. The standalone training subprocess inherits this setting.
+# Scope is intentionally restricted to acceptance, not a production run.
+os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
 from emu.contracts import source_repo_root
 from emu.checkpoint_io import git_provenance, run_training
