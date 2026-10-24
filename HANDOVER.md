@@ -8,7 +8,7 @@
 
 ## 24 Oct cleanup: fewer paths, same foundation
 
-- Retired historical `emu ladder`, `lab5015`, `campaign5016` and upgrade runners, their exclusive tests/scripts, and the old bulky dated runbooks. Everything remains in earlier Git commits (and `main` for the old campaign).
+- Retired historical `emu ladder`, `lab5015`, `campaign5016` and upgrade runners, their exclusive tests/scripts, and the old bulky dated runbooks. Legacy multi-arm screening and directional-batch orchestration were also removed; the single directional and physical terrain examiners remain. Everything remains in earlier Git commits (and `main` for the old campaign).
 - The single maintained launcher lives in `emu/run.py` and backs `emu train`; `foundation_config` and its 70-update steady bootstrap are retained, along with PPO, physics, reward, checkpoints and viewer/release safeguards.
 - Documentation is now `README` (entry), `UNIFIED_CAPABILITY_GROWTH` (design), `HANDOVER` (status), `INSTALL` (commands), `PLAYGROUND` (viewer). Research and old campaigns are Git history, not live instructions.
 - **Do not confuse successful legacy 220-input foundation with a successful new 360-input cold start.** The latter remains fail-closed until physical/GPU acceptance.

@@ -210,19 +210,6 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=0.75)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q=sub.add_parser('directional-batch',
-        help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
-    source=q.add_mutually_exclusive_group(required=True)
-    source.add_argument('--root',help='original read-only four-way run root')
-    source.add_argument('--policy',help='frozen exported actor, requires physical profile')
-    q.add_argument('--output',required=True,help='new separate exam root')
-    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch','physical'],
-                   default='smoke')
-    q.add_argument('--worlds',type=int)
-    q.add_argument('--seed',type=int,default=1701)
-    q.add_argument('--heading-kp',type=float,default=.75)
-    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--run',action='store_true',help='execute rather than plan only')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -305,14 +292,6 @@ def main(argv=None) -> int:
             paths=evaluate_directional_run(heading_kp=0.,**request)
         for path in paths:
             print(path)
-        return 0
-    if args.cmd=='directional-batch':
-        from .evaluation import plan,execute
-        from .evaluation import source_commit
-        jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
-                  seed=args.seed,kp=args.heading_kp,device=args.device,
-                  policy_file=args.policy)
-        execute(jobs,source_commit(),actually_run=args.run)
         return 0
     if args.cmd=='report':
         from .results import write_report

@@ -60,7 +60,6 @@ jobs:
         run: |
           emu directional-exam --help > /dev/null
           emu terrain-exam --help > /dev/null
-          emu directional-batch --help > /dev/null
           emu train --help > /dev/null
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
           emu evaluate --help > /dev/null
@@ -68,7 +67,7 @@ jobs:
           python - <<'PY'
           from emu.checkpoint_io import resume_training_lineage, git_provenance
           from emu.run import train_one, one_run_config
-          from emu.evaluation import evaluate_runs, atlas_main, directional_main, batch_main
+          from emu.evaluation import atlas_main, directional_main
           from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
           print('All public entrypoint owners import cleanly')
           PY

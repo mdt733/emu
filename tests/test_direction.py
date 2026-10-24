@@ -321,71 +321,7 @@ def test_explicit_start_speed_and_stop_schedules_are_physical_requests():
     assert np.allclose(brake[:80,0],.1)
 
 
-def test_protected_export_physical_campaign_plan_is_read_only(tmp_path):
-    from pathlib import Path
-    from emu.evaluation import plan, execute, verify_existing
-    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
-    root=tmp_path/'unique_exam_results'
-    jobs=plan('physical',None,root,policy_file=champion,worlds=4,seed=1701)
-    assert len(jobs)==13
-    assert {x['arm'] for x in jobs}=={'champion'}
-    assert all(x['is_exported_policy'] for x in jobs)
-    assert all(x['run_dir']==str(champion.resolve()) for x in jobs)
-    assert all(x['worlds']==4 and x['seed']==1701 for x in jobs)
-    assert sum(x['contact_slope'] for x in jobs)==3
-    assert all(x['lateral']==.06 for x in jobs if x['scenario'].startswith('sidestep_'))
-    assert all(x['lateral']==0. for x in jobs if not x['scenario'].startswith('sidestep_'))
-    assert {x['scenario'] for x in jobs} >= {'rest_start','brake_stop','reverse',
-                                               'turn_stop_left','sidestep_right'}
-    execute(jobs,'synthetic_revision',actually_run=False)
-    assert not root.exists(), 'planning must create no experiment directory'
-    assert verify_existing(root/'missing.json',jobs[0],'src','sha') is False
-    with pytest.raises(ValueError,match='exported policy'):
-        plan('pilot',None,root,policy_file=champion)
-    with pytest.raises(ValueError,match='specify training'):
-        plan('physical',tmp_path/'old_run',root)
-
-
-def test_physical_batch_refuses_stale_saved_source_or_changed_protocol(tmp_path):
-    import json
-    from pathlib import Path
-    from emu.evaluation import plan, verify_existing
-    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
-    job=plan('physical',None,tmp_path/'out',policy_file=hero)[0]
-    path=Path(job['output'])/'heading_comparison.json'
-    path.parent.mkdir(parents=True)
-    from emu.evaluation import exam_request
-    protocol=exam_request(
-        angle_deg=job['angle'],direction=job['direction'],
-        worlds=job['worlds'],horizon=job['horizon'],
-        settle_frames=job['settle_frames'],speed=job['speed'],
-        lateral=job['lateral'],yaw_rate=job['yaw_rate'],
-        seed=job['seed'],device=job['device'],scenario=job['scenario'],
-        turn_rate=job['turn_rate'],gyro_bias=job['gyro_bias'],
-        gyro_noise=job['gyro_noise'],gyro_delay_frames=job['gyro_delay_frames'],
-        contact_slope=job['contact_slope'])
-    for mode,gain in (('off',0.),('on',job['heading_kp'])):
-        (path.parent/mode).mkdir()
-        (path.parent/mode/'directional_exam.json').write_text(json.dumps(
-            dict(source_commit='revision',source_artifact_sha256='expected',
-                 exam=dict(protocol,heading_kp=gain),
-                 worlds=[{}]*job['worlds'])))
-    payload=dict(schema=2, source_artifact_sha256='expected',
-                 examined_at_revision='revision',protocol=protocol,
-                 heading_kp=job['heading_kp'])
-    path.write_text(json.dumps(payload))
-    assert verify_existing(path,job,'revision','expected')
-    with pytest.raises(ValueError,match='stale source'):
-        verify_existing(path,job,'revision','modified-export')
-    with pytest.raises(ValueError,match='stale source'):
-        verify_existing(path,job,'modified-revision','expected')
-    payload['protocol']['scenario']='wrong-way'
-    path.write_text(json.dumps(payload))
-    with pytest.raises(ValueError,match='changed exam parameters'):
-        verify_existing(path,job,'revision','expected')
-
-
-def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(monkeypatch,tmp_path):
+def test_public_cli_routes_exported_actor_without_hidden_checkpoint(monkeypatch,tmp_path):
     """Regression: public emu CLI must not require --run-dir for --policy."""
     from pathlib import Path
     from emu import cli, evaluation
@@ -416,19 +352,6 @@ def test_public_cli_routes_exported_actor_and_batch_without_hidden_checkpoint(mo
     with pytest.raises(SystemExit):
         cli.main(['directional-exam','--policy',str(policy),
                   '--output',str(tmp_path/'invalid'),'--reuse-completed'])
-    def plan_stub(*args,**kwargs):
-        received.append(('plan',args,kwargs))
-        return [{'sentinel':'read-only'}]
-    def execute_stub(jobs,source,*,actually_run):
-        received.append(('execute',jobs,actually_run))
-    monkeypatch.setattr(evaluation,'plan',plan_stub)
-    monkeypatch.setattr(evaluation,'execute',execute_stub)
-    assert cli.main(['directional-batch','--policy',str(policy),
-                     '--profile','physical','--output',str(tmp_path/'batch'),
-                     '--device','cpu']) == 0
-    assert received[2][2]['policy_file'] == str(policy)
-    assert received[3][2] is False
-    assert not (tmp_path/'batch').exists()
 
 
 def test_v5016_common_pitch30_profile_is_not_an_experiment_arm(tmp_path):
