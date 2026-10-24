@@ -511,10 +511,12 @@ class RegimeGovernor:
             return 'steady_bootstrap'
         p=self.params
         core_ok=(self.core_competence>=.50 and
-                 self.fall_ema['posture']<=.45 and kl_ok)
+                 self.fall_ema['posture']<=.45)
         if p.slope_exposure<=0.:
             if not core_ok:
                 return 'await_walk'
+            if not kl_ok:
+                return 'hold_ppo_health'
             # Geometry already supports a continuum of slopes; the earned
             # initial probe is gentle, but the *safety* ceiling is not 1deg.
             p.slope_exposure=.15
@@ -540,9 +542,11 @@ class RegimeGovernor:
                for k in self.SLOPE_DIRECTIONS]
         self.slope_evidence={k:{'attempts':0.,'successes':0.}
                              for k in self.SLOPE_DIRECTIONS}
-        if not kl_ok or not core_ok:
+        if not kl_ok:
+            return 'hold_ppo_health'
+        if not core_ok:
             p.slope_exposure=max(.10,p.slope_exposure*.97)
-            return 'hold_health'
+            return 'hold_core_gait'
         if min(rates)>=.72:
             if p.slope_exposure<.25:
                 p.slope_exposure=min(.25,p.slope_exposure+.01)
