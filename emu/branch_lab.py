@@ -569,6 +569,9 @@ def one_run_config(args) -> TrainingConfig:
     terrain_actor = bool(getattr(args, 'terrain_actor', False))
     terrain_max = float(getattr(args,'terrain_step_max_m',0.0))
     terrain_arm = str(getattr(args,'terrain_training_arm','off'))
+    unified = bool(getattr(args,'unified_capabilities',False))
+    if unified and (not terrain_actor or args.profile!='sim2real' or terrain_arm!='off'):
+        raise ValueError('unified capability learning requires sim2real + terrain_360; do not combine obsolete A/B arms')
     if terrain_arm not in ('off','speed','foothold'):
         raise ValueError('unknown terrain teaching arm')
     if terrain_arm != 'off' and (not terrain_actor or args.profile != 'sim2real'):
@@ -597,6 +600,7 @@ def one_run_config(args) -> TrainingConfig:
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    terrain_step_max_m=terrain_max, terrain_training_arm=terrain_arm,
+                   unified_capability_focus=unified,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
