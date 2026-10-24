@@ -439,7 +439,8 @@ class RegimeGovernor:
         return frontier_events
 
     def advance_terrain(self, row: dict[str,float], *, step: int,
-                        max_height_m: float, foundation_steps: int) -> str:
+                        max_height_m: float, foundation_steps: int,
+                        teaching_arm: str = 'off') -> str:
         """Physically verified up/down growth, using a checkpointed cohort.
 
         A single PPO rollout at 5% terrain exposure sees only a handful of
@@ -450,17 +451,24 @@ class RegimeGovernor:
         if max_height_m <= 0. or step < foundation_steps:
             return 'foundation_flat'
         p = self.params
+        if teaching_arm not in ('off','speed','foothold'):
+            raise ValueError('unknown terrain teaching arm')
+        speed_lesson = teaching_arm != 'off'
+        exposure_min = .10 if speed_lesson else .05
+        practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
+        expansion_max = .20 if speed_lesson else .25
+        height_increment = .0005 if speed_lesson else .00025
         core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
         if p.terrain_exposure <= 0.:
             if not core_ok:
                 return 'await_core_walk'
             self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = .05
+            p.terrain_exposure = .15 if speed_lesson else .05
             p.terrain_height_m = min(.010,max_height_m)
-            return 'terrain_seed_1cm_5pct'
+            return 'terrain_speed_seed_1cm_15pct' if speed_lesson else 'terrain_seed_1cm_5pct'
         if not core_ok:
             self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = max(.05,p.terrain_exposure*.90)
+            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
             p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
             return 'terrain_retreat_core'
 
@@ -496,10 +504,10 @@ class RegimeGovernor:
         # No evidence can be recycled after a decision, including holds.
         self.terrain_evidence = self._empty_terrain_evidence()
         if min(up_rate,down_rate) >= .50:
-            if p.terrain_exposure < .25:
-                p.terrain_exposure = min(.25,p.terrain_exposure+.005)
+            if p.terrain_exposure < expansion_max:
+                p.terrain_exposure = min(expansion_max,p.terrain_exposure+.005)
                 return 'terrain_exposure_expand_real_cross'
-            p.terrain_height_m = min(max_height_m,p.terrain_height_m+.00025)
+            p.terrain_height_m = min(max_height_m,p.terrain_height_m+height_increment)
             return 'terrain_height_expand_real_cross'
 
         # Practice dose != earned obstacle height. A small genuine ascent
@@ -507,15 +515,15 @@ class RegimeGovernor:
         # while preserving >=90% normal flat lessons.
         if (up_rate >= self.TERRAIN_ASCENT_PRACTICE_MIN and
                 down_rate >= self.TERRAIN_DESCENT_PRACTICE_MIN and
-                p.terrain_exposure < self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE):
-            p.terrain_exposure = min(self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE,
+                p.terrain_exposure < practice_max):
+            p.terrain_exposure = min(practice_max,
                                      p.terrain_exposure+.005)
             return 'terrain_exposure_practice_ascent'
 
         if min(up_rate,down_rate) < .12:
             p.terrain_height_m = max(min(.010,max_height_m),
                                      p.terrain_height_m*.985)
-            p.terrain_exposure = max(.05,p.terrain_exposure*.975)
+            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.975)
             return ('terrain_retreat_failed_ascent' if up_rate < .12
                     else 'terrain_retreat_failed_descent')
         return 'terrain_hold_directional_learning'
