@@ -35,6 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests
+          python -m py_compile scripts/overnight_v5023.py scripts/smoke_v5023_arms.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
@@ -69,6 +70,7 @@ jobs:
           emu directional-batch --help > /dev/null
           emu train --help > /dev/null
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
+          emu train --run-dir "$RUNNER_TEMP/g6-plan-only" --steps 60000000 --envs 2048 --seed 733 --device cuda --profile sim2real --pitch-deg 8 --terrain-actor --terrain-step-max-m .04 --terrain-training-arm speed --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
           python - <<'PY'
