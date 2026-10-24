@@ -860,6 +860,53 @@ def test_sensor_checkpoint_requires_explicit_schema_and_matching_physical_contra
         save_checkpoint(tmp_path / 'bad_legacy.pkl', state, bad, norm, **kwargs)
 
 
+def test_unified_fixed_eval_uses_same_array_sensor_and_slab_world(monkeypatch):
+    """Held-out scores may not silently use old-tripod 360 geometry."""
+    from emu import evaluation
+    from emu.contracts import (
+        OBS_SCHEMA_TERRAIN,SENSOR_SETTINGS_DEFAULTS,sensor_observation_contract,
+        TERRAIN_ARRAY_ONLY_REVISION,TERRAIN_SENSOR_REVISION)
+    from emu.training_config import TrainingConfig,training_sensor_contract
+
+    built=[]
+    class StubWorld:
+        def __init__(self, _xml, **kw):
+            built.append(kw)
+            self.sensor_contract=sensor_observation_contract(
+                dict(SENSOR_SETTINGS_DEFAULTS,
+                     sensor_noise_scale=kw['sensor_noise_scale']),
+                schema=kw['observation_schema'],
+                array_only=kw.get('unified_capability_focus',False))
+    monkeypatch.setattr(evaluation,'EmuMJXEnv',StubWorld)
+    monkeypatch.setattr(evaluation,'make_trainer',
+                        lambda env,**kw: {'stub':True})
+
+    new=TrainingConfig(observation_schema=OBS_SCHEMA_TERRAIN,
+                       unified_capability_focus=True,
+                       terrain_step_max_m=.04,envs=8)
+    worlds=evaluation.build_worlds(new)
+    assert len(worlds)==5
+    assert len(built)==5
+    assert all(item['unified_capability_focus'] is True and
+               item['terrain_step_max_m']==.04 for item in built)
+    assert all(env.sensor_contract==training_sensor_contract(new)
+               for env,_ in worlds.values())
+    assert all(env.sensor_contract['sensor_model_revision']==TERRAIN_ARRAY_ONLY_REVISION
+               for env,_ in worlds.values())
+
+    # Historic 360 actors preserve their separate tripod observation meaning.
+    built.clear()
+    old=TrainingConfig(observation_schema=OBS_SCHEMA_TERRAIN,
+                       unified_capability_focus=False,
+                       terrain_step_max_m=.04,envs=8)
+    previous=evaluation.build_worlds(old)
+    assert len(built)==5
+    assert all(item['unified_capability_focus'] is False and
+               item['terrain_step_max_m']==0.0 for item in built)
+    assert all(env.sensor_contract['sensor_model_revision']==TERRAIN_SENSOR_REVISION
+               for env,_ in previous.values())
+
+
 def test_array_only_360_checkpoint_save_resume_keeps_sensor_geometry(tmp_path):
     """New 360 array-only and archived tripod 360 must never be swapped."""
     from copy import deepcopy
