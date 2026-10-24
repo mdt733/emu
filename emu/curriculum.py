@@ -485,6 +485,11 @@ class RegimeGovernor:
         """
         if max_height_m <= 0. or step < foundation_steps:
             return 'foundation_flat'
+        # Preserve main's complete 70-update steady-only bootstrap: no
+        # real obstacle exposure until this proven starting gait emerges.
+        # Unlike the old 20M gate, this is a brief physical-gait bootstrap.
+        if unified and self._updates_done_total <= self.BOOTSTRAP_UPDATES:
+            return 'unified_bootstrap_steady'
         p = self.params
         speed_lesson = unified
         exposure_min = .10 if speed_lesson else .05
