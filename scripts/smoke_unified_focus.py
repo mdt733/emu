@@ -75,6 +75,31 @@ def main():
         np.asarray(jax.device_get(state.data.geom_xmat[:,floor_id,:])),
         np.asarray(jax.device_get(state.data.geom_xmat[:,upper_id,:])),
         atol=1e-4),"upper/lower tangent planes disagree"
+    # Physically pin one ball 4mm INTO the top slab with the robot on
+    # the target side; actual MJX contact pairs must report the upper geom.
+    # This proves collision, rather than only trusting our ray mathematics.
+    up_world=(np.arange(args.envs)%2==0)&active
+    if not np.any(up_world):
+        raise AssertionError("no upward physical platform worlds")
+    translated=state.data.replace(
+        qpos=state.data.qpos.at[:,0].add(.50))
+    translated=env.forward_batched(env.mjx_model,translated)
+    from emu.directional import contact_pair_mask
+    feet=np.asarray(env.ids['foot_geoms'])
+    xyz=np.asarray(jax.device_get(translated.geom_xpos[:,feet,:]))
+    top=ups[:,None,:]+UNIFIED_SLAB_HALF_DEPTH_M*n[:,None,:]
+    above=np.sum((xyz-top)*n[:,None,:],axis=2)
+    # Raise/lower the free torso so the lowest ball intersects the target
+    # surface. This is teacher-only contact acceptance, not a policy action.
+    dz=(np.min(above,axis=1)-(.018-.004))/np.maximum(n[:,2],.1)
+    pressed=translated.replace(
+        qpos=translated.qpos.at[:,2].add(-jnp.asarray(dz)))
+    pressed=env.forward_batched(env.mjx_model,pressed)
+    contacts=getattr(pressed,'_impl',pressed).contact
+    pair=contact_pair_mask(jnp,contacts.geom1,contacts.geom2,
+                           contacts.dist,upper_id,tuple(int(v) for v in feet))
+    got=np.asarray(jax.device_get(jnp.any(pair,axis=1)))
+    assert np.any(got & up_world),"real foot/upper-box collision never appeared"
     rays=np.asarray(jax.device_get(
         state.sensor_state.samples.terrain_ranges_m[:,-1,:]))
     assert np.all(np.isfinite(rays)) and np.any(rays>0),"terrain actor blind"
