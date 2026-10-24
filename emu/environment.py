@@ -1869,6 +1869,66 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
+    def _terrain_speed_task(self, task, keys, params):
+        """Rehearse three speed bins on real ascents and matched flat births.
+
+        Recompute the gait phase rate at the new command speed. This runs
+        before _birth_physics so initial momentum agrees with task velocity.
+        The old 'off' path is bitwise unchanged.
+        """
+        if self.terrain_training_arm == 'off':
+            return task
+        jax, jnp = self.jax, self.jnp
+        k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
+        def terrain_pick(key):
+            _, _, selected_key = jax.random.split(key, 3)
+            return jax.random.uniform(selected_key, ())
+        active = ((jax.vmap(terrain_pick)(k) < params[P.terrain_exposure]) &
+                  (params[P.terrain_height_m] > 1e-6))
+        up = (self.env_index.astype(jnp.int32) % 2) == 0
+        k_flat = jax.vmap(lambda x: jax.random.fold_in(x, 5026))(keys)
+        flat_roll = jax.vmap(lambda x: jax.random.uniform(x, ()))(k_flat)
+        flat_match = (~active) & (flat_roll < .5*params[P.terrain_exposure])
+        chosen = ((active & up) | flat_match) & (task[:,T.regime] < .5) & (
+            task[:,T.athletic_rehearsal] < .5)
+        k_speed = jax.vmap(lambda x: jax.random.fold_in(x, 5027))(keys)
+        uv = jax.vmap(lambda x: jax.random.uniform(x, (2,)))(k_speed)
+        b = jnp.minimum(2, (uv[:,0]*3).astype(jnp.int32))
+        vx_new = jnp.where(b == 0, .10+.05*uv[:,1],
+                          jnp.where(b == 1, .16+.06*uv[:,1], .23+.07*uv[:,1]))
+        vx = jnp.where(chosen,vx_new,task[:,T.vx])
+        old_frac=jnp.clip(jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2) /
+                          jnp.maximum(.05,self.vx_hi_max),0.,1.5)
+        base_rate=jnp.clip(task[:,T.phase_rate]-self.phase_speed_gain*old_frac,.85,1.20)
+        new_rate=command_phase_rate(vx,task[:,T.vy],self.vx_hi_max,
+                                    self.phase_speed_gain,base_rate)
+        return (task.at[:,T.vx].set(vx)
+                .at[:,T.phase_rate].set(jnp.where(chosen,new_rate,task[:,T.phase_rate])))
+
+    def _terrain_first_upper_foothold(self, state, data, metrics, terrain_up):
+        """One true supported top landing, not a vertical wall touch."""
+        jnp=self.jnp
+        from .directional import contact_pair_mask
+        c=getattr(data,'_impl',data).contact
+        feet=tuple(int(x) for x in self.ids['foot_geoms'])
+        box=contact_pair_mask(jnp,c.geom1,c.geom2,c.dist,
+                              int(self.terrain_step_geom_id),feet)
+        floor=contact_pair_mask(jnp,c.geom1,c.geom2,c.dist,
+                                int(self.ids['floor_geom']),feet)
+        centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
+        quat=data.mocap_quat[:,self.terrain_step_mocap_id,:]
+        axis=jnp.stack((1.-2*quat[:,3]**2,2*quat[:,0]*quat[:,3]),axis=1)
+        edge=centre[:,:2]-TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+        forward=jnp.sum((data.qpos[:,:2]-edge)*axis,axis=1)
+        ball_bottom=data.xpos[:,self.foot_bodies,2]-.018
+        upper=centre[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
+        # Do not credit a real collision with the VERTICAL riser.
+        top_contact=box & (ball_bottom>=upper[:,None]-.006)
+        supported=jnp.any(top_contact & jnp.flip(floor,axis=1),axis=1)
+        return (terrain_up & supported & (forward>-.11) & (forward<.14) &
+                (metrics['vx']>.02) & (metrics['cmd_vx']>=.08) &
+                (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
+
     def _episode_terrain(self, data, keys, params):
         """Sample real episode terrain with an exactly flat dormant state.
 
