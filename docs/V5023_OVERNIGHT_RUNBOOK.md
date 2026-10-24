@@ -1,4 +1,4 @@
-# EMU v5023 — overnight G6 prep, operator runbook
+> **RETIRED — DO NOT RUN.** Owner replaced the flat/slope-free A/B campaign with a single shared-policy, all-capabilities specialist-world curriculum. See [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md). The old launcher now refuses to start.\n\n# EMU v5023 — overnight G6 prep, operator runbook
 
 **Feature branch ONLY.** This runbook is for experimental training; NEVER promotes
 a policy into `main`, public playground, or existing `champion.emupolicy`.
