@@ -554,8 +554,10 @@ def one_run_config(args) -> TrainingConfig:
                             resume=None)
     else:
         raise ValueError(f'unknown profile: {args.profile}')
+    unified = bool(getattr(args, 'unified_capabilities', False))
     requested_pitch=getattr(args, 'pitch_deg', None)
-    pitch_deg=float((30.0 if args.profile == 'sim2real' else 8.0)
+    # Main-style gentle cold posture, without changing mature sim2real runs.
+    pitch_deg=float((8.0 if unified or args.profile != 'sim2real' else 30.0)
                     if requested_pitch is None else requested_pitch)
     if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
         raise ValueError('--pitch-deg must be within (0, 30] degrees')
@@ -568,7 +570,6 @@ def one_run_config(args) -> TrainingConfig:
     sensor_actor = bool(getattr(args, 'sensor_actor', False))
     terrain_actor = bool(getattr(args, 'terrain_actor', False))
     terrain_max = float(getattr(args,'terrain_step_max_m',0.0))
-    unified = bool(getattr(args,'unified_capabilities',False))
     if unified and (not terrain_actor or args.profile != 'sim2real'):
         raise ValueError('unified capability learning requires sim2real and terrain_360')
 
@@ -598,6 +599,8 @@ def one_run_config(args) -> TrainingConfig:
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
                    difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,
+                   fall_target=.30 if unified else cfg.fall_target,
+                   combo_probe_frac=.08 if unified else cfg.combo_probe_frac,
                    phase_speed_gain=.75 if unified else cfg.phase_speed_gain,
                    regime_command_frac=.60 if unified else cfg.regime_command_frac,
                    athletic_rehearsal_frac=0.0 if unified else cfg.athletic_rehearsal_frac,
