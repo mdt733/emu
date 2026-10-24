@@ -788,6 +788,62 @@ class RegimeGovernor:
         return dict(growth_budget_demand=demand, growth_budget_scale=scale,
                     growth_budget_limited=float(scale < 1.))
 
+    def advance_curriculum(self, row: dict[str, float], *, step: int,
+                           max_height_m: float, foundation_steps: int,
+                           kl_ok_to_expand: bool = True) -> dict[str, float | str]:
+        """One path for the ordinary and final rollout's curriculum decisions.
+
+        Reuse the original regime logic and existing per-skill closed evidence;
+        arbitrate only their combined growth after all decisions have been
+        made. This is not another governor, and legacy training is unchanged.
+        """
+        before = asdict(self.params) if self.unified_capability_focus else None
+        report = self.update(row, kl_ok_to_expand=kl_ok_to_expand)
+        report['terrain_event'] = self.advance_terrain(
+            row, step=step, max_height_m=max_height_m,
+            foundation_steps=0 if self.unified_capability_focus else foundation_steps,
+            unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
+        if self.unified_capability_focus:
+            report['slope_event'] = self.advance_slope(
+                row, kl_ok=kl_ok_to_expand)
+            report.update(self._share_unified_growth(before))
+            # update() ran before joint arbitration: report the actual
+            # next-birth settings, not stale pre-budget proposed values.
+            for name in (
+                'steady_difficulty', 'transition_difficulty',
+                'resilience_difficulty', 'posture_difficulty',
+                'frontier_vx_hi', 'frontier_vx_lo', 'frontier_vy',
+                'frontier_yaw', 'frontier_combo_radius', 'frontier_push_n',
+                'frontier_sensor_scale', 'frontier_transition_hold_s',
+                'frontier_ramp_steps'):
+                report[name] = getattr(self.params, name)
+            report.update(
+                slope_exposure=self.params.slope_exposure,
+                slope_max_deg=self.params.slope_max_deg,
+                physical_slope_deg_max=row.get('physical_slope_deg_max', 0.),
+                physical_slope_deg_mean=row.get('physical_slope_deg_mean', 0.),
+                physical_slope_world_fraction=row.get('physical_slope_world_fraction', 0.),
+                **{f'slope_{outcome}_{direction}':
+                   row.get(f'slope_{outcome}_{direction}', 0.)
+                   for outcome in ('attempts', 'successes')
+                   for direction in self.SLOPE_DIRECTIONS})
+        report.update(
+            terrain_exposure=self.params.terrain_exposure,
+            terrain_height_m=self.params.terrain_height_m,
+            terrain_attempts=row.get('terrain_attempts', 0.),
+            terrain_successes=row.get('terrain_successes', 0.),
+            **{name:row.get(name, 0.) for name in (
+                'terrain_attempts_up', 'terrain_attempts_down',
+                'terrain_successes_up', 'terrain_successes_down',
+                'terrain_falls_up', 'terrain_falls_down')})
+        report.update({f'terrain_window_{key}': value
+                       for key, value in self.terrain_evidence.items()})
+        report.update({f'terrain_{outcome}_up_{band}':
+                       row.get(f'terrain_{outcome}_up_{band}', 0.)
+                       for outcome in ('attempts', 'successes', 'falls')
+                       for band in ('slow', 'medium', 'fast')})
+        return report
+
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
