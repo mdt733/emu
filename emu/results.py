@@ -64,8 +64,8 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
     step=row.get('step','?')
     lines=[
         '# EMU — single-run observation report','',
-        f"- Run: \`{root.name}\`",
-        f"- Source SHA: \`{source.get('git_commit','unavailable')}\`",
+        f"- Run: `{root.name}`",
+        f"- Source SHA: `{source.get('git_commit','unavailable')}`",
         f"- Recorded environment steps: {step}",
         f"- Observation contract: {cfg.get('observation_schema','unknown')}",
         f"- Unified specialists: {cfg.get('unified_capability_focus',False)}",

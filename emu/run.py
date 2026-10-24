@@ -199,9 +199,8 @@ def train_one(args) -> int:
     if final is None:
         raise RuntimeError('Trainer returned but no validated final checkpoint reached the target')
     print(f'Completed validated run: {final}')
-    # A finished standalone experiment deserves the same human-readable
-    # evidence as tournament arms. This only reads CSV/JSON and hashes the
-    # finished checkpoint; reporting cannot invalidate successful training.
+    # This report reads recorded learning evidence without importing PPO or
+    # changing the validated checkpoint. Independent physical exams remain separate.
     try:
         from .results import write_report
         for report_path in write_report(Path(config.run_dir)):
