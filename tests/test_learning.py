@@ -644,6 +644,36 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_unified_main_first_20m_then_earned_specialists():
+    """Same actor contract, no specialist growth before the 20M boundary."""
+    from emu.capability_focus import growth_mix
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    g.core_competence=.90
+    g.fall_ema['posture']=.10
+    for steps in (0,4_587_520,19_999_999):
+        assert growth_mix(step=steps,foundation_steps=20_000_000,
+                          steady_difficulty=.50)==0.
+    assert growth_mix(step=20_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.50)==0.
+    assert 0. < growth_mix(step=21_000_000,foundation_steps=20_000_000,
+                          steady_difficulty=.50) < 1.
+    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.05)==0.
+    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.32)==1.
+    assert g.advance_curriculum({},step=19_999_999,
+               foundation_steps=20_000_000,max_height_m=.04)['terrain_event']=='foundation_flat'
+    assert g.params.terrain_exposure==0.
+    assert g.params.slope_exposure==0.
+    assert g.params.frontier_vx_hi==.06
+    assert g.params.frontier_push_n==.70
+    assert not any(v['attempts'] for v in g.command_evidence.values())
+    assert g.advance_curriculum({},step=20_000_000,
+               foundation_steps=20_000_000,max_height_m=.04)['terrain_event'] in (
+               'terrain_unified_seed_4mm','unified_bootstrap_steady','await_core_walk')
+    assert g.params.terrain_exposure>=0.
+
+
 def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     """Several qualified specialties cannot overwhelm main's growth budget."""
     from dataclasses import asdict

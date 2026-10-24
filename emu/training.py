@@ -523,7 +523,11 @@ def train(args: TrainingConfig) -> int:
         # One explicit temporal rewind: policy/optimiser + teacher + health +
         # field + observation coordinates + LR, then fresh physics for EVERY
         # world. If recovery fails, retain the collapse streak and retry later.
-        if args.allow_rollback and report['needs_recovery']:
+        # The historical first-20M foundation deliberately disabled
+        # checkpoint rollbacks; resume and later unified recovery remain.
+        if (args.allow_rollback and
+                (not args.unified_capability_focus or total_steps >= FOUNDATION_STEPS)
+                and report['needs_recovery']):
             restored = try_restore_recovery(
                 recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,

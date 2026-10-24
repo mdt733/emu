@@ -40,8 +40,17 @@ def main():
     cold_obs.block_until_ready()
     assert not bool(jax.device_get(jnp.any(cold.specialist_active)))
     # Exercise ALL six live branches without simulating millions of frames.
-    # This synthetic difficulty is test input, not a training curriculum jump.
+    # The teacher blend is explicit: 20M foundation must NEVER activate them
+    # simply because steady difficulty rose prematurely.
+    from emu.capability_focus import growth_mix
+    assert growth_mix(step=19_999_999,foundation_steps=20_000_000,
+                      steady_difficulty=.40)==0.0
+    assert growth_mix(step=20_000_000,foundation_steps=20_000_000,
+                      steady_difficulty=.40)==0.0
+    assert 0.0 < growth_mix(step=21_000_000,foundation_steps=20_000_000,
+                           steady_difficulty=.40) < 1.0
     params['steady_difficulty']=.35
+    params['specialist_mix']=1.0
     # Verify genuinely random pitch/roll and steps in one JAX model, not
     # just simulated tilted gravity or inactive world labels.
     params.update(slope_exposure=1.0,slope_max_deg=5.0,

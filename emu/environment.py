@@ -2160,8 +2160,12 @@ class EmuMJXEnv(TaskSampler):
         focus=self.focus_id
         step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
         slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
-        step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose)
-        slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose)
+        # The governor may seed gentle physical severity on the exact 20M
+        # boundary; the host-owned fade ensures the NEXT worlds do not
+        # instantly get 15% obstacle births before gait has transitioned.
+        mix=jnp.clip(params[P.specialist_mix],0.,1.)
+        step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose*mix)
+        slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose*mix)
         has_fixed_height=jnp.isfinite(params[P.terrain_fixed_height_m])
         step_active=jnp.where(
             has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,

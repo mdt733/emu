@@ -81,6 +81,15 @@ def one_run_config(args) -> TrainingConfig:
                    # mature caps remain physical *headroom*, not birth tasks.
                    difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,
                    fall_target=.30 if unified else cfg.fall_target,
+                   # Keep the proven 20M command/phase economics rather than
+                   # accidentally inheriting mature speed limits.
+                   vx_hi_max=.40 if unified else cfg.vx_hi_max,
+                   vx_lo_min=-.12 if unified else cfg.vx_lo_min,
+                   vy_max_mps=.14 if unified else cfg.vy_max_mps,
+                   yaw_max_rad_s=.90 if unified else cfg.yaw_max_rad_s,
+                   freeze_obs_norm_after_steps=0 if unified else cfg.freeze_obs_norm_after_steps,
+                   cloud_probes_per_eval=0 if unified else cfg.cloud_probes_per_eval,
+                   cloud_final_probes=0 if unified else cfg.cloud_final_probes,
                    combo_probe_frac=.08 if unified else cfg.combo_probe_frac,
                    phase_speed_gain=.75 if unified else cfg.phase_speed_gain,
                    regime_command_frac=.60 if unified else cfg.regime_command_frac,
