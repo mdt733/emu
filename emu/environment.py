@@ -2087,8 +2087,8 @@ class EmuMJXEnv(TaskSampler):
         """
         jax,jnp=self.jax,self.jnp
         def draw(key):
-            ks=jax.random.split(jax.random.fold_in(key,50245),5)
-            return jnp.stack([jax.random.uniform(ks[i],()) for i in range(5)])
+            ks=jax.random.split(jax.random.fold_in(key,50245),6)
+            return jnp.stack([jax.random.uniform(ks[i],()) for i in range(6)])
         u=jax.vmap(draw)(keys)
         focused=self._specialist_enabled(keys,params)
         focus=self.focus_id
@@ -2133,7 +2133,7 @@ class EmuMJXEnv(TaskSampler):
         ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
         # Height is the physical normal displacement, not an impossible
         # world-vertical offset that would force the two faces to overlap.
-        height=ceiling*(.30+.70*u[:,2])
+        height=ceiling*(.30+.70*u[:,5])
         upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
         buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
         upper_pos=jnp.where(step_active[:,None],upper_pos,buried)
