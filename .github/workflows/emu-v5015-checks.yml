@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests
-          python -m py_compile scripts/smoke_unified_focus.py
+          python -m py_compile scripts/smoke_unified_focus.py scripts/smoke_training_lifecycle.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
@@ -61,6 +61,7 @@ jobs:
           emu directional-exam --help > /dev/null
           emu terrain-exam --help > /dev/null
           emu train --help > /dev/null
+          python scripts/smoke_training_lifecycle.py --help > /dev/null
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15 --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
