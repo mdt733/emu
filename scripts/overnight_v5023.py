@@ -172,11 +172,27 @@ def ranking(root: Path, candidate_results: dict[str, dict]) -> list[str]:
                 - max(0.0, jpm - 70.0)*0.15)
     ranks = sorted(("A100", "B100"), key=lambda n: score(candidate_results[n]),
                    reverse=True)
+    control = candidate_results["control110"]
+    good = []
+    for name in ranks:
+        r = candidate_results[name]
+        flat_progress = r["flat_metres"] / max(.001, control["flat_metres"])
+        effort_ratio = ((r["flat_joules"] / max(.001,r["flat_metres"])) /
+                        (control["flat_joules"] / max(.001,control["flat_metres"])))
+        qualified = (r["up"] > control["up"] and r["falls"] <= control["falls"]+6
+                     and flat_progress >= .85 and effort_ratio <= 1.35)
+        print(f"[A/B] {name}: up={r['up']} (control {control['up']}), "
+              f"falls={r['falls']} (control {control['falls']}), "
+              f"flat progress ratio={flat_progress:.3f}, "
+              f"shaft J/m ratio={effort_ratio:.3f}, qualified={qualified}",flush=True)
+        if qualified:
+            good.append(name)
     print("[A/B] paired frozen exams", json.dumps(candidate_results, indent=2), flush=True)
     (root / "ab_exam_scores.json").write_text(json.dumps(
-        {"summaries": candidate_results, "rank": ranks,
-         "rule": "5*up + down - 2*falls - 0.15*max(0,shaftJ/m - 70)"}, indent=2)+"\n")
-    return ranks
+        {"summaries": candidate_results, "rank": ranks, "eligible": good,
+         "rule": "5*up + down - 2*falls - 0.15*max(0,shaftJ/m - 70)",
+         "qualification": "up > control, falls <= control+6, flat progress >=85%, flat shaft J/m <=135%"}, indent=2)+"\n")
+    return good
 
 
 def main():
@@ -216,15 +232,22 @@ def main():
     results = {name:exams(root,src,name,dry=False) for name,src in
                (("control110",old),("A100",new),("B100",new))}
     ranks=ranking(root,results)
-    winner,runner=ranks
+    if not ranks:
+        print("[A/B] neither teaching arm outperformed the control safely. "
+              "Preserving budget rather than blindly running another 280M.",flush=True)
+        return
+    winner=ranks[0]
+    runner=ranks[1] if len(ranks)>1 else None
     # The next blocks are optional, and cannot run unless the A/B exams exist.
     # Selection is for experiment allocation only, NOT champion promotion.
     steps=[
         (winner+"160",winner,160_000_000, "foothold" if winner.startswith("B") else "speed"),
         (winner+"260",winner+"160",260_000_000,"foothold" if winner.startswith("B") else "speed"),
-        (runner+"180",runner,180_000_000,"foothold" if runner.startswith("B") else "speed"),
         (winner+"380",winner+"260",380_000_000,"foothold" if winner.startswith("B") else "speed")
     ]
+    if runner:
+        steps.insert(2,(runner+"180",runner,180_000_000,
+                        "foothold" if runner.startswith("B") else "speed"))
     for name,source,target,arm in steps:
         if not stage(root,new,name,parent=path(source),target=target,old=False,arm=arm,
                      remaining=remaining(),dry=False):
