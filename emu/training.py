@@ -14,11 +14,12 @@ Training DOES NOT define the reward mathematics (see rewards.py) or choose the
 stable cold-start training followed by evidence-driven capability growth.
 
 KNOWN DEBT: most of these stages still inhabit a long `train` body.
-See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
+Keep extraction local to existing modules; avoid new wrapper mazes.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -124,17 +125,28 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
-    # Fail closed until the entire unified curriculum has been accepted
-    # on actual RTX 4060 Ti hardware at 2048 worlds, including a cold-start
-    # PPO update and matched first-20M gates. Small CPU physical-contact
-    # smoke is not enough evidence to spend an overnight allocation.
+    # Keep the unified overnight campaign CLOSED. The existing lifecycle
+    # smoke has one explicit, source-pinned exception: at most TWO PPO
+    # updates, never a long run. The test opt-in is not a training config
+    # switch and cannot be used to resume beyond this absolute step budget.
     if args.unified_capability_focus:
-        raise RuntimeError(
-            'Unified capability training is PRE-LAUNCH: real mixed slope+step '
-            'CPU contact smoke exists, but the full 2048-world CUDA lifecycle '
-            'and composite curriculum acceptance are still pending. '
-            'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
+        acceptance = (
+            os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
+            and args.device == 'cuda'
+            and args.envs in (8, 12, 2048)
+            and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS
+            and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_step_max_m >= .001
+            and args.open_frontier
         )
+        if not acceptance:
+            raise RuntimeError(
+                'Unified training is PRE-LAUNCH. Only explicit, source-pinned '
+                'two-update lifecycle acceptance is permitted; 20M and '
+                'overnight training stay locked pending CUDA memory, '
+                'checkpoint/resume/export, frozen exam and owner approval. '
+                'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
+            )
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
