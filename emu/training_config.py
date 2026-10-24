@@ -117,7 +117,8 @@ def training_sensor_contract(config) -> dict | None:
         raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
     settings = dict(SENSOR_SETTINGS_DEFAULTS)
     settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
-    return sensor_observation_contract(settings,schema=config.observation_schema)
+    return sensor_observation_contract(settings,schema=config.observation_schema,
+                                       array_only=bool(config.unified_capability_focus))
 
 
 def doctrine_dict() -> dict[str, object]:
