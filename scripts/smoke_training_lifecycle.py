@@ -229,10 +229,18 @@ def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None
     if int(bundle["source"]["step"]) != 2 * updates:
         raise RuntimeError("exported actor has unexpected training step")
     if unified:
-        from emu.contracts import OBS_SCHEMA_TERRAIN
-        if bundle.get("observation_schema") != OBS_SCHEMA_TERRAIN:
-            raise RuntimeError("exported unified actor has wrong sensor/observation contract")
+        from emu.contracts import TERRAIN_OBS_DIM
+        from emu.viewer_server import load_exported_actor_for_exam
+        if (bundle.get("schema") != 3 or
+                bundle.get("policy",{}).get("obs_dim") != TERRAIN_OBS_DIM):
+            raise RuntimeError("exported unified actor is not a 360-input schema-3 policy")
     write_bundle(bundle, exported)
+    if unified:
+        # Decode exactly what the frozen physical examiner will consume;
+        # this checks array-only ToF semantics, model hash, and normalizer.
+        _, _, exam_meta=load_exported_actor_for_exam(exported)
+        if not exam_meta["array_only"] or exam_meta["obs_dim"]!=TERRAIN_OBS_DIM:
+            raise RuntimeError("exported 360 actor failed array-only replay contract")
     print(f"PASS checkpoint lineage: {updates} -> {2*updates}", flush=True)
     print(f"PASS observation normaliser: count {first_count:.0f} -> {second_count:.0f}", flush=True)
     print("PASS held-out examinations, completed-resume no-op, and browser actor export", flush=True)
