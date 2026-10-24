@@ -595,6 +595,14 @@ def one_run_config(args) -> TrainingConfig:
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
+                   # Source main foundation: steady-first low-gain gait. The
+                   # mature caps remain physical *headroom*, not birth tasks.
+                   difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,
+                   phase_speed_gain=.75 if unified else cfg.phase_speed_gain,
+                   regime_command_frac=.60 if unified else cfg.regime_command_frac,
+                   athletic_rehearsal_frac=0.0 if unified else cfg.athletic_rehearsal_frac,
+                   combo_mix_frac=0.0 if unified else cfg.combo_mix_frac,
+                   capability_field_mode='shadow' if unified else cfg.capability_field_mode,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
