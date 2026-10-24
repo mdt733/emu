@@ -947,6 +947,16 @@ def test_array_only_360_checkpoint_save_resume_keeps_sensor_geometry(tmp_path):
                           expected_observation_schema=OBS_SCHEMA_TERRAIN,
                           expected_sensor_contract=array)
     assert saved['meta']['sensor_contract']==array
+    # Exercise the SAME script that runs on the owner's WSL system.
+    # Formerly it implicitly loaded schema-7 and rejected a correctly
+    # saved terrain_360 checkpoint AFTER wasting the actual CUDA update.
+    from scripts.smoke_training_lifecycle import checkpoint as acceptance_checkpoint
+    assert acceptance_checkpoint(checkpoint,256,config=cfg)['meta']['step']==256
+    with pytest.raises(ValueError,match='differs from requested run'):
+        acceptance_checkpoint(
+            checkpoint,256,config=TrainingConfig(
+                observation_schema=OBS_SCHEMA_TERRAIN,
+                unified_capability_focus=False))
     with pytest.raises(ValueError,match='differs from requested run'):
         load_checkpoint(checkpoint,
                         expected_observation_schema=OBS_SCHEMA_TERRAIN,
