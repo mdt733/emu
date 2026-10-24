@@ -724,6 +724,70 @@ class RegimeGovernor:
             events[positive]=events[negative]=result
         return events
 
+    def _share_unified_growth(self, before: dict[str, float]) -> dict[str, float]:
+        """Share one expansion budget across existing regime and specialist teachers.
+
+        Main already budgets its four regime/posture pushes; commands, slopes
+        and steps must not then add several *full* frontier moves on top.
+        Each proposed increase is measured in units of that field's normal
+        successful step. Two coupled settings for one lesson (e.g. angle and
+        exposure) count as ONE lesson. Scale advances together if needed;
+        never scale retreats. The first tiny, physically meaningful exposure
+        seed is exempt, as it is not evidence-based frontier expansion.
+        No new persistent state or new controller.
+        """
+        p = self.params
+        base = max(self.difficulty_base_step * self.MAX_STEP_MULT, 1e-9)
+        core = ('steady_difficulty', 'transition_difficulty',
+                'resilience_difficulty', 'posture_difficulty')
+        units = {name: (+1., base) for name in core}
+        for name in ('frontier_vx_hi', 'frontier_vx_lo',
+                     'frontier_vy', 'frontier_yaw'):
+            units[name] = (-1. if name == 'frontier_vx_lo' else +1.,
+                           max(abs(before[name]) * .025, 1e-9))
+        units.update({
+            'frontier_combo_radius': (+1., max(abs(before['frontier_combo_radius']) * .01, 1e-9)),
+            'frontier_push_n': (+1., max(abs(before['frontier_push_n']) * FRONTIER_GROWTH_FRAC, 1e-9)),
+            'frontier_sensor_scale': (+1., max(abs(before['frontier_sensor_scale']) * .5 * FRONTIER_GROWTH_FRAC, 1e-9)),
+            'frontier_transition_hold_s': (-1., max(abs(before['frontier_transition_hold_s']) * FRONTIER_GROWTH_FRAC, 1e-9)),
+            'frontier_ramp_steps': (-1., max(abs(before['frontier_ramp_steps']) * 2 * FRONTIER_GROWTH_FRAC, 1e-9)),
+            'terrain_exposure': (+1., .005),
+            'terrain_height_m': (+1., .0005),
+            'slope_exposure': (+1., .01),
+            'slope_max_deg': (+1., .12),
+        })
+        gains = {}
+        costs = {}
+        for name, (sign, unit) in units.items():
+            old, now = float(before[name]), float(getattr(p, name))
+            signed_gain = sign * (now - old)
+            newly_seeded = (name in ('terrain_exposure', 'terrain_height_m',
+                                      'slope_exposure', 'slope_max_deg')
+                            and old <= 0.)
+            if signed_gain > 1e-12 and not newly_seeded:
+                gains[name] = now - old
+                costs[name] = signed_gain / unit
+
+        def cost_sum(names):
+            return sum(costs.get(name, 0.) for name in names)
+        def cost_max(names):
+            return max((costs.get(name, 0.) for name in names), default=0.)
+        demand = (
+            cost_sum(core)
+            + cost_sum(('frontier_vx_hi','frontier_vx_lo','frontier_vy',
+                        'frontier_yaw','frontier_combo_radius'))
+            + cost_max(('frontier_transition_hold_s','frontier_ramp_steps'))
+            + cost_max(('terrain_exposure','terrain_height_m'))
+            + cost_max(('slope_exposure','slope_max_deg'))
+            + costs.get('frontier_push_n', 0.)
+            + costs.get('frontier_sensor_scale', 0.))
+        scale = min(1., 1. / demand) if demand > 0. else 1.
+        if scale < 1.:
+            for name, gain in gains.items():
+                setattr(p, name, float(before[name]) + gain * scale)
+        return dict(growth_budget_demand=demand, growth_budget_scale=scale,
+                    growth_budget_limited=float(scale < 1.))
+
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
