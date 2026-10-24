@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Capability-growth charter and running checklist](docs/CAPABILITY_GROWTH.md)** · **[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
+**[Unified capability-growth design](docs/UNIFIED_CAPABILITY_GROWTH.md)** · **[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
 
 ## How it works
 
@@ -15,7 +15,7 @@ ppo.py + training.py             Many MJX worlds, experience, gradients, checkpo
         ↕
 curriculum.py                    What should this robot practise next?
         ↕
-branch_lab.py                     Shared foundation → competing teaching strategies
+branch_lab.py                    Source-pinned runs, provenance and plans
         ↓
 results.py                       How did it learn? Which branches really improved?
 
@@ -24,7 +24,7 @@ results.py                       How did it learn? Which branches really improve
            export-policy
 ```
 
-EMU supports two deliberately versioned actor contracts: **v5015/Pitch15: 55×4 = 220 observations**, and **v5016/sim2real: 58×4 = 232 observations** (ToF ground grades and optical-flow-derived velocity with measurement timing/bias). Both output six joint targets. A full checkpoint contains the learning state; a smaller `.emupolicy` contains browser inference weights and its exact observation contract. The protected showcase asset now holds the **approved v5016 Pinnacle 260,112,384-step, 232-input actor**. GitHub Pages may show an older deployment until the release-specific Pages workflow succeeds. A good-looking demo is not evidence of safe physical servos.
+EMU supports two deliberately versioned actor contracts: **v5015/Pitch15: 55×4 = 220 observations**, and **v5016/sim2real: 58×4 = 232 observations** (ToF ground grades and optical-flow-derived velocity with measurement timing/bias). The feature branch additionally develops a **360-input terrain_360** observation contract with 16 physical 4×4 ToF ranges, validity bits and history. Both established contracts and the new contract output six joint targets; the public champion remains 232-input. A full checkpoint contains the learning state; a smaller `.emupolicy` contains browser inference weights and its exact observation contract. The protected showcase asset now holds the **approved v5016 Pinnacle 260,112,384-step, 232-input actor**. GitHub Pages may show an older deployment until the release-specific Pages workflow succeeds. A good-looking demo is not evidence of safe physical servos.
 
 ## Start
 
