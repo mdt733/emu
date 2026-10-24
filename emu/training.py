@@ -249,12 +249,22 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        # A real 20M-step flat foundation, including resume and rewinds:
-        # nothing may expose finite terrain before the foundation boundary.
-        # This gate is independent of the governor's saved frontier values.
-        if step < FOUNDATION_STEPS and not args.unified_capability_focus:
+        # This source-pinned 360 actor learns a MAIN-style gait for the
+        # first 20M steps, with real slabs present but physically dormant.
+        # Afterwards expose specialists smoothly, limited by actual steady
+        # competence. Rewinds/resume recompute the same dose from steps and
+        # restored governor state: no extra checkpoint controller.
+        if step < FOUNDATION_STEPS:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
+            if args.unified_capability_focus:
+                d['slope_exposure'] = 0.0
+                d['slope_max_deg'] = 0.0
+        if args.unified_capability_focus:
+            from .capability_focus import growth_mix
+            d['specialist_mix'] = growth_mix(
+                step=step, foundation_steps=FOUNDATION_STEPS,
+                steady_difficulty=float(governor.params.steady_difficulty))
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),

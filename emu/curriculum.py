@@ -381,6 +381,7 @@ class RegimeGovernor:
     def _advance_physical_frontiers(
         self, row: dict[str, float], *,
         global_fall: float, global_retreat: bool,
+        specialist_growth_enabled: bool = True,
     ) -> dict[str, str]:
         """Use REAL settled tracking evidence to revise physical command limits.
 
@@ -393,7 +394,8 @@ class RegimeGovernor:
         # from voting a proven axis downward. A slow EMA + bad-streak hysteresis
         # keeps a single ugly rollout from eating the envelope.
         frontier_events = {}
-        if self.open_frontier and not global_retreat:
+        if (self.open_frontier and not global_retreat and
+                (not self.unified_capability_focus or specialist_growth_enabled)):
             axis_specs = (() if self.unified_capability_focus else (
                 ('vx_hi', 'frontier_precision_vx_forward', +1.0, self.FRONTIER_FLOOR_VX_HI, self.frontier_vx_hi_safety),
                 ('vx_lo', 'frontier_precision_vx_reverse', -1.0, abs(self.FRONTIER_FLOOR_VX_LO), self.frontier_vx_lo_safety),
@@ -805,15 +807,23 @@ class RegimeGovernor:
         made. This is not another governor, and legacy training is unchanged.
         """
         before = asdict(self.params) if self.unified_capability_focus else None
-        report = self.update(row, kl_ok_to_expand=kl_ok_to_expand)
+        # Main's 20M training distribution gets first refusal. The new
+        # policy uses its 360 sensor contract from birth, but no specialist
+        # frontier or physical obstacle is allowed to unlock before 20M.
+        growth_enabled = step >= foundation_steps
+        report = self.update(
+            row, kl_ok_to_expand=kl_ok_to_expand,
+            specialist_growth_enabled=growth_enabled)
         report['terrain_event'] = self.advance_terrain(
             row, step=step, max_height_m=max_height_m,
-            foundation_steps=0 if self.unified_capability_focus else foundation_steps,
+            foundation_steps=foundation_steps,
             unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
         if self.unified_capability_focus:
-            report['slope_event'] = self.advance_slope(
-                row, kl_ok=kl_ok_to_expand)
-            report.update(self._share_unified_growth(before))
+            report['slope_event'] = (
+                self.advance_slope(row, kl_ok=kl_ok_to_expand)
+                if growth_enabled else 'foundation_flat')
+            if growth_enabled:
+                report.update(self._share_unified_growth(before))
             # update() ran before joint arbitration: report the actual
             # next-birth settings, not stale pre-budget proposed values.
             for name in (
@@ -851,7 +861,8 @@ class RegimeGovernor:
                        for band in ('slow', 'medium', 'fast')})
         return report
 
-    def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
+    def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True,
+               specialist_growth_enabled: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
         breakdown) alongside GLOBAL ones -- global is used for posture (a
@@ -976,8 +987,9 @@ class RegimeGovernor:
         # Only demonstrated training-rollout tracking may move the physical
         # limits; the fixed-policy examiner cannot teach this controller.
         frontier_events = self._advance_physical_frontiers(
-            row, global_fall=global_fall, global_retreat=global_retreat)
-        if self.unified_capability_focus:
+            row, global_fall=global_fall, global_retreat=global_retreat,
+            specialist_growth_enabled=specialist_growth_enabled)
+        if self.unified_capability_focus and specialist_growth_enabled:
             frontier_events.update(self._advance_specialist_commands(
                 row, global_retreat=global_retreat, kl_ok=kl_ok_to_expand))
 

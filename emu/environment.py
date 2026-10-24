@@ -497,16 +497,25 @@ class TaskSampler:
         jnp = self.jnp
         steady_d = params[P.steady_difficulty]
         command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
+        # The unified actor first receives main's ordinary steady-difficulty
+        # command interpolation. The newly-earned physical limits gradually
+        # take over after the foundation. Legacy actor maths is untouched.
+        vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
+        vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
+        yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
+        vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
         if self.open_frontier:
-            vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
-            vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
-            yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
-            vy_max = jnp.maximum(0.0, params[P.frontier_vy])
-        else:
-            vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
-            vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
-            yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
-            vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
+            if self.unified_capability_focus:
+                mix = jnp.clip(params[P.specialist_mix], 0., 1.)
+                vx_hi = self._lerp(vx_hi, jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi]), mix)
+                vx_lo = self._lerp(vx_lo, jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo]), mix)
+                yaw_max = self._lerp(yaw_max, jnp.maximum(0., params[P.frontier_yaw]), mix)
+                vy_max = self._lerp(vy_max, jnp.maximum(0., params[P.frontier_vy]), mix)
+            else:
+                vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
+                vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
+                yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
+                vy_max = jnp.maximum(0.0, params[P.frontier_vy])
         full = CommandEnvelope(vx_hi, vx_lo, vy_max, yaw_max)
         reduced = CommandEnvelope(
             SEED_VX_HI + command_frac * (vx_hi - SEED_VX_HI),
@@ -1510,6 +1519,8 @@ class EmuMJXEnv(TaskSampler):
                     raise ValueError('fixed step height outside compiled physical range')
                 if np.isfinite(slope[5]) and abs(slope[5])>45.0:
                     raise ValueError('fixed edge yaw outside +/-45-degree exam range')
+                if not np.isfinite(slope[6]) or not 0. <= slope[6] <= 1.:
+                    raise ValueError('specialist_mix must be between zero and one')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -2040,7 +2051,9 @@ class EmuMJXEnv(TaskSampler):
         jax,jnp=self.jax,self.jnp
         if not self.unified_capability_focus:
             return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        mix=jnp.clip((params[P.steady_difficulty]-.10)/.22,0.,1.)
+        # Host decides phase from absolute steps AND earned steady competence;
+        # there is no second independent maturity schedule inside the world.
+        mix=jnp.clip(params[P.specialist_mix],0.,1.)
         k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
         return jax.vmap(lambda x:jax.random.uniform(x,()))(k)<mix
 

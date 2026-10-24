@@ -247,6 +247,8 @@ UNIFIED_TERRAIN_FIELDS = (
     ('terrain_pitch_deg',float('nan')), ('terrain_roll_deg',float('nan')),
     ('terrain_fixed_height_m',float('nan')),
     ('terrain_edge_angle_deg',float('nan')),
+    # Teacher-only foundation→growth blend, never an actor observation.
+    ('specialist_mix',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -261,6 +263,7 @@ P = SimpleNamespace(
     terrain_roll_deg=TERRAIN_TASK_PARAM_DIM + 3,
     terrain_fixed_height_m=TERRAIN_TASK_PARAM_DIM + 4,
     terrain_edge_angle_deg=TERRAIN_TASK_PARAM_DIM + 5,
+    specialist_mix=TERRAIN_TASK_PARAM_DIM + 6,
 )
 
 

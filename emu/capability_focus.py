@@ -15,6 +15,22 @@ FOCUS_FRACTIONS = (.20, .20, .20, .20, .10, .10)
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
 
+def growth_mix(*, step: int, foundation_steps: int,
+               steady_difficulty: float) -> float:
+    """Teacher dose: zero for main-style 20M, gentle thereafter if gait earned.
+
+    A 2M-step fade-in prevents an abrupt cohort/command distribution change.
+    Core gait quality still controls the actual activation; this is not a
+    second regime scheduler and does not affect PPO or actor observations.
+    """
+    import math
+    if not math.isfinite(float(steady_difficulty)):
+        raise ValueError('steady difficulty must be finite')
+    time_dose = max(0.0, min(1.0, (float(step) - foundation_steps) / 2_000_000.0))
+    earned = max(0.0, min(1.0, (float(steady_difficulty) - .10) / .22))
+    return time_dose * earned
+
+
 def focus_indices(num_envs: int):
     """Stable balanced specialist identity across 2,048 parallel worlds.
 
