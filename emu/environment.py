@@ -507,10 +507,21 @@ class TaskSampler:
         if self.open_frontier:
             if self.unified_capability_focus:
                 mix = jnp.clip(params[P.specialist_mix], 0., 1.)
-                vx_hi = self._lerp(vx_hi, jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi]), mix)
-                vx_lo = self._lerp(vx_lo, jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo]), mix)
-                yaw_max = self._lerp(yaw_max, jnp.maximum(0., params[P.frontier_yaw]), mix)
-                vy_max = self._lerp(vy_max, jnp.maximum(0., params[P.frontier_vy]), mix)
+                # A newly seeded specialist frontier (.06 m/s, etc.) is
+                # initially SMALLER than main's already-earned 20M command
+                # experience. Never replace that successful foundation with
+                # an easier limit during the specialist fade-in. Only let
+                # specialist evidence EXTEND each signed main-style axis.
+                vx_hi = jnp.maximum(vx_hi,
+                    self._lerp(SEED_VX_HI,
+                        jnp.maximum(SEED_VX_HI,params[P.frontier_vx_hi]),mix))
+                vx_lo = jnp.minimum(vx_lo,
+                    self._lerp(SEED_VX_LO,
+                        jnp.minimum(SEED_VX_LO,params[P.frontier_vx_lo]),mix))
+                yaw_max = jnp.maximum(yaw_max,
+                    mix*jnp.maximum(0.,params[P.frontier_yaw]))
+                vy_max = jnp.maximum(vy_max,
+                    mix*jnp.maximum(0.,params[P.frontier_vy]))
             else:
                 vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
                 vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
