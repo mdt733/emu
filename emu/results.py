@@ -122,7 +122,7 @@ def main(argv=None) -> int:
     reference,candidate=args.compare_fixed
     a,b=read_csv_rows(reference),read_csv_rows(candidate)
     if not a or not b:
-        raise ValueError('missing fixed-eval observations')
+        raise ValueError('no fixed-eval evidence in one or both inputs')
     result=compare_fixed_exam_evidence(a[-1],b[-1],
                 reference_protocol=args.reference_protocol,
                 candidate_protocol=args.candidate_protocol)
