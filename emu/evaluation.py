@@ -1390,8 +1390,20 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             and yaw_response_ok
             and support_fraction>=.35 and bad_fraction<.20 and alive)
         grade=float(np.degrees(np.arccos(np.clip(normal[world,2],-1.,1.))))
+        # Ground *direction* must match the requested task, not just the
+        # absolute inclination: uphill is not evidence for downhill.
+        gx=float(-normal[world,0]/max(.01,normal[world,2]))
+        gy=float(-normal[world,1]/max(.01,normal[world,2]))
         desired_grade=float(case.get('slope_deg',0.))
-        grade_verified=abs(grade-desired_grade)<=.20
+        expected=np.tan(np.deg2rad(desired_grade))
+        bearing=case.get('direction','uphill')
+        expected_xy={
+            'uphill':(expected,0.),'downhill':(-expected,0.),
+            'cross_left':(0.,expected),'cross_right':(0.,-expected)
+        }.get(bearing,(expected,0.))
+        grade_verified=(abs(grade-desired_grade)<=.20
+                        and abs(gx-expected_xy[0])<=np.tan(np.deg2rad(.20))
+                        and abs(gy-expected_xy[1])<=np.tan(np.deg2rad(.20)))
         is_step=case.get('step_m',0.)>0.
         side=1. if world%2==0 else -1.
         line=upper[world]-side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]
@@ -1445,6 +1457,7 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             direction=('step-up' if side>0 else 'step-down') if is_step else case.get('direction','flat'),
             first_episode_frames=stop, survived=alive, fell=world_fell,
             grade_deg=round(grade,3),grade_verified=grade_verified,
+            physical_slope_gx=round(gx,5),physical_slope_gy=round(gy,5),
             requested_step_m=float(case.get('step_m',0.)),
             measured_step_m=round(measured_h,5),height_verified=height_verified,
             started_near_side=initial_near if is_step else None,
