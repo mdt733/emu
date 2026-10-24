@@ -150,6 +150,7 @@ class EnvState(NamedTuple):
     hist: Any
     rng: Any
     task: Any
+    specialist_active: Any  # teacher-only birth focus, not an actor observation
     prev_action: Any
     # Reward-only previous foot pose for true stance-slip measurement.
     prev_foot_pos: Any
@@ -1510,8 +1511,9 @@ class EmuMJXEnv(TaskSampler):
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
             motor_guidance_weight=self.motor_guidance_weight,
-            motor_guidance_per_world=(control_effort_weights(jnp, self.focus_id)
-                                      if self.unified_capability_focus else None))
+            motor_guidance_per_world=(control_effort_weights(jnp,
+                    jnp.where(state.specialist_active,self.focus_id,-1))
+                if self.unified_capability_focus else None))
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
@@ -1580,7 +1582,7 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
-        stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
+        stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
                            terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
@@ -1626,7 +1628,7 @@ class EmuMJXEnv(TaskSampler):
             **{f'reward_{k}': v for k, v in terms.items()},
             'reward_weighted_fall_penalty': fall_payment,
             'episode_done': done.astype(jnp.float32),
-            'specialist_focus': jnp.where(self.unified_capability_focus,
+            'specialist_focus': jnp.where(state.specialist_active,
                                            self.focus_id,-1).astype(jnp.float32),
             'episode_command_quality': ep_command_quality_sum/jnp.maximum(ep_len,1.),
             'episode_length': ep_len,
@@ -1899,6 +1901,22 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
+    def _specialist_enabled(self, keys, params):
+        """Earned specialist activation preserves main's cold steady gait.
+
+        Source main began with a 70-update steady-only bootstrap, then grew
+        difficulty by measured competence. In this unified cold lineage we
+        use the SAME earned steady difficulty to blend emphasis gradually,
+        rather than a hard 20M unlock or full specialist mix at step zero.
+        The RNG is independently folded: no legacy task/sensor key shifts.
+        """
+        jax,jnp=self.jax,self.jnp
+        if not self.unified_capability_focus:
+            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        mix=jnp.clip((params[P.steady_difficulty]-.08)/.22,0.,1.)
+        k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
+        return jax.vmap(lambda x:jax.random.uniform(x,()))(k)<mix
+
     def _specialist_task(self, task, keys, params):
         """Change difficulty emphasis, never policy or actor observation.
 
@@ -1907,19 +1925,26 @@ class EmuMJXEnv(TaskSampler):
         teaches cheaper/smoother gait inside an easier reliable envelope.
         Real incline+step collision is a separate mandatory launch gate.
         """
+        jnp=self.jnp
+        active=self._specialist_enabled(keys,params)
         if not self.unified_capability_focus:
-            return task
-        jax,jnp=self.jax,self.jnp
+            return task,active
+        jax=self.jax
         focus=self.focus_id
+        is_command=active & (focus==COMMAND)
+        is_resilience=active & (focus==RESILIENCE)
+        is_transition=active & (focus==TRANSITION)
+        is_control=active & (focus==CONTROL)
         # Command specialist gets a single steady target, so its *ended*
         # episode is meaningful evidence of that command direction.
         # Transition and resilience specialists keep their own existing
         # dynamics, with all worlds still carrying normal contact tasks.
-        regime=jnp.where(focus==COMMAND,0.,
-               jnp.where(focus==RESILIENCE,2.,
-               jnp.where(focus==TRANSITION,1.,0.)))
+        regime=jnp.where(is_command,0.,
+               jnp.where(is_resilience,2.,
+               jnp.where(is_transition,1.,
+               jnp.where(is_control,0.,task[:,T.regime]))))
         task=task.at[:,T.regime].set(regime)
-        ordinary=(focus!=COMMAND)&(focus!=CONTROL)
+        ordinary=~(is_command|is_control)
         task=task.at[:,T.athletic_rehearsal].set(
             jnp.where(ordinary,task[:,T.athletic_rehearsal],0.))
         key_probe=jax.vmap(lambda k:jax.random.fold_in(k,50241))(keys)
@@ -1940,9 +1965,9 @@ class EmuMJXEnv(TaskSampler):
         control_vy=(u[:,1]*2-1)*params[P.frontier_vy]*span*.18
         control_yaw=(u[:,2]*2-1)*params[P.frontier_yaw]*span*.18
         desired=jnp.stack([task[:,T.vx],task[:,T.vy],task[:,T.yaw]],axis=-1)
-        desired=jnp.where((focus==COMMAND)[:,None],candidate,desired)
+        desired=jnp.where(is_command[:,None],candidate,desired)
         easy=jnp.stack((control_vx,control_vy,control_yaw),axis=-1)
-        desired=jnp.where((focus==CONTROL)[:,None],easy,desired)
+        desired=jnp.where(is_control[:,None],easy,desired)
         old_speed=jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2)
         new_speed=jnp.sqrt(desired[:,0]**2+desired[:,1]**2)
         base=jnp.clip(task[:,T.phase_rate]-
@@ -1951,7 +1976,7 @@ class EmuMJXEnv(TaskSampler):
                       .85,1.20)
         new_phase=command_phase_rate(desired[:,0],desired[:,1],
                                     self.vx_hi_max,self.phase_speed_gain,base)
-        modified=(focus==COMMAND)|(focus==CONTROL)
+        modified=is_command|is_control
         task=task.at[:,T.vx].set(desired[:,0])
         task=task.at[:,T.vy].set(desired[:,1])
         task=task.at[:,T.yaw].set(desired[:,2])
@@ -1960,22 +1985,22 @@ class EmuMJXEnv(TaskSampler):
         # Resilience focused worlds get current earned push severity. Control
         # stays gentler in disturbed starts; neither makes pushes vanish
         # from ordinary/terrain specialists.
-        resilience=jnp.where(focus==RESILIENCE,
+        resilience=jnp.where(is_resilience,
              jnp.clip(params[P.frontier_push_n]/jnp.maximum(.05,self.push_max_force_n),.02,1.),
              task[:,T.resilience])
-        resilience=jnp.where(focus==CONTROL,resilience*.35,resilience)
+        resilience=jnp.where(is_control,resilience*.35,resilience)
         task=task.at[:,T.resilience].set(resilience)
         # Control keeps modest variations in posture even during the early
         # gait-efficiency lesson, rather than hiding those capabilities.
         for column in (T.height,T.pitch,T.roll):
             task=task.at[:,column].set(jnp.where(
-                focus==CONTROL,.25*task[:,column],task[:,column]))
+                is_control,.25*task[:,column],task[:,column]))
         task=task.at[:,T.birth_resilience_d].set(
-            jnp.where(focus==RESILIENCE,params[P.resilience_difficulty],
-                      jnp.where(focus==CONTROL,
+            jnp.where(is_resilience,params[P.resilience_difficulty],
+                      jnp.where(is_control,
                                 .35*params[P.resilience_difficulty],
                                 task[:,T.birth_resilience_d])))
-        return task
+        return task,active
 
     def _episode_terrain(self, data, keys, params):
         """Sample real episode terrain with an exactly flat dormant state.
@@ -2000,8 +2025,8 @@ class EmuMJXEnv(TaskSampler):
             # Not exclusive: steps are emphasized in 20% of worlds, while
             # *all* specialists and even control see low-dose real edges.
             focus=self.focus_id
-            dose=jnp.where(focus==STEP,4.0,
-                          jnp.where(focus==CONTROL,.25,.25))
+            active_focus=self._specialist_enabled(keys,params)
+            dose=jnp.where(active_focus & (focus==STEP),4.0,.25)
             probability=jnp.clip(params[P.terrain_exposure]*dose,0.,1.)
         else:
             probability=params[P.terrain_exposure]
@@ -2060,7 +2085,7 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
-        task = self._specialist_task(task, keys, params)
+        task, specialist_active = self._specialist_task(task, keys, params)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
@@ -2086,7 +2111,7 @@ class EmuMJXEnv(TaskSampler):
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
-        return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+        return EnvState(data, hist, next_keys, task, specialist_active, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
