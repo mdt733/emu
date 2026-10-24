@@ -25,8 +25,7 @@ from .capability_focus import (focus_indices, diamond_commands,
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
-                          TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
-                          TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
+)
 from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
                        FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
                        TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
@@ -2317,13 +2316,22 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
-        if self.unified_capability_focus:
-            ranges,beam_valid=self._unified_tripod_ranges(
-                data,R,torso,range_errors_m)
-        else:
-            ranges,beam_valid=simulate_tripod_ranges(
-                jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         projected_gravity,_,_=self._body_packets(data)
+        if self.unified_capability_focus:
+            ranges4,valid4=self._terrain_4x4_ranges(data)
+            fit=fit_forward_array_ground(jnp,ranges4,valid4,projected_gravity)
+            # Legacy diagnostic shape only; zero 3-ToF cells are NOT actor
+            # observations, and no independent tripod rays were sampled.
+            return dict(
+                ranges_m=jnp.zeros((self.num_envs,3),dtype=jnp.float32),
+                beam_valid=jnp.zeros((self.num_envs,3),dtype=jnp.bool_),
+                valid=fit['valid'],
+                optical_depth_m=fit['optical_depth_m'],
+                forward_grade_rad=fit['ground_forward_grade_rad'],
+                sideways_grade_rad=fit['ground_sideways_grade_rad'],
+                visibility_confidence=fit['ground_visibility_confidence'])
+        ranges,beam_valid=simulate_tripod_ranges(
+            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
 
@@ -2405,25 +2413,6 @@ class EmuMJXEnv(TaskSampler):
             parallel,jnp.where(inside,jnp.inf,-jnp.inf),jnp.maximum(t1,t2)),axis=-1)
         return jnp.where(far>=jnp.maximum(near,0.),
                          jnp.where(near>0.,near,far),jnp.inf)
-
-    def _unified_tripod_ranges(self,data,rotation,torso,range_errors_m):
-        """True three-ToF ground samples from exactly the same solid OBBs.
-
-        Old 232/220 model continues to use the historical plane-only sensor.
-        This new 360 family never gets an unphysical infinite-floor depth.
-        """
-        jnp=self.jnp
-        mounts=jnp.asarray(TOF_TRIPOD_MOUNTS_BODY_M,dtype=jnp.float32)
-        beams=jnp.asarray(TOF_TRIPOD_BEAMS_BODY,dtype=jnp.float32)
-        origin=torso[:,None,:]+jnp.einsum('eij,kj->eki',rotation,mounts)
-        ray=jnp.einsum('eij,kj->eki',rotation,beams)
-        floor=self._ray_box_distance(data,int(self.ids['floor_geom']),origin,ray)
-        upper=self._ray_box_distance(data,int(self.terrain_step_geom_id),origin,ray)
-        dist=jnp.minimum(floor,upper)
-        if range_errors_m is not None:
-            dist=dist+range_errors_m
-        valid=jnp.isfinite(dist)&(dist>=TOF_MIN_RANGE_M)&(dist<=TOF_MAX_RANGE_M)
-        return jnp.where(valid,dist,0.),valid
 
     def _terrain_4x4_ranges(self, data, errors_m=None):
         """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
