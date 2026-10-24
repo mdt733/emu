@@ -76,6 +76,8 @@ class RegimeGovernor:
     TERRAIN_ASCENT_PRACTICE_MIN = 0.10
     TERRAIN_DESCENT_PRACTICE_MIN = 0.50
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
+    COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
+    COMMAND_MIN_EDGE_EPISODES = 24
 
     # One shared step size for ALL FOUR difficulty scalars (steady/
     # transition/resilience/posture) -- see environment.py's module
@@ -121,8 +123,20 @@ class RegimeGovernor:
                  open_frontier: bool = False, frontier_vx_hi_safety: float = 1.0,
                  frontier_vx_lo_safety: float = 0.45, frontier_vy_safety: float = 0.45,
                  frontier_yaw_safety: float = 3.0, frontier_combo_safety: float = 1.60,
-                 frontier_push_safety_n: float = 3.0):
+                 frontier_push_safety_n: float = 3.0,
+                 unified_capability_focus: bool = False):
         self.params = RegimeParams()
+        self.unified_capability_focus = bool(unified_capability_focus)
+        self.command_evidence = {k:{'attempts':0.,'successes':0.}
+                                 for k in self.COMMAND_SECTORS}
+        if self.unified_capability_focus:
+            # These are initial *proven/being-probed* limits, not a
+            # declaration that a cold robot can already do 0.6m/s.
+            self.params.frontier_vx_hi = .12
+            self.params.frontier_vx_lo = -.06
+            self.params.frontier_vy = .06
+            self.params.frontier_yaw = .25
+            self.params.frontier_combo_radius = 1.0
         if regime_command_frac is not None:
             self.params.regime_command_frac = float(regime_command_frac)
         if athletic_rehearsal_frac is not None:
@@ -180,6 +194,8 @@ class RegimeGovernor:
             'terrain_evidence': dict(self.terrain_evidence),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
+            **({'command_evidence': {k:dict(v) for k,v in
+                   self.command_evidence.items()}} if self.unified_capability_focus else {}),
         }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
@@ -190,6 +206,8 @@ class RegimeGovernor:
         }
         legacy = set(expected)
         expected.add('terrain_evidence')
+        if self.unified_capability_focus:
+            expected.add('command_evidence')
         # Preserve exactly-known older flat governor state (empty new
         # window), without bypassing external checkpoint source provenance.
         if not isinstance(d, dict) or set(d) not in (legacy, expected):
@@ -227,6 +245,19 @@ class RegimeGovernor:
                     evidence[f'{direction}_falls'] > evidence[f'{direction}_attempts']):
                 raise ValueError('curriculum terrain evidence outcome exceeds attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
+        if self.unified_capability_focus:
+            entries=d['command_evidence']
+            if (not isinstance(entries,dict) or
+                set(entries)!=set(self.COMMAND_SECTORS)):
+                raise ValueError('unified command frontier evidence schema mismatch')
+            for sector,values in entries.items():
+                if (not isinstance(values,dict) or
+                    set(values)!= {'attempts','successes'} or
+                    not all(math.isfinite(float(x)) and float(x)>=0.
+                            for x in values.values()) or
+                    values['successes']>values['attempts']):
+                    raise ValueError(f'bad command frontier evidence {sector}')
+            self.command_evidence={k:dict(v) for k,v in entries.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -336,12 +367,12 @@ class RegimeGovernor:
         # keeps a single ugly rollout from eating the envelope.
         frontier_events = {}
         if self.open_frontier and not global_retreat:
-            axis_specs = (
+            axis_specs = (() if self.unified_capability_focus else (
                 ('vx_hi', 'frontier_precision_vx_forward', +1.0, self.FRONTIER_FLOOR_VX_HI, self.frontier_vx_hi_safety),
                 ('vx_lo', 'frontier_precision_vx_reverse', -1.0, abs(self.FRONTIER_FLOOR_VX_LO), self.frontier_vx_lo_safety),
                 ('vy', 'frontier_precision_vy', +1.0, self.FRONTIER_FLOOR_VY, self.frontier_vy_safety),
                 ('yaw', 'frontier_precision_yaw', +1.0, self.FRONTIER_FLOOR_YAW, self.frontier_yaw_safety),
-            )
+            ))
             easy_enough = self.fall_ema['steady'] <= 0.25 and self.competence['steady'] >= 0.60
             for axis, pkey, sign, floor_mag, safety_mag in axis_specs:
                 field = f'frontier_{axis}'
@@ -393,7 +424,8 @@ class RegimeGovernor:
             else:
                 frontier_events['sensor'] = 'hold'
 
-            cp = float(row.get('frontier_precision_combo', -1.0))
+            cp = (-1.0 if self.unified_capability_focus
+                  else float(row.get('frontier_precision_combo', -1.0)))
             cur = float(self.params.frontier_combo_radius)
             if cp >= 0.0:
                 prev = float(self.frontier_precision_ema.get('combo', -1.0))
@@ -528,6 +560,72 @@ class RegimeGovernor:
                     else 'terrain_retreat_failed_descent')
         return 'terrain_hold_directional_learning'
 
+    def _advance_specialist_commands(self, row, *, global_retreat: bool,
+                                      kl_ok: bool) -> dict[str,str]:
+        """Persist complete-episode *local* boundary evidence.
+
+        Probe bins are disjoint: a diagonal trial never passes two Cartesian
+        axes. No global fall rate veto unless the core actually collapsed.
+        Every unsupported direction keeps its own denominator and can HOLD.
+        """
+        events={}
+        for sector in self.COMMAND_SECTORS:
+            attempts=float(row.get(f'command_probe_attempts_{sector}',0.))
+            successes=float(row.get(f'command_probe_successes_{sector}',0.))
+            if (not all(math.isfinite(x) for x in (attempts,successes)) or
+                attempts<0. or successes<0. or successes>attempts):
+                raise ValueError(f'invalid command boundary evidence {sector}')
+            window=self.command_evidence[sector]
+            window['attempts']+=attempts
+            window['successes']+=successes
+            if window['attempts']<self.COMMAND_MIN_EDGE_EPISODES:
+                events[sector]='collect'
+                continue
+            n=window['attempts'];success_rate=window['successes']/n
+            window.update(attempts=0.,successes=0.)
+            if global_retreat or not kl_ok:
+                events[sector]='hold_health'
+                continue
+            # For paired sign dimensions, require evidence on BOTH sides
+            # before widening symmetric yaw/vy bounds. Retain the last
+            # successful sign's evidence until its counterpart is ready.
+            if sector in ('vy_pos','vy_neg','yaw_pos','yaw_neg'):
+                peer={'vy_pos':'vy_neg','vy_neg':'vy_pos',
+                      'yaw_pos':'yaw_neg','yaw_neg':'yaw_pos'}[sector]
+                # Other sign can be unproven. Independent evidence is
+                # recorded but symmetric frontier growth waits.
+                peer_n=self.command_evidence[peer]['attempts']
+                if peer_n<self.COMMAND_MIN_EDGE_EPISODES:
+                    window.update(attempts=n,successes=success_rate*n)
+                    events[sector]='hold_peer_evidence'
+                    continue
+                peer_r=self.command_evidence[peer]['successes']/max(1.,peer_n)
+                self.command_evidence[peer].update(attempts=0.,successes=0.)
+                if min(success_rate,peer_r)<.72:
+                    events[sector]='hold_weak_pair'
+                    continue
+            elif success_rate<.72:
+                events[sector]='hold_weak_edge'
+                continue
+            if sector=='vx_hi':
+                self.params.frontier_vx_hi=min(
+                    self.frontier_vx_hi_safety,self.params.frontier_vx_hi*1.025)
+            elif sector=='vx_lo':
+                self.params.frontier_vx_lo=-min(
+                    self.frontier_vx_lo_safety,-self.params.frontier_vx_lo*1.025)
+            elif sector.startswith('vy_'):
+                self.params.frontier_vy=min(
+                    self.frontier_vy_safety,self.params.frontier_vy*1.025)
+            elif sector.startswith('yaw_'):
+                self.params.frontier_yaw=min(
+                    self.frontier_yaw_safety,self.params.frontier_yaw*1.025)
+            else:
+                self.params.frontier_combo_radius=min(
+                    min(1.35,self.frontier_combo_safety),
+                    self.params.frontier_combo_radius*1.01)
+            events[sector]='expand_qualified_episode_boundary'
+        return events
+
     def update(self, row: dict[str, float], *, kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """`row` carries PER-REGIME aggregates (fall_rate_steady,
         ep_len_mean_steady, etc, from summarize_rollout's masked-by-regime
@@ -654,6 +752,9 @@ class RegimeGovernor:
         # limits; the fixed-policy examiner cannot teach this controller.
         frontier_events = self._advance_physical_frontiers(
             row, global_fall=global_fall, global_retreat=global_retreat)
+        if self.unified_capability_focus:
+            frontier_events.update(self._advance_specialist_commands(
+                row, global_retreat=global_retreat, kl_ok=kl_ok_to_expand))
 
         # Regime ALLOCATION -- what fraction of envs each regime gets
         # NEXT update. Draw weight = FLOOR + fall_ema[x], so a regime
