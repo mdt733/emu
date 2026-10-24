@@ -223,7 +223,14 @@ TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))
 TERRAIN_TASK_PARAM_DIM = TASK_PARAM_DIM + len(TERRAIN_TASK_FIELDS)
 # Second independent extension ONLY for the new two-solid-slab world. The
 # historical 360-input single-platform model keeps its exact task packet.
-UNIFIED_TERRAIN_FIELDS = (('slope_exposure',0.0),('slope_max_deg',0.0))
+# NaN means "sample a fresh value from the adaptive episode envelope".
+# The optional explicit values are for exact held-out physical geometry exams.
+UNIFIED_TERRAIN_FIELDS = (
+    ('slope_exposure',0.0), ('slope_max_deg',0.0),
+    ('terrain_pitch_deg',float('nan')), ('terrain_roll_deg',float('nan')),
+    ('terrain_fixed_height_m',float('nan')),
+    ('terrain_edge_angle_deg',float('nan')),
+)
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
     **_base_index,
@@ -233,6 +240,10 @@ P = SimpleNamespace(
     terrain_height_m=TASK_PARAM_DIM + 1,
     slope_exposure=TERRAIN_TASK_PARAM_DIM,
     slope_max_deg=TERRAIN_TASK_PARAM_DIM + 1,
+    terrain_pitch_deg=TERRAIN_TASK_PARAM_DIM + 2,
+    terrain_roll_deg=TERRAIN_TASK_PARAM_DIM + 3,
+    terrain_fixed_height_m=TERRAIN_TASK_PARAM_DIM + 4,
+    terrain_edge_angle_deg=TERRAIN_TASK_PARAM_DIM + 5,
 )
 
 
