@@ -133,18 +133,18 @@ that limitation. This is a physics constraint to solve openly, not hide.
 
 - [x] Owner-approved architectural direction and protected feature-branch
       specification (this document).
-- [ ] Block obsolete ten-hour A/B-only launcher from accidental use.
-- [ ] Implement teacher-only focus assignment / shared 2048 cohort sampler;
-      explicit 20/20/20/20/10/10 mix plus gentler crossover in all roles.
-- [ ] Implement command-specialist L1 frontier probes, persisted episode
-      quality evidence and localized per-direction updates.
+- [x] Fail-close obsolete ten-hour A/B-only launcher and mark old runbooks retired.
+- [x] Teacher-only 20/20/20/20/10/10 world assignment; real low-dose step crossover,
+      command/resilience/transition/control role emphasis. **Real slope crossover remains blocked.**
+- [x] Opt-in command-specialist L1 probes and persisted episode-quality/sector
+      evidence (24-edge-sample gate, signed directions); needs CUDA smoke and held-out audit.
 - [ ] Build and physically smoke real mixed slope+step topology plus valid
       4x4 actor rays; this is the main launch blocker.
 - [ ] Link resilience, slope, step, transition/posture growth to one
       evidence contract with sampled difficulty; retain legacy state for
       existing frozen policies, start NEW source-pinned lineage.
-- [ ] Implement bounded, progress-gated efficiency/smoothness lesson
-      for general-control cohort; evaluate mechanical quality in all roles.
+- [x] Opt-in stronger bounded motor/smoothness lesson in easy, moving control worlds,
+      mechanical-work/m and episode-quality reports; **true long-run efficiency not verified**.
 - [ ] Add focused diagnostics plus an actual production MJX PPO CUDA smoke.
 - [ ] Replace old A/B overnight runner with a single unified 10h run,
       time-budget gate, checkpoints and live schema-9 viewer.
