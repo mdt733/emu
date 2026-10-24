@@ -766,8 +766,8 @@ def test_unified_frozen_scorer_rejects_unsupported_step_and_reset():
     completed=np.zeros((frames_n,worlds),dtype=bool)
     floor=np.zeros((frames_n,worlds,2),dtype=bool)
     upper=np.zeros_like(floor)
-    upper[65:75,0,0]=True
-    floor[65:75,1,0]=True
+    upper[65:105,0,0]=True
+    floor[65:105,1,0]=True
     center_upper=np.tile(np.array([.40,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
     center_lower=np.tile(np.array([.0,0.,-UNIFIED_SLAB_HALF_DEPTH_M]),(worlds,1))
     # Artificial, internally consistent lip around x=0.20.
