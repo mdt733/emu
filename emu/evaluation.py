@@ -96,8 +96,18 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
-        observation_schema=config.observation_schema, open_frontier=False, combo_mix_frac=combo_mix, combo_probe_frac=0.0,
+        observation_schema=config.observation_schema, open_frontier=False,
+        # Fixed evaluation of the new array-only 360 actor must use its real
+        # two-slab world and sensor meanings even with ZERO terrain exposure.
+        # Archived 220/232/older tripod-360 panels remain unchanged.
+        unified_capability_focus=bool(config.unified_capability_focus),
+        terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),
+        combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
+    if config.unified_capability_focus:
+        from .training_config import training_sensor_contract
+        if env.sensor_contract != training_sensor_contract(config):
+            raise RuntimeError('frozen fixed evaluator sensor geometry differs from unified policy')
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
                            value_cost=PPO_VALUE_COST)
