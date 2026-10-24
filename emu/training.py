@@ -468,6 +468,19 @@ def train(args: TrainingConfig) -> int:
             row,step=total_steps,max_height_m=args.terrain_step_max_m,
             foundation_steps=0 if args.unified_capability_focus else FOUNDATION_STEPS,
             unified=args.unified_capability_focus)
+        if args.unified_capability_focus:
+            report['slope_event']=governor.advance_slope(
+                row,kl_ok=bool(health_ppo['kl_ok_to_expand']))
+            report.update(
+                slope_exposure=governor.params.slope_exposure,
+                slope_max_deg=governor.params.slope_max_deg,
+                physical_slope_deg_max=row.get('physical_slope_deg_max',0.),
+                physical_slope_deg_mean=row.get('physical_slope_deg_mean',0.),
+                physical_slope_world_fraction=row.get('physical_slope_world_fraction',0.),
+                **{f'slope_{outcome}_{direction}':
+                   row.get(f'slope_{outcome}_{direction}',0.)
+                   for outcome in ('attempts','successes')
+                   for direction in governor.SLOPE_DIRECTIONS})
         report.update(terrain_exposure=governor.params.terrain_exposure,
             terrain_height_m=governor.params.terrain_height_m,
             terrain_attempts=row.get('terrain_attempts',0.),
