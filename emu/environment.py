@@ -2586,6 +2586,8 @@ class EmuMJXEnv(TaskSampler):
         floor = int(self.ids['floor_geom'])
         normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
         origin = data.geom_xpos[:,floor,:]
+        if self.unified_capability_focus:
+            origin=origin+UNIFIED_SLAB_HALF_DEPTH_M*normal
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
     def _support_signed_heights(self, data, positions):
@@ -2596,6 +2598,18 @@ class EmuMJXEnv(TaskSampler):
         acceptance must still inspect real contact pairs and trajectory.
         """
         flat = self._floor_signed_heights(data, positions)
+        if self.unified_capability_focus:
+            jnp=self.jnp
+            geom=int(self.terrain_step_geom_id)
+            R=data.geom_xmat[:,geom,:].reshape((self.num_envs,3,3))
+            delta=positions-data.geom_xpos[:,geom,None,:]
+            local=jnp.einsum('epi,eij->epj',delta,R)
+            half=self.mj_model.geom_size[geom,:3]
+            inside=(jnp.abs(local[:,:,0])<=half[0]) & (
+                    jnp.abs(local[:,:,1])<=half[1])
+            active=data.mocap_pos[:,self.terrain_step_mocap_id,2]>-1.
+            return jnp.where(inside & active[:,None],
+                             local[:,:,2]-half[2],flat)
         if self.terrain_step_mocap_id < 0:
             return flat
         jnp = self.jnp
@@ -2628,15 +2642,26 @@ class EmuMJXEnv(TaskSampler):
         i = self.terrain_step_mocap_id
         centre=data.mocap_pos[:,i,:]
         q=data.mocap_quat[:,i,:]
-        ca=1.0-2.0*q[:,3]**2
-        sa=2.0*q[:,0]*q[:,3]
-        axis=jnp.stack((ca,sa),axis=1)
         down=(self.env_index.astype(jnp.int32)%2)==1
         side=jnp.where(down,-1.,1.)
-        edge=centre[:,:2]-side[:,None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
-        delta=data.qpos[:,:2]-edge
-        forward=jnp.sum(delta*axis,axis=1)
-        lateral=-delta[:,0]*sa+delta[:,1]*ca
+        if self.unified_capability_focus:
+            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
+                (self.num_envs,3,3))
+            axis=R[:,:,0]
+            across=R[:,:,1]
+            half_length=UNIFIED_SLAB_HALF_LENGTH_M
+            edge=centre-side[:,None]*half_length*axis
+            delta=data.qpos[:,:3]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=jnp.sum(delta*across,axis=1)
+        else:
+            ca=1.0-2.0*q[:,3]**2
+            sa=2.0*q[:,0]*q[:,3]
+            axis=jnp.stack((ca,sa),axis=1)
+            edge=centre[:,:2]-side[:,None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+            delta=data.qpos[:,:2]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=-delta[:,0]*sa+delta[:,1]*ca
         contact=getattr(data,'_impl',data).contact
         feet=tuple(int(x) for x in self.ids['foot_geoms'])
         box_geom=int(self.terrain_step_geom_id)
@@ -2646,7 +2671,7 @@ class EmuMJXEnv(TaskSampler):
         floor_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
                                         contact.dist,floor,feet)
         supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
-        active=centre[:,2]>-.5
+        active=centre[:,2]>(-1. if self.unified_capability_focus else -.5)
         good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
               supported & (metrics['vx']>.02) &
               (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
