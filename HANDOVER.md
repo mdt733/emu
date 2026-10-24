@@ -189,18 +189,33 @@ emu terrain-exam --policy "$ROOT/growth34/growth34.emupolicy" --output "$ROOT/ex
 ~~~
 
 Send `old34_v2_seed1701/terrain_exam.json` and `exam34_seed1702/terrain_exam.json` to compare old vs new and replication. New-source cold-start (20M flat →34M growth) should be scheduled only after review of these comparisons and green CI, retaining original trained artifacts for A/B.
+### 2026-10-24 — FAIR v2 A/B CONFIRMED: new 34M still no improved crossing count
+
+Owner supplied `terrain_exam(5).json` = **OLD 34M actor** (artifact SHA256 `9dd983dea211893c9aaba57db2fbaa6f431a59328720eba6ec45cd5725a647ba`, seed 1701), and `terrain_exam(4).json` = **NEW 34M actor** (artifact SHA256 `c61a28ee96bd639438c7a4dc1e2e727134c0420c2bbae9022b02df8cbe401803`, seed 1702). Examiner source SHA **`19d2bc7`** for both; old actor trained at source **`0ba009f`**, new actor trained at **`19d2bc7`**. Previous `terrain_exam(3).json` is NEW 34M actor seed 1701. Frozen v2 examiner uses exact matched physical height/yaw between ascent and descent per adjacent world, and same cohort across both actor versions at seed 1701.
+
+| Frozen seed / actor | 1cm UP/DOWN | 2cm UP/DOWN | 4cm UP/DOWN | UP total | DOWN total | original flat progress |
+|---|---|---|---|---|---|---|
+| OLD 34M, seed 1701 | 2/4, 4/4 | 0/4, 4/4 | 0/4, 3/4 | **2/12** | **11/12** | **0.7137m**, survive 8/8 |
+| NEW 34M, seed 1701 | 2/4, 4/4 | 0/4, 4/4 | 0/4, 2/4 | **2/12** | **10/12** | **0.8540m**, survive 8/8 |
+| NEW 34M, seed 1702 | 2/4, 4/4 | 0/4, 4/4 | 0/4, 2/4 | **2/12** | **10/12** | **0.8928m**, survive 8/8 |
+
+**Critical correction to previous optimism:** The old policy also cleared exactly the same small upward 0.37cm and 0.46cm steps in seed 1701. Thus improved UP crossing count from ascent shaping is **NOT established**. Seed 1702 new policy cleared only 0.58cm and 0.67cm; failed 0.69, 0.90cm steps, then all larger upward steps. These are ceiling categories, NOT fixed true heights. Under the strict matched seed 1701 comparison the new actor travels further on every ascending category (1cm up average progress **0.473 vs 0.319m**, 2cm **0.144 vs 0.085m**, 4cm **0.009 vs -0.005m**), which suggests partial improved approach locomotion but not proven climbing. At 4cm ceiling new actor has 2 downhill falls vs old 1; do NOT trade descent robustness for apparent reward gains. Two seeds are still a tiny skill sample.
+
+**Updated engineering inference:** The unchanged per-rollout 3+ cohort governor at source `19d2bc7` never left 5% exposure or 1cm training height; better flat gait/near-lip progress did not become real large-step clearance. The new checkpoint-serialized multi-rollout up/down evidence and max-10%-exposure ascent-practice correction already exists on branch (`411b841`), and full GitHub workflow **40041202515 succeeded** (browser, CPU-viewer, Python/MJX). This correction has NOT been GPU trained or empirically evaluated. Recommend one new reproducible 20M flat→34M cold start pinned to the reviewed branch SHA **only if owner wants next experiment**, with independent seed 1701/1702 frozen v2 exams and strict <=1cm actual ascent analysis; don't continue an old checkpoint on a different SHA, don't touch `main`/champion.
+
+**Next tasks:** (1) decide new-source short campaign and evaluate whether practice dosage makes upward contact succeed beyond 0.67cm; (2) check teacher-only ascent shaping actual payout over lip distance and ToF validity near each ledge; (3) inspect physical foot clearance/contact and anti-rocking behaviour for cases that approach but stall, especially ~0.69–1.00cm. The governor can learn to practice but cannot fix missing sensor visibility or impossible foot lift. (4) Freeze matched challenge exams across revisions; do not declare first-ever ascent again based on unpaired historical samples.
 ## 8. Completion and handover discipline
 
-**Current status:** 20M and 34M GPU runs **COMPLETED**, both checkpoint-validated; independent 20M-vs-34M terrain exams **COMPLETED**; **ascending real steps 0/12 in both**. Directional reports/governor fixed on updated feature source; no new physical training result yet. Main and champion **protected**. Next work is **code-first ascending-learning correction and independent paired exam**, not more of the unchanged trainer.
+**Current status:** original source `0ba009f` and newer source `19d2bc7` have each completed separate cold 20M→34M GPU campaigns. Exact matched v2 exam confirms **2/12 upward crossings in BOTH old and new 34M brains on seed 1701**; new seed 1702 also 2/12. All successes are actual steps <=0.67cm; no proven improvement in full upward crossing. New brain has better flat progress but somewhat weaker 4cm downhill survival. On later source `411b841`, sparse multi-rollout directional governor evidence/practice-dose fix is committed with green CI, not trained on GPU yet. Main/champion remain untouched. Next is an optional controlled fresh campaign after inspecting ToF/lip mechanics, never an unapproved main merge.
 
 **Carry-over checklist:**
 - [x] Save the mission/architecture, protected branches, pinned source, both checkpoint paths/hashes and exact results.
 - [x] Validate real CUDA 360 actor/2,048 worlds; finish cold foundation and mature continuation.
 - [x] Frozen independent terrain A/B at both 20M and 34M with original/dormant physics parity.
 - [x] Direction-separated up/down evidence and curriculum gates (implemented; GPU verification pending).
-- [ ] Bounded ascent guidance and actual confirmed up-crossings (shaping code implemented; physical successes NOT yet observed).
-- [ ] Matched-height, multiple-seed independent physical exam; preserved command/core ability.
-- [ ] Fresh source-pinned 20M→34M cold-start campaign (owner approved; GPU run not yet performed).
+- [x] Bounded ascent guidance and small-step confirmed up-crossings (only <=0.67cm; NOT improved vs old matched cohort).
+- [x] Matched-height multiple-seed independent physical exam; flat physics parity and 8/8 survival. Larger ascent ability NOT proven.
+- [x] Source-pinned 20M→34M new-brain campaign at `19d2bc7`; fresh campaign of new governor code NOT yet run.
 - [ ] Mixed actual contact slopes and finite terrain, servo/efficiency and browser 360 parity.
 - [ ] Independent broad comparison and **explicit owner approval** before PR merge or champion/showcase changes.
 
