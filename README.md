@@ -2,7 +2,7 @@
 
 **Six actuators. Two feet. No scripted gait.** EMU trains a dynamically unstable biped in thousands of parallel MuJoCo/MJX worlds. Its goal is to discover *how to teach walking*, not simply chase one lucky neural network.
 
-**[Unified capability-growth design](docs/UNIFIED_CAPABILITY_GROWTH.md)** · **[Visit the EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[CPU-only WSL viewer](docs/V5017_GOAL_NAVIGATION.md#launch--tests-ubuntu-wsl)** · **[Project handover](HANDOVER.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)** · **[v5016 release checklist](docs/V5016_RELEASE.md)**
+**[Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md)** · **[Current development handover](HANDOVER.md)** · **[EMU Playground](https://mdt733.github.io/emu/)** · **[Install and train](docs/INSTALL.md)** · **[Viewer and publishing](docs/PLAYGROUND.md)**
 
 ## How it works
 
@@ -75,4 +75,4 @@ Four support boundaries remain deliberately separate: `contracts.py` (actor/phys
 
 This reduces the package from 42 Python files to 15 **without pretending the learning maths got smaller**. Further true size reduction means analysing and cutting unnecessary behaviour, not merely moving functions.
 
-The maintained documentation is this front page, **[capability-growth charter and running checklist](docs/CAPABILITY_GROWTH.md)** (the feature-branch design/handover), **[INSTALL](docs/INSTALL.md)**, **[HANDOVER](HANDOVER.md)** and **[PLAYGROUND](docs/PLAYGROUND.md)**. Older raw experiment artefacts live in Git history. The curated [research history](docs/RESEARCH_HISTORY.md) captures results, limitations and what to try next. Run `bash scripts/check.sh` before committing. Software tests don't replace a fresh CUDA acceptance and independent walking exams.
+**Documentation ownership:** [README](README.md) introduces EMU; the [unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md) defines the enduring design; [HANDOVER](HANDOVER.md) records current implementation, evidence and the next action. [INSTALL](docs/INSTALL.md) covers operation; [PLAYGROUND](docs/PLAYGROUND.md) covers the viewer. [Capability-growth research](docs/CAPABILITY_GROWTH.md) and [research history](docs/RESEARCH_HISTORY.md) are **historical**, not launch instructions. Older raw work remains in Git history. Run `bash scripts/check.sh` before committing; software checks do not replace fresh CUDA and physical-exam acceptance.
