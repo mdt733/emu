@@ -30,8 +30,12 @@ export function parsePolicy(text) {
   if (!Array.isArray(p.observation.base_fields) || p.observation.base_fields.length !== base) throw new Error('Invalid base observation field contract');
   if (isSensor) {
     const c = p.observation.sensor_contract;
+    const arrayOnly = isTerrain && c?.sensor_model_revision ===
+      'forward_tof4x4_array_plane_fit_no_tripod_2';
     if (!c || c.schema !== (isTerrain ? 'terrain_360' : 'sim2real_232') ||
-        c.sensor_model_revision !== (isTerrain ? 'forward_tof4x4_real_plane_box_foot_1' : 'tripod_tof_flow_async_v1') ||
+        c.sensor_model_revision !== (isTerrain ? (
+          arrayOnly?'forward_tof4x4_array_plane_fit_no_tripod_2':
+          'forward_tof4x4_real_plane_box_foot_1') : 'tripod_tof_flow_async_v1') ||
         c.history_len !== 4 || c.action_dim !== 6 ||
         JSON.stringify(c.base_fields) !== JSON.stringify(p.observation.base_fields) ||
         JSON.stringify(p.observation.base_fields.slice(55,58)) !== JSON.stringify([
@@ -42,10 +46,19 @@ export function parsePolicy(text) {
                         'tof_dropout_prob','flow_dropout_prob','gyro_bias_std_rad_s','sensor_noise_scale']) {
       if (!Number.isFinite(settings[field])) throw new Error(`Invalid sensor setting: ${field}`);
     }
-    if (c.tof_range_limits_m?.[0] !== .035 || c.tof_range_limits_m?.[1] !== .6 ||
+    if (arrayOnly) {
+      if (c.tripod_mounts_body_m !== undefined ||
+          c.tripod_beams_body !== undefined ||
+          c.tof_range_limits_m !== undefined ||
+          c.array_ground_estimator !== 'weighted_4x4_plane_residual_8mm_v1' ||
+          c.array_ground_max_fit_residual_m !== .008 ||
+          c.array_ground_min_valid_cells !== 6)
+        throw new Error('Invalid array-only terrain sensor identity');
+    } else if (c.tof_range_limits_m?.[0] !== .035 || c.tof_range_limits_m?.[1] !== .6 ||
         JSON.stringify(c.tripod_mounts_body_m) !== JSON.stringify([[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]]) ||
-        JSON.stringify(c.tripod_beams_body) !== JSON.stringify([[0,0,-1],[0,0,-1],[0,0,-1]]))
-      throw new Error('Unsupported ToF extrinsics in schema-8 actor');
+        JSON.stringify(c.tripod_beams_body) !== JSON.stringify([[0,0,-1],[0,0,-1],[0,0,-1]])) {
+      throw new Error('Unsupported tripod ToF extrinsics');
+    }
     if (isTerrain) {
       if (p.source?.checkpoint_schema !== 9 ||
           JSON.stringify(c.tof4x4_mount_body_m) !== JSON.stringify([0,0,0]) ||
