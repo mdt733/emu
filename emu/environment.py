@@ -2062,9 +2062,19 @@ class EmuMJXEnv(TaskSampler):
             kh, ka, ke = jax.random.split(key, 3)
             magnitude = 0.3 + 0.7*jax.random.uniform(kh, ())
             angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
-            selected = jax.random.uniform(ke, ()) < params[P.terrain_exposure]
-            return magnitude, angle, selected
-        magnitude, angle, selected = jax.vmap(choose)(k)
+            selection_u = jax.random.uniform(ke, ())
+            return magnitude, angle, selection_u
+        magnitude, angle, selection_u = jax.vmap(choose)(k)
+        if self.unified_capability_focus:
+            # Not exclusive: steps are emphasized in 20% of worlds, while
+            # *all* specialists and even control see low-dose real edges.
+            focus=self.focus_id
+            dose=jnp.where(focus==STEP,4.0,
+                          jnp.where(focus==CONTROL,.25,.25))
+            probability=jnp.clip(params[P.terrain_exposure]*dose,0.,1.)
+        else:
+            probability=params[P.terrain_exposure]
+        selected = selection_u < probability
         if self.paired_terrain_heights:
             # Independent frozen exam only. Each adjacent UP/DOWN pair has
             # identical real height AND edge yaw. Live curriculum keeps
