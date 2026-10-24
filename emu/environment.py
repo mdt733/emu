@@ -145,6 +145,57 @@ def add_episode_platform(robot_xml: str) -> str:
     return ET.tostring(root, encoding='unicode')
 
 
+# Unified terrain is a pair of adjacent *solid* convex slabs. Their tops
+# exactly coincide when step height is zero, and differ by h along the common
+# surface normal when a real step is active. Two boxes avoid six open mesh
+# triangles being convex-hulled into a phantom ramp by MuJoCo.
+UNIFIED_SLAB_HALF_LENGTH_M = 4.0
+UNIFIED_SLAB_HALF_WIDTH_M = 3.0
+UNIFIED_SLAB_HALF_DEPTH_M = .25
+
+
+def add_unified_terrain(robot_xml: str) -> str:
+    """Replace the infinite floor with movable lower + higher solid slabs.
+
+    The old XML/main is NEVER modified. Floor and platform are two mocap
+    collision boxes, not mesh-triangle soup. Distinct contact bits permit
+    feet/torso vs either slab, while excluding slab-slab self contacts.
+    Their poses are sampled per episode through mjx.Data, with NO per-episode
+    model rebuild and no privileged actor-input channels.
+    """
+    root=ET.parse(robot_xml).getroot()
+    world=root.find('worldbody')
+    if world is None:
+        raise ValueError('robot.xml requires worldbody')
+    floor=world.find("geom[@name='floor']")
+    if floor is None or floor.get('type') != 'plane':
+        raise ValueError('unified physical terrain expects named plane floor')
+    # Preserve original floor's contact friction and appearance.
+    friction=floor.get('friction','1.5 0.005 0.0001')
+    rgba=floor.get('rgba','0.2 0.25 0.3 1')
+    world.remove(floor)
+    for geom_name in ('torso_box','r_foot_ball','l_foot_ball'):
+        geom=root.find(f".//geom[@name='{geom_name}']")
+        if geom is None:
+            raise ValueError(f'missing contact geometry {geom_name}')
+        geom.set('contype','3')
+        geom.set('conaffinity','3')
+    size=(f'{UNIFIED_SLAB_HALF_LENGTH_M} {UNIFIED_SLAB_HALF_WIDTH_M} '
+          f'{UNIFIED_SLAB_HALF_DEPTH_M}')
+    ground=ET.SubElement(world,'body',dict(name='unified_ground',mocap='true',
+                                            pos='0 0 -0.25'))
+    ET.SubElement(ground,'geom',dict(name='floor',type='box',size=size,
+                                     contype='1',conaffinity='1',
+                                     friction=friction,rgba=rgba))
+    elevated=ET.SubElement(world,'body',dict(name='episode_terrain_platform',
+                                              mocap='true',pos='0 0 -2'))
+    ET.SubElement(elevated,'geom',dict(name='episode_terrain_surface',
+                                      type='box',size=size,
+                                      contype='2',conaffinity='2',
+                                      friction=friction,rgba='0.65 0.50 0.24 1'))
+    return ET.tostring(root,encoding='unicode')
+
+
 class EnvState(NamedTuple):
     data: Any
     hist: Any
@@ -1209,10 +1260,21 @@ class EmuMJXEnv(TaskSampler):
         self.paired_terrain_heights = bool(paired_terrain_heights)
         self.terrain_pair_seed = int(seed)
         self.mj_model = (
+            mujoco.MjModel.from_xml_string(add_unified_terrain(self.robot_xml))
+            if self.unified_capability_focus else
             mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
             if self.terrain_step_max_m > 0 else
             mujoco.MjModel.from_xml_path(self.robot_xml)
         )
+        self.unified_ground_mocap_id = -1
+        if self.unified_capability_focus:
+            if self.observation_schema != OBS_SCHEMA_TERRAIN or self.terrain_step_max_m <= 0:
+                raise ValueError('unified terrain requires terrain_360 and real step geometry')
+            ground_body=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,
+                                          'unified_ground')
+            self.unified_ground_mocap_id=int(self.mj_model.body_mocapid[ground_body])
+            if self.unified_ground_mocap_id < 0:
+                raise RuntimeError('unified ground must have a real movable mocap body')
         self.terrain_step_mocap_id = -1
         self.terrain_step_geom_id = -1
         if self.terrain_step_max_m:
@@ -1229,10 +1291,13 @@ class EmuMJXEnv(TaskSampler):
         # disabling MuJoCo's compiled identity-frame shortcut BEFORE put_model.
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
         self.contact_slope_deg = float(contact_slope_deg)
-        if self.terrain_step_max_m and (
+        if self.terrain_step_max_m and not self.unified_capability_focus and (
                 self.contact_slope_deg != 0 or
                 (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
-            raise ValueError('finite-step G3 probe cannot yet mix with inclined terrain')
+            raise ValueError('legacy finite-step G3 probe cannot mix with inclined terrain')
+        if self.unified_capability_focus and (
+                self.contact_slope_deg != 0 or self.domain_config.terrain_radius>0):
+            raise ValueError('unified dynamic slope is episode sampled; disable old model-level incline randomizers')
         self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
         orientation = contact_plane_quaternion(self.contact_slope_deg,
                                                self.contact_uphill_xy)
