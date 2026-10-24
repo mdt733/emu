@@ -1378,10 +1378,16 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         work=float(np.sum(np.maximum(0.,power[:stop,world]))*CONTROL_DT)
         # A valid command is tracked while *supported*. Motion toward a
         # small command is mandatory; standing still never passes.
-        tolerance=np.array([.07,.06,.22])
+        # A zero-motion policy must not earn a pure-yaw vertex by hiding
+        # inside an overly broad absolute yaw tolerance.
+        yaw_target=float(np.mean(np.abs(requested[:,2]))) if stop>settle_frames+2 else 0.
+        yaw_response=float(np.mean(np.abs(actual_yaw))) if stop>settle_frames+2 else 0.
+        yaw_response_ok=(yaw_target<.04 or yaw_response>=.35*yaw_target)
+        tolerance=np.array([.07,.06,max(.08,.40*yaw_target)])
         tracking=bool(
             np.all(np.isfinite(mae)) and np.all(mae<=tolerance)
             and (commanded<.01 or achieved>=.30*commanded)
+            and yaw_response_ok
             and support_fraction>=.35 and bad_fraction<.20 and alive)
         grade=float(np.degrees(np.arccos(np.clip(normal[world,2],-1.,1.))))
         desired_grade=float(case.get('slope_deg',0.))
@@ -1471,7 +1477,6 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     real rotated slabs plus support pairs; refuses legacy 360 meaning.
     """
     import json
-    import hashlib
     from .contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN,TERRAIN_ARRAY_ONLY_REVISION
     from .viewer_server import load_exported_actor_for_exam
     from .ppo import configure_jax,require_backend
@@ -1525,8 +1530,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         dict(name='reverse',kind='command',vx=-.06),
         dict(name='lateral_left',kind='command',vx=0.,vy=.05),
         dict(name='lateral_right',kind='command',vx=0.,vy=-.05),
-        dict(name='yaw_left',kind='command',yaw=.20),
-        dict(name='yaw_right',kind='command',yaw=-.20),
+        dict(name='yaw_left',kind='command',vx=0.,yaw=.20),
+        dict(name='yaw_right',kind='command',vx=0.,yaw=-.20),
         dict(name='diamond_mixture',kind='command',vx=.06,vy=.025,yaw=.12),
         dict(name='start_from_rest',kind='transition',scenario='rest_start'),
         dict(name='brake_to_stop',kind='transition',scenario='brake_stop'),
