@@ -124,13 +124,15 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
-    # This profile is intentionally not launchable while real continuously
-    # inclined MJX contact plus finite step support share no accepted model.
-    # Do not run 2048 fake slope-specialists under a 0-degree floor.
+    # Fail closed until the entire unified curriculum has been accepted
+    # on actual RTX 4060 Ti hardware at 2048 worlds, including a cold-start
+    # PPO update and matched first-20M gates. Small CPU physical-contact
+    # smoke is not enough evidence to spend an overnight allocation.
     if args.unified_capability_focus:
         raise RuntimeError(
-            'Unified capability training is PRE-LAUNCH: real mixed MJX '
-            'slope + step geometry/ToF contact smoke has not passed. '
+            'Unified capability training is PRE-LAUNCH: real mixed slope+step '
+            'CPU contact smoke exists, but the full 2048-world CUDA lifecycle '
+            'and composite curriculum acceptance are still pending. '
             'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
         )
     allow_cpu_mjx = args.device == 'cpu'
