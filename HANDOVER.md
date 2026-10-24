@@ -25,7 +25,8 @@
 
 ## Next actions (ordered)
 
-- [ ] **First: consolidate existing governor logic, not add another governor.** Map `curriculum.py`'s base regime expansion, `_advance_specialist_commands`, `advance_slope`, `advance_terrain`, recovery and transition/posture progression. Note where they already share evidence, where they bypass the shared expansion budget, and where evidence or severity is inadequate. Simplify only demonstrated duplication. Retain the existing validated step-up/down windows.
+- [x] **Map the existing governor:** `update()` shares one growth budget across steady/transition/resilience/posture. `_advance_specialist_commands` (signed command windows), `advance_slope` (four bearings), and `advance_terrain` (up/down windows) already exist but **grow outside that budget**. Push/transition frontiers still use separate EMAs; posture is inferred from global falls. Step growth is not passed the same PPO-health veto as command/slope growth. **Do not rebuild any of these.**
+- [ ] **Next: reconcile expansion decisions inside the existing governor.** Agree on one bounded growth/health arbitration across these paths without flattening physical units or conflating directional evidence. Keep local windows, prompt retreats, original steady bootstrap and checkpoint state compatibility. Then make a small code change—not a new subsystem.
 - [ ] **Check foundation parity:** historical `main` reference `2ec9e9db`: 20M, seed733, 2,048 worlds, 32-frame rollout, 4×8 PPO, LR2e-4, first 70 updates steady-only, initial vx +0.02…+0.06m/s, eight core rewards. Audit the actual unified config (especially inherited mature defaults) before modifying cold-start behaviour.
 - [ ] **Complete one physical examiner:** flat vs dormant-slab baseline; actual up/down/cross slopes; paired up/down steps with upper support; mixtures, disturbances, smoothness and shaft J/m. Avoid invented or pooled successes.
 - [ ] **Freeze source and accept GPU lifecycle:** small CUDA PPO → 2,048-world memory/fps → checkpoint/resume → array-only policy export → viewer parity, preserving old 220/232/360 replay.
@@ -33,6 +34,6 @@
 
 **Protected:** `main`, approved 260M Pinnacle, showcase and historical WSL runs/checkpoints. No main merge, promotion or long GPU run without explicit owner approval. Work in existing core modules; avoid new `v502x` wrappers, competing documents or large tests-for-tests' sake.
 
-**Next concrete step:** read the governor call path and propose the smallest **single** evidence/growth structure that preserves the successful baseline; do not change training behaviour before that map exists.
+**Next concrete step:** specify the smallest shared **growth arbitration** for the existing governor methods, retaining their proven direction-specific evidence. No new learner, manager, or training run.
 
 At the end of each session, change **status, blockers and next action here**, not the enduring design charter.
