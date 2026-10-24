@@ -1697,8 +1697,45 @@ class EmuMJXEnv(TaskSampler):
         unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
         unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
         unit_radius=unit_x+unit_y+unit_z
+        if self.unified_capability_focus:
+            # Read the ACTUAL tilted COLLISION geom, not requested lesson
+            # severity, world gravity or a guessed angle. This is teacher
+            # evidence and never enters the neural observation.
+            Rfloor=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+                (self.num_envs,3,3))
+            floor_normal=Rfloor[:,:,2]
+            gx=-floor_normal[:,0]/jnp.maximum(.01,floor_normal[:,2])
+            gy=-floor_normal[:,1]/jnp.maximum(.01,floor_normal[:,2])
+            physical_slope=jnp.rad2deg(jnp.arctan(
+                jnp.sqrt(gx*gx+gy*gy)))
+            slope_role=state.specialist_active & (self.focus_id==SLOPE)
+        else:
+            gx=jnp.zeros_like(unit_x);gy=jnp.zeros_like(unit_x)
+            physical_slope=jnp.zeros_like(unit_x)
+            slope_role=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        has_slope=slope_role & (physical_slope>=.25)
+        along=jnp.abs(gx)>=jnp.abs(gy)
+        slope_directions=(
+            ('uphill',has_slope & along & (gx>=0.)),
+            ('downhill',has_slope & along & (gx<0.)),
+            ('cross_left',has_slope & ~along & (gy>=0.)),
+            ('cross_right',has_slope & ~along & (gy<0.)))
+        slope_pass=(
+            timeout & ~terminal_fail & (ep_len>=120.) &
+            (ep_command_quality_sum/jnp.maximum(ep_len,1.)>=.60) &
+            (ep_support_sum/jnp.maximum(ep_len,1.)>.10) &
+            (ep_bad_sum/jnp.maximum(ep_len,1.)<.35) &
+            (ep_vx_sum/jnp.maximum(ep_len,1.)>.025))
         out_metrics = {
             **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
+            'physical_slope_deg':physical_slope,
+            'physical_slope_gx':gx,
+            'physical_slope_gy':gy,
+            'slope_specialist_active':has_slope.astype(jnp.float32),
+            **{f'slope_episode_attempt_{name}':(done & active).astype(jnp.float32)
+               for name,active in slope_directions},
+            **{f'slope_episode_success_{name}':(slope_pass & active).astype(jnp.float32)
+               for name,active in slope_directions},
             'command_probe_radius':unit_radius,
             'command_probe_weight_x':unit_x/jnp.maximum(1e-5,unit_radius),
             'command_probe_weight_y':unit_y/jnp.maximum(1e-5,unit_radius),
