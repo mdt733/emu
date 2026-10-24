@@ -52,6 +52,9 @@ class RegimeParams:
     # Saved with ordinary governor rollback/resume state.
     terrain_exposure: float = 0.0
     terrain_height_m: float = 0.0
+    # True inclined collision slabs; independent of discontinuous steps.
+    slope_exposure: float = 0.0
+    slope_max_deg: float = 0.0
 
 
 class RegimeGovernor:
@@ -78,6 +81,8 @@ class RegimeGovernor:
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
     COMMAND_MIN_EDGE_EPISODES = 24
+    SLOPE_DIRECTIONS = ('uphill','downhill','cross_left','cross_right')
+    SLOPE_MIN_EPISODES_PER_DIRECTION = 12
 
     # One shared step size for ALL FOUR difficulty scalars (steady/
     # transition/resilience/posture) -- see environment.py's module
@@ -129,6 +134,8 @@ class RegimeGovernor:
         self.unified_capability_focus = bool(unified_capability_focus)
         self.command_evidence = {k:{'attempts':0.,'successes':0.}
                                  for k in self.COMMAND_SECTORS}
+        self.slope_evidence = {k:{'attempts':0.,'successes':0.}
+                               for k in self.SLOPE_DIRECTIONS}
         if self.unified_capability_focus:
             # These are initial *proven/being-probed* limits, not a
             # declaration that a cold robot can already do 0.6m/s.
@@ -198,7 +205,9 @@ class RegimeGovernor:
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
-                   self.command_evidence.items()}} if self.unified_capability_focus else {}),
+                   self.command_evidence.items()},
+                 'slope_evidence': {k:dict(v) for k,v in
+                   self.slope_evidence.items()}} if self.unified_capability_focus else {}),
         }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
@@ -210,7 +219,7 @@ class RegimeGovernor:
         legacy = set(expected)
         expected.add('terrain_evidence')
         if self.unified_capability_focus:
-            expected.add('command_evidence')
+            expected.update(('command_evidence','slope_evidence'))
         # Preserve exactly-known older flat governor state (empty new
         # window), without bypassing external checkpoint source provenance.
         if not isinstance(d, dict) or set(d) not in (legacy, expected):
@@ -218,11 +227,14 @@ class RegimeGovernor:
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
-        legacy_names = param_names - {'terrain_exposure', 'terrain_height_m'}
-        if set(d['params']) == legacy_names:
-            # Strictly recognise the OLD complete schema, not an arbitrary
-            # missing-field packet. Historical flat checkpoints stay resumable.
-            saved_params = dict(d['params'], terrain_exposure=0.0, terrain_height_m=0.0)
+        old_names = param_names - {
+            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg'}
+        previous_names = param_names - {'slope_exposure','slope_max_deg'}
+        if set(d['params']) == old_names:
+            saved_params = dict(d['params'],terrain_exposure=0.0,
+                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0)
+        elif set(d['params']) == previous_names:
+            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0)
         elif set(d['params']) == param_names:
             saved_params = d['params']
         else:
@@ -261,6 +273,18 @@ class RegimeGovernor:
                     values['successes']>values['attempts']):
                     raise ValueError(f'bad command frontier evidence {sector}')
             self.command_evidence={k:dict(v) for k,v in entries.items()}
+            entries=d['slope_evidence']
+            if (not isinstance(entries,dict) or
+                set(entries)!=set(self.SLOPE_DIRECTIONS)):
+                raise ValueError('unified slope evidence schema mismatch')
+            for direction,values in entries.items():
+                if (not isinstance(values,dict) or
+                    set(values)!= {'attempts','successes'} or
+                    not all(math.isfinite(float(x)) and float(x)>=0.
+                            for x in values.values()) or
+                    values['successes']>values['attempts']):
+                    raise ValueError(f'bad slope evidence {direction}')
+            self.slope_evidence={k:dict(v) for k,v in entries.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
