@@ -143,7 +143,7 @@ class RegimeGovernor:
             # Other axes get small nonzero probe magnitudes so they can
             # eventually earn competence and escape a zero-sized frontier.
             self.params.frontier_vx_hi = .06
-            self.params.frontier_vx_lo = .02
+            self.params.frontier_vx_lo = -.02  # Signed reverse speed, as in main.
             self.params.frontier_vy = .035
             self.params.frontier_yaw = .14
             self.params.frontier_combo_radius = 1.0
@@ -511,7 +511,7 @@ class RegimeGovernor:
             return 'steady_bootstrap'
         p=self.params
         core_ok=(self.core_competence>=.50 and
-                 self.fall_ema['posture']<=.45)
+                 self.fall_ema['posture']<=.45 and kl_ok)
         if p.slope_exposure<=0.:
             if not core_ok:
                 return 'await_walk'
@@ -559,7 +559,7 @@ class RegimeGovernor:
 
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,
-                        unified: bool = False) -> str:
+                        unified: bool = False, kl_ok: bool = True) -> str:
         """Physically verified up/down growth, using a checkpointed cohort.
 
         A single PPO rollout at 5% terrain exposure sees only a handful of
@@ -580,7 +580,8 @@ class RegimeGovernor:
         practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
         expansion_max = .20 if speed_lesson else .25
         height_increment = .0005 if speed_lesson else .00025
-        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
+        core_ok = (self.core_competence >= .55 and self.fall_ema['posture'] <= .32
+                   and (kl_ok or not unified))
         if p.terrain_exposure <= 0.:
             if not core_ok:
                 return 'await_core_walk'
@@ -625,6 +626,8 @@ class RegimeGovernor:
         down_rate = window['down_successes'] / down_n
         # No evidence can be recycled after a decision, including holds.
         self.terrain_evidence = self._empty_terrain_evidence()
+        if unified and not kl_ok:
+            return 'terrain_hold_ppo_health'
         if min(up_rate,down_rate) >= .50:
             if p.terrain_exposure < expansion_max:
                 p.terrain_exposure = min(expansion_max,p.terrain_exposure+.005)
