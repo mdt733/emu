@@ -483,7 +483,7 @@ class RegimeGovernor:
         if max_height_m <= 0. or step < foundation_steps:
             return 'foundation_flat'
         p = self.params
-        if teaching_arm not in ('off','speed','foothold'):
+        if teaching_arm not in ('off','speed','foothold','unified'):
             raise ValueError('unknown terrain teaching arm')
         speed_lesson = teaching_arm != 'off'
         exposure_min = .10 if speed_lesson else .05
@@ -826,6 +826,14 @@ class RegimeGovernor:
             'frontier_event_yaw': frontier_events.get('yaw','off'),
             'global_retreat': global_retreat,
         }
+        if self.unified_capability_focus:
+            report.update({f'command_boundary_{k}_{m}':v[m]
+                           for k,v in self.command_evidence.items()
+                           for m in ('attempts','successes')})
+            report.update({f'focus_{k}_episodes':row.get(f'focus_episodes_{k}',0.)
+                           for k in ('command','resilience','slope','step','transition','control')})
+            report['control_shaft_j_per_m']=row.get('control_shaft_j_per_m',-1.)
+            report['control_episode_quality']=row.get('control_episode_quality',-1.)
         return report
 
 
