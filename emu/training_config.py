@@ -178,6 +178,10 @@ class TrainingConfig:
     # and height are controlled independently by RegimeGovernor; both start 0.
     # No learner/curriculum automatically activates terrain yet.
     terrain_step_max_m: float = 0.0
+    # v5023 overnight: off=historical sampling, speed=matched speed × ledge
+    # coverage, foothold=same sampling plus first physical upper-foot touchdown.
+    # Contract is saved with the checkpoint, never inferred from a run name.
+    terrain_training_arm: str = 'off'
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
