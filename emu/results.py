@@ -1194,6 +1194,20 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # True mixed-geometry physical slope: never infer gradient from a
+    # curriculum target or fold downhill into successful uphill evidence.
+    # All four directional counters are COMPLETE episode facts.
+    if 'physical_slope_deg' in metrics:
+        raw_slope=np.asarray(metrics['physical_slope_deg'])
+        active=(raw_slope>=.25)
+        row['physical_slope_deg_mean']=float(raw_slope[active].mean()) if active.any() else 0.
+        row['physical_slope_deg_max']=float(raw_slope.max())
+        row['physical_slope_world_fraction']=float(active.mean())
+        for name in ('uphill','downhill','cross_left','cross_right'):
+            for outcome,word in (('attempt','attempts'),('success','successes')):
+                key=f'slope_episode_{outcome}_{name}'
+                row[f'slope_{word}_{name}']=(
+                    float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)
     # Direction-separated terrain evidence. A quality metric without any
     # active frames is UNKNOWN (-1), not success/zero error.
     for direction in ('up', 'down'):
