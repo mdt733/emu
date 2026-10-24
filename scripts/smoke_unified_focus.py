@@ -143,7 +143,9 @@ def main():
     stepped.obs.block_until_ready()
     for key in ("specialist_focus","episode_command_quality",
                 "command_probe_radius","command_probe_weight_x",
-                "terrain_active_up","servo_shaft_drive_power_w"):
+                "terrain_active_up","servo_shaft_drive_power_w",
+                "physical_slope_deg","slope_episode_attempt_uphill",
+                "slope_episode_success_cross_right"):
         arr=stepped.metrics[key]
         assert arr.shape==(args.envs,),(key,arr.shape)
         assert bool(jax.device_get(jnp.all(jnp.isfinite(arr)))),key
@@ -165,6 +167,22 @@ def main():
         assert k in row,k
     # Evidence serialises with the same governor as the neural policy.
     events=governor.update(row)
+    assert 'physical_slope_deg_max' in row
+    for direction in governor.SLOPE_DIRECTIONS:
+        assert f'slope_attempts_{direction}' in row
+        assert f'slope_successes_{direction}' in row
+    # Synthetic EPISODE evidence isolates the governance decision from
+    # learning effectiveness: no lucky frame, no surrogate PPO reward.
+    assert governor.advance_slope(row)=='steady_bootstrap'
+    governor._updates_done_total=governor.BOOTSTRAP_UPDATES+1
+    governor.core_competence=.75
+    governor.fall_ema['posture']=.20
+    assert governor.advance_slope({})=='seed_real_incline_0p7deg'
+    qualified={f'slope_{kind}_{direction}':12.
+               for direction in governor.SLOPE_DIRECTIONS
+               for kind in ('attempts','successes')}
+    assert governor.advance_slope(qualified)=='expand_slope_exposure'
+    assert governor.params.slope_exposure>.15
     archived=governor.state_dict()
     recovered=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     recovered.load_state_dict(archived)
