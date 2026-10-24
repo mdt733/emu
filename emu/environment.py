@@ -1628,6 +1628,18 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_success_down': (timeout & ~terminal_fail & terrain_down & terrain_crossed).astype(jnp.float32),
             'terrain_episode_fall_up': (terminal_fail & terrain_up).astype(jnp.float32),
             'terrain_episode_fall_down': (terminal_fail & terrain_down).astype(jnp.float32),
+            # Direction + approach speed cohorts: teacher-only counters, not
+            # actor observations. Absolute task vx is the commanded speed.
+            **{f'terrain_episode_{outcome}_up_{label}': jnp.logical_and(
+                condition,terrain_up & (
+                    (metrics['cmd_vx']>=lo) & (metrics['cmd_vx']<hi))
+                ).astype(jnp.float32)
+               for label,lo,hi in (
+                   ('slow',.10,.16),('medium',.16,.23),('fast',.23,.31))
+               for outcome,condition in (
+                   ('attempt',(done)),
+                   ('success',(timeout & ~terminal_fail & terrain_crossed)),
+                   ('fall',(terminal_fail)))},
             'episode_vx_mean': ep_vx_sum / denom,
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,
