@@ -1495,9 +1495,23 @@ class EmuMJXEnv(TaskSampler):
                 slope = np.asarray(
                     [float(params.get(name, default))
                      for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
-                if (not np.isfinite(slope).all() or not 0.<=slope[0]<=1. or
-                        not 0.<=slope[1]<=5.0):
-                    raise ValueError('slope exposure must be [0,1], physical maximum 5 degrees')
+                if (not np.isfinite(slope[:2]).all() or not 0.<=slope[0]<=1. or
+                        not 0.<=slope[1]<=15.0):
+                    raise ValueError('slope exposure must be [0,1], probe cap 15 degrees')
+                fixed_pitch,fixed_roll=slope[2],slope[3]
+                if np.isfinite(fixed_pitch) != np.isfinite(fixed_roll):
+                    raise ValueError('explicit terrain pitch and roll must be provided together')
+                if np.isfinite(fixed_pitch):
+                    g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
+                               np.tan(np.deg2rad(fixed_roll)))
+                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0:
+                        raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
+                if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
+                    raise ValueError('fixed step height outside compiled physical range')
+                if np.isfinite(slope[5]) and abs(slope[5])>45.0:
+                    raise ValueError('fixed edge yaw outside +/-45-degree exam range')
+                if not np.all(np.isfinite(slope[~np.isnan(slope)])):
+                    raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
                 assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
@@ -2098,22 +2112,32 @@ class EmuMJXEnv(TaskSampler):
         slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
         step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose)
         slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose)
-        step_active=(u[:,0]<step_p) & (params[P.terrain_height_m]>1e-6)
+        has_fixed_height=jnp.isfinite(params[P.terrain_fixed_height_m])
+        step_active=jnp.where(
+            has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,
+            (u[:,0]<step_p)&(params[P.terrain_height_m]>1e-6))
         slope_active=(u[:,1]<slope_p) & (params[P.slope_max_deg]>1e-6)
         slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]
         slope_rad=jnp.deg2rad(jnp.where(slope_active,slope_mag,0.))
         # Azimuth 0,180deg: longitudinal uphill/downhill. 90,270deg:
-        # sideways camber. Both components can be nonzero simultaneously.
+        # sideways camber. Explicit pitch/roll overrides serve the
+        # reproducible CPU/held-out examiner and do not alter actor inputs.
         azimuth=2.*jnp.pi*u[:,3]
-        gx=jnp.tan(slope_rad)*jnp.cos(azimuth)
-        gy=jnp.tan(slope_rad)*jnp.sin(azimuth)
+        fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
+            params[P.terrain_roll_deg])
+        gx=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_pitch_deg])),
+                     jnp.tan(slope_rad)*jnp.cos(azimuth))
+        gy=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_roll_deg])),
+                     jnp.tan(slope_rad)*jnp.sin(azimuth))
         normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
         normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
         # Shortest quaternion taking world +Z into physical support normal.
         qt=jnp.stack((1.+normal[:,2],-normal[:,1],normal[:,0],
                       jnp.zeros_like(gx)),axis=1)
         qt=qt/jnp.linalg.norm(qt,axis=1,keepdims=True)
-        edge_yaw=(u[:,4]-.5)*.70
+        edge_yaw=jnp.where(jnp.isfinite(params[P.terrain_edge_angle_deg]),
+                           jnp.deg2rad(params[P.terrain_edge_angle_deg]),
+                           (u[:,4]-.5)*.70)
         qy=jnp.stack((jnp.cos(edge_yaw/2),jnp.zeros_like(gx),
                       jnp.zeros_like(gx),jnp.sin(edge_yaw/2)),axis=1)
         q=self._quat_mul(qt,qy)
@@ -2135,7 +2159,9 @@ class EmuMJXEnv(TaskSampler):
         ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
         # Height is the physical normal displacement, not an impossible
         # world-vertical offset that would force the two faces to overlap.
-        height=ceiling*(.30+.70*u[:,5])
+        height=jnp.where(has_fixed_height,
+                         params[P.terrain_fixed_height_m],
+                         ceiling*(.30+.70*u[:,5]))
         upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
         buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
         upper_pos=jnp.where(step_active[:,None],upper_pos,buried)
