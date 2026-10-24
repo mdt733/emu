@@ -1749,6 +1749,10 @@ class EmuMJXEnv(TaskSampler):
             (ep_vx_sum/jnp.maximum(ep_len,1.)>.025))
         out_metrics = {
             **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
+            # Same physical slip value used by the gait reward; publish a
+            # read-only diagnostic for the independent frozen examiner.
+            # It is NOT an actor input, reward change or curriculum result.
+            'exam_stance_slip_proxy':metrics['stance_slip'],
             'physical_slope_deg':physical_slope,
             'physical_slope_gx':gx,
             'physical_slope_gy':gy,
