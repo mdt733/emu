@@ -83,4 +83,4 @@ def control_effort_weights(jnp, focus, *, control=.055, general=.006):
     Real shaft work and braking are not electrical battery consumption.
     The lesson should *never* replace survival/velocity tracking reward.
     """
-    return jnp.where(focus==CONTROL,control,general).astype(jnp.float32)
+    return jnp.where(focus<0,0.0,jnp.where(focus==CONTROL,control,general)).astype(jnp.float32)
