@@ -129,8 +129,9 @@ def train(args: TrainingConfig) -> int:
     # smoke has one explicit, source-pinned exception: at most TWO PPO
     # updates, never a long run. The test opt-in is not a training config
     # switch and cannot be used to resume beyond this absolute step budget.
+    bounded_acceptance = False
     if args.unified_capability_focus:
-        acceptance = (
+        bounded_acceptance = (
             os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
             and args.device == 'cuda'
             and args.envs in (8, 12, 2048)
@@ -139,7 +140,7 @@ def train(args: TrainingConfig) -> int:
             and args.terrain_step_max_m >= .001
             and args.open_frontier
         )
-        if not acceptance:
+        if not bounded_acceptance:
             raise RuntimeError(
                 'Unified training is PRE-LAUNCH. Only explicit, source-pinned '
                 'two-update lifecycle acceptance is permitted; 20M and '
@@ -189,7 +190,16 @@ def train(args: TrainingConfig) -> int:
         raise ValueError('terrain_360 actor requires a physical terrain topology, including flat foundation')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
-    fixed_eval_worlds = build_eval_worlds(args)
+    # A two-update CUDA acceptance verifies PPO, physical telemetry,
+    # complete checkpoint state, warm resume and actor export. The full
+    # 10-panel/350-frame fixed exam is for measuring trained walking, and
+    # took ~8 minutes on an untrained eight-world smoke. Never pretend
+    # this bounded protocol is a held-out walking evaluation.
+    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(args)
+    if bounded_acceptance:
+        print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
+              'walking exams disabled; use independent frozen policy exam '
+              'after checkpoint/resume/export verification', flush=True)
 
     # Sparse capability cloud: intentionally much smaller than the fixed
     # continuity evaluator. Each cloud point is one real vx+vy+yaw command
@@ -428,6 +438,8 @@ def train(args: TrainingConfig) -> int:
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
         nonlocal last_eval_step, best_eval_score
+        if bounded_acceptance:
+            return
         if not force and step - last_eval_step < EVAL_EVERY_STEPS:
             return
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
