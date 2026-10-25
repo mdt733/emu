@@ -158,7 +158,7 @@ def unified_launch_mode(args: TrainingConfig) -> str:
                 and parent.suffix == '.pkl'):
             return 'continuous'
     raise RuntimeError(
-        'Unified live training requires the explicit bounded CUDA smoke or '
+        'PRE-LAUNCH: Unified live training requires the explicit bounded CUDA smoke or '
         'EMU_UNIFIED_CONTINUOUS=cold-growth-approved for a source-pinned '
         'single-run 360-input 2048-world CUDA learner. Only validated '
         'same-run checkpoints may resume; external warm starts are blocked.'
