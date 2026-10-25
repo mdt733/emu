@@ -1,205 +1,126 @@
-# EMU — active handover
+# EMU — active engineering handover
 
-**Branch:** `feature/v5023-capability-growth` · **Updated:** 26 October 2026  
-**Design and permanent non-regression contract:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md#non-regression-contract--what-must-never-be-traded-away)  
-**Protected reference:** `main` at `2ec9e9db0a816c658131311129ef89ec7a595a12`
-
-## CURRENT: continuous cold learning and capability inventory (26 October 2026)
-
-- Canonical **physical difficulty inventory**, with honest counts of implemented vs candidate independently controlled dimensions: [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md). Proposed ~30 target axes are a *future map*, not 30 independent working controllers. Keep the six focus teachers and one PPO.
-- Check the latest CI after source cleanup; GPU 2048 CUDA smoke and production campaign have not been validated by this session.
-
-## CURRENT: one long cold-run source + slope/step moving targets (26 October 2026)
-
-- **No special checkpoint:** one cold-start source-pinned 360 actor can run to an arbitrary long requested target >=20M through EMU_UNIFIED_CONTINUOUS=cold-growth-approved, with same-source run-local --resume auto. The existing source and config integrity checks remain mandatory; a 32-world frozen examiner avoids 8GB GPU overcommit.
-- **Local physical slope target:** actual collision incline provides near/easy directional closed episode evidence. Slope difficulty nudges upward only on near-target success in all four bearings, retreats gently on sustained easier-direction failure, and does not retreat merely because hard exploration fails. Historic undifferentiated slope evidence may load, but cannot justify promotion.
-- **Physical step target:** the unified teacher now measures actual collider-height gap for completed up/down episodes, separately at easy and near-target step heights. Repeated near-height supported crossing in BOTH directions grows height 0.25mm at a time; easier failures gently lower height; hard attempts may fail without automatic retreat. Exposure stays modest while the overall specialist fade is coming online. Non-unified original terrain controller is unaffected; old pooled windows can load but are not credited as near-limit proof.
-- **Cleanup:** removed redundant post-decision global/family growth arbitration and its three budget metrics. Physical targets already have independent per-skill small moves, so this cannot re-throttle unrelated skills. Maintained the ordinary main-style core regime budget and steady-episode reporting.
-- **Run target can grow:** when a completed same-source continuous run has a validated final.pkl at its old target, it may increase ONLY the absolute target using --resume auto; this validates full config and source unchanged. Complete 120M→240M extension command in docs/INSTALL.md.
-- **User-facing complete cold launch and exact-source resume commands:** docs/INSTALL.md. CPU smoke and 2048-world CUDA preflight still required before serious GPU use; none of these commits changes main or the approved Pinnacle.
-
-## CURRENT: continuous-dial curriculum implementation (25 Oct 2026)
-
-- Feature branch only: command boundary learning now reads **near-target and easier signed-episode evidence**. Near-target success nudges its command limit upward; easier failure nudges it down; hard failures hold rather than force retreat. The window is checkpointed and older near-only windows migrate without rewriting old policies.
-- Cold-start plan: 20M main-style basic gait (no active specialist lessons), then a 10M linear specialist *activation* blend to 35%. The blend is NOT a threshold for growing specific capabilities.
-- **Owner decision (26 Oct):** old 40M checkpoint is disposable, not a milestone to design around. No source-specific blend ages or extra persistence keys in learning code. Prefer reliable fresh cold starts, a single 20M foundation + 10M specialist exposure ramp, then continuously evidence-driven local targets. The exact 40M→60M preflight is historical/optional, not an architectural dependency.
-- Scope: this is the first controller migration (commands). Slope/step/recovery/transitions/control will be migrated gradually, keeping their distinct physical evidence. Source remains **PRE-LAUNCH for 60M**, no GPU run authorized, no main/showcase changes. Review latest GitHub Actions before claiming green.
-
-## PREVIOUS: 40M gait continuation complete (owner GPU run; 25 Oct 2026)
-
-- **Preserved training lineage**: 20,054,016-step `terrain_360` 20M checkpoint at original SHA `470cf7f` → **40,042,496 steps** after a 20M→40M warm continuation at SHA `54345b29a9605ffc93226edc0374df302ea358af` in `~/robot_lab/emu_runs/unified_maturity40_54345b2`. User uploaded `results_bundle(9).zip`, `unified_exam(4).json/.md`; no CSV reporting crash. Bundle performance shows **final checkpoint write occurred**, but the actual `final.pkl` bytes were not supplied. Exported actor SHA256 `4f7e0a966e29d05d3607e4785dadb98c296ae8ef29941c9727bf2eee2feb670c`, frozen exam source `54345b2`. Preserve complete checkpoint+normalizer+optimizer/curriculum, not only actor export.
-- **Matched 8-world 300-frame CPU quick exam** at 0.05m/s nominal generic command: **60/64 survive**, **2/64 strict tasks passed** (flat 1/8; 1N push 1/8) versus 20M source `470cf7f` actor **62/64 survival, 0/64 task passes**. All non-push worlds survived for both. 40M 1N directional recovery **4/8 survived** vs 20M 6/8: directions/world bins 2,3,4,5 now fail vs 4,5 previously. Each push actually delivered 1N; do NOT claim resilience improvement solely from overall reward.
-- **Genuine 40M gait improvement:** flat `vx` MAE 0.0126→0.0114m/s; **vy MAE 0.0820→0.0284m/s (−65%)**; yaw MAE 0.1070→0.0848rad/s. Flat body-frame `vy` bias +0.0143→−0.0046m/s. Easy 0.08m/s control lateral MAE 0.0809→0.0264. Same fixed exam reports core survival 1.0; broad fixed-eval dynamic80 0.203→0.750, combo70 0.453→0.891, resilience75 0.281→0.531, robust40 0.625→0.922 and growthcombo110 0.328→0.781. Different strengths/weaknesses coexist.
-- **Terrain:** flat real 8mm step **4/4 step-down supported crossings** remain, **0/4 ascent**, **0/8 mixed incline+step crossing**. Signed 2° uphill/downhill both 8/8 survive but tracking still poor (uphill vx MAE 0.1085→0.1161, downhill 0.0767→0.0834m/s), as expected without terrain training. Training CSV shows 0 actual terrain/grade throughout 40M; `terrain_exposure=.15`, `height=.004`, slope=.15/.7° values at **final post-training curriculum update only**—NOT sampled training tasks.
-- **Mechanical efficiency confound:** flat 40M shaft **work per 300-frame trace** 48.97→61.40J (+25%), mean actor action delta 0.1264→0.1890 (+50%), while total **path length** 0.583→0.353m (−39%). This raises **shaft J / total path m** 84.18→174.52 (+107%); this is not electrical energy and *some apparent efficiency degradation comes from less meandering path length*. Assess **work per commanded-direction net progress**, raw shaft work and action jerk before drawing actuator-efficiency conclusions.
-- **Frozen frontier is a confirmed teaching gate problem at 40M source:** all logged `vx=[−0.02,+0.06]`, `vy=±.035`, `yaw=±.14` stay flat from 20M→40M because the old `gait_birth_gate` blocks specialist/command growth. The *post-40M feature branch* removes step/core-gait specialist unlocks, enables low-dose concurrent lessons, and splits independent command/terrain/push budgets. **Those new edits were NOT in this completed 40M run** and are **not yet proven to preserve the new 40M gait**.
-- **Next engineering decisions:** keep `main`, Pinnacle and the 20M/40M checkpoints immutable; review latest HEAD CI, fix remaining small regressions, check the independent specialist teacher actually gets unbiased episode evidence and a safe low-dose physical ramp. Before new GPU work, create an explicit **`54345b2` 40M → new-source 60M** checkpoint/contract-hashed handoff (current runner only allows original 20M→40M cross-SHA parent). Do not invent a warm-start command or overwrite the preserved 40M source lineage.
-
-## 25 Oct 40M → 60M read-only handoff preflight (feature only)
-
-- Latest HEAD **`f91e0c4` CI green (four jobs: Python, unified MJX CPU, viewer, browser)**. This is source validation, not evidence of real CUDA specialist learning.
-- Added **`python scripts/preflight_growth60.py`**: a read-only exact-parent validation of the preserved 40M `54345b2` final checkpoint and original run config, SHA256, full PPO/Adam+normalizer/sensor contract, governor/health/field state, source provenance and expected 40,042,496-step boundary. This is preparatory code only; verify it on the owner PC with the actual `final.pkl`. **No 40→60 training mode is enabled**, and `main`, Pinnacle and showcase remain untouched.
-- **Still required before any 60M GPU training:** preflight PASS on actual owner checkpoint; **source-aware recovery snapshot isolation now implemented** (cross-source forks skip ancestor `recovery.pkl`; same-source copy validates SHA and geometry; runtime rollback rejects different-source candidates), awaiting fresh CI/GPU evidence; bounded real CUDA resume with evidence that all six lessons are sampled/credited and normal gait preserved; reviewed 60M source-pinned run permission. Control/efficiency also still lacks an independently earned efficiency frontier. No long-run launch command approved.
+**Date:** 26 October 2026  
+**Work branch:** `feature/v5023-capability-growth`  
+**Protected:** `main`, public showcase, approved 260M Pinnacle. **Do not change or merge without explicit user approval.**  
+**Design contract:** [docs/UNIFIED_CAPABILITY_GROWTH.md](docs/UNIFIED_CAPABILITY_GROWTH.md)  
+**Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
+**Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Mission
 
-**One cold-startable 360-input actor, one PPO optimizer, 2,048 MJX worlds.** Preserve the working **20M-step main-style foundation** (original gait physics, eight reward payments, 70-update steady-only bootstrap, conservative commands, growth/retreat and checkpoint safety), then grow coherent command, recovery, real slope, real step, transition/posture and economical control capabilities. All experiences train the **same** robot brain; specialist labels remain teacher-only.
+Create **one endlessly useful cold-start EMU learner**, rather than several
+specialist policies or source-specific 20M→40M→60M experiments. The actor has
+360 array-only observations, six actuator outputs and ONE PPO optimizer. It
+must use real MuJoCo/MJX contact, realistic delayed sensor observations and
+physically checked, direction/severity-attributed learning outcomes.
 
-The six mature emphases target **20/20/20/20/10/10%**. Every world still sees gentler doses of other challenges. Every completed episode adds directional, severity-aware evidence; frontiers should independently earn harder tasks from completed physical attempts. Preserve global PPO/collapse protections but do not enforce a time or unrelated-specialist unlock. No invented step crossings or PPO reward masquerading as independent walking ability.
+The owner explicitly prioritises a **systematic, reliable, unstoppable
+teacher** over maximum rate of advancement. A target is where to practise,
+not a certificate of maturity. Sample easier/near/harder challenges.
+Qualifying near-target success nudges it up; failed hard probes normally
+hold; persistent easier failures nudge it down. The slow-moving target is
+the stability filter; no unrelated cohort may unlock or block another.
 
-**Historical baseline vs new hypothesis:** original 20M actor (`470cf7f`) and its completed 40M continuation (`54345b2`) kept real specialist terrain and command-envelope growth locked. Later feature-branch changes remove those locks and give each specialty independent, gently-seeded lessons. These changes still require same-actor physical validation; no 220-to-360 policy migration.
+Don't overinterpret 20M or 40M locomotion as a mature walker. 20M is barely
+standing, 40M is still an infant. Do not design around any particular old
+checkpoint. Fresh-start quality matters more than preserving old migrations.
 
-## What is implemented
+## Training lifecycle (current intended path)
 
-- **Learning:** one governor with the original four core difficulties, separate closed-window signed L1 command, four-direction slope and genuine step-up/step-down evidence. The current feature branch now assigns **independent growth caps to each command axis, steps, slopes, resilience and transition/control families**, keeping faster retreats and a PPO-health veto. One `advance_curriculum` entry point handles normal and final rollout decisions.
-- **Robot/world:** 6 actions, delayed **4×4 ToF array** and IMU/flow within a versioned **90×4 = 360** actor. Two real inclined solid collision slabs permit sampled pitch/roll, rise/drop and rotated edge. Old 220/232/360 actor replay is a separate preserved contract.
-- **Single run:** `emu train` → `emu/run.py` → `training.py`; source-pinned plan, checkpoint/resume, reporting and viewer. `foundation_config` is intact. The public 260M Pinnacle and guarded Pages release remain protected.
-- **Repository cleanup:** removed old ladder/lab5015, Pinnacle campaign+upgrade runners, multi-arm evaluator and directional-batch runner, their exclusive tests/scripts, oversized dated historical documents, and dead viewer stage sorting. Old code and research remain available in Git history; `main` was not changed. Active docs are README, this handover, the learning contract, INSTALL and PLAYGROUND. Tournament results replaced by a small single-run on-policy evidence report.
+- One clean, source-pinned `emu train` run using
+  `EMU_UNIFIED_CONTINUOUS=cold-growth-approved`, `--profile sim2real`,
+  `--terrain-actor --terrain-step-max-m 0.04 --unified-capabilities`,
+  `--envs 2048 --seed 733 --device cuda`, with a chosen cumulative target
+  (the documented example is 120M steps).
+- The original foundational gait lessons dominate until 20M world steps.
+  Specialist activation blends from 0% to 35% during the next 10M steps.
+  This schedules **practice share only**, not a mastery threshold.
+- One run contains all later learning; no 40M milestone or source transition.
+  After interruption use `--resume auto` with EXACTLY the same Git SHA,
+  config and output path. A completed final checkpoint can extend the target
+  (e.g. 120M→240M) with the same source/parameters and `--resume auto`.
+- Safety: strict schema/robot/sensor/finite-checkpoint validation, unchanged
+  source/config on resume, off-repo checkpoints, emergency PPO health and
+  source-matched recovery state. Frozen evaluation cohorts use 32 worlds
+  (8GB GPU budget). No grandfathered, cross-source warm-start exemptions.
 
-## Verified versus pending
+## Current implementation
 
-- **Previous integrated engineering SHA `b7893fd`: four CI jobs passed** (Python, 12-world real MJX/PPO CPU, browser, clean Ubuntu viewer). The larger cleanup commits require their **own latest-HEAD CI**; don't describe old green checks as proof of newer source.
-- **Not yet verified:** actual cold unified 20M first-stage gait parity vs main; accurate frozen **combined** slope+step+command+recovery examiner and browser simulation parity for a freshly trained array-only actor. **The 2,048-world CUDA PPO/checkpoint/resume/export lifecycle PASSED on owner hardware at `6653c03`; see dated evidence below.**
-- The unified trainer **intentionally fails closed**. There is no authorised ten-hour unified GPU campaign and **no trained unified successor** to Pinnacle yet. Existing frozen older 360 runs climbed poorly: supported ascent stayed 0/12 in matched +0.15 m/s exams despite better flat survival and descent. Do not label far-side root motion as an ascent.
+**Working code on this feature branch; NOT YET GPU campaign-proven:**
 
-## Live preservation checklist (details in the design contract)
+- Six concurrent birth roles: commands, resilience, slopes, steps, transitions,
+  control/efficiency, all teaching ONE policy. Most ordinary gait learning
+  remains in non-specialist worlds.
+- Commands: independent forward/reverse frontiers, symmetrical ±vy/±yaw
+  frontiers, plus mixed radius. Small target adjustments use completed
+  episode near/easy evidence; *easy failure windows remain independent of
+  near-probe windows*.
+- Inclined collision: two real contact slabs, four measured directions.
+  Near-maximum slope success advances the shared angle; failed easier
+  inclines retreat it; hard failures hold. Physical grade is read from
+  the actual collision normal, not only the teacher request.
+- Discontinuous contact step: actual upper/lower surface displacement,
+  supported up/down crossings, severity-relative easy/near cohorts. Shared
+  height target rises on near-height up AND down support, holds on hard
+  failure and retreats on easier failure. Typical training edge yaw is
+  ~±20°, **not yet a trained ±45° dimension**.
+- The legacy original `resilience_difficulty` still bundles pose, position,
+  joint, linear and angular birth disorder. Separate push-force frontier is
+  present but not yet based on a direction-resolved recovery target.
+- The transition teacher still couples hold time and ramp speed; the control
+  teacher has motor-effort/smoothness shaping and work-per-distance
+  diagnostics, but no independent adjustable grace/energy limit.
+- Sensor-noise frontier exists; broader physical domain randomization is OFF.
+- Removed obsolete source-SHA-specific 20M/40M/60M launch gates, and the
+  redundant secondary `_share_unified_growth` limiter. Original core
+  gait regime governor, PPO, physical world and actor contract stay intact.
 
-**From main — preserve, not merely resemble**
+**Do not conflate challenge directions with independent targets.**
+See the linked capability inventory: about 30 sensible candidate dimensions,
+far fewer independently controlled today. Grow the evidence plumbing first,
+then split each direction only when it is worth the sampling overhead.
 
-- [x] Code-level **20M foundation** core: 70 steady-only updates, 32×4×8 PPO, LR2e-4, seed733/2048 envs, eight weighted gait payments, phase/command cap and effective early 0.70N push exposure. Existing `tests/test_learning.py` now checks source-level numerical parity. **Does not prove gait quality.**
-- [x] Intended 360 actor born with same versioned realistic sensors; no specialist or hard physical terrain before 20M; gentle competency-driven fade thereafter. **Physical/training distribution only verified in small CPU smoke.**
-- [ ] **Real first-20M parity:** a fully trained cold 360 actor must demonstrate support, achieved vx/vy/yaw tracking, stability, commanded pace and acceptable motor burden comparable to main on *matched flat frozen exams*.
-- [ ] Verify that early **posture, command schedule, normalizer and capability-field shadow behavior** remain observationally equivalent enough to main; similar configuration values alone do not establish this.
+## Next engineering work (rough order)
 
-**From our unified vision — earn, don't invent**
+- [ ] **GitHub Actions must pass at CURRENT source SHA.** Resolve real CI
+      errors before more speculative restructuring. Previous passing commit
+      `193dc59` precedes the most recent cleanups.
+- [ ] Check actual 2048-world CUDA PPO compile/update and memory use on
+      owner's RTX 4060 Ti 8GB. CPU MJX smoke proves contact and PPO shape
+      only, not GPU capacity or long-run learning.
+- [ ] Verify teacher reports **allocated vs activated vs physically challenged
+      and completed** episodes in signed command, four slope and up/down
+      step cohorts. No falsely claimed progress on missing episodes.
+- [ ] Verify full cold 20M foundation plus the 20M→30M specialist blend,
+      including stable metrics CSV headers and same-run resume/extension.
+- [ ] Improve recovery by distinct physical birth-disturbance outcomes
+      (joint, tilt, position, linear/angular momentum, pushes), without
+      multiplying PPO algorithms or making a 6D Cartesian monster.
+- [ ] Give control-efficiency a genuine target based on mechanical work
+      per **usefully tracked and supported** distance, with smoothing/jerk
+      and a retreat option; do not reward motionlessness.
+- [ ] Only then split symmetrical lateral/yaw, directional slope and step
+      targets if evidence shows asymmetric ability.
+- [ ] Confirm meaningful cold-run locomotion and target movement from
+      owner's GPU logs/exams before any policy promotion.
 
-- [x] Six teacher emphases, one actor/optimizer, signed L1 command probes, direction-aware closed windows for slope/steps and shared expansion arbitration implemented.
-- [ ] Demonstrate each teacher's **actual** task mixture and evidence attribution from completed episodes. Check underrepresented directions, sparse evidence, and whether successful diagonal commands wrongly expand unproven pure axes.
-- [ ] Validate frozen array-only **19-case** physical exam on a real exported unified policy: all four signed slopes, rotated/paired supported up/down steps, mixed surfaces, commands, pushes, transitions, grip/slip, action changes and mechanical J/m. No such trained policy exists yet.
-- [x] Full **2,048-world CUDA** PPO/checkpoint/resume/export and strict array-only actor decoder PASS at `6653c03`. [x] Frozen **8-case quick examiner** read/write and physical slope/step/push geometry PASS at examiner SHA `0cf5841`. [ ] Full 19-case evaluation, trained-policy competence, browser physics parity and sustained training FPS remain unverified.
+## What NOT to do
 
-**Never claim a replacement is better** using reward, a green CPU smoke, an examiner with zero trained-policy runs, or a single terrain case. Preserve `main`, approved 260M Pinnacle, public showcase and archived checkpoints. **Next action:** finish current-HEAD CI, then prepare an explicitly approved cold 20M 360-actor foundation without unlocking the longer growth phase. 
+Do not modify `main`, public GitHub Pages or approved Pinnacle; don't
+introduce a new actor observation format, extra PPO networks, unrelated
+curriculum timers, or separate 40M checkpoint special cases. Preserve
+resilience/step/ascent physical evidence, useful cold gait, source-pinned
+resumability and a clean comprehensible project. Optimise the code for
+understanding, not line-count theatre; remove obsolete systems as they are
+replaced. Keep source changes exclusively on this feature branch.
 
-## 25 Oct WSL acceptance — observed evidence and correction
+## Operating instructions
 
-- **GPU preflight PASS on RTX 4060 Ti:** real 2,048 mixed-physics worlds, 360 observation channels, six roles (410/410/409/409/205/205), one full 32×4×8 PPO update/65,536 frames; 63.5s compile-inclusive and reported JAX peak allocation ~811MB. No learned walking claimed; that FPS includes compilation.
-- **First actual trainer stage at 8 worlds reached its PPO update**, then failed on best checkpoint save with `sensor contract fingerprint/geometry mismatch`. The independent checkpoint reader was reconstructing *legacy 360 tripod+array* while training supplied *new 360 array-only*. The mismatch, not PPO divergence, was the fatal traceback. CUDA preallocator logged unsuccessful large reservation attempts, but the first update completed.
-- **Corrected on branch:** `checkpoint_io.py` now reconstructs canonical geometry from the declared sensor revision and still requires caller-pinned lineage; archived 360 tripod and new array-only 360 remain strictly distinct. Fixed evaluation worlds also now instantiate the actual unified two-slab, array-only sensor physics. Added regression tests covering on-disk checkpoint save/load, tamper rejection, old-vs-new 360 separation and frozen-world topology. Bounded lifecycle acceptance also uses the same non-preallocating allocator mode as the successful GPU preflight.
-- **Still pending:** current HEAD CI and a *fresh-root* 8-world lifecycle first→continue→verify, followed by fresh-root 2,048-world lifecycle and independent 360 exported exam. **Do not reuse the failed `unified_accept_7d3d6ae_8` root, silently patch its provenance or delete its evidence.** No new trained 20M policy exists; long-run guard remains closed.
-
-## 25 Oct follow-up — first complete CUDA trainer update
-
-- User ran a fresh 8-world unified `first` stage at SHA `162f079`. **The actual trainer completed 256 steps and saved `first/checkpoints/final.pkl`**. The *acceptance wrapper* then incorrectly called `load_checkpoint(...)` with implicit legacy schema-7 defaults and rejected the valid schema-9 terrain actor. This is a **harness regression, not a new neural-network failure**.
-- The 8-world smoke also wasted **467.8 seconds** on the final 10-panel fixed walking exam, unsurprisingly reporting 100% falls for an almost-untrained 256-step policy. That is *not* evidence of foundation quality.
-- Fixed together: the smoke now validates every saved checkpoint against `TrainingConfig.observation_schema` and independently reconstructed `training_sensor_contract` (including the 4×4-only revision). The explicitly two-update acceptance path now **skips building/running** the expensive fixed walking panels; `main` and all normal, non-bounded evaluation schedules remain unchanged. Its purpose is exclusively complete PPO/checkpoint/resume/normalizer/export/replay plumbing; the real `capability-exam` follows separately.
-- Added regression test that invokes the **actual lifecycle checkpoint loader** on a schema-9 array-only checkpoint and confirms it rejects the archived 360-tripod identity. CI needs to pass on the final SHA before repeating a *fresh-root* 8-world first→continue→verify. No overnight authorisation yet.
-- Developer test package is optional: plain `setup_wsl.sh --cuda13 --install-node` does **not** install pytest. To run pytest locally, explicitly `python -m pip install -e '.[dev]'`; CI installs it already. Don't treat missing pytest as CUDA or PPO failure.
-
-## 25 Oct exported 360-actor frozen exam — computation PASS, report writer fixed
-
-- Owner ran `emu capability-exam --device cpu --worlds 4 --horizon 120 --quick` at source `6653c03`, using **already exported 131,072-step array-only policy** in `~/robot_lab/emu_runs/unified_accept_6653c03_2048/tiny_smoke_actor.emupolicy`. **All eight cases executed**: flat, control, uphill, downhill, paired 0.8cm steps, mixed slope+step, diamond commands, 1N push. Each case reported 0/4 passes and 0/4 survived, expected for only TWO PPO updates; do not interpret this as post-20M competence.
-- Examiner then crashed **after the cases** at `json.dumps(manifest)` with `TypeError: Object of type bool is not JSON serializable`: NumPy `np.bool_` from physical slope-direction verification was stored as a result field, but built-in `json` only accepts native Python bool. This is a **reporting integration bug, NOT a failure to execute physical exams**.
-- **Fixed:** scorer emits real Python booleans for directional slope verification, step height and rotated-edge verification. Frozen manifest writer also converts only NumPy scalar values to their native JSON types, refuses arrays and nonfinite results (no `default=str` papering over bad evidence). Regression constructs paired-world traces for flat, slope, step and recovery, runs the *actual scorer*, and checks strict full-manifest serialization. **Current-HEAD CI and actual report rerun remain pending until explicitly observed.**
-- **Next:** rerun the same exported policy (no retraining, no new checkpoint/source rewrite) with a fresh output directory after final CI is green. The original failed output directory may be empty, but a new one preserves both attempts. **Normal unified training remains guard-locked** until approval of a cold 20M foundation.
-
-## 25 Oct 40M training result bundle — finalized, independent gait gains
-
-- Owner submitted `results_bundle(9).zip` containing final `results.md`, 31 `metrics.csv` rows, the complete `fixed_eval.csv`, `training_config.json`, `run_meta.json` and performance/evidence reports from `unified_maturity40_54345b2`.
-- **Source pinned:** `54345b29a9605ffc93226edc0374df302ea358af`, clean; ancestry explicitly `470cf7f391f418f80e36794f6d4f1832f6a6c7ea` at **20,054,016** steps; 360 array-only sensor contract, 2,048 MJX CUDA worlds, seed733. Reached **40,042,496** actual steps; results/final-eval finished without prior CSV schema crash. The bundle does not contain the checkpoint itself; confirm local `checkpoints/final.pkl` before claiming to have inspected its bytes or exported it.
-- **Training last row:** reward **+3.3084** (+3.0298 at early 20.71M resume row), episode length **689.5/700**, fall rate **2.02%**, average actual/command vx **+.0428/+.0507 m/s**, core competence **0.9815**, no nonfinite-gradient skips. Four core difficulty dials moved from approx **.056–.064 at 20.71M** to **.152–.161 at 40.04M**.
-- **Independent fixed evaluator, 40M vs earlier 20M:** core survival **1.000 vs 1.000**, dynamic80 **.750 vs .203**, combo70 **.890625 vs .453**, resilience75 **.53125 vs .281**, robust40 **.921875 vs .625**, growth110 **.40625 vs .234**, growthcombo110 **.78125 vs .328**. Forty-million broad heldout score **+.4677**; previous 20M last reported **−.024**. These are the same named held-out fixed panels, but do not confuse command accuracy, survivor fraction, or simulated resilience with proven actual slope/step ability.
-- **Curriculum lock proven in 30 of 31 rows:** signed vx bounds stayed **[-.02,+.06]m/s**, vy±.035m/s, yaw±.14rad/s; role focus episodes and step/slope exposures were zero throughout all PPO updates. **Only the final, post-evaluation curriculum decision** gave `terrain_exposure=.15/height=.004m`, `slope_exposure=.15/max=.7deg` and newly collected command direction evidence. This is *not* proof the final policy saw or learned those terrain/command challenges. Final `growth_budget_scale=.4343` reflects that one after-last-update seeding/budget arbitration, not actual independent teacher growth. `control_shaft_j_per_m=-1` is **missing control-specialist evidence**, not an efficiency score.
-- **Owner's key architectural requirement reaffirmed:** every one of six specialist teaching cohorts must be active concurrently, with each physical skill—including individual vx+,vx−,vy,yaw, combinations—growing independently on its own evidence. No universal 20M/40M unlock, no shared expansion budget stalling unrelated skills. The current feature source after `54345b2` implements independent seeding/budgets, but CI and real GPU verification still need checking; the owner's completed run was trained under the **old gated recipe**. Do not silently warm-start old checkpoint using new SHA.
-- **Next:** preserve the original 40M validated checkpoint, export and run a **source-pinned 8-world, 300-frame, 0.05m/s frozen physical quick exam** using original `54345b2` checkout (write to a new output path), and compare with exact 20M quick exam under compatible geometry. Run the new six-specialist source CI and bounded GPU sanity before approving any 40→60M cross-source continuation. No changes to `main`, 260M champion or showcase.
-
-## 25 Oct architecture correction: SIX simultaneous, autonomous capability lessons (CURRENT source)
-
-- **Owner clarified the invariant:** NO specialist waits for an unrelated one, and no specialist waits for 20M/40M (including signed vx/reverse/sideways/yaw, resilience, slopes, steps, transitions, control/efficiency). All six specialists must probe *their own* competence boundaries as soon as a shared actor starts learning, at appropriately gentle initial difficulty. They share one PPO actor and a genuine emergency safety brake, not a chain of handoff/unlock gates.
-- **Fixed on the feature branch AFTER running 40M source SHA `54345b2`:** replace `growth_mix`'s absolute-step/steady-competence fade-in with a steady low 35% focus activation probability inside the existing 20/20/20/20/10/10 focus world allocation. Terrain and slopes now seed small real contact challenges (4mm steps, <=0.7° inclines at small birth fraction) on the first curriculum update; no `core_ok`, 70-update bootstrap, 20M/40M clock veto, or heldout-exam dependency. Commands gather episode-direction evidence and grow their own signed/mixed frontier whenever sufficiently verified, independent of terrain and posture competence. Keep raw physics/sensor observations unchanged.
-- **Separated one global growth limiter into local budgets** for EACH signed command axis (forward vx, reverse vx, symmetric vy, symmetric yaw, and mixed commands), plus distinct step, slope, push recovery, transition, sensor robustness, and original four-main-regime budgets. This avoids unrelated specialties halving each other's earned frontier expansions. True global collapse and unhealthy PPO still block unsafe growth; local repeated failure retreats its own frontier. Three existing growth budget CSV fields retain stable schema but now summarise the MOST constrained family.
-- **Scope / remaining engineering gap:** control/efficiency cohorts still use a FIXED control-effort reward weight and a gentle reference based partly on the *command frontier*, rather than a distinct learned/measured efficiency frontier. This must be treated as an unfinished piece of the fully independent specialization vision, not declared solved. Likewise the existing 70-update main regime *allocation* bootstrap is preserved, but specialist probes are no longer prevented. No PPO reward change has been made.
-- **Operational safety:** Running owner GPU process at source `54345b2` will NOT change or unlock its frontiers; its own source/metadata are fixed. **Do not git pull or resume it on updated HEAD**. New feature branch changes and relevant updated tests/contract are for a separately authorised new experiment; historical 20M policy & 40M checkpoints, `main` and public showcase untouched. New concurrent-from-birth recipe is **untrained/unverified** until CI and actual hardware acceptance; do not imply it has proven gait stability.
-- **Follow-up:** verify CI and evaluate tiny GPU training/test contract on fresh source/dir, avoid regressions in 20M gait, design real local control-effort frontier and optional local safety throttling without a hidden universal timer. Then arrange a source-verified continuation at an agreed milestone with exact parent source/checkpoint; existing 20M→40M handoff is deliberately NOT a generic cross-SHA escape hatch.
-
-## 25 Oct planned 40M continuation — narrow source-pinned implementation
-
-- User requested next steps after confirming **20M is only initial standing**, and ~20–50M further steps should mature gait/control before terrain demands. Implemented a **single 20,054,016 → 40,042,496** learning-state continuation on `feature/v5023-capability-growth`, NOT a new scratch run and NOT permission for the later six-capability marathon.
-- **Explicit source exception (no silent mismatch bypass):** `EMU_UNIFIED_CONTINUATION=20to40-approved` + exactly 40,000,000 requested steps, 2,048 MJX CUDA worlds, seed 733, terrain_360 array-only, 4cm physical topology and unchanged cold source training contract. Only the **original** `~/robot_lab/emu_runs/unified_foundation20_470cf7f/checkpoints/final.pkl` is accepted for the first handoff; it must be validated as from original source SHA `470cf7f391f418f80e36794f6d4f1832f6a6c7ea` at 20,054,016 steps, with its saved original `training_config.json` matching all training-relevant config fields. A SHA256 of the parent is printed. A NEW run directory under `~/robot_lab/emu_runs/unified_maturity40_<NEW_BRANCH_SHA>` keeps ancestral artifacts untouched.
-- Checkpoint carries full policy/value/Adam optimizer, obs normalizer and count, governor and health, capability field, KL LR scale. The trainer records ancestor provenance in `run_meta.json`, and the new run's future checkpoints get their own new source commit. **Restart with `--resume auto`** under the SAME new-branch source instead of reopening original ancestor. Resume checks/source guards stay closed for all other cases, including 40M+1, 60M, another seed/schema/world count, or different physics envelope.
-- **Maturation-only lessons:** until 40M, defer new specialist cohort exposure, step/slope births, and specialist command expansions. The original core flat-gait regimen continues to accumulate cleaner gait, basic command tracking and existing gentle resilience experience. At the 40M final boundary curriculum may begin proposing the next lesson but the 40M training run ENDS there. Use frozen exam evidence to decide whether to open a separate 40→60M growth period; do not presume maturity after 40M.
-- Final 10-panel fixed eval retains two final cohorts but uses only 32 held-out worlds per panel to avoid GPU memory spikes. The real strict `metrics.csv` boundary schema bug is fixed with growth budget neutral columns from step zero. **CI and owner GPU first warm-resume still pending at the time of this handover entry**. Launch details in `docs/INSTALL.md` under the 20→40M section.
-- Protected `main`, 260M Pinnacle, public showcase and original 20M policy untouched. If current feature source changes after start, old 40M checkpoint source and run must remain on the old SHA.
-
-## 25 Oct interpretation correction — 20M is the START of a walker
-
-- **Owner explicitly clarified the development expectation:** cold **20M environment steps is the bare minimum for standing / acquiring the basic gait**. Do NOT grade it as a mature command-controlled or resilient policy, and do NOT demand advanced slope/step/recovery pass rates now. User expects **another ~20–50M steps** of healthy locomotion learning before reliable control and resilience. This supersedes any implication in earlier notes that 20M command/heading errors require urgent reward surgery.
-- **New third frozen exam uploaded:** same **unchanged** 20,054,016-step actor SHA256 `d76aefeadbe2a0e61cbf341ab902a00684fa8c4faa4bb0ac7bae63db8b741b89`, examiner source `dc70832`, 8 worlds × 8 quick cases, horizon 300, speed 0.05m/s. Outcomes unchanged, **62/64 survival, 0/64 strict full task passes, all four verified 8mm step-downs**. This edition adds *read-only* signed mean tracking error and standard deviation per body axis.
-- **Critical new finding:** flat lateral `vy` mean signed error **+0.0143m/s**, absolute MAE **0.0820m/s**, jitter SD **0.0910m/s** across 8 worlds. Thus **lateral gait oscillation dominates persistent net drift**. Do not try to fix a nonexistent major sideways-bias problem; do not assert a specific cause (gait phase vs velocity estimator) without time-series evidence. Flat yaw has signed error +0.0807rad/s, SD 0.1067rad/s, MAE 0.107rad/s: a mix of drift and oscillation. Flat vx signed error −0.0076m/s, MAE 0.0126m/s.
-- **Slopes expose immature balance-to-motion coupling** rather than a clear software error: uphill commanded +0.05m/s, signed vx error ≈−0.1085m/s (i.e. average achieved about −0.0585m/s); downhill signed vx error ≈+0.0767m/s (achieved about +0.1267m/s), yaw poor. No specialist slope lessons yet, so do NOT treat this as regression.
-- **Curriculum recommendation (NOT yet approved or unlocked):** preserve immutable 20M source-pinned ancestor; plan bounded branch-only continuation checkpoints around **40M, 60M, perhaps 70M total steps**, allowing *slow acquisition of gait quality, forward and lateral/yaw command skill, and basic pushes*. Keep slopes/steps gentle or dormant until stability/control improves on held-out exams; avoid sudden workload mix changes, early compulsory specialist training, reward redesign, or a new cold start. Track survival, command response, signed error vs gait jitter, true physical contact, torque/work, held-out competence. Only compare later matured policy fairly against `main`.
-- **Implementation caveat:** the currently shipped unified trainer **still locks any post-20M learning**. A deliberate new continuation gate and lineage plan are required; the 20M policy was trained with `470cf7f`, and a feature-branch checkpoint from a different source SHA must not be silently warm-started. Do NOT claim a continuation command exists or that authorisation has been given. `main`, Pinnacle and showcase remain protected.
-
-## 25 Oct follow-up: gentler 8-world exam isolates the remaining weaknesses
-
-- **Unchanged policy hash** `d76aefeadbe2a0e61cbf341ab902a00684fa8c4faa4bb0ac7bae63db8b741b89`, source-trained at `470cf7f`, 20,054,016 steps. Owner ran **8 worlds × 8 quick cases, horizon 300, generic forward command reduced to 0.05m/s** (but named `control_easy_0p08` / diamond retain explicit command). `unified_exam(2).json` and `.md` uploaded.
-- **62/64 worlds survived**. Every flat, control, uphill, downhill, step, mixed and diamond episode completed 300/300 frames. All eight nominal 1N push angles were delivered; **world indexes 4 and 5**, corresponding to **180°/225° world-frame impulse direction** in `environment.py`, fell at frames 35 and 37. Other six push worlds survived. The previous 4-world exam therefore masked directional recovery weakness.
-- **Full task grading 0/64:** the strict evaluation jointly demands low vx, vy and yaw MAE, survival/support, and true crossing where relevant. **Flat MAE [vx,vy,yaw] = [0.0126, 0.0820, 0.1070]** for the new speed; earlier four-world generic 0.10m/s flat MAE was [0.0257, 0.0814, 0.1356]. Better forward speed has **not** fixed the nearly invariant 0.08m/s sideways absolute error (tolerance 0.06m/s), nor completely resolved yaw (flat tolerance 0.08rad/s).
-- **Actual terrain crossings:** 8mm **step-down 4/4** worlds achieved validated five-frame far-side foot contact (supported crossing), **step-up 0/4**, and mixed angled/slope step 0/8. Survival on uphill/downhill is 8/8 each, but uphill vx error remains **0.1085m/s** (the request was 0.05m/s), downhill vx error **0.0767m/s** and yaw error **0.2198rad/s**. Do not claim slope tracking or step ascent competence.
-- **Investigation before reward tweaks:** the previous exam recorded only `mean(abs(body_vel - request))`; cannot tell a persistent wrong-direction sway from zero-mean lateral oscillation. Added minimal **read-only** signed mean tracking error and jitter (std) for vx/vy/yaw to `score_unified_capability_trace` and test for that, preserving all previous `case_pass` criteria. Re-run the *same immutable actor* on a fresh output folder using the **new examiner SHA after CI**; this changes examiner source only, never checkpoint lineage or policy weights.
-- **Future learning:** preserve the working 20M foundation as a no-regression ancestor, then allow another 20–50M steps for basic locomotion/control/resilience to mature with periodic exams. Lateral error is primarily oscillation rather than drift; avoid reward changes without evidence and do not demand mature terrain/heading control at 20M. The foundation's training frontier was vx+0.06m/s; 0.05m/s is matched, while 0.08m/s control and 0.06m/s diamond remain explicit. Owner has NOT approved any 20M+ continuation, only original 20M foundation. No change to `main`/Pinnacle/showcase.
-
-## 25 Oct frozen quick examiner — recovered 20M policy, real physical findings
-
-- **Owner uploaded** `unified_exam(1).json` / `unified_exam(1).md` for the RECOVERED source-pinned 20,054,016-step `terrain_360` array-only actor, SHA256 `d76aefeadbe2a0e61cbf341ab902a00684fa8c4faa4bb0ac7bae63db8b741b89`. Exam source remains original training SHA `470cf7f391f418f80e36794f6d4f1832f6a6c7ea`. This strongly indicates validated best-checkpoint recovery/export succeeded; actual `final.pkl` presence remains unconfirmed by the attached report.
-- **32/32 survived** the full 300-frame quick frozen exam (4 worlds each × 8 scenarios), all with reported support fraction 1.0, versus the two-update smoke actor's 0/32 survival. No false positives for a successful *full control-and-terrain skill*: case_pass **0/32**.
-- **Physics task findings:** uphill/downhill 2° grade, flat 8mm paired step, mixed 2° grade + 17.01° rotated 8mm step and delivered 1.0N push all verified. **Both step-down worlds (2/2) earned real sustained five-frame supported far-side crossing** in the flat 8mm step scenario (frames 146, 132); **both step-up worlds (0/2)** did not. Mixed incline-step had no crossing in either direction. Full `case_pass` additionally requires directional tracking, so correct `crossing_pass=true` doesn't mean overall task pass.
-- **Eight-case mean (4 worlds per case) tracking MAE [vx,vy,yaw]:** flat [0.0257,0.0814,0.1356]; easy-forward [0.0201,0.0808,0.1152]; uphill [0.1217,0.0895,0.1612]; downhill [0.0586,0.0804,0.3059]; diamond [0.0117,0.0815,0.1454] (m/s,m/s,rad/s). `tracking` gate uses <=0.07 vx, <=0.06 vy, <=max(0.08,0.4×commanded yaw) yaw, supported >=0.35, bad contact <0.20, survival. The **0.08m/s lateral absolute error** fails *every* task despite excellent survival; must distinguish persistent drift from oscillation using signed traces before treating it as a controller bias.
-- **Exam difficulty context:** generic flat/slope/step/push cases request **0.10m/s**, above the last known main-style foundation training frontier of **+0.06m/s**; fixed easy-forward case requests 0.08m/s. Diamond has 0.06m/s, 0.025m/s lateral, and 0.12rad/s yaw, and also fails yaw/lateral accuracy. Thus zero passes are informative, but not proof the learned *training distribution* fails. Exam J/m 50.9–80.5 depending on case is **shaft mechanical proxy**, not electrical energy. Sidehill and longer-duration direction tests remain to be done.
-- **Next sensible experiment:** preserve 20M `470cf7f` actor and real checkpoint; run matched gentle exam at `--speed 0.05` (unique output folder, unchanged actor/source) to disentangle over-frontier requests from lateral/yaw instability; then compare baseline competence to preserved `main`. Plan a source-pinned continuation emphasizing measured command control **before** teaching bigger steps and hills; do not silently merge/promote or authorize open-ended growth.
-
-## 25 Oct cold 20M foundation — learned gait, interrupted final CSV
-
-- **Actual owner GPU run:** source `470cf7f391f418f80e36794f6d4f1832f6a6c7ea`, root `~/robot_lab/emu_runs/unified_foundation20_470cf7f`, one cold-start array-only 360 actor, 2,048 MJX worlds. Near 19.66M: reward +3.008, mean episode 691/700, fall 1.5%, core competence 0.98, 29,811 reported recent training FPS, `nan_skips=0`, achieved vx +.05 m/s vs commanded +.04. **A genuine flat foundation walker emerged; no post-foundation specialists trained yet.**
-- **Frozen fixed evaluation actually finished at 20,054,016 steps** (all ten panels, 310.5s): core survival 1.000; dynamic80 0.203; combo70 0.453; resilience75 0.281; robust40 0.625; growth110 0.234, growthcombo110 0.328. Do not claim mature command/recovery competence; match flat conditions to `main` before promotion.
-- **Failure was AFTER training and fixed-eval best-checkpoint save.** `append_training_observation` refused a changed `metrics.csv` schema: `growth_budget_demand/scale/limited` appeared only at the first `advance_curriculum(step>=20M)` final-row call. Therefore `final.pkl` and final training row were not published, despite successfully evaluated end-step PPO state in **`checkpoints/best.pkl`**, if locally validated. The final curriculum/field book-keeping had already progressed on GPU but may not all be reflected in the *best* snapshot. Do not misrepresent this as a completely finalized original run.
-- **Recovery BEFORE pulling updated source:** remain on original `470cf7f` checkout, independently `load_checkpoint(best.pkl, expected_observation_schema=terrain_360, expected_sensor_contract=training_sensor_contract(saved_config))`, verify embedded git SHA and exact 20,054,016 target, and atomically `promote_checkpoint(best,final)` without executing another PPO step. Explicit copy-paste validation command supplied in conversation. Do not tamper with source provenance or change historical data; leave `best.pkl`, `fixed_eval.csv` and original logs intact. Export `foundation20.emupolicy` after confirmation.
-- **Future source fix committed on feature branch only:** unified growth-budget diagnostics now appear as neutral `(0,1,0)` from **step zero**, with real scaled arbitration after 20M. Strict `metrics.csv` schema enforcement remains in place; a regression checks serializing the *first* and *boundary* growth budget rows. The new SHA is for future runs and **must not be substituted into the original checkpoint lineage**. Latest CI pending.
-- **Next gate:** confirm owner-recovered final snapshot and export; run independent frozen 360 `capability-exam` (flat first, then signed slopes/steps) and compare actual flat gait against `main`. Only then consider the separate specialist growth approval; original `main`, Pinnacle and public showcase remain protected.
-
-## 25 Oct owner-approved FOUNDATION20 launch gate (implementation)
-
-- User explicitly requested the next real command after passing the 2,048-world CUDA lifecycle and exported 360 physical quick examiner. **One cold-start 20M run is approved; six-teacher continuation is NOT.**
-- `training.py` adds pure `unified_launch_mode` checked **before importing JAX or creating a run**. The exact opt-in `EMU_UNIFIED_FOUNDATION=cold20m-approved` permits only 360 array-only / 2,048 worlds / seed 733 / CUDA / 20,000,000 requested steps / 4cm geometry ceiling / no motor guidance or hardware/domain randomization / shadow capability field / initial no-resume or source-matched `--resume auto`. Other runs still raise `PRE-LAUNCH`. Existing bounded two-PPO-update acceptance remains unchanged.
-- Training final fixed examination retains all ten core panels with two final cohorts, but uses 32 held-out MJX worlds **per panel**, not another five 2,048-world batches on the 8GB GPU. Source remains pinned. Actual PPO boundary is 20,054,016 steps (306 × 65,536).
-- Launch/run/resume commands are in `docs/INSTALL.md`. Source-specific CLI config, training logs, snapshots, complete normalizer and PPO rewind remain canonical. Independent post-run frozen exam and matched `main` gait comparison are required **before** any capability-growth permission or Pinnacle promotion.
-- New test covers refusal of changed step budget (including post-20M), batch count, actor schema, source warm-start, physics/domain, command-pitch configuration, and acceptance still bounded. **HEAD CI/actual 20M training not yet verified.**
-
-## 25 Oct frozen physical examiner — quick protocol COMPLETED
-
-- **Owner-provided frozen artifacts:** `unified_exam.json` and `unified_exam.md` from examiner source `0cf58415b0a8907c35cd090e726e584bc457a7c4`, actor artifact hash `fb86e518e6b3fefaa4aa3c5d146b0c456103f8d9542a9f4859851133c9dc07bc`, source-trained at 131,072 steps (original validated 2,048-world lifecycle actor). This proves the previously failing report serialization is fixed.
-- **Eight of eight cases executed** on CPU, 4 worlds × 120-frame requested horizon; final JSON/Markdown saved. 0/32 supported passes, 0/32 survived, expected for a two-update policy. First episode ended 23–58 frames across cases; do not compare these numbers to trained `main`.
-- **Positive evidence for examination infrastructure:** uphill/downhill sign and 2° magnitude verified; 8mm step-up and step-down height and starting near-side verified; 17° rotated edge measured 17.01° in mixed incline/step; 1N delivered pushes verified in all four recovery worlds; no false far-side crossing credited. JSON contains native booleans, no serialization crash.
-- **Not proved:** an intelligent terrain walker, successful contact crossing, full 19-case suite (cross-slope/transition/other recovery directions), extended 8-world azimuth coverage, or matching browser physics. These are later behavioural/acceptance gates, **not blockers to testing a cold-start 20M foundation** once source CI and run authorisation are satisfied.
-- **Launch plan:** maintain immutable `main`/Pinnacle; do not merge or overwrite; keep the new foundation source-locked and all outputs outside the Git checkout. The trainer still rejects more than two unified PPO updates until a deliberate approval/guard change.
-
-## 25 Oct production CUDA lifecycle — VERIFIED on owner hardware
-
-- **Clean feature SHA `6653c0386d2d4bb10718cb364c815eb1f4eb7f92`: PASS.** RTX 4060 Ti ran the real unified 360-input trainer at **2,048 simultaneous MJX worlds**, from cold state for 65,536 environment steps, saved a validated schema-9 checkpoint, then resumed a NEW run directory from that exact ancestor and completed at 131,072 steps.
-- **Verified evidence:** `PASS stage 1`; `PASS stage 2`; checkpoint lineage `65,536 → 131,072`; observation-normalizer count `65,536 → 131,072`; ancestor checkpoint content unchanged; completed resume no-op; `.emupolicy` exported and decoded through array-only 4×4 sensor contract. Artifact: `~/robot_lab/emu_runs/unified_accept_6653c03_2048/tiny_smoke_actor.emupolicy`. Small 8-world lifecycle at the SAME SHA also passed.
-- **Source CI at that exact SHA:** all four jobs successful (Python, unified MJX CPU, Ubuntu viewer, browser). Protected `main` remains `2ec9e9db`.
-- **Do not mistake the logged 2.4–3.2 million FPS for sustained throughput.** In one-update training, the reported runtime clock starts after the expensive first update, so the denominator is nearly zero. Separate 2,048-world production-shaped PPO preflight took 63.5s **including compilation**. Measure sustained throughput over a longer real run.
-- **Meaning of the reported 63–66% falls:** only two PPO updates of a fresh learner; these are *not* evidence of a regressed trained gait. No new 20M policy exists.
-- **Next executable gate:** frozen read-only `emu capability-exam` on the **already exported 131,072-step smoke actor**, quick case set with actual two-slab geometry, 4 worlds, 120–160-frame horizon on CPU; this verifies examiner/replay plumbing and physical geometry, **not skill**. Full 19-case scores and 20M gait parity require a genuinely trained policy.
-- **After successful examiner plumbing:** allow the first explicitly approved source-pinned **20M cold foundation**, with an intermediate measured rollout/throughput/logging check and held-out flat-gait comparison to `main` before any six-teacher overnight continuation. Normal long unified trainer guard is still CLOSED. Do not promote the public policy.
-
-## Path to an overnight growth run (current priority)
-
-1. **Source gate:** latest feature-branch CI must be green (Python, physical MJX, unified gradient, browser, viewer). The numeric main-foundation test is now in `tests/test_learning.py`. Record *the exact passing SHA*.
-2. **GPU capacity:** on the 8GB RTX 4060 Ti, run `python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update` from a clean checkout. A two-frame smoke is not proof of production-shaped 32×4×8 capacity.
-3. **Real 360 lifecycle and quick examiner: COMPLETE.** Verified `first → continue → verify` at 8 and **2,048** worlds on RTX 4060 Ti (source `6653c03`); the unchanged exported actor was physically examined and JSON/Markdown successfully generated by examiner `0cf5841`. Normalizer resume, untouched ancestor, array-only replay and physical slope/step/push geometry all PASS. See [INSTALL](docs/INSTALL.md#overnight-readiness--exact-sequence-same-source-sha).
-4. **Cold 20M:** once 1–3 pass, obtain owner approval for a source-pinned fresh 360-input foundation. Compare the actual frozen 20M gait to `main` on supported flat locomotion, tracking, falls and mechanical effort. **No trained unified policy exists yet.**
-5. **First overnight continuation:** only after a credible 20M walker and owner approval, create a **new run directory** resuming that exact checkpoint on the **same SHA**, with a larger absolute target. Let all six specialist frontiers develop under the one budget; monitor failures and preserved basic walking. Don't publish over Pinnacle.
-
-**Current truth:** completed source-pinned 40M gait continuation and matched 8-world physical exam reviewed; new all-specialist independent-growth feature source remains unproven in a genuine CUDA continuation. No 40M→60M cross-source handoff is currently approved or implemented. Protect all old policies and checkpoints, `main` and showcase.
-
-**Protected:** `main` at `2ec9e9db`, approved 260M Pinnacle, showcase and historical source-pinned runs. No merge, policy promotion or long-run guard removal without explicit approval. Keep docs/contract and this handover concise; work in the existing core.
+The fully copy-pastable **fresh run, same-source resume and completed-target
+extension WSL blocks** live in [docs/INSTALL.md](docs/INSTALL.md). Treat
+source-pinned `--plan`, 12-world CPU smoke and 2048-world CUDA full-update
+smoke as separate operations from starting a real training campaign.
+Never tell the owner a long campaign is ready based solely on CPU CI.
+Old experimental details and decommissioned handoffs are in the Git history
+of this file and the older source revisions.
