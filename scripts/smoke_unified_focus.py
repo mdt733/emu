@@ -224,11 +224,12 @@ def main():
         assert f'slope_successes_{direction}' in row
     # Synthetic EPISODE evidence isolates the governance decision from
     # learning effectiveness: no lucky frame, no surrogate PPO reward.
-    assert governor.advance_slope(row)=='steady_bootstrap'
-    governor._updates_done_total=governor.BOOTSTRAP_UPDATES+1
-    governor.core_competence=.75
-    governor.fall_ema['posture']=.20
-    assert governor.advance_slope({})=='seed_real_incline_0p7deg'
+    # The slope specialist starts collecting tiny real inclines without
+    # waiting for a bootstrap update count or another regime's competence.
+    governor.core_competence=.0
+    governor.fall_ema['posture']=1.
+    assert governor.advance_slope(row)=='seed_real_incline_0p7deg'
+    assert governor.advance_slope({})=='collect_real_slope'
     qualified={f'slope_{kind}_{direction}':12.
                for direction in governor.SLOPE_DIRECTIONS
                for kind in ('attempts','successes')}
