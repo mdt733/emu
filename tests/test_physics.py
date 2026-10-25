@@ -875,3 +875,65 @@ def test_v5016_real_mjx_efficiency_exam_uses_pre_step_action_not_reward_only_fie
     assert result.shape==(5,)
     assert np.all(np.isfinite(result))
     assert result[0]>=0 and result[2]>=0 and result[4]>=0
+
+def test_unified_exam_scorer_writes_strict_json_from_physical_trace():
+    """Regress the user's CPU examiner crash AFTER all eight cases simulated.
+
+    NumPy scalar comparisons (in particular directed-grade verification)
+    must not leak into the published JSON report. No CUDA or PPO needed.
+    """
+    import json
+    from emu.evaluation import score_unified_capability_trace, _unified_exam_json
+
+    h, n = 40, 2
+    pose = np.repeat(np.eye(3)[None,:,:], n, axis=0)
+    frames = {
+        'position_xy': np.zeros((h,n,2)),
+        'done': np.zeros((h,n), dtype=bool),
+        'fell': np.zeros((h,n), dtype=bool),
+        'command': np.tile([.10,0.,0.], (h,n,1)),
+        'heading_rad': np.zeros((h,n)),
+        'initial_ground_xmat': pose.copy(),
+        'initial_upper_xmat': pose.copy(),
+        'initial_unified_ground_mocap_pos': np.zeros((n,3)),
+        'initial_terrain_mocap_pos': np.zeros((n,3)),
+        'initial_root_quat': np.tile([1.,0.,0.,0.], (n,1)),
+        'floor_contact': np.ones((h,n,2),dtype=bool),
+        'terrain_platform_contact': np.zeros((h,n,2),dtype=bool),
+        'terrain_support': np.ones((h,n)),
+        'terrain_bad_contact': np.zeros((h,n)),
+        'servo_shaft_drive_power_w': np.ones((h,n)),
+        'applied_push_force_n': np.zeros((h,n)),
+        'actor_action': np.zeros((h,n,6)),
+        'stance_slip_proxy': np.zeros((h,n)),
+    }
+    cases = (
+        dict(name='flat',kind='flat'),
+        dict(name='uphill_2deg',kind='slope',slope_deg=2.,direction='uphill'),
+        dict(name='paired_steps_0p8cm',kind='step',step_m=.008),
+        dict(name='push_1N',kind='recovery',push_n=1.),
+    )
+    results=[]
+    for case in cases:
+        rows=score_unified_capability_trace(frames,case=case)
+        assert len(rows)==n
+        for row in rows:
+            for field in ('grade_verified','height_verified','case_pass',
+                          'survived','fell'):
+                assert type(row[field]) is bool, (case['name'],field,type(row[field]))
+            if case['kind']=='step':
+                assert type(row['edge_verified']) is bool
+        results.append(dict(case=case,worlds=rows,
+                            passed=sum(x['case_pass'] for x in rows),
+                            survived=sum(x['survived'] for x in rows)))
+    manifest=dict(schema='emu_unified_frozen_exam_v1',results=results)
+    assert json.loads(_unified_exam_json(manifest)) == manifest
+    # Serialization also accepts native NumPy scalars (not textified values).
+    payload=json.loads(_unified_exam_json({
+        'verified':np.bool_(False),'count':np.int32(2),'value':np.float32(.5)}))
+    assert payload=={'verified':False,'count':2,'value':.5}
+    with pytest.raises(ValueError,match='Out of range float values'):
+        _unified_exam_json({'bad':float('nan')})
+    with pytest.raises(TypeError,match='unsupported frozen-exam value'):
+        _unified_exam_json({'bad':np.zeros(2)})
+
