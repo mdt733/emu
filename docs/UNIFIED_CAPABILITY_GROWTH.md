@@ -1,5 +1,7 @@
 # EMU — unified learning contract
 
+**Detailed dimension inventory:** [CAPABILITY_DIMENSIONS.md](CAPABILITY_DIMENSIONS.md).
+
 **Purpose:** one durable explanation of *what we are building and why*. For current progress and the next task, use [HANDOVER.md](../HANDOVER.md). Older experiments are preserved in [historical research](CAPABILITY_GROWTH.md) and Git history.
 
 ## The idea

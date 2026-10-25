@@ -4,6 +4,11 @@
 **Design and permanent non-regression contract:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md#non-regression-contract--what-must-never-be-traded-away)  
 **Protected reference:** `main` at `2ec9e9db0a816c658131311129ef89ec7a595a12`
 
+## CURRENT: continuous cold learning and capability inventory (26 October 2026)
+
+- Canonical **physical difficulty inventory**, with honest counts of implemented vs candidate independently controlled dimensions: [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md). Proposed ~30 target axes are a *future map*, not 30 independent working controllers. Keep the six focus teachers and one PPO.
+- Check the latest CI after source cleanup; GPU 2048 CUDA smoke and production campaign have not been validated by this session.
+
 ## CURRENT: one long cold-run source + slope/step moving targets (26 October 2026)
 
 - **No special checkpoint:** one cold-start source-pinned 360 actor can run to an arbitrary long requested target >=20M through EMU_UNIFIED_CONTINUOUS=cold-growth-approved, with same-source run-local --resume auto. The existing source and config integrity checks remain mandatory; a 32-world frozen examiner avoids 8GB GPU overcommit.
