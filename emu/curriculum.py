@@ -777,11 +777,14 @@ class RegimeGovernor:
         # the existing four-regime/main gait budget remains intact.
         families = {
             'base_gait': (core, cost_sum(core)),
-            'commands': (
-                ('frontier_vx_hi','frontier_vx_lo','frontier_vy',
-                 'frontier_yaw','frontier_combo_radius'),
-                cost_sum(('frontier_vx_hi','frontier_vx_lo','frontier_vy',
-                          'frontier_yaw','frontier_combo_radius'))),
+            # Signed commands are separate physical dimensions. A good
+            # forward episode cannot accelerate reverse/yaw learning, but
+            # neither can a simultaneously growing yaw limit dilute vx.
+            'vx_forward': (('frontier_vx_hi',), costs.get('frontier_vx_hi',0.)),
+            'vx_reverse': (('frontier_vx_lo',), costs.get('frontier_vx_lo',0.)),
+            'vy': (('frontier_vy',), costs.get('frontier_vy',0.)),
+            'yaw': (('frontier_yaw',), costs.get('frontier_yaw',0.)),
+            'combos': (('frontier_combo_radius',), costs.get('frontier_combo_radius',0.)),
             'transition': (
                 ('frontier_transition_hold_s','frontier_ramp_steps'),
                 cost_max(('frontier_transition_hold_s','frontier_ramp_steps'))),
