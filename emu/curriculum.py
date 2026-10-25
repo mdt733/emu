@@ -575,11 +575,23 @@ class RegimeGovernor:
         practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
         expansion_max = .20 if speed_lesson else .25
         height_increment = .0005 if speed_lesson else .00025
+        # Legacy terrain retains its historical core-gait prerequisites.
+        # Only the unified six-cohort teacher removes cross-specialist
+        # dependencies. This must not change old 220/232 training recipes.
+        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
         if p.terrain_exposure <= 0.:
+            if not unified and not core_ok:
+                return 'await_core_walk'
             self.terrain_evidence = self._empty_terrain_evidence()
             p.terrain_exposure = .15 if speed_lesson else .05
             p.terrain_height_m = min(.004 if unified else .010,max_height_m)
             return 'terrain_unified_seed_4mm' if unified else 'terrain_seed_1cm_5pct'
+        if not unified and not core_ok:
+            self.terrain_evidence = self._empty_terrain_evidence()
+            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
+            p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
+            return 'terrain_retreat_core'
+
         required = tuple(f'terrain_{outcome}_{direction}'
                          for direction in ('up','down')
                          for outcome in ('attempts','successes','falls'))
