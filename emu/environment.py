@@ -1746,6 +1746,12 @@ class EmuMJXEnv(TaskSampler):
             physical_slope=jnp.zeros_like(unit_x)
             slope_role=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         has_slope=slope_role & (physical_slope>=.25)
+        # Severity bands use the REAL collision geom, never a teacher's
+        # claimed task difficulty. Easy failures and near-target successes
+        # are different lessons. These masks only affect host-side evidence.
+        slope_fraction=physical_slope/jnp.maximum(params[P.slope_max_deg],.1)
+        slope_near=has_slope & (slope_fraction>=.78) & (slope_fraction<=1.05)
+        slope_easy=has_slope & (slope_fraction>=.36) & (slope_fraction<.68)
         along=jnp.abs(gx)>=jnp.abs(gy)
         slope_directions=(
             ('uphill',has_slope & along & (gx>=0.)),
@@ -1772,6 +1778,12 @@ class EmuMJXEnv(TaskSampler):
                for name,active in slope_directions},
             **{f'slope_episode_success_{name}':(slope_pass & active).astype(jnp.float32)
                for name,active in slope_directions},
+            **{f'slope_episode_{band}_{outcome}_{name}':
+               (mask & active & condition).astype(jnp.float32)
+               for name,active in slope_directions
+               for band,mask in (('near',slope_near),('easy',slope_easy))
+               for outcome,condition in (('attempt',done),
+                                         ('success',slope_pass))},
             'command_probe_radius':unit_radius,
             'command_probe_weight_x':unit_x/jnp.maximum(1e-5,unit_radius),
             'command_probe_weight_y':unit_y/jnp.maximum(1e-5,unit_radius),

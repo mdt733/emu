@@ -177,7 +177,9 @@ def main():
                 "command_probe_radius","command_probe_weight_x",
                 "terrain_active_up","servo_shaft_drive_power_w",
                 "physical_slope_deg","slope_episode_attempt_uphill",
-                "slope_episode_success_cross_right"):
+                "slope_episode_success_cross_right",
+                "slope_episode_near_attempt_uphill",
+                "slope_episode_easy_success_downhill"):
         arr=stepped.metrics[key]
         assert arr.shape==(args.envs,),(key,arr.shape)
         assert bool(jax.device_get(jnp.all(jnp.isfinite(arr)))),key

@@ -902,6 +902,11 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
                 key=f'slope_episode_{outcome}_{name}'
                 row[f'slope_{word}_{name}']=(
                     float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)
+            for band in ('near','easy'):
+                for outcome,word in (('attempt','attempts'),('success','successes')):
+                    key=f'slope_episode_{band}_{outcome}_{name}'
+                    row[f'slope_{band}_{word}_{name}']=(
+                        float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)
     # Direction-separated terrain evidence. A quality metric without any
     # active frames is UNKNOWN (-1), not success/zero error.
     for direction in ('up', 'down'):
