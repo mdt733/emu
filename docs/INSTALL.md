@@ -173,6 +173,59 @@ After the foundation is genuinely walking, review the source and request a
 separate owner-approved growth launch. Long growth runs and public policy
 promotion remain blocked. Do not change `main` or the showcase.
 
+## Approved 20M → 40M gait-maturation continuation (feature branch only)
+
+This is a NEW 40M absolute-target run, **resuming the exact recovered 20M
+ancestor**. No scratch training and no overwrite of the original 20M files.
+The opt-in authorises **only this 20M → 40M continuation**. No 60M+, public
+showcase promotion, or unrestricted six-capability experiment is authorised.
+
+Before starting, verify all four GitHub Actions jobs are green at the new
+feature-branch source SHA. The **source transition is explicit**: the parent
+was trained with `470cf7f...`; the new code validates its original saved
+`training_config.json`, complete PPO/checkpoint sensor-geometry contract,
+network + optimiser/normalizer/health/teacher state, original source SHA,
+and exact 20,054,016-step boundary. It also prints a hash of the parent
+checkpoint. The original checkpoint is read-only.
+
+```bash
+cd ~/emu
+git switch feature/v5023-capability-growth
+git pull --ff-only
+source .venv/bin/activate
+test -z "$(git status --porcelain)" || { echo "STOP: dirty source"; exit 1; }
+PARENT="$HOME/robot_lab/emu_runs/unified_foundation20_470cf7f/checkpoints/final.pkl"
+test -s "$PARENT" || { echo "STOP: recovered 20M final.pkl not found"; exit 1; }
+RUN="$HOME/robot_lab/emu_runs/unified_maturity40_$(git rev-parse --short HEAD)"
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
+EMU_UNIFIED_CONTINUATION=20to40-approved \
+emu train --run-dir "$RUN" --profile sim2real \
+  --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities \
+  --steps 40000000 --envs 2048 --seed 733 --device cuda \
+  --resume "$PARENT"
+```
+
+Use a new, clean `RUN` path for this branch and retain the 20M ancestor.
+The guard pins the handoff to that exact source/path and requires the
+*previous and new training contracts to match except runtime fields and
+the total-step target*. The resumed run stores its own checkpoint metadata
+and a reference to the original ancestor.
+
+After an interruption on the **same feature source SHA**, resume that
+40M run with identical flags but `--resume auto`. This finds a validated
+checkpoint in the NEW run rather than re-reading the original 20M
+ancestor. **Do not change source revision while an existing 40M run
+is in progress.**
+
+This 20–40M phase keeps actual collision geometry/sensors available but
+the terrain/step specialist *lesson exposure* and specialist teacher mix
+are held at zero through the 40M gait-maturation boundary; flat regime
+balance, command practice and posture/recovery learning continue.
+Frozen 10-panel fixed exams use 32 independent evaluation worlds per
+panel to fit the 8GB RTX 4060 Ti. The target PPO boundary is
+**40,042,496** environment steps. Inspect walking and genuine command
+tracking before separately authorising further growth.
+
 ## Safety
 
 No writes to `main`, showcase or approved Pinnacle without owner approval. Treat reward as training incentive, not real physical walking evidence. Simulated shaft work is not measured battery energy, and untested learned servo commands are **not hardware-safe**. Check source provenance and matched physical exams before any extended GPU campaign.
