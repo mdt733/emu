@@ -915,6 +915,11 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             name = f'terrain_episode_{outcome}_{direction}'
             row[f'terrain_{plural}_{direction}'] = (
                 float(np.asarray(metrics[name]).sum()) if name in metrics else 0.0)
+        for band in ('near','easy'):
+            for outcome,plural in (('attempt','attempts'),('success','successes')):
+                key=f'terrain_episode_{band}_{outcome}_{direction}'
+                row[f'terrain_{band}_{plural}_{direction}']=(
+                    float(np.asarray(metrics[key]).sum()) if key in metrics else 0.0)
         mask_name = f'terrain_active_{direction}'
         mask = (np.asarray(metrics[mask_name]) > 0.5 if mask_name in metrics
                 else np.zeros_like(np.asarray(metrics.get('vx', 0.0)), dtype=bool))

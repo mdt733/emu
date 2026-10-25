@@ -176,6 +176,8 @@ def main():
     for key in ("specialist_focus","episode_command_quality",
                 "command_probe_radius","command_probe_weight_x",
                 "terrain_active_up","servo_shaft_drive_power_w",
+                "physical_step_height_m","terrain_episode_near_attempt_up",
+                "terrain_episode_easy_success_down",
                 "physical_slope_deg","slope_episode_attempt_uphill",
                 "slope_episode_success_cross_right",
                 "slope_episode_near_attempt_uphill",

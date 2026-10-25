@@ -1670,6 +1670,25 @@ class EmuMJXEnv(TaskSampler):
         terrain_cross_new = terrain_crossed & ~state.terrain_crossed
         terrain_up = terrain_active & ((self.env_index % 2) == 0)
         terrain_down = terrain_active & ((self.env_index % 2) == 1)
+        # Physical step severity: displacement between the two actual
+        # surface collider centres projected onto their shared normal.
+        # Never infer it from the requested teacher height or flat fallback.
+        if self.unified_capability_focus:
+            base_id=int(self.ids['floor_geom'])
+            upper_id=int(self.terrain_step_geom_id)
+            support_n=data.geom_xmat[:,base_id,:].reshape(
+                (self.num_envs,3,3))[:,:,2]
+            physical_height=jnp.abs(jnp.sum((
+                data.geom_xpos[:,upper_id,:]-data.geom_xpos[:,base_id,:])
+                * support_n,axis=1))
+            physical_height=jnp.where(terrain_active,physical_height,0.)
+            ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+            step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
+            step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
+        else:
+            physical_height=jnp.zeros_like(reward)
+            step_near=terrain_active & False
+            step_easy=terrain_active & False
         ascent_payment = jnp.zeros_like(reward)
         root_peak = state.terrain_ascent_root_peak
         foot_peak = state.terrain_ascent_foot_peak
@@ -1813,6 +1832,14 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            'physical_step_height_m': physical_height,
+            **{f'terrain_episode_{band}_{outcome}_{direction}':
+                (mask & cohort & condition).astype(jnp.float32)
+                for direction,cohort in (('up',terrain_up),('down',terrain_down))
+                for band,mask in (('near',step_near),('easy',step_easy))
+                for outcome,condition in (
+                    ('attempt',done),
+                    ('success',timeout & ~terminal_fail & terrain_crossed))},
             'terrain_ascent_guidance':ascent_payment,
             # Teacher-only direction: actor observations remain unchanged.
             'terrain_active_up': terrain_up.astype(jnp.float32),
