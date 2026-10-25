@@ -40,7 +40,6 @@ from .training_config import (
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
     OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS,
     EVAL_EVERY_STEPS, EVAL_SEED, EVAL_COHORTS, FINAL_EVAL_COHORTS,
-    UNIFIED_MATURITY_STEPS, UNIFIED_FOUNDATION_SOURCE_COMMIT,
     CLOUD_EVAL_EVERY_STEPS, CLOUD_ENVS, CLOUD_HORIZON, CLOUD_BATCH_POINTS,
     FIELD_HALF_LIFE_STEPS, SENSOR_NOISE_SCALE,
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
@@ -158,52 +157,11 @@ def unified_launch_mode(args: TrainingConfig) -> str:
                 parent is not None and parent.parent == own_dir
                 and parent.suffix == '.pkl'):
             return 'continuous'
-    if (core and os.environ.get('EMU_UNIFIED_FOUNDATION') == 'cold20m-approved'
-            and args.steps == FOUNDATION_STEPS and args.envs == 2048
-            and args.seed == 733 and args.terrain_step_max_m == .04
-            and args.resume in ('', 'auto')
-            and args.motor_guidance_weight == 0.
-            and args.contact_slope_deg == 0.
-            and not args.domain_randomization
-            and args.domain_terrain_radius == 0.
-            and args.domain_robot_radius == 0.
-            and args.domain_hardware_radius == 0.
-            and args.capability_field_mode == 'shadow'
-            and args.cloud_probes_per_eval == 0
-            and args.cloud_final_probes == 0
-            and args.pitch_command_max_deg == 8.):
-        return 'foundation20'
-    # Separate, bounded post-foundation learning permission. The runner
-    # validates source SHA, checkpoint, full prior config and ancestor path
-    # BEFORE passing a cross-source parent to this trainer.
-    if (core and os.environ.get('EMU_UNIFIED_CONTINUATION') == '20to40-approved'
-            and args.steps == UNIFIED_MATURITY_STEPS
-            and args.envs == 2048 and args.seed == 733
-            and args.terrain_step_max_m == .04
-            and args.motor_guidance_weight == 0.
-            and args.contact_slope_deg == 0.
-            and not args.domain_randomization
-            and args.domain_terrain_radius == 0.
-            and args.domain_robot_radius == 0.
-            and args.domain_hardware_radius == 0.
-            and args.capability_field_mode == 'shadow'
-            and args.cloud_probes_per_eval == 0
-            and args.cloud_final_probes == 0
-            and args.pitch_command_max_deg == 8.):
-        parent = Path(args.resume).resolve() if args.resume else None
-        original = (Path.home() / 'robot_lab' / 'emu_runs' /
-                    'unified_foundation20_470cf7f' / 'checkpoints' / 'final.pkl').resolve()
-        own_checkpoints = (Path(args.run_dir).resolve() / 'checkpoints')
-        if parent == original or (parent is not None and
-                                  parent.parent == own_checkpoints and
-                                  parent.suffix == '.pkl'):
-            return 'maturity40'
     raise RuntimeError(
-        'Unified training is PRE-LAUNCH except for explicit two-update CUDA '
-        'acceptance or the approved cold 20M foundation (seed 733, 2048 '
-        'worlds, 360 array-only observations, flat first-stage teaching). '
-        'For one clean long run use EMU_UNIFIED_CONTINUOUS=cold-growth-approved '
-        'and resume ONLY its own source-pinned checkpoints.'
+        'Unified live training requires the explicit bounded CUDA smoke or '
+        'EMU_UNIFIED_CONTINUOUS=cold-growth-approved for a source-pinned '
+        'single-run 360-input 2048-world CUDA learner. Only validated '
+        'same-run checkpoints may resume; external warm starts are blocked.'
     )
 
 
@@ -218,8 +176,6 @@ def train(args: TrainingConfig) -> int:
     """
     launch_mode = unified_launch_mode(args)
     bounded_acceptance = launch_mode == 'bounded'
-    cold_foundation = launch_mode == 'foundation20'
-    gait_maturation = launch_mode == 'maturity40'
     continuous_growth = launch_mode == 'continuous'
     # Main-style 20M cold birth, then a gradual exposure blend. A specialist
     # adjusts its physical target independently once its lessons are active.
@@ -278,23 +234,12 @@ def train(args: TrainingConfig) -> int:
     # environments alongside the 2048-world learner on an 8GB GPU.
     # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
     # only independent evaluation batch size is capped for this 20M run.
-    eval_args = replace(args, envs=32) if (
-        cold_foundation or gait_maturation or continuous_growth) else args
+    eval_args = replace(args, envs=32) if continuous_growth else args
     fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
     if continuous_growth:
         print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
               'specialists fade in between 20M and 30M; frozen evaluations '
               'use 32 worlds rather than risking 8GB GPU exhaustion.',
-              flush=True)
-    if gait_maturation:
-        print(f'{LOG_PREFIX} bounded 20M -> 40M continuation: 2048 training '
-              'worlds, 32-world held-out panels; all six specialists probe '
-              'their own earned boundaries. Full rewind state restored.',
-              flush=True)
-    if cold_foundation:
-        print(f'{LOG_PREFIX} approved cold 20M foundation: 2048 training worlds, '
-              '32 held-out worlds per panel; independent specialists begin '
-              'at gentle difficulty, post-20M runs remain approval-locked',
               flush=True)
     if bounded_acceptance:
         print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
