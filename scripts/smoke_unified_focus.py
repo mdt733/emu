@@ -56,16 +56,17 @@ def main():
     cold_upper=np.asarray(jax.device_get(
         cold.data.mocap_pos[:,env.terrain_step_mocap_id,2]))
     assert np.all(cold_upper<-1.),'foundation terrain slab must stay buried'
-    # Exercise ALL six live branches without simulating millions of frames.
-    # The teacher blend is explicit: 20M foundation must NEVER activate them
-    # simply because steady difficulty rose prematurely.
+    # Exercise all six branches without training millions of frames.
+    # A live governor seeds small independent probes immediately. This
+    # synthetic zero-mix reset above is still a valid dormant-geometry check.
+    # The teacher has NO step-count or other-cohort competence unlock.
     from emu.capability_focus import growth_mix
-    assert growth_mix(step=19_999_999,foundation_steps=20_000_000,
-                      steady_difficulty=.40)==0.0
-    assert growth_mix(step=20_000_000,foundation_steps=20_000_000,
-                      steady_difficulty=.40)==0.0
-    assert 0.0 < growth_mix(step=21_000_000,foundation_steps=20_000_000,
-                           steady_difficulty=.40) < 1.0
+    assert 0. < growth_mix(step=0,foundation_steps=40_000_000,
+                           steady_difficulty=.0) < 1.
+    assert growth_mix(step=0,foundation_steps=40_000_000,
+                      steady_difficulty=.0) == growth_mix(
+                          step=40_000_000, foundation_steps=20_000_000,
+                          steady_difficulty=.40)
     params['steady_difficulty']=.35
     params['specialist_mix']=1.0
     # Verify genuinely random pitch/roll and steps in one JAX model, not
