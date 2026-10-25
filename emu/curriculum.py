@@ -861,108 +861,16 @@ class RegimeGovernor:
                 events[k]=action
         return events
 
-    def _share_unified_growth(self, before: dict[str, float]) -> dict[str, float]:
-        """Share one expansion budget across existing regime and specialist teachers.
-
-        Main already budgets its four regime/posture pushes; commands, slopes
-        and steps must not then add several *full* frontier moves on top.
-        Each proposed increase is measured in units of that field's normal
-        successful step. Two coupled settings for one lesson (e.g. angle and
-        exposure) count as ONE lesson. Scale advances together if needed;
-        never scale retreats. The first tiny, physically meaningful exposure
-        seed is exempt, as it is not evidence-based frontier expansion.
-        No new persistent state or new controller.
-        """
-        if not self.unified_capability_focus:
-            return {}
-        p = self.params
-        base = max(self.difficulty_base_step * self.MAX_STEP_MULT, 1e-9)
-        core = ('steady_difficulty', 'transition_difficulty',
-                'resilience_difficulty', 'posture_difficulty')
-        units = {name: (+1., base) for name in core}
-        for name in ('frontier_vx_hi', 'frontier_vx_lo',
-                     'frontier_vy', 'frontier_yaw'):
-            units[name] = (-1. if name == 'frontier_vx_lo' else +1.,
-                           max(abs(before[name]) * .025, 1e-9))
-        units.update({
-            'frontier_combo_radius': (+1., max(abs(before['frontier_combo_radius']) * .01, 1e-9)),
-            'frontier_push_n': (+1., max(abs(before['frontier_push_n']) * FRONTIER_GROWTH_FRAC, 1e-9)),
-            'frontier_sensor_scale': (+1., max(abs(before['frontier_sensor_scale']) * .5 * FRONTIER_GROWTH_FRAC, 1e-9)),
-            'frontier_transition_hold_s': (-1., max(abs(before['frontier_transition_hold_s']) * FRONTIER_GROWTH_FRAC, 1e-9)),
-            'frontier_ramp_steps': (-1., max(abs(before['frontier_ramp_steps']) * 2 * FRONTIER_GROWTH_FRAC, 1e-9)),
-            'terrain_exposure': (+1., .005),
-            'terrain_height_m': (+1., .0005),
-            'slope_exposure': (+1., .01),
-            'slope_max_deg': (+1., .12),
-        })
-        gains = {}
-        costs = {}
-        for name, (sign, unit) in units.items():
-            old, now = float(before[name]), float(getattr(p, name))
-            signed_gain = sign * (now - old)
-            newly_seeded = (name in ('terrain_exposure', 'terrain_height_m',
-                                      'slope_exposure', 'slope_max_deg')
-                            and old <= 0.)
-            if signed_gain > 1e-12 and not newly_seeded:
-                gains[name] = now - old
-                costs[name] = signed_gain / unit
-
-        def cost_sum(names):
-            return sum(costs.get(name, 0.) for name in names)
-        def cost_max(names):
-            return max((costs.get(name, 0.) for name in names), default=0.)
-        # Separate advancement budgets. A difficult step or recovery
-        # lesson must not use up the command teacher's opportunity to grow.
-        # Only fields *within one physical family* share an expansion cap;
-        # the existing four-regime/main gait budget remains intact.
-        families = {
-            'base_gait': (core, cost_sum(core)),
-            # Signed commands are separate physical dimensions. A good
-            # forward episode cannot accelerate reverse/yaw learning, but
-            # neither can a simultaneously growing yaw limit dilute vx.
-            'vx_forward': (('frontier_vx_hi',), costs.get('frontier_vx_hi',0.)),
-            'vx_reverse': (('frontier_vx_lo',), costs.get('frontier_vx_lo',0.)),
-            'vy': (('frontier_vy',), costs.get('frontier_vy',0.)),
-            'yaw': (('frontier_yaw',), costs.get('frontier_yaw',0.)),
-            'combos': (('frontier_combo_radius',), costs.get('frontier_combo_radius',0.)),
-            'transition': (
-                ('frontier_transition_hold_s','frontier_ramp_steps'),
-                cost_max(('frontier_transition_hold_s','frontier_ramp_steps'))),
-            'steps': (
-                ('terrain_exposure','terrain_height_m'),
-                cost_max(('terrain_exposure','terrain_height_m'))),
-            'slopes': (
-                ('slope_exposure','slope_max_deg'),
-                cost_max(('slope_exposure','slope_max_deg'))),
-            'resilience': (('frontier_push_n',), costs.get('frontier_push_n',0.)),
-            'sensor': (('frontier_sensor_scale',), costs.get('frontier_sensor_scale',0.)),
-        }
-        scales=[]
-        demands=[]
-        for names,demand in families.values():
-            scale = min(1.,1./demand) if demand>0. else 1.
-            demands.append(demand)
-            scales.append(scale)
-            if scale<1.:
-                for name in names:
-                    if name in gains:
-                        setattr(p,name,float(before[name])+gains[name]*scale)
-        # Backwards-compatible, stable three-column diagnostic reports
-        # worst-family pressure, not a global cross-specialist throttle.
-        return dict(growth_budget_demand=max(demands,default=0.),
-                    growth_budget_scale=min(scales,default=1.),
-                    growth_budget_limited=float(any(x<1. for x in scales)))
-
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
                            kl_ok_to_expand: bool = True) -> dict[str, float | str]:
         """One path for the ordinary and final rollout's curriculum decisions.
 
-        Reuse the original regime logic and existing per-skill closed evidence;
-        arbitrate only their combined growth after all decisions have been
-        made. This is not another governor, and legacy training is unchanged.
+        Reuse the original regime logic and existing per-skill closed evidence.
+        Each specialist already nudges its own target by a bounded small step,
+        so there is no redundant second post-decision growth budget.
+        Legacy training stays on its historical regime controller.
         """
-        before = asdict(self.params) if self.unified_capability_focus else None
         # Only lesson share (not competence) fades in after 20M. The
         # controller cannot seed specialist limits during cold foundation.
         growth_enabled = step >= foundation_steps
@@ -980,17 +888,8 @@ class RegimeGovernor:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
                 if growth_enabled else 'foundation_flat')
-            # The schema of metrics.csv is fixed at step zero. The growth
-            # budget exists throughout the flat 20M foundation even though
-            # its actual arbitration cannot run until specialist growth.
-            # Otherwise the very LAST 20M row suddenly gains three CSV
-            # columns and crashes AFTER an expensive final frozen exam.
-            report.update(
-                self._share_unified_growth(before) if growth_enabled
-                else dict(growth_budget_demand=0.0, growth_budget_scale=1.0,
-                          growth_budget_limited=0.0))
-            # update() ran before joint arbitration: report the actual
-            # next-birth settings, not stale pre-budget proposed values.
+            # Publish the actual next-birth settings, not stale
+            # pre-decision values.
             for name in (
                 'steady_difficulty', 'transition_difficulty',
                 'resilience_difficulty', 'posture_difficulty',

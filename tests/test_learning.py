@@ -919,7 +919,6 @@ def test_unified_specialist_blend_then_independent_bidirectional_targets():
          'command_probe_successes_vx_hi':8.},
         step=start+65_536,foundation_steps=start,max_height_m=.04)
     assert g.params.frontier_vx_hi>before
-    assert grown['growth_budget_demand']>=0.
     higher=g.params.frontier_vx_hi
     g.advance_curriculum(
         {'command_easy_attempts_vx_hi':8.,
@@ -940,80 +939,24 @@ def test_unified_specialist_blend_then_independent_bidirectional_targets():
 
 
 
-def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
-    """Several qualified specialties cannot overwhelm main's growth budget."""
-    from dataclasses import asdict
-    g = RegimeGovernor(open_frontier=True, unified_capability_focus=True)
-    assert g.params.frontier_vx_lo < 0.  # Reverse remains signed.
-    g.params.resilience_difficulty = .3
-    before = asdict(g.params)
-    g.params.steady_difficulty += g.difficulty_base_step
-    g.params.resilience_difficulty -= .01   # Retreat is not rationed.
-    g.params.frontier_vx_hi *= 1.025
-    g.params.frontier_vx_lo *= 1.025
-    g.params.frontier_push_n *= 1.01
-    # A first gentle lesson is an activation, not a harder earned frontier.
-    g.params.slope_exposure, g.params.slope_max_deg = .15, .70
-    g.params.terrain_exposure, g.params.terrain_height_m = .15, .004
-    result = g._share_unified_growth(before)
-    # Each command axis owns its own bounded growth allowance, so vx+ and
-    # reverse do not scale one another down (or steal slope/step progress).
-    assert result['growth_budget_demand'] > 1.
-    # The deliberately oversized 1% push proposal is locally capped to
-    # the allowed ~0.15% push increment; that limit MUST NOT throttle vx.
-    assert 0. < result['growth_budget_scale'] < 1.
-    assert before['frontier_push_n'] < g.params.frontier_push_n < before['frontier_push_n']*1.01
-    assert g.params.steady_difficulty == pytest.approx(g.difficulty_base_step)
-    assert g.params.frontier_vx_lo == pytest.approx(before['frontier_vx_lo'] * 1.025)
-    assert g.params.frontier_vx_hi == pytest.approx(before['frontier_vx_hi'] * 1.025)
-    assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
-    assert g.params.slope_max_deg == .70
-    assert g.params.terrain_height_m == .004
-
-    legacy = RegimeGovernor()
-    assert legacy._share_unified_growth(asdict(legacy.params)) == {}
-    # Main's initial regime curriculum still goes through the same API.
-    report = legacy.advance_curriculum(
-        {}, step=0, max_height_m=0., foundation_steps=20_000_000)
-    assert report['terrain_event'] == 'foundation_flat'
-    assert 'growth_budget_scale' not in report
-
-    unified = RegimeGovernor(unified_capability_focus=True)
-    report = unified.advance_curriculum(
-        {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
-    assert report['terrain_event'] == 'foundation_flat'
-    assert report['slope_event'] == 'foundation_flat'
-    assert {k:report[k] for k in ('growth_budget_demand',
-                                   'growth_budget_scale',
-                                   'growth_budget_limited')} == {
-        'growth_budget_demand':0.0,
-        'growth_budget_scale':1.0,
-        'growth_budget_limited':0.0,
-    }
-    assert unified.params.slope_exposure == 0.
-    assert unified.params.terrain_exposure == 0.
-
-
-def test_unified_budget_metrics_header_is_stable_at_foundation_boundary(tmp_path):
-    """A healthy 20M run used to finish PPO then die writing final metrics.
-
-    The three budget fields were absent from all previous rows and appeared
-    only when the final curriculum decision crossed the 20M growth boundary.
-    Keep strict CSV checking; make teacher reporting stable instead.
-    """
+def test_unified_curriculum_report_schema_stable_at_foundation_boundary(tmp_path):
+    """No new metric keys suddenly appearing when specialists first activate."""
     from emu.results import append_metrics_csv
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     early=g.advance_curriculum({},step=0,
-              max_height_m=.04,foundation_steps=20_000_000)
-    final=g.advance_curriculum({},step=20_054_016,
-              max_height_m=.04,foundation_steps=20_000_000)
-    keys=('growth_budget_demand','growth_budget_scale','growth_budget_limited')
-    assert all(key in early and key in final for key in keys)
-    assert [early[k] for k in keys]==[0.0,1.0,0.0]
-    assert all(np.isfinite(float(final[k])) for k in keys)
+            max_height_m=.04,foundation_steps=20_000_000)
+    mature=g.advance_curriculum({},step=20_054_016,
+            max_height_m=.04,foundation_steps=20_000_000)
+    assert set(early)==set(mature)
+    assert early['terrain_event']=='foundation_flat'
+    assert mature['terrain_event']=='terrain_unified_seed_4mm'
+    assert early['terrain_exposure']==0.
+    assert mature['terrain_exposure']>0.
+    keep=('terrain_exposure','terrain_height_m',
+          'slope_exposure','slope_max_deg','frontier_vx_hi')
     csv_file=tmp_path/'metrics.csv'
-    append_metrics_csv(csv_file,dict(step=65_536,**{k:early[k] for k in keys}))
-    append_metrics_csv(csv_file,dict(step=20_054_016,**{k:final[k] for k in keys}))
+    append_metrics_csv(csv_file,dict(step=65_536,**{k:early[k] for k in keep}))
+    append_metrics_csv(csv_file,dict(step=20_054_016,**{k:mature[k] for k in keep}))
     assert len(csv_file.read_text().splitlines())==3
 
 

@@ -88,6 +88,10 @@ Current implementation covers the **command family's** continuous dials and the 
 
 **Growing the run target is now permitted as well.** A finished, source-pinned continuous run can raise only its requested absolute step target and resume its own validated final checkpoint using --resume auto; no 20M/40M checkpoint-era fork, no source change, and no manual JSON edit.
 
+## Continuous physical target simplicity
+
+The original post-processing `_share_unified_growth` arbitration was redundant once each teacher already had a bounded local target nudge. It has been removed: command, slope, step and resilience decisions no longer need a second growth-budget controller. The original foundation/core regime safety step budget remains in the legacy governor. Small per-skill moves and evidence windows are the stability filter.
+
 ## Continuous incline target (26 October)
 
 Slope evidence now uses real collision normals, separating easier and near-target completed episodes in each of four directions. Successful near-target slope episodes nudge the incline target up; difficult exploratory failures hold; repeated failure on easier slopes nudges it down. Old pooled success cannot certify a harder physical grade. The target can retreat *below its initial 0.7-degree seed* (down to a cautious 0.35-degree floor), and real slopes below the old 0.25-degree recognition threshold still count in the lesson evidence. The local exposure fraction remains modest. Step-ups and step-downs now use exactly the same principle: physical upper/lower slab displacement, rather than the requested height, determines easy/near cohorts. Both directions must demonstrate near-target supported crossings for a small upward nudge; repeated easier failures gently retreat the shared step-height target. Descent success cannot stand in for missing ascent skill. Physical push recovery, transitions and control efficiency are the remaining controller migrations.
