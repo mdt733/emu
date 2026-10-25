@@ -32,7 +32,7 @@ The browser viewer is an inference/debugging tool, not a representation of all G
 
 ## Six simultaneous lesson emphases
 
-These are **teacher-side emphases within one policy**, not separate brains or exclusive modes. The allocation is the *target*, sampled from the first rollout at a low specialist activation share. Difficulty is grown *independently inside each cohort*, never unlocked by age, steady-gait success, or another specialist. A gentle ordinary gait remains the majority of early experience.
+These are **teacher-side emphases within one policy**, not separate brains or exclusive modes. The allocation is the *target*. The original 20M cold gait foundation has zero activated specialists. After 20M, activation blends linearly from zero to 35% over 10M steps, retaining a large ordinary-gait majority. **Only lesson frequency follows this blend**, never competence or permission to grow an individual target. Once active, each capability changes difficulty based solely on its own episodes.
 
 | Emphasis | Target worlds | Harder lesson |
 | --- | ---: | --- |
@@ -68,11 +68,18 @@ Keep **configured physical limits**, **sampled challenge severity**, **earned cu
 Historical `main` foundation: `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 
 - **20M steps; 2,048 worlds; seed 733; 32-frame PPO rollout; 4 epochs × 8 minibatches; LR 2e-4; maximum 700 control frames/episode.**
-- First **70 updates (~4.59M steps) steady-only**. Initial `vx` requests were **+0.020…+0.060 m/s**. Later mix steady, transition and resilience in response to achieved gait rather than a schedule.
+- First **70 updates (~4.59M steps) steady-only**. Initial `vx` requests were **+0.020…+0.060 m/s**. Core regime growth remains competence-driven; specialist emphases are inactive for the cold 20M and blend in gradually thereafter.
 - Preserve the eight original gait/contact/clearance/smoothness/safety rewards, pooled completed-episode fall EMA, faster retreat, shared regime growth limit and PPO recovery behaviour.
-- **Historical 20M SHA `470cf7f`** did indeed suppress new specialist births for the foundation. **Running 40M source `54345b2` likewise suppresses them until 40M; neither can change mid-run.** This *was an architectural mistake*, because it froze vx/vy/yaw as well as terrain. Going forward, the teacher now samples **all six emphases from the first rollout** at a modest 35% active share inside their allocated worlds; exposed slopes/steps are tiny, the majority of worlds retain main's easy gait, and each specialty grows or retreats by its **own physical performance**. The 20M observation point is not an unlock, and the source recipe change is untrained/unproven until a new explicitly authorised lineage is run. Preserve the original actor and ToF contract throughout. 20M remains merely the earliest standing milestone, with control and recovery reasonably requiring 20–50M additional steps.
+- **Historical 20M SHA `470cf7f`** did indeed suppress new specialist births for the foundation. **Running 40M source `54345b2` likewise suppresses them until 40M; neither can change mid-run.** This *was an architectural mistake*, because it froze vx/vy/yaw as well as terrain. Going forward, all six fixed cohorts exist from birth but **specialist lessons activate gradually between 20M and 30M**; exposed slopes/steps start tiny, the majority of worlds retain main's easy gait, and each target grows or retreats by its **own physical performance**. The 20M observation point is not an unlock, and the source recipe change is untrained/unproven until a new explicitly authorised lineage is run. Preserve the original actor and ToF contract throughout. 20M remains merely the earliest standing milestone, with control and recovery reasonably requiring 20–50M additional steps.
 
 These numbers are a reference to reproduce deliberately, not permission to copy mature training-profile defaults. The new 360-input actor will **not** reproduce the historical 220/232-input weights. Compare *walking quality* after its own fresh 20M foundation, not weight identity.
+
+
+## Continuous target dials (25 October implementation)
+
+A training target is a question, **not a proven capability**. Each focused lesson samples easier practice, near-target episodes and harder exploratory probes. The teacher pools completed episodes in a small checkpointed local window. A successful near-target cohort nudges its own signed command limit up by 2.5% (mixed radius 1%); a poor exploratory attempt simply holds; sustained failure on easier commands nudges the limit down by 2.5%, never below the cold probe seed. The small adjustment itself is the low-pass filter: it can wander, retreat and discover again without a graduation gate. Symmetric lateral/yaw limits require both signs for expansion but either sign can trigger repair. Eight meaningful attempts is a provisional compromise, not an achievement threshold or magic number. Physical exams remain separate.
+
+Current implementation covers the **command family's** continuous dials and the post-foundation activation blend. Step/slope/push/transition/control frontiers still use their prior evidence controllers until migrated; do not claim all six already share this exact rule. A future physical severity-aware migration must keep the independent up/down and incline directions.
 
 ## One honest physical world and sensor contract
 
@@ -121,10 +128,10 @@ must exist from step zero without changing the teaching distribution.
 | Contract | Acceptance |
 | --- | --- |
 | **One policy, six teachers** | Commands/resilience/slopes/steps/transitions/control target 20/20/20/20/10/10%; roles never enter actor observations. Each cohort samples easier background challenges alongside its hard specialty. All six contribute gradients to one optimizer. |
-| **Protected handoff** | No new specialist terrain before 20M. Introduce the roles progressively afterward through an earned-competence blend; do not shrink the command range already learned in the foundation. A schedule boundary is not a declaration of mastery. |
+| **Protected handoff** | No active specialist lessons before 20M. Blend activation from 0% to 35% over the following 10M steps independently of earned gait. The schedule changes only teaching dose, never mastery or physical target. |
 | **Proper command geometry** | Signed (vx,vy,yaw) **L1 octahedron**, not a Cartesian rectangle. Sample interior/boundary/modestly beyond; account for signed pure-axis limits and mixed-sector evidence separately. A diagonal victory cannot unlock every axis. |
 | **Honest terrain** | Two actual colliding tilted slabs; uphill, downhill, both cross-slopes, step up/down, rotated lip and incline+step mixture. Training contact, ToF measurements and examiner geometry refer to the **same** physics. Supported far-side foot contact is required for crossing credit. |
-| **Evidence before expansion** | Completed episodes, attempted severity and direction, movement/heading tracking, support, falls and sufficient observations at the *current* frontier. Retain local success windows and one **total** expansion budget; retreat more readily than expand. |
+| **Evidence before expansion** | Completed episodes, attempted severity and direction, movement/heading tracking, support and falls. Small near-target success nudges difficulty up; sustained easier-task failure nudges it down. Growth budgets are local to each family, not a global throttle. |
 | **Grace and practical efficiency** | Make accurate **moving** gait smoother with fewer unnecessary corrections, slip and *simulated* shaft joules per achieved metre; zero movement is never efficient success. Do not claim shaft joules are electrical battery energy. |
 | **No hidden oracle** | 90×4=360 versioned observations, delayed 4×4 ToF + validity, IMU and flow; simulator slope, contact truth, curriculum IDs and exact root velocity do not enter actor observations. Keep old viewer/exports correctly versioned. |
 | **Independent scorecard** | Freeze the actor. On matched tasks/seeds report flat gait quality, command-sector tracking, 4 incline directions, paired supported up/down steps, mixtures, disturbances, starts/stops, J/m, slip, jerk and failure reasons. Do not promote from PPO reward, prettier viewer animation or a favorable subset alone. |

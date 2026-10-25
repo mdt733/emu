@@ -80,7 +80,8 @@ class RegimeGovernor:
     TERRAIN_DESCENT_PRACTICE_MIN = 0.50
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
-    COMMAND_MIN_EDGE_EPISODES = 24
+    COMMAND_MIN_EDGE_EPISODES = 8
+    COMMAND_MIN_EASY_EPISODES = 8
     SLOPE_DIRECTIONS = ('uphill','downhill','cross_left','cross_right')
     SLOPE_MIN_EPISODES_PER_DIRECTION = 12
 
@@ -132,7 +133,7 @@ class RegimeGovernor:
                  unified_capability_focus: bool = False):
         self.params = RegimeParams()
         self.unified_capability_focus = bool(unified_capability_focus)
-        self.command_evidence = {k:{'attempts':0.,'successes':0.}
+        self.command_evidence = {k:self._empty_command_window()
                                  for k in self.COMMAND_SECTORS}
         self.slope_evidence = {k:{'attempts':0.,'successes':0.}
                                for k in self.SLOPE_DIRECTIONS}
@@ -183,6 +184,11 @@ class RegimeGovernor:
         self.frontier_yaw_safety = max(self.FRONTIER_FLOOR_YAW, float(frontier_yaw_safety))
         self.frontier_combo_safety = max(self.FRONTIER_FLOOR_COMBO, float(frontier_combo_safety))
         self.frontier_push_safety_n = max(0.70, float(frontier_push_safety_n))
+
+    @staticmethod
+    def _empty_command_window() -> dict[str, float]:
+        return dict(attempts=0.,successes=0.,
+                    easy_attempts=0.,easy_successes=0.)
 
     @staticmethod
     def _empty_terrain_evidence() -> dict[str, float]:
@@ -266,13 +272,20 @@ class RegimeGovernor:
                 set(entries)!=set(self.COMMAND_SECTORS)):
                 raise ValueError('unified command frontier evidence schema mismatch')
             for sector,values in entries.items():
-                if (not isinstance(values,dict) or
-                    set(values)!= {'attempts','successes'} or
+                # Preserve exact 40M-era saved near-edge evidence while
+                # introducing additional easier-task failure counters.
+                valid=({'attempts','successes'},
+                       set(self._empty_command_window()))
+                if (not isinstance(values,dict) or set(values) not in valid or
                     not all(math.isfinite(float(x)) and float(x)>=0.
                             for x in values.values()) or
-                    values['successes']>values['attempts']):
+                    values['successes']>values['attempts'] or
+                    values.get('easy_successes',0.)>
+                    values.get('easy_attempts',0.)):
                     raise ValueError(f'bad command frontier evidence {sector}')
-            self.command_evidence={k:dict(v) for k,v in entries.items()}
+            self.command_evidence={
+                k:{**self._empty_command_window(),**v}
+                for k,v in entries.items()}
             entries=d['slope_evidence']
             if (not isinstance(entries,dict) or
                 set(entries)!=set(self.SLOPE_DIRECTIONS)):
@@ -652,73 +665,89 @@ class RegimeGovernor:
 
     def _advance_specialist_commands(self, row, *, global_retreat: bool,
                                       kl_ok: bool) -> dict[str,str]:
-        """Advance only demonstrated L1 directions on CLOSED episode windows.
+        """Slow, local signed-command targets with easier-task failure repair.
 
-        A diagonal success never expands a pure axis. Sideways and yaw
-        share symmetric physical limits, so both signs must qualify before
-        they move. A bad policy-health window consumes evidence without
-        earning growth; sparse windows simply keep collecting.
+        Frontier success invites small growth. A hard probe failure is normal
+        learning; sustained failure on easier commands invites faster retreat.
+        Both sources are COMPLETED episodes in the relevant signed sector.
         """
         events={}
         for sector in self.COMMAND_SECTORS:
-            n=float(row.get(f'command_probe_attempts_{sector}',0.))
-            good=float(row.get(f'command_probe_successes_{sector}',0.))
-            if (not math.isfinite(n) or not math.isfinite(good) or
-                not 0. <= good <= n):
-                raise ValueError(f'invalid command evidence {sector}')
-            self.command_evidence[sector]['attempts']+=n
-            self.command_evidence[sector]['successes']+=good
-            events[sector]='collect'
-
-        def closed(sector):
             evidence=self.command_evidence[sector]
-            n=evidence['attempts']
-            if n < self.COMMAND_MIN_EDGE_EPISODES:
-                return None
-            score=evidence['successes']/n
-            evidence.update(attempts=0.,successes=0.)
-            return score
+            for prefix,field in (
+                ('command_probe_attempts_','attempts'),
+                ('command_probe_successes_','successes'),
+                ('command_easy_attempts_','easy_attempts'),
+                ('command_easy_successes_','easy_successes')):
+                value=float(row.get(prefix+sector,0.))
+                if not math.isfinite(value) or value<0.:
+                    raise ValueError(f'bad command evidence {sector}/{field}')
+                evidence[field]+=value
+            if (evidence['successes']>evidence['attempts'] or
+                evidence['easy_successes']>evidence['easy_attempts']):
+                raise ValueError(f'command successes exceed attempts: {sector}')
+
+        def near_ready(k):
+            return self.command_evidence[k]['attempts']>=self.COMMAND_MIN_EDGE_EPISODES
+
+        def easy_bad(k):
+            e=self.command_evidence[k]
+            return (e['easy_attempts']>=self.COMMAND_MIN_EASY_EPISODES
+                    and e['easy_successes']/e['easy_attempts']<.35)
+
+        def near_good(k):
+            e=self.command_evidence[k]
+            return e['successes']/e['attempts']>=.72
+
+        def close(*names):
+            for k in names:
+                self.command_evidence[k]=self._empty_command_window()
 
         safe=not global_retreat and kl_ok
-        for sector in ('vx_hi','vx_lo','mixed'):
-            score=closed(sector)
-            if score is None:
-                continue
-            if not safe:
-                events[sector]='hold_health'
-            elif score<.72:
-                events[sector]='hold_weak_edge'
-            elif sector=='vx_hi':
-                self.params.frontier_vx_hi=min(
-                    self.frontier_vx_hi_safety,self.params.frontier_vx_hi*1.025)
-                events[sector]='expand'
-            elif sector=='vx_lo':
-                current=abs(self.params.frontier_vx_lo)
-                self.params.frontier_vx_lo=-min(
-                    self.frontier_vx_lo_safety,current*1.025)
-                events[sector]='expand'
+        for sector,field,limit,sign,floor in (
+            ('vx_hi','frontier_vx_hi',self.frontier_vx_hi_safety,+1.,.06),
+            ('vx_lo','frontier_vx_lo',self.frontier_vx_lo_safety,-1.,.02),
+            ('mixed','frontier_combo_radius',self.frontier_combo_safety,+1.,1.)):
+            if easy_bad(sector):
+                old=abs(getattr(self.params,field))
+                setattr(self.params,field,sign*max(floor,old*.975))
+                events[sector]='retreat_easy_failure'
+                close(sector)
+            elif near_ready(sector):
+                if safe and near_good(sector):
+                    old=abs(getattr(self.params,field))
+                    factor=1.01 if sector=='mixed' else 1.025
+                    setattr(self.params,field,sign*min(limit,old*factor))
+                    events[sector]='expand'
+                else:
+                    events[sector]='hold_probe_learning'
+                close(sector)
             else:
-                self.params.frontier_combo_radius=min(
-                    self.frontier_combo_safety,self.params.frontier_combo_radius*1.01)
-                events[sector]='expand'
+                events[sector]='collect'
 
-        for axis in ('vy','yaw'):
-            positive,negative=axis+'_pos',axis+'_neg'
-            if min(self.command_evidence[s]['attempts'] for s in
-                   (positive,negative)) < self.COMMAND_MIN_EDGE_EPISODES:
-                continue
-            scores=[closed(s) for s in (positive,negative)]
-            if not safe:
-                result='hold_health'
-            elif min(scores)<.72:
-                result='hold_weak_pair'
+        # Lateral and yaw have symmetric targets, so both signed directions
+        # should succeed for expansion. Either sign may trigger local retreat.
+        for axis,floor in (('vy',.035),('yaw',.14)):
+            pair=(axis+'_pos',axis+'_neg')
+            field='frontier_'+axis
+            if any(easy_bad(k) for k in pair):
+                setattr(self.params,field,
+                        max(floor,getattr(self.params,field)*.975))
+                action='retreat_easy_failure'
+                close(*pair)
+            elif all(near_ready(k) for k in pair):
+                if safe and all(near_good(k) for k in pair):
+                    limit=getattr(self,field+'_safety')
+                    setattr(self.params,field,min(
+                        limit,getattr(self.params,field)*1.025))
+                    action='expand'
+                else:
+                    action='hold_probe_learning'
+                close(*pair)
             else:
-                field='frontier_'+axis
-                limit=getattr(self,field+'_safety')
-                setattr(self.params,field,min(
-                    limit,getattr(self.params,field)*1.025))
-                result='expand'
-            events[positive]=events[negative]=result
+                action='collect'
+            for k in pair:
+                events[k]=action
         return events
 
     def _share_unified_growth(self, before: dict[str, float]) -> dict[str, float]:
@@ -823,17 +852,19 @@ class RegimeGovernor:
         made. This is not another governor, and legacy training is unchanged.
         """
         before = asdict(self.params) if self.unified_capability_focus else None
-        # Main's 20M training distribution gets first refusal. The new
-        # policy uses its 360 sensor contract from birth, but no specialist
-        # frontier or physical obstacle is allowed to unlock before 20M.
-        growth_enabled = self.unified_capability_focus or step >= foundation_steps
+        # Only lesson share (not competence) fades in after 20M. The
+        # controller cannot seed specialist limits during cold foundation.
+        growth_enabled = step >= foundation_steps
         report = self.update(
             row, kl_ok_to_expand=kl_ok_to_expand,
             specialist_growth_enabled=growth_enabled)
-        report['terrain_event'] = self.advance_terrain(
-            row, step=step, max_height_m=max_height_m,
-            foundation_steps=foundation_steps,
-            unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
+        report['terrain_event'] = (
+            self.advance_terrain(
+                row, step=step, max_height_m=max_height_m,
+                foundation_steps=foundation_steps,
+                unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
+            if growth_enabled or not self.unified_capability_focus
+            else 'foundation_flat')
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)

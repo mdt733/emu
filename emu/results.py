@@ -1003,6 +1003,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         vy=np.asarray(metrics['cmd_vy'])
         yaw=np.asarray(metrics['cmd_yaw'])
         near=cmd & (radius>=.88) & (radius<=1.14)
+        easier=cmd & (radius>=.50) & (radius<.80)
         success=(np.asarray(metrics['episode_fell'])<.5) & (
             np.asarray(metrics['episode_length'])>=120.) & (quality>=.68) & (
             np.asarray(metrics['episode_bad_contact'])<.3) & (
@@ -1020,6 +1021,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             tested=near & mask
             row[f'command_probe_attempts_{label}']=float(tested.sum())
             row[f'command_probe_successes_{label}']=float((tested & success).sum())
+            easier_tested=easier & mask
+            row[f'command_easy_attempts_{label}']=float(easier_tested.sum())
+            row[f'command_easy_successes_{label}']=float((easier_tested & success).sum())
         ctl=(focus==5)
         moving=(ctl & (np.asarray(metrics['cmd_vx'])>=.075) &
                 (np.asarray(metrics['vx'])>=.04))

@@ -198,9 +198,8 @@ def train(args: TrainingConfig) -> int:
     bounded_acceptance = launch_mode == 'bounded'
     cold_foundation = launch_mode == 'foundation20'
     gait_maturation = launch_mode == 'maturity40'
-    # No absolute-step unlock: all six specialists sample gentle lessons
-    # concurrently, at their OWN demonstrated severity. The existing
-    # source-pinned 40M process is untouched by later Git commits.
+    # Main-style 20M cold birth, then a gradual exposure blend. A specialist
+    # adjusts its physical target independently once its lessons are active.
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -343,10 +342,9 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        # Legacy non-unified foundation remains flat. Unified cohorts have
-        # concurrent evidence-driven lessons from their first episode;
-        # difficulty starts gentle and never depends on a timer.
-        if step < FOUNDATION_STEPS and not args.unified_capability_focus:
+        # The old gait recipe is dominant through the cold foundation.
+        # No live physical terrain until its post-20M specialist blend.
+        if step < FOUNDATION_STEPS:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
             if args.unified_capability_focus:

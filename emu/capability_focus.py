@@ -15,26 +15,27 @@ FOCUS_FRACTIONS = (.20, .20, .20, .20, .10, .10)
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
 
-# Teaching share, not a difficulty frontier. Every specialist is present
-# from the first learning batch; severity is determined independently by
-# each specialist's own physical evidence. Retain most episodes close to
-# main's easy gait while the shared network is learning to stand.
+# The cold-start gait has first refusal through 20M world steps. Thereafter
+# the only time-driven quantity is TEACHING SHARE; physical targets always
+# advance/retreat on local completed-episode evidence, never on a clock.
 SPECIALIST_ACTIVE_FRACTION = 0.35
+SPECIALIST_BLEND_STEPS = 10_000_000
 
 
 def growth_mix(*, step: int, foundation_steps: int,
                steady_difficulty: float) -> float:
-    """Always sample all six lessons; never unlock based on step/core gait.
+    """Steady gait to 20M, followed by a smooth 10M specialist fade-in.
 
-    Args are kept for checkpoint-era call compatibility, but neither the
-    number of steps nor a different cohort's competence controls whether a
-    specialist is allowed to gather evidence. This is an allocation share,
-    NOT the severity or a claim of learnt skill.
+    No earned skill, other frontier or later absolute age is used as a gate.
+    This sets probability of an emphasized lesson, not the severity target.
     """
     import math
     if not math.isfinite(float(steady_difficulty)):
         raise ValueError('steady difficulty must be finite')
-    return SPECIALIST_ACTIVE_FRACTION
+    if step <= foundation_steps:
+        return 0.0
+    return SPECIALIST_ACTIVE_FRACTION * min(
+        1.0, max(0.0,(step-foundation_steps)/SPECIALIST_BLEND_STEPS))
 
 
 def focus_indices(num_envs: int):

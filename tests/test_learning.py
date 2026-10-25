@@ -924,36 +924,54 @@ def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
     assert new.capability_field_mode=='shadow'
 
 
-def test_unified_six_specialists_probe_from_birth_without_shared_unlocks():
-    """At every step, each specialty has a nonzero cohort and local frontier."""
+def test_unified_specialist_blend_then_independent_bidirectional_targets():
+    """Before 20M: simple gait. Afterwards: slow exposure, local evidence."""
     from emu.capability_focus import growth_mix, focus_indices, FOCUS_NAMES
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
-    for step in (0,65_536,4_587_520,19_999_999,40_000_000):
-        for steady in (0.,.04,.50):
-            mix=growth_mix(step=step,foundation_steps=40_000_000,
-                           steady_difficulty=steady)
-            assert 0. < mix <= 1.
-    counts=np.bincount(focus_indices(2048),minlength=len(FOCUS_NAMES))
-    assert len(counts)==6 and np.all(counts>=200)
-    report=g.advance_curriculum({},step=65_536,
-              foundation_steps=40_000_000,max_height_m=.04)
-    assert report['terrain_event']=='terrain_unified_seed_4mm'
-    assert report['slope_event']=='seed_real_incline_0p7deg'
-    assert g.params.terrain_exposure>0. and g.params.terrain_height_m>0.
-    assert g.params.slope_exposure>0. and g.params.slope_max_deg>0.
-    # Each command boundary progresses on OWN 24-ended-episode evidence.
-    # Core competence may be zero; other specialties' evidence is absent.
-    row={'command_probe_attempts_vx_hi':24.,
-         'command_probe_successes_vx_hi':24.}
+    start=20_000_000
+    for step,share in ((0,0.),(start,0.),(start+2_500_000,.0875),
+                       (start+5_000_000,.175),
+                       (start+10_000_000,.35),(start+40_000_000,.35)):
+        assert growth_mix(step=step,foundation_steps=start,
+                          steady_difficulty=0.)==pytest.approx(share)
+    assert np.bincount(focus_indices(2048),minlength=len(FOCUS_NAMES)).min()>=200
     before=g.params.frontier_vx_hi
-    event=g.advance_curriculum(row,step=131_072,
-               foundation_steps=40_000_000,max_height_m=.04)
+    frozen=g.advance_curriculum(
+        {'command_probe_attempts_vx_hi':8.,
+         'command_probe_successes_vx_hi':8.},
+        step=start-1,foundation_steps=start,max_height_m=.04)
+    assert frozen['terrain_event']=='foundation_flat'
+    assert frozen['slope_event']=='foundation_flat'
+    assert g.params.frontier_vx_hi==before
+    assert g.params.terrain_height_m==0.
+    assert g.params.slope_max_deg==0.
+    seeded=g.advance_curriculum({},step=start,
+             foundation_steps=start,max_height_m=.04)
+    assert seeded['terrain_event']=='terrain_unified_seed_4mm'
+    assert seeded['slope_event']=='seed_real_incline_0p7deg'
+    grown=g.advance_curriculum(
+        {'command_probe_attempts_vx_hi':8.,
+         'command_probe_successes_vx_hi':8.},
+        step=start+65_536,foundation_steps=start,max_height_m=.04)
     assert g.params.frontier_vx_hi>before
-    assert event['growth_budget_demand']>=0.
-    assert g.params.slope_max_deg==.70
-    # No implicit specialist unlock in any old step count.
-    assert g.command_evidence['vx_hi']['attempts']==0.
-
+    assert grown['growth_budget_demand']>=0.
+    higher=g.params.frontier_vx_hi
+    g.advance_curriculum(
+        {'command_easy_attempts_vx_hi':8.,
+         'command_easy_successes_vx_hi':0.},
+        step=start+131_072,foundation_steps=start,max_height_m=.04)
+    assert before<=g.params.frontier_vx_hi<higher
+    assert g.command_evidence['vx_hi']['easy_attempts']==0.
+    # An old checkpoint's near-only window remains resumable; unknown
+    # state shape is still rejected by the strict contract.
+    old=g.state_dict()
+    for v in old['command_evidence'].values():
+        del v['easy_attempts']
+        del v['easy_successes']
+    restored=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    restored.load_state_dict(old)
+    assert restored.command_evidence['vx_hi']['easy_attempts']==0.
+    assert restored.state_dict()['params']==g.state_dict()['params']
 
 
 
@@ -998,8 +1016,8 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     unified = RegimeGovernor(unified_capability_focus=True)
     report = unified.advance_curriculum(
         {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
-    assert report['terrain_event'] == 'terrain_unified_seed_4mm'
-    assert report['slope_event'] == 'seed_real_incline_0p7deg'
+    assert report['terrain_event'] == 'foundation_flat'
+    assert report['slope_event'] == 'foundation_flat'
     assert {k:report[k] for k in ('growth_budget_demand',
                                    'growth_budget_scale',
                                    'growth_budget_limited')} == {
@@ -1007,8 +1025,8 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
         'growth_budget_scale':1.0,
         'growth_budget_limited':0.0,
     }
-    assert unified.params.slope_exposure > 0.
-    assert unified.params.terrain_exposure > 0.
+    assert unified.params.slope_exposure == 0.
+    assert unified.params.terrain_exposure == 0.
 
 
 def test_unified_budget_metrics_header_is_stable_at_foundation_boundary(tmp_path):

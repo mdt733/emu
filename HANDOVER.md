@@ -4,7 +4,13 @@
 **Design and permanent non-regression contract:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md#non-regression-contract--what-must-never-be-traded-away)  
 **Protected reference:** `main` at `2ec9e9db0a816c658131311129ef89ec7a595a12`
 
-## CURRENT: 40M gait continuation complete (owner GPU run; 25 Oct 2026)
+## CURRENT: continuous-dial curriculum implementation (25 Oct 2026)
+
+- Feature branch only: command boundary learning now reads **near-target and easier signed-episode evidence**. Near-target success nudges its command limit upward; easier failure nudges it down; hard failures hold rather than force retreat. The window is checkpointed and older near-only windows migrate without rewriting old policies.
+- Cold-start plan: 20M main-style basic gait (no active specialist lessons), then a 10M linear specialist *activation* blend to 35%. The blend is NOT a threshold for growing specific capabilities.
+- Scope: this is the first controller migration (commands). Slope/step/recovery/transitions/control will be migrated gradually, keeping their distinct physical evidence. Source remains **PRE-LAUNCH for 60M**, no GPU run authorized, no main/showcase changes. Review latest GitHub Actions before claiming green.
+
+## PREVIOUS: 40M gait continuation complete (owner GPU run; 25 Oct 2026)
 
 - **Preserved training lineage**: 20,054,016-step `terrain_360` 20M checkpoint at original SHA `470cf7f` → **40,042,496 steps** after a 20M→40M warm continuation at SHA `54345b29a9605ffc93226edc0374df302ea358af` in `~/robot_lab/emu_runs/unified_maturity40_54345b2`. User uploaded `results_bundle(9).zip`, `unified_exam(4).json/.md`; no CSV reporting crash. Bundle performance shows **final checkpoint write occurred**, but the actual `final.pkl` bytes were not supplied. Exported actor SHA256 `4f7e0a966e29d05d3607e4785dadb98c296ae8ef29941c9727bf2eee2feb670c`, frozen exam source `54345b2`. Preserve complete checkpoint+normalizer+optimizer/curriculum, not only actor export.
 - **Matched 8-world 300-frame CPU quick exam** at 0.05m/s nominal generic command: **60/64 survive**, **2/64 strict tasks passed** (flat 1/8; 1N push 1/8) versus 20M source `470cf7f` actor **62/64 survival, 0/64 task passes**. All non-push worlds survived for both. 40M 1N directional recovery **4/8 survived** vs 20M 6/8: directions/world bins 2,3,4,5 now fail vs 4,5 previously. Each push actually delivered 1N; do NOT claim resilience improvement solely from overall reward.
