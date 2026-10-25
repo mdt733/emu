@@ -18,8 +18,10 @@ from requested (rather than achieved) motion. No target must continually
 rise; it can oscillate and resume growing. The same NN learns every cohort.
 
 Cold source: first 20M environment steps mainly teach basic gait. Specialist
-activation then blends from 0 to 35% across another 10M steps. This changes
-the **frequency of challenging lessons**, not earned proficiency. No later
+activation then blends from 0 to 100% of the allocated specialist cohorts
+across another 10M steps. This changes **which worlds emphasize a specialty**,
+not earned proficiency. Once active, other physical challenge magnitudes
+remain around half of the relevant target; control/grace is gentler still. No later
 absolute-step unlocks. A same-source completed run can extend its target
 and resume without changing physical state or optimiser identity.
 

@@ -894,9 +894,9 @@ def test_unified_specialist_blend_then_independent_bidirectional_targets():
     from emu.capability_focus import growth_mix, focus_indices, FOCUS_NAMES
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     start=20_000_000
-    for step,share in ((0,0.),(start,0.),(start+2_500_000,.0875),
-                       (start+5_000_000,.175),
-                       (start+10_000_000,.35),(start+40_000_000,.35)):
+    for step,share in ((0,0.),(start,0.),(start+2_500_000,.25),
+                       (start+5_000_000,.50),
+                       (start+10_000_000,1.0),(start+40_000_000,1.0)):
         assert growth_mix(step=step,foundation_steps=start,
                           steady_difficulty=0.)==pytest.approx(share)
     assert np.bincount(focus_indices(2048),minlength=len(FOCUS_NAMES)).min()>=200

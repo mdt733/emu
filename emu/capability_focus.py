@@ -18,16 +18,21 @@ COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 # The cold-start gait has first refusal through 20M world steps. Thereafter
 # the only time-driven quantity is TEACHING SHARE; physical targets always
 # advance/retreat on local completed-episode evidence, never on a clock.
-SPECIALIST_ACTIVE_FRACTION = 0.35
+# Every allocated cohort becomes actively focused after the 10M exposure
+# blend. Its other skills remain in easier practice INSIDE the same world.
+# Thus a 20% command allocation really means ~20% command-focused worlds.
+SPECIALIST_ACTIVE_FRACTION = 1.0
 SPECIALIST_BLEND_STEPS = 10_000_000
+NONFOCUS_STRENGTH = 0.50
+CONTROL_STRENGTH = 0.25
 
 
 def growth_mix(*, step: int, foundation_steps: int,
                steady_difficulty: float) -> float:
-    """Steady gait to 20M, followed by a smooth 10M specialist fade-in.
+    """Steady gait until foundation, then activate all assigned focus cohorts.
 
-    No earned skill, other frontier or later absolute age is used as a gate.
-    This sets probability of an emphasized lesson, not the severity target.
+    Non-focused challenges continue at reduced difficulty in those cohorts.
+    No earned skill, other frontier or later absolute age gates progression.
     """
     import math
     if not math.isfinite(float(steady_difficulty)):

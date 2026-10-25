@@ -34,7 +34,9 @@ checkpoint. Fresh-start quality matters more than preserving old migrations.
   `--envs 2048 --seed 733 --device cuda`, with a chosen cumulative target
   (the documented example is 120M steps).
 - The original foundational gait lessons dominate until 20M world steps.
-  Specialist activation blends from 0% to 35% during the next 10M steps.
+  Specialist activation blends from 0% to 100% of each allocated cohort
+  during the next 10M steps. Non-focus difficulties remain ~half of their
+  current targets; grace/control uses gentler cross-training.
   This schedules **practice share only**, not a mastery threshold.
 - One run contains all later learning; no 40M milestone or source transition.
   After interruption use `--resume auto` with EXACTLY the same Git SHA,

@@ -69,9 +69,9 @@ def main():
                           step=25_000_000,foundation_steps=20_000_000,
                           steady_difficulty=.95)
     assert 0. < growth_mix(step=25_000_000,foundation_steps=20_000_000,
-                           steady_difficulty=.0) < .35
+                           steady_difficulty=.0) < 1.0
     assert growth_mix(step=30_000_000,foundation_steps=20_000_000,
-                      steady_difficulty=.0) == .35
+                      steady_difficulty=.0) == 1.0
     params['steady_difficulty']=.35
     params['specialist_mix']=1.0
     # Verify genuinely random pitch/roll and steps in one JAX model, not

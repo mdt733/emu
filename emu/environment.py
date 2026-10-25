@@ -21,7 +21,8 @@ import numpy as np
 from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
 from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
-                               SLOPE, STEP, TRANSITION, CONTROL)
+                               SLOPE, STEP, TRANSITION, CONTROL,
+                               NONFOCUS_STRENGTH, CONTROL_STRENGTH)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -865,6 +866,15 @@ class TaskSampler:
         # but only ever actually USED where should_resample is True, i.e.
         # only ever for TRANSITION envs.
         new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now[:, :3])
+        # Transition-focused episodes push command-change timing and
+        # acceleration, not the maximum walking envelope at the same time.
+        # Reduce the NEXT requested velocity too, not only its birth task.
+        if self.unified_capability_focus:
+            trans_focus=state.specialist_active & (self.focus_id==TRANSITION)
+            centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
+            new_target=jnp.where(trans_focus[:,None],
+                       centre+NONFOCUS_STRENGTH*(new_target-centre),
+                       new_target)
         if self.attitude_profile == 'v5015':
             pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
             pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
@@ -2110,7 +2120,7 @@ class EmuMJXEnv(TaskSampler):
         """Sample the host-chosen specialist teaching share at episode birth.
 
         The host holds this at zero for the first 20M cold gait steps, then
-        linearly fades in to a modest 35% over 10M. This is exposure
+        linearly activates every allocated cohort over 10M. This is exposure
         scheduling, NOT a declaration of mastery; each physical target
         continues moving on its OWN completed-episode evidence.
         RNG streams remain independent of the legacy task/sensor sampler.
@@ -2175,6 +2185,14 @@ class EmuMJXEnv(TaskSampler):
         desired=jnp.where(is_command[:,None],candidate,desired)
         easy=jnp.stack((control_vx,control_vy,control_yaw),axis=-1)
         desired=jnp.where(is_control[:,None],easy,desired)
+        # Every specialty practises the OTHER commands, but at half of
+        # their sampled excursion around a small forward-walking reference.
+        # This is not a separate command frontier and does not change the
+        # target/edge probes of COMMAND-focused worlds.
+        auxiliary=active & ~(is_command|is_control)
+        centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
+        desired=jnp.where(auxiliary[:,None],
+                          centre+NONFOCUS_STRENGTH*(desired-centre),desired)
         old_speed=jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2)
         new_speed=jnp.sqrt(desired[:,0]**2+desired[:,1]**2)
         base=jnp.clip(task[:,T.phase_rate]-
@@ -2195,18 +2213,24 @@ class EmuMJXEnv(TaskSampler):
         resilience=jnp.where(is_resilience,
              jnp.clip(params[P.frontier_push_n]/jnp.maximum(.05,self.push_max_force_n),.02,1.),
              task[:,T.resilience])
-        resilience=jnp.where(is_control,resilience*.35,resilience)
+        resilience=jnp.where(active & ~is_resilience,
+                             resilience*NONFOCUS_STRENGTH,resilience)
+        resilience=jnp.where(is_control,resilience*(
+            CONTROL_STRENGTH/NONFOCUS_STRENGTH),resilience)
         task=task.at[:,T.resilience].set(resilience)
-        # Control keeps modest variations in posture even during the early
-        # gait-efficiency lesson, rather than hiding those capabilities.
+        # All active specialists have easier posture variation; control is
+        # easier still, so its loss/effort lessons reward *doing* real work.
         for column in (T.height,T.pitch,T.roll):
             task=task.at[:,column].set(jnp.where(
-                is_control,.25*task[:,column],task[:,column]))
-        task=task.at[:,T.birth_resilience_d].set(
-            jnp.where(is_resilience,params[P.resilience_difficulty],
-                      jnp.where(is_control,
-                                .35*params[P.resilience_difficulty],
-                                task[:,T.birth_resilience_d])))
+                is_control,CONTROL_STRENGTH*task[:,column],
+                jnp.where(active,NONFOCUS_STRENGTH*task[:,column],
+                          task[:,column])))
+        birth=task[:,T.birth_resilience_d]
+        birth=jnp.where(is_resilience,params[P.resilience_difficulty],
+                        jnp.where(active,birth*NONFOCUS_STRENGTH,birth))
+        birth=jnp.where(is_control,
+                        params[P.resilience_difficulty]*CONTROL_STRENGTH,birth)
+        task=task.at[:,T.birth_resilience_d].set(birth)
         return task,active
 
     def _unified_terrain(self, data, keys, params):
@@ -2238,7 +2262,13 @@ class EmuMJXEnv(TaskSampler):
             has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,
             (u[:,0]<step_p)&(params[P.terrain_height_m]>1e-6))
         slope_active=(u[:,1]<slope_p) & (params[P.slope_max_deg]>1e-6)
-        slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]
+        # Severity, not just episode frequency, is reduced in worlds
+        # assigned another speciality. Fixed examiner overrides remain
+        # exact physical fixtures regardless of the teacher focus.
+        slope_strength=jnp.where(focused & (focus==SLOPE),1.0,
+                       jnp.where(focused & (focus==CONTROL),
+                                 CONTROL_STRENGTH,NONFOCUS_STRENGTH))
+        slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]*slope_strength
         slope_rad=jnp.deg2rad(jnp.where(slope_active,slope_mag,0.))
         # Azimuth 0,180deg: longitudinal uphill/downhill. 90,270deg:
         # sideways camber. Explicit pitch/roll overrides serve the
@@ -2280,9 +2310,12 @@ class EmuMJXEnv(TaskSampler):
         ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
         # Height is the physical normal displacement, not an impossible
         # world-vertical offset that would force the two faces to overlap.
+        step_strength=jnp.where(focused & (focus==STEP),1.0,
+                      jnp.where(focused & (focus==CONTROL),
+                                CONTROL_STRENGTH,NONFOCUS_STRENGTH))
         height=jnp.where(has_fixed_height,
                          params[P.terrain_fixed_height_m],
-                         ceiling*(.30+.70*u[:,5]))
+                         ceiling*(.30+.70*u[:,5])*step_strength)
         upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
         buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
         upper_pos=jnp.where(step_active[:,None],upper_pos,buried)

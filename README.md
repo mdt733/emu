@@ -25,7 +25,7 @@ The settings and early teaching distribution are protected in code. **Equivalent
 
 ### Phase 2: six teachers, one shared actor
 
-After 20M, specialist activation blends linearly over 10M further steps (0% to 35% inside the allocated birth cohorts). That blend is only lesson frequency, not a maturity gate or another skill's permission. Each world still encounters gentler versions of the other challenges; its focus determines what it probes closer to or just beyond the currently demonstrated limit.
+After 20M, specialist activation blends linearly over 10M further steps (0% to 100% inside the allocated birth cohorts). That blend is only lesson frequency, not a maturity gate or another skill's permission. Each world still encounters gentler versions of the other challenges; its focus determines what it probes closer to or just beyond the currently demonstrated limit.
 
 | Teacher focus | Target share | What it deliberately challenges |
 | --- | ---: | --- |

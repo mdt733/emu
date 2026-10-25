@@ -65,14 +65,18 @@ contact, support, falls, crossing completion and mechanical effort.
 A new policy needs to discover standing/stepping from nothing. Retain the
 original main-style simple gait learning and its proven physical rewards.
 During the first 20M **world steps**, specialist emphases are inactive.
-Between 20M and 30M, focused lessons linearly blend in from 0 to 35%
-activation inside their allocated birth cohorts. This is **only how often**
-they train; it is not a gate to a particular slope, velocity or push limit.
+Between 20M and 30M, focused lessons linearly blend from 0 to **full
+activation inside their allocated birth cohorts**. Thus a 20% command
+allocation eventually means about 20% active command-specialist worlds, not
+7%. Every active world still practises non-focus challenges at about half
+their current target severity (control/grace at about one-quarter).
+This is teaching emphasis, **not** a declaration of capability.
 
 From then on the six emphases (command, resilience, slope, step, transition,
 control/efficiency) share ONE network and learn concurrently. Typical cohort
 allocation is 20/20/20/20/10/10 percent, with the remainder of each cohort
-retaining simpler gait learning when its specialist focus is inactive.
+retaining simpler gait learning during the activation ramp and via easier
+cross-training in every specialist world after the ramp.
 Specialist limits are driven by their *own* completed physical evidence.
 
 The original first 70 PPO updates of simple gait remain a useful reference
