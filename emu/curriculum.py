@@ -582,7 +582,7 @@ class RegimeGovernor:
             v['easy_successes']/v['easy_attempts']<.30
             for v in windows.values())
         if easy_bad:
-            p.slope_max_deg=max(.70,p.slope_max_deg*.975)
+            p.slope_max_deg=max(.35,p.slope_max_deg*.975)
             self.slope_evidence={k:self._empty_slope_window()
                                  for k in self.SLOPE_DIRECTIONS}
             return 'retreat_easy_incline_failure'
@@ -674,7 +674,7 @@ class RegimeGovernor:
                 evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
                 for d in ('up','down'))
             if easy_bad:
-                p.terrain_height_m=max(min(.004,max_height_m),p.terrain_height_m*.975)
+                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.975)
                 self.terrain_evidence=self._empty_terrain_evidence()
                 return 'terrain_retreat_easy_failure'
             for direction in ('up','down'):

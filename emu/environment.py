@@ -1764,7 +1764,10 @@ class EmuMJXEnv(TaskSampler):
             gx=jnp.zeros_like(unit_x);gy=jnp.zeros_like(unit_x)
             physical_slope=jnp.zeros_like(unit_x)
             slope_role=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        has_slope=slope_role & (physical_slope>=.25)
+        # Smaller-than-seed incline lessons remain meaningful retreat
+        # territory; do not let a stale .25-degree recognition threshold
+        # erase their completed-episode evidence.
+        has_slope=slope_role & (physical_slope>=.10)
         # Severity bands use the REAL collision geom, never a teacher's
         # claimed task difficulty. Easy failures and near-target successes
         # are different lessons. These masks only affect host-side evidence.

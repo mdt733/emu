@@ -893,7 +893,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     # All four directional counters are COMPLETE episode facts.
     if 'physical_slope_deg' in metrics:
         raw_slope=np.asarray(metrics['physical_slope_deg'])
-        active=(raw_slope>=.25)
+        active=(raw_slope>=.10)
         row['physical_slope_deg_mean']=float(raw_slope[active].mean()) if active.any() else 0.
         row['physical_slope_deg_max']=float(raw_slope.max())
         row['physical_slope_world_fraction']=float(active.mean())
