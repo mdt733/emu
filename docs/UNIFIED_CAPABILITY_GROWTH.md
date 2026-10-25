@@ -25,14 +25,14 @@ Physical world + robot  →  realistic observations  →  ONE actor
 1. **Physics** decides real contact, ground shape, support, displacement, step crossing and falls. Do not replace terrain contact with visual labels or tilted-gravity tricks.
 2. **Actor** receives only physically plausible delayed measurements and user commands; it produces six actuator targets. No curriculum label, physical ground-truth normal or specialist ID leaks into its inputs.
 3. **Reward/PPO** teaches useful behaviour *within each sampled task*. Keep the proven eight locomotion payments and one optimizer; reward is a teaching signal, never proof of mastery.
-4. **Curriculum** chooses the next task distribution from actual completed-episode attempts, quality and severity. A single small governor owns difficulty decisions; maintain one shared total growth budget and faster retreat. **The original regime budget works; integrating new physical frontiers into that same budget remains work to do.**
+4. **Curriculum** chooses the next task distribution from actual completed-episode attempts, quality and severity. One governor owns decisions but **each specialty advances independently**, with its own closed physical evidence and capped step size. Preserve main's original four-regime budget; cap specialist families *separately*, so slope and step work never stop vx/vy/yaw command frontier growth. Retreatment is faster than growth.
 5. **Examiner** independently measures frozen-policy physical competence on fixed, paired, held-out challenges. It reports strengths and failure modes; exam outcomes do not silently update the live training curriculum.
 
 The browser viewer is an inference/debugging tool, not a representation of all GPU training worlds.
 
 ## Six simultaneous lesson emphases
 
-These are **teacher-side emphases within one policy**, not separate brains or exclusive modes. The allocation is the *mature target*, progressively activated after basic walking is earned.
+These are **teacher-side emphases within one policy**, not separate brains or exclusive modes. The allocation is the *target*, sampled from the first rollout at a low specialist activation share. Difficulty is grown *independently inside each cohort*, never unlocked by age, steady-gait success, or another specialist. A gentle ordinary gait remains the majority of early experience.
 
 | Emphasis | Target worlds | Harder lesson |
 | --- | ---: | --- |
@@ -55,7 +55,7 @@ Use the same compact logic for each capability rather than inventing six governo
 2. **Attempt:** the actor receives realistic observations, walks, and produces measurable physical outcomes.
 3. **Close the episode:** record attempted severity, supported progress, command error, survival/falls and relevant quality. An interrupted/failed attempt is failure evidence, not a success inferred from partial displacement.
 4. **Attribute locally:** pool sufficient completed episodes in the *same meaningful direction and severity context*. No single lucky win, no recycled evidence after a frontier changes, no mixing easier attempts with frontier proofs.
-5. **Decide:** advance gently on adequate repeated success; hold with sparse/ambiguous evidence; retreat faster on sustained failure. Reserve global gait retreat for genuine widespread collapse. Safeguard PPO health and share a bounded **overall** growth budget so several skills cannot jump together.
+5. **Decide independently:** advance gently on adequate repeated success; hold with sparse/ambiguous evidence; retreat faster on sustained failure. One struggling specialty does not block another's exploration. A global emergency gait/PPO-health brake is reserved for genuine shared-policy collapse, not ordinary difficulty progression. Each family has a bounded **local** growth budget; main's four core-regime scalars retain their existing shared budget.
 
 **Directions matter.** For velocity commands, the signed `vx/vy/yaw` limits define an **L1 octahedral envelope** (`|vx|/Vx(sign) + |vy|/Vy + |yaw|/Yaw <= 1`). Probe interiors, edges and modestly beyond, including pure-axis vertices. A successful diagonal is evidence for *that combination*, not permission to increase every independent axis. Both signs of lateral/yaw motion need evidence before expanding a symmetric limit.
 
@@ -70,7 +70,7 @@ Historical `main` foundation: `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 - **20M steps; 2,048 worlds; seed 733; 32-frame PPO rollout; 4 epochs × 8 minibatches; LR 2e-4; maximum 700 control frames/episode.**
 - First **70 updates (~4.59M steps) steady-only**. Initial `vx` requests were **+0.020…+0.060 m/s**. Later mix steady, transition and resilience in response to achieved gait rather than a schedule.
 - Preserve the eight original gait/contact/clearance/smoothness/safety rewards, pooled completed-episode fall EMA, faster retreat, shared regime growth limit and PPO recovery behaviour.
-- Specialist births and new physical terrain remain dormant through the **first 20M foundation** to preserve main's early gait. Thereafter an approximately 2M-step fade-in multiplies earned steady competence (zero at difficulty ≤0.10, full around 0.32); poor gait can keep difficult specialists absent. The actor and ToF observation contract stay fixed from birth. This 20M boundary is a deliberately **protected foundation transition**, not proof that walking is mastered at that count.
+- **Historical 20M SHA `470cf7f`** did indeed suppress new specialist births for the foundation. **Running 40M source `54345b2` likewise suppresses them until 40M; neither can change mid-run.** This *was an architectural mistake*, because it froze vx/vy/yaw as well as terrain. Going forward, the teacher now samples **all six emphases from the first rollout** at a modest 35% active share inside their allocated worlds; exposed slopes/steps are tiny, the majority of worlds retain main's easy gait, and each specialty grows or retreats by its **own physical performance**. The 20M observation point is not an unlock, and the source recipe change is untrained/unproven until a new explicitly authorised lineage is run. Preserve the original actor and ToF contract throughout. 20M remains merely the earliest standing milestone, with control and recovery reasonably requiring 20–50M additional steps.
 
 These numbers are a reference to reproduce deliberately, not permission to copy mature training-profile defaults. The new 360-input actor will **not** reproduce the historical 220/232-input weights. Compare *walking quality* after its own fresh 20M foundation, not weight identity.
 
