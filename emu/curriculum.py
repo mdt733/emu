@@ -587,20 +587,28 @@ class RegimeGovernor:
                                  for k in self.SLOPE_DIRECTIONS}
             return 'retreat_easy_incline_failure'
 
+        # A successful easier cohort is informative about retention but
+        # does not promote the frontier; refresh it without clearing sparse
+        # near-grade evidence, and vice versa.
+        for window in windows.values():
+            if window['easy_attempts']>=self.SLOPE_MIN_EPISODES_PER_DIRECTION:
+                window['easy_attempts']=window['easy_successes']=0.
         ready=all(v['near_attempts']>=self.SLOPE_MIN_EPISODES_PER_DIRECTION
                   for v in windows.values())
         if not ready:
             return 'collect_real_slope'
         good=all(v['near_successes']/v['near_attempts']>=.65
                  for v in windows.values())
-        # Consume the window even on a hold: it was evidence about the
-        # previous target, and must not certify a later target.
-        self.slope_evidence={k:self._empty_slope_window()
-                             for k in self.SLOPE_DIRECTIONS}
+        for window in windows.values():
+            window['near_attempts']=window['near_successes']=0.
         if not kl_ok:
             return 'hold_ppo_health'
         if good:
             p.slope_max_deg=min(12.,p.slope_max_deg+.08)
+            # No evidence from an older easier/severity band should be
+            # recycled after the difficulty itself changes.
+            self.slope_evidence={k:self._empty_slope_window()
+                                 for k in self.SLOPE_DIRECTIONS}
             return 'expand_real_slope_angle'
         return 'hold_probe_learning'
 
@@ -669,6 +677,10 @@ class RegimeGovernor:
                 p.terrain_height_m=max(min(.004,max_height_m),p.terrain_height_m*.975)
                 self.terrain_evidence=self._empty_terrain_evidence()
                 return 'terrain_retreat_easy_failure'
+            for direction in ('up','down'):
+                key=f'{direction}_easy_attempts'
+                if evidence[key]>=min_attempts:
+                    evidence[key]=evidence[f'{direction}_easy_successes']=0.
             ready=all(evidence[f'{d}_near_attempts']>=min_attempts
                       for d in ('up','down'))
             if ready:
@@ -676,11 +688,15 @@ class RegimeGovernor:
                     evidence[f'{d}_near_successes']/
                     evidence[f'{d}_near_attempts']>=.55
                     for d in ('up','down'))
-                self.terrain_evidence=self._empty_terrain_evidence()
+                for direction in ('up','down'):
+                    evidence[f'{direction}_near_attempts']=0.
+                    evidence[f'{direction}_near_successes']=0.
+                evidence['updates']=0.
                 if not kl_ok:
                     return 'terrain_hold_ppo_health'
                 if good:
                     p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
+                    self.terrain_evidence=self._empty_terrain_evidence()
                     return 'terrain_height_expand_real_cross'
                 return 'terrain_hold_probe_learning'
             if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
@@ -782,9 +798,13 @@ class RegimeGovernor:
             e=self.command_evidence[k]
             return e['successes']/e['attempts']>=.72
 
-        def close(*names):
+        def close(*names, kind='both'):
             for k in names:
-                self.command_evidence[k]=self._empty_command_window()
+                window=self.command_evidence[k]
+                if kind in ('near','both'):
+                    window['attempts']=window['successes']=0.
+                if kind in ('easy','both'):
+                    window['easy_attempts']=window['easy_successes']=0.
 
         safe=not global_retreat and kl_ok
         for sector,field,limit,sign,floor in (
@@ -804,9 +824,14 @@ class RegimeGovernor:
                     events[sector]='expand'
                 else:
                     events[sector]='hold_probe_learning'
-                close(sector)
+                close(sector,kind=('both' if events[sector]=='expand' else 'near'))
             else:
                 events[sector]='collect'
+            # An easier cohort has its OWN window, not a side-effect of
+            # the usually more frequent near-target proof window.
+            easy=self.command_evidence[sector]
+            if easy['easy_attempts']>=self.COMMAND_MIN_EASY_EPISODES:
+                close(sector,kind='easy')
 
         # Lateral and yaw have symmetric targets, so both signed directions
         # should succeed for expansion. Either sign may trigger local retreat.
@@ -826,10 +851,13 @@ class RegimeGovernor:
                     action='expand'
                 else:
                     action='hold_probe_learning'
-                close(*pair)
+                close(*pair,kind=('both' if action=='expand' else 'near'))
             else:
                 action='collect'
             for k in pair:
+                evidence=self.command_evidence[k]
+                if evidence['easy_attempts']>=self.COMMAND_MIN_EASY_EPISODES:
+                    close(k,kind='easy')
                 events[k]=action
         return events
 

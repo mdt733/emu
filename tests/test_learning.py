@@ -644,6 +644,32 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_easier_failures_survive_unrelated_near_frontier_hold():
+    """An easy failure window must not starve behind frequent hard probes."""
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    for _ in range(3):
+        row={'command_probe_attempts_vx_hi':8.,
+             'command_probe_successes_vx_hi':0.,
+             'command_easy_attempts_vx_hi':2.,
+             'command_easy_successes_vx_hi':0.}
+        g._advance_specialist_commands(row,global_retreat=False,kl_ok=True)
+    assert g.command_evidence['vx_hi']['easy_attempts']==6.
+    old=g.params.frontier_vx_hi
+    g._advance_specialist_commands({
+        'command_probe_attempts_vx_hi':8.,
+        'command_easy_attempts_vx_hi':2.},
+        global_retreat=False,kl_ok=True)
+    assert g.params.frontier_vx_hi==old  # seed floor
+    assert g.command_evidence['vx_hi']['easy_attempts']==0.
+    g.params.frontier_vx_hi=.10
+    for _ in range(4):
+        g._advance_specialist_commands({
+            'command_probe_attempts_vx_hi':8.,
+            'command_easy_attempts_vx_hi':2.},
+            global_retreat=False,kl_ok=True)
+    assert g.params.frontier_vx_hi<.10
+
+
 def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
     """Low-severity success must never certify the harder incline target."""
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
