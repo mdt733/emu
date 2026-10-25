@@ -509,16 +509,11 @@ class RegimeGovernor:
         """
         if not self.unified_capability_focus:
             return 'off'
-        if self._updates_done_total <= self.BOOTSTRAP_UPDATES:
-            return 'steady_bootstrap'
+        # Incline lessons begin gently even before the main gait is mature.
+        # Local directional results, not core gait progress or an absolute
+        # training step, decide whether this frontier can advance.
         p=self.params
-        core_ok=(self.core_competence>=.50 and
-                 self.fall_ema['posture']<=.45)
         if p.slope_exposure<=0.:
-            if not core_ok:
-                return 'await_walk'
-            if not kl_ok:
-                return 'hold_ppo_health'
             # Geometry already supports a continuum of slopes; the earned
             # initial probe is gentle, but the *safety* ceiling is not 1deg.
             p.slope_exposure=.15
@@ -546,9 +541,6 @@ class RegimeGovernor:
                              for k in self.SLOPE_DIRECTIONS}
         if not kl_ok:
             return 'hold_ppo_health'
-        if not core_ok:
-            p.slope_exposure=max(.10,p.slope_exposure*.97)
-            return 'hold_core_gait'
         if min(rates)>=.72:
             if p.slope_exposure<.25:
                 p.slope_exposure=min(.25,p.slope_exposure+.01)
@@ -573,35 +565,21 @@ class RegimeGovernor:
         updates, then judge a CLOSED evidence batch; never pool down-only
         successes or spend old/easier evidence after difficulty changes.
         """
-        if max_height_m <= 0. or step < foundation_steps:
+        if max_height_m <= 0. or (step < foundation_steps and not unified):
             return 'foundation_flat'
-        # Preserve main's complete 70-update steady-only bootstrap: no
-        # real obstacle exposure until this proven starting gait emerges.
-        # Unlike the old 20M gate, this is a brief physical-gait bootstrap.
-        if unified and self._updates_done_total <= self.BOOTSTRAP_UPDATES:
-            return 'unified_bootstrap_steady'
+        # Specialist worlds independently probe actual supported steps from
+        # their first birth. Main's non-unified bootstrap remains unchanged.
         p = self.params
         speed_lesson = unified
         exposure_min = .10 if speed_lesson else .05
         practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
         expansion_max = .20 if speed_lesson else .25
         height_increment = .0005 if speed_lesson else .00025
-        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
         if p.terrain_exposure <= 0.:
-            if not core_ok:
-                return 'await_core_walk'
-            if unified and not kl_ok:
-                return 'terrain_hold_ppo_health'
             self.terrain_evidence = self._empty_terrain_evidence()
             p.terrain_exposure = .15 if speed_lesson else .05
             p.terrain_height_m = min(.004 if unified else .010,max_height_m)
             return 'terrain_unified_seed_4mm' if unified else 'terrain_seed_1cm_5pct'
-        if not core_ok:
-            self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
-            p.terrain_height_m = max(min(.004 if unified else .010,max_height_m),p.terrain_height_m*.98)
-            return 'terrain_retreat_core'
-
         required = tuple(f'terrain_{outcome}_{direction}'
                          for direction in ('up','down')
                          for outcome in ('attempts','successes','falls'))
@@ -781,21 +759,44 @@ class RegimeGovernor:
             return sum(costs.get(name, 0.) for name in names)
         def cost_max(names):
             return max((costs.get(name, 0.) for name in names), default=0.)
-        demand = (
-            cost_sum(core)
-            + cost_sum(('frontier_vx_hi','frontier_vx_lo','frontier_vy',
-                        'frontier_yaw','frontier_combo_radius'))
-            + cost_max(('frontier_transition_hold_s','frontier_ramp_steps'))
-            + cost_max(('terrain_exposure','terrain_height_m'))
-            + cost_max(('slope_exposure','slope_max_deg'))
-            + costs.get('frontier_push_n', 0.)
-            + costs.get('frontier_sensor_scale', 0.))
-        scale = min(1., 1. / demand) if demand > 0. else 1.
-        if scale < 1.:
-            for name, gain in gains.items():
-                setattr(p, name, float(before[name]) + gain * scale)
-        return dict(growth_budget_demand=demand, growth_budget_scale=scale,
-                    growth_budget_limited=float(scale < 1.))
+        # Separate advancement budgets. A difficult step or recovery
+        # lesson must not use up the command teacher's opportunity to grow.
+        # Only fields *within one physical family* share an expansion cap;
+        # the existing four-regime/main gait budget remains intact.
+        families = {
+            'base_gait': (core, cost_sum(core)),
+            'commands': (
+                ('frontier_vx_hi','frontier_vx_lo','frontier_vy',
+                 'frontier_yaw','frontier_combo_radius'),
+                cost_sum(('frontier_vx_hi','frontier_vx_lo','frontier_vy',
+                          'frontier_yaw','frontier_combo_radius'))),
+            'transition': (
+                ('frontier_transition_hold_s','frontier_ramp_steps'),
+                cost_max(('frontier_transition_hold_s','frontier_ramp_steps'))),
+            'steps': (
+                ('terrain_exposure','terrain_height_m'),
+                cost_max(('terrain_exposure','terrain_height_m'))),
+            'slopes': (
+                ('slope_exposure','slope_max_deg'),
+                cost_max(('slope_exposure','slope_max_deg'))),
+            'resilience': (('frontier_push_n',), costs.get('frontier_push_n',0.)),
+            'sensor': (('frontier_sensor_scale',), costs.get('frontier_sensor_scale',0.)),
+        }
+        scales=[]
+        demands=[]
+        for names,demand in families.values():
+            scale = min(1.,1./demand) if demand>0. else 1.
+            demands.append(demand)
+            scales.append(scale)
+            if scale<1.:
+                for name in names:
+                    if name in gains:
+                        setattr(p,name,float(before[name])+gains[name]*scale)
+        # Backwards-compatible, stable three-column diagnostic reports
+        # worst-family pressure, not a global cross-specialist throttle.
+        return dict(growth_budget_demand=max(demands,default=0.),
+                    growth_budget_scale=min(scales,default=1.),
+                    growth_budget_limited=float(any(x<1. for x in scales)))
 
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
@@ -810,7 +811,7 @@ class RegimeGovernor:
         # Main's 20M training distribution gets first refusal. The new
         # policy uses its 360 sensor contract from birth, but no specialist
         # frontier or physical obstacle is allowed to unlock before 20M.
-        growth_enabled = step >= foundation_steps
+        growth_enabled = self.unified_capability_focus or step >= foundation_steps
         report = self.update(
             row, kl_ok_to_expand=kl_ok_to_expand,
             specialist_growth_enabled=growth_enabled)
