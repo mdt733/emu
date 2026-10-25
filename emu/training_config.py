@@ -25,6 +25,10 @@ from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
 # supported training profile uses the same values. A future experiment should
 # promote one back into TrainingConfig only when it genuinely needs to vary.
 FOUNDATION_STEPS = 20_000_000
+# Narrow, reviewed source-transition gate: 20M original learned actor -> 40M
+# flat-gait maturation, *not* general six-specialist growth permission.
+UNIFIED_MATURITY_STEPS = 40_000_000
+UNIFIED_FOUNDATION_SOURCE_COMMIT = "470cf7f391f418f80e36794f6d4f1832f6a6c7ea"
 ROLLOUT_STEPS = 32
 PPO_EPOCHS = 4
 PPO_MINIBATCHES = 8
