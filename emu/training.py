@@ -198,10 +198,9 @@ def train(args: TrainingConfig) -> int:
     bounded_acceptance = launch_mode == 'bounded'
     cold_foundation = launch_mode == 'foundation20'
     gait_maturation = launch_mode == 'maturity40'
-    # Another 20M of gentle walking skill before any specialized terrain.
-    # Physical slopes/steps and specialist command cohorts remain dormant
-    # through this 40M target, while the original core gait matures.
-    gait_birth_gate = UNIFIED_MATURITY_STEPS if gait_maturation else FOUNDATION_STEPS
+    # No absolute-step unlock: all six specialists sample gentle lessons
+    # concurrently, at their OWN demonstrated severity. The existing
+    # source-pinned 40M process is untouched by later Git commits.
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -260,14 +259,14 @@ def train(args: TrainingConfig) -> int:
     eval_args = replace(args, envs=32) if (cold_foundation or gait_maturation) else args
     fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
     if gait_maturation:
-        print(f'{LOG_PREFIX} bounded 20M -> 40M gait maturation: 2048 training '
-              'worlds, 32-world held-out panels; physical specialists gated '
-              'until target. Full rewind state restored from ancestor.',
+        print(f'{LOG_PREFIX} bounded 20M -> 40M continuation: 2048 training '
+              'worlds, 32-world held-out panels; all six specialists probe '
+              'their own earned boundaries. Full rewind state restored.',
               flush=True)
     if cold_foundation:
         print(f'{LOG_PREFIX} approved cold 20M foundation: 2048 training worlds, '
-              '32 held-out worlds per panel; specialist terrain stays flat '
-              'until the foundation target, post-20M growth is locked',
+              '32 held-out worlds per panel; independent specialists begin '
+              'at gentle difficulty, post-20M runs remain approval-locked',
               flush=True)
     if bounded_acceptance:
         print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
@@ -344,12 +343,10 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        # This source-pinned 360 actor learns a MAIN-style gait for the
-        # first 20M steps, with real slabs present but physically dormant.
-        # Afterwards expose specialists smoothly, limited by actual steady
-        # competence. Rewinds/resume recompute the same dose from steps and
-        # restored governor state: no extra checkpoint controller.
-        if step < gait_birth_gate:
+        # Legacy non-unified foundation remains flat. Unified cohorts have
+        # concurrent evidence-driven lessons from their first episode;
+        # difficulty starts gentle and never depends on a timer.
+        if step < FOUNDATION_STEPS and not args.unified_capability_focus:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
             if args.unified_capability_focus:
@@ -358,7 +355,7 @@ def train(args: TrainingConfig) -> int:
         if args.unified_capability_focus:
             from .capability_focus import growth_mix
             d['specialist_mix'] = growth_mix(
-                step=step, foundation_steps=gait_birth_gate,
+                step=step, foundation_steps=FOUNDATION_STEPS,
                 steady_difficulty=float(governor.params.steady_difficulty))
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
@@ -574,7 +571,7 @@ def train(args: TrainingConfig) -> int:
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
-            foundation_steps=gait_birth_gate,
+            foundation_steps=FOUNDATION_STEPS,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -803,7 +800,7 @@ def train(args: TrainingConfig) -> int:
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
-        foundation_steps=gait_birth_gate,
+        foundation_steps=FOUNDATION_STEPS,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
