@@ -197,9 +197,15 @@ class RegimeGovernor:
 
     @staticmethod
     def _empty_terrain_evidence() -> dict[str, float]:
+        # Retain the original pooled fields for legacy non-unified runs.
+        # New closed cohorts are measured against REAL physical ledge height.
         return dict(up_attempts=0., up_successes=0., up_falls=0.,
                     down_attempts=0., down_successes=0., down_falls=0.,
-                    updates=0.)
+                    updates=0.,
+                    **{f'{direction}_{band}_{outcome}':0.
+                       for direction in ('up','down')
+                       for band in ('near','easy')
+                       for outcome in ('attempts','successes')})
 
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
@@ -260,6 +266,13 @@ class RegimeGovernor:
                 raise ValueError(f"curriculum {name} keys mismatch")
         evidence = d.get('terrain_evidence', self._empty_terrain_evidence())
         names = set(self._empty_terrain_evidence())
+        legacy_names = {'up_attempts','up_successes','up_falls',
+                        'down_attempts','down_successes','down_falls','updates'}
+        if isinstance(evidence,dict) and set(evidence)==legacy_names:
+            # 40M-era pooled terrain episodes cannot justify promotion under
+            # the new severity-specific teacher; retain their diagnostic
+            # counts but introduce empty proof cohorts.
+            evidence={**self._empty_terrain_evidence(),**evidence}
         if (not isinstance(evidence, dict) or set(evidence) != names or
                 any(not math.isfinite(float(v)) or float(v) < 0. for v in evidence.values())):
             raise ValueError('curriculum terrain evidence window mismatch')
@@ -270,6 +283,10 @@ class RegimeGovernor:
             if (evidence[f'{direction}_successes'] > evidence[f'{direction}_attempts'] or
                     evidence[f'{direction}_falls'] > evidence[f'{direction}_attempts']):
                 raise ValueError('curriculum terrain evidence outcome exceeds attempts')
+            for band in ('near','easy'):
+                if (evidence[f'{direction}_{band}_successes'] >
+                        evidence[f'{direction}_{band}_attempts']):
+                    raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
@@ -623,6 +640,53 @@ class RegimeGovernor:
             p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
             p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
             return 'terrain_retreat_core'
+
+        if unified:
+            # One slowly wandering step-height target. Practice across 30-100%
+            # of the target stays broad; only actual near-target supported
+            # crossings can nudge it higher. A HARD failure is not a retreat
+            # signal; repeated difficulty on easier steps is. Up and down
+            # each earn their own evidence; no down-only graduation.
+            evidence=self.terrain_evidence
+            for direction in ('up','down'):
+                for band in ('near','easy'):
+                    for outcome in ('attempts','successes'):
+                        key=f'terrain_{band}_{outcome}_{direction}'
+                        value=float(row.get(key,0.))
+                        if not math.isfinite(value) or value<0.:
+                            raise ValueError(f'invalid step severity evidence {key}')
+                        evidence[f'{direction}_{band}_{outcome}']+=value
+                    if (evidence[f'{direction}_{band}_successes'] >
+                        evidence[f'{direction}_{band}_attempts']):
+                        raise ValueError(f'step successes exceed attempts {direction}/{band}')
+            evidence['updates']+=1.
+            min_attempts=8
+            easy_bad=any(
+                evidence[f'{d}_easy_attempts']>=min_attempts and
+                evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
+                for d in ('up','down'))
+            if easy_bad:
+                p.terrain_height_m=max(min(.004,max_height_m),p.terrain_height_m*.975)
+                self.terrain_evidence=self._empty_terrain_evidence()
+                return 'terrain_retreat_easy_failure'
+            ready=all(evidence[f'{d}_near_attempts']>=min_attempts
+                      for d in ('up','down'))
+            if ready:
+                good=all(
+                    evidence[f'{d}_near_successes']/
+                    evidence[f'{d}_near_attempts']>=.55
+                    for d in ('up','down'))
+                self.terrain_evidence=self._empty_terrain_evidence()
+                if not kl_ok:
+                    return 'terrain_hold_ppo_health'
+                if good:
+                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
+                    return 'terrain_height_expand_real_cross'
+                return 'terrain_hold_probe_learning'
+            if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
+                self.terrain_evidence=self._empty_terrain_evidence()
+                return 'terrain_window_insufficient_attempts'
+            return 'terrain_collect_real_step'
 
         required = tuple(f'terrain_{outcome}_{direction}'
                          for direction in ('up','down')

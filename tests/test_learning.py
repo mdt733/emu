@@ -684,6 +684,48 @@ def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
     assert not any(v['near_attempts'] for v in restored.slope_evidence.values())
 
 
+def test_unified_step_dial_needs_supported_crossing_at_true_height():
+    """Easy steps teach, near-maximum ascents and descents prove a height."""
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    opts=dict(step=20_000_001,max_height_m=.04,
+              foundation_steps=20_000_000,unified=True)
+    assert g.advance_terrain({},**opts)=='terrain_unified_seed_4mm'
+    start=g.params.terrain_height_m
+    easy={f'terrain_easy_{outcome}_{direction}':8.
+          for direction in ('up','down') for outcome in ('attempts','successes')}
+    assert g.advance_terrain(easy,**opts)=='terrain_collect_real_step'
+    assert g.params.terrain_height_m==start
+    near={f'terrain_near_{outcome}_{direction}':8.
+          for direction in ('up','down') for outcome in ('attempts','successes')}
+    assert g.advance_terrain(near,**opts)=='terrain_height_expand_real_cross'
+    assert g.params.terrain_height_m>start
+    high=g.params.terrain_height_m
+    # Eight failed harder probes are learning opportunities, not immediate
+    # evidence to shrink the only step-up training target.
+    assert g.advance_terrain(
+        {'terrain_near_attempts_up':8.,'terrain_near_attempts_down':8.},
+        **opts)=='terrain_hold_probe_learning'
+    assert g.params.terrain_height_m==high
+    assert g.advance_terrain(
+        {'terrain_easy_attempts_up':8.,
+         'terrain_easy_successes_up':0.},
+        **opts)=='terrain_retreat_easy_failure'
+    assert start<=g.params.terrain_height_m<high
+    saved=g.state_dict()
+    again=RegimeGovernor(unified_capability_focus=True)
+    again.load_state_dict(saved)
+    assert again.state_dict()==saved
+    # Older pooled-only evidence must not be interpreted as real near-height
+    # proof, while the rest of the checkpoint remains intact.
+    pooled=dict(saved)
+    pooled['terrain_evidence']={k:v for k,v in saved['terrain_evidence'].items()
+                                if k.endswith('_falls') or
+                                   k in ('up_attempts','up_successes',
+                                         'down_attempts','down_successes','updates')}
+    again.load_state_dict(pooled)
+    assert again.terrain_evidence['up_near_attempts']==0.
+
+
 def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
     """One cold foundation continues indefinitely without special 40M state."""
     from dataclasses import replace
