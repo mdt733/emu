@@ -827,9 +827,38 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
         {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
     assert report['terrain_event'] == 'foundation_flat'
     assert report['slope_event'] == 'foundation_flat'
-    assert 'growth_budget_scale' not in report
+    assert {k:report[k] for k in ('growth_budget_demand',
+                                   'growth_budget_scale',
+                                   'growth_budget_limited')} == {
+        'growth_budget_demand':0.0,
+        'growth_budget_scale':1.0,
+        'growth_budget_limited':0.0,
+    }
     assert unified.params.slope_exposure == 0.
     assert unified.params.terrain_exposure == 0.
+
+
+def test_unified_budget_metrics_header_is_stable_at_foundation_boundary(tmp_path):
+    """A healthy 20M run used to finish PPO then die writing final metrics.
+
+    The three budget fields were absent from all previous rows and appeared
+    only when the final curriculum decision crossed the 20M growth boundary.
+    Keep strict CSV checking; make teacher reporting stable instead.
+    """
+    from emu.results import append_metrics_csv
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    early=g.advance_curriculum({},step=0,
+              max_height_m=.04,foundation_steps=20_000_000)
+    final=g.advance_curriculum({},step=20_054_016,
+              max_height_m=.04,foundation_steps=20_000_000)
+    keys=('growth_budget_demand','growth_budget_scale','growth_budget_limited')
+    assert all(key in early and key in final for key in keys)
+    assert [early[k] for k in keys]==[0.0,1.0,0.0]
+    assert all(np.isfinite(float(final[k])) for k in keys)
+    csv_file=tmp_path/'metrics.csv'
+    append_metrics_csv(csv_file,dict(step=65_536,**{k:early[k] for k in keys}))
+    append_metrics_csv(csv_file,dict(step=20_054_016,**{k:final[k] for k in keys}))
+    assert len(csv_file.read_text().splitlines())==3
 
 
 def test_final_publication_atomically_replaces_existing_checkpoint(tmp_path, monkeypatch):
