@@ -1,6 +1,6 @@
 # EMU — active handover
 
-**Branch:** `feature/v5023-capability-growth` · **Updated:** 24 October 2026  
+**Branch:** `feature/v5023-capability-growth` · **Updated:** 25 October 2026  
 **Design and permanent non-regression contract:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md#non-regression-contract--what-must-never-be-traded-away)  
 **Protected reference:** `main` at `2ec9e9db0a816c658131311129ef89ec7a595a12`
 
@@ -39,9 +39,9 @@ The six mature emphases target **20/20/20/20/10/10%**. Every world still sees ge
 - [x] Six teacher emphases, one actor/optimizer, signed L1 command probes, direction-aware closed windows for slope/steps and shared expansion arbitration implemented.
 - [ ] Demonstrate each teacher's **actual** task mixture and evidence attribution from completed episodes. Check underrepresented directions, sparse evidence, and whether successful diagonal commands wrongly expand unproven pure axes.
 - [ ] Validate frozen array-only **19-case** physical exam on a real exported unified policy: all four signed slopes, rotated/paired supported up/down steps, mixed surfaces, commands, pushes, transitions, grip/slip, action changes and mechanical J/m. No such trained policy exists yet.
-- [x] Full **2,048-world CUDA** PPO/checkpoint/resume/export and strict array-only actor decoder PASS at `6653c03` (source-pinned). [ ] Frozen 360-actor physical examiner and browser simulation parity still pending; sustained FPS still unmeasured.
+- [x] Full **2,048-world CUDA** PPO/checkpoint/resume/export and strict array-only actor decoder PASS at `6653c03`. [x] Frozen **8-case quick examiner** read/write and physical slope/step/push geometry PASS at examiner SHA `0cf5841`. [ ] Full 19-case evaluation, trained-policy competence, browser physics parity and sustained training FPS remain unverified.
 
-**Never claim a replacement is better** using reward, a green CPU smoke, an examiner with zero trained-policy runs, or a single terrain case. Preserve `main`, approved 260M Pinnacle, public showcase and archived checkpoints. **Next action:** finish current-HEAD CI, then isolate GPU lifecycle and frozen policy examination. 
+**Never claim a replacement is better** using reward, a green CPU smoke, an examiner with zero trained-policy runs, or a single terrain case. Preserve `main`, approved 260M Pinnacle, public showcase and archived checkpoints. **Next action:** finish current-HEAD CI, then prepare an explicitly approved cold 20M 360-actor foundation without unlocking the longer growth phase. 
 
 ## 25 Oct WSL acceptance — observed evidence and correction
 
@@ -65,6 +65,14 @@ The six mature emphases target **20/20/20/20/10/10%**. Every world still sees ge
 - **Fixed:** scorer emits real Python booleans for directional slope verification, step height and rotated-edge verification. Frozen manifest writer also converts only NumPy scalar values to their native JSON types, refuses arrays and nonfinite results (no `default=str` papering over bad evidence). Regression constructs paired-world traces for flat, slope, step and recovery, runs the *actual scorer*, and checks strict full-manifest serialization. **Current-HEAD CI and actual report rerun remain pending until explicitly observed.**
 - **Next:** rerun the same exported policy (no retraining, no new checkpoint/source rewrite) with a fresh output directory after final CI is green. The original failed output directory may be empty, but a new one preserves both attempts. **Normal unified training remains guard-locked** until approval of a cold 20M foundation.
 
+## 25 Oct frozen physical examiner — quick protocol COMPLETED
+
+- **Owner-provided frozen artifacts:** `unified_exam.json` and `unified_exam.md` from examiner source `0cf58415b0a8907c35cd090e726e584bc457a7c4`, actor artifact hash `fb86e518e6b3fefaa4aa3c5d146b0c456103f8d9542a9f4859851133c9dc07bc`, source-trained at 131,072 steps (original validated 2,048-world lifecycle actor). This proves the previously failing report serialization is fixed.
+- **Eight of eight cases executed** on CPU, 4 worlds × 120-frame requested horizon; final JSON/Markdown saved. 0/32 supported passes, 0/32 survived, expected for a two-update policy. First episode ended 23–58 frames across cases; do not compare these numbers to trained `main`.
+- **Positive evidence for examination infrastructure:** uphill/downhill sign and 2° magnitude verified; 8mm step-up and step-down height and starting near-side verified; 17° rotated edge measured 17.01° in mixed incline/step; 1N delivered pushes verified in all four recovery worlds; no false far-side crossing credited. JSON contains native booleans, no serialization crash.
+- **Not proved:** an intelligent terrain walker, successful contact crossing, full 19-case suite (cross-slope/transition/other recovery directions), extended 8-world azimuth coverage, or matching browser physics. These are later behavioural/acceptance gates, **not blockers to testing a cold-start 20M foundation** once source CI and run authorisation are satisfied.
+- **Launch plan:** maintain immutable `main`/Pinnacle; do not merge or overwrite; keep the new foundation source-locked and all outputs outside the Git checkout. The trainer still rejects more than two unified PPO updates until a deliberate approval/guard change.
+
 ## 25 Oct production CUDA lifecycle — VERIFIED on owner hardware
 
 - **Clean feature SHA `6653c0386d2d4bb10718cb364c815eb1f4eb7f92`: PASS.** RTX 4060 Ti ran the real unified 360-input trainer at **2,048 simultaneous MJX worlds**, from cold state for 65,536 environment steps, saved a validated schema-9 checkpoint, then resumed a NEW run directory from that exact ancestor and completed at 131,072 steps.
@@ -79,10 +87,10 @@ The six mature emphases target **20/20/20/20/10/10%**. Every world still sees ge
 
 1. **Source gate:** latest feature-branch CI must be green (Python, physical MJX, unified gradient, browser, viewer). The numeric main-foundation test is now in `tests/test_learning.py`. Record *the exact passing SHA*.
 2. **GPU capacity:** on the 8GB RTX 4060 Ti, run `python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update` from a clean checkout. A two-frame smoke is not proof of production-shaped 32×4×8 capacity.
-3. **Real 360 lifecycle: COMPLETE.** Verified `first → continue → verify` at 8 and **2,048** worlds on RTX 4060 Ti. Source `6653c03`, normalizer resume, untouched ancestor and array-only browser export PASS. Next execute frozen `capability-exam` with the small untrained export **without altering its source**. See [INSTALL](docs/INSTALL.md#overnight-readiness--exact-sequence-same-source-sha).
+3. **Real 360 lifecycle and quick examiner: COMPLETE.** Verified `first → continue → verify` at 8 and **2,048** worlds on RTX 4060 Ti (source `6653c03`); the unchanged exported actor was physically examined and JSON/Markdown successfully generated by examiner `0cf5841`. Normalizer resume, untouched ancestor, array-only replay and physical slope/step/push geometry all PASS. See [INSTALL](docs/INSTALL.md#overnight-readiness--exact-sequence-same-source-sha).
 4. **Cold 20M:** once 1–3 pass, obtain owner approval for a source-pinned fresh 360-input foundation. Compare the actual frozen 20M gait to `main` on supported flat locomotion, tracking, falls and mechanical effort. **No trained unified policy exists yet.**
 5. **First overnight continuation:** only after a credible 20M walker and owner approval, create a **new run directory** resuming that exact checkpoint on the **same SHA**, with a larger absolute target. Let all six specialist frontiers develop under the one budget; monitor failures and preserved basic walking. Don't publish over Pinnacle.
 
-**Current:** source commit `6653c03` has all four CI jobs green and both 8-world and 2,048-world physical GPU lifecycle fully passed. Next is the frozen exported 360-policy examiner, then the owner-approved cold 20M foundation. Nothing here authorises a long run.
+**Current:** source `6653c03` has all four CI jobs green and both small/production CUDA lifecycle PASS; quick physical examiner PASS at `0cf5841` with 0/32 *expected* walking passes. Next is source CI verification and an expressly approved cold-start 20M foundation. Long growth continuation remains locked.
 
 **Protected:** `main` at `2ec9e9db`, approved 260M Pinnacle, showcase and historical source-pinned runs. No merge, policy promotion or long-run guard removal without explicit approval. Keep docs/contract and this handover concise; work in the existing core.
