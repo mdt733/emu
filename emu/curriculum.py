@@ -822,8 +822,15 @@ class RegimeGovernor:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
                 if growth_enabled else 'foundation_flat')
-            if growth_enabled:
-                report.update(self._share_unified_growth(before))
+            # The schema of metrics.csv is fixed at step zero. The growth
+            # budget exists throughout the flat 20M foundation even though
+            # its actual arbitration cannot run until specialist growth.
+            # Otherwise the very LAST 20M row suddenly gains three CSV
+            # columns and crashes AFTER an expensive final frozen exam.
+            report.update(
+                self._share_unified_growth(before) if growth_enabled
+                else dict(growth_budget_demand=0.0, growth_budget_scale=1.0,
+                          growth_budget_limited=0.0))
             # update() ran before joint arbitration: report the actual
             # next-birth settings, not stale pre-budget proposed values.
             for name in (
