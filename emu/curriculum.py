@@ -83,7 +83,7 @@ class RegimeGovernor:
     COMMAND_MIN_EDGE_EPISODES = 8
     COMMAND_MIN_EASY_EPISODES = 8
     SLOPE_DIRECTIONS = ('uphill','downhill','cross_left','cross_right')
-    SLOPE_MIN_EPISODES_PER_DIRECTION = 12
+    SLOPE_MIN_EPISODES_PER_DIRECTION = 8
 
     # One shared step size for ALL FOUR difficulty scalars (steady/
     # transition/resilience/posture) -- see environment.py's module
@@ -135,7 +135,7 @@ class RegimeGovernor:
         self.unified_capability_focus = bool(unified_capability_focus)
         self.command_evidence = {k:self._empty_command_window()
                                  for k in self.COMMAND_SECTORS}
-        self.slope_evidence = {k:{'attempts':0.,'successes':0.}
+        self.slope_evidence = {k:self._empty_slope_window()
                                for k in self.SLOPE_DIRECTIONS}
         if self.unified_capability_focus:
             # These are initial *proven/being-probed* limits, not a
@@ -184,6 +184,11 @@ class RegimeGovernor:
         self.frontier_yaw_safety = max(self.FRONTIER_FLOOR_YAW, float(frontier_yaw_safety))
         self.frontier_combo_safety = max(self.FRONTIER_FLOOR_COMBO, float(frontier_combo_safety))
         self.frontier_push_safety_n = max(0.70, float(frontier_push_safety_n))
+
+    @staticmethod
+    def _empty_slope_window() -> dict[str, float]:
+        return dict(near_attempts=0.,near_successes=0.,
+                    easy_attempts=0.,easy_successes=0.)
 
     @staticmethod
     def _empty_command_window() -> dict[str, float]:
@@ -291,13 +296,21 @@ class RegimeGovernor:
                 set(entries)!=set(self.SLOPE_DIRECTIONS)):
                 raise ValueError('unified slope evidence schema mismatch')
             for direction,values in entries.items():
-                if (not isinstance(values,dict) or
-                    set(values)!= {'attempts','successes'} or
-                    not all(math.isfinite(float(x)) and float(x)>=0.
-                            for x in values.values()) or
-                    values['successes']>values['attempts']):
+                # Old 40M-era cohorts stored pooled directions. Keep their
+                # field schema loadable but never promote severity using
+                # evidence whose actual incline was not recorded.
+                old={'attempts','successes'}
+                new=set(self._empty_slope_window())
+                if (not isinstance(values,dict) or set(values) not in (old,new)
+                    or not all(math.isfinite(float(x)) and float(x)>=0.
+                               for x in values.values()) or
+                    (values['successes']>values['attempts'] if set(values)==old
+                     else values['near_successes']>values['near_attempts'] or
+                          values['easy_successes']>values['easy_attempts'])):
                     raise ValueError(f'bad slope evidence {direction}')
-            self.slope_evidence={k:dict(v) for k,v in entries.items()}
+            self.slope_evidence={
+                k:(self._empty_slope_window() if set(v)==old else dict(v))
+                for k,v in entries.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -513,60 +526,66 @@ class RegimeGovernor:
         return frontier_events
 
     def advance_slope(self, row: dict[str,float], *, kl_ok: bool = True):
-        """Grow actual inclined MJX contact challenges from CLOSED episodes.
+        """A single slowly wandering incline target, with four directions.
 
-        Every direction must demonstrate sustainable tracking before the
-        next grade unlocks. A step-up success never substitutes for slope
-        evidence, and failure on slopes doesn't block command exploration.
-        This is a teacher decision, not a PPO reward or actor input.
+        Near-frontier completed episodes may earn a small increase. Failure
+        at harder-than-current slopes is ordinary exploration, not a reason
+        to retreat. Persistent failure at physically easier inclines eases
+        the target. Per-direction evidence cannot be borrowed from another
+        bearing, or from a terrain step. No training-age or gait gate.
         """
         if not self.unified_capability_focus:
             return 'off'
-        # Incline lessons begin gently even before the main gait is mature.
-        # Local directional results, not core gait progress or an absolute
-        # training step, decide whether this frontier can advance.
         p=self.params
         if p.slope_exposure<=0.:
-            # Geometry already supports a continuum of slopes; the earned
-            # initial probe is gentle, but the *safety* ceiling is not 1deg.
             p.slope_exposure=.15
             p.slope_max_deg=.70
-            self.slope_evidence={k:{'attempts':0.,'successes':0.}
+            self.slope_evidence={k:self._empty_slope_window()
                                  for k in self.SLOPE_DIRECTIONS}
             return 'seed_real_incline_0p7deg'
+
         for direction in self.SLOPE_DIRECTIONS:
-            attempts=float(row.get(f'slope_attempts_{direction}',0.))
-            successes=float(row.get(f'slope_successes_{direction}',0.))
-            if (not math.isfinite(attempts) or not math.isfinite(successes)
-                or not 0.<=successes<=attempts):
-                raise ValueError(f'bad real slope episode outcomes {direction}')
             window=self.slope_evidence[direction]
-            window['attempts']+=attempts
-            window['successes']+=successes
-        if not all(self.slope_evidence[k]['attempts']>=
-                   self.SLOPE_MIN_EPISODES_PER_DIRECTION
-                   for k in self.SLOPE_DIRECTIONS):
+            for cohort,outcome in (('near','attempts'),('near','successes'),
+                                   ('easy','attempts'),('easy','successes')):
+                key=f'slope_{cohort}_{outcome}_{direction}'
+                value=float(row.get(key,0.))
+                if not math.isfinite(value) or value<0.:
+                    raise ValueError(f'bad slope evidence {key}')
+                window[f'{cohort}_{outcome}']+=value
+            if (window['near_successes']>window['near_attempts'] or
+                    window['easy_successes']>window['easy_attempts']):
+                raise ValueError(f'bad slope evidence counts {direction}')
+
+        windows=self.slope_evidence
+        # Bad evidence on a supposedly easier challenge is the most
+        # informative failure, regardless of which direction suffered.
+        easy_bad=any(
+            v['easy_attempts']>=self.SLOPE_MIN_EPISODES_PER_DIRECTION and
+            v['easy_successes']/v['easy_attempts']<.30
+            for v in windows.values())
+        if easy_bad:
+            p.slope_max_deg=max(.70,p.slope_max_deg*.975)
+            self.slope_evidence={k:self._empty_slope_window()
+                                 for k in self.SLOPE_DIRECTIONS}
+            return 'retreat_easy_incline_failure'
+
+        ready=all(v['near_attempts']>=self.SLOPE_MIN_EPISODES_PER_DIRECTION
+                  for v in windows.values())
+        if not ready:
             return 'collect_real_slope'
-        rates=[self.slope_evidence[k]['successes']/
-               self.slope_evidence[k]['attempts']
-               for k in self.SLOPE_DIRECTIONS]
-        self.slope_evidence={k:{'attempts':0.,'successes':0.}
+        good=all(v['near_successes']/v['near_attempts']>=.65
+                 for v in windows.values())
+        # Consume the window even on a hold: it was evidence about the
+        # previous target, and must not certify a later target.
+        self.slope_evidence={k:self._empty_slope_window()
                              for k in self.SLOPE_DIRECTIONS}
         if not kl_ok:
             return 'hold_ppo_health'
-        if min(rates)>=.72:
-            if p.slope_exposure<.25:
-                p.slope_exposure=min(.25,p.slope_exposure+.01)
-                return 'expand_slope_exposure'
-            # Protect main's shared slow-growth doctrine. Grade increases
-            # only after a fresh, closed cohort has mastered all 4 bearings.
-            p.slope_max_deg=min(12.,p.slope_max_deg+.12)
+        if good:
+            p.slope_max_deg=min(12.,p.slope_max_deg+.08)
             return 'expand_real_slope_angle'
-        if min(rates)<.25:
-            p.slope_max_deg=max(.70,p.slope_max_deg*.985)
-            p.slope_exposure=max(.10,p.slope_exposure*.98)
-            return 'retreat_real_slope'
-        return 'hold_incline_at_frontier'
+        return 'hold_probe_learning'
 
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,

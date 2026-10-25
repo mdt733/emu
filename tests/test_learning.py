@@ -644,6 +644,46 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
+    """Low-severity success must never certify the harder incline target."""
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    assert g.advance_slope({})=='seed_real_incline_0p7deg'
+    old=g.params.slope_max_deg
+    # Flat/easy successes alone cannot make the grade grow.
+    easy={f'slope_easy_{kind}_{direction}':8.
+          for direction in g.SLOPE_DIRECTIONS
+          for kind in ('attempts','successes')}
+    assert g.advance_slope(easy)=='collect_real_slope'
+    assert g.params.slope_max_deg==old
+    # Near-target success across all four bearings can nudge it upward.
+    near={f'slope_near_{kind}_{direction}':8.
+          for direction in g.SLOPE_DIRECTIONS
+          for kind in ('attempts','successes')}
+    assert g.advance_slope(near)=='expand_real_slope_angle'
+    assert g.params.slope_max_deg>old
+    # A hard failure on its own is NOT evidence to shrink.
+    hard={f'slope_near_attempts_{direction}':8.
+          for direction in g.SLOPE_DIRECTIONS}
+    assert g.advance_slope(hard)=='hold_probe_learning'
+    raised=g.params.slope_max_deg
+    assert raised>old
+    # But repeated trouble with an easier real incline is.
+    weak={'slope_easy_attempts_cross_left':8.,
+          'slope_easy_successes_cross_left':0.}
+    assert g.advance_slope(weak)=='retreat_easy_incline_failure'
+    assert old<=g.params.slope_max_deg<raised
+    stored=g.state_dict()
+    restored=RegimeGovernor(unified_capability_focus=True)
+    restored.load_state_dict(stored)
+    assert restored.state_dict()==stored
+    # Legacy source can be restored but old pooled success has no claimed
+    # near-grade proof; its evidence is reset rather than misattributed.
+    stored['slope_evidence']={k:{'attempts':9.,'successes':9.}
+                              for k in g.SLOPE_DIRECTIONS}
+    restored.load_state_dict(stored)
+    assert not any(v['near_attempts'] for v in restored.slope_evidence.values())
+
+
 def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
     """One cold foundation continues indefinitely without special 40M state."""
     from dataclasses import replace

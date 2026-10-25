@@ -237,11 +237,11 @@ def main():
     governor.fall_ema['posture']=1.
     assert governor.advance_slope(row)=='seed_real_incline_0p7deg'
     assert governor.advance_slope({})=='collect_real_slope'
-    qualified={f'slope_{kind}_{direction}':12.
+    qualified={f'slope_near_{kind}_{direction}':12.
                for direction in governor.SLOPE_DIRECTIONS
                for kind in ('attempts','successes')}
-    assert governor.advance_slope(qualified)=='expand_slope_exposure'
-    assert governor.params.slope_exposure>.15
+    assert governor.advance_slope(qualified)=='expand_real_slope_angle'
+    assert governor.params.slope_max_deg>.70
     archived=governor.state_dict()
     recovered=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
     recovered.load_state_dict(archived)
