@@ -1411,7 +1411,9 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             'uphill':(expected,0.),'downhill':(-expected,0.),
             'cross_left':(0.,expected),'cross_right':(0.,-expected)
         }.get(bearing,(expected,0.))
-        grade_verified=(abs(grade-desired_grade)<=.20
+        # NumPy comparisons return np.bool_, which json.dumps cannot
+        # serialize. A scored exam result is a plain Python data contract.
+        grade_verified=bool(abs(grade-desired_grade)<=.20
                         and abs(gx-expected_xy[0])<=np.tan(np.deg2rad(.20))
                         and abs(gy-expected_xy[1])<=np.tan(np.deg2rad(.20)))
         is_step=case.get('step_m',0.)>0.
@@ -1420,11 +1422,11 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         lower_lip=lower[world]+side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]+UNIFIED_SLAB_HALF_DEPTH_M*normal[world]
         upper_lip=upper[world]-side*UNIFIED_SLAB_HALF_LENGTH_M*axis[world]+UNIFIED_SLAB_HALF_DEPTH_M*normal[world]
         measured_h=float(np.dot(upper_lip-lower_lip,normal[world])) if is_step else 0.
-        height_verified=(not is_step or abs(measured_h-case['step_m'])<.0005)
+        height_verified=bool(not is_step or abs(measured_h-case['step_m'])<.0005)
         measured_edge=float(np.degrees(np.arctan2(axis[world,1],axis[world,0])))
         requested_edge=float(case.get('edge_deg',0.))
         edge_error=(measured_edge-requested_edge+180.)%360.-180.
-        edge_verified=(not is_step or abs(edge_error)<.35)
+        edge_verified=bool(not is_step or abs(edge_error)<.35)
         displacement=xyz[:stop,world]-line[:2]
         forward=displacement@axis[world,:2]
         sideways=displacement@across[world,:2]
@@ -1495,6 +1497,24 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             delivered_push_peak_n=round(float(np.max(pushes[:stop,world])),3),
             case_pass=bool(passed)))
     return results
+
+
+def _unified_exam_json(manifest: dict) -> str:
+    """Strict JSON: preserve numeric/boolean meaning, never stringify scalars.
+
+    JAX/NumPy scalar diagnostics may enter a frozen result despite explicit
+    bool/float conversions in the scorer. Refuse arrays and nonfinite values
+    rather than silently publishing invalid or misleading evidence.
+    """
+    import json
+
+    def native_scalar(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        raise TypeError(f"unsupported frozen-exam value: {type(value).__name__}")
+
+    return json.dumps(manifest, indent=2, sort_keys=True,
+                      allow_nan=False, default=native_scalar) + '\n'
 
 
 def evaluate_unified_capabilities(*, policy: Path, output: Path,
@@ -1643,7 +1663,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     output.mkdir(parents=True,exist_ok=True)
     data_path=output/'unified_exam.json'
     md_path=output/'unified_exam.md'
-    data_path.write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+    data_path.write_text(_unified_exam_json(manifest),encoding='utf-8')
     md=['# Unified EMU — frozen physical capability assessment','',
         f"Source policy SHA256: {manifest['actor_artifact_sha256']}",
         f"Actor schema: {manifest['observation_schema']} / {manifest['sensor_revision']}",
