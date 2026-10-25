@@ -58,7 +58,7 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('terrain_attempts_down','Step-down attempts'),
         ('terrain_successes_down','Supported step-down successes'),
         ('physical_slope_deg_max','Sampled real slope max (deg)'),
-        ('growth_budget_scale','Combined-growth scaling'),
+        ('growth_budget_scale','Most constrained specialist growth scale'),
     )
     values={label:row.get(key,'') for key,label in keys if row.get(key,'') not in ('',None)}
     step=row.get('step','?')
