@@ -921,6 +921,15 @@ def test_unified_exam_scorer_writes_strict_json_from_physical_trace():
             for field in ('grade_verified','height_verified','case_pass',
                           'survived','fell'):
                 assert type(row[field]) is bool, (case['name'],field,type(row[field]))
+            # Zero-motion synthetic trace, +0.10 m/s commanded: longitudinal
+            # error is persistent (-0.10), not an oscillation. Distinguish the
+            # same way for lateral/yaw without altering graded pass criteria.
+            assert abs(row['tracking_signed_bias_vx_mps'] + .10)<.0001
+            assert row['tracking_jitter_vx_mps']==0.0
+            assert row['tracking_signed_bias_vy_mps']==0.0
+            assert row['tracking_jitter_vy_mps']==0.0
+            assert row['tracking_signed_bias_yaw_rad_s']==0.0
+            assert row['tracking_jitter_yaw_rad_s']==0.0
             if case['kind']=='step':
                 assert type(row['edge_verified']) is bool
         results.append(dict(case=case,worlds=rows,
