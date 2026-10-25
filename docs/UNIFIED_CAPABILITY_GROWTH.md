@@ -86,7 +86,7 @@ Current implementation covers the **command family's** continuous dials and the 
 
 ## Continuous incline target (26 October)
 
-Slope evidence now uses real collision normals, separating easier and near-target completed episodes in each of four directions. Successful near-target slope episodes nudge the incline target up; difficult exploratory failures hold; repeated failure on easier slopes nudges it down. Old pooled success cannot certify a harder physical grade. The local exposure fraction remains modest. Step heights, physical push recovery, transitions and control efficiency are next to migrate.
+Slope evidence now uses real collision normals, separating easier and near-target completed episodes in each of four directions. Successful near-target slope episodes nudge the incline target up; difficult exploratory failures hold; repeated failure on easier slopes nudges it down. Old pooled success cannot certify a harder physical grade. The local exposure fraction remains modest. Step-ups and step-downs now use exactly the same principle: physical upper/lower slab displacement, rather than the requested height, determines easy/near cohorts. Both directions must demonstrate near-target supported crossings for a small upward nudge; repeated easier failures gently retreat the shared step-height target. Descent success cannot stand in for missing ascent skill. Physical push recovery, transitions and control efficiency are the remaining controller migrations.
 
 ## One honest physical world and sensor contract
 
