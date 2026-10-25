@@ -79,8 +79,9 @@ checkpoint. Fresh-start quality matters more than preserving old migrations.
   gait regime governor, PPO, physical world and actor contract stay intact.
 
 **Do not conflate challenge directions with independent targets.**
-See the linked capability inventory: about 30 sensible candidate dimensions,
-far fewer independently controlled today. Grow the evidence plumbing first,
+See the linked capability inventory: up to about 26 conceivable physical
+target dials, far fewer independently controlled today, plus a grace/control
+specialist **without** an independent target. Grow the evidence plumbing first,
 then split each direction only when it is worth the sampling overhead.
 
 ## Next engineering work (rough order)

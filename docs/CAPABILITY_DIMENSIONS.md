@@ -33,20 +33,16 @@ one dial.
 
 | Family | Real physical challenges | Independent targets today | Candidate independent targets |
 |---|---|---|---|
-| Commands | +vx, −vx, +vy, −vy, +yaw, −yaw; combined axes | Forward / reverse independently, one ±vy, one ±yaw, one combo radius = **5** | Six signed direction limits + mixed radius = **7** |
+| Commands | +vx, −vx, ±vy, ±yaw; combined axes | Forward / reverse independently, one lateral magnitude, one yaw magnitude, one combo radius = **5** | **5** — signed vx, symmetric strafe/yaw, and mixed radius |
 | Recovery / resilience | Joint-angle birth offset; body tilt; root xyz offset; linear velocity kick; angular velocity kick; torso shove | One linked resilience-difficulty scalar and one separately controlled push-force limit = **2** | Six disturbance magnitudes = **6** |
 | Slopes | Uphill, downhill, cross-left, cross-right | Four *measured* outcomes, one shared maximum angle = **1** | Four directional maxima = **4** |
 | Sharp steps | Up, down, oblique up, oblique down | Up/down contact outcomes, one shared maximum height and random lip yaw = **1** | Four near-height envelopes = **4** |
 | Dynamic commands | Time before switching, ramp speed, size of command jump | One transition difficulty plus two coupled timing values; **one practical family** | Hold interval, ramp time, command delta = **3** |
 | Posture / chassis | Chassis pitch, lateral roll, commanded height | One shared posture-difficulty scalar = **1** | Three separately controllable envelopes = **3** |
-| Grace / efficiency | Useful work per distance while tracking; rate of actuation / jerk | Dedicated control lesson and measured shaft work, **zero earned limits** | Work budget and smoothness budget = **2** |
+| Grace / efficiency | Useful supported movement with accurate tracking, low shaft work, low jerk | Dedicated easier control cohort with small motor/smoothness shaping; **no independent difficulty frontier** | **0** — quality is the mission of this cohort, not a lower-budget target that can be won by not moving |
 | Sensor robustness | Measurement noise / corruption scale | One scalar = **1** | One limit = **1** |
 
-**Working goal: ~30 candidate targets** (7+6+4+4+3+3+2+1).
-This is a useful map of physical challenges, **not 30 new trainer classes**
-or a demand to immediately alter the sensor/network contract. Do not
-multiply this into a 30-dimensional curriculum tensor: sample one or a few
-challenge dimensions per episode and combine them gradually.
+**Potential future ceiling: ~26 physical target dials** (5+6+4+4+3+3+0+1), many of which should probably continue sharing difficulty. These are not 26 new trainer classes, and certainly not a demand to expose a huge Cartesian difficulty grid to the actor. The **grace/efficiency specialty deliberately has no difficulty target**. Sampling and useful-motion quality do the teaching.
 
 ### Evidence and dependencies
 
@@ -56,7 +52,9 @@ falls and episode duration. A requested +0.4m/s is not success if the robot
 actually shuffles +0.1m/s. For combined commands, track the vector, not just
 its largest axis. The current signed command ledgers are complete-episode
 near/easy probes, with an independent small target nudge. Left/right lateral
-and yaw limits are still symmetrical **by policy**, not separate dials.
+and clockwise/counterclockwise yaw are **deliberately shared magnitude targets**
+because the chassis is approximately symmetrical; each sign still gets
+separate evidence to reveal real asymmetric weaknesses.
 
 **Resilience:** physical resets already randomize roll/pitch, horizontal/vertical
 position, six actuated joint starts, linear velocity and angular velocity.
@@ -95,20 +93,21 @@ also tied to this scalar. Keep chassis pitch distinct from the robot's
 feet-midpoint-to-torso angle. Do not manufacture a new degree of freedom
 solely to have another number to display.
 
-**Control/efficiency:** control-focused worlds get a modest additional
-motor-effort penalty and smoothness shaping, and produce shaft-work and
-movement-quality diagnostics. This is **not an adaptive efficiency frontier**
-yet. A safe candidate target is *mechanical work per achieved supported
-distance, at adequate commanded speed and tracking accuracy*. A second
-candidate limits action-rate / jerk (and perhaps peak servo overload).
-The economy target may slowly tighten after good accurate episodes or relax
-when it starts degrading reliable locomotion. Zero motion is never efficient
-walking. Shaft-work proxy is not battery energy.
+**Control/efficiency:** no self-moving efficiency target, no minimum-J/m
+"graduation". The allocated control worlds get easier variations of *all*
+the ordinary physical skills, and have to actually walk, turn, track,
+support their body and cross manageable terrain. The normal survival and
+command-tracking rewards remain primary. A small bounded extra shaping
+encourages smoother, less wasteful actuator motion **conditional on useful
+movement**. Mechanical shaft J/m, action jerk, contact slip and achieved
+trajectory quality are diagnostics, not independent targets that could win
+by making the walker stop. Later broaden the control cohort's command
+distribution if it neglects reverse/strafe/turn practice.
 
 **Sensors:** sampled observation corruption scale has an earned frontier.
 Separate sensor delay, dropouts, mass, actuator and contact-friction domain
 randomization remain optional future *robustness envelope* axes; they are
-not currently 30 extra dimensions and should not be enabled just to inflate
+not extra curriculum target dimensions and should not be enabled just to inflate
 the count.
 
 ## How to count honestly
