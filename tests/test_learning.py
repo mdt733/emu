@@ -644,6 +644,38 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 
+def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
+    """One cold foundation continues indefinitely without special 40M state."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from emu.run import one_run_config
+    from emu.training import unified_launch_mode
+
+    root=tmp_path/'cold-unified'
+    args=SimpleNamespace(run_dir=str(root),profile='sim2real',seed=733,
+                         device='cuda',envs=2048,steps=120_000_000,
+                         unified_capabilities=True,terrain_actor=True,
+                         terrain_step_max_m=.04)
+    cfg=one_run_config(args)
+    monkeypatch.delenv('EMU_UNIFIED_CONTINUOUS',raising=False)
+    with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+        unified_launch_mode(cfg)
+    monkeypatch.setenv('EMU_UNIFIED_CONTINUOUS','cold-growth-approved')
+    assert unified_launch_mode(cfg)=='continuous'
+    assert unified_launch_mode(replace(cfg,steps=20_000_000))=='continuous'
+    assert unified_launch_mode(replace(cfg,resume='auto'))=='continuous'
+    assert unified_launch_mode(replace(
+        cfg,resume=str(root/'checkpoints/latest.pkl')))=='continuous'
+    for invalid in (dict(steps=19_999_999),dict(envs=8),dict(seed=42),
+                    dict(device='cpu'),dict(terrain_step_max_m=.05),
+                    dict(resume=str(tmp_path/'other/checkpoints/final.pkl')),
+                    dict(observation_schema='legacy_220'),
+                    dict(motor_guidance_weight=.02),
+                    dict(domain_randomization=True)):
+        with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+            unified_launch_mode(replace(cfg,**invalid))
+
+
 def test_unified_overnight_guard_allows_only_explicit_bounded_acceptance(monkeypatch):
     """The lifecycle probe cannot silently turn into an overnight campaign."""
     from dataclasses import replace

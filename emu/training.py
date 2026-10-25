@@ -121,10 +121,9 @@ def env_kwargs_from_args(args) -> dict:
 def unified_launch_mode(args: TrainingConfig) -> str:
     """Explicit authorisation boundary; deliberately independent of JAX/GPU.
 
-    Only the proven 2-update lifecycle and the owner's FIRST cold-start
-    foundation are open. No post-foundation teacher growth, alternate actor
-    contracts, warm fork from a different policy, or arbitrary step counts.
-    The run wrapper separately pins a clean source SHA and run metadata.
+    Prefer one clean cold-start source and run directory across the entire
+    training target. The runner independently enforces Git and checkpoint
+    provenance; this gate rejects external parent checkpoints.
     """
     if not args.unified_capability_focus:
         return 'legacy'
@@ -136,6 +135,29 @@ def unified_launch_mode(args: TrainingConfig) -> str:
             and args.envs in (8, 12, 2048)
             and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS):
         return 'bounded'
+    # One cold run across 20M, 40M, 100M, and beyond. No checkpoint-era
+    # unlock: the specialists gradually become active inside this run.
+    # The CLI checks identical Git SHA + saved config for same-run resume.
+    if (core and os.environ.get('EMU_UNIFIED_CONTINUOUS') == 'cold-growth-approved'
+            and args.steps >= FOUNDATION_STEPS
+            and args.envs == 2048 and args.seed == 733
+            and args.terrain_step_max_m == .04
+            and args.motor_guidance_weight == 0.
+            and args.contact_slope_deg == 0.
+            and not args.domain_randomization
+            and args.domain_terrain_radius == 0.
+            and args.domain_robot_radius == 0.
+            and args.domain_hardware_radius == 0.
+            and args.capability_field_mode == 'shadow'
+            and args.cloud_probes_per_eval == 0
+            and args.cloud_final_probes == 0
+            and args.pitch_command_max_deg == 8.):
+        parent = Path(args.resume).resolve() if args.resume else None
+        own_dir = Path(args.run_dir).resolve() / 'checkpoints'
+        if not args.resume or args.resume == 'auto' or (
+                parent is not None and parent.parent == own_dir
+                and parent.suffix == '.pkl'):
+            return 'continuous'
     if (core and os.environ.get('EMU_UNIFIED_FOUNDATION') == 'cold20m-approved'
             and args.steps == FOUNDATION_STEPS and args.envs == 2048
             and args.seed == 733 and args.terrain_step_max_m == .04
@@ -180,8 +202,8 @@ def unified_launch_mode(args: TrainingConfig) -> str:
         'Unified training is PRE-LAUNCH except for explicit two-update CUDA '
         'acceptance or the approved cold 20M foundation (seed 733, 2048 '
         'worlds, 360 array-only observations, flat first-stage teaching). '
-        'Set EMU_UNIFIED_FOUNDATION=cold20m-approved for the exact '
-        'foundation configuration. Post-20M growth remains locked.'
+        'For one clean long run use EMU_UNIFIED_CONTINUOUS=cold-growth-approved '
+        'and resume ONLY its own source-pinned checkpoints.'
     )
 
 
@@ -198,6 +220,7 @@ def train(args: TrainingConfig) -> int:
     bounded_acceptance = launch_mode == 'bounded'
     cold_foundation = launch_mode == 'foundation20'
     gait_maturation = launch_mode == 'maturity40'
+    continuous_growth = launch_mode == 'continuous'
     # Main-style 20M cold birth, then a gradual exposure blend. A specialist
     # adjusts its physical target independently once its lessons are active.
     allow_cpu_mjx = args.device == 'cpu'
@@ -255,8 +278,14 @@ def train(args: TrainingConfig) -> int:
     # environments alongside the 2048-world learner on an 8GB GPU.
     # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
     # only independent evaluation batch size is capped for this 20M run.
-    eval_args = replace(args, envs=32) if (cold_foundation or gait_maturation) else args
+    eval_args = replace(args, envs=32) if (
+        cold_foundation or gait_maturation or continuous_growth) else args
     fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    if continuous_growth:
+        print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
+              'specialists fade in between 20M and 30M; frozen evaluations '
+              'use 32 worlds rather than risking 8GB GPU exhaustion.',
+              flush=True)
     if gait_maturation:
         print(f'{LOG_PREFIX} bounded 20M -> 40M continuation: 2048 training '
               'worlds, 32-world held-out panels; all six specialists probe '
