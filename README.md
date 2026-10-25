@@ -6,7 +6,7 @@ EMU is a reinforcement-learning project for a dynamically unstable, six-actuator
 
 **This is the `feature/v5023-capability-growth` research branch.** It builds on the successful foundation from `main` but introduces a new sensor contract and unified capability curriculum. The approved public robot remains separate:
 
-**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
+**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
 
 ## The learning idea
 
@@ -19,13 +19,13 @@ From a **cold start**, the 360-input policy receives the same *kind* of gentle s
 - Preserve the original eight gait rewards, 32-frame rollouts, four PPO epochs, eight minibatches, learning rate `2e-4`, seed `733` and normally `2048` parallel worlds.
 - Keep the original first **70 PPO updates steady-only**, conservative early movement commands, fall-sensitive retreats, and main-style disturbance burden.
 - Use the new **4×4 forward ground-sensing array from step zero**; never splice a 220/232-input checkpoint into the different 360-input network.
-- Keep the new step and slope surfaces physically dormant in this stage. **20M is a foundation checkpoint, not proof of mastered walking.**
+- Keep the new step and slope surfaces physically dormant in this stage. **20M is a teaching-distribution boundary, not proof of mastered walking and not a required campaign stop.**
 
 The settings and early teaching distribution are protected in code. **Equivalent walking performance has not yet been demonstrated** by a freshly trained unified policy.
 
 ### Phase 2: six teachers, one shared actor
 
-After 20M, specialist lessons blend in gradually (over roughly 2M further steps, limited by earned steady competence). Each world still encounters gentler versions of the other challenges; its focus determines what it probes closer to or just beyond the currently demonstrated limit.
+After 20M, specialist activation blends linearly over 10M further steps (0% to 35% inside the allocated birth cohorts). That blend is only lesson frequency, not a maturity gate or another skill's permission. Each world still encounters gentler versions of the other challenges; its focus determines what it probes closer to or just beyond the currently demonstrated limit.
 
 | Teacher focus | Target share | What it deliberately challenges |
 | --- | ---: | --- |
@@ -46,7 +46,7 @@ Sample worlds from current capability limits
     → finish episodes and record what was really attempted
     → measure survival, command tracking, support and contact
     → advance / hold / retreat individual skill frontiers
-    → arbitrate total difficulty growth through one governor
+    → nudge each physical target independently
     → sample the next set of experiences
 ```
 
@@ -64,10 +64,10 @@ For the full decision rules, observation contract and non-regression checklist, 
 | --- | --- |
 | Public 232-input Pinnacle demonstration | **Protected and available** in the Playground |
 | New 360-input actor, 4×4 array and mixed physical terrain | **Implemented**; small CPU physics/gradient smoke available |
-| Single-policy six-focus curriculum and shared growth arbitration | **Implemented**; behavioural learning still needs long-run evidence |
+| Single-policy six-focus curriculum and local moving targets | **Implemented**; behavioural learning still needs long-run evidence |
 | Frozen `capability-exam` for commands, real slopes/steps, recovery and control | **Implemented**; not yet proven on a successfully trained new policy |
 | Source-pinned checkpoint/resume/export acceptance | **Bounded test path available**; real unified CUDA lifecycle still needs verification |
-| Fresh 20M unified walker and overnight growth continuation | **Not trained or approved**; normal unified training remains launch-guarded |
+| One cold-start continuous 360 learner | **Source-guarded mode implemented**, with same-source resume/target extension; long CUDA walking run still needs real GPU acceptance and evidence |
 
 Follow [CI on GitHub Actions](https://github.com/mdt733/emu/actions) for the *current commit*. Green CI or two PPO updates demonstrate engineering health, **not** a better walking robot.
 
@@ -102,7 +102,7 @@ emu train --run-dir "$HOME/robot_lab/emu_runs/unified_candidate" \
   --steps 20000000 --device cuda --plan
 ```
 
-**`--plan` does not train or create a run.** Removing it on this branch does **not** authorise the proposed 20M run: the trainer intentionally rejects normal unified campaigns until the acceptance gates and owner approval are met. The legacy `--profile foundation` command is a **different, 220-input actor**, not a substitute for this unified cold start.
+**`--plan` does not train or create a run.** The continuous live mode is an explicit `EMU_UNIFIED_CONTINUOUS=cold-growth-approved` opt-in for a clean 2048-world CUDA learner, and should only be used after exact-SHA CI and the owner's GPU acceptance. It does not require a fixed 20M, 40M or 60M checkpoint. The legacy `--profile foundation` command is a **different, 220-input actor**, not a substitute for this unified cold start.
 
 ### Engineering acceptance — short, explicit tests
 
@@ -129,7 +129,7 @@ python scripts/smoke_training_lifecycle.py continue --root "$ROOT" --unified --e
 python scripts/smoke_training_lifecycle.py verify --root "$ROOT" --unified --envs 8
 ```
 
-These acceptance runs remain limited to two PPO updates, **not enough to learn walking**. If the small lifecycle passes, the next gate uses a *fresh* root at 2,048 worlds. See [INSTALL.md](docs/INSTALL.md) for the complete ordered go/no-go procedure before considering a new foundation or overnight continuation.
+These acceptance runs remain limited to two PPO updates, **not enough to learn walking**. If the small lifecycle passes, the next gate uses a *fresh* root at 2,048 worlds. See [INSTALL.md](docs/INSTALL.md) for full copy-paste cold launch, interrupted resume and same-run target extension commands.
 
 ### Frozen assessment and browser viewer
 
