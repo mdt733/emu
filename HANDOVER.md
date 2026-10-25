@@ -18,7 +18,7 @@
 
 - Latest HEAD **`f91e0c4` CI green (four jobs: Python, unified MJX CPU, viewer, browser)**. This is source validation, not evidence of real CUDA specialist learning.
 - Added **`python scripts/preflight_growth60.py`**: a read-only exact-parent validation of the preserved 40M `54345b2` final checkpoint and original run config, SHA256, full PPO/Adam+normalizer/sensor contract, governor/health/field state, source provenance and expected 40,042,496-step boundary. This is preparatory code only; verify it on the owner PC with the actual `final.pkl`. **No 40→60 training mode is enabled**, and `main`, Pinnacle and showcase remain untouched.
-- **Still required before any 60M GPU training:** preflight PASS on actual owner checkpoint; source-aware recovery snapshot policy (cross-source recovery must not silently transplant old teaching state); bounded real CUDA resume with evidence that all six lessons are sampled/credited and normal gait preserved; reviewed 60M source-pinned run permission. Control/efficiency also still lacks an independently earned efficiency frontier. No long-run launch command approved.
+- **Still required before any 60M GPU training:** preflight PASS on actual owner checkpoint; **source-aware recovery snapshot isolation now implemented** (cross-source forks skip ancestor `recovery.pkl`; same-source copy validates SHA and geometry; runtime rollback rejects different-source candidates), awaiting fresh CI/GPU evidence; bounded real CUDA resume with evidence that all six lessons are sampled/credited and normal gait preserved; reviewed 60M source-pinned run permission. Control/efficiency also still lacks an independently earned efficiency frontier. No long-run launch command approved.
 
 ## Mission
 

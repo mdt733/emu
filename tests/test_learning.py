@@ -735,6 +735,45 @@ def test_unified_20m_to_40m_handoff_preserves_full_training_contract(monkeypatch
 
 
 
+
+def test_external_fork_only_inherits_same_source_recovery(monkeypatch, tmp_path):
+    """Never bring the old curriculum back via an incompatible rollback."""
+    import emu.checkpoint_io as io
+    old = tmp_path / 'ancestor/checkpoints'
+    old.mkdir(parents=True)
+    (old / 'final.pkl').write_bytes(b'fake checkpoint for source-gating unit test')
+    (old / 'recovery.pkl').write_bytes(b'fake rollback for source-gating unit test')
+    parent_payload = {'meta': {
+        'step': 128, 'source_provenance': {'git_commit': 'old-source'}}}
+    recovery_payload = {'meta': {
+        'step': 64, 'source_provenance': {'git_commit': 'old-source'}}}
+    def fake_load(path, **kwargs):
+        return recovery_payload if Path(path).name == 'recovery.pkl' else parent_payload
+    monkeypatch.setattr(io, 'load_checkpoint', fake_load)
+
+    monkeypatch.setenv('EMU_GIT_COMMIT', 'new-source')
+    cross = tmp_path / 'cross-source'
+    loaded, step, done = io.resume_training_lineage(
+        cross, resume=str(old / 'final.pkl'), target_steps=256, envs=2)
+    assert step == 128 and not done and loaded is parent_payload
+    assert not (cross / 'checkpoints/recovery.pkl').exists()
+
+    monkeypatch.setenv('EMU_GIT_COMMIT', 'old-source')
+    same = tmp_path / 'same-source'
+    io.resume_training_lineage(
+        same, resume=str(old / 'final.pkl'), target_steps=256, envs=2)
+    assert (same / 'checkpoints/recovery.pkl').read_bytes() == (
+        old / 'recovery.pkl').read_bytes()
+
+    # Even with a same-source parent, a rollback with different embedded
+    # provenance is rejected before it can poison the new run.
+    recovery_payload['meta']['source_provenance']['git_commit'] = 'other-source'
+    mixed = tmp_path / 'mixed-recovery'
+    io.resume_training_lineage(
+        mixed, resume=str(old / 'final.pkl'), target_steps=256, envs=2)
+    assert not (mixed / 'checkpoints/recovery.pkl').exists()
+
+
 def test_40m_to_60m_preflight_is_strict_and_does_not_unlock_training(monkeypatch, tmp_path):
     from dataclasses import replace
     from emu.run import validate_40m_to_60m_handoff

@@ -485,16 +485,38 @@ def resume_training_lineage(
     except Exception as exc:
         raise RuntimeError(f'--resume failed for {resume_path}: {exc}') from exc
 
-    # Preserve stronger run-local rollback candidates across external forks.
+    # A rollback checkpoint is learning state AND teaching recipe, not just
+    # matching network weights. Never transplant a recovery snapshot from a
+    # different source revision into a new source-pinned experiment.
     src_ckpt_dir = resume_path.parent
     dst_ckpt_dir = run_dir / 'checkpoints'
     if src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
         src_recovery = src_ckpt_dir / 'recovery.pkl'
         dst_recovery = dst_ckpt_dir / 'recovery.pkl'
         if src_recovery.exists() and not dst_recovery.exists():
-            dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_recovery, dst_recovery)
-            print(f"{LOG} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
+            active_source = source_provenance_from_env().get('git_commit')
+            ancestor_source = ((resumed_payload['meta'].get('source_provenance') or {})
+                               .get('git_commit'))
+            if not active_source or ancestor_source != active_source:
+                print(f"{LOG} --resume: cross-source ancestor; not inheriting "
+                      f"{src_recovery.name} (new run must earn its own recovery).", flush=True)
+            else:
+                try:
+                    recovery = load_checkpoint(
+                        src_recovery, validate=True,
+                        expected_observation_schema=expected_observation_schema,
+                        expected_sensor_contract=expected_sensor_contract)
+                    rollback_source = ((recovery['meta'].get('source_provenance') or {})
+                                       .get('git_commit'))
+                    if rollback_source != active_source:
+                        raise ValueError('source commit differs from new run')
+                except (OSError, ValueError, RuntimeError) as exc:
+                    print(f"{LOG} --resume: source recovery not inherited: {exc}", flush=True)
+                else:
+                    dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_recovery, dst_recovery)
+                    print(f"{LOG} --resume: seeded same-source recovery.pkl "
+                          f"from {src_recovery}.", flush=True)
     return resumed_payload, resumed_step, False
 
 
@@ -540,6 +562,13 @@ def try_restore_recovery(
             recovery_path,
             expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY),
             expected_sensor_contract=getattr(env, 'sensor_contract', None))
+        active_source = source_provenance_from_env().get('git_commit')
+        snapshot_source = ((payload['meta'].get('source_provenance') or {})
+                           .get('git_commit'))
+        if active_source and snapshot_source != active_source:
+            print(f"{log_prefix} AUTO-RECOVERY: refusing a rollback from a "
+                  "different source commit.", flush=True)
+            return None
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)

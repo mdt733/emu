@@ -195,8 +195,10 @@ rewind, source+step identity, source agreement with run metadata, immutable
 parent path, unchanged physical/training config, and prints SHA256 and
 frontiers. It writes **nothing**, and intentionally does not enable a 60M
 training mode. Do not try to change `EMU_UNIFIED_CONTINUATION` to bypass the
-`PRE-LAUNCH` guard. A separate reviewed source-pinned launch, local
-CUDA acceptance and an explicit owner decision are required.
+`PRE-LAUNCH` guard. Cross-source forks will not copy older-source `recovery.pkl`; rollback snapshots
+must be independently earned under the new code. A separate reviewed
+source-pinned launch, local CUDA acceptance and an explicit owner decision
+are required.
 
 ## Approved 20M → 40M gait-maturation continuation (feature branch only)
 
