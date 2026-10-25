@@ -1371,15 +1371,22 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
                            -si*dx[sl,0]+c*dx[sl,1]),axis=1)
             actual_yaw=np.diff(yaw)[sl]/CONTROL_DT
             requested=command[sl,world]
-            errs=np.abs(np.concatenate(
-                (body- requested[:,:2],(actual_yaw-requested[:,2])[:,None]),
-                axis=1))
-            mae=np.mean(errs,axis=0)
+            # Absolute error alone cannot tell persistent directional drift
+            # from step-to-step oscillation. Keep the signed bias and standard
+            # deviation from the SAME body-frame trace and settled window.
+            errors=np.concatenate(
+                (body-requested[:,:2],
+                 (actual_yaw-requested[:,2])[:,None]),axis=1)
+            mae=np.mean(np.abs(errors),axis=0)
+            bias=np.mean(errors,axis=0)
+            jitter=np.std(errors,axis=0)
             speed=np.linalg.norm(body,axis=1)
             achieved=float(np.sum(np.linalg.norm(np.diff(xyz[:stop,world],axis=0),axis=1)))
             commanded=float(np.sum(np.linalg.norm(requested[:,:2],axis=1))*CONTROL_DT)
         else:
             mae=np.array([float('inf')]*3)
+            bias=np.full(3,float('nan'))
+            jitter=np.full(3,float('nan'))
             achieved=0.
             commanded=0.
         contact_any=np.any(contacts_lower[:stop,world] | contacts_upper[:stop,world],axis=1)
@@ -1486,6 +1493,12 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             tracking_mae_vx_mps=round(float(mae[0]),4) if np.isfinite(mae[0]) else None,
             tracking_mae_vy_mps=round(float(mae[1]),4) if np.isfinite(mae[1]) else None,
             tracking_mae_yaw_rad_s=round(float(mae[2]),4) if np.isfinite(mae[2]) else None,
+            tracking_signed_bias_vx_mps=round(float(bias[0]),4) if np.isfinite(bias[0]) else None,
+            tracking_signed_bias_vy_mps=round(float(bias[1]),4) if np.isfinite(bias[1]) else None,
+            tracking_signed_bias_yaw_rad_s=round(float(bias[2]),4) if np.isfinite(bias[2]) else None,
+            tracking_jitter_vx_mps=round(float(jitter[0]),4) if np.isfinite(jitter[0]) else None,
+            tracking_jitter_vy_mps=round(float(jitter[1]),4) if np.isfinite(jitter[1]) else None,
+            tracking_jitter_yaw_rad_s=round(float(jitter[2]),4) if np.isfinite(jitter[2]) else None,
             supported_fraction=round(support_fraction,3),
             bad_contact_fraction=round(bad_fraction,3),
             path_travel_m=round(achieved,4),
