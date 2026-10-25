@@ -8,6 +8,7 @@
 
 - Feature branch only: command boundary learning now reads **near-target and easier signed-episode evidence**. Near-target success nudges its command limit upward; easier failure nudges it down; hard failures hold rather than force retreat. The window is checkpointed and older near-only windows migrate without rewriting old policies.
 - Cold-start plan: 20M main-style basic gait (no active specialist lessons), then a 10M linear specialist *activation* blend to 35%. The blend is NOT a threshold for growing specific capabilities.
+- **Critical 40M fork fix:** the preserved 40,042,496-step ancestor has never trained with these six specialists. In a source-pinned handoff its specialist blend starts at the **actual parent step**, not absolute 20M; this origin is persisted in the new run's run_meta.json and preserved across power-loss `--resume auto`. The read-only 60M preflight reports the proposed blend age.
 - Scope: this is the first controller migration (commands). Slope/step/recovery/transitions/control will be migrated gradually, keeping their distinct physical evidence. Source remains **PRE-LAUNCH for 60M**, no GPU run authorized, no main/showcase changes. Review latest GitHub Actions before claiming green.
 
 ## PREVIOUS: 40M gait continuation complete (owner GPU run; 25 Oct 2026)

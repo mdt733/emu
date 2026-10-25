@@ -8,6 +8,7 @@ from pathlib import Path
 
 from emu.checkpoint_io import load_checkpoint
 from emu.curriculum import RegimeGovernor, TrainingHealth, CapabilityField
+from emu.capability_focus import resolve_blend_start, growth_mix
 from emu.run import validate_40m_to_60m_handoff
 from emu.training_config import (
     TrainingConfig, UNIFIED_GROWTH_STEPS, training_sensor_contract,
@@ -44,6 +45,19 @@ def main() -> int:
         "frontiers": governor.params_dict(),
         "normalizer_count": float(payload["obs_norm"]["count"]),
         "health": health.state_dict(),
+        "specialist_blend": {
+            "start_step": resolve_blend_start(
+                resumed_step=int(payload["meta"]["step"]),
+                ancestor_source=record["source_commit"]),
+            "initial_active_fraction": growth_mix(
+                step=int(payload["meta"]["step"]),
+                foundation_steps=int(payload["meta"]["step"]),
+                steady_difficulty=0.),
+            "active_fraction_after_5m": growth_mix(
+                step=int(payload["meta"]["step"])+5_000_000,
+                foundation_steps=int(payload["meta"]["step"]),
+                steady_difficulty=0.),
+        },
         "launch_authorised": False,
     }
     print(json.dumps(summary, indent=2, sort_keys=True))

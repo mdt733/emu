@@ -22,12 +22,39 @@ SPECIALIST_ACTIVE_FRACTION = 0.35
 SPECIALIST_BLEND_STEPS = 10_000_000
 
 
+def resolve_blend_start(*, resumed_step: int, ancestor_source: str | None,
+                        prior_run_start: int | None = None) -> int:
+    """Stable post-foundation lesson origin for cold, fork and same-run resume.
+
+    A source-pinned fork of the exact original 40M non-specialist learner
+    begins exposing lessons at that checkpoint, not at the original 20M age.
+    Within a run, its persisted origin wins even after power-loss recovery.
+    This only controls exposure frequency; every skill's difficulty remains
+    evidence-driven.
+    """
+    from .training_config import FOUNDATION_STEPS, UNIFIED_MATURITY_SOURCE_COMMIT
+    step = int(resumed_step)
+    if step < 0:
+        raise ValueError("negative resumed training step")
+    if prior_run_start is not None:
+        anchor = int(prior_run_start)
+        if anchor < FOUNDATION_STEPS or anchor > step:
+            raise ValueError("invalid saved specialist blend origin")
+        return anchor
+    if ancestor_source == UNIFIED_MATURITY_SOURCE_COMMIT:
+        if step < FOUNDATION_STEPS:
+            raise ValueError("40M ancestor has impossible pre-foundation step")
+        return step
+    return FOUNDATION_STEPS
+
+
 def growth_mix(*, step: int, foundation_steps: int,
                steady_difficulty: float) -> float:
-    """Steady gait to 20M, followed by a smooth 10M specialist fade-in.
+    """Smooth 10M exposure fade after the run's source-pinned anchor.
 
-    No earned skill, other frontier or later absolute age is used as a gate.
-    This sets probability of an emphasized lesson, not the severity target.
+    For cold start, foundation_steps is 20M; for the exact 40M checkpoint
+    fork it is that ancestor's step, preserved across same-run resumes.
+    No earned skill or another frontier is a gate on individual difficulty.
     """
     import math
     if not math.isfinite(float(steady_difficulty)):
