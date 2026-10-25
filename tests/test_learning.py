@@ -876,10 +876,13 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     g.params.slope_exposure, g.params.slope_max_deg = .15, .70
     g.params.terrain_exposure, g.params.terrain_height_m = .15, .004
     result = g._share_unified_growth(before)
-    assert result['growth_budget_demand'] > 1.
-    assert 0. < result['growth_budget_scale'] < 1.
+    # Each command axis owns its own bounded growth allowance, so vx+ and
+    # reverse do not scale one another down (or steal slope/step progress).
+    assert result['growth_budget_demand'] >= 1.
+    assert result['growth_budget_scale'] == 1.
     assert g.params.steady_difficulty == g.difficulty_base_step
-    assert before['frontier_vx_lo'] * 1.025 < g.params.frontier_vx_lo < before['frontier_vx_lo']
+    assert g.params.frontier_vx_lo == before['frontier_vx_lo'] * 1.025
+    assert g.params.frontier_vx_hi == before['frontier_vx_hi'] * 1.025
     assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
     assert g.params.slope_max_deg == .70
     assert g.params.terrain_height_m == .004
