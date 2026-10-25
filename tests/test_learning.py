@@ -924,26 +924,6 @@ def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
     assert new.capability_field_mode=='shadow'
 
 
-def test_40m_checkpoint_blend_anchor_is_source_pinned_and_persists():
-    """Old 40M policy starts as a newly born specialist, not 35% on day one."""
-    from emu.capability_focus import resolve_blend_start, growth_mix
-    from emu.training_config import UNIFIED_MATURITY_SOURCE_COMMIT
-    step=40_042_496
-    old=resolve_blend_start(resumed_step=step,
-                            ancestor_source=UNIFIED_MATURITY_SOURCE_COMMIT)
-    assert old==step
-    assert growth_mix(step=step,foundation_steps=old,steady_difficulty=0.)==0.
-    assert growth_mix(step=step+5_000_000,foundation_steps=old,
-                      steady_difficulty=1.)==pytest.approx(.175)
-    assert resolve_blend_start(resumed_step=step+8_000_000,
-                               ancestor_source='new-run-source',
-                               prior_run_start=old)==old
-    assert resolve_blend_start(resumed_step=0,ancestor_source=None)==20_000_000
-    with pytest.raises(ValueError,match='origin'):
-        resolve_blend_start(resumed_step=step,ancestor_source=None,
-                            prior_run_start=step+1)
-
-
 def test_unified_specialist_blend_then_independent_bidirectional_targets():
     """Before 20M: simple gait. Afterwards: slow exposure, local evidence."""
     from emu.capability_focus import growth_mix, focus_indices, FOCUS_NAMES

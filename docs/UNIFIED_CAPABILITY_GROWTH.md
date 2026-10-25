@@ -79,7 +79,8 @@ These numbers are a reference to reproduce deliberately, not permission to copy 
 
 A training target is a question, **not a proven capability**. Each focused lesson samples easier practice, near-target episodes and harder exploratory probes. The teacher pools completed episodes in a small checkpointed local window. A successful near-target cohort nudges its own signed command limit up by 2.5% (mixed radius 1%); a poor exploratory attempt simply holds; sustained failure on easier commands nudges the limit down by 2.5%, never below the cold probe seed. The small adjustment itself is the low-pass filter: it can wander, retreat and discover again without a graduation gate. Symmetric lateral/yaw limits require both signs for expansion but either sign can trigger repair. Eight meaningful attempts is a provisional compromise, not an achievement threshold or magic number. Physical exams remain separate.
 
-Source handoff detail: the exact original 40,042,496-step gait-only checkpoint was trained without the new specialists. Its new run therefore saves a distinct blend origin of **40,042,496** in run_meta.json; a subsequent same-run resume preserves that origin. A fresh cold start uses 20M. At neither origin does the first new birth jump straight to 35% specialist activation.
+The specialist blend follows one reproducible cold-start timeline: 20M basic foundation, then a 10M gradual teaching-exposure ramp. This is a sampling schedule, **not** a competence gate. There are no special-case checkpoints, ancestor SHAs or teaching-age overrides in the curriculum.
+
 
 Current implementation covers the **command family's** continuous dials and the post-foundation activation blend. Step/slope/push/transition/control frontiers still use their prior evidence controllers until migrated; do not claim all six already share this exact rule. A future physical severity-aware migration must keep the independent up/down and incline directions.
 

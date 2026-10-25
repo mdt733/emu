@@ -19,7 +19,6 @@ Keep extraction local to existing modules; avoid new wrapper mazes.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import time
 from dataclasses import replace
@@ -49,7 +48,6 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
-from .capability_focus import growth_mix, resolve_blend_start
 from .ppo import make_trainer, update_running_stats
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
@@ -231,25 +229,10 @@ def train(args: TrainingConfig) -> int:
         return 0
 
     parent_meta = ((resumed_payload or {}).get('meta') or {})
-    prior_run_meta_path = run_dir / 'run_meta.json'
-    prior_run_anchor = None
-    if args.unified_capability_focus and prior_run_meta_path.exists():
-        prior_meta = json.loads(prior_run_meta_path.read_text(encoding='utf-8'))
-        prior_run_anchor = prior_meta.get('specialist_blend_start_step')
-        if prior_run_anchor is None and resumed_step > FOUNDATION_STEPS:
-            raise RuntimeError(
-                'This run lacks a persisted specialist exposure origin; '
-                'do not silently restart its teacher with a new age.')
-    blend_start = (resolve_blend_start(
-        resumed_step=resumed_step,
-        ancestor_source=((parent_meta.get('source_provenance') or {}).get('git_commit')),
-        prior_run_start=prior_run_anchor)
-        if args.unified_capability_focus else FOUNDATION_STEPS)
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'ancestor_checkpoint_source': ((parent_meta.get('source_provenance') or {}).get('git_commit')),
             'ancestor_checkpoint_step': parent_meta.get('step'),
             'ancestor_checkpoint_path': args.resume if resumed_payload is not None else None,
-            'specialist_blend_start_step': blend_start if args.unified_capability_focus else None,
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
             'resumed_from_step': resumed_step if resumed_payload is not None else None}
     write_json(run_dir / 'run_meta.json', meta)
@@ -368,8 +351,9 @@ def train(args: TrainingConfig) -> int:
                 d['slope_exposure'] = 0.0
                 d['slope_max_deg'] = 0.0
         if args.unified_capability_focus:
+            from .capability_focus import growth_mix
             d['specialist_mix'] = growth_mix(
-                step=step, foundation_steps=blend_start,
+                step=step, foundation_steps=FOUNDATION_STEPS,
                 steady_difficulty=float(governor.params.steady_difficulty))
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
@@ -399,11 +383,6 @@ def train(args: TrainingConfig) -> int:
     p = env.params_array(params)
 
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
-    if args.unified_capability_focus:
-        print(f"{LOG_PREFIX} specialist exposure blend starts at {blend_start:,} steps "
-              f"(current={resumed_step:,}, initial activation="
-              f"{growth_mix(step=resumed_step, foundation_steps=blend_start, steady_difficulty=0.):.1%})",
-              flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
     if args.terrain_step_max_m:
         print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
