@@ -667,6 +667,73 @@ def test_unified_overnight_guard_allows_only_explicit_bounded_acceptance(monkeyp
     # smoke_training_lifecycle.py --unified stages, not this CPU unit test.
 
 
+def test_unified_20m_to_40m_handoff_preserves_full_training_contract(monkeypatch, tmp_path):
+    """No generic warm forks: only the exact original source and config."""
+    from dataclasses import replace
+    from pathlib import Path
+    from types import SimpleNamespace
+    from emu.run import one_run_config, validate_20m_to_40m_handoff
+    from emu.training import unified_launch_mode
+    from emu.training_config import (
+        FOUNDATION_STEPS, UNIFIED_MATURITY_STEPS,
+        UNIFIED_FOUNDATION_SOURCE_COMMIT, TrainingConfig)
+    from emu.checkpoint_io import update_boundary_at_or_after
+
+    monkeypatch.setattr(Path,'home',classmethod(lambda cls:tmp_path))
+    root=(tmp_path/'robot_lab/emu_runs/unified_foundation20_470cf7f')
+    dest=(tmp_path/'robot_lab/emu_runs/unified_maturity40_test')
+    parent=root/'checkpoints/final.pkl'
+    parent.parent.mkdir(parents=True)
+    parent.write_bytes(b'preserve the exact 20M ancestor')
+    new=one_run_config(SimpleNamespace(
+        run_dir=str(dest),profile='sim2real',
+        seed=733,device='cuda',envs=2048,steps=UNIFIED_MATURITY_STEPS,
+        unified_capabilities=True,terrain_actor=True,terrain_step_max_m=.04))
+    old=replace(new,steps=FOUNDATION_STEPS,run_dir=str(root))
+    old.save(root/'training_config.json')
+    meta={'step':update_boundary_at_or_after(FOUNDATION_STEPS,2048),
+          'source_provenance':{'git_commit':UNIFIED_FOUNDATION_SOURCE_COMMIT}}
+    payload={'meta':meta}
+    monkeypatch.delenv('EMU_UNIFIED_CONTINUATION',raising=False)
+    with pytest.raises(RuntimeError,match='explicit 20M to 40M'):
+        validate_20m_to_40m_handoff(new,parent,payload)
+    monkeypatch.setenv('EMU_UNIFIED_CONTINUATION','20to40-approved')
+    record=validate_20m_to_40m_handoff(new,parent,payload)
+    assert record['source_commit']==UNIFIED_FOUNDATION_SOURCE_COMMIT
+    assert record['source_step']==str(meta['step'])
+    assert len(record['checkpoint_sha256'])==64
+    assert parent.read_bytes()==b'preserve the exact 20M ancestor'
+    assert unified_launch_mode(replace(new,resume=str(parent)))=='maturity40'
+    local_checkpoint=dest/'checkpoints/latest.pkl'
+    assert unified_launch_mode(replace(new,resume=str(local_checkpoint)))=='maturity40'
+    for change in (dict(steps=UNIFIED_MATURITY_STEPS+1),
+                   dict(steps=60_000_000),dict(envs=8),dict(seed=42),
+                   dict(observation_schema='legacy_220'),
+                   dict(terrain_step_max_m=.05),
+                   dict(contact_slope_deg=2.),
+                   dict(motor_guidance_weight=.01)):
+        with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+            unified_launch_mode(replace(new,resume=str(parent),**change))
+    for bad_source in ('', 'b'*40):
+        with pytest.raises(RuntimeError,match='unexpected training source'):
+            validate_20m_to_40m_handoff(
+                new,parent,{'meta':{**meta,
+                     'source_provenance':{'git_commit':bad_source}}})
+    with pytest.raises(RuntimeError,match='unexpected training source'):
+        validate_20m_to_40m_handoff(new,parent,
+            {'meta':{**meta,'step':65536}})
+    with pytest.raises(RuntimeError,match='preserved'):
+        validate_20m_to_40m_handoff(
+            new,root/'checkpoints/recovery.pkl',payload)
+    mismatched=replace(old,combo_mix_frac=.2)
+    mismatched.save(root/'training_config.json')
+    with pytest.raises(RuntimeError,match='would change 20M training contract'):
+        validate_20m_to_40m_handoff(new,parent,payload)
+    monkeypatch.delenv('EMU_UNIFIED_CONTINUATION',raising=False)
+    with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+        unified_launch_mode(replace(new,resume=str(parent)))
+
+
 def test_first_unified_20m_authorisation_keeps_growth_locked(monkeypatch, tmp_path):
     """Approved production foundation is not permission for 20M+1 or any fork."""
     from dataclasses import replace
