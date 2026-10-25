@@ -1035,8 +1035,13 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             row[f'command_easy_attempts_{label}']=float(easier_tested.sum())
             row[f'command_easy_successes_{label}']=float((easier_tested & success).sum())
         ctl=(focus==5)
-        moving=(ctl & (np.asarray(metrics['cmd_vx'])>=.075) &
-                (np.asarray(metrics['vx'])>=.04))
+        # Control starts with real but slow forward walking (typically
+        # 0.04..0.06 m/s). Requiring 0.075 m/s here previously made the
+        # entire efficiency cohort report UNKNOWN even when it was moving.
+        # Keep a positive actual-progress floor: standing still cannot
+        # produce an artificial zero-energy achievement.
+        moving=(ctl & (np.asarray(metrics['cmd_vx'])>=.045) &
+                (np.asarray(metrics['vx'])>=.025))
         if np.any(moving):
             row['control_shaft_j_per_m'] = float(
                 np.asarray(metrics['servo_shaft_drive_power_w'])[moving].sum() /
