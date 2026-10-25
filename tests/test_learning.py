@@ -827,34 +827,37 @@ def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
     assert new.capability_field_mode=='shadow'
 
 
-def test_unified_main_first_20m_then_earned_specialists():
-    """Same actor contract, no specialist growth before the 20M boundary."""
-    from emu.capability_focus import growth_mix
+def test_unified_six_specialists_probe_from_birth_without_shared_unlocks():
+    """At every step, each specialty has a nonzero cohort and local frontier."""
+    from emu.capability_focus import growth_mix, focus_indices, FOCUS_NAMES
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
-    g.core_competence=.90
-    g.fall_ema['posture']=.10
-    for steps in (0,4_587_520,19_999_999):
-        assert growth_mix(step=steps,foundation_steps=20_000_000,
-                          steady_difficulty=.50)==0.
-    assert growth_mix(step=20_000_000,foundation_steps=20_000_000,
-                      steady_difficulty=.50)==0.
-    assert 0. < growth_mix(step=21_000_000,foundation_steps=20_000_000,
-                          steady_difficulty=.50) < 1.
-    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
-                      steady_difficulty=.05)==0.
-    assert growth_mix(step=23_000_000,foundation_steps=20_000_000,
-                      steady_difficulty=.32)==1.
-    assert g.advance_curriculum({},step=19_999_999,
-               foundation_steps=20_000_000,max_height_m=.04)['terrain_event']=='foundation_flat'
-    assert g.params.terrain_exposure==0.
-    assert g.params.slope_exposure==0.
-    assert g.params.frontier_vx_hi==.06
-    assert g.params.frontier_push_n==.70
-    assert not any(v['attempts'] for v in g.command_evidence.values())
-    assert g.advance_curriculum({},step=20_000_000,
-               foundation_steps=20_000_000,max_height_m=.04)['terrain_event'] in (
-               'terrain_unified_seed_4mm','unified_bootstrap_steady','await_core_walk')
-    assert g.params.terrain_exposure>=0.
+    for step in (0,65_536,4_587_520,19_999_999,40_000_000):
+        for steady in (0.,.04,.50):
+            mix=growth_mix(step=step,foundation_steps=40_000_000,
+                           steady_difficulty=steady)
+            assert 0. < mix <= 1.
+    counts=np.bincount(focus_indices(2048),minlength=len(FOCUS_NAMES))
+    assert len(counts)==6 and np.all(counts>=200)
+    report=g.advance_curriculum({},step=65_536,
+              foundation_steps=40_000_000,max_height_m=.04)
+    assert report['terrain_event']=='terrain_unified_seed_4mm'
+    assert report['slope_event']=='seed_real_incline_0p7deg'
+    assert g.params.terrain_exposure>0. and g.params.terrain_height_m>0.
+    assert g.params.slope_exposure>0. and g.params.slope_max_deg>0.
+    # Each command boundary progresses on OWN 24-ended-episode evidence.
+    # Core competence may be zero; other specialties' evidence is absent.
+    row={'command_probe_attempts_vx_hi':24.,
+         'command_probe_successes_vx_hi':24.}
+    before=g.params.frontier_vx_hi
+    event=g.advance_curriculum(row,step=131_072,
+               foundation_steps=40_000_000,max_height_m=.04)
+    assert g.params.frontier_vx_hi>before
+    assert event['growth_budget_demand']>=0.
+    assert g.params.slope_max_deg==.70
+    # No implicit specialist unlock in any old step count.
+    assert g.command_evidence['vx_hi']['attempts']==0.
+
+
 
 
 def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
@@ -875,7 +878,7 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     result = g._share_unified_growth(before)
     assert result['growth_budget_demand'] > 1.
     assert 0. < result['growth_budget_scale'] < 1.
-    assert 0. < g.params.steady_difficulty < g.difficulty_base_step
+    assert g.params.steady_difficulty == g.difficulty_base_step
     assert before['frontier_vx_lo'] * 1.025 < g.params.frontier_vx_lo < before['frontier_vx_lo']
     assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
     assert g.params.slope_max_deg == .70
@@ -892,8 +895,8 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     unified = RegimeGovernor(unified_capability_focus=True)
     report = unified.advance_curriculum(
         {}, step=0, max_height_m=.04, foundation_steps=20_000_000)
-    assert report['terrain_event'] == 'foundation_flat'
-    assert report['slope_event'] == 'foundation_flat'
+    assert report['terrain_event'] == 'terrain_unified_seed_4mm'
+    assert report['slope_event'] == 'seed_real_incline_0p7deg'
     assert {k:report[k] for k in ('growth_budget_demand',
                                    'growth_budget_scale',
                                    'growth_budget_limited')} == {
@@ -901,8 +904,8 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
         'growth_budget_scale':1.0,
         'growth_budget_limited':0.0,
     }
-    assert unified.params.slope_exposure == 0.
-    assert unified.params.terrain_exposure == 0.
+    assert unified.params.slope_exposure > 0.
+    assert unified.params.terrain_exposure > 0.
 
 
 def test_unified_budget_metrics_header_is_stable_at_foundation_boundary(tmp_path):
