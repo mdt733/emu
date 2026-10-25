@@ -132,7 +132,58 @@ emu train \
 )
 ~~~
 
-Choose a larger absolute target before the fresh run if desired. Extending a run whose saved target is already complete is a separate source-safe lifecycle change; do not manually change training_config.json. Old checkpoint-specific 20M→40M and 40M→60M handoff procedures are historical, not required for this cold-run architecture.
+Choose a larger original target if desired. More importantly, **finished runs can now extend without a new experiment**, provided the previous final checkpoint is valid, Git source and all physical/training settings are unchanged, and only the total step target increases. The same training directory continues; never manually edit its saved JSON.
+
+### Extend the finished 120M run to 240M (complete WSL command)
+
+~~~bash
+(
+set -euo pipefail
+cd ~/emu
+git switch feature/v5023-capability-growth
+if [ -n "$(git status --porcelain)" ]; then
+  echo "STOP: working tree contains changes"
+  exit 1
+fi
+source .venv/bin/activate
+RUN="$HOME/robot_lab/emu_runs/unified_cold120_733"
+if [ ! -s "$RUN/training_config.json" ] || [ ! -s "$RUN/run_meta.json" ]; then
+  echo "STOP: original run metadata is missing"
+  exit 1
+fi
+if [ ! -s "$RUN/checkpoints/final.pkl" ]; then
+  echo "STOP: previous target must finish and have final.pkl"
+  exit 1
+fi
+export RUN
+python - <<'PY'
+import json, os, subprocess
+from pathlib import Path
+meta=json.loads((Path(os.environ["RUN"])/"run_meta.json").read_text())
+source=meta["source_provenance"]["git_commit"]
+current=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
+if current != source:
+    raise SystemExit("STOP: source mismatch. Restore original commit: "+source)
+print("Exact source verified:", current)
+PY
+
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved \
+emu train \
+  --run-dir "$RUN" \
+  --profile sim2real \
+  --terrain-actor \
+  --terrain-step-max-m 0.04 \
+  --unified-capabilities \
+  --steps 240000000 \
+  --envs 2048 \
+  --seed 733 \
+  --device cuda \
+  --resume auto
+)
+~~~
+
+This resumes the same PPO/teacher lineage. Do not pull a different Git revision to extend; the original source is pinned. The older checkpoint-specific handoff procedures are historical, not required here.
 
 ## Checks and viewer
 
