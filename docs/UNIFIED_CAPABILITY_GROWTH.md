@@ -84,6 +84,10 @@ The specialist blend follows one reproducible cold-start timeline: 20M basic fou
 
 Current implementation covers the **command family's** continuous dials and the post-foundation activation blend. Step/slope/push/transition/control frontiers still use their prior evidence controllers until migrated; do not claim all six already share this exact rule. A future physical severity-aware migration must keep the independent up/down and incline directions.
 
+## Continuous incline target (26 October)
+
+Slope evidence now uses real collision normals, separating easier and near-target completed episodes in each of four directions. Successful near-target slope episodes nudge the incline target up; difficult exploratory failures hold; repeated failure on easier slopes nudges it down. Old pooled success cannot certify a harder physical grade. The local exposure fraction remains modest. Step heights, physical push recovery, transitions and control efficiency are next to migrate.
+
 ## One honest physical world and sensor contract
 
 Unified training uses **two solid, oriented collision slabs** representing adjoining terrain. Per-episode poses vary actual pitch/roll, step rise/drop and independently rotated edge; feet and rays encounter **the same geometry**, with no per-world mesh recompilation. Flat/control episodes must have no ghost collisions. Physics and ray/height/support calculations must agree, especially at sloped step lips and descending edges.

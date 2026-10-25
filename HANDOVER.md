@@ -1,8 +1,14 @@
 # EMU — active handover
 
-**Branch:** `feature/v5023-capability-growth` · **Updated:** 25 October 2026  
+**Branch:** `feature/v5023-capability-growth` · **Updated:** 26 October 2026  
 **Design and permanent non-regression contract:** [Unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md#non-regression-contract--what-must-never-be-traded-away)  
 **Protected reference:** `main` at `2ec9e9db0a816c658131311129ef89ec7a595a12`
+
+## CURRENT: one long cold-run source + slope moving target (26 October 2026)
+
+- **No special checkpoint:** one cold-start source-pinned 360 actor can run to an arbitrary long requested target >=20M through EMU_UNIFIED_CONTINUOUS=cold-growth-approved, with same-source run-local --resume auto. The existing source and config integrity checks remain mandatory; a 32-world frozen examiner avoids 8GB GPU overcommit.
+- **Local physical slope target:** actual collision incline provides near/easy directional closed episode evidence. Slope difficulty nudges upward only on near-target success in all four bearings, retreats gently on sustained easier-direction failure, and does not retreat merely because hard exploration fails. Historic undifferentiated slope evidence may load, but cannot justify promotion.
+- **User-facing complete cold launch and exact-source resume commands:** docs/INSTALL.md. CPU smoke and 2048-world CUDA preflight still required before serious GPU use; none of these commits changes main or the approved Pinnacle.
 
 ## CURRENT: continuous-dial curriculum implementation (25 Oct 2026)
 
