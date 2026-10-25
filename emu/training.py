@@ -40,6 +40,7 @@ from .training_config import (
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
     OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS,
     EVAL_EVERY_STEPS, EVAL_SEED, EVAL_COHORTS, FINAL_EVAL_COHORTS,
+    UNIFIED_MATURITY_STEPS, UNIFIED_FOUNDATION_SOURCE_COMMIT,
     CLOUD_EVAL_EVERY_STEPS, CLOUD_ENVS, CLOUD_HORIZON, CLOUD_BATCH_POINTS,
     FIELD_HALF_LIFE_STEPS, SENSOR_NOISE_SCALE,
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
@@ -150,6 +151,31 @@ def unified_launch_mode(args: TrainingConfig) -> str:
             and args.cloud_final_probes == 0
             and args.pitch_command_max_deg == 8.):
         return 'foundation20'
+    # Separate, bounded post-foundation learning permission. The runner
+    # validates source SHA, checkpoint, full prior config and ancestor path
+    # BEFORE passing a cross-source parent to this trainer.
+    if (core and os.environ.get('EMU_UNIFIED_CONTINUATION') == '20to40-approved'
+            and args.steps == UNIFIED_MATURITY_STEPS
+            and args.envs == 2048 and args.seed == 733
+            and args.terrain_step_max_m == .04
+            and args.motor_guidance_weight == 0.
+            and args.contact_slope_deg == 0.
+            and not args.domain_randomization
+            and args.domain_terrain_radius == 0.
+            and args.domain_robot_radius == 0.
+            and args.domain_hardware_radius == 0.
+            and args.capability_field_mode == 'shadow'
+            and args.cloud_probes_per_eval == 0
+            and args.cloud_final_probes == 0
+            and args.pitch_command_max_deg == 8.):
+        parent = Path(args.resume).resolve() if args.resume else None
+        original = (Path.home() / 'robot_lab' / 'emu_runs' /
+                    'unified_foundation20_470cf7f' / 'checkpoints' / 'final.pkl').resolve()
+        own_checkpoints = (Path(args.run_dir).resolve() / 'checkpoints')
+        if parent == original or (parent is not None and
+                                  parent.parent == own_checkpoints and
+                                  parent.suffix == '.pkl'):
+            return 'maturity40'
     raise RuntimeError(
         'Unified training is PRE-LAUNCH except for explicit two-update CUDA '
         'acceptance or the approved cold 20M foundation (seed 733, 2048 '
@@ -171,6 +197,11 @@ def train(args: TrainingConfig) -> int:
     launch_mode = unified_launch_mode(args)
     bounded_acceptance = launch_mode == 'bounded'
     cold_foundation = launch_mode == 'foundation20'
+    gait_maturation = launch_mode == 'maturity40'
+    # Another 20M of gentle walking skill before any specialized terrain.
+    # Physical slopes/steps and specialist command cohorts remain dormant
+    # through this 40M target, while the original core gait matures.
+    gait_birth_gate = UNIFIED_MATURITY_STEPS if gait_maturation else FOUNDATION_STEPS
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -199,7 +230,11 @@ def train(args: TrainingConfig) -> int:
     if already_complete:
         return 0
 
+    parent_meta = ((resumed_payload or {}).get('meta') or {})
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
+            'ancestor_checkpoint_source': ((parent_meta.get('source_provenance') or {}).get('git_commit')),
+            'ancestor_checkpoint_step': parent_meta.get('step'),
+            'ancestor_checkpoint_path': args.resume if resumed_payload is not None else None,
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
             'resumed_from_step': resumed_step if resumed_payload is not None else None}
     write_json(run_dir / 'run_meta.json', meta)
@@ -222,8 +257,13 @@ def train(args: TrainingConfig) -> int:
     # environments alongside the 2048-world learner on an 8GB GPU.
     # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
     # only independent evaluation batch size is capped for this 20M run.
-    eval_args = replace(args, envs=32) if cold_foundation else args
+    eval_args = replace(args, envs=32) if (cold_foundation or gait_maturation) else args
     fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    if gait_maturation:
+        print(f'{LOG_PREFIX} bounded 20M -> 40M gait maturation: 2048 training '
+              'worlds, 32-world held-out panels; physical specialists gated '
+              'until target. Full rewind state restored from ancestor.',
+              flush=True)
     if cold_foundation:
         print(f'{LOG_PREFIX} approved cold 20M foundation: 2048 training worlds, '
               '32 held-out worlds per panel; specialist terrain stays flat '
@@ -309,7 +349,7 @@ def train(args: TrainingConfig) -> int:
         # Afterwards expose specialists smoothly, limited by actual steady
         # competence. Rewinds/resume recompute the same dose from steps and
         # restored governor state: no extra checkpoint controller.
-        if step < FOUNDATION_STEPS:
+        if step < gait_birth_gate:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
             if args.unified_capability_focus:
@@ -318,7 +358,7 @@ def train(args: TrainingConfig) -> int:
         if args.unified_capability_focus:
             from .capability_focus import growth_mix
             d['specialist_mix'] = growth_mix(
-                step=step, foundation_steps=FOUNDATION_STEPS,
+                step=step, foundation_steps=gait_birth_gate,
                 steady_difficulty=float(governor.params.steady_difficulty))
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
@@ -534,7 +574,7 @@ def train(args: TrainingConfig) -> int:
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
-            foundation_steps=FOUNDATION_STEPS,
+            foundation_steps=gait_birth_gate,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -763,7 +803,7 @@ def train(args: TrainingConfig) -> int:
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
-        foundation_steps=FOUNDATION_STEPS,
+        foundation_steps=gait_birth_gate,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
