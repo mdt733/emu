@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,48 @@ def env_kwargs_from_args(args) -> dict:
 # Run modes.
 # ---------------------------------------------------------------------------
 
+def unified_launch_mode(args: TrainingConfig) -> str:
+    """Explicit authorisation boundary; deliberately independent of JAX/GPU.
+
+    Only the proven 2-update lifecycle and the owner's FIRST cold-start
+    foundation are open. No post-foundation teacher growth, alternate actor
+    contracts, warm fork from a different policy, or arbitrary step counts.
+    The run wrapper separately pins a clean source SHA and run metadata.
+    """
+    if not args.unified_capability_focus:
+        return 'legacy'
+    core = (args.device == 'cuda'
+            and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_step_max_m >= .001
+            and args.open_frontier)
+    if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
+            and args.envs in (8, 12, 2048)
+            and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS):
+        return 'bounded'
+    if (core and os.environ.get('EMU_UNIFIED_FOUNDATION') == 'cold20m-approved'
+            and args.steps == FOUNDATION_STEPS and args.envs == 2048
+            and args.seed == 733 and args.terrain_step_max_m == .04
+            and args.resume in ('', 'auto')
+            and args.motor_guidance_weight == 0.
+            and args.contact_slope_deg == 0.
+            and not args.domain_randomization
+            and args.domain_terrain_radius == 0.
+            and args.domain_robot_radius == 0.
+            and args.domain_hardware_radius == 0.
+            and args.capability_field_mode == 'shadow'
+            and args.cloud_probes_per_eval == 0
+            and args.cloud_final_probes == 0
+            and args.pitch_command_max_deg == 8.):
+        return 'foundation20'
+    raise RuntimeError(
+        'Unified training is PRE-LAUNCH except for explicit two-update CUDA '
+        'acceptance or the approved cold 20M foundation (seed 733, 2048 '
+        'worlds, 360 array-only observations, flat first-stage teaching). '
+        'Set EMU_UNIFIED_FOUNDATION=cold20m-approved for the exact '
+        'foundation configuration. Post-20M growth remains locked.'
+    )
+
+
 def train(args: TrainingConfig) -> int:
     """Run one checkpoint lineage; no branch-selection logic lives here.
 
@@ -125,29 +168,9 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
-    # Keep the unified overnight campaign CLOSED. The existing lifecycle
-    # smoke has one explicit, source-pinned exception: at most TWO PPO
-    # updates, never a long run. The test opt-in is not a training config
-    # switch and cannot be used to resume beyond this absolute step budget.
-    bounded_acceptance = False
-    if args.unified_capability_focus:
-        bounded_acceptance = (
-            os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
-            and args.device == 'cuda'
-            and args.envs in (8, 12, 2048)
-            and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS
-            and args.observation_schema == OBS_SCHEMA_TERRAIN
-            and args.terrain_step_max_m >= .001
-            and args.open_frontier
-        )
-        if not bounded_acceptance:
-            raise RuntimeError(
-                'Unified training is PRE-LAUNCH. Only explicit, source-pinned '
-                'two-update lifecycle acceptance is permitted; 20M and '
-                'overnight training stay locked pending CUDA memory, '
-                'checkpoint/resume/export, frozen exam and owner approval. '
-                'See docs/UNIFIED_CAPABILITY_GROWTH.md. No training started.'
-            )
+    launch_mode = unified_launch_mode(args)
+    bounded_acceptance = launch_mode == 'bounded'
+    cold_foundation = launch_mode == 'foundation20'
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -195,7 +218,17 @@ def train(args: TrainingConfig) -> int:
     # 10-panel/350-frame fixed exam is for measuring trained walking, and
     # took ~8 minutes on an untrained eight-world smoke. Never pretend
     # this bounded protocol is a held-out walking evaluation.
-    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(args)
+    # Held-out exams must not allocate five additional 2048-world MJX
+    # environments alongside the 2048-world learner on an 8GB GPU.
+    # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
+    # only independent evaluation batch size is capped for this 20M run.
+    eval_args = replace(args, envs=32) if cold_foundation else args
+    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    if cold_foundation:
+        print(f'{LOG_PREFIX} approved cold 20M foundation: 2048 training worlds, '
+              '32 held-out worlds per panel; specialist terrain stays flat '
+              'until the foundation target, post-20M growth is locked',
+              flush=True)
     if bounded_acceptance:
         print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
               'walking exams disabled; use independent frozen policy exam '
