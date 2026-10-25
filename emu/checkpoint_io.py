@@ -708,8 +708,11 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
             t = line.strip()
             if t:
                 error_tail.append(t)
-            if t.startswith(LOG + " step=") or "fixed-eval step=" in t or "AUTO-RECOVERY" in t or "training complete" in t or "Traceback" in t:
-                print("    " + t[:260], flush=True)
+            if (t.startswith(LOG + " step=") or
+                    t.startswith(LOG + "   lessons ") or
+                    "fixed-eval step=" in t or "AUTO-RECOVERY" in t or
+                    "training complete" in t or "Traceback" in t):
+                print("    " + t[:350], flush=True)
         rc = proc.wait()
     if rc:
         print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)

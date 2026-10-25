@@ -278,6 +278,24 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
              f"recovery={row.get('field_known_recovery_cells',0.0):.0f}/{row.get('field_competent_recovery_cells',0.0):.0f} "
              f"events(n/r/e)+={row.get('field_node_events_update',0.0):.0f}/{row.get('field_recovery_events_update',0.0):.0f}/{row.get('field_edge_events_update',0.0):.0f} "
              f"teach(node/edge)={report.get('field_node_influence',0.0):.2f}/{report.get('field_edge_influence',0.0):.2f}")
+    # A concise physical lesson pulse belongs in the live terminal, not
+    # buried exclusively in metrics.csv. Counts are completed episodes
+    # actually seen by the governor, not claimed mastery or future targets.
+    if 'focus_worlds_command' in row:
+        labels=('command','resilience','slope','step','transition','control')
+        births='/'.join(str(int(row.get('focus_worlds_'+k,0))) for k in labels)
+        ended='/'.join(str(int(row.get('focus_episodes_'+k,0))) for k in labels)
+        slope_near=sum(row.get('slope_near_attempts_'+k,0)
+                       for k in ('uphill','downhill','cross_left','cross_right'))
+        step_near=sum(row.get('terrain_near_attempts_'+k,0)
+                      for k in ('up','down'))
+        line6=(f"[{version}]   lessons active(cmd/res/sl/step/tr/ctl)={births} "
+               f"done={ended} "
+               f"near(cmd+/-)={int(row.get('command_probe_attempts_vx_hi',0))}/"
+               f"{int(row.get('command_probe_attempts_vx_lo',0))} "
+               f"slope={int(slope_near)} step={int(step_near)} "
+               f"ctl_Jm={row.get('control_shaft_j_per_m',-1.):.1f}")
+        return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
 

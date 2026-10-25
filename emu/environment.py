@@ -2107,19 +2107,19 @@ class EmuMJXEnv(TaskSampler):
         return data.replace(qpos=qpos, qvel=qvel)
 
     def _specialist_enabled(self, keys, params):
-        """Earned specialist activation preserves main's cold steady gait.
+        """Sample the host-chosen specialist teaching share at episode birth.
 
-        Source main began with a 70-update steady-only bootstrap, then grew
-        difficulty by measured competence. In this unified cold lineage we
-        use the SAME earned steady difficulty to blend emphasis gradually,
-        rather than a hard 20M unlock or full specialist mix at step zero.
-        The RNG is independently folded: no legacy task/sensor key shifts.
+        The host holds this at zero for the first 20M cold gait steps, then
+        linearly fades in to a modest 35% over 10M. This is exposure
+        scheduling, NOT a declaration of mastery; each physical target
+        continues moving on its OWN completed-episode evidence.
+        RNG streams remain independent of the legacy task/sensor sampler.
         """
         jax,jnp=self.jax,self.jnp
         if not self.unified_capability_focus:
             return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        # Host decides phase from absolute steps AND earned steady competence;
-        # there is no second independent maturity schedule inside the world.
+        # The host supplies the sole training-age exposure blend; there is
+        # no separate age or cross-specialist gate inside the world.
         mix=jnp.clip(params[P.specialist_mix],0.,1.)
         k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
         return jax.vmap(lambda x:jax.random.uniform(x,()))(k)<mix
