@@ -18,7 +18,8 @@ from .contracts import (source_repo_root, OBS_SCHEMA_LEGACY,
                         OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
 from .training_config import (TrainingConfig, foundation_config, mature_config,
                               training_sensor_contract, verify_existing_phase_config,
-                              UNIFIED_MATURITY_STEPS, UNIFIED_FOUNDATION_SOURCE_COMMIT)
+                              UNIFIED_MATURITY_STEPS, UNIFIED_FOUNDATION_SOURCE_COMMIT,
+                               UNIFIED_MATURITY_SOURCE_COMMIT, UNIFIED_GROWTH_STEPS)
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -149,6 +150,59 @@ def validate_20m_to_40m_handoff(config: TrainingConfig, parent: Path,
     return {'source_commit':source, 'source_step':str(target),
             'checkpoint_sha256':digest.hexdigest(),
             'checkpoint_path':str(p)}
+
+
+
+def validate_40m_to_60m_handoff(config: TrainingConfig, parent: Path,
+                                  payload: dict) -> dict[str, str]:
+    """Read-only preflight of the exact 40M full-state ancestor.
+
+    This does NOT authorise training. The 60M launch guard remains closed.
+    The caller must first load the checkpoint through the strict schema-9
+    checkpoint validator (including the physical sensor contract).
+    """
+    if (not config.unified_capability_focus or
+            config.observation_schema != OBS_SCHEMA_TERRAIN or
+            config.steps != UNIFIED_GROWTH_STEPS or
+            config.envs != 2048 or config.seed != 733 or
+            config.device != 'cuda'):
+        raise RuntimeError('60M preflight requires the exact unified 360 / 2048 / seed733 / CUDA target')
+    expected_root = (Path.home() / 'robot_lab' / 'emu_runs' /
+                     'unified_maturity40_54345b2').resolve()
+    p = parent.expanduser().resolve()
+    if p != expected_root / 'checkpoints' / 'final.pkl' or not p.is_file():
+        raise RuntimeError('60M preflight requires the preserved 54345b2 40M final.pkl')
+    source = (payload.get('meta', {}).get('source_provenance') or {}).get('git_commit')
+    step = payload.get('meta', {}).get('step')
+    expected_step = update_boundary_at_or_after(UNIFIED_MATURITY_STEPS, 2048)
+    if source != UNIFIED_MATURITY_SOURCE_COMMIT or step != expected_step:
+        raise RuntimeError('40M ancestor checkpoint source or PPO boundary mismatch')
+    config_path = expected_root / 'training_config.json'
+    run_meta_path = expected_root / 'run_meta.json'
+    if not config_path.is_file() or not run_meta_path.is_file():
+        raise RuntimeError('40M ancestor missing original configuration or run metadata')
+    old_meta = json.loads(run_meta_path.read_text(encoding='utf-8'))
+    if (old_meta.get('source_provenance') or {}).get('git_commit') != source:
+        raise RuntimeError('40M ancestor checkpoint and run metadata disagree on source')
+    previous = asdict(TrainingConfig.load(config_path))
+    requested = asdict(config)
+    # Permit ONLY a larger absolute target and a fresh runtime location.
+    for runtime in ('run_dir', 'resume', 'steps', 'device'):
+        previous.pop(runtime, None)
+        requested.pop(runtime, None)
+    delta = {k: (previous.get(k), v) for k, v in requested.items()
+             if previous.get(k) != v}
+    if delta:
+        raise RuntimeError(f'60M preflight would alter physical/training contract: {delta}')
+    if Path(config.run_dir).expanduser().resolve() == expected_root:
+        raise RuntimeError('60M continuation cannot write into the immutable 40M run')
+    digest = hashlib.sha256()
+    with p.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return {'source_commit': source, 'source_step': str(expected_step),
+            'checkpoint_sha256': digest.hexdigest(), 'checkpoint_path': str(p),
+            'proposed_step': str(update_boundary_at_or_after(UNIFIED_GROWTH_STEPS, 2048))}
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:

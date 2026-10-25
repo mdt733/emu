@@ -734,6 +734,64 @@ def test_unified_20m_to_40m_handoff_preserves_full_training_contract(monkeypatch
         unified_launch_mode(replace(new,resume=str(parent)))
 
 
+
+def test_40m_to_60m_preflight_is_strict_and_does_not_unlock_training(monkeypatch, tmp_path):
+    from dataclasses import replace
+    from emu.run import validate_40m_to_60m_handoff
+    from emu.training import unified_launch_mode
+    from emu.training_config import (
+        UNIFIED_GROWTH_STEPS, UNIFIED_MATURITY_STEPS,
+        UNIFIED_MATURITY_SOURCE_COMMIT)
+    from emu.checkpoint_io import update_boundary_at_or_after
+
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: tmp_path))
+    old_root = tmp_path / 'robot_lab/emu_runs/unified_maturity40_54345b2'
+    parent = old_root / 'checkpoints/final.pkl'
+    parent.parent.mkdir(parents=True)
+    parent.write_bytes(b'preserved 40M learner bytes')
+    prior = TrainingConfig(run_dir=str(old_root), steps=UNIFIED_MATURITY_STEPS,
+                           envs=2048, seed=733, device='cuda',
+                           unified_capability_focus=True, observation_schema='terrain_360')
+    prior.save(old_root / 'training_config.json')
+    (old_root / 'run_meta.json').write_text(
+        '{"source_provenance":{"git_commit":"' + UNIFIED_MATURITY_SOURCE_COMMIT + '"}}',
+        encoding='utf-8')
+    candidate = replace(prior, steps=UNIFIED_GROWTH_STEPS,
+                        run_dir=str(tmp_path / 'robot_lab/emu_runs/growth60_candidate'))
+    meta = {'step': update_boundary_at_or_after(UNIFIED_MATURITY_STEPS, 2048),
+            'source_provenance': {'git_commit': UNIFIED_MATURITY_SOURCE_COMMIT}}
+    payload = {'meta': meta}
+    record = validate_40m_to_60m_handoff(candidate, parent, payload)
+    assert record['source_step'] == str(meta['step'])
+    assert record['source_commit'] == UNIFIED_MATURITY_SOURCE_COMMIT
+    assert len(record['checkpoint_sha256']) == 64
+    assert parent.read_bytes() == b'preserved 40M learner bytes'
+    # A correct read-only preflight is NOT a training launch authorisation.
+    monkeypatch.setenv('EMU_UNIFIED_CONTINUATION', '40to60-approved')
+    with pytest.raises(RuntimeError, match='PRE-LAUNCH'):
+        unified_launch_mode(replace(candidate, terrain_step_max_m=.04,
+                                    open_frontier=True, resume=str(parent)))
+    for changed in (dict(steps=UNIFIED_GROWTH_STEPS + 1),
+                    dict(envs=8), dict(seed=5), dict(device='cpu'),
+                    dict(observation_schema='legacy_220')):
+        with pytest.raises(RuntimeError, match='60M preflight'):
+            validate_40m_to_60m_handoff(replace(candidate, **changed), parent, payload)
+    with pytest.raises(RuntimeError, match='source or PPO boundary'):
+        validate_40m_to_60m_handoff(candidate, parent,
+            {'meta': {**meta, 'step': meta['step'] - 65536}})
+    with pytest.raises(RuntimeError, match='source or PPO boundary'):
+        validate_40m_to_60m_handoff(candidate, parent,
+            {'meta': {**meta, 'source_provenance': {'git_commit': 'bad'}}})
+    with pytest.raises(RuntimeError, match='preserved'):
+        validate_40m_to_60m_handoff(candidate, old_root / 'checkpoints/best.pkl', payload)
+    with pytest.raises(RuntimeError, match='immutable'):
+        validate_40m_to_60m_handoff(replace(candidate, run_dir=str(old_root)), parent, payload)
+    altered = replace(prior, vx_hi_max=prior.vx_hi_max + .01)
+    altered.save(old_root / 'training_config.json')
+    with pytest.raises(RuntimeError, match='alter physical/training contract'):
+        validate_40m_to_60m_handoff(candidate, parent, payload)
+
+
 def test_first_unified_20m_authorisation_keeps_growth_locked(monkeypatch, tmp_path):
     """Approved production foundation is not permission for 20M+1 or any fork."""
     from dataclasses import replace

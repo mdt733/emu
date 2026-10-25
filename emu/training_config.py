@@ -29,6 +29,9 @@ FOUNDATION_STEPS = 20_000_000
 # flat-gait maturation, *not* general six-specialist growth permission.
 UNIFIED_MATURITY_STEPS = 40_000_000
 UNIFIED_FOUNDATION_SOURCE_COMMIT = "470cf7f391f418f80e36794f6d4f1832f6a6c7ea"
+# Exact, READ-ONLY handoff candidate; adding these constants grants no run permission.
+UNIFIED_MATURITY_SOURCE_COMMIT = "54345b29a9605ffc93226edc0374df302ea358af"
+UNIFIED_GROWTH_STEPS = 60_000_000
 ROLLOUT_STEPS = 32
 PPO_EPOCHS = 4
 PPO_MINIBATCHES = 8

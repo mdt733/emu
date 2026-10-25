@@ -173,6 +173,31 @@ After the foundation is genuinely walking, review the source and request a
 separate owner-approved growth launch. Long growth runs and public policy
 promotion remain blocked. Do not change `main` or the showcase.
 
+## 40M → 60M: read-only handoff preflight (training NOT authorised)
+
+The **actual learned 40M ancestor** remains at
+`~/robot_lab/emu_runs/unified_maturity40_54345b2/checkpoints/final.pkl`,
+produced at original SHA `54345b29a9605ffc93226edc0374df302ea358af`
+and boundary **40,042,496**. The current six-specialist branch is a
+different source and is **not** permission to resume that checkpoint directly.
+
+From a clean checkout of `feature/v5023-capability-growth` with the normal
+Python environment installed, run:
+
+```bash
+python scripts/preflight_growth60.py
+```
+
+This only reads the **original** `final.pkl`, `training_config.json` and
+`run_meta.json`. It validates the 360 array-only sensor geometry, complete
+finite policy+Adam state, normalizer, curriculum/health/capability field
+rewind, source+step identity, source agreement with run metadata, immutable
+parent path, unchanged physical/training config, and prints SHA256 and
+frontiers. It writes **nothing**, and intentionally does not enable a 60M
+training mode. Do not try to change `EMU_UNIFIED_CONTINUATION` to bypass the
+`PRE-LAUNCH` guard. A separate reviewed source-pinned launch, local
+CUDA acceptance and an explicit owner decision are required.
+
 ## Approved 20M → 40M gait-maturation continuation (feature branch only)
 
 This is a NEW 40M absolute-target run, **resuming the exact recovered 20M
