@@ -878,8 +878,11 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     result = g._share_unified_growth(before)
     # Each command axis owns its own bounded growth allowance, so vx+ and
     # reverse do not scale one another down (or steal slope/step progress).
-    assert result['growth_budget_demand'] >= 1.
-    assert result['growth_budget_scale'] == pytest.approx(1.,abs=1e-12)
+    assert result['growth_budget_demand'] > 1.
+    # The deliberately oversized 1% push proposal is locally capped to
+    # the allowed ~0.15% push increment; that limit MUST NOT throttle vx.
+    assert 0. < result['growth_budget_scale'] < 1.
+    assert before['frontier_push_n'] < g.params.frontier_push_n < before['frontier_push_n']*1.01
     assert g.params.steady_difficulty == pytest.approx(g.difficulty_base_step)
     assert g.params.frontier_vx_lo == pytest.approx(before['frontier_vx_lo'] * 1.025)
     assert g.params.frontier_vx_hi == pytest.approx(before['frontier_vx_hi'] * 1.025)
