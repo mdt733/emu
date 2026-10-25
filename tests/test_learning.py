@@ -879,10 +879,10 @@ def test_unified_shared_growth_preserves_seeds_and_unshared_retreat():
     # Each command axis owns its own bounded growth allowance, so vx+ and
     # reverse do not scale one another down (or steal slope/step progress).
     assert result['growth_budget_demand'] >= 1.
-    assert result['growth_budget_scale'] == 1.
-    assert g.params.steady_difficulty == g.difficulty_base_step
-    assert g.params.frontier_vx_lo == before['frontier_vx_lo'] * 1.025
-    assert g.params.frontier_vx_hi == before['frontier_vx_hi'] * 1.025
+    assert result['growth_budget_scale'] == pytest.approx(1.,abs=1e-12)
+    assert g.params.steady_difficulty == pytest.approx(g.difficulty_base_step)
+    assert g.params.frontier_vx_lo == pytest.approx(before['frontier_vx_lo'] * 1.025)
+    assert g.params.frontier_vx_hi == pytest.approx(before['frontier_vx_hi'] * 1.025)
     assert g.params.resilience_difficulty == before['resilience_difficulty'] - .01
     assert g.params.slope_max_deg == .70
     assert g.params.terrain_height_m == .004
