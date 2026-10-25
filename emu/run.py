@@ -205,6 +205,43 @@ def validate_40m_to_60m_handoff(config: TrainingConfig, parent: Path,
             'proposed_step': str(update_boundary_at_or_after(UNIFIED_GROWTH_STEPS, 2048))}
 
 
+def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig,
+                                    root: Path, *, resume: str,
+                                    provenance: dict) -> bool:
+    """Extend only a FINISHED, identical-source unified run's target.
+
+    No changes to the policy, optimizer, observations, reward or teacher.
+    The only allowed mutation is increasing the requested total world-steps.
+    Require a complete original final checkpoint, not merely an optimistic
+    console message or a newer snapshot from an unfinished campaign.
+    """
+    if (resume != 'auto' or not config.unified_capability_focus or
+            os.environ.get('EMU_UNIFIED_CONTINUOUS') != 'cold-growth-approved'
+            or config.steps <= old.steps):
+        return False
+    a,b=asdict(old),asdict(config)
+    for ignored in ('resume','device','steps'):
+        a.pop(ignored,None);b.pop(ignored,None)
+    if a != b:
+        return False
+    meta_file=root/'run_meta.json'
+    final=root/'checkpoints/final.pkl'
+    if not meta_file.is_file() or not final.is_file():
+        return False
+    prior_meta=json.loads(meta_file.read_text(encoding='utf-8'))
+    if (prior_meta.get('source_provenance') or {}).get('git_commit') != provenance['commit']:
+        return False
+    from .checkpoint_io import load_checkpoint
+    payload=load_checkpoint(
+        final, validate=True,
+        expected_observation_schema=config.observation_schema,
+        expected_sensor_contract=training_sensor_contract(config))
+    return (int(payload['meta']['step']) ==
+            update_boundary_at_or_after(old.steps,old.envs)
+            and ((payload['meta'].get('source_provenance') or {})
+                 .get('git_commit')) == provenance['commit'])
+
+
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
@@ -224,14 +261,22 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
     meta_path = root / 'run_meta.json'
     if root.exists() and any(root.iterdir()) and not cfg_path.is_file():
         raise RuntimeError(f'{root} contains files but no training_config.json; refusing to overwrite them')
+    target_extended=False
     if cfg_path.is_file():
-        previous = asdict(TrainingConfig.load(cfg_path))
+        old_config=TrainingConfig.load(cfg_path)
+        previous = asdict(old_config)
         wanted = asdict(config)
         for variable in ('resume', 'device'):
             previous.pop(variable, None)
             wanted.pop(variable, None)
         if previous != wanted:
-            raise RuntimeError('Existing training configuration differs; choose a fresh --run-dir')
+            target_extended=_validated_same_source_extension(
+                config,old_config,root,resume=resume,provenance=provenance)
+            if not target_extended:
+                raise RuntimeError(
+                    'Existing training configuration differs; only a validated '
+                    'same-source increase of a FINISHED continuous run target '
+                    'with --resume auto is allowed')
         if not meta_path.is_file():
             # run_support writes config and console.log *before* the trainer
             # checks CUDA. A driver/setup failure leaves these two harmless
@@ -248,7 +293,12 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             ancestor = metadata.get('source_provenance', {}).get('git_commit')
             if ancestor != provenance['commit']:
                 raise RuntimeError('Source commit differs from prior run; use the matching source or a new --run-dir')
-        verify_existing_phase_config(root, config)
+        verify_existing_phase_config(
+            root, config, allow_target_extension=target_extended)
+        if target_extended:
+            print(f'Same-source target extension approved: '
+                  f'{old_config.steps:,} -> {config.steps:,} world steps, '
+                  'continuing from the validated completed final.pkl')
 
     finished, partial, expected = resolve_target_checkpoint(
         root, target_steps=config.steps, envs=config.envs, label=root.name,

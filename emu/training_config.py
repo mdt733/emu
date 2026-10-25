@@ -296,7 +296,8 @@ def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: st
     )
 
 # Exact resumed-run configuration matching (also used by a standalone run).
-def verify_existing_phase_config(run_dir: Path, expected) -> None:
+def verify_existing_phase_config(
+        run_dir: Path, expected, *, allow_target_extension: bool = False) -> None:
     """Refuse a same-path continuation with a different physical/learning contract.
 
     A perfectly valid schema-7 checkpoint can still be from a different seed,
@@ -314,6 +315,11 @@ def verify_existing_phase_config(run_dir: Path, expected) -> None:
         raise RuntimeError(f'Found checkpoints in {run_dir} without training_config.json; refusing ambiguous lineage reuse')
     actual = asdict(TrainingConfig.load(cfg_path))
     wanted = asdict(expected)
+    if allow_target_extension:
+        if wanted['steps'] <= actual['steps']:
+            raise RuntimeError('extended run target must strictly increase')
+        actual.pop('steps',None)
+        wanted.pop('steps',None)
     for ignored in ('resume', 'device', 'run_dir'):
         actual.pop(ignored, None)
         wanted.pop(ignored, None)

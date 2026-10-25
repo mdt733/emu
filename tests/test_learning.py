@@ -752,6 +752,50 @@ def test_unified_step_dial_needs_supported_crossing_at_true_height():
     assert again.terrain_evidence['up_near_attempts']==0.
 
 
+def test_unified_same_source_target_extension_requires_completed_final(monkeypatch,tmp_path):
+    """A later larger target can continue without a checkpoint-era fork."""
+    from dataclasses import replace
+    from emu import run as runmod
+    from emu.training_config import TrainingConfig
+    from emu.checkpoint_io import update_boundary_at_or_after
+
+    root=tmp_path/'growth'
+    (root/'checkpoints').mkdir(parents=True)
+    prior=TrainingConfig(
+        run_dir=str(root),steps=40_000_000,envs=2048,seed=733,
+        device='cuda',unified_capability_focus=True,
+        observation_schema='terrain_360',terrain_step_max_m=.04)
+    prior.save(root/'training_config.json')
+    sha='a'*40
+    (root/'run_meta.json').write_text(
+        '{"source_provenance":{"git_commit":"' + sha + '"}}')
+    final=root/'checkpoints/final.pkl'
+    final.write_bytes(b'source-pinned valid checkpoint simulated by mock')
+    new=replace(prior,steps=120_000_000)
+    monkeypatch.setenv('EMU_UNIFIED_CONTINUOUS','cold-growth-approved')
+    monkeypatch.setattr(runmod,'source_repo_root',lambda:None)
+    monkeypatch.setattr(runmod,'resolve_target_checkpoint',
+        lambda *a,**k:(None,final,update_boundary_at_or_after(new.steps,new.envs)))
+    from emu import checkpoint_io
+    monkeypatch.setattr(checkpoint_io,'load_checkpoint',
+        lambda *a,**k:{'meta':{
+            'step':update_boundary_at_or_after(prior.steps,prior.envs),
+            'source_provenance':{'git_commit':sha}}})
+    prov={'available':True,'commit':sha,'dirty':False}
+    path,complete=runmod.inspect_run(new,provenance=prov,resume='auto')
+    assert path==final and not complete
+    with pytest.raises(RuntimeError,match='configuration differs'):
+        runmod.inspect_run(replace(new,seed=5),provenance=prov,resume='auto')
+    with pytest.raises(RuntimeError,match='configuration differs'):
+        runmod.inspect_run(new,provenance=prov,resume='')
+    with pytest.raises(RuntimeError,match='configuration differs'):
+        runmod.inspect_run(replace(prior,steps=39_000_000),
+                           provenance=prov,resume='auto')
+    final.unlink()
+    with pytest.raises(RuntimeError,match='configuration differs'):
+        runmod.inspect_run(new,provenance=prov,resume='auto')
+
+
 def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
     """One cold foundation continues indefinitely without special 40M state."""
     from dataclasses import replace
