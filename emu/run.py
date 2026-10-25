@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
+import os
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -15,7 +17,8 @@ from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
 from .contracts import (source_repo_root, OBS_SCHEMA_LEGACY,
                         OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
 from .training_config import (TrainingConfig, foundation_config, mature_config,
-                              training_sensor_contract, verify_existing_phase_config)
+                              training_sensor_contract, verify_existing_phase_config,
+                              UNIFIED_MATURITY_STEPS, UNIFIED_FOUNDATION_SOURCE_COMMIT)
 
 
 def one_run_config(args) -> TrainingConfig:
@@ -102,6 +105,52 @@ def one_run_config(args) -> TrainingConfig:
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
 
 
+def validate_20m_to_40m_handoff(config: TrainingConfig, parent: Path,
+                                  payload: dict) -> dict[str, str]:
+    """One explicit source transition; preserve the immutable trained ancestor.
+
+    Full-state restoration includes policy, value net, Adam optimiser, running
+    observation statistics, health, curriculum and capability field. The
+    upstream 20M source is fixed, not inferred from an arbitrary filename.
+    """
+    if (os.environ.get('EMU_UNIFIED_CONTINUATION') != '20to40-approved'
+            or not config.unified_capability_focus
+            or config.steps != UNIFIED_MATURITY_STEPS
+            or config.envs != 2048 or config.seed != 733
+            or config.device != 'cuda'):
+        raise RuntimeError('Cross-source warm start not permitted: only the explicit 20M to 40M gait continuation')
+    p = parent.resolve()
+    expected_dir = Path.home() / 'robot_lab' / 'emu_runs' / 'unified_foundation20_470cf7f'
+    if p != (expected_dir / 'checkpoints' / 'final.pkl').resolve():
+        raise RuntimeError('Continuation requires the preserved 470cf7f foundation final.pkl, not a generic policy')
+    meta = payload['meta']
+    source = (meta.get('source_provenance') or {}).get('git_commit')
+    target = update_boundary_at_or_after(20_000_000, config.envs)
+    if source != UNIFIED_FOUNDATION_SOURCE_COMMIT or int(meta['step']) != target:
+        raise RuntimeError('Foundation parent has unexpected training source or PPO boundary')
+    prior_path = expected_dir / 'training_config.json'
+    if not prior_path.is_file():
+        raise RuntimeError('Foundation parent has no original training_config.json')
+    previous = asdict(TrainingConfig.load(prior_path))
+    requested = asdict(config)
+    for runtime in ('run_dir', 'resume', 'steps', 'device'):
+        previous.pop(runtime, None)
+        requested.pop(runtime, None)
+    delta = {k:(previous.get(k),v) for k,v in requested.items() if previous.get(k)!=v}
+    if delta:
+        raise RuntimeError(f'40M continuation would change 20M training contract: {delta}')
+    # Trust neither copied paths nor a fabricated "final.pkl": the strict
+    # checkpoint validator has already checked network and optimizer shapes,
+    # physical model/sensor fingerprint, finite weights and all rewind state.
+    digest = hashlib.sha256()
+    with p.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024*1024), b''):
+            digest.update(block)
+    return {'source_commit':source, 'source_step':str(target),
+            'checkpoint_sha256':digest.hexdigest(),
+            'checkpoint_path':str(p)}
+
+
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
@@ -172,7 +221,10 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
         if source != provenance['commit']:
-            raise RuntimeError('Parent checkpoint source commit differs; refuse cross-source warm start')
+            handoff = validate_20m_to_40m_handoff(config, parent, payload)
+            print(f'Approved source handoff: {handoff["source_commit"][:12]} '
+                  f'at {handoff["source_step"]} steps, sha256={handoff["checkpoint_sha256"][:16]} '
+                  '-> current 40M run (original ancestor remains untouched)')
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
