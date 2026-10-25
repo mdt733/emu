@@ -667,6 +667,51 @@ def test_unified_overnight_guard_allows_only_explicit_bounded_acceptance(monkeyp
     # smoke_training_lifecycle.py --unified stages, not this CPU unit test.
 
 
+def test_first_unified_20m_authorisation_keeps_growth_locked(monkeypatch, tmp_path):
+    """Approved production foundation is not permission for 20M+1 or any fork."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from emu.training import unified_launch_mode
+    from emu.run import one_run_config
+    from emu.training_config import FOUNDATION_STEPS, ROLLOUT_STEPS
+
+    cfg=one_run_config(SimpleNamespace(
+        run_dir=str(tmp_path/'unified20'),profile='sim2real',
+        seed=733,device='cuda',envs=2048,steps=FOUNDATION_STEPS,
+        unified_capabilities=True,terrain_actor=True,
+        terrain_step_max_m=.04))
+    monkeypatch.delenv('EMU_UNIFIED_ACCEPTANCE', raising=False)
+    monkeypatch.delenv('EMU_UNIFIED_FOUNDATION', raising=False)
+    with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+        unified_launch_mode(cfg)
+    monkeypatch.setenv('EMU_UNIFIED_FOUNDATION','cold20m-approved')
+    assert unified_launch_mode(cfg)=='foundation20'
+    assert unified_launch_mode(replace(cfg,resume='auto'))=='foundation20'
+    for changed in (
+        dict(steps=FOUNDATION_STEPS+1),
+        dict(steps=FOUNDATION_STEPS+2048*ROLLOUT_STEPS),
+        dict(steps=1_000_000),
+        dict(envs=8),
+        dict(seed=42),
+        dict(device='cpu'),
+        dict(resume='/other-source/final.pkl'),
+        dict(terrain_step_max_m=.05),
+        dict(observation_schema='legacy_220'),
+        dict(motor_guidance_weight=.02),
+        dict(domain_randomization=True),
+        dict(contact_slope_deg=2.),
+        dict(pitch_command_max_deg=15.),
+        dict(capability_field_mode='on'),
+    ):
+        with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+            unified_launch_mode(replace(cfg,**changed))
+    monkeypatch.delenv('EMU_UNIFIED_FOUNDATION',raising=False)
+    monkeypatch.setenv('EMU_UNIFIED_ACCEPTANCE','bounded-ppo-lifecycle')
+    assert unified_launch_mode(replace(cfg,steps=2048*ROLLOUT_STEPS))=='bounded'
+    with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
+        unified_launch_mode(cfg)
+
+
 def test_main_foundation_doctrine_survives_unified_cold_start(tmp_path):
     """Guard the verified main 20M recipe against mature-profile drift.
 
