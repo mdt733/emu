@@ -131,23 +131,47 @@ artifact loading function end-to-end. **Do not interpret its pass fraction
 as earned walking competence.** Open the exported policy locally in the
 viewer too.
 
-**4. Owner-approved cold foundation, then the first overnight growth run.**
+**4. Explicitly approved 20M cold unified foundation — now launchable on this branch.**
 
-Only after 1–3, source-pinned replay and current HEAD CI all pass is it
-appropriate to review removal of the *separate* long-run launch guard.
-The first actual run should target **20M from zero** on the 360 actor.
-Evaluate that checkpoint against `main` on matched flat tasks. If the
-foundation gait regresses, fix its causes; **do not launch the overnight
-growth continuation**. If acceptable, start a new run directory with
-`--resume /absolute/path/to/foundation20/checkpoints/final.pkl`, same
-source SHA, the same 360 actor/profile and a larger **absolute** steps
-target. The new directory protects the 20M ancestor while keeping a
-single continuous policy lineage.
+Owner approval covers this **one foundation run only**, not six-teacher growth.
+Source must be a clean, passing feature-branch commit; keep `main`, the
+approved 260M Pinnacle, and all existing policies untouched.
 
-Inspect saved evidence and genuine supported contacts, not just reward.
-The longer campaign should have periodic source-pinned checkpoints,
-fixed-policy examinations and enough disk headroom; make no automated
-showcase promotion. **Explicit owner approval is still required.**
+```bash
+cd ~/emu
+git switch feature/v5023-capability-growth
+git pull --ff-only
+source .venv/bin/activate
+git status --short   # must be empty
+RUN="$HOME/robot_lab/emu_runs/unified_foundation20_$(git rev-parse --short HEAD)"
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
+EMU_UNIFIED_FOUNDATION=cold20m-approved \
+emu train --run-dir "$RUN" --profile sim2real \
+  --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities \
+  --steps 20000000 --envs 2048 --seed 733 --device cuda
+```
+
+The actual PPO boundary is **20,054,016** environment steps because each
+update adds 2,048 × 32 steps. Normal training logs/checkpoints and held-out
+exams are retained; the frozen 10-panel final examiner uses **32 worlds per
+panel**, not another five 2,048-world allocations on the 8GB GPU. Through
+the foundation, specialist terrain exposure remains inactive.
+
+If interrupted, **use the identical source SHA and flags**, append
+`--resume auto` and keep the same `RUN` directory; never delete a partial
+run. The explicit `EMU_UNIFIED_FOUNDATION` opt-in is required again.
+A larger absolute `--steps` value, arbitrary warm-start, different sensor
+contract or world count is **still rejected**.
+
+Once the checkpoint exists, measure actual supported gait, command tracking,
+falls and effort against the preserved `main` reference. Source changes
+invalidate this particular run lineage; never silently reuse it.
+
+**5. Later overnight capability-growth continuation — NOT unlocked.**
+
+After the foundation is genuinely walking, review the source and request a
+separate owner-approved growth launch. Long growth runs and public policy
+promotion remain blocked. Do not change `main` or the showcase.
 
 ## Safety
 
