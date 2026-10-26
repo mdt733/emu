@@ -15,17 +15,18 @@ Preflight: actual 12-world CPU contact/episode smoke followed by a
 
 | Run name | Early recipe | Teaching allocation | Total world steps |
 |---|---|---|---:|
-| screen_main_s733 | Main-style adaptive | balanced; ends before growth | 10M |
-| screen_command-heavy_s733 | 90/5/5 gait/transition/recovery | balanced; ends before growth | 10M |
-| screen_curious_s733 | 84/8/8 + ~5% easy grace | balanced; ends before growth | 10M |
 | growth_balanced_s733 | curious, 10M foundation | 20/20/20/20/10/10 after ramp | 80M |
 | growth_staged_s733 | curious, 10M foundation | Recovery/grace → slope → step | 80M |
-| growth_terrain-early_s733 | curious, 10M foundation | Earlier slope + step exposure | 80M |
+| growth_terrain-early_s733 | curious, 10M foundation | 35% slope / 30% step focus after handover | 80M |
+| screen_main_s733 | Main-style adaptive | balanced; ends before growth | 10M |
+| screen_command-heavy_s733 | 90/5/5 gait/transition/recovery | balanced; ends before growth | 10M |
 
-**Total: 270M environment steps**, sequentially, with independent frozen
+**Total: 260M environment steps**, sequentially, with independent frozen
 physical exam panels and checkpoint/diagnostic logs. Each long run is
 independent cold-start and uses the same seed 733. The first screen is a
 separate experiment, not silently transferred into another run.
+
+The long experiments run FIRST, so an interrupted night still produces useful development data. Their first 10M already represents the curious foundation, so a separate curious screen would duplicate it. Use `--no-screens` to run only the 240M long comparisons.
 
 The 10M foundation is deliberately a **test**, not proof of mature walking.
 All longer policies continue beyond it. The six-focus strengths remain
@@ -74,11 +75,11 @@ python scripts/overnight_teaching.py \
 )
 ```
 
-Preview lists all six commands but creates no campaign or GPU policy.
+Preview lists the five commands but creates no campaign or GPU policy.
 **Make sure the exact source SHA is green on GitHub Actions** before the
 actual campaign. The complete campaign command follows.
 
-## RUN ALL SIX experiments overnight (starts training!)
+## RUN ALL FIVE experiments overnight (starts training!)
 
 ```bash
 (
@@ -103,7 +104,7 @@ take and does not silently overwrite an existing experiment.
 
 ## What happens on interruption / errors
 
-If a task fails, the runner stops rather than claiming completion.
+If one training arm fails, the runner **records that failure, continues the other arms, and exits nonzero at the end**. CPU or CUDA preflight failure aborts the campaign.
 Successful partial results are still summarized in
 `overnight_summary.md`, `overnight_summary.json` and
 `overnight_results.zip`. If interrupted partway through training,
@@ -113,9 +114,9 @@ Already completed runs are detected and validated by `emu train`.
 If run metadata is corrupt or source/config differs, the campaign stops;
 do not manually delete/replace saved checkpoints to force a resume.
 
-If you already completed the CPU/full CUDA acceptance for this EXACT
-branch/source, a subsequent resumption can use `--skip-smoke`; do not
-skip a never-run 2048-world CUDA preflight.
+A successful CPU/full CUDA preflight writes `preflight_pass.json`.
+`--skip-smoke` on resumption is allowed only when that file certifies the
+**same source SHA**. Never skip an untested 2048-world CUDA preflight.
 
 To shorten/restructure the experiment deliberately, choose a NEW campaign
 root. The campaign manifest refuses changes to an existing seed or target.
@@ -126,12 +127,18 @@ Under `~/robot_lab/emu_runs/overnight_teaching_v5023`:
 
 - `overnight_results.zip` — shareable small bundle with config, rollout
   metrics, fixed exams and per-run reports; **no giant policy files**.
-- `overnight_summary.md` and `.csv` — direct six-arm comparison.
+- `overnight_summary.md` and `.csv` — direct five-arm comparison.
+- `frozen_exams_by_age.csv` — held-out comparable panels every ~10M (actual PPO boundaries), not mixed with curriculum-dependent training scores.
+- `campaign_status.json` — records failed versus completed arms; one independent failure does not cancel the remainder.
 - `progress_by_age.csv` — available same-age rollout observations
   at 10M, 20M, 40M, 60M and 80M, without inventing missing milestones.
 - `logs/*.log` — process logs (open on failures).
 - Each candidate's `checkpoints/final.pkl`, `results_bundle.zip` and
   `fixed_eval.csv`.
+
+At launch `pip_freeze.txt`, `nvidia_smi.txt` and `disk_space.txt` record the actual software/driver environment. After a completed/active training row the campaign estimates remaining hours from *measured* throughput. That is a training-only estimate; fixed exams, compilations and failures add overhead. Check free disk space, Windows sleep and automatic restart settings, and avoid GPU-heavy applications.
+
+**Keep the process alive with `tmux`:** run `tmux new -s emu-overnight`, execute the entire training command inside, detach with Ctrl-B then D, and reattach using `tmux attach -t emu-overnight`. Do not Git-pull while any candidate is running.
 
 The scoreboard is **descriptive**, not an automatic champion election:
 compare frozen performance and physical near-target command/slope/step

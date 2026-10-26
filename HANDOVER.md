@@ -19,9 +19,10 @@
   independently choose the early gait teaching experiment. Targets still
   adjust on physical evidence rather than this schedule's clock.
 - `scripts/overnight_teaching.py --run` sequentially performs actual CPU
-  + 2048-world CUDA PPO preflight, three independent 10M nursery runs,
-  then three independent 80M balanced/staged/terrain-early cold campaigns
-  (**270M world steps** total, one GPU). Exact run configs, same-SHA resume,
+  + 2048-world CUDA PPO preflight, three independent 80M
+  balanced/staged/terrain-early cold campaigns FIRST, then two 10M nursery
+  controls (`main`, `command-heavy`; curious is already in the long arms).
+  **260M world steps** total, one GPU; `--no-screens` yields 240M. Exact run configs, same-SHA resume,
   daily logs, frozen exams and `overnight_results.zip` are automated.
 - Launch and interrupted-run resume commands are in
   [docs/OVERNIGHT_TEACHING.md](docs/OVERNIGHT_TEACHING.md).
@@ -33,11 +34,10 @@
 - Two different control loops: **difficulty target inside each skill** vs
   **how many episodes focus on each skill**. The latter should shift
   gradually across infancy, recovery/grace, slopes and steps.
-- The current six-world-role split is STATIC 20/20/20/20/10/10 and
-  cannot redistribute worlds across stages. Do not claim dynamic stage
-  allocations work until a focus ID is sampled **at episode birth**, saved
-  in teacher-only EnvState, and used consistently for task, terrain,
-  transition, reward emphasis and completed-episode metrics.
+- Six-way focus is now sampled at episode birth and remains in
+  teacher-only EnvState through physical task, reward and episode evidence.
+  Smooth `balanced`, `staged`, `terrain-early` attention weights genuinely
+  reallocate new lessons without modifying PPO/actor observations.
 - Concrete example mix vectors, balanced/staged/terrain-early control arms,
   experiment/fork design and integration acceptance criteria:
   [docs/TEACHING_ALLOCATION_EXPERIMENTS.md](docs/TEACHING_ALLOCATION_EXPERIMENTS.md).

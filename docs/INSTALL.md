@@ -36,11 +36,11 @@ emu viewer --live --root "$RUN" --no-open
 ```
 
 
-## Overnight 270M teaching tournament
+## Overnight 260M teaching tournament
 
 The six-way lesson attention can now move over time, with each episode's
-focus held until it completes. For a large, automated *three nursery +
-three long* comparison (270M cumulative world steps, CPU/CUDA preflight,
+focus held until it completes. For a large, automated *two nursery +
+three long* comparison (260M cumulative world steps, CPU/CUDA preflight,
 source-pinned checkpoints, automatically generated morning bundle), see
 [OVERNIGHT_TEACHING.md](OVERNIGHT_TEACHING.md). The script previews plans
 by default; only `--run` starts training on the owner's GPU.

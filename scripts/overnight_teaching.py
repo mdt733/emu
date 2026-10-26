@@ -271,17 +271,47 @@ def summary(root,all_cases,sha):
     print('Shareable bundle:',zip_path,flush=True)
 
 
-def execute(command,log_path,env):
+def execute(command,log_path,env,*,campaign=None):
     log_path.parent.mkdir(parents=True,exist_ok=True)
     print('\nRUN:',shlex.join(command),flush=True)
     with log_path.open('a',encoding='utf-8',buffering=1) as log:
         log.write('\n=== '+shlex.join(command)+' ===\n')
+        last_eta=0.0
+        seen_header=False
         with subprocess.Popen(command,cwd=ROOT,env=env,
              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
              text=True,bufsize=1) as proc:
             for line in proc.stdout:
                 sys.stdout.write(line);sys.stdout.flush()
                 log.write(line)
+                if campaign is not None and ' step=' in line:
+                    now=time.monotonic()
+                    if now-last_eta>300.:
+                        last_eta=now
+                        folder=Path(command[command.index('--run-dir')+1])
+                        data=folder/'metrics.csv'
+                        if data.is_file() and not seen_header:
+                            with data.open(newline='',encoding='utf-8-sig') as fp:
+                                reader=csv.DictReader(fp)
+                                fields=set(reader.fieldnames or [])
+                            expected={'focus_alloc_command',
+                                      'focus_episodes_command',
+                                      'focus_step_share_command',
+                                      'slope_near_attempts_uphill',
+                                      'terrain_near_attempts_up',
+                                      'rollback_count','eval_core_vx_mae'}
+                            # eval_core_vx_mae is present only after the
+                            # first frozen exam, not the first PPO summary.
+                            expected.remove('eval_core_vx_mae')
+                            missing=expected-fields
+                            if missing:
+                                proc.terminate()
+                                raise RuntimeError(
+                                    f'Unrecognized training telemetry: {sorted(missing)}')
+                            seen_header=True
+                        eta=campaign_eta(*campaign)
+                        print('CAMPAIGN ETA:',eta,flush=True)
+                        log.write('CAMPAIGN ETA: '+eta+'\n')
             return_code=proc.wait()
     if return_code:
         raise RuntimeError(f'Command exited {return_code}; see {log_path}')
@@ -386,7 +416,8 @@ def main():
                     raise RuntimeError(f'Uninitialised run directory: {dest}')
                 cmd=cmd_for(entry,root,args.seed,args.foundation_steps,
                             resume=dest.exists())
-                execute(cmd,root/'logs'/(entry['name']+'.log'),env)
+                execute(cmd,root/'logs'/(entry['name']+'.log'),env,
+                        campaign=(root,entries))
                 status[entry['name']]='completed'
             except Exception as exc:
                 # The arms are independent: preserve the failure and carry
