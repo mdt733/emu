@@ -670,6 +670,38 @@ def test_easier_failures_survive_unrelated_near_frontier_hold():
     assert g.params.frontier_vx_hi<.10
 
 
+def test_v5024_matched_physical_terrain_matrix_has_complete_directional_coverage():
+    from emu.evaluation import unified_terrain_matrix_cases
+    cases=unified_terrain_matrix_cases()
+    slopes=[x for x in cases if x['kind']=='slope']
+    assert len(slopes)==16
+    assert {(x['direction'],x['slope_deg']) for x in slopes}=={
+        (direction,deg)
+        for direction in ('uphill','downhill','cross_left','cross_right')
+        for deg in (1.,2.,3.,5.)
+    }
+    assert {x['step_m'] for x in cases if x['kind']=='step'}=={
+        .003,.005,.01,.02}
+
+
+def test_v5024_slope_stability_advancement_does_not_borrow_tracking_evidence():
+    from emu.curriculum import RegimeGovernor
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    assert g.advance_slope({})=='seed_real_incline_0p7deg'
+    start=g.params.slope_max_deg
+    # Excellent command tracking without measured supported movement is
+    # insufficient: only the distinct stability counters can promote.
+    old={f'slope_near_{kind}_{d}':8. for d in g.SLOPE_DIRECTIONS
+         for kind in ('attempts','successes')}
+    assert g.advance_slope(old)=='collect_real_slope'
+    assert g.params.slope_max_deg==start
+    real={f'slope_near_attempts_{d}':8. for d in g.SLOPE_DIRECTIONS}
+    real.update({f'slope_near_stability_successes_{d}':8.
+                 for d in g.SLOPE_DIRECTIONS})
+    assert g.advance_slope(real)=='expand_real_slope_angle'
+    assert g.params.slope_max_deg>start
+
+
 def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
     """Low-severity success must never certify the harder incline target."""
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
@@ -678,13 +710,13 @@ def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
     # Flat/easy successes alone cannot make the grade grow.
     easy={f'slope_easy_{kind}_{direction}':8.
           for direction in g.SLOPE_DIRECTIONS
-          for kind in ('attempts','successes')}
+          for kind in ('attempts','stability_successes')}
     assert g.advance_slope(easy)=='collect_real_slope'
     assert g.params.slope_max_deg==old
     # Near-target success across all four bearings can nudge it upward.
     near={f'slope_near_{kind}_{direction}':8.
           for direction in g.SLOPE_DIRECTIONS
-          for kind in ('attempts','successes')}
+          for kind in ('attempts','stability_successes')}
     assert g.advance_slope(near)=='expand_real_slope_angle'
     assert g.params.slope_max_deg>old
     # A hard failure on its own is NOT evidence to shrink.
@@ -695,7 +727,7 @@ def test_slope_local_dial_requires_real_severity_and_retreats_on_easy_failure():
     assert raised>old
     # But repeated trouble with an easier real incline is.
     weak={'slope_easy_attempts_cross_left':8.,
-          'slope_easy_successes_cross_left':0.}
+          'slope_easy_stability_successes_cross_left':0.}
     assert g.advance_slope(weak)=='retreat_easy_incline_failure'
     assert old<=g.params.slope_max_deg<raised
     stored=g.state_dict()

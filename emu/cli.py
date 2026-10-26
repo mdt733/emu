@@ -192,6 +192,8 @@ def main(argv=None) -> int:
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
     q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
+    q.add_argument('--terrain-matrix',action='store_true',
+                   help='matched 1/2/3/5 degree four-direction slope and step matrix')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
@@ -289,7 +291,8 @@ def main(argv=None) -> int:
         paths=evaluate_unified_capabilities(
             policy=Path(args.policy),output=Path(args.output),
             worlds=args.worlds,horizon=args.horizon,speed=args.speed,
-            seed=args.seed,device=args.device,quick=args.quick)
+            seed=args.seed,device=args.device,quick=args.quick,
+            terrain_matrix=args.terrain_matrix)
         for path in paths:
             print(path)
         return 0
