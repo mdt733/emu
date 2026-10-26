@@ -7,6 +7,23 @@
 **Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
 **Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
+## Next design: developmental teaching allocation (not yet implemented)
+
+- Two different control loops: **difficulty target inside each skill** vs
+  **how many episodes focus on each skill**. The latter should shift
+  gradually across infancy, recovery/grace, slopes and steps.
+- The current six-world-role split is STATIC 20/20/20/20/10/10 and
+  cannot redistribute worlds across stages. Do not claim dynamic stage
+  allocations work until a focus ID is sampled **at episode birth**, saved
+  in teacher-only EnvState, and used consistently for task, terrain,
+  transition, reward emphasis and completed-episode metrics.
+- Concrete example mix vectors, balanced/staged/terrain-early control arms,
+  experiment/fork design and integration acceptance criteria:
+  [docs/TEACHING_ALLOCATION_EXPERIMENTS.md](docs/TEACHING_ALLOCATION_EXPERIMENTS.md).
+- Preserve one actor/PPO, source-pinned lineage and easy cross-training;
+  grace has NO independently advancing efficiency target. Scheduled
+  changes are attention weights, never maturity gates.
+
 ## Current early-foundation experiments
 
 - User encourages experiments and possibly a **10M** basic gait foundation,

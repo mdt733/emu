@@ -91,3 +91,14 @@ final checkpoint is validated before any training resumes.
 
 Protected: `main`, approved Pinnacle and public showcase; no promotion
 without owner review.
+
+
+## Next: developmental allocation sequences
+
+The early recipe is only the first question. The next is how **attention
+between specialties** should change through later training, while each
+specialty independently grows its own physical difficulty. The currently
+fixed 20/20/20/20/10/10 cohort mapping does **not** yet permit genuine
+schedule experiments; see [TEACHING_ALLOCATION_EXPERIMENTS.md](TEACHING_ALLOCATION_EXPERIMENTS.md)
+for the required episode-persistent dynamic focus sampler, candidate
+stage mixes and fair paired-parent comparisons.
