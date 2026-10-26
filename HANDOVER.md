@@ -1,13 +1,44 @@
 # EMU — active engineering handover
 
-**Date:** 26 October 2026  
-**Work branch:** `feature/v5023-capability-growth`  
+**Date:** 27 October 2026
+**Work branch:** `feature/v5024-terrain-control`  
 **Protected:** `main`, public showcase, approved 260M Pinnacle. **Do not change or merge without explicit user approval.**  
 **Design contract:** [docs/UNIFIED_CAPABILITY_GROWTH.md](docs/UNIFIED_CAPABILITY_GROWTH.md)  
 **Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
 **Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
-## Overnight experiment implemented (26 October 2026)
+## Current v5024 mission — incorporate the completed 260M results (27 October)
+
+- Source branch `feature/v5024-terrain-control` is based on the prior
+  **surface-lab viewer branch**, so it ALREADY INCLUDES variable true
+  browser MuJoCo uphill/downhill/camber and step tests, and local-grade
+  fall detection. No separate merge into `main` needed.
+- v5023's five experiments completed **260M** steps (3×80M, 2×10M).
+  Balanced led one-seed generalist frozen exams; terrain-early advanced
+  farther on terrain-focused targets. Uphill command tracking proved
+  much weaker than downhill. The owner manually observed stable
+  2–5° walking but substantial downhill command drift.
+- Slope teaching now distinguishes `slope_*_stability_successes_*`
+  from original full `slope_*_successes_*`. Stability may grow
+  the *physical-practice* angle only with directional completed
+  evidence, not pure standing; command tracking remains independently
+  evaluated and must still improve.
+- Fixed false `off` display for signed vy/yaw controller events,
+  added opt-in `steering` schedule with richer pure lateral/yaw probes,
+  corrected nonfocus-command gait phase, preserved read-only
+  terrain-normalizer clipping diagnostics.
+- Added `emu capability-exam --terrain-matrix` with held-out matched
+  physical 1/2/3/5° all-direction slopes and 0.3/0.5/1/2 cm steps.
+- Prepared `scripts/v5024_campaign.py`: **plan-only** by default;
+  opt-in 3×60M cold runs compare main versus command-heavy foundation
+  and balanced versus steering growth. Same-source resume and full
+  CPU+2048 CUDA preflight before training. No GPU work performed here.
+- See [docs/V5024_RUN_PLAN.md](docs/V5024_RUN_PLAN.md) for precise
+  evaluation commands, acceptance, campaign choices and morning bundle.
+  **Latest branch CI must pass** before treating this as GPU-ready.
+- `main`, showcase, old Pinnacle and all 260M v5023 policies untouched.
+
+## Previous overnight experiment implemented (26 October 2026)
 
 - Dynamic six-way attention weights can vary smoothly over training.
   Focus is sampled once on episode birth, saved in EnvState, held through

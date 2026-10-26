@@ -1,6 +1,6 @@
-# Surface laboratory — test a LIVE v5023 policy without stopping training
+# Surface laboratory — included in v5024 (and still available standalone)
 
-This branch, `feature/v5023-surface-lab`, was cut from the exact
+This viewer originated on `feature/v5023-surface-lab` and is **already included in `feature/v5024-terrain-control`**, which adds the matched frozen physical slope/step examiner and the next training research. The original viewer branch was cut from the exact
 **d6f3622** cold campaign revision. **Only viewer files and documentation
 have changed.** Do NOT `git pull` the source-pinned training checkout
 while any training subprocess is active.
@@ -91,11 +91,14 @@ not physical-episode certification under the slope curriculum.
 
 ## Why we're testing this
 
-Current training slope advancement needs >=8 completed near-target
-episodes in **all 4 directions**, each >=65% successful, to raise its
-ONE angle by 0.08°. An easy-direction batch below 30% can retreat the
-shared angle and clear windows. This can create a slow/stalled frontier
-even when the policy really does handle more incline.
+Historical v5023 required >=8 near-target completed episodes in
+**all four directions**, each >=65% FULL three-axis command tracking,
+to raise ONE incline by .08°. That stalled even when the biped
+remained physically upright. v5024 now scores supported MOVING stability
+separately, and requires >=80% near-target stable motion in each
+direction to grow the practice angle. Poor uphill/lateral command
+tracking remains a real failure, visible in the new `--terrain-matrix`
+held-out exam. It is not silently redefined as accurate walking.
 
 If the walker looks comfortable on 3°–5° continuous grades here but
 the teacher remains below 1°, inspect frozen MJX direction-conditioned

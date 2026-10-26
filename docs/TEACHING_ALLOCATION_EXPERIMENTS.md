@@ -1,10 +1,11 @@
 # EMU — teaching-allocation experiment design
 
-**Implementation status:** the three named schedules now move birth-role
-weights in the teacher packet, and the sampled role is held in EnvState
-until the episode ends. Historical deterministic world roles still serve
-fixed physical smoke tests when the attention weights are all zero.
-Long multi-schedule CUDA learning remains to be tested on the owner GPU.
+**Implementation status:** v5023 completed a real 260M-step owner-GPU
+campaign. Its role weights are sampled once per episode and stored
+until the episode ends. v5024 adds opt-in `steering` (35/15/20/15/10/5)
+and separately measures incline stability versus commanded tracking.
+See [V5024_RUN_PLAN.md](V5024_RUN_PLAN.md) for the next controlled
+3×60M comparison and frozen terrain matrix.
 
 ## Two independent adaptive questions
 

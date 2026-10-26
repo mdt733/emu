@@ -4,9 +4,9 @@
 
 EMU is a reinforcement-learning project for a dynamically unstable, six-actuator biped. A single PPO policy learns locomotion through parallel **MuJoCo/MJX** physics simulations rather than a hand-coded gait. The longer-term goal is not simply to walk faster or survive one obstacle: it is to walk **reliably, accurately, gracefully and efficiently** across commands, disturbances and real terrain.
 
-**This is the `feature/v5023-capability-growth` research branch.** It builds on the successful foundation from `main` but introduces a new sensor contract and unified capability curriculum. The approved public robot remains separate:
+**This is the `feature/v5024-terrain-control` research branch.** It builds on the successful foundation from `main` but introduces a new sensor contract and unified capability curriculum. The approved public robot remains separate:
 
-**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [Surface lab viewer](docs/SURFACE_LAB.md) · [Overnight tournament](docs/OVERNIGHT_TEACHING.md) · [Foundation experiments](docs/FOUNDATION_EXPERIMENTS.md) · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
+**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [v5024 next-run plan](docs/V5024_RUN_PLAN.md) · [Surface lab viewer](docs/SURFACE_LAB.md) · [Overnight tournament](docs/OVERNIGHT_TEACHING.md) · [Foundation experiments](docs/FOUNDATION_EXPERIMENTS.md) · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
 
 ## The learning idea
 
@@ -78,7 +78,7 @@ Requires **Python 3.13+ with `venv`**, Git and, for CUDA experiments, a working 
 ```bash
 # On a fresh WSL home directory; clone into a known location.
 cd ~
-git clone --single-branch --branch feature/v5023-capability-growth \
+git clone --single-branch --branch feature/v5024-terrain-control \
   https://github.com/mdt733/emu.git "$HOME/emu"
 cd "$HOME/emu"
 
