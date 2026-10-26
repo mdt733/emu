@@ -10,7 +10,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
+import shutil
+import time
 from pathlib import Path
 import shlex
 import subprocess
@@ -27,21 +30,22 @@ def git(*args):
         ['git',*args],cwd=ROOT,text=True,stderr=subprocess.STDOUT).strip()
 
 
-def cases(seed: int, foundation_steps: int, long_steps: int):
-    # Cheap-ish 10M question: which lesson recipe develops walking best?
-    screen=[
-        {'name':f'screen_{mix}_s{seed}','recipe':mix,
-         'schedule':'balanced','steps':foundation_steps}
-        for mix in ('main','command-heavy','curious')]
-    # Next question: after an equal cold foundation, which teaching
-    # distribution across the whole development produces a better policy?
-    # Deliberately INDEPENDENT cold runs; this does NOT fake checkpoint fork
-    # equivalence by copying neural weights without optimiser/teacher state.
-    mature=[
+def cases(seed: int, foundation_steps: int, long_steps: int, *,
+          screens: bool = True):
+    # Long, distinct teaching curricula FIRST: the night should yield
+    # useful later-learning evidence even if it ends prematurely.
+    long=[
         {'name':f'growth_{schedule}_s{seed}','recipe':'curious',
          'schedule':schedule,'steps':long_steps}
         for schedule in ('balanced','staged','terrain-early')]
-    return screen+mature
+    # The 10M curious nursery is already present as the identical first
+    # 10M of all three long arms. Repeating it wastes a GPU campaign.
+    # Screen two DIFFERENT foundation recipes only, after the long arms.
+    nursery=[
+        {'name':f'screen_{mix}_s{seed}','recipe':mix,
+         'schedule':'balanced','steps':foundation_steps}
+        for mix in ('main','command-heavy')]
+    return long + (nursery if screens else [])
 
 
 def cmd_for(case,root,seed,foundation_steps,resume):
@@ -53,11 +57,56 @@ def cmd_for(case,root,seed,foundation_steps,resume):
         '--foundation-mix',case['recipe'],
         '--foundation-steps',str(foundation_steps),
         '--teaching-schedule',case['schedule'],
+        '--fixed-eval-every-steps','10000000',
         '--steps',str(case['steps']),
         '--envs','2048','--seed',str(seed),'--device','cuda']
     if resume:
         cmd+=['--resume','auto']
     return cmd
+
+
+def read_rows(path):
+    if not path.is_file():
+        return []
+    with path.open(newline='',encoding='utf-8-sig') as inp:
+        return list(csv.DictReader(inp))
+
+
+def safe_float(value):
+    try:
+        number=float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError,ValueError):
+        return None
+
+
+def near_attempt_total(rows,prefix,names):
+    # Closed-episode counts are per-ROLLOUT. The teacher clears its moving
+    # windows after decisions, but those counters must NOT be read from
+    # only the final metrics row.
+    return sum(safe_float(row.get(prefix+name)) or 0.
+               for row in rows for name in names)
+
+
+def campaign_eta(root,cases):
+    # Actual observed wall throughput, sampled from completed/active CSV.
+    # Exams/compilation are extra, so this is explicitly a lower bound.
+    speeds=[]
+    remaining=0.
+    for case in cases:
+        rows=read_rows(root/case['name']/'metrics.csv')
+        seen=max((safe_float(r.get('step')) or 0. for r in rows),default=0.)
+        remaining+=max(0.,case['steps']-seen)
+        if rows:
+            speed=safe_float(rows[-1].get('steps_per_sec'))
+            if speed is not None and speed>0.:
+                speeds.append(speed)
+    if not speeds:
+        return 'ETA unavailable until measured GPU training throughput'
+    speed=sorted(speeds)[len(speeds)//2]
+    return (f'Observed throughput ~{speed:,.0f} world steps/s; '
+            f'remaining TRAINING at least {remaining/speed/3600:.1f} h '
+            '(plus compilation, frozen exams and restarts)')
 
 
 def read_latest_csv(path):
@@ -71,7 +120,8 @@ def summary(root,all_cases,sha):
     rows=[]
     for case in all_cases:
         run=root/case['name']
-        metrics=read_latest_csv(run/'metrics.csv')
+        raw_rows=read_rows(run/'metrics.csv')
+        metrics=raw_rows[-1] if raw_rows else {}
         exam=read_latest_csv(run/'fixed_eval.csv')
         item={
             'name':case['name'],'recipe':case['recipe'],
@@ -86,10 +136,14 @@ def summary(root,all_cases,sha):
             'fixed_exam_score':exam.get('eval_broad_score',''),
             'fixed_exam_core_survival':exam.get('eval_core_survival',''),
             'fixed_exam_core_vx_mae':exam.get('eval_core_vx_mae',''),
-            'slope_near_attempts':sum(float(metrics.get('slope_near_attempts_'+k,0) or 0)
-               for k in ('uphill','downhill','cross_left','cross_right')),
-            'step_near_attempts':sum(float(metrics.get('terrain_near_attempts_'+k,0) or 0)
-               for k in ('up','down')),
+            'slope_near_attempts':near_attempt_total(
+                raw_rows,'slope_near_attempts_',
+                ('uphill','downhill','cross_left','cross_right')),
+            'step_near_attempts':near_attempt_total(
+                raw_rows,'terrain_near_attempts_',('up','down')),
+            'rollback_count':metrics.get('rollback_count',''),
+            'focus_step_share':{
+                k:metrics.get('focus_step_share_'+k,'') for k in FOCUS},
             'focus_episodes':{
                 k:metrics.get('focus_episodes_'+k,'')
                 for k in FOCUS},
@@ -109,7 +163,7 @@ def summary(root,all_cases,sha):
                 'reward','fall_rate','actual_vx','requested_vx',
                 'control_shaft_j_per_m','fixed_exam_score',
                 'fixed_exam_core_survival','fixed_exam_core_vx_mae',
-                'slope_near_attempts','step_near_attempts']
+                'slope_near_attempts','step_near_attempts','rollback_count']
     with (root/'overnight_summary.csv').open('w',newline='',encoding='utf-8') as fp:
         writer=csv.DictWriter(fp,fieldnames=fieldnames,extrasaction='ignore')
         writer.writeheader();writer.writerows(rows)
@@ -129,6 +183,8 @@ def summary(root,all_cases,sha):
          '- Shaft work per useful distance is a proxy, not battery energy.',
          '- Unobserved capabilities remain UNKNOWN; no automatic winner.',
          '- A single seed is discovery, not evidence of repeatability.',
+         '- Per-run training reward/fall/vx are NOT matched across teaching mixes.',
+         '- See frozen_exams_by_age.csv for comparable same-age measurements.',
          '']
     (root/'overnight_summary.md').write_text('\n'.join(md),encoding='utf-8')
     # Comparable windows, not only end-of-run scores. Every report row is
@@ -173,11 +229,35 @@ def summary(root,all_cases,sha):
         with (root/'progress_by_age.csv').open('w',newline='',encoding='utf-8') as fp:
             out=csv.DictWriter(fp,fieldnames=list(stages[0]))
             out.writeheader();out.writerows(stages)
+    # Matched FROZEN evaluation only. No on-policy curriculum statistics
+    # masquerade as comparable test results. Keep actual steps and missing
+    # cohorts visible; do not invent scores at unsampled ages.
+    frozen=[]
+    for case in all_cases:
+        exams=read_rows(root/case['name']/'fixed_eval.csv')
+        for rec in exams:
+            measured=safe_float(rec.get('step'))
+            if measured is None:
+                continue
+            frozen.append({
+                'run':case['name'],'actual_step':int(measured),
+                'eval_broad_score':rec.get('eval_broad_score',''),
+                'eval_core_survival':rec.get('eval_core_survival',''),
+                'eval_core_vx_mae':rec.get('eval_core_vx_mae',''),
+                'eval_dynamic80_survival':rec.get('eval_dynamic80_survival',''),
+                'eval_resilience75_survival':rec.get('eval_resilience75_survival',''),
+                'eval_policy_step':rec.get('eval_policy_step','')})
+    if frozen:
+        with (root/'frozen_exams_by_age.csv').open('w',newline='',encoding='utf-8') as fp:
+            writer=csv.DictWriter(fp,fieldnames=list(frozen[0]))
+            writer.writeheader();writer.writerows(frozen)
     zip_path=root/'overnight_results.zip'
     with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED) as z:
         for name in ('campaign_manifest.json','overnight_summary.json',
                      'overnight_summary.csv','overnight_summary.md',
-                     'progress_by_age.csv'):
+                     'progress_by_age.csv','frozen_exams_by_age.csv',
+                     'pip_freeze.txt','nvidia_smi.txt','disk_space.txt',
+                     'campaign_status.json'):
             f=root/name
             if f.is_file():z.write(f,arcname=name)
         for case in all_cases:
@@ -216,6 +296,8 @@ def main():
     ap.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),
                     default=10000000)
     ap.add_argument('--long-steps',type=int,default=80000000)
+    ap.add_argument('--no-screens',action='store_true',
+                    help='run only the three 80M schedules, omit nursery comparison')
     ap.add_argument('--skip-smoke',action='store_true',
                     help='explicitly skip CPU and full CUDA acceptance on resumed campaign')
     args=ap.parse_args()
@@ -230,7 +312,8 @@ def main():
     root=args.root.expanduser().resolve()
     if ROOT==root or ROOT in root.parents:
         ap.error('experiment output must live outside the source checkout')
-    entries=cases(args.seed,args.foundation_steps,args.long_steps)
+    entries=cases(args.seed,args.foundation_steps,args.long_steps,
+                  screens=not args.no_screens)
     print('Source',sha,'\nCampaign',root,'\nCUDA 2048 worlds sequentially',flush=True)
     for entry in entries:
         resume=(root/entry['name']/'training_config.json').is_file()
@@ -241,7 +324,8 @@ def main():
         return 0
     meta={'source_sha':sha,'seed':args.seed,
           'foundation_steps':args.foundation_steps,
-          'long_steps':args.long_steps,'runs':entries}
+          'long_steps':args.long_steps,'screens':not args.no_screens,
+          'runs':entries}
     manifest=root/'campaign_manifest.json'
     if manifest.is_file():
         if json.loads(manifest.read_text(encoding='utf-8'))!=meta:
@@ -254,24 +338,60 @@ def main():
                             encoding='utf-8')
     env={**os.environ,'XLA_PYTHON_CLIENT_PREALLOCATE':'false',
          'EMU_UNIFIED_CONTINUOUS':'cold-growth-approved'}
+    # Capture the environment that generated the weights before GPU work.
+    # Do not infer reproducibility solely from the Git SHA.
+    for name,cmd in (
+        ('pip_freeze.txt',[sys.executable,'-m','pip','freeze']),
+        ('nvidia_smi.txt',['nvidia-smi','-q']),
+        ('disk_space.txt',['df','-h',str(root)])):
+        result=subprocess.run(cmd,cwd=ROOT,text=True,capture_output=True)
+        (root/name).write_text(result.stdout+result.stderr,encoding='utf-8')
+        if result.returncode:
+            print(f'WARNING: could not collect {name}',flush=True)
+    free=shutil.disk_usage(root).free
+    print(f'Disk free: {free/2**30:.1f} GiB',flush=True)
+    if free<20*2**30:
+        print('WARNING: limited checkpoint space; check disk before training',
+              flush=True)
+    status={}
+    failures=[]
     try:
         if not args.skip_smoke:
+            # Preflight failures abort everything: no CUDA assumption.
+            start_smoke=time.monotonic()
             execute([sys.executable,'scripts/smoke_unified_focus.py',
                      '--device','cpu','--envs','12'],
                     root/'logs/preflight_cpu.log',env)
             execute([sys.executable,'scripts/smoke_unified_focus.py',
                      '--device','cuda','--envs','2048','--full-update'],
                     root/'logs/preflight_cuda.log',env)
+            print(f'CPU+CUDA preflight elapsed {(time.monotonic()-start_smoke)/60:.1f} min',
+                  flush=True)
         for entry in entries:
+            print(campaign_eta(root,entries),flush=True)
             dest=root/entry['name']
-            if dest.exists() and not (dest/'training_config.json').is_file():
-                raise RuntimeError(f'Nonempty/uninitialized run root: {dest}')
-            cmd=cmd_for(entry,root,args.seed,args.foundation_steps,
-                        resume=dest.exists())
-            execute(cmd,root/'logs'/(entry['name']+'.log'),env)
+            try:
+                if dest.exists() and not (dest/'training_config.json').is_file():
+                    raise RuntimeError(f'Uninitialised run directory: {dest}')
+                cmd=cmd_for(entry,root,args.seed,args.foundation_steps,
+                            resume=dest.exists())
+                execute(cmd,root/'logs'/(entry['name']+'.log'),env)
+                status[entry['name']]='completed'
+            except Exception as exc:
+                # The arms are independent: preserve the failure and carry
+                # on. One bad experiment must not waste the rest of a night.
+                status[entry['name']]=f'failed: {exc}'
+                failures.append(entry['name'])
+                print(f'ERROR: {entry["name"]}: {exc}; continuing next arm',
+                      file=sys.stderr,flush=True)
+            (root/'campaign_status.json').write_text(
+                json.dumps(status,indent=2,sort_keys=True)+'\n',encoding='utf-8')
     finally:
-        # On failure the finished runs still get an honest partial bundle.
         summary(root,entries,sha)
+    if failures:
+        print(f'FAILED arms: {", ".join(failures)}; partial results saved',
+              file=sys.stderr,flush=True)
+        return 1
     print('Overnight tournament complete. All policy files remain local to run roots.')
     return 0
 
