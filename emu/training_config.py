@@ -186,6 +186,7 @@ class TrainingConfig:
     unified_capability_focus: bool = False  # single shared-policy six-cohort director
     foundation_steps: int = FOUNDATION_STEPS
     foundation_mix: str = 'main'  # main, command-heavy, curious
+    fixed_eval_every_steps: int = EVAL_EVERY_STEPS
     teaching_schedule: str = 'balanced'  # balanced, staged, terrain-early
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
@@ -241,7 +242,8 @@ class TrainingConfig:
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
                     'terrain_step_max_m', 'unified_capability_focus',
-                    'foundation_steps', 'foundation_mix', 'teaching_schedule'}
+                    'foundation_steps', 'foundation_mix', 'teaching_schedule',
+                    'fixed_eval_every_steps'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")

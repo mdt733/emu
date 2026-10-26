@@ -506,7 +506,7 @@ def train(args: TrainingConfig) -> int:
         nonlocal last_eval_step, best_eval_score
         if bounded_acceptance:
             return
-        if not force and step - last_eval_step < EVAL_EVERY_STEPS:
+        if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out, best_eval_score = record_fixed_exam(

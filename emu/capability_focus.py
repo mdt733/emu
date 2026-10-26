@@ -20,7 +20,9 @@ TEACHING_SCHEDULES = ('balanced', 'staged', 'terrain-early')
 STAGED_START = (.40,.25,.05,.00,.10,.20)
 STAGED_MIDDLE = (.25,.20,.25,.05,.10,.15)
 STAGED_LATE = (.20,.15,.20,.20,.10,.15)
-TERRAIN_EARLY = (.27,.14,.22,.18,.09,.10)
+# A genuine geometric-teaching intervention (slope+step = 65% vs 40%).
+# Distinct from balanced throughout the growth ramp, not merely +2% slope.
+TERRAIN_EARLY = (.16,.09,.35,.30,.05,.05)
 
 
 def attention_weights(*, schedule: str, step: int,

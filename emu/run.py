@@ -40,6 +40,9 @@ def one_run_config(args) -> TrainingConfig:
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
     teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
+    fixed_eval_every_steps=int(getattr(args,'fixed_eval_every_steps',60_000_000))
+    if fixed_eval_every_steps < 1_000_000:
+        raise ValueError('fixed eval cadence must be >=1M world steps')
     if foundation_steps not in (10_000_000,20_000_000):
         raise ValueError('foundation must be 10M or 20M world steps')
     if foundation_mix not in ('main','command-heavy','curious'):
@@ -91,6 +94,7 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    teaching_schedule=teaching_schedule,
+                   fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
                    difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,

@@ -840,7 +840,7 @@ def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():
     assert attention_weights(schedule='balanced',step=80_000_000,
                              foundation_steps=10_000_000)[0]==.20
     for bad in ('', 'invalid', 'main'):
-        with pytest.raises(ValueError,match='attention'):
+        with pytest.raises(ValueError,match='teaching allocation'):
             attention_weights(schedule=bad,step=0,foundation_steps=10_000_000)
 
 
@@ -866,7 +866,9 @@ def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp
     assert unified_launch_mode(replace(cfg,resume='auto'))=='continuous'
     assert unified_launch_mode(replace(
         cfg,resume=str(root/'checkpoints/latest.pkl')))=='continuous'
-    for invalid in (dict(steps=19_999_999),dict(envs=8),dict(seed=42),
+    # Short cold starts and alternate seeds are now intentional experiments.
+    assert unified_launch_mode(replace(cfg,steps=10_000_000,seed=42))=='continuous'
+    for invalid in (dict(steps=999_999),dict(envs=8),dict(seed=-1),
                     dict(device='cpu'),dict(terrain_step_max_m=.05),
                     dict(resume=str(tmp_path/'other/checkpoints/final.pkl')),
                     dict(observation_schema='legacy_220'),
