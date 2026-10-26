@@ -670,6 +670,30 @@ def test_easier_failures_survive_unrelated_near_frontier_hold():
     assert g.params.frontier_vx_hi<.10
 
 
+def test_v5024_steering_teacher_reallocates_roles_and_is_zero_during_foundation():
+    from emu.capability_focus import attention_weights, diamond_commands
+    import numpy as np
+    b=attention_weights(schedule='balanced',step=40_000_000,foundation_steps=10_000_000)
+    s=attention_weights(schedule='steering',step=40_000_000,foundation_steps=10_000_000)
+    assert abs(sum(s)-1.0)<1e-8
+    assert s[0]>b[0] and s[2]>=b[2] and s[3]>0
+    assert attention_weights(schedule='steering',step=1_000_000,
+                             foundation_steps=10_000_000)==b
+    # Pure axis steering probes are opt-in, never contaminate the
+    # historical balanced branch's command distribution.
+    import jax
+    import jax.numpy as jnp
+    keys=jax.random.split(jax.random.PRNGKey(4401),8192)
+    args=(jax,jnp,keys,.20,-.10,.08,.30)
+    base=np.asarray(diamond_commands(*args,steering_attention=0.))
+    steer=np.asarray(diamond_commands(*args,steering_attention=1.))
+    pure=lambda a:(np.abs(a)>1e-6).sum(axis=1)==1
+    side=lambda a:pure(a)&(np.abs(a[:,1])>1e-6)
+    turning=lambda a:pure(a)&(np.abs(a[:,2])>1e-6)
+    assert side(steer).sum()>side(base).sum()
+    assert turning(steer).sum()>turning(base).sum()
+
+
 def test_v5024_matched_physical_terrain_matrix_has_complete_directional_coverage():
     from emu.evaluation import unified_terrain_matrix_cases
     cases=unified_terrain_matrix_cases()

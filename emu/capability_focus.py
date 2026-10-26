@@ -114,11 +114,11 @@ def growth_mix(*, step: int, foundation_steps: int,
 
 
 def focus_indices(num_envs: int):
-    """Stable balanced specialist identity across 2,048 parallel worlds.
+    """Historical fixed-world focus map for zero-weight exam fixtures.
 
-    Role is world-local *emphasis*, not exclusive content. Deterministic
-    assignment avoids JAX recompilation on every PPO batch and lets cohorts
-    maintain their own independent physical/evidence denominators.
+    All active v5023/v5024 training schedules sample per-episode role IDs
+    with their teacher-only weights; these fixed indices are NOT the
+    allocation used in an evolving campaign.
     """
     if num_envs <= 0:
         raise ValueError("num_envs must be positive")
