@@ -6,7 +6,7 @@ EMU is a reinforcement-learning project for a dynamically unstable, six-actuator
 
 **This is the `feature/v5023-capability-growth` research branch.** It builds on the successful foundation from `main` but introduces a new sensor contract and unified capability curriculum. The approved public robot remains separate:
 
-**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [Overnight tournament](docs/OVERNIGHT_TEACHING.md) · [Foundation experiments](docs/FOUNDATION_EXPERIMENTS.md) · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
+**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [Surface lab viewer](docs/SURFACE_LAB.md) · [Overnight tournament](docs/OVERNIGHT_TEACHING.md) · [Foundation experiments](docs/FOUNDATION_EXPERIMENTS.md) · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
 
 ## The learning idea
 
