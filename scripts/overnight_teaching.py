@@ -12,6 +12,7 @@ import csv
 import json
 import math
 import os
+import signal
 import shutil
 import time
 from pathlib import Path
@@ -280,7 +281,7 @@ def execute(command,log_path,env,*,campaign=None):
         seen_header=False
         with subprocess.Popen(command,cwd=ROOT,env=env,
              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-             text=True,bufsize=1) as proc:
+             text=True,bufsize=1,start_new_session=True) as proc:
             for line in proc.stdout:
                 sys.stdout.write(line);sys.stdout.flush()
                 log.write(line)
@@ -305,7 +306,10 @@ def execute(command,log_path,env,*,campaign=None):
                             expected.remove('eval_core_vx_mae')
                             missing=expected-fields
                             if missing:
-                                proc.terminate()
+                                # The train CLI launches another Python
+                                # subprocess. Kill the whole candidate group
+                                # before moving to the next GPU experiment.
+                                os.killpg(proc.pid,signal.SIGTERM)
                                 raise RuntimeError(
                                     f'Unrecognized training telemetry: {sorted(missing)}')
                             seen_header=True
