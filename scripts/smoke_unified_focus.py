@@ -261,7 +261,11 @@ def main():
     assert governor.advance_slope({})=='collect_real_slope'
     qualified={f'slope_near_{kind}_{direction}':12.
                for direction in governor.SLOPE_DIRECTIONS
-               for kind in ('attempts','successes')}
+               for kind in ('attempts','stability_successes')}
+    # Command accuracy alone cannot certify physical supported practice.
+    tracking_only={f'slope_near_successes_{d}':12.
+                   for d in governor.SLOPE_DIRECTIONS}
+    assert governor.advance_slope(tracking_only)=='collect_real_slope'
     assert governor.advance_slope(qualified)=='expand_real_slope_angle'
     assert governor.params.slope_max_deg>.70
     archived=governor.state_dict()
