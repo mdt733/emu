@@ -104,7 +104,7 @@ jobs:
       - name: Run browser controls and packaging checks
         run: npm test --prefix emu/viewer_src
       - name: Prepare protected champion
-        run: python3 scripts/prepare_showcase.py --require-champion
+        run: python3 scripts/prepare_showcase.py
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
       - name: Reject modifications to tracked source

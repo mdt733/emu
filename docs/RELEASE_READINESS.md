@@ -61,8 +61,9 @@ the stdlib-only public release tool, including the 4×4 physical array
 extrinsics, sensor settings, exact field order and independently matched
 sensor SHA256. The already approved 232-input Pinnacle approval remains
 valid and unchanged. **No public deployment is triggered by this work.**
-The old untrained zero-action fixture and its fallback have been deleted:
-builds must use an explicit trained policy, never a misleading preview.
+The old untrained zero-action fixture, fallback and redundant
+`--require-champion` switch have been deleted: trained policy and
+valid provenance are unconditional build requirements.
 
 The current `showcase/deployment_request.json` remains pinned to the
 approved v5017 pose-lattice release. Future 360 publication still

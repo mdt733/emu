@@ -87,7 +87,7 @@ jobs:
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
+        run: python3 scripts/prepare_showcase.py --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
       - name: Install locked viewer dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run JavaScript contract tests

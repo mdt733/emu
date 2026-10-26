@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def prepare(*, output_dir: Path, policy_path: Path | None = None,
-            source_url: str = '', source_commit: str = '', require_champion: bool = False) -> dict:
+            source_url: str = '', source_commit: str = '') -> dict:
     champion = ROOT / 'showcase' / 'champion.emupolicy'
     # Release builds always require a real trained policy. The old
     # zero-action fallback was misleading and had no publishing use.
@@ -32,7 +32,7 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
     bundle = json.loads(selected.read_text(encoding='utf-8'))
     validate_browser_bundle(bundle, require_trained=trained)
     source = bundle.get('source') or {}
-    if trained and int(source.get('step') or 0) <= 0:
+    if int(source.get('step') or 0) <= 0:
         raise ValueError('Refusing to publish a zero-step policy as a trained champion')
     label = str(source.get('run_name') or 'Selected EMU champion')[:100]
     if source_commit and not re.fullmatch(r'[0-9a-f]{40}', source_commit):
@@ -75,14 +75,12 @@ def main() -> None:
     parser.add_argument('--policy', type=Path, default=None, help='Optional trained exported policy (otherwise showcase/champion.emupolicy)')
     parser.add_argument('--source-url', default='', help='Public GitHub repository URL')
     parser.add_argument('--source-commit', default='', help='Full Git commit used to build this static frontend')
-    parser.add_argument('--require-champion', action='store_true', help='Require a trained champion (always enforced; retained for CI compatibility)')
     args = parser.parse_args()
     manifest = prepare(
         output_dir=ROOT / 'emu' / 'viewer_src' / 'public',
         policy_path=args.policy,
         source_url=args.source_url,
         source_commit=args.source_commit,
-        require_champion=args.require_champion,
     )
     print(f"Static EMU showcase ready: {manifest['label']} (trained policy)")
 
