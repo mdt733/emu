@@ -346,7 +346,9 @@ def main():
                   screens=not args.no_screens)
     print('Source',sha,'\nCampaign',root,'\nCUDA 2048 worlds sequentially',flush=True)
     for entry in entries:
-        resume=(root/entry['name']/'training_config.json').is_file()
+        ck=root/entry['name']/'checkpoints'
+        resume=(ck/'latest.pkl').is_file() or (ck/'final.pkl').is_file() or any(
+            ck.glob('snapshot_step_*.pkl'))
         print(('RESUME' if resume else 'NEW')+':',shlex.join(
             cmd_for(entry,root,args.seed,args.foundation_steps,resume)))
     if not args.run:
@@ -414,8 +416,19 @@ def main():
             try:
                 if dest.exists() and not (dest/'training_config.json').is_file():
                     raise RuntimeError(f'Uninitialised run directory: {dest}')
+                # A failed first CUDA compilation can save training_config
+                # but no resumable state. In that case restart from cold
+                # with the SAME source/run config; --resume auto correctly
+                # refuses to invent a nonexistent checkpoint.
+                ck=dest/'checkpoints'
+                resumable=((ck/'latest.pkl').is_file() or
+                           (ck/'final.pkl').is_file() or
+                           any(ck.glob('snapshot_step_*.pkl')))
+                if dest.exists() and not resumable:
+                    print(f'{entry["name"]}: no saved policy yet; '
+                          'starting a clean same-config run',flush=True)
                 cmd=cmd_for(entry,root,args.seed,args.foundation_steps,
-                            resume=dest.exists())
+                            resume=resumable)
                 execute(cmd,root/'logs'/(entry['name']+'.log'),env,
                         campaign=(root,entries))
                 status[entry['name']]='completed'
