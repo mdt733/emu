@@ -2132,6 +2132,11 @@ class EmuMJXEnv(TaskSampler):
         role map for held-out exams and legacy physical acceptance tests.
         With weights, zero-probability roles can never be sampled.
         """
+        # Legacy 220/232/single-platform teacher packets do NOT contain
+        # the unified schedule extension. The original fixed focus map
+        # remains entirely untouched for those older environments.
+        if not self.unified_capability_focus:
+            return self.focus_id
         jax,jnp=self.jax,self.jnp
         w=params[P.focus_weight_command:P.focus_weight_control+1]
         logits=jnp.where(w>0.,jnp.log(jnp.maximum(w,1e-30)),-1e9)
