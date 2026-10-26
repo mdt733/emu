@@ -132,6 +132,26 @@ for genuine combined vx/vy/yaw, recovery, independent slopes, step
 crossing, and energy quality. A curriculum that gains new skills but
 forgets old ones is not the winner.
 
+## Surface laboratory separate from the running experiment
+
+The viewer-only branch `feature/v5023-surface-lab` is based on the
+exact d6f3622 training source. It adds four 0.5–12 degree continuous
+planes (uphill, downhill, left/right camber) and 0.1–6 cm real
+step transitions for a loaded array-only 360-input policy.
+
+This browser MuJoCo comparison is **not bit-identical** to training MJX,
+nor is manual driving a valid held-out statistical qualification. Do not
+pull new source into the active source-pinned trainer: launch the viewer
+from an independent Git checkout with an exported read-only policy.
+
+The existing slope governor requires 8 completed near-target episodes
+in EACH of four directions, with >=65% success in every direction,
+before increasing the ONE shared target by 0.08 degrees. An easy-direction
+success rate below 30% can retreat that one target by 2.5% and reset
+the accumulated windows. This may be unnecessarily conservative for the
+shared angle, but the live training source must stay unchanged; gather
+actual 2–5 degree viewer evidence before changing the teacher logic.
+
 ## Migration guard
 
 Do not modify `main` or the approved Pinnacle policy/showcase. Keep the

@@ -61,7 +61,20 @@
         <option value="trough">Hill trough</option>
         <option value="log">Half-round log</option>
         <option value="angled">Angled ridge</option>
+        <optgroup label="v5023 surface laboratory">
+          <option value="lab-uphill">Uphill · continuous plane</option>
+          <option value="lab-downhill">Downhill · continuous plane</option>
+          <option value="lab-camber-left">Left camber · continuous plane</option>
+          <option value="lab-camber-right">Right camber · continuous plane</option>
+          <option value="lab-step-up">Custom step up</option>
+          <option value="lab-step-down">Custom step down</option>
+        </optgroup>
       </select></label>
+      <label class="depth-row">Slope angle <output id="surfaceSlopeOut">3.0°</output>
+        <input id="surfaceSlope" type="range" min="0.5" max="12" value="3" step="0.5" /></label>
+      <label class="depth-row">Step height <output id="surfaceStepOut">2.0 cm</output>
+        <input id="surfaceStep" type="range" min="0.1" max="6" value="2" step="0.1" /></label>
+      <div class="depth-foot">Surface tests use real browser MuJoCo collisions. They are manual physical diagnostics, not identical to an MJX training-world examination.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">0 mm</output>
@@ -97,7 +110,7 @@
         <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
         <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
         <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="sensor">Depth lab course</option></select></label>
+        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="sensor">Surface lab · slope / steps</option></select></label>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
         <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
         <label><input id="parkFeaturesToggle" type="checkbox" checked /> Park obstacle ring (solid)</label>

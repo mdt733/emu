@@ -25,6 +25,7 @@ const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
 const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
+const surfaceSlopeSlider=$('surfaceSlope'),surfaceStepSlider=$('surfaceStep');
 const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthView=$('depthView');
 const depthCells=Array.from({length:16},()=>{
@@ -265,6 +266,8 @@ async function activatePolicy(index) {
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
     sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
     if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     updateDepthSettings();
@@ -380,6 +383,16 @@ function updateDepthSettings(){
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
+function applySurfaceLab(){
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+  if(!sim)return;
+  try{
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
+    navigator.reset();
+  }catch(error){setStatus('Surface lab: '+error.message,'error');}
+}
 function changeDepthCourse(){
   terrainMode.value=depthCourse.value==='viewer'?'park':'sensor';
   if(demoActive)stopDemo();
@@ -393,6 +406,14 @@ function changeDepthCourse(){
 for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthCourse.addEventListener('change',changeDepthCourse);
+surfaceSlopeSlider.addEventListener('change',applySurfaceLab);
+surfaceStepSlider.addEventListener('change',applySurfaceLab);
+surfaceSlopeSlider.addEventListener('input',()=>{
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+});
+surfaceStepSlider.addEventListener('input',()=>{
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+});
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
   const reading=sim?.depthReading;
