@@ -189,8 +189,40 @@ export const DEPTH_COURSES = Object.freeze([
   ['step-down','5 cm step down'], ['crest','Hill crest'],
   ['trough','Hill trough'], ['log','Half-round log'],
   ['angled','Angled ridge'],
+  ['lab-uphill','Custom uphill'],
+  ['lab-downhill','Custom downhill'],
+  ['lab-camber-left','Custom left camber'],
+  ['lab-camber-right','Custom right camber'],
+  ['lab-step-up','Custom step up'],
+  ['lab-step-down','Custom step down'],
 ]);
-function depthCourseXml(kind) {
+
+const LAB_SLOPES=new Set(['lab-uphill','lab-downhill','lab-camber-left','lab-camber-right']);
+export function surfaceLabGradient(kind,degrees=3) {
+  if(!LAB_SLOPES.has(kind))return null;
+  if(!Number.isFinite(degrees)||degrees<0.5||degrees>12)
+    throw new Error('Surface lab incline must be 0.5–12 degrees');
+  const grade=Math.tan(degrees*Math.PI/180);
+  return {
+    gx:kind==='lab-uphill'?grade:kind==='lab-downhill'?-grade:0,
+    gy:kind==='lab-camber-left'?grade:kind==='lab-camber-right'?-grade:0,
+  };
+}
+function labSlopeXml(kind,degrees) {
+  const {gx,gy}=surfaceLabGradient(kind,degrees);
+  // One REAL MuJoCo sloped box. Its upper plane passes through (0,0,0)
+  // so the robot spawns directly on a smooth continuous incline.
+  const t=.25,rad=degrees*Math.PI/180,sign=gx+gy<0?-1:1;
+  const pitch=gx!==0;
+  const cx=pitch?t*Math.sin(rad)*sign:0;
+  const cy=pitch?0:t*Math.sin(rad)*sign;
+  const cz=-t*Math.cos(rad);
+  const euler=pitch?'0 '+(-sign*degrees)+' 0':(sign*degrees)+' 0 0';
+  return '<geom name="surface_lab_plane" type="box" pos="'+
+    [cx,cy,cz].map(rounded).join(' ')+'" size="6 2.5 '+t+
+    '" euler="'+euler+'" friction="1.5 .005 .0001" rgba=".30 .56 .50 1"/>';
+}
+function depthCourseXml(kind,{slopeDegrees=3,stepHeightCm=2}={}) {
   if(!DEPTH_COURSES.some(([id])=>id===kind))
     throw new Error('Unknown depth lab obstacle');
   const surface=(name,x0,x1,z0,z1)=>{
@@ -202,6 +234,18 @@ function depthCourseXml(kind) {
       '" size="'+((x1-x0)/(2*Math.cos(angle)))+' 1.3 '+thickness+
       '" euler="0 '+(-angle*180/Math.PI)+' 0" friction="1.5 0.005 0.0001" rgba="0.35 0.58 0.51 1"/>';
   };
+  if(LAB_SLOPES.has(kind))
+    return {removeFloor:true,geoms:labSlopeXml(kind,slopeDegrees)};
+  if(['lab-step-up','lab-step-down'].includes(kind)){
+    const height=Number(stepHeightCm);
+    if(!Number.isFinite(height)||height<0.1||height>6)
+      throw new Error('Surface lab step must be 0.1–6 cm');
+    const z=(kind==='lab-step-up'?1:-1)*height/100;
+    return {removeFloor:true,geoms:[
+      surface('approach',-4,.65,0,0),
+      surface('landing',.65,5,z,z),
+    ].join('\n')};
+  }
   if(kind==='flat')return {removeFloor:false,geoms:''};
   if(kind==='log')return {
     removeFloor:false,geoms:'<geom name="depth_log" type="cylinder" pos=".83 0 .025" size=".055 .52" euler="90 0 0" friction="1.5 .005 .0001" rgba=".61 .43 .29 1"/>',
@@ -230,11 +274,11 @@ function depthCourseXml(kind) {
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='sensor'){
-    const course=depthCourseXml(options.obstacle||'flat');
+    const course=depthCourseXml(options.obstacle||'flat',options);
     let xml=robotXml;
     if(course.removeFloor){
       xml=xml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
@@ -260,7 +304,7 @@ export const withGentleCourse=xml=>withTerrain(xml,'ramp');
 // This is terrain grade, NOT chassis pitch, commanded attitude, or a
 // physically estimated IMU angle. The arrow points uphill RELATIVE to the
 // robot's current heading: up=forward, right=robot right, left=robot left.
-export function surfaceSlope(mode,park,x,y,robotHeading=0) {
+export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null) {
   if (![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
@@ -279,9 +323,10 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0) {
     else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
       gx=-Math.tan(Math.PI/180);
   } else if(mode==='sensor') {
-    // The diagnostic courses have discontinuous steps. Their ground cannot
-    // be represented by a single underfoot grade, but depth still works.
-    return {supported:false,degrees:0,arrowDegrees:0,flat:false};
+    const gradient=lab && surfaceLabGradient(lab.obstacle,lab.slopeDegrees);
+    if(!gradient)
+      return {supported:false,degrees:0,arrowDegrees:0,flat:false};
+    gx=gradient.gx;gy=gradient.gy;
   } else if(mode!=='flat') throw new Error('Unknown terrain mode');
   const grade=Math.hypot(gx,gy);
   const degrees=Math.atan(grade)*180/Math.PI;

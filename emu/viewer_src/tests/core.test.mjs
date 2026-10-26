@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {parsePolicy} from '../src/policy.js';
 import {parseShowcaseManifest} from '../src/showcase.js';
-import {withTerrain,generateTerrainPark,surfaceSlope} from '../src/terrain.js';
+import {withTerrain,generateTerrainPark,surfaceSlope,surfaceLabGradient} from '../src/terrain.js';
 import {SensorObserver} from '../src/sensor.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
@@ -460,6 +460,32 @@ test('v5022 diagnostic obstacle courses alter REAL MuJoCo support geometry',()=>
   assert.ok(hill.includes('depth_rise')&&hill.includes('depth_exit'));
   assert.ok(log.includes('depth_log')&&log.includes('name="floor"'));
   assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'unknown'}));
+});
+
+
+test('v5023 surface lab builds real 4-direction continuous inclines and variable steps',()=>{
+  const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05" /></worldbody></mujoco>';
+  for(const [kind,axis,sign] of [
+    ['lab-uphill','gx',1],['lab-downhill','gx',-1],
+    ['lab-camber-left','gy',1],['lab-camber-right','gy',-1]]) {
+    const out=withTerrain(xml,'sensor',{obstacle:kind,slopeDegrees:5});
+    assert.ok(out.includes('surface_lab_plane'));
+    assert.ok(!out.includes('name="floor"'));
+    const g=surfaceLabGradient(kind,5);
+    assert.equal(Math.sign(g[axis]),sign);
+    assert.ok(Math.abs(Math.atan(Math.hypot(g.gx,g.gy))*180/Math.PI-5)<1e-9);
+    const measured=surfaceSlope('sensor',null,0,0,0,{obstacle:kind,slopeDegrees:5});
+    assert.equal(measured.supported,true);
+    assert.ok(Math.abs(measured.degrees-5)<1e-9);
+  }
+  for(const kind of ['lab-step-up','lab-step-down']){
+    const xmlOut=withTerrain(xml,'sensor',{obstacle:kind,stepHeightCm:2.5});
+    assert.ok(xmlOut.includes('depth_approach'));
+    assert.ok(xmlOut.includes('depth_landing'));
+    assert.ok(!xmlOut.includes('name="floor"'));
+  }
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'lab-uphill',slopeDegrees:30}));
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'lab-step-up',stepHeightCm:20}));
 });
 
 

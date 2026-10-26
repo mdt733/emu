@@ -110,6 +110,8 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.sensorObstacle = 'flat';
+    this.surfaceSlopeDegrees=3;
+    this.surfaceStepHeightCm=2;
     this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
@@ -360,9 +362,23 @@ export class EmuBrowserSim {
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
   setSensorObstacle(id) {
-    if(!['flat','step-up','step-up-1cm','step-up-2cm','step-down','crest','trough','log','angled'].includes(id))throw new Error('Unknown sensor course');
+    if(!['flat','step-up','step-up-1cm','step-up-2cm','step-down','crest','trough','log','angled',
+      'lab-uphill','lab-downhill','lab-camber-left','lab-camber-right',
+      'lab-step-up','lab-step-down'].includes(id))throw new Error('Unknown sensor course');
     if(id===this.sensorObstacle)return;
     this.sensorObstacle=id;
+    if(this.terrainMode==='sensor')this.loadModel();
+  }
+  setSurfaceLab({slopeDegrees=this.surfaceSlopeDegrees,
+                 stepHeightCm=this.surfaceStepHeightCm}={}) {
+    if(!Number.isFinite(slopeDegrees)||slopeDegrees<0.5||slopeDegrees>12)
+      throw new Error('Incline must be 0.5–12 degrees');
+    if(!Number.isFinite(stepHeightCm)||stepHeightCm<0.1||stepHeightCm>6)
+      throw new Error('Step must be 0.1–6 cm');
+    if(slopeDegrees===this.surfaceSlopeDegrees &&
+       stepHeightCm===this.surfaceStepHeightCm)return;
+    this.surfaceSlopeDegrees=slopeDegrees;
+    this.surfaceStepHeightCm=stepHeightCm;
     if(this.terrainMode==='sensor')this.loadModel();
   }
   setDepthInspector({enabled,forward,tilt,showRays,showFootprint=true,subrays='auto'}) {
@@ -411,7 +427,8 @@ export class EmuBrowserSim {
       ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled})
       : null;
-    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle});
+    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
+      slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
@@ -883,7 +900,8 @@ export class EmuBrowserSim {
       headingHold: this.headingHold, headingActual: this.actualHeading(),
       headingTarget: this.headingTarget,
       slope: surfaceSlope(this.terrainMode, this.park,
-        (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading()),
+        (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading(),
+        {obstacle:this.sensorObstacle,slopeDegrees:this.surfaceSlopeDegrees}),
       fallen: this.isFallen(), phaseRate: this.phaseRate(),
     };
   }
