@@ -47,6 +47,14 @@ continues serving validated checkpoints independently of the public demo.
 
 ## Planned 360-input replacement
 
+The release validator on the polish branch can now independently accept a
+schema-9 360-input, array-only 4×4 terrain-aware actor *if* an explicit
+release approval exactly matches its sensor contract, checkpoint/source
+provenance and policy Git blob. The currently approved 232-input policy is
+unchanged; merely validating a future format never publishes it.
+The old zero-action fallback is no longer used by the public builder.
+
+
 The published 232-input Pinnacle is a **protected historical benchmark**,
 not a permanently required second architecture. Once the 360-input unified
 learner wins replicated frozen physical evaluations, is verified end-to-end

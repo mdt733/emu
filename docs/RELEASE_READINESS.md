@@ -53,6 +53,22 @@ and start a new source-pinned run for any changes that alter learning.
 - [ ] Reviewed PR, explicit owner approval for **main merge**.
 - [ ] Separate explicit release approval for any public showcase update.
 
+## Public release readiness — 360-input policy plumbing
+
+The previous release gate accepted only 232 observations. The polish
+branch now validates **360-input schema-9 array-only actor policies** in
+the stdlib-only public release tool, including the 4×4 physical array
+extrinsics, sensor settings, exact field order and independently matched
+sensor SHA256. The already approved 232-input Pinnacle approval remains
+valid and unchanged. **No public deployment is triggered by this work.**
+The old untrained zero-action fixture and its fallback have been deleted:
+builds must use an explicit trained policy, never a misleading preview.
+
+The current `showcase/deployment_request.json` remains pinned to the
+approved v5017 pose-lattice release. Future 360 publication still
+requires a separate owner-reviewed release request, policy artifact,
+checkpoint evidence, and GitHub Pages deployment.
+
 ## Legacy retirement — explicit exit plan
 
 The old 220/232-input policy family, sim2real trial profiles, legacy-only
