@@ -8,7 +8,7 @@ import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
-import { withTerrain, generateTerrainPark, surfaceSlope } from './terrain.js';
+import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -880,7 +880,14 @@ export class EmuBrowserSim {
   isFallen() {
     const R = this.bodyRotation();
     const gravityZ = -this.worldToBody(R, 0, 0, -1)[2];
-    return this.heightM() < 0.145 || gravityZ < 0.35;
+    // On a downward/sideways diagnostic plane, absolute world-Z falls
+    // as the robot walks. Falling means body clearance ABOVE SUPPORT is
+    // too low; do not misclassify successful downhill walking as a fall.
+    const grade=this.terrainMode==='sensor' ?
+      surfaceLabGradient(this.sensorObstacle,this.surfaceSlopeDegrees) : null;
+    const root=this.data.qpos;
+    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] : 0;
+    return this.heightM()-supportZ < 0.145 || gravityZ < 0.35;
   }
 
   heightM() { return Number(this.data.xpos[this.torsoId * 3 + 2]); }
