@@ -1,171 +1,166 @@
-# EMU — teaching a biped to walk, then to handle the world
+# EMU — one biped, one brain, an expanding set of skills
 
-**Six actuators. Two feet. One brain. Many complementary lessons.**
+**Six actuators · two feet · one PPO policy · physical MuJoCo/MJX learning**
 
-EMU is a reinforcement-learning project for a dynamically unstable, six-actuator biped. A single PPO policy learns locomotion through parallel **MuJoCo/MJX** physics simulations rather than a hand-coded gait. The longer-term goal is not simply to walk faster or survive one obstacle: it is to walk **reliably, accurately, gracefully and efficiently** across commands, disturbances and real terrain.
+EMU is a reinforcement-learning biped project. A single actor learns to walk
+from scratch, then trains on commanded forward/lateral/yaw motion, recovery,
+inclines, discontinuous steps, transitions and smoother, less wasteful motion.
+The objective is **supported, accurate locomotion**, not just surviving a slope,
+moving downhill, accumulating reward, or raising a curriculum target.
 
-**This is the `feature/v5024-terrain-control` research branch.** It builds on the successful foundation from `main` but introduces a new sensor contract and unified capability curriculum. The approved public robot remains separate:
+[Public EMU Playground](https://mdt733.github.io/emu/) ·
+[Installation and commands](docs/INSTALL.md) ·
+[Current v5024 experiment](docs/V5024_RUN_PLAN.md) ·
+[Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
+[Physical capability inventory](docs/CAPABILITY_DIMENSIONS.md) ·
+[Release readiness](docs/RELEASE_READINESS.md) ·
+[All documentation](docs/README.md) ·
+[Engineering handover](HANDOVER.md)
 
-**[Try the existing EMU Playground](https://mdt733.github.io/emu/)** · [v5024 next-run plan](docs/V5024_RUN_PLAN.md) · [Surface lab viewer](docs/SURFACE_LAB.md) · [Overnight tournament](docs/OVERNIGHT_TEACHING.md) · [Foundation experiments](docs/FOUNDATION_EXPERIMENTS.md) · [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](docs/CAPABILITY_DIMENSIONS.md) · [Active handover](HANDOVER.md) · [Install & acceptance](docs/INSTALL.md) · [Viewer guide](docs/PLAYGROUND.md)
+## Which generation is this?
 
-## The learning idea
+This is the **`feature/v5024-release-polish`** engineering branch, forked
+from `feature/v5024-terrain-control` at
+`d26ae0c2c4097d7c7124759197a94504abc44995`.
 
-> Start with the walking lessons that worked on `main`. Keep one policy. Give different simulated worlds a different **teaching emphasis**, measure the outcomes of *completed episodes*, then grow only the capabilities the robot has actually earned.
+- **Candidate system:** 360-input, delayed 4×4 forward-ground sensor;
+  one cold-start learner and one six-emphasis adaptive teacher.
+- **Frozen training source:** the separate v5024 branch and exact commit
+  above, used by the 3 × 60M GPU campaign. **Do not pull polish commits
+  into its running or resumable checkout.**
+- **Published reference:** the older 232-input, 260M Pinnacle in the public
+  Playground. It is a *temporary reference and rollback policy*, not the
+  intended future system. Replacing it requires independent physical exams,
+  a reviewed merge and separately authorised public release.
 
-### Phase 1: protect the first 20 million steps
+Do not infer that this branch has already outperformed Pinnacle from passing
+CI or increasing slope difficulty. Training results and promotion remain open.
 
-From a **cold start**, the 360-input policy receives the same *kind* of gentle standing and walking curriculum that made `main` effective:
-
-- Preserve the original eight gait rewards, 32-frame rollouts, four PPO epochs, eight minibatches, learning rate `2e-4`, seed `733` and normally `2048` parallel worlds.
-- Keep the original first **70 PPO updates steady-only**, conservative early movement commands, fall-sensitive retreats, and main-style disturbance burden.
-- Use the new **4×4 forward ground-sensing array from step zero**; never splice a 220/232-input checkpoint into the different 360-input network.
-- Keep the new step and slope surfaces physically dormant in this stage. **20M is a teaching-distribution boundary, not proof of mastered walking and not a required campaign stop.**
-
-The settings and early teaching distribution are protected in code. **Equivalent walking performance has not yet been demonstrated** by a freshly trained unified policy.
-
-### Phase 2: six teachers, one shared actor
-
-After 20M, specialist activation blends linearly over 10M further steps (0% to 100% inside the allocated birth cohorts). That blend is only lesson frequency, not a maturity gate or another skill's permission. Each world still encounters gentler versions of the other challenges; its focus determines what it probes closer to or just beyond the currently demonstrated limit.
-
-| Teacher focus | Target share | What it deliberately challenges |
-| --- | ---: | --- |
-| **Commands** | 20% | Forward/reverse `vx`, lateral `vy`, yaw, and combinations |
-| **Resilience** | 20% | Pushes, disturbances, supported recovery |
-| **Slopes** | 20% | Uphill, downhill, left and right cross-slope |
-| **Steps** | 20% | Genuine step-ups/downs, height and rotated edges |
-| **Transitions / posture** | 10% | Starting, stopping, reversing, acceleration, chassis attitude |
-| **Control / grace** | 10% | Accurate supported motion, smoothness, slip, mechanical effort |
-
-There are **not six neural networks**. All worlds update the **same PPO policy**. Teacher identity and exact simulator terrain truth are not privileged actor inputs.
-
-A complete training loop is:
+## How it works
 
 ```text
-Sample worlds from current capability limits
-    → act with the same shared policy
-    → finish episodes and record what was really attempted
-    → measure survival, command tracking, support and contact
-    → advance / hold / retreat individual skill frontiers
-    → nudge each physical target independently
-    → sample the next set of experiences
+        2,048 batched MuJoCo/MJX worlds
+                       |
+       single 360-observation, 6-action PPO actor
+                       |
+             completed physical episodes
+                       |
+    command tracking • support • recovery • steps
+      slope stability versus tracking • energy
+                       |
+          six focused lesson allocations
+                       |
+        local difficulty targets: easy / near / hard
+                       |
+                  next lessons
 ```
 
-**Command requests use an L1 diamond** in the `vx/vy` plane (an octahedron including yaw), not a square that allows maximum forward and maximum sideways speed simultaneously. Sampling deliberately includes the interior, boundary and modest probes just beyond it. Success at one mixed-direction command is **not** evidence that every pure-axis maximum can expand.
+All emphases teach the **same** actor. A world can emphasise commands,
+resilience, slopes, steps, transitions/posture or control/efficiency. The
+teacher's focus label and exact simulator terrain are *not* privileged inputs.
+The policy sees delayed sensor observations instead.
 
-**Slopes and steps are real collision geometry.** Two oriented solid slabs produce actual incline pitch/roll, rises/drops and angled step lips. Supported far-side **foot contact** matters; moving the robot's root past an edge is not a successful crossing.
+A physical-practice target is **where to teach**, not a certification of
+competence. Completed near-target successes may nudge it up; persistent easier
+failures may nudge it down; absent evidence and failed hard probes ordinarily
+hold it. The held-out examiner, not the training curriculum, determines what
+the actor can actually do.
 
-**Efficiency never means standing still.** The control teacher values walking and tracking first, then reduced needless motion, slip and simulated servo shaft work. Shaft joules are **not** electrical battery energy.
+**Cold start:** main-style baseline gait learning is preserved, including
+the first 70 steady-only PPO updates. The foundation can be 10M or 20M world
+steps; the v5024 comparison uses 10M. Specialist activation then blends in
+over another 10M steps. These are teaching-allocation boundaries, never
+mandatory checkpoint stops or proof of maturity.
 
-For the full decision rules, observation contract and non-regression checklist, read [the unified learning contract](docs/UNIFIED_CAPABILITY_GROWTH.md).
+**Physical terrain:** real contact geometry creates inclined support and
+upper/lower step surfaces. Supported far-side foot contact distinguishes a
+completed step from a root that merely passed an edge. An upright robot
+sliding downhill is stable, but **has not passed commanded tracking**.
 
-## What works today — and what does not
+**Efficiency:** smoothness and simulated shaft work are diagnostics and
+teaching signals subordinate to useful, supported and accurately tracked
+movement. Simulated shaft joules are not measured battery energy.
 
-| Area | Current state |
-| --- | --- |
-| Public 232-input Pinnacle demonstration | **Protected and available** in the Playground |
-| New 360-input actor, 4×4 array and mixed physical terrain | **Implemented**; small CPU physics/gradient smoke available |
-| Single-policy six-focus curriculum and local moving targets | **Implemented**; behavioural learning still needs long-run evidence |
-| Frozen `capability-exam` for commands, real slopes/steps, recovery and control | **Implemented**; not yet proven on a successfully trained new policy |
-| Source-pinned checkpoint/resume/export acceptance | **Bounded test path available**; real unified CUDA lifecycle still needs verification |
-| One cold-start continuous 360 learner | **Source-guarded mode implemented**, with same-source resume/target extension; long CUDA walking run still needs real GPU acceptance and evidence |
+## Quick start — WSL2 / Ubuntu
 
-Follow [CI on GitHub Actions](https://github.com/mdt733/emu/actions) for the *current commit*. Green CI or two PPO updates demonstrate engineering health, **not** a better walking robot.
-
-## Quick start — fresh Ubuntu/WSL2 checkout
-
-Requires **Python 3.13+ with `venv`**, Git and, for CUDA experiments, a working NVIDIA GPU/WSL driver. The setup script installs project dependencies, CUDA-enabled JAX and Node for the viewer; it **does not start training**.
+Requires Python 3.13 with `venv`, Git and Node. NVIDIA drivers and
+CUDA-capable JAX are required only for GPU training. Work on a **separate
+checkout** from any running experiment:
 
 ```bash
-# On a fresh WSL home directory; clone into a known location.
-cd ~
-git clone --single-branch --branch feature/v5024-terrain-control \
-  https://github.com/mdt733/emu.git "$HOME/emu"
-cd "$HOME/emu"
-
+git clone --single-branch --branch feature/v5024-release-polish \
+  https://github.com/mdt733/emu.git "$HOME/emu-polish"
+cd "$HOME/emu-polish"
 bash scripts/setup_wsl.sh --cuda13 --install-node
 source .venv/bin/activate
-
-python --version
-git branch --show-current
-git status --short      # clean checkout required for source-pinned runs
-emu doctor --no-require-gpu --no-mjx-smoke
+bash scripts/check.sh
 ```
 
-If you already have a checkout, **use its real directory rather than cloning over it**. If setup reports missing Python 3.13/venv, fix that prerequisite before continuing. For CPU-only setup, omit `--cuda13`. All following commands assume the virtual environment is active and you're in the repository root.
-
-### Inspect the unified training plan — safe, read-only
-
-```bash
-emu train --run-dir "$HOME/robot_lab/emu_runs/unified_candidate" \
-  --profile sim2real --terrain-actor --terrain-step-max-m 0.04 \
-  --unified-capabilities --seed 733 --envs 2048 \
-  --steps 20000000 --device cuda --plan
-```
-
-**`--plan` does not train or create a run.** The continuous live mode is an explicit `EMU_UNIFIED_CONTINUOUS=cold-growth-approved` opt-in for a clean 2048-world CUDA learner, and should only be used after exact-SHA CI and the owner's GPU acceptance. It does not require a fixed 20M, 40M or 60M checkpoint. The legacy `--profile foundation` command is a **different, 220-input actor**, not a substitute for this unified cold start.
-
-### Engineering acceptance — short, explicit tests
-
-A small CPU test exercises physical terrain, all six teaching focuses and one real PPO gradient:
+CPU-only installation: omit `--cuda13`. To check the new experimental
+system without training:
 
 ```bash
+python scripts/v5024_campaign.py           # plan only; 180M across 3 arms
 python scripts/smoke_unified_focus.py --device cpu --envs 12
 ```
 
-On your CUDA machine, this attempts **one production-shaped 2,048-world PPO update** (32-frame rollout, four epochs, eight minibatches). It does not create a training run or checkpoint:
+On an appropriate GPU, the standalone 2,048-world CUDA PPO preflight is:
 
 ```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
 python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
 ```
 
-Only after that succeeds, the bounded **two-update** lifecycle can test checkpoint, source-matched resume, observation normalisation and export. Use a **new** run root outside the checkout:
+These probes do not establish walking quality. To run the **existing frozen
+v5024 campaign**, use the original `feature/v5024-terrain-control`
+checkout and its documented source-pinned launcher, **not this branch**.
+See [INSTALL.md](docs/INSTALL.md) for exact commands, safe resume and
+independent physical examinations.
+
+## Evaluating policies and viewing the robot
 
 ```bash
-mkdir -p "$HOME/robot_lab/emu_runs"
-ROOT="$HOME/robot_lab/emu_runs/unified_accept_$(git rev-parse --short HEAD)_8"
+# 360-input physical terrain matrix: 1/2/3/5° inclines and up/down steps
+emu capability-exam --terrain-matrix \
+  --policy /path/to/policy360.emupolicy \
+  --output "$HOME/robot_lab/emu_runs/my_terrain_exam" \
+  --device cpu --worlds 8 --horizon 350
 
-python scripts/smoke_training_lifecycle.py first --root "$ROOT" --unified --envs 8 &&
-python scripts/smoke_training_lifecycle.py continue --root "$ROOT" --unified --envs 8 &&
-python scripts/smoke_training_lifecycle.py verify --root "$ROOT" --unified --envs 8
-```
-
-These acceptance runs remain limited to two PPO updates, **not enough to learn walking**. If the small lifecycle passes, the next gate uses a *fresh* root at 2,048 worlds. See [INSTALL.md](docs/INSTALL.md) for full copy-paste cold launch, interrupted resume and same-run target extension commands.
-
-### Frozen assessment and browser viewer
-
-Once a 360-input `.emupolicy` exists, you can run an independent, **read-only** quick exam of its actual physics. A two-update acceptance export is suitable only for testing the examiner's plumbing, **not** demonstrating locomotion:
-
-```bash
-emu capability-exam --policy "$ROOT/tiny_smoke_actor.emupolicy" \
-  --output "$ROOT/quick_physics" --device cpu --worlds 4 --quick
-
+# Local browser simulator and protected published-reference policy
 emu viewer showcase/champion.emupolicy --no-open
-# Browser: http://127.0.0.1:8765/
+# Visit http://127.0.0.1:8765/
 ```
 
-The complete unified exam measures actual command tracking, all four slope directions, paired supported step crossings, mixed incline/step geometry, disturbances, transitions, slip, action smoothness and simulated shaft work. The public champion uses an **older observation contract**, so use `terrain-exam` (not `capability-exam`) for its legacy terrain diagnostics. The local viewer has no authentication; do not expose it to the internet.
+The independent examiner separates **supported moving stability** from
+**command tracking**, including signed downhill/lateral drift, yaw errors and
+supported step crossings. The local viewer can vary slope direction/grade and
+step height. It is not authenticated; do not publish its server port.
 
-## Code map
+## Source map
 
-```text
-emu/robot.xml                    The physical six-actuator robot
-emu/environment.py               MJX worlds, sensors, real contacts, episode facts
-emu/rewards.py                   Eight fundamental gait payments
-emu/ppo.py + emu/training.py      One actor, PPO, rolling updates, checkpointed run
-emu/curriculum.py                Evidence windows, difficulty and retreat governor
-emu/capability_focus.py          Six teacher emphases and diamond command probes
-emu/run.py + emu/training_config.py  One source-pinned configuration and run entry
-emu/evaluation.py + emu/results.py  Frozen physical exams and learning reports
-emu/viewer_server.py + emu/viewer_src/  Local browser simulator and policy replay
-```
+| Area | Purpose |
+| --- | --- |
+| `emu/robot.xml` | Robot bodies, joints, actuators and contact geometry |
+| `emu/environment.py` + `emu/contracts.py` | Batched physics, delayed observations, physical episode facts |
+| `emu/rewards.py` | Original gait rewards |
+| `emu/ppo.py` + `emu/training.py` | Shared actor, PPO update and training lifecycle |
+| `emu/curriculum.py` + `emu/capability_focus.py` | Locally advancing/retreating targets and lesson allocation |
+| `emu/run.py` + `emu/training_config.py` | CLI training config, source-pinned resume/extension |
+| `emu/evaluation.py` + `emu/results.py` | Frozen physical exams and reports |
+| `emu/viewer_server.py` + `emu/viewer_src/` | Browser MuJoCo viewer and policy replay |
+| `scripts/v5024_campaign.py` | 3-arm comparison (opt-in `--run`) |
+| `tests/` + `emu/viewer_src/tests/` | Maintained contracts, physics and browser checks |
 
-The current CLI entry point is `emu`; use `emu --help` and `emu train --help` for available options. Older `ladder`, `lab5015`, `campaign5016` and multi-arm trial machinery were retired from this branch; the old implementations remain recoverable from Git history.
+Older 220/232-input compatibility code is **scheduled for removal** when a
+360-input replacement is approved and the public release migrates. It remains
+temporarily so the reference policy and exporter can be compared honestly;
+it is not a second endorsed learner. The v5023 tournament is preserved as a
+historical comparison, not a current default launcher.
 
-## Working agreements
+## Release agreement
 
-- **Protect `main`, the approved 260M Pinnacle `.emupolicy` and the public showcase.** This branch is research; promotion requires explicit approval and separate frozen-policy evidence.
-- **Keep one continuous policy lineage.** Runs, snapshots and reports live outside the Git checkout. Never resume a checkpoint under a different source commit or observation/sensor contract.
-- **Improve competence, not just training reward.** A candidate that gains terrain performance but forgets basic supported walking has not surpassed the reference.
-- **Prefer simpler existing modules over new campaign frameworks.** Current tasks and preserved acceptance gates live in [HANDOVER.md](HANDOVER.md); the long-term design lives in [UNIFIED_CAPABILITY_GROWTH.md](docs/UNIFIED_CAPABILITY_GROWTH.md).
-
-This branch is aiming for **one cold-startable walker whose demonstrated capabilities grow together**—not six separate champions, and not another pile of one-off experiments.
+Only develop on feature/polish branches. Keep the training SHA, v5023 archives,
+Pinnacle and public Pages untouched during evaluation. Verify frozen physical
+performance and cold-start/resume/export before proposing a reviewed PR to
+`main`; merge and public deployment both require explicit owner approval.
+[Promotion and legacy-removal checklist](docs/RELEASE_READINESS.md).

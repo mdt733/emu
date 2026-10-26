@@ -52,6 +52,28 @@ and start a new source-pinned run for any changes that alter learning.
 - [ ] Reviewed PR, explicit owner approval for **main merge**.
 - [ ] Separate explicit release approval for any public showcase update.
 
+## Legacy retirement — explicit exit plan
+
+The old 220/232-input policy family, sim2real trial profiles, legacy-only
+examiners and their tests are **temporary scaffolding**, not a permanent
+second product. Retire them by audited deletion after:
+
+1. A 360-input champion and its saved observation/normalizer contract are
+   selected using held-out real-contact exams and replicated seeds.
+2. The local 360-input viewer and exported-policy replay are verified against
+   the Python actor, including terrain sensing and all controls.
+3. An owner-approved public release actually switches the showcase to the
+   new champion, with the old one preserved as an archived release/blob.
+4. Call-site and checkpoint format inventory shows the old schema is no
+   longer required for the supported trainer, exporter, CI or viewer.
+5. Remove obsolete compatibility branches, old CLI flags and their now-
+   irrelevant tests together; retain small backward-compatible readers
+   only when actual user data needs migration.
+
+The desired final `main` has **one active actor contract, one learner and
+one current release path**, not two maintained generations. Do not delete
+legacy runtime dependencies *before* the public release migrates.
+
 **This cleanup is not a new champion.** Keep the main policy and public
 showcase until matched, physically grounded evaluation supports promotion.
 
