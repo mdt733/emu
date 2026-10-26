@@ -1453,8 +1453,17 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         crossing=(bool(initial_near and passed_at is not None and alive
                        and grade_verified and height_verified and edge_verified)
                   if is_step else None)
+        # Keep distinct qualification: can it remain supported while
+        # moving on the requested actual grade, AND can it obey commands?
+        # The original strict case_pass is retained for backward-compatible
+        # policy ranking; stable != capable of controlled locomotion.
+        slope_stability_pass=bool(
+            alive and not world_fell and grade_verified and
+            support_fraction>=.35 and bad_fraction<.20 and
+            achieved>=max(.01,.20*commanded))
+        slope_tracking_pass=bool(tracking and grade_verified)
         if case.get('kind')=='slope':
-            passed=tracking and grade_verified
+            passed=slope_tracking_pass
         elif case.get('kind') in ('step','mixed'):
             passed=bool(crossing) and tracking
         elif case.get('kind')=='recovery':
@@ -1481,6 +1490,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             direction=('step-up' if side>0 else 'step-down') if is_step else case.get('direction','flat'),
             first_episode_frames=stop, survived=alive, fell=world_fell,
             grade_deg=round(grade,3),grade_verified=grade_verified,
+            slope_stability_pass=(slope_stability_pass if case.get('kind')=='slope' else None),
+            slope_tracking_pass=(slope_tracking_pass if case.get('kind')=='slope' else None),
             physical_slope_gx=round(gx,5),physical_slope_gy=round(gy,5),
             requested_step_m=float(case.get('step_m',0.)),
             measured_step_m=round(measured_h,5),height_verified=height_verified,
@@ -1530,10 +1541,25 @@ def _unified_exam_json(manifest: dict) -> str:
                       allow_nan=False, default=native_scalar) + '\n'
 
 
+def unified_terrain_matrix_cases():
+    """Same *absolute* difficulties and seeds for every tested policy."""
+    degrees=(1.,2.,3.,5.)
+    directions=('uphill','downhill','cross_left','cross_right')
+    cases=[dict(name=f'{direction}_{int(deg)}deg',kind='slope',
+                slope_deg=deg,direction=direction)
+           for deg in degrees for direction in directions]
+    cases.extend(
+        dict(name=f'paired_steps_{cm:.1f}cm'.replace('.','p'),kind='step',
+             step_m=cm/100)
+        for cm in (.3,.5,1.,2.))
+    return cases
+
+
 def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   worlds: int = 4, horizon: int = 300,
                                   speed: float = .10, seed: int = 1701,
-                                  device: str = 'cpu', quick: bool = False) -> tuple[Path,Path]:
+                                  device: str = 'cpu', quick: bool = False,
+                                  terrain_matrix: bool = False) -> tuple[Path,Path]:
     """One frozen array-only actor; identical MJX physics and seeds per case.
 
     No optimizer update, no teacher decisions, no automatic promotion. Uses
@@ -1601,6 +1627,16 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         dict(name='push_1N',kind='recovery',push_n=1.0),
         dict(name='tilt_10deg',kind='recovery',tilt_deg=10.),
     ]
+    if quick and terrain_matrix:
+        raise ValueError('quick and terrain_matrix must not both be selected')
+    if terrain_matrix:
+        # Read-only, matched physics matrix: no learning, no teacher, no
+        # adaptive difficulty, no replacing the generalist frozen exam.
+        cases=[dict(name='flat',kind='flat'),*unified_terrain_matrix_cases(),
+               dict(name='lateral_left',kind='command',vx=0.,vy=.05),
+               dict(name='lateral_right',kind='command',vx=0.,vy=-.05),
+               dict(name='yaw_left',kind='command',vx=0.,yaw=.20),
+               dict(name='yaw_right',kind='command',vx=0.,yaw=-.20)]
     if quick:
         cases=[c for c in cases if c['name'] in (
             'flat','control_easy_0p08','uphill_2deg','downhill_2deg','paired_steps_0p8cm',
@@ -1651,6 +1687,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                     raise RuntimeError('two-slab paired real geometry did not match')
         summary=dict(case=case,worlds=rows,passed=sum(r['case_pass'] for r in rows),
                      survived=sum(r['survived'] for r in rows),
+                     stable=sum(bool(r['slope_stability_pass']) for r in rows),
                      wall_seconds=round(time.perf_counter()-t0,2))
         results.append(summary)
         print(f"{case['name']}: {summary['passed']}/{worlds} passes, "
@@ -1663,6 +1700,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         source_training_step=export['source']['step'],
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       backend=jax.default_backend(),quick=bool(quick),
+                      terrain_matrix=bool(terrain_matrix),
                       model='actual paired inclined MJX collision slabs',
                       contact='real foot contact, five supported far-side frames',
                       no_reward_or_curriculum_feedback=True,
@@ -1681,10 +1719,12 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         f"Source policy SHA256: {manifest['actor_artifact_sha256']}",
         f"Actor schema: {manifest['observation_schema']} / {manifest['sensor_revision']}",
         f"Exam source: {manifest['source_commit']}",'',
-        '| Physical lesson | Supported passes | Survival |',
-        '|---|---:|---:|']
+        '| Physical lesson | Tracked passes | Physical stability | Survival |',
+        '|---|---:|---:|---:|']
     for item in results:
-        md.append(f"| {item['case']['name']} | {item['passed']}/{worlds} | {item['survived']}/{worlds} |")
+        stable=(str(item['stable'])+'/'+str(worlds)
+                if item['case']['kind']=='slope' else '—')
+        md.append(f"| {item['case']['name']} | {item['passed']}/{worlds} | {stable} | {item['survived']}/{worlds} |")
     md.extend(['','Per-world support, true step contact, commanded vs achieved',
                'body velocities, recovery, slip proxy, actor action changes and shaft work',
                'are in unified_exam.json. The control lesson has no fabricated',
