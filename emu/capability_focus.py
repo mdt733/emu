@@ -9,6 +9,7 @@ All functions below are pure, apart from the caller's JAX random keys.
 from __future__ import annotations
 
 import numpy as np
+from typing import NamedTuple
 
 FOCUS_NAMES = ("command", "resilience", "slope", "step", "transition", "control")
 FOCUS_FRACTIONS = (.20, .20, .20, .20, .10, .10)
@@ -27,20 +28,43 @@ NONFOCUS_STRENGTH = 0.50
 CONTROL_STRENGTH = 0.25
 
 
-def growth_mix(*, step: int, foundation_steps: int,
-               steady_difficulty: float) -> float:
-    """Steady gait until foundation, then activate all assigned focus cohorts.
+class TeachingProfile(NamedTuple):
+    """Host-only lesson settings; never actor inputs or a second PPO."""
+    name: str
+    specialist_fraction: float
+    adaptive_specialists: bool
 
-    Non-focused challenges continue at reduced difficulty in those cohorts.
-    No earned skill, other frontier or later absolute age gates progression.
+
+def teaching_profile(*, step: int, foundation_steps: int,
+                     steady_difficulty: float) -> TeachingProfile:
+    """Two profiles in one training system: foundation then growth.
+
+    Foundation is the ACTUAL main-style adaptive regime governor, including
+    the initial 70-update steady-only allocation and later ordinary
+    transition/resilience worlds. Replacing this with 90% command/10% grace
+    would be a new experiment, NOT an exact reference to main.
+
+    The growth profile gradually enables specialist teaching. The schedule
+    controls teaching SHARE only, not target difficulty or physical mastery.
     """
     import math
     if not math.isfinite(float(steady_difficulty)):
         raise ValueError('steady difficulty must be finite')
+    if step < 0 or foundation_steps < 0:
+        raise ValueError('negative training step or foundation boundary')
     if step <= foundation_steps:
-        return 0.0
-    return SPECIALIST_ACTIVE_FRACTION * min(
-        1.0, max(0.0,(step-foundation_steps)/SPECIALIST_BLEND_STEPS))
+        return TeachingProfile('foundation', 0.0, False)
+    fraction = SPECIALIST_ACTIVE_FRACTION * min(
+        1.0, max(0.0, (step-foundation_steps)/SPECIALIST_BLEND_STEPS))
+    return TeachingProfile('growth', fraction, True)
+
+
+def growth_mix(*, step: int, foundation_steps: int,
+               steady_difficulty: float) -> float:
+    """Existing task-packet interface; share the same two-profile decision."""
+    return teaching_profile(
+        step=step, foundation_steps=foundation_steps,
+        steady_difficulty=steady_difficulty).specialist_fraction
 
 
 def focus_indices(num_envs: int):

@@ -60,6 +60,32 @@ even when the current target retreats. Never use reward alone as a
 certificate of physical competence; measure achieved signed velocity,
 contact, support, falls, crossing completion and mechanical effort.
 
+## Why one engine / two profiles, not "90% command + 10% grace"
+
+Source reference: unchanged `main` at commit
+`2ec9e9db0a816c658131311129ef89ec7a595a12`. The first 70 PPO updates
+were *steady-only*, but after that `main` allocated ordinary transition
+and resilience regimes based on their measured fall rates. Its four base
+difficulty scalars continued adapting. Hence the mathematically correct
+foundation profile is **main-style ordinary regime sampling**, not an
+invented 90/10 command/grace specialist allocation. The latter would
+change the lesson distribution and introduce motor-cost shaping before
+we have any parity evidence.
+
+The **foundation profile** keeps the same eight reward weights, baseline
+task envelope and PPO settings, while completely disabling newly introduced
+specialist births/frontier decisions and exposing no new terrain.
+The **growth profile** uses the same robot and PPO, gradually activates
+focused worlds and their local physical targets. An independent main
+checkpoint/eval reference is still needed for *behavioural*, not numeric,
+parity because the new actor observes a 360-channel terrain-aware sensor
+rather than main's historical actor contract.
+
+Three seeds on a paired frozen exam are a good *offline promotion gate*
+before retiring the original training route, not a runtime dependency:
+a particular learner never has to wait for three different seed runs
+or require a checkpoint-era permit before it can keep learning.
+
 ## Cold foundation and the six emphases
 
 A new policy needs to discover standing/stepping from nothing. Retain the

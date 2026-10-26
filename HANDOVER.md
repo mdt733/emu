@@ -7,6 +7,22 @@
 **Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
 **Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
+## Frozen baseline parity status
+
+- Reference `main` source SHA: `2ec9e9db0a816c658131311129ef89ec7a595a12`. Keep `main` frozen.
+- One learner now explicitly describes **foundation** (existing adaptive
+  steady/transition/resilience regime governor; zero specialist births) and
+  **growth** (progressive six-cohort activation and own local targets).
+  No second PPO, no separate checkpoint or 90/10 grace experiment in infancy.
+- Reference eight reward coefficients and original 32/4/8/2e-4 PPO recipe
+  are frozen in a quick regression test. Parity of physics, achieved walking,
+  fall rate, command error and shaft work remains UNPROVEN without
+  identical eval protocol and GPU seeds. Original `main` checkpoint must
+  be supplied or located before claiming full frozen baseline equivalence.
+- Treat a three-seed test as an offline **promotion decision**, not a live
+  curriculum gate. Failure means continue using frozen main if needed;
+  success does not automatically prove growth behaviour.
+
 ## Mission
 
 Create **one endlessly useful cold-start EMU learner**, rather than several

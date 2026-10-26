@@ -47,6 +47,7 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
+from .capability_focus import teaching_profile
 from .ppo import make_trainer, update_running_stats
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
@@ -316,19 +317,22 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
-        # The old gait recipe is dominant through the cold foundation.
-        # No live physical terrain until its post-20M specialist blend.
-        if step < FOUNDATION_STEPS:
-            d['terrain_exposure'] = 0.0
-            d['terrain_height_m'] = 0.0
-            if args.unified_capability_focus:
-                d['slope_exposure'] = 0.0
-                d['slope_max_deg'] = 0.0
         if args.unified_capability_focus:
-            from .capability_focus import growth_mix
-            d['specialist_mix'] = growth_mix(
+            profile = teaching_profile(
                 step=step, foundation_steps=FOUNDATION_STEPS,
                 steady_difficulty=float(governor.params.steady_difficulty))
+            d['specialist_mix'] = profile.specialist_fraction
+            # A zero specialist allocation is not a separate PPO or a
+            # synthetic zero-gradient loss. It simply sends all worlds
+            # through main's ordinary gait sampler. Terrain stays dormant.
+            if not profile.adaptive_specialists:
+                d['terrain_exposure'] = 0.0
+                d['terrain_height_m'] = 0.0
+                d['slope_exposure'] = 0.0
+                d['slope_max_deg'] = 0.0
+        elif step < FOUNDATION_STEPS:
+            d['terrain_exposure'] = 0.0
+            d['terrain_height_m'] = 0.0
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),

@@ -889,6 +889,86 @@ def test_external_fork_only_inherits_same_source_recovery(monkeypatch, tmp_path)
     assert not (mixed / 'checkpoints/recovery.pkl').exists()
 
 
+def test_two_teaching_profiles_keep_original_gait_training_alive():
+    """Main is NOT a 90/10 command-control specialist allocation."""
+    from emu.capability_focus import teaching_profile
+    from emu.training_config import FOUNDATION_STEPS
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    assert g.BOOTSTRAP_UPDATES==70
+    profile=teaching_profile(step=0, foundation_steps=FOUNDATION_STEPS,
+                             steady_difficulty=g.params.steady_difficulty)
+    assert profile.name=='foundation' and not profile.adaptive_specialists
+    assert profile.specialist_fraction==0.0
+    for n in range(70):
+        g.advance_curriculum({},step=n*65536,max_height_m=.04,
+                             foundation_steps=FOUNDATION_STEPS)
+    assert g.params.regime_frac_steady==1.0
+    assert g.params.regime_frac_transition==0.0
+    assert g.params.regime_frac_resilience==0.0
+    g.advance_curriculum({},step=70*65536,max_height_m=.04,
+                         foundation_steps=FOUNDATION_STEPS)
+    assert g.params.regime_frac_transition>0.0
+    assert g.params.regime_frac_resilience>0.0
+    assert not teaching_profile(
+        step=FOUNDATION_STEPS, foundation_steps=FOUNDATION_STEPS,
+        steady_difficulty=.8).adaptive_specialists
+    growing=teaching_profile(
+        step=FOUNDATION_STEPS+5_000_000,
+        foundation_steps=FOUNDATION_STEPS,steady_difficulty=.8)
+    assert growing.name=='growth'
+    assert growing.adaptive_specialists
+    assert growing.specialist_fraction==pytest.approx(.5)
+
+
+def test_foundation_frozen_main_learning_recipe_and_rewards():
+    """Static term-for-term reference from main SHA 2ec9e9db.
+
+    Numerical parity of the *recipe* does NOT imply 360-observation actor
+    parity with the 232-input reference. That still requires a GPU exam.
+    """
+    from emu.training_config import (
+        ROLLOUT_STEPS,PPO_EPOCHS,PPO_MINIBATCHES,PPO_LR,
+        FOUNDATION_STEPS,foundation_config,
+    )
+    from emu.rewards import weighted_training_terms,PAYMENT_NAMES
+    from dataclasses import replace
+    from pathlib import Path
+    from emu.run import one_run_config
+    from types import SimpleNamespace
+    assert (ROLLOUT_STEPS,PPO_EPOCHS,PPO_MINIBATCHES,PPO_LR)==(32,4,8,2e-4)
+    assert FOUNDATION_STEPS==20_000_000
+    ref=foundation_config(run_dir=Path('/tmp/emu_foundation_reference'),
+                          seed=733,device='cuda',envs=2048)
+    candidate=one_run_config(SimpleNamespace(
+        run_dir='/tmp/emu_unified_reference',profile='sim2real',
+        seed=733,device='cuda',envs=2048,steps=120_000_000,
+        unified_capabilities=True,terrain_actor=True,terrain_step_max_m=.04))
+    # These are the physical core inputs to the foundation task sampler,
+    # not a claim of equivalent actor observations or action trajectories.
+    for key in ('vx_hi_max','vx_lo_min','vy_max_mps','yaw_max_rad_s',
+                'phase_speed_gain','regime_command_frac','difficulty_base_step',
+                'capability_field_mode','cloud_probes_per_eval',
+                'cloud_final_probes','motor_guidance_weight'):
+        assert getattr(candidate,key)==getattr(ref,key),key
+    m=dict(alive=.83,locomotion=.44,posture=.51,contact=.62,
+           anti_slip=.7,clearance=.32,smoothness=.95,
+           joint_safety=.81,stepping_gate=.9)
+    total,terms=weighted_training_terms(**m)
+    baseline={
+        'alive':.58*m['alive'],
+        'locomotion':1.55*m['locomotion'],
+        'posture':.68*m['posture']*m['stepping_gate'],
+        'contact':.50*m['contact']*m['stepping_gate'],
+        'anti_slip':.18*m['anti_slip'],
+        'clearance':.16*m['clearance'],
+        'smoothness':.12*m['smoothness'],
+        'joint_safety':.17*m['joint_safety']}
+    assert tuple(PAYMENT_NAMES)==tuple(baseline)
+    for term,value in baseline.items():
+        assert terms[term]==pytest.approx(value),term
+    assert total==pytest.approx(sum(baseline.values()))
+
+
 def test_unified_specialist_blend_then_independent_bidirectional_targets():
     """Before 20M: simple gait. Afterwards: slow exposure, local evidence."""
     from emu.capability_focus import growth_mix, focus_indices, FOCUS_NAMES
