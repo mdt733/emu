@@ -796,6 +796,31 @@ def test_unified_same_source_target_extension_requires_completed_final(monkeypat
         runmod.inspect_run(new,provenance=prov,resume='auto')
 
 
+def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():
+    from emu.capability_focus import attention_weights,FOCUS_NAMES
+    assert len(FOCUS_NAMES)==6
+    for name in ('balanced','staged','terrain-early'):
+        for age in (0,9_999_999,10_000_000,12_000_000,
+                    20_000_000,30_000_000,50_000_000,80_000_000):
+            w=attention_weights(schedule=name,step=age,
+                                foundation_steps=10_000_000)
+            assert len(w)==6 and min(w)>=0.
+            assert sum(w)==pytest.approx(1.)
+    first=attention_weights(schedule='staged',step=10_000_001,
+                            foundation_steps=10_000_000)
+    middle=attention_weights(schedule='staged',step=30_000_000,
+                             foundation_steps=10_000_000)
+    late=attention_weights(schedule='staged',step=50_000_000,
+                           foundation_steps=10_000_000)
+    assert first[0]>middle[0]>late[0]
+    assert first[3]==0. and middle[3]>0. and late[3]>middle[3]
+    assert attention_weights(schedule='balanced',step=80_000_000,
+                             foundation_steps=10_000_000)[0]==.20
+    for bad in ('', 'invalid', 'main'):
+        with pytest.raises(ValueError,match='attention'):
+            attention_weights(schedule=bad,step=0,foundation_steps=10_000_000)
+
+
 def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
     """One cold foundation continues indefinitely without special 40M state."""
     from dataclasses import replace

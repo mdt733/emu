@@ -1,9 +1,10 @@
 # EMU — teaching-allocation experiment design
 
-**Design status:** proposed next source change, **not yet wired into the current
-trainer**. Current environment fixes world roles to 20/20/20/20/10/10 at
-construction. A new schedule must genuinely repartition role shares, not
-rename static worlds or merely vary difficulty.
+**Implementation status:** the three named schedules now move birth-role
+weights in the teacher packet, and the sampled role is held in EnvState
+until the episode ends. Historical deterministic world roles still serve
+fixed physical smoke tests when the attention weights are all zero.
+Long multi-schedule CUDA learning remains to be tested on the owner GPU.
 
 ## Two independent adaptive questions
 

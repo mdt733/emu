@@ -65,6 +65,18 @@ def main():
     assert active.any()
     assert np.all(ids[active]==CONTROL)
     params['foundation_control_mix']=0.0
+    # Changing the dynamic categorical weights actually reassigns worlds
+    # on episode birth; all active worlds can be taught STEP regardless of
+    # their immutable environment index.
+    params.update({f'focus_weight_{name}':(1. if name=='step' else 0.)
+                   for name in FOCUS_NAMES})
+    params['specialist_mix']=1.0
+    reassigned,_=env.reset(params)
+    assert np.all(np.asarray(jax.device_get(reassigned.focus_id))==3)
+    assert bool(jax.device_get(jnp.all(reassigned.specialist_active)))
+    # Restore static reference roles for the remaining geometry smoke.
+    params.update({f'focus_weight_{name}':0. for name in FOCUS_NAMES})
+    params['specialist_mix']=0.0
     # Explicitly override specialist_mix for full physical acceptance.
     # The ordinary cold profile can hand over at either 10M or 20M.
     from emu.capability_focus import growth_mix
