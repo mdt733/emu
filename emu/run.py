@@ -47,7 +47,7 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('foundation must be 10M or 20M world steps')
     if foundation_mix not in ('main','command-heavy','curious'):
         raise ValueError('unknown foundation mix')
-    if teaching_schedule not in ('balanced','staged','terrain-early'):
+    if teaching_schedule not in ('balanced','staged','terrain-early','steering'):
         raise ValueError('unknown teaching schedule')
     if not unified and (foundation_steps!=20_000_000 or foundation_mix!='main'):
         raise ValueError('foundation experiments require --unified-capabilities')

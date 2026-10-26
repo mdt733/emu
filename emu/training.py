@@ -326,6 +326,9 @@ def train(args: TrainingConfig) -> int:
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
+            d['steering_attention']=(1.0 if (
+                args.teaching_schedule=='steering' and
+                step>args.foundation_steps) else 0.0)
             for name, weight in zip(
                 FOCUS_NAMES, attention_weights(
                     schedule=args.teaching_schedule, step=step,

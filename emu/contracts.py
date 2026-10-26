@@ -254,6 +254,7 @@ UNIFIED_TERRAIN_FIELDS = (
     # Six teacher-only probabilities; zero sum keeps historical exam mapping.
     *((f'focus_weight_{name}',0.0) for name in
       ('command','resilience','slope','step','transition','control')),
+    ('steering_attention',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -273,6 +274,7 @@ P = SimpleNamespace(
     **{f'focus_weight_{name}':TERRAIN_TASK_PARAM_DIM+8+i
        for i,name in enumerate(
            ('command','resilience','slope','step','transition','control'))},
+    steering_attention=TERRAIN_TASK_PARAM_DIM+14,
 )
 
 

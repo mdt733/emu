@@ -1561,6 +1561,9 @@ class EmuMJXEnv(TaskSampler):
                     (focus_weights.sum()>0. and not np.isclose(
                         focus_weights.sum(),1.,atol=1e-4))):
                     raise ValueError('focus weights must be nonnegative and sum to one')
+                if (not np.isfinite(slope[14]) or
+                    slope[14]<0. or slope[14]>1.):
+                    raise ValueError('steering attention must be within [0,1]')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -2219,7 +2222,8 @@ class EmuMJXEnv(TaskSampler):
             jax,jnp,key_probe,
             params[P.frontier_vx_hi],params[P.frontier_vx_lo],
             params[P.frontier_vy],params[P.frontier_yaw],
-            probe_scale=params[P.frontier_combo_radius])
+            probe_scale=params[P.frontier_combo_radius],
+            steering_attention=params[P.steering_attention])
         # The control reference must still WALK; no zero-velocity energy
         # farming. Other commands remain small but not all exactly zero.
         k_control=jax.vmap(lambda k:jax.random.fold_in(k,50242))(keys)
@@ -2248,7 +2252,8 @@ class EmuMJXEnv(TaskSampler):
                       .85,1.20)
         new_phase=command_phase_rate(desired[:,0],desired[:,1],
                                     self.vx_hi_max,self.phase_speed_gain,base)
-        modified=is_command|is_control
+        # Auxiliary command changes must update gait phase rate too.
+        modified=is_command|is_control|auxiliary
         task=task.at[:,T.vx].set(desired[:,0])
         task=task.at[:,T.vy].set(desired[:,1])
         task=task.at[:,T.yaw].set(desired[:,2])

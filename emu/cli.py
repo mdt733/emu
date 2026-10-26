@@ -249,7 +249,7 @@ def main(argv=None) -> int:
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
                    help='source-pinned frozen exam interval (overnight comparison: 10M)')
-    q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early'),
+    q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early','steering'),
                    default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')

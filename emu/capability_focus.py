@@ -16,13 +16,16 @@ FOCUS_FRACTIONS = (.20, .20, .20, .20, .10, .10)
 
 # These probabilities choose a new episode's teacher; local difficulty
 # targets remain driven by physical evidence, never schedule age.
-TEACHING_SCHEDULES = ('balanced', 'staged', 'terrain-early')
+TEACHING_SCHEDULES = ('balanced', 'staged', 'terrain-early', 'steering')
 STAGED_START = (.40,.25,.05,.00,.10,.20)
 STAGED_MIDDLE = (.25,.20,.25,.05,.10,.15)
 STAGED_LATE = (.20,.15,.20,.20,.10,.15)
 # A genuine geometric-teaching intervention (slope+step = 65% vs 40%).
 # Distinct from balanced throughout the growth ramp, not merely +2% slope.
 TERRAIN_EARLY = (.16,.09,.35,.30,.05,.05)
+# A targeted directional-control arm: preserve substantial terrain practice,
+# while funding more commands without starving resilience and transitions.
+STEERING = (.35,.15,.20,.15,.10,.05)
 
 
 def attention_weights(*, schedule: str, step: int,
@@ -36,6 +39,8 @@ def attention_weights(*, schedule: str, step: int,
         return tuple(FOCUS_FRACTIONS)
     if schedule == 'terrain-early':
         return tuple(TERRAIN_EARLY)
+    if schedule == 'steering':
+        return tuple(STEERING)
     elapsed=step-foundation_steps
     before,after=(STAGED_START,STAGED_MIDDLE) if elapsed<=20_000_000 else (STAGED_MIDDLE,STAGED_LATE)
     t=min(1.,max(0.,(elapsed if elapsed<=20_000_000 else elapsed-20_000_000)/20_000_000))
@@ -124,7 +129,7 @@ def focus_indices(num_envs: int):
 
 
 def diamond_commands(jax, jnp, keys, vx_hi, vx_lo, vy_max, yaw_max,
-                     *, probe_scale=1.0):
+                     *, probe_scale=1.0, steering_attention=0.0):
     """One signed L1/octrahedral command sample per world (vx,vy,yaw).
 
     ~25% interior, ~55% edge, ~20% measured above edge (up to 12%).
@@ -136,11 +141,18 @@ def diamond_commands(jax, jnp, keys, vx_hi, vx_lo, vy_max, yaw_max,
     def one(key):
         k_type,k_axis,k_other,k_mass,k_sign,k_radius,k_mix=jax.random.split(key,7)
         kind=jax.random.uniform(k_type,())
-        axis=jax.random.randint(k_axis,(),0,3)
+        # Opt-in steering curricula sample more pure vy/yaw commands,
+        # while legacy balanced/staged/terrain runs stay bitwise intact.
+        weights=jnp.asarray([1.,1.+2.*steering_attention,
+                              1.+2.*steering_attention],dtype=jnp.float32)
+        biased_axis=jax.random.categorical(k_axis,jnp.log(weights))
+        uniform_axis=jax.random.randint(k_axis,(),0,3)
+        axis=jnp.where(steering_attention>0.,biased_axis,uniform_axis)
         other=jax.random.randint(k_other,(),0,2)
         second=(axis+1+other)%3
         selector=jnp.arange(3)
-        mask=jnp.where(kind<.27,selector==axis,
+        vertex_fraction=.27+.18*steering_attention
+        mask=jnp.where(kind<vertex_fraction,selector==axis,
               jnp.where(kind<.81,(selector==axis)|(selector==second),
                         jnp.ones((3,),dtype=jnp.bool_)))
         # Positive random weights, normalized *after* selecting active axes.
