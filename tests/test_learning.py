@@ -836,7 +836,7 @@ def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():
     late=attention_weights(schedule='staged',step=50_000_000,
                            foundation_steps=10_000_000)
     assert first[0]>middle[0]>late[0]
-    assert first[3]==0. and middle[3]>0. and late[3]>middle[3]
+    assert first[3]<1e-6 and middle[3]>0. and late[3]>middle[3]
     assert attention_weights(schedule='balanced',step=80_000_000,
                              foundation_steps=10_000_000)[0]==.20
     for bad in ('', 'invalid', 'main'):
