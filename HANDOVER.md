@@ -1,253 +1,149 @@
 # EMU — active engineering handover
 
-> **Release polish separate from frozen training (27 October 2026).**
-> `feature/v5024-release-polish` was forked from the exact v5024 study
-> commit `d26ae0c2`. On polish: landing pages/install/CI have been
-> renewed, the obsolete v5023 overnight driver has been deleted, and
-> its required helpers moved into the v5024 campaign script. The test
-> for the retired study launcher now verifies the current three-arm
-> source-pinned plan. **Do not pull these commits into the live/resumable
-> `feature/v5024-terrain-control` checkout.**
->
-> **Desired promotion:** select an independently measured 360-input
-> replacement policy, switch the public showcase by owner approval, then
-> delete the obsolete 220/232 actor/training/checkpoint/test paths.
-> Pinnacle is a temporary benchmark/rollback artifact, not a parallel
-> product to maintain forever.
->
-> **Review:** [Release readiness](docs/RELEASE_READINESS.md) ·
-> [Documentation index](docs/README.md) ·
-> [v5024 controlled run plan](docs/V5024_RUN_PLAN.md)
+**Updated:** 27 October 2026  
+**Release-polish branch:** `feature/v5024-release-polish`  
+**Frozen GPU training branch:** `feature/v5024-terrain-control` at
+`d26ae0c2c4097d7c7124759197a94504abc44995`  
+**Draft review:** [PR #15](https://github.com/mdt733/emu/pull/15)  
+**Public/main:** protected — **no merge, new champion or release without explicit owner approval**.
 
+## Mission, in one paragraph
 
+Build **one cold-startable, continuously teachable six-actuator biped**
+using real MJX contacts, delayed 4×4 forward ground sensing, **one 360-input
+actor with six actions**, one PPO optimiser and completed physical episode
+evidence. Six lesson emphases (commands, resilience, slopes, discontinuous
+steps, transitions/posture and control/efficiency) share that actor.
+Difficulty advances, holds or retreats from local directional near/easy
+evidence, not reward, elapsed steps, unrelated curriculum gates or optimism.
+The actual goals are accurately commanded, stable, recoverable and
+mechanically sensible walking. A frontier is a *training request*, never
+certified competence.
 
-**Date:** 27 October 2026
-**Work branch:** `feature/v5024-terrain-control`  
-**Protected:** `main`, public showcase, approved 260M Pinnacle. **Do not change or merge without explicit user approval.**  
-**Design contract:** [docs/UNIFIED_CAPABILITY_GROWTH.md](docs/UNIFIED_CAPABILITY_GROWTH.md)  
-**Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
-**Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
+**Design contract:** [UNIFIED_CAPABILITY_GROWTH](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
+[Physical target inventory](docs/CAPABILITY_DIMENSIONS.md).
 
-## Current v5024 mission — incorporate the completed 260M results (27 October)
+## In-flight 180M experiment — do not perturb
 
-- Source branch `feature/v5024-terrain-control` is based on the prior
-  **surface-lab viewer branch**, so it ALREADY INCLUDES variable true
-  browser MuJoCo uphill/downhill/camber and step tests, and local-grade
-  fall detection. No separate merge into `main` needed.
-- v5023's five experiments completed **260M** steps (3×80M, 2×10M).
-  Balanced led one-seed generalist frozen exams; terrain-early advanced
-  farther on terrain-focused targets. Uphill command tracking proved
-  much weaker than downhill. The owner manually observed stable
-  2–5° walking but substantial downhill command drift.
-- Slope teaching now distinguishes `slope_*_stability_successes_*`
-  from original full `slope_*_successes_*`. Stability may grow
-  the *physical-practice* angle only with directional completed
-  evidence, not pure standing; command tracking remains independently
-  evaluated and must still improve.
-- Fixed false `off` display for signed vy/yaw controller events,
-  added opt-in `steering` schedule with richer pure lateral/yaw probes,
-  corrected nonfocus-command gait phase, preserved read-only
-  terrain-normalizer clipping diagnostics.
-- Added `emu capability-exam --terrain-matrix` with held-out matched
-  physical 1/2/3/5° all-direction slopes and 0.3/0.5/1/2 cm steps.
-- Prepared `scripts/v5024_campaign.py`: **plan-only** by default;
-  opt-in 3×60M cold runs compare main versus command-heavy foundation
-  and balanced versus steering growth. Same-source resume and full
-  CPU+2048 CUDA preflight before training. No GPU work performed here.
-- See [docs/V5024_RUN_PLAN.md](docs/V5024_RUN_PLAN.md) for precise
-  evaluation commands, acceptance, campaign choices and morning bundle.
-  **Latest branch CI must pass** before treating this as GPU-ready.
-- `main`, showcase, old Pinnacle and all 260M v5023 policies untouched.
+The source-pinned v5024 experiment compares three **independent cold
+starts** on the same seed 733, 2,048 CUDA worlds, and 60M steps each:
 
-## Previous overnight experiment implemented (26 October 2026)
+| Arm | First 10M | Following 50M |
+|---|---|---|
+| A · main_balanced | Main-style foundation | Balanced six-way growth |
+| B · commandheavy_balanced | 90/5/5 command-heavy foundation | Balanced growth |
+| C · commandheavy_steering | Same command-heavy foundation | Steering-focused growth |
 
-- Dynamic six-way attention weights can vary smoothly over training.
-  Focus is sampled once on episode birth, saved in EnvState, held through
-  commands, actual terrain, reward weighting and completed outcome metrics.
-  The actor still sees no focus ID. All-zero weights preserve fixed physical
-  examiner roles.
-- Saved `--teaching-schedule balanced|staged|terrain-early` selects
-  attention distribution; `--foundation-mix` and `--foundation-steps`
-  independently choose the early gait teaching experiment. Targets still
-  adjust on physical evidence rather than this schedule's clock.
-- `scripts/overnight_teaching.py --run` sequentially performs actual CPU
-  + 2048-world CUDA PPO preflight, three independent 80M
-  balanced/staged/terrain-early cold campaigns FIRST, then two 10M nursery
-  controls (`main`, `command-heavy`; curious is already in the long arms).
-  **260M world steps** total, one GPU; `--no-screens` yields 240M. Exact run configs, same-SHA resume,
-  daily logs, frozen exams and `overnight_results.zip` are automated.
-- Launch and interrupted-run resume commands are in
-  [docs/OVERNIGHT_TEACHING.md](docs/OVERNIGHT_TEACHING.md).
-  Branch CI and the user's GPU preflight are still required; no long GPU
-  training was executed within ChatGPT.
+The dedicated checkout is `~/emu-v5024`. The data root is
+`~/robot_lab/emu_runs/v5024_cold_steering/`; expected consolidated bundle:
+`overnight_results.zip`. The experiment owner controls the WSL GPU.
+**Completion/result status has not been observed in this chat.**
+Do not claim which arm wins until its logs and held-out exams arrive.
 
-## Previous design: developmental teaching allocation
+The original v5024 launcher first runs 12-world CPU and full
+2,048-world CUDA PPO preflight, logs source/runtime manifests and 10M
+frozen generalist evaluations, and permits only **exact-SHA/config/root**
+checkpoint resume. It still imports reporting helpers from the
+old tournament script **on that original training branch**. Do not
+delete or update files in `~/emu-v5024` while any run is active or
+resumable; polish is entirely separate.
 
-- Two different control loops: **difficulty target inside each skill** vs
-  **how many episodes focus on each skill**. The latter should shift
-  gradually across infancy, recovery/grace, slopes and steps.
-- Six-way focus is now sampled at episode birth and remains in
-  teacher-only EnvState through physical task, reward and episode evidence.
-  Smooth `balanced`, `staged`, `terrain-early` attention weights genuinely
-  reallocate new lessons without modifying PPO/actor observations.
-- Concrete example mix vectors, balanced/staged/terrain-early control arms,
-  experiment/fork design and integration acceptance criteria:
-  [docs/TEACHING_ALLOCATION_EXPERIMENTS.md](docs/TEACHING_ALLOCATION_EXPERIMENTS.md).
-- Preserve one actor/PPO, source-pinned lineage and easy cross-training;
-  grace has NO independently advancing efficiency target. Scheduled
-  changes are attention weights, never maturity gates.
+See [V5024_RUN_PLAN](docs/V5024_RUN_PLAN.md) for the unchanged study
+design and [INSTALL](docs/INSTALL.md) for safe WSL commands.
 
-## Current early-foundation experiments
+## What v5024 changes — measured facts versus assumptions
 
-- User encourages experiments and possibly a **10M** basic gait foundation,
-  not checkpoint-age pedantry. Select `--foundation-mix main|command-heavy|curious`
-  and `--foundation-steps 10000000|20000000`.
-- All recipes reuse ONE PPO/actor and the first 70 steady-only updates.
-  `main` keeps original adaptive 3-regime allocation; `command-heavy`
-  chooses 90/5/5; `curious` uses 84/8/8 plus ~5% easy control-grace
-  worlds. Slope/step/advanced physical fronts remain off in foundation.
-- Each experiment/seed gets a separate clean root; same-source completed
-  10M campaigns can extend into normal growth without restarting.
-- [docs/FOUNDATION_EXPERIMENTS.md](docs/FOUNDATION_EXPERIMENTS.md) has
-  exact commands and comparisons. Latest SHA CI/CUDA preflight must pass
-  before suggesting a production GPU run. No user CUDA run done here.
+- The physical slope practice target advances from actual completed
+  supported **moving stability** on each of four incline directions.
+  Full `vx/vy/yaw` command tracking is still a *different*, stricter
+  result; stable downhill drifting does not count as correct steering.
+- Commands use forward/reverse and ±lateral/yaw physical frontiers;
+  steering attention is an experiment, not a second network.
+- Slopes use actual oriented collision surfaces. Steps require real
+  far-side *foot support*, not root position past an edge.
+- Nonfocus worlds practise gentler cross-training; control/grace cannot
+  gain credit by standing still to minimise shaft effort.
+- The fixed read-only `emu capability-exam --terrain-matrix` measures
+  1/2/3/5° uphill, downhill and cross-left/right slopes and
+  0.3/0.5/1/2 cm up/down steps, reporting support, full tracking and
+  directional drift separately.
+- The local browser viewer already includes adjustable **real MuJoCo**
+  inclines and steps. It is useful for manual diagnosis, not a substitute
+  for matched frozen MJX exams.
 
-## Frozen baseline parity status
+PPO/cold-start quality, reliable slope tracking and superior generalist
+walking **remain experimental**. CI cannot prove any of them.
 
-- Reference `main` source SHA: `2ec9e9db0a816c658131311129ef89ec7a595a12`. Keep `main` frozen.
-- One learner now explicitly describes **foundation** (adaptive main-style
-  3-regime sampling, or configurable command-heavy/curious variants) and
-  **growth** (progressive six-cohort activation and own local targets).
-  The first 70 PPO updates remain steady-only for all recipes. Optional
-  `curious` allocates ~5% to easy grace after bootstrap. The cold foundation
-  can hand over at 10M or 20M; this is a saved per-run experiment setting.
-  No second PPO, no separate checkpoint or 90/10 grace experiment in infancy.
-- Reference eight reward coefficients and original 32/4/8/2e-4 PPO recipe
-  are frozen in a quick regression test. Parity of physics, achieved walking,
-  fall rate, command error and shaft work remains UNPROVEN without
-  identical eval protocol and GPU seeds. Original `main` checkpoint must
-  be supplied or located before claiming full frozen baseline equivalence.
-- Treat a three-seed test as an offline **promotion decision**, not a live
-  curriculum gate. Failure means continue using frozen main if needed;
-  success does not automatically prove growth behaviour.
+## Release-polish branch — completed engineering work
 
-## Mission
+Forked at the exact frozen training SHA. In [draft PR #15](https://github.com/mdt733/emu/pull/15):
 
-Create **one endlessly useful cold-start EMU learner**, rather than several
-specialist policies or source-specific 20M→40M→60M experiments. The actor has
-360 array-only observations, six actuator outputs and ONE PPO optimizer. It
-must use real MuJoCo/MJX contact, realistic delayed sensor observations and
-physically checked, direction/severity-attributed learning outcomes.
+- Replaced stale README/install instructions and renamed current CI wiring;
+  added a concise documentation index and explicit promotion checklist.
+- Removed the superseded v5023 260M launcher. Made the **polish copy**
+  of `scripts/v5024_campaign.py` self-contained, with its own output root
+  `v5024_polish_study`, source guard and maintained three-arm plan test.
+- Added independent guarded public approval for **360-input schema-9
+  array-only** 4×4 physical sensor policies, while keeping the existing
+  approved 232-input Pinnacle release unchanged.
+- Removed the untrained zero-action browser fixture and fallback; the
+  static build requires a trained candidate. Added release integrity
+  regression tests for 360 array geometry/normalizer contract, provenance
+  and current Pinnacle approval.
+- Removed superseded experiment write-ups from the active docs; their
+  procedures and results remain in Git history.
 
-The owner explicitly prioritises a **systematic, reliable, unstoppable
-teacher** over maximum rate of advancement. A target is where to practise,
-not a certificate of maturity. Sample easier/near/harder challenges.
-Qualifying near-target success nudges it up; failed hard probes normally
-hold; persistent easier failures nudge it down. The slow-moving target is
-the stability filter; no unrelated cohort may unlock or block another.
+**Do not resume a training checkpoint from `d26ae0c2` on polish.**
+Even documentation commits change the required source SHA.
 
-Don't overinterpret 20M or 40M locomotion as a mature walker. 20M is barely
-standing, 40M is still an infant. Do not design around any particular old
-checkpoint. Fresh-start quality matters more than preserving old migrations.
+## Current architecture & what to preserve for now
 
-## Training lifecycle (current intended path)
+```text
+robot.xml                         physical six-actuator robot
+environment.py + contracts.py     MJX, sensors, observations, episode facts
+rewards.py                        foundational locomotion incentives
+ppo.py + training.py              shared actor and PPO optimisation
+curriculum.py + capability_focus.py
+                                  adaptive local evidence and lesson allocation
+run.py + training_config.py       source-pinned run/resume/extension
+evaluation.py + results.py        physical exams and reports
+viewer_server.py + viewer_src/    policy export/serve/replay, browser MuJoCo
+scripts/v5024_campaign.py         explicit three-arm research campaign
+```
 
-- One clean, source-pinned `emu train` run using
-  `EMU_UNIFIED_CONTINUOUS=cold-growth-approved`, `--profile sim2real`,
-  `--terrain-actor --terrain-step-max-m 0.04 --unified-capabilities`,
-  `--envs 2048 --seed 733 --device cuda`, with a chosen cumulative target
-  (the documented example is 120M steps).
-- The original foundational gait lessons dominate until 20M world steps.
-  Specialist activation blends from 0% to 100% of each allocated cohort
-  during the next 10M steps. Non-focus difficulties remain ~half of their
-  current targets; grace/control uses gentler cross-training.
-  This schedules **practice share only**, not a mastery threshold.
-- One run contains all later learning; no 40M milestone or source transition.
-  After interruption use `--resume auto` with EXACTLY the same Git SHA,
-  config and output path. A completed final checkpoint can extend the target
-  (e.g. 120M→240M) with the same source/parameters and `--resume auto`.
-- Safety: strict schema/robot/sensor/finite-checkpoint validation, unchanged
-  source/config on resume, off-repo checkpoints, emergency PPO health and
-  source-matched recovery state. Frozen evaluation cohorts use 32 worlds
-  (8GB GPU budget). No grandfathered, cross-source warm-start exemptions.
+The currently published **232-input Pinnacle** is still the benchmark and
+rollback asset, **not** a forever-supported second product. Its 220/232
+actor/export/checkpoint paths and the corresponding tests are temporary
+until we have **approved a better 360 actor, verified browser parity, and
+actually switched the public showcase**. Then retire those paths and
+historical CLI/test machinery in one audited migration; preserve old bytes
+and source provenance in a tagged release/Git history.
 
-## Current implementation
+The old demonstration has not been replaced, and GitHub Pages is a separate
+manual/owner-approved workflow.
 
-**Working code on this feature branch; NOT YET GPU campaign-proven:**
+## Next engineering work
 
-- Six concurrent birth roles: commands, resilience, slopes, steps, transitions,
-  control/efficiency, all teaching ONE policy. Most ordinary gait learning
-  remains in non-specialist worlds.
-- Commands: independent forward/reverse frontiers, symmetrical ±vy/±yaw
-  frontiers, plus mixed radius. Small target adjustments use completed
-  episode near/easy evidence; *easy failure windows remain independent of
-  near-probe windows*.
-- Inclined collision: two real contact slabs, four measured directions.
-  Near-maximum slope success advances the shared angle; failed easier
-  inclines retreat it; hard failures hold. Physical grade is read from
-  the actual collision normal, not only the teacher request.
-- Discontinuous contact step: actual upper/lower surface displacement,
-  supported up/down crossings, severity-relative easy/near cohorts. Shared
-  height target rises on near-height up AND down support, holds on hard
-  failure and retreats on easier failure. Typical training edge yaw is
-  ~±20°, **not yet a trained ±45° dimension**.
-- The legacy original `resilience_difficulty` still bundles pose, position,
-  joint, linear and angular birth disorder. Separate push-force frontier is
-  present but not yet based on a direction-resolved recovery target.
-- The transition teacher still couples hold time and ramp speed; the control
-  teacher has motor-effort/smoothness shaping and work-per-distance
-  diagnostics, but no independent adjustable grace/energy limit.
-- Sensor-noise frontier exists; broader physical domain randomization is OFF.
-- Removed obsolete source-SHA-specific 20M/40M/60M launch gates, and the
-  redundant secondary `_share_unified_growth` limiter. Original core
-  gait regime governor, PPO, physical world and actor contract stay intact.
+- [ ] **Latest polish CI green** (Python + MJX CPU + browser + fresh viewer).
+  Do not assume CUDA acceptance from CPU CI.
+- [ ] Collect original **three-arm 180M logs, metrics, source SHA and ZIP**.
+  Check missing/failed runs before ranking.
+- [ ] Compare frozen generalist scores AND separate supported/stable versus
+  commanded/accurate uphill, downhill and camber physics, true step crossings,
+  recovery, yaw/lateral drift and energy per *useful* distance.
+- [ ] Repeat the promising recipe(s) at seeds 734/735; avoid selecting
+  from one stochastic seed or inflated curriculum limits.
+- [ ] Verify cold training, 2,048-world full PPO update, same-source
+  checkpoint lifecycle, policy export and actual 360 browser replay.
+- [ ] Review remaining production call sites and tests, then prune
+  legacy-only paths when the public champion has migrated.
+- [ ] Decide on a public **LICENSE** before calling the project
+  open-source; public visibility by itself does not grant reuse rights.
+- [ ] Explicitly review/approve PR to main; separately approve any
+  new policy publication. No automatic promotion.
 
-**Do not conflate challenge directions with independent targets.**
-See the linked capability inventory: up to about 26 conceivable physical
-target dials, far fewer independently controlled today, plus a grace/control
-specialist **without** an independent target. Grow the evidence plumbing first,
-then split each direction only when it is worth the sampling overhead.
-
-## Next engineering work (rough order)
-
-- [ ] **GitHub Actions must pass at CURRENT source SHA.** Resolve real CI
-      errors before more speculative restructuring. Previous passing commit
-      `193dc59` precedes the most recent cleanups.
-- [ ] Check actual 2048-world CUDA PPO compile/update and memory use on
-      owner's RTX 4060 Ti 8GB. CPU MJX smoke proves contact and PPO shape
-      only, not GPU capacity or long-run learning.
-- [ ] Verify teacher reports **allocated vs activated vs physically challenged
-      and completed** episodes in signed command, four slope and up/down
-      step cohorts. No falsely claimed progress on missing episodes.
-- [ ] Verify full cold 20M foundation plus the 20M→30M specialist blend,
-      including stable metrics CSV headers and same-run resume/extension.
-- [ ] Improve recovery by distinct physical birth-disturbance outcomes
-      (joint, tilt, position, linear/angular momentum, pushes), without
-      multiplying PPO algorithms or making a 6D Cartesian monster.
-- [ ] Give control-efficiency a genuine target based on mechanical work
-      per **usefully tracked and supported** distance, with smoothing/jerk
-      and a retreat option; do not reward motionlessness.
-- [ ] Only then split symmetrical lateral/yaw, directional slope and step
-      targets if evidence shows asymmetric ability.
-- [ ] Confirm meaningful cold-run locomotion and target movement from
-      owner's GPU logs/exams before any policy promotion.
-
-## What NOT to do
-
-Do not modify `main`, public GitHub Pages or approved Pinnacle; don't
-introduce a new actor observation format, extra PPO networks, unrelated
-curriculum timers, or separate 40M checkpoint special cases. Preserve
-resilience/step/ascent physical evidence, useful cold gait, source-pinned
-resumability and a clean comprehensible project. Optimise the code for
-understanding, not line-count theatre; remove obsolete systems as they are
-replaced. Keep source changes exclusively on this feature branch.
-
-## Operating instructions
-
-The fully copy-pastable **fresh run, same-source resume and completed-target
-extension WSL blocks** live in [docs/INSTALL.md](docs/INSTALL.md). Treat
-source-pinned `--plan`, 12-world CPU smoke and 2048-world CUDA full-update
-smoke as separate operations from starting a real training campaign.
-Never tell the owner a long campaign is ready based solely on CPU CI.
-Old experimental details and decommissioned handoffs are in the Git history
-of this file and the older source revisions.
+**Operating rule:** maintain only the code that still serves the active
+360 learner or its necessary pre-promotion safety net. Prefer deleting
+obsolete experiment machinery over preserving it indefinitely. No
+second PPO, no invented gait gates, no fake success telemetry, no
+unreviewed edits to `main`, showcase or the frozen GPU checkout.

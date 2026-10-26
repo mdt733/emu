@@ -17,24 +17,17 @@ recipes remain available but should not be mistaken for the current launch.
 | [RELEASE_READINESS.md](RELEASE_READINESS.md) | Candidate branch, preservation rules and promotion gates |
 | [../HANDOVER.md](../HANDOVER.md) | Active experiment status and engineering handover |
 
-## Historical / comparison material
+## Historical studies
 
-- [OVERNIGHT_TEACHING.md](OVERNIGHT_TEACHING.md) — v5023 260M teaching
-  tournament (read-only history). Its old Python launcher was removed from
-  the polish branch and remains recoverable from the frozen v5023 Git ref.
-- [FOUNDATION_EXPERIMENTS.md](FOUNDATION_EXPERIMENTS.md) — early alternative
-  nursery trials and prior setup instructions.
-- [TEACHING_ALLOCATION_EXPERIMENTS.md](TEACHING_ALLOCATION_EXPERIMENTS.md) —
-  rationale and planned comparisons preceding v5024.
-
-These are deliberately retained until the three-arm v5024 run and matched
-archived-policy exams have been reviewed. Their earlier branch names are
-historical, not defaults. Git history retains previously deleted experiment
-scripts; recreating old pipelines is not a release requirement.
+The v5023 260M overnight tournament, alternative early foundation screens
+and older allocation-design notes were retired from this **active**
+documentation directory. Their complete sources remain in Git history and
+at the original experiment commits. The current comparison is
+[V5024_RUN_PLAN.md](V5024_RUN_PLAN.md), not the old launchers.
 
 ## Preservation rule
 
-The 232-observation public Pinnacle and its viewer remain supported while
-the 360-observation unified policy is developed. A test or code path with an
-old version string is **not necessarily dead**. Remove it only after tracing
-all live CLI, viewer, replay, checkpoint and CI references.
+The published 232-input Pinnacle is a temporary reference/rollback
+policy while the 360-input system is evaluated. Old runtime and tests
+can be removed after the new public release is approved and deployed.
+Never delete a code path merely because its original version name is old.
