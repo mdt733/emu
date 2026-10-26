@@ -1,3 +1,12 @@
+> **Historical v5023 experiment record.** The old
+> `scripts/overnight_teaching.py` launcher has been removed from the
+> release-polish candidate because v5024 now owns its own reporting and
+> launch support. To reproduce the 260M v5023 study, check out its
+> original historical source revision; **these commands are not
+> executable on the polish branch**. Do not re-run on the v5024
+> experiment's output root. See [current install](INSTALL.md) and
+> [v5024 run plan](V5024_RUN_PLAN.md).
+
 # EMU overnight teaching tournament
 
 **Purpose:** a substantial, reproducible, source-pinned GPU experiment

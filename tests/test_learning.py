@@ -852,28 +852,33 @@ def test_unified_same_source_target_extension_requires_completed_final(monkeypat
         runmod.inspect_run(new,provenance=prov,resume='auto')
 
 
-def test_overnight_campaign_is_plan_only_by_default_and_source_pinned():
-    """Importer checks CLI syntax without ever launching the owner's GPU."""
+def test_v5024_campaign_is_standalone_source_pinned_and_plan_only():
+    """No retired overnight launcher is needed to plan the current study."""
     import runpy
     from pathlib import Path
-    scope=runpy.run_path(
-        str(Path(__file__).resolve().parents[1]/
-            'scripts/overnight_teaching.py'),run_name='__campaign_import_test__')
-    cases=scope['cases'](733,10_000_000,80_000_000)
-    assert len(cases)==5
-    assert sum(x['steps'] for x in cases)==260_000_000
-    assert [x['schedule'] for x in cases[:3]]==[
-        'balanced','staged','terrain-early']
-    assert [x['recipe'] for x in cases[3:]]==['main','command-heavy']
-    from pathlib import Path
-    cmd=scope['cmd_for'](cases[0],Path('/tmp/campaign'),733,10_000_000,False)
+    root=Path(__file__).resolve().parents[1]
+    script=root/'scripts/v5024_campaign.py'
+    source=script.read_text(encoding='utf-8')
+    assert 'from overnight_teaching' not in source
+    scope=runpy.run_path(str(script),run_name='__campaign_import_test__')
+    assert scope['BRANCH']=='feature/v5024-release-polish'
+    arms=scope['candidates'](733,60_000_000)
+    assert len(arms)==3
+    assert sum(a['steps'] for a in arms)==180_000_000
+    assert [(a['recipe'],a['schedule']) for a in arms]==[
+        ('main','balanced'),('command-heavy','balanced'),
+        ('command-heavy','steering')]
+    cmd=scope['cmd_for'](arms[2],Path('/tmp/campaign'),733,10_000_000,False)
     assert '--resume' not in cmd
-    assert cmd[cmd.index('--teaching-schedule')+1]=='balanced'
-    assert cmd[cmd.index('--foundation-mix')+1]=='curious'
-    assert cmd[cmd.index('--steps')+1]=='80000000'
-    cmd_resume=scope['cmd_for'](
-        cases[0],Path('/tmp/campaign'),733,10_000_000,True)
-    assert cmd_resume[-2:]==['--resume','auto']
+    assert cmd[cmd.index('--foundation-steps')+1]=='10000000'
+    assert cmd[cmd.index('--teaching-schedule')+1]=='steering'
+    assert cmd[cmd.index('--steps')+1]=='60000000'
+    assert cmd[cmd.index('--envs')+1]=='2048'
+    assert scope['cmd_for'](
+        arms[0],Path('/tmp/campaign'),733,10_000_000,True)[-2:]==[
+        '--resume','auto']
+    assert 'PLAN ONLY. --run is required' in source
+    assert 'v5024_polish_study' in source
 
 
 def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():

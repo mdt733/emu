@@ -1,3 +1,9 @@
+> **Research history / optional comparison.** This document describes
+> the preceding foundation-recipe screening procedure, including old
+> checkout paths. For the current 3 × 60M controlled v5024 campaign,
+> use [the run plan](V5024_RUN_PLAN.md) and [install guide](INSTALL.md).
+> Do not launch these earlier commands against the live v5024 run root.
+
 # EMU foundation experiments — one learner, multiple early recipes
 
 No distinct trainer, PPO, actor or policy branch. Every run uses the same

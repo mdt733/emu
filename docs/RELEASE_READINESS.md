@@ -25,11 +25,12 @@ and start a new source-pinned run for any changes that alter learning.
    unreachable cases **after** mapping coverage and replacing their checks.
 3. Keep the core read-first path: README → INSTALL → V5024_RUN_PLAN →
    UNIFIED_CAPABILITY_GROWTH → CAPABILITY_DIMENSIONS.
-4. Clearly label completed experiment scripts/docs as historical. A live
-   v5024 campaign currently imports reporting helpers from
-   `scripts/overnight_teaching.py`; removing that module today would
-   break the current launcher. Refactor it in a later separately checked
-   change, not by deleting it unconditionally.
+4. Clearly label completed experiment scripts/docs as historical. On the
+   frozen *training* branch, the v5024 runner still imports the older
+   tournament helpers and must remain untouched. On the **polish branch**,
+   those helpers have been consolidated into its v5024 launcher and the
+   v5023 tournament entrypoint removed. That is a changed source revision:
+   never use it to resume the frozen 180M experiment.
 5. Run small tests before GPU and hold behavioural changes until frozen
    examiner results justify them. Reduce accidental complexity, not just
    source line count.
@@ -77,11 +78,11 @@ legacy runtime dependencies *before* the public release migrates.
 **This cleanup is not a new champion.** Keep the main policy and public
 showcase until matched, physically grounded evaluation supports promotion.
 
-## Initial audit decisions
+## Audit decisions (after standalone launch consolidation)
 
 | Item | Decision | Reason |
 | --- | --- | --- |
-| `scripts/overnight_teaching.py` | Retain for now | v5024 campaign imports `cmd_for`, `execute`, `summary`, `git`, `campaign_eta` |
+| `scripts/overnight_teaching.py` | **Removed on polish** | v5024 campaign now owns its needed launch/report helpers; the v5023 tournament remains in Git history |
 | `emu/directional.py` / `terrain_spike.py` | Retain | Frozen exam, legacy courses and CI physical probes |
 | Legacy 220/232 contracts and corresponding tests | Retain | Public Pinnacle and checkpoint-export compatibility |
 | `scripts/smoke_training_lifecycle.py` | Retain | Checkpoint/resume/export acceptance |
