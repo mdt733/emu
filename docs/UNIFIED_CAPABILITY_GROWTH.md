@@ -36,6 +36,12 @@ silently grants curriculum promotions or rewrites trained policy.
 No separate policy per skill, no privileged ground truth in the actor
 observation, no new timer every time someone thinks of another terrain.
 
+> **Release-candidate note (27 October 2026):** This contract describes
+> the 360-input system being evaluated in the v5024 three-arm study.
+> Legacy 220/232-input Pinnacle compatibility is temporary, to be retired
+> after a measured and owner-approved 360-input replacement.
+> See [release readiness](RELEASE_READINESS.md).
+
 ## The autonomous target rule
 
 Each capability has a **training target**, not a mastery level. Its teacher
@@ -62,7 +68,7 @@ contact, support, falls, crossing completion and mechanical effort.
 
 ## Why one engine / two profiles, not "90% command + 10% grace"
 
-Source reference: unchanged `main` at commit
+Historical source reference: unchanged `main` at commit
 `2ec9e9db0a816c658131311129ef89ec7a595a12`. The first 70 PPO updates
 were *steady-only*, but after that `main` allocated ordinary transition
 and resilience regimes based on their measured fall rates. Its four base
@@ -92,9 +98,10 @@ or require a checkpoint-era permit before it can keep learning.
 
 A new policy needs to discover standing/stepping from nothing. Retain the
 original main-style simple gait learning and its proven physical rewards.
-During the first 20M **world steps**, specialist emphases are inactive.
-Between 20M and 30M, focused lessons linearly blend from 0 to **full
-activation inside their allocated birth cohorts**. Thus a 20% command
+During the configured **10M or 20M foundation world steps**, specialist
+emphases are inactive. During the **following 10M**, focused lessons linearly
+blend from 0 to **full activation inside their allocated birth cohorts**.
+The v5024 study deliberately uses 10M; the ordinary CLI default is 20M. Thus a 20% command
 allocation eventually means about 20% active command-specialist worlds, not
 7%. Every active world still practises non-focus challenges at about half
 their current target severity (control/grace at about one-quarter).

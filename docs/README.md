@@ -20,7 +20,8 @@ recipes remain available but should not be mistaken for the current launch.
 ## Historical / comparison material
 
 - [OVERNIGHT_TEACHING.md](OVERNIGHT_TEACHING.md) — v5023 260M teaching
-  tournament. Read-only reference; do **not** launch it as a v5024 run.
+  tournament (read-only history). Its old Python launcher was removed from
+  the polish branch and remains recoverable from the frozen v5023 Git ref.
 - [FOUNDATION_EXPERIMENTS.md](FOUNDATION_EXPERIMENTS.md) — early alternative
   nursery trials and prior setup instructions.
 - [TEACHING_ALLOCATION_EXPERIMENTS.md](TEACHING_ALLOCATION_EXPERIMENTS.md) —

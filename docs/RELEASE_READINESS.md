@@ -80,6 +80,11 @@ showcase until matched, physically grounded evaluation supports promotion.
 
 ## Audit decisions (after standalone launch consolidation)
 
+Source-level cleanup is underway, but none of these changes is claimed as
+GPU/behavioural validation. Do not choose a champion before the matched
+frozen comparisons. The future deletion of old-schema data paths depends
+on successful public migration, not on a desire for a smaller diff.
+
 | Item | Decision | Reason |
 | --- | --- | --- |
 | `scripts/overnight_teaching.py` | **Removed on polish** | v5024 campaign now owns its needed launch/report helpers; the v5023 tournament remains in Git history |

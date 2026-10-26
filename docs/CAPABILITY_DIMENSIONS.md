@@ -1,6 +1,6 @@
 # EMU — complete growing-capability map
 
-Updated 26 October 2026. This is a **physical-task inventory**, not a promise
+Updated 27 October 2026. Release-polish review. This is a **physical-task inventory**, not a promise
 that every listed axis has an independent curriculum dial. The canonical
 philosophy is [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md);
 implementation status belongs here. All learning uses **one actor/optimizer**.
@@ -17,9 +17,10 @@ Do not wait for one specialist to graduate another, and do not claim success
 from requested (rather than achieved) motion. No target must continually
 rise; it can oscillate and resume growing. The same NN learns every cohort.
 
-Cold source: first 20M environment steps mainly teach basic gait. Specialist
-activation then blends from 0 to 100% of the allocated specialist cohorts
-across another 10M steps. This changes **which worlds emphasize a specialty**,
+Cold source: the configured 10M or 20M world-step foundation mainly teaches
+basic gait. Specialist activation blends from 0 to 100% of allocated
+specialist cohorts over the next 10M steps. The v5024 controlled study
+uses 10M; the general unified CLI defaults to 20M. This changes **which worlds emphasize a specialty**,
 not earned proficiency. Once active, other physical challenge magnitudes
 remain around half of the relevant target; control/grace is gentler still. No later
 absolute-step unlocks. A same-source completed run can extend its target

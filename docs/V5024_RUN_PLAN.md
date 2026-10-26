@@ -1,6 +1,9 @@
 # v5024 — terrain stability, commanded control, and next run
 
-**Research branch:** `feature/v5024-terrain-control`
+**Frozen GPU training branch:** `feature/v5024-terrain-control`
+at `d26ae0c2c4097d7c7124759197a94504abc44995`.
+The separate `feature/v5024-release-polish` branch is for
+cleanup/review and **must not resume this experiment's checkpoints**.
 
 **Do not edit/merge** `main`, the public showcase, archived v5023
 policies, or the completed 260M campaign. This branch includes the

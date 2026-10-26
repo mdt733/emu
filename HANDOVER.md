@@ -1,5 +1,26 @@
 # EMU — active engineering handover
 
+> **Release polish separate from frozen training (27 October 2026).**
+> `feature/v5024-release-polish` was forked from the exact v5024 study
+> commit `d26ae0c2`. On polish: landing pages/install/CI have been
+> renewed, the obsolete v5023 overnight driver has been deleted, and
+> its required helpers moved into the v5024 campaign script. The test
+> for the retired study launcher now verifies the current three-arm
+> source-pinned plan. **Do not pull these commits into the live/resumable
+> `feature/v5024-terrain-control` checkout.**
+>
+> **Desired promotion:** select an independently measured 360-input
+> replacement policy, switch the public showcase by owner approval, then
+> delete the obsolete 220/232 actor/training/checkpoint/test paths.
+> Pinnacle is a temporary benchmark/rollback artifact, not a parallel
+> product to maintain forever.
+>
+> **Review:** [Release readiness](docs/RELEASE_READINESS.md) ·
+> [Documentation index](docs/README.md) ·
+> [v5024 controlled run plan](docs/V5024_RUN_PLAN.md)
+
+
+
 **Date:** 27 October 2026
 **Work branch:** `feature/v5024-terrain-control`  
 **Protected:** `main`, public showcase, approved 260M Pinnacle. **Do not change or merge without explicit user approval.**  
