@@ -184,6 +184,8 @@ class TrainingConfig:
     # coverage, foothold=same sampling plus first physical upper-foot touchdown.
     # Contract is saved with the checkpoint, never inferred from a run name.
     unified_capability_focus: bool = False  # single shared-policy six-cohort director
+    foundation_steps: int = FOUNDATION_STEPS
+    foundation_mix: str = 'main'  # main, command-heavy, curious
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -237,7 +239,8 @@ class TrainingConfig:
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',
-                    'terrain_step_max_m', 'unified_capability_focus'}
+                    'terrain_step_max_m', 'unified_capability_focus',
+                    'foundation_steps', 'foundation_mix'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")

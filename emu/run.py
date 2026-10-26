@@ -37,6 +37,14 @@ def one_run_config(args) -> TrainingConfig:
     else:
         raise ValueError(f'unknown profile: {args.profile}')
     unified = bool(getattr(args, 'unified_capabilities', False))
+    foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
+    foundation_mix=str(getattr(args,'foundation_mix','main'))
+    if foundation_steps not in (10_000_000,20_000_000):
+        raise ValueError('foundation must be 10M or 20M world steps')
+    if foundation_mix not in ('main','command-heavy','curious'):
+        raise ValueError('unknown foundation mix')
+    if not unified and (foundation_steps!=20_000_000 or foundation_mix!='main'):
+        raise ValueError('foundation experiments require --unified-capabilities')
     requested_pitch=getattr(args, 'pitch_deg', None)
     # Main-style gentle cold posture, without changing mature sim2real runs.
     pitch_deg=float((8.0 if unified or args.profile != 'sim2real' else 30.0)
@@ -78,6 +86,7 @@ def one_run_config(args) -> TrainingConfig:
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
+                   foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
                    difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,

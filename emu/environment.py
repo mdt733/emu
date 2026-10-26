@@ -1552,6 +1552,8 @@ class EmuMJXEnv(TaskSampler):
                     raise ValueError('fixed edge yaw outside +/-45-degree exam range')
                 if not np.isfinite(slope[6]) or not 0. <= slope[6] <= 1.:
                     raise ValueError('specialist_mix must be between zero and one')
+                if not np.isfinite(slope[7]) or not 0. <= slope[7] <= 1.:
+                    raise ValueError('foundation_control_mix must be between zero and one')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -2132,7 +2134,14 @@ class EmuMJXEnv(TaskSampler):
         # no separate age or cross-specialist gate inside the world.
         mix=jnp.clip(params[P.specialist_mix],0.,1.)
         k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
-        return jax.vmap(lambda x:jax.random.uniform(x,()))(k)<mix
+        sampled=jax.vmap(lambda x:jax.random.uniform(x,()))(k)
+        ordinary_focus=sampled<mix
+        # When the normal specialist mix is zero (foundation), an optional
+        # small slice of CONTROL worlds can practise graceful useful walking.
+        # Slope/step/advanced command cohorts remain completely inactive.
+        grace=(self.focus_id==CONTROL) & (
+            sampled<jnp.clip(params[P.foundation_control_mix],0.,1.))
+        return ordinary_focus | grace
 
     def _specialist_task(self, task, keys, params):
         """Change difficulty emphasis, never policy or actor observation.

@@ -249,6 +249,8 @@ UNIFIED_TERRAIN_FIELDS = (
     ('terrain_edge_angle_deg',float('nan')),
     # Teacher-only foundation→growth blend, never an actor observation.
     ('specialist_mix',0.0),
+    # Grace-only pre-growth teaching. All non-control specialists remain off.
+    ('foundation_control_mix',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -264,6 +266,7 @@ P = SimpleNamespace(
     terrain_fixed_height_m=TERRAIN_TASK_PARAM_DIM + 4,
     terrain_edge_angle_deg=TERRAIN_TASK_PARAM_DIM + 5,
     specialist_mix=TERRAIN_TASK_PARAM_DIM + 6,
+    foundation_control_mix=TERRAIN_TASK_PARAM_DIM + 7,
 )
 
 

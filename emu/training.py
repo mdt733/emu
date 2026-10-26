@@ -139,8 +139,10 @@ def unified_launch_mode(args: TrainingConfig) -> str:
     # unlock: the specialists gradually become active inside this run.
     # The CLI checks identical Git SHA + saved config for same-run resume.
     if (core and os.environ.get('EMU_UNIFIED_CONTINUOUS') == 'cold-growth-approved'
-            and args.steps >= FOUNDATION_STEPS
-            and args.envs == 2048 and args.seed == 733
+            and args.steps >= 1_000_000
+            and args.foundation_steps in (10_000_000,20_000_000)
+            and args.foundation_mix in ('main','command-heavy','curious')
+            and args.envs == 2048 and 0 <= args.seed < 2**31
             and args.terrain_step_max_m == .04
             and args.motor_guidance_weight == 0.
             and args.contact_slope_deg == 0.
@@ -239,7 +241,8 @@ def train(args: TrainingConfig) -> int:
     fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
     if continuous_growth:
         print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
-              'specialists fade in between 20M and 30M; frozen evaluations '
+              f'foundation={args.foundation_mix} until {args.foundation_steps:,} steps; '
+              'specialists blend in over the next 10M; frozen evaluations '
               'use 32 worlds rather than risking 8GB GPU exhaustion.',
               flush=True)
     if bounded_acceptance:
@@ -319,9 +322,21 @@ def train(args: TrainingConfig) -> int:
         d = governor.params_dict()
         if args.unified_capability_focus:
             profile = teaching_profile(
-                step=step, foundation_steps=FOUNDATION_STEPS,
+                step=step, foundation_steps=args.foundation_steps,
+                foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
+            # Keep the 70-update steady-only bootstrap exactly where the
+            # original foundation started. Afterwards the candidate recipe
+            # may request a different balance of the SAME ordinary regimes.
+            after_bootstrap=(governor._updates_done_total>governor.BOOTSTRAP_UPDATES)
+            d['foundation_control_mix']=(
+                profile.foundation_control_mix if after_bootstrap else 0.0)
+            if profile.regime_mix is not None and after_bootstrap:
+                for key,portion in zip(
+                    ('regime_frac_steady','regime_frac_transition',
+                     'regime_frac_resilience'),profile.regime_mix):
+                    d[key]=portion
             # A zero specialist allocation is not a separate PPO or a
             # synthetic zero-gradient loss. It simply sends all worlds
             # through main's ordinary gait sampler. Terrain stays dormant.
@@ -330,7 +345,7 @@ def train(args: TrainingConfig) -> int:
                 d['terrain_height_m'] = 0.0
                 d['slope_exposure'] = 0.0
                 d['slope_max_deg'] = 0.0
-        elif step < FOUNDATION_STEPS:
+        elif step < args.foundation_steps:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
         source_field = field if teaching_field is None else teaching_field
@@ -418,7 +433,7 @@ def train(args: TrainingConfig) -> int:
     norm_diag['obs_norm_update_mean_l2'] = float(np.linalg.norm(np.asarray(obs_mean - old_mean)))
     norm_diag['obs_norm_update_std_l2'] = float(np.linalg.norm(np.asarray(obs_var ** 0.5 - old_std)))
     norm_diag['obs_norm_frozen'] = float(norm_frozen)
-    if warmup_end_steps >= FOUNDATION_STEPS:
+    if warmup_end_steps >= args.foundation_steps:
         obs_anchor = (np.asarray(obs_mean).copy(), np.asarray(obs_var ** 0.5).copy())
     state.obs.block_until_ready()
     metric_transfer_t0 = time.perf_counter()
@@ -547,7 +562,7 @@ def train(args: TrainingConfig) -> int:
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
-            foundation_steps=FOUNDATION_STEPS,
+            foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
@@ -596,7 +611,7 @@ def train(args: TrainingConfig) -> int:
         # The historical first-20M foundation deliberately disabled
         # checkpoint rollbacks; resume and later unified recovery remain.
         if (args.allow_rollback and
-                (not args.unified_capability_focus or total_steps >= FOUNDATION_STEPS)
+                (not args.unified_capability_focus or total_steps >= args.foundation_steps)
                 and report['needs_recovery']):
             restored = try_restore_recovery(
                 recovery_path, state=state, governor=governor,
@@ -752,7 +767,7 @@ def train(args: TrainingConfig) -> int:
             'obs_norm_anchor_std_l2': 0.0,
         }
         next_total_steps = total_steps + args.envs * ROLLOUT_STEPS
-        if obs_anchor is None and next_total_steps >= FOUNDATION_STEPS:
+        if obs_anchor is None and next_total_steps >= args.foundation_steps:
             obs_anchor = (np.asarray(obs_mean).copy(), np.asarray(new_std).copy())
         if obs_anchor is not None:
             norm_diag['obs_norm_anchor_mean_l2'] = float(np.linalg.norm(np.asarray(obs_mean) - obs_anchor[0]))
@@ -776,7 +791,7 @@ def train(args: TrainingConfig) -> int:
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
-        foundation_steps=FOUNDATION_STEPS,
+        foundation_steps=args.foundation_steps,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))

@@ -242,7 +242,11 @@ def main(argv=None) -> int:
                    help='train NEW 360-input 4x4 actual-depth ToF policy, not the 232 champion')
     q.add_argument('--terrain-step-max-m',type=float,default=0.,
                    help='fixed physical finite-step topology, 0.01..0.08m for terrain actor')
-    q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists (prelaunch research)')
+    q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
+    q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
+                   help='cold foundation length: experiment at 10M or reference 20M')
+    q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
+                   help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')

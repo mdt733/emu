@@ -28,32 +28,46 @@ NONFOCUS_STRENGTH = 0.50
 CONTROL_STRENGTH = 0.25
 
 
+# Fractions among ordinary (non-grace) worlds. Each recipe still shares
+# the exact actor, PPO, baseline rewards and existing three-regime sampler.
+# Grace uses some of the preallocated CONTROL worlds, not another network.
+FOUNDATION_RECIPES = {
+    'main': (None, 0.0),
+    'command-heavy': ((.90,.05,.05), 0.0),
+    'curious': ((.84,.08,.08), .50),  # ~5% of all worlds control/grace
+}
+
+
 class TeachingProfile(NamedTuple):
     """Host-only lesson settings; never actor inputs or a second PPO."""
     name: str
     specialist_fraction: float
     adaptive_specialists: bool
+    regime_mix: tuple[float,float,float] | None = None
+    foundation_control_mix: float = 0.0
 
 
 def teaching_profile(*, step: int, foundation_steps: int,
-                     steady_difficulty: float) -> TeachingProfile:
+                     steady_difficulty: float,
+                     foundation_mix: str = 'main') -> TeachingProfile:
     """Two profiles in one training system: foundation then growth.
 
-    Foundation is the ACTUAL main-style adaptive regime governor, including
-    the initial 70-update steady-only allocation and later ordinary
-    transition/resilience worlds. Replacing this with 90% command/10% grace
-    would be a new experiment, NOT an exact reference to main.
-
-    The growth profile gradually enables specialist teaching. The schedule
-    controls teaching SHARE only, not target difficulty or physical mastery.
+    Foundation may use the original adaptive regime allocation or a chosen
+    command-heavy/curious allocation. Its original eight locomotion payments
+    and PPO learner are unchanged. The curious recipe includes a small
+    focused grace cohort, still required to actually walk.
+    Growth starts the same adaptive six-specialty controller in all cases.
     """
     import math
     if not math.isfinite(float(steady_difficulty)):
         raise ValueError('steady difficulty must be finite')
     if step < 0 or foundation_steps < 0:
         raise ValueError('negative training step or foundation boundary')
+    if foundation_mix not in FOUNDATION_RECIPES:
+        raise ValueError('unknown foundation mix: '+str(foundation_mix))
     if step <= foundation_steps:
-        return TeachingProfile('foundation', 0.0, False)
+        regime,control=FOUNDATION_RECIPES[foundation_mix]
+        return TeachingProfile('foundation', 0.0, False, regime, control)
     fraction = SPECIALIST_ACTIVE_FRACTION * min(
         1.0, max(0.0, (step-foundation_steps)/SPECIALIST_BLEND_STEPS))
     return TeachingProfile('growth', fraction, True)
