@@ -245,6 +245,8 @@ def main(argv=None) -> int:
     q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
+    q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early'),
+                   default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')

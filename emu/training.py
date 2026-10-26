@@ -47,7 +47,7 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
-from .capability_focus import teaching_profile
+from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
 from .ppo import make_trainer, update_running_stats
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
@@ -326,6 +326,11 @@ def train(args: TrainingConfig) -> int:
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
+            for name, weight in zip(
+                FOCUS_NAMES, attention_weights(
+                    schedule=args.teaching_schedule, step=step,
+                    foundation_steps=args.foundation_steps)):
+                d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
             # original foundation started. Afterwards the candidate recipe
             # may request a different balance of the SAME ordinary regimes.
@@ -580,6 +585,8 @@ def train(args: TrainingConfig) -> int:
                 key='regime_frac_'+name
                 report[key]=float(params[key])
             report['foundation_control_mix']=float(params['foundation_control_mix'])
+            for name in FOCUS_NAMES:
+                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
             report['teaching_profile']=teaching_profile(
                 step=total_steps,foundation_steps=args.foundation_steps,
                 foundation_mix=args.foundation_mix,
@@ -813,6 +820,8 @@ def train(args: TrainingConfig) -> int:
             key='regime_frac_'+name
             report[key]=float(params[key])
         report['foundation_control_mix']=float(params['foundation_control_mix'])
+        for name in FOCUS_NAMES:
+            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
         report['teaching_profile']=teaching_profile(
             step=total_steps,foundation_steps=args.foundation_steps,
             foundation_mix=args.foundation_mix,

@@ -251,6 +251,9 @@ UNIFIED_TERRAIN_FIELDS = (
     ('specialist_mix',0.0),
     # Grace-only pre-growth teaching. All non-control specialists remain off.
     ('foundation_control_mix',0.0),
+    # Six teacher-only probabilities; zero sum keeps historical exam mapping.
+    *((f'focus_weight_{name}',0.0) for name in
+      ('command','resilience','slope','step','transition','control')),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -267,6 +270,9 @@ P = SimpleNamespace(
     terrain_edge_angle_deg=TERRAIN_TASK_PARAM_DIM + 5,
     specialist_mix=TERRAIN_TASK_PARAM_DIM + 6,
     foundation_control_mix=TERRAIN_TASK_PARAM_DIM + 7,
+    **{f'focus_weight_{name}':TERRAIN_TASK_PARAM_DIM+8+i
+       for i,name in enumerate(
+           ('command','resilience','slope','step','transition','control'))},
 )
 
 

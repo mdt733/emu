@@ -39,10 +39,13 @@ def one_run_config(args) -> TrainingConfig:
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
+    teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
     if foundation_steps not in (10_000_000,20_000_000):
         raise ValueError('foundation must be 10M or 20M world steps')
     if foundation_mix not in ('main','command-heavy','curious'):
         raise ValueError('unknown foundation mix')
+    if teaching_schedule not in ('balanced','staged','terrain-early'):
+        raise ValueError('unknown teaching schedule')
     if not unified and (foundation_steps!=20_000_000 or foundation_mix!='main'):
         raise ValueError('foundation experiments require --unified-capabilities')
     requested_pitch=getattr(args, 'pitch_deg', None)
@@ -87,6 +90,7 @@ def one_run_config(args) -> TrainingConfig:
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
+                   teaching_schedule=teaching_schedule,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
                    difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,

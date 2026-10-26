@@ -13,6 +13,31 @@ from typing import NamedTuple
 
 FOCUS_NAMES = ("command", "resilience", "slope", "step", "transition", "control")
 FOCUS_FRACTIONS = (.20, .20, .20, .20, .10, .10)
+
+# These probabilities choose a new episode's teacher; local difficulty
+# targets remain driven by physical evidence, never schedule age.
+TEACHING_SCHEDULES = ('balanced', 'staged', 'terrain-early')
+STAGED_START = (.40,.25,.05,.00,.10,.20)
+STAGED_MIDDLE = (.25,.20,.25,.05,.10,.15)
+STAGED_LATE = (.20,.15,.20,.20,.10,.15)
+TERRAIN_EARLY = (.27,.14,.22,.18,.09,.10)
+
+
+def attention_weights(*, schedule: str, step: int,
+                      foundation_steps: int) -> tuple[float,...]:
+    """Smooth six-way birth distribution, not a proficiency gate."""
+    if schedule not in TEACHING_SCHEDULES:
+        raise ValueError('unknown teaching allocation: '+str(schedule))
+    if step < 0 or foundation_steps < 0:
+        raise ValueError('negative step or foundation boundary')
+    if schedule == 'balanced' or step <= foundation_steps:
+        return tuple(FOCUS_FRACTIONS)
+    if schedule == 'terrain-early':
+        return tuple(TERRAIN_EARLY)
+    elapsed=step-foundation_steps
+    before,after=(STAGED_START,STAGED_MIDDLE) if elapsed<=20_000_000 else (STAGED_MIDDLE,STAGED_LATE)
+    t=min(1.,max(0.,(elapsed if elapsed<=20_000_000 else elapsed-20_000_000)/20_000_000))
+    return tuple((1.-t)*x+t*y for x,y in zip(before,after))
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
 
