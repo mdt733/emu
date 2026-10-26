@@ -115,7 +115,7 @@ def summary(root,all_cases,sha):
         writer.writeheader();writer.writerows(rows)
     md=[
         '# EMU overnight teaching experiments','',
-        f'Source: \`{sha}\`','',
+        f'Source: {sha}','',
         '| Run | Target | Actual steps | Final verified? | Falls | vx actual/cmd | Exam score |',
         '|---|---:|---:|:---:|---:|---:|---:|']
     for x in rows:
@@ -131,10 +131,53 @@ def summary(root,all_cases,sha):
          '- A single seed is discovery, not evidence of repeatability.',
          '']
     (root/'overnight_summary.md').write_text('\n'.join(md),encoding='utf-8')
+    # Comparable windows, not only end-of-run scores. Every report row is
+    # the actual most recent on-policy observation AT OR BEFORE that age.
+    # Missing or incomplete phases remain unknown, never interpolated.
+    stages=[]
+    milestones=(10_000_000,20_000_000,40_000_000,60_000_000,80_000_000)
+    for case in all_cases:
+        path=root/case['name']/'metrics.csv'
+        if not path.is_file():
+            continue
+        with path.open(newline='',encoding='utf-8-sig') as fp:
+            series=list(csv.DictReader(fp))
+        for target in milestones:
+            if target>case['steps']:
+                continue
+            eligible=[]
+            for record in series:
+                try:
+                    step=float(record.get('step','nan'))
+                except (TypeError,ValueError):
+                    continue
+                if step<=target and step>=0.:
+                    eligible.append((step,record))
+            if not eligible:
+                continue
+            observed,record=max(eligible,key=lambda x:x[0])
+            stages.append({
+                'run':case['name'],'milestone':target,
+                'actual_step':int(observed),
+                'fall_rate':record.get('fall_rate',''),
+                'vx_mean':record.get('vx_mean',''),
+                'cmd_vx_mean':record.get('cmd_vx_mean',''),
+                'frontier_vx_hi':record.get('frontier_vx_hi',''),
+                'slope_max_deg':record.get('slope_max_deg',''),
+                'terrain_height_m':record.get('terrain_height_m',''),
+                'control_shaft_j_per_m':record.get('control_shaft_j_per_m',''),
+                'focus_alloc_command':record.get('focus_alloc_command',''),
+                'focus_alloc_slope':record.get('focus_alloc_slope',''),
+                'focus_alloc_step':record.get('focus_alloc_step','')})
+    if stages:
+        with (root/'progress_by_age.csv').open('w',newline='',encoding='utf-8') as fp:
+            out=csv.DictWriter(fp,fieldnames=list(stages[0]))
+            out.writeheader();out.writerows(stages)
     zip_path=root/'overnight_results.zip'
     with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED) as z:
         for name in ('campaign_manifest.json','overnight_summary.json',
-                     'overnight_summary.csv','overnight_summary.md'):
+                     'overnight_summary.csv','overnight_summary.md',
+                     'progress_by_age.csv'):
             f=root/name
             if f.is_file():z.write(f,arcname=name)
         for case in all_cases:

@@ -127,6 +127,8 @@ Under `~/robot_lab/emu_runs/overnight_teaching_v5023`:
 - `overnight_results.zip` — shareable small bundle with config, rollout
   metrics, fixed exams and per-run reports; **no giant policy files**.
 - `overnight_summary.md` and `.csv` — direct six-arm comparison.
+- `progress_by_age.csv` — available same-age rollout observations
+  at 10M, 20M, 40M, 60M and 80M, without inventing missing milestones.
 - `logs/*.log` — process logs (open on failures).
 - Each candidate's `checkpoints/final.pkl`, `results_bundle.zip` and
   `fixed_eval.csv`.

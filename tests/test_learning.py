@@ -796,6 +796,29 @@ def test_unified_same_source_target_extension_requires_completed_final(monkeypat
         runmod.inspect_run(new,provenance=prov,resume='auto')
 
 
+def test_overnight_campaign_is_plan_only_by_default_and_source_pinned():
+    """Importer checks CLI syntax without ever launching the owner's GPU."""
+    import runpy
+    from pathlib import Path
+    scope=runpy.run_path(
+        str(Path(__file__).resolve().parents[1]/
+            'scripts/overnight_teaching.py'),run_name='__campaign_import_test__')
+    cases=scope['cases'](733,10_000_000,80_000_000)
+    assert len(cases)==6
+    assert sum(x['steps'] for x in cases)==270_000_000
+    assert [x['schedule'] for x in cases[3:]]==[
+        'balanced','staged','terrain-early']
+    from pathlib import Path
+    cmd=scope['cmd_for'](cases[3],Path('/tmp/campaign'),733,10_000_000,False)
+    assert '--resume' not in cmd
+    assert cmd[cmd.index('--teaching-schedule')+1]=='balanced'
+    assert cmd[cmd.index('--foundation-mix')+1]=='curious'
+    assert cmd[cmd.index('--steps')+1]=='80000000'
+    cmd_resume=scope['cmd_for'](
+        cases[3],Path('/tmp/campaign'),733,10_000_000,True)
+    assert cmd_resume[-2:]==['--resume','auto']
+
+
 def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():
     from emu.capability_focus import attention_weights,FOCUS_NAMES
     assert len(FOCUS_NAMES)==6
