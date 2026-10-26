@@ -205,6 +205,7 @@ class EnvState(NamedTuple):
     rng: Any
     task: Any
     specialist_active: Any  # teacher-only birth focus, not an actor observation
+    focus_id: Any  # sampled per-episode teaching identity; never an actor input
     prev_action: Any
     # Reward-only previous foot pose for true stance-slip measurement.
     prev_foot_pos: Any
@@ -870,7 +871,7 @@ class TaskSampler:
         # acceleration, not the maximum walking envelope at the same time.
         # Reduce the NEXT requested velocity too, not only its birth task.
         if self.unified_capability_focus:
-            trans_focus=state.specialist_active & (self.focus_id==TRANSITION)
+            trans_focus=state.specialist_active & (state.focus_id==TRANSITION)
             centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
             new_target=jnp.where(trans_focus[:,None],
                        centre+NONFOCUS_STRENGTH*(new_target-centre),
@@ -1554,6 +1555,12 @@ class EmuMJXEnv(TaskSampler):
                     raise ValueError('specialist_mix must be between zero and one')
                 if not np.isfinite(slope[7]) or not 0. <= slope[7] <= 1.:
                     raise ValueError('foundation_control_mix must be between zero and one')
+                focus_weights=slope[8:14]
+                if (not np.isfinite(focus_weights).all() or
+                    (focus_weights<0.).any() or
+                    (focus_weights.sum()>0. and not np.isclose(
+                        focus_weights.sum(),1.,atol=1e-4))):
+                    raise ValueError('focus weights must be nonnegative and sum to one')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -1646,7 +1653,7 @@ class EmuMJXEnv(TaskSampler):
             attitude_profile=self.attitude_profile, xp=jnp,
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
-                    jnp.where(state.specialist_active,self.focus_id,-1))
+                    jnp.where(state.specialist_active,state.focus_id,-1))
                 if self.unified_capability_focus else None))
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
@@ -1735,7 +1742,7 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
-        stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
+        stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, state.focus_id, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
                            terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
@@ -1771,7 +1778,7 @@ class EmuMJXEnv(TaskSampler):
             gy=-floor_normal[:,1]/jnp.maximum(.01,floor_normal[:,2])
             physical_slope=jnp.rad2deg(jnp.arctan(
                 jnp.sqrt(gx*gx+gy*gy)))
-            slope_role=state.specialist_active & (self.focus_id==SLOPE)
+            slope_role=state.specialist_active & (state.focus_id==SLOPE)
         else:
             gx=jnp.zeros_like(unit_x);gy=jnp.zeros_like(unit_x)
             physical_slope=jnp.zeros_like(unit_x)
@@ -1838,7 +1845,7 @@ class EmuMJXEnv(TaskSampler):
             'reward_weighted_fall_penalty': fall_payment,
             'episode_done': done.astype(jnp.float32),
             'specialist_focus': jnp.where(state.specialist_active,
-                                           self.focus_id,-1).astype(jnp.float32),
+                                           state.focus_id,-1).astype(jnp.float32),
             'episode_command_quality': ep_command_quality_sum/jnp.maximum(ep_len,1.),
             'episode_length': ep_len,
             'episode_return': ep_return,
@@ -2118,7 +2125,21 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
-    def _specialist_enabled(self, keys, params):
+    def _focus_for_birth(self, keys, params):
+        """Sample one role when an episode begins, not each physics frame.
+
+        With no schedule weights supplied, preserve the older fixed world
+        role map for held-out exams and legacy physical acceptance tests.
+        With weights, zero-probability roles can never be sampled.
+        """
+        jax,jnp=self.jax,self.jnp
+        w=params[P.focus_weight_command:P.focus_weight_control+1]
+        logits=jnp.where(w>0.,jnp.log(jnp.maximum(w,1e-30)),-1e9)
+        drawn=jax.vmap(lambda k:jax.random.categorical(
+            jax.random.fold_in(k,50246),logits))(keys).astype(jnp.int32)
+        return jnp.where(jnp.sum(w)>0.,drawn,self.focus_id)
+
+    def _specialist_enabled(self, keys, params, focus_id=None):
         """Sample the host-chosen specialist teaching share at episode birth.
 
         The host holds this at zero for the first 20M cold gait steps, then
@@ -2139,11 +2160,12 @@ class EmuMJXEnv(TaskSampler):
         # When the normal specialist mix is zero (foundation), an optional
         # small slice of CONTROL worlds can practise graceful useful walking.
         # Slope/step/advanced command cohorts remain completely inactive.
-        grace=(self.focus_id==CONTROL) & (
+        focus=self.focus_id if focus_id is None else focus_id
+        grace=(focus==CONTROL) & (
             sampled<jnp.clip(params[P.foundation_control_mix],0.,1.))
         return ordinary_focus | grace
 
-    def _specialist_task(self, task, keys, params):
+    def _specialist_task(self, task, keys, params, focus_id=None):
         """Change difficulty emphasis, never policy or actor observation.
 
         The 2048 worlds share the same robot, contacts, neural weights, and
@@ -2152,11 +2174,11 @@ class EmuMJXEnv(TaskSampler):
         Real incline+step collision is a separate mandatory launch gate.
         """
         jnp=self.jnp
-        active=self._specialist_enabled(keys,params)
+        focus=self.focus_id if focus_id is None else focus_id
+        active=self._specialist_enabled(keys,params,focus)
         if not self.unified_capability_focus:
             return task,active
         jax=self.jax
-        focus=self.focus_id
         is_command=active & (focus==COMMAND)
         is_resilience=active & (focus==RESILIENCE)
         is_transition=active & (focus==TRANSITION)
@@ -2242,7 +2264,8 @@ class EmuMJXEnv(TaskSampler):
         task=task.at[:,T.birth_resilience_d].set(birth)
         return task,active
 
-    def _unified_terrain(self, data, keys, params):
+    def _unified_terrain(self, data, keys, params,
+                         focus_id=None, specialist_active=None):
         """Solid pair of independently sampled inclined contact surfaces.
 
         Local top faces share n, tangent e/w; the discontinuity is along
@@ -2256,8 +2279,9 @@ class EmuMJXEnv(TaskSampler):
             ks=jax.random.split(jax.random.fold_in(key,50245),6)
             return jnp.stack([jax.random.uniform(ks[i],()) for i in range(6)])
         u=jax.vmap(draw)(keys)
-        focused=self._specialist_enabled(keys,params)
-        focus=self.focus_id
+        focus=self.focus_id if focus_id is None else focus_id
+        focused=(self._specialist_enabled(keys,params,focus)
+                 if specialist_active is None else specialist_active)
         step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
         slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
         # The governor may seed gentle physical severity on the exact 20M
@@ -2337,7 +2361,8 @@ class EmuMJXEnv(TaskSampler):
                 jnp.where(step_active & down,height*normal[:,2],0.))
         )
 
-    def _episode_terrain(self, data, keys, params):
+    def _episode_terrain(self, data, keys, params,
+                         focus_id=None, specialist_active=None):
         """Sample real episode terrain with an exactly flat dormant state.
 
         A zero terrain exposure or height buries the *same* physical box
@@ -2348,7 +2373,9 @@ class EmuMJXEnv(TaskSampler):
         if self.terrain_step_mocap_id < 0:
             return data
         if self.unified_capability_focus:
-            return self._unified_terrain(data,keys,params)
+            return self._unified_terrain(
+                data,keys,params,focus_id=focus_id,
+                specialist_active=specialist_active)
         jax, jnp = self.jax, self.jnp
         k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
         def choose(key):
@@ -2422,7 +2449,9 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
-        task, specialist_active = self._specialist_task(task, keys, params)
+        focus_id = self._focus_for_birth(keys, params)
+        task, specialist_active = self._specialist_task(
+            task, keys, params, focus_id)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
@@ -2431,7 +2460,8 @@ class EmuMJXEnv(TaskSampler):
         )
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
-        data = self._episode_terrain(data, keys, params)
+        data = self._episode_terrain(
+            data, keys, params, focus_id, specialist_active)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
@@ -2448,7 +2478,7 @@ class EmuMJXEnv(TaskSampler):
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
-        return EnvState(data, hist, next_keys, task, specialist_active, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+        return EnvState(data, hist, next_keys, task, specialist_active, focus_id, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
