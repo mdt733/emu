@@ -1,0 +1,68 @@
+# EMU release-candidate cleanup and promotion gates
+
+**Date:** 27 October 2026  
+**Training source (frozen):** `feature/v5024-terrain-control` at
+`d26ae0c2c4097d7c7124759197a94504abc44995`.  
+**Engineering cleanup:** `feature/v5024-release-polish`, forked from that commit.  
+**Protected:** `main`, public Pages/showcase, approved 260M Pinnacle,
+archived v5023 experiment checkpoints, and the running v5024 run directories.
+
+## Why two branches?
+
+v5024's 3 × 60M campaign pins its exact source revision. Even a harmless
+documentation commit changes the SHA. **Do not pull the polish branch into
+the running training checkout**, and do not resume its checkpoints under
+polish code. Review and integrate cleanup only after collecting results,
+and start a new source-pinned run for any changes that alter learning.
+
+## Cleanup policy
+
+1. Preserve actor contracts (legacy 220/232 and unified 360), training
+   lineage validation, physical simulation, failure recovery, policy export
+   and the protected browser champion until independently replaced.
+2. Keep tests that protect a real behaviour or boundary, regardless of
+   their original v5015/v5016/v5023 names. Remove only redundant or
+   unreachable cases **after** mapping coverage and replacing their checks.
+3. Keep the core read-first path: README → INSTALL → V5024_RUN_PLAN →
+   UNIFIED_CAPABILITY_GROWTH → CAPABILITY_DIMENSIONS.
+4. Clearly label completed experiment scripts/docs as historical. A live
+   v5024 campaign currently imports reporting helpers from
+   `scripts/overnight_teaching.py`; removing that module today would
+   break the current launcher. Refactor it in a later separately checked
+   change, not by deleting it unconditionally.
+5. Run small tests before GPU and hold behavioural changes until frozen
+   examiner results justify them. Reduce accidental complexity, not just
+   source line count.
+
+## Evidence required before promoting to main
+
+- [ ] Three 60M arms finish or failures are diagnosed without hiding the
+      missing evidence. Save `overnight_results.zip`, source SHA and configs.
+- [ ] Frozen generalist **and** 1/2/3/5° directional terrain matrix on the
+      candidates; report supported motion separately from precise tracking.
+- [ ] Check uphill commanded velocity, lateral downhill drift, yaw,
+      step-up AND down support, falls and work per useful distance.
+- [ ] Repeat promising arms with further seeds before claiming broad gains.
+- [ ] Independently verify cold-start, 2048-world CUDA update,
+      same-source resume/extension, export, and local-browser playback.
+- [ ] Current candidate CI green (Python/MJX CPU/browser/viewer); avoid
+      claiming that CPU CI verifies CUDA capacity.
+- [ ] Review diff versus v5024; ensure no stale branch or file paths in
+      public entry docs; identify actual unreferenced code/tests for deletion.
+- [ ] Reviewed PR, explicit owner approval for **main merge**.
+- [ ] Separate explicit release approval for any public showcase update.
+
+**This cleanup is not a new champion.** Keep the main policy and public
+showcase until matched, physically grounded evaluation supports promotion.
+
+## Initial audit decisions
+
+| Item | Decision | Reason |
+| --- | --- | --- |
+| `scripts/overnight_teaching.py` | Retain for now | v5024 campaign imports `cmd_for`, `execute`, `summary`, `git`, `campaign_eta` |
+| `emu/directional.py` / `terrain_spike.py` | Retain | Frozen exam, legacy courses and CI physical probes |
+| Legacy 220/232 contracts and corresponding tests | Retain | Public Pinnacle and checkpoint-export compatibility |
+| `scripts/smoke_training_lifecycle.py` | Retain | Checkpoint/resume/export acceptance |
+| `scripts/install_viewer_wsl.sh` | Retain | CPU-only standalone viewer installation |
+| v5023 tournament documents | Mark historical | Comparison and reproducibility still useful |
+| Source-check workflow naming and launch plans | Refresh | Historical version labels and stale plan options confuse the current release |
