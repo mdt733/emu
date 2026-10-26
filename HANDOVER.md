@@ -7,6 +7,21 @@
 **Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
 **Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
+## Current early-foundation experiments
+
+- User encourages experiments and possibly a **10M** basic gait foundation,
+  not checkpoint-age pedantry. Select `--foundation-mix main|command-heavy|curious`
+  and `--foundation-steps 10000000|20000000`.
+- All recipes reuse ONE PPO/actor and the first 70 steady-only updates.
+  `main` keeps original adaptive 3-regime allocation; `command-heavy`
+  chooses 90/5/5; `curious` uses 84/8/8 plus ~5% easy control-grace
+  worlds. Slope/step/advanced physical fronts remain off in foundation.
+- Each experiment/seed gets a separate clean root; same-source completed
+  10M campaigns can extend into normal growth without restarting.
+- [docs/FOUNDATION_EXPERIMENTS.md](docs/FOUNDATION_EXPERIMENTS.md) has
+  exact commands and comparisons. Latest SHA CI/CUDA preflight must pass
+  before suggesting a production GPU run. No user CUDA run done here.
+
 ## Frozen baseline parity status
 
 - Reference `main` source SHA: `2ec9e9db0a816c658131311129ef89ec7a595a12`. Keep `main` frozen.

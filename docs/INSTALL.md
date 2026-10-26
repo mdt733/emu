@@ -36,6 +36,14 @@ emu viewer --live --root "$RUN" --no-open
 ```
 
 
+## Short foundation experiments
+
+A 10M or 20M foundation can now use the original adaptive allocation,
+a 90/5/5 command-heavy mix or a curious mix with a small grace cohort.
+Each continues into exactly the same specialist learning system.
+See [FOUNDATION_EXPERIMENTS.md](FOUNDATION_EXPERIMENTS.md) for complete
+copy-paste plans, a real first 10M launch and continuation instructions.
+
 ## Unified continuous learning — preferred workflow
 
 One source-pinned run, from zero through 20M, 40M, 100M and beyond. No ancestor or separate handoff is needed. The first 20M use main-style gait teaching; active specialist lessons then blend from 0% to 35% over the following 10M. Once introduced, each physical target changes based on its own evidence, not a training-age gate.
