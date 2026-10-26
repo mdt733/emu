@@ -717,7 +717,7 @@ def test_v5024_slope_stability_advancement_does_not_borrow_tracking_evidence():
     # insufficient: only the distinct stability counters can promote.
     old={f'slope_near_{kind}_{d}':8. for d in g.SLOPE_DIRECTIONS
          for kind in ('attempts','successes')}
-    assert g.advance_slope(old)=='collect_real_slope'
+    assert g.advance_slope(old)=='hold_probe_learning'
     assert g.params.slope_max_deg==start
     real={f'slope_near_attempts_{d}':8. for d in g.SLOPE_DIRECTIONS}
     real.update({f'slope_near_stability_successes_{d}':8.
