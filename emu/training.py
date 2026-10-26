@@ -425,7 +425,7 @@ def train(args: TrainingConfig) -> int:
     rollout_lr_scale_for_metrics = lr_scale
     norm_diag = {'obs_norm_update_mean_l2': 0.0, 'obs_norm_update_std_l2': 0.0,
                  'obs_norm_anchor_mean_l2': 0.0, 'obs_norm_anchor_std_l2': 0.0,
-                 'obs_norm_frozen': 0.0}
+                 'obs_norm_frozen': 0.0, 'obs_norm_terrain_clip_frac': -1.0}
     obs_anchor = None
 
     t0 = time.time()
