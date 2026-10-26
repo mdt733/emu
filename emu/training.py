@@ -457,8 +457,8 @@ def train(args: TrainingConfig) -> int:
     last_snapshot = resumed_step
     last_seen_nan_skips = [0]  # mutable box so the log block above can update it
     previous_rows=read_metrics_csv(run_dir / 'metrics.csv')
-    rollback_count=int(float(previous_rows[-1].get('rollback_count',0)))
-                   if previous_rows else 0
+    rollback_count=(int(float(previous_rows[-1].get('rollback_count',0)))
+                    if previous_rows else 0)
     # Canonical rollback candidate: never overwrite a stronger existing
     # recovery snapshot after resume/fork.
     recovery_path = run_dir / 'checkpoints' / 'recovery.pkl'
