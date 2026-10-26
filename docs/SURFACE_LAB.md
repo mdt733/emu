@@ -1,106 +1,88 @@
-# Surface laboratory — included in v5024 (and still available standalone)
+# EMU surface laboratory — local MuJoCo viewer
 
-This viewer originated on `feature/v5023-surface-lab` and is **already included in `feature/v5024-terrain-control`**, which adds the matched frozen physical slope/step examiner and the next training research. The original viewer branch was cut from the exact
-**d6f3622** cold campaign revision. **Only viewer files and documentation
-have changed.** Do NOT `git pull` the source-pinned training checkout
-while any training subprocess is active.
+The variable-terrain viewer **is included** in both
+`feature/v5024-terrain-control` and `feature/v5024-release-polish`.
+There is no need to merge an old `feature/v5023-surface-lab` branch,
+clone a third checkout, or borrow another branch's Python environment.
 
-The lab is a manual physical comparison, **not** a frozen MJX proficiency
-exam. It uses **actual browser MuJoCo contacts** and the exported
-360-input actor with its saved normalizer and physical 4×4 sensor model.
+This is a **manual browser simulation**, not an automatic certificate
+of policy competence. Browser MuJoCo uses the trained actor and real
+inclined/stepped collision geometry. Its independent exam counterpart is
+`emu capability-exam --terrain-matrix` (MJX), with fixed cases and
+separate stable-versus-tracking metrics.
 
-## One-time WSL viewer setup (use a SECOND terminal)
+## Start the viewer
 
-```bash
-(
-set -euo pipefail
-VIEW="$HOME/emu-surface-lab"
-TRAIN="$HOME/emu-capability-growth"
-RUN="$HOME/robot_lab/emu_runs/overnight_teaching_v5023_audited/growth_balanced_s733"
-
-test -f "$TRAIN/.venv/bin/activate" || {
-  echo "Expected the running checkout's Python environment at $TRAIN/.venv"; exit 1;
-}
-test -d "$RUN/checkpoints" || {
-  echo "No training checkpoints in $RUN yet"; exit 1;
-}
-if ! git -C "$VIEW" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  if [ -e "$VIEW" ]; then
-    echo "STOP: $VIEW exists but is not a Git checkout"; exit 1;
-  fi
-  git clone --single-branch --branch feature/v5023-surface-lab \
-    https://github.com/mdt733/emu.git "$VIEW"
-fi
-cd "$VIEW"
-test -z "$(git status --porcelain)" || {
-  echo "STOP: viewer checkout contains uncommitted changes"; exit 1;
-}
-git switch feature/v5023-surface-lab
-git pull --ff-only
-source "$TRAIN/.venv/bin/activate"
-python -c 'import emu; print("Viewer code:",emu.__file__)'
-command -v npm >/dev/null || {
-  echo "Node/npm needed in WSL. See scripts/install_viewer_wsl.sh"; exit 1;
-}
-JAX_PLATFORMS=cpu XLA_PYTHON_CLIENT_PREALLOCATE=false \
-python -m emu.cli viewer \
-  --live --root "$RUN" --port 8766 --no-open
-)
-```
-
-Leave this second-terminal process open, then browse to
-
-**http://127.0.0.1:8766/**
-
-The read-only watcher loads the newest **validated** available
-`latest.pkl`, `final.pkl` or rotating snapshot. It never alters,
-deletes, writes or resumes the trainer. Loading newer policies may briefly
-use some CPU and RAM but not CUDA; the browser simulates locally using
-MuJoCo/WASM.
-
-You can also load any previously exported `.emupolicy` via the viewer's
-Load button, or manually export one (from THIS viewer checkout):
+Use a separate terminal and existing installed checkout. For watching
+a source-pinned training run, keep its training shell/checkpoint directory
+untouched. Open the local viewer from the **same frozen training checkout**
+if possible:
 
 ```bash
-JAX_PLATFORMS=cpu python -m emu.cli export-policy \
-  "$RUN/checkpoints/latest.pkl" \
-  "$HOME/emu_surface_75m.emupolicy"
+cd "$HOME/emu-v5024"
+source .venv/bin/activate
+
+# Static/manual policy: any verified .emupolicy file
+emu viewer showcase/champion.emupolicy --no-open
+
+# OR live inspection of the first v5024 arm:
+emu viewer --live \
+  --root "$HOME/robot_lab/emu_runs/v5024_cold_steering/main_balanced_s733" \
+  --no-open
 ```
 
-The training process must remain on its **original Git commit** for resume.
+Open **http://127.0.0.1:8765/**. If that port is in use, append
+`--port 8766` and use **http://127.0.0.1:8766/**.
 
-## How to use the diagnostics
+A 360-input policy can be loaded using the viewer's **Load policy**
+control after being exported with `emu export-policy`. The approved
+published 232-input Pinnacle remains available for reference only.
+The live watcher is read-only; it selects validated saved checkpoints,
+never trains/resumes, modifies metadata or consumes the learner's GPU
+by itself. Browser simulation runs locally using MuJoCo/WASM. The
+viewer HTTP service has no authentication: keep it local.
 
-Open the **FRONT DEPTH · 4×4** panel, choose a ground option under
-**v5023 surface laboratory**. The continuous uphill/downhill/left/right
-camber cases each use one rotated, flat-top box replacing the flat
-floor, with a real geometric top surface and no coincident floor contact.
-Use *Slope angle* from **0.5 to 12 degrees**, usually test 1°, 2°, 3°,
-5° then 8°; reset and drive the same modest forward command at each
-angle. The underfoot slope readout updates for these four cases.
+## Manual physical comparison
 
-Choose *Custom step up* or *Custom step down* and adjust *Step height*
-from **0.1 to 6 cm**. These are discontinuous support surfaces, not
-a visual image of a step. Try 0.3, 0.5, 1 and 2 cm.
+The **FRONT DEPTH 4×4** display shows what the new array-only actor
+observes. Choose a surface under the laboratory controls:
 
-Controls remain the same two joysticks. Start with `vx≈0.04 m/s`,
-zero strafe/yaw, then compare heading assist ON/OFF and training-style
-sensor noise ON/OFF. Reset between trials. Browser trajectory,
-fall behaviour and requested/actual velocity are diagnostic observations,
-not physical-episode certification under the slope curriculum.
+| Surface | Useful manual checks |
+| --- | --- |
+| Flat | Baseline standing, forward/reverse, sideways and yaw commands |
+| Continuous uphill/downhill/cross-left/cross-right | 1°, 2°, 3°, 5° grades first; compare fall, signed drift and tracking |
+| Step up / step down | 0.3, 0.5, 1 and 2 cm rises/drops; inspect genuine far-side support |
+| Combined commands | Walk uphill or across slope, then strafe/yaw instead of drifting under gravity |
 
-## Why we're testing this
+Inclines use a real rotated support surface, not tilted-gravity physics
+or a painted floor. Steps are actual discontinuous supports. Try a
+modest `vx≈0.04 m/s`, then independently vary `vy` and yaw. Reset
+between cases and compare heading assistance ON/OFF, sensor noise
+ON/OFF and matched commands at matched grades.
 
-Historical v5023 required >=8 near-target completed episodes in
-**all four directions**, each >=65% FULL three-axis command tracking,
-to raise ONE incline by .08°. That stalled even when the biped
-remained physically upright. v5024 now scores supported MOVING stability
-separately, and requires >=80% near-target stable motion in each
-direction to grow the practice angle. Poor uphill/lateral command
-tracking remains a real failure, visible in the new `--terrain-matrix`
-held-out exam. It is not silently redefined as accurate walking.
+The **essential distinction**: stable on a grade, actual progress
+against gravity, and accurate three-axis command following are three
+different results. Neither an expanded training slope target nor a
+visually upright robot proves the latter two.
 
-If the walker looks comfortable on 3°–5° continuous grades here but
-the teacher remains below 1°, inspect frozen MJX direction-conditioned
-evidence next and consider changing the NEXT research revision's
-evidence/advancement rule. Never patch the in-flight d6f3622 campaign.
+## Frozen matched assessment
+
+The new 360-input examiner provides read-only 1/2/3/5° directional
+incline comparisons and 0.3/0.5/1/2 cm up/down steps:
+
+```bash
+JAX_PLATFORMS=cpu emu capability-exam --terrain-matrix \
+  --policy /path/to/new360.emupolicy \
+  --output "$HOME/robot_lab/emu_runs/terrain_matrix_unique" \
+  --worlds 8 --horizon 350 --device cpu
+```
+
+It writes `unified_exam.json` and `unified_exam.md`, separating
+supported moving stability from complete command tracking. Inspect
+uphill velocity, lateral downhill drift, yaw deviation and actual
+foot-contact completion, not only teacher difficulty.
+
+See the [v5024 experiment design](V5024_RUN_PLAN.md) and
+[release gates](RELEASE_READINESS.md). The published Pinnacle and
+existing training runs remain unchanged until an independently
+validated 360-input champion is approved.

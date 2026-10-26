@@ -45,6 +45,17 @@ Open `http://127.0.0.1:8767/`. The installer now checks out `main` by default. S
 For live training inspection, `emu viewer --live --root RUN_DIR --no-open`
 continues serving validated checkpoints independently of the public demo.
 
+## Planned 360-input replacement
+
+The published 232-input Pinnacle is a **protected historical benchmark**,
+not a permanently required second architecture. Once the 360-input unified
+learner wins replicated frozen physical evaluations, is verified end-to-end
+in the browser and the owner approves, the public release can replace its
+policy. Only after that migration should the old 220/232 runtime paths and
+their tests be removed from the primary codebase. Git history / a tagged
+release should preserve the old policy for rollback and research.
+See [release readiness](RELEASE_READINESS.md).
+
 ## Publishing safeguards
 
 The approved champion is **not automatically replaced** when Python training

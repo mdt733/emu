@@ -93,4 +93,5 @@ on successful public migration, not on a desire for a smaller diff.
 | `scripts/smoke_training_lifecycle.py` | Retain | Checkpoint/resume/export acceptance |
 | `scripts/install_viewer_wsl.sh` | Retain | CPU-only standalone viewer installation |
 | v5023 tournament documents | Mark historical | Comparison and reproducibility still useful |
+| Surface-lab instructions | Consolidate | v5024 already includes the real MuJoCo viewer; no third checkout needed |
 | Source-check workflow naming and launch plans | Refresh | Historical version labels and stale plan options confuse the current release |
