@@ -7,7 +7,28 @@
 **Physical capability inventory:** [docs/CAPABILITY_DIMENSIONS.md](docs/CAPABILITY_DIMENSIONS.md)  
 **Complete WSL commands:** [docs/INSTALL.md](docs/INSTALL.md)
 
-## Next design: developmental teaching allocation (not yet implemented)
+## Overnight experiment implemented (26 October 2026)
+
+- Dynamic six-way attention weights can vary smoothly over training.
+  Focus is sampled once on episode birth, saved in EnvState, held through
+  commands, actual terrain, reward weighting and completed outcome metrics.
+  The actor still sees no focus ID. All-zero weights preserve fixed physical
+  examiner roles.
+- Saved `--teaching-schedule balanced|staged|terrain-early` selects
+  attention distribution; `--foundation-mix` and `--foundation-steps`
+  independently choose the early gait teaching experiment. Targets still
+  adjust on physical evidence rather than this schedule's clock.
+- `scripts/overnight_teaching.py --run` sequentially performs actual CPU
+  + 2048-world CUDA PPO preflight, three independent 10M nursery runs,
+  then three independent 80M balanced/staged/terrain-early cold campaigns
+  (**270M world steps** total, one GPU). Exact run configs, same-SHA resume,
+  daily logs, frozen exams and `overnight_results.zip` are automated.
+- Launch and interrupted-run resume commands are in
+  [docs/OVERNIGHT_TEACHING.md](docs/OVERNIGHT_TEACHING.md).
+  Branch CI and the user's GPU preflight are still required; no long GPU
+  training was executed within ChatGPT.
+
+## Previous design: developmental teaching allocation
 
 - Two different control loops: **difficulty target inside each skill** vs
   **how many episodes focus on each skill**. The latter should shift

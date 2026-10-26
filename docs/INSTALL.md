@@ -36,6 +36,15 @@ emu viewer --live --root "$RUN" --no-open
 ```
 
 
+## Overnight 270M teaching tournament
+
+The six-way lesson attention can now move over time, with each episode's
+focus held until it completes. For a large, automated *three nursery +
+three long* comparison (270M cumulative world steps, CPU/CUDA preflight,
+source-pinned checkpoints, automatically generated morning bundle), see
+[OVERNIGHT_TEACHING.md](OVERNIGHT_TEACHING.md). The script previews plans
+by default; only `--run` starts training on the owner's GPU.
+
 ## Short foundation experiments
 
 A 10M or 20M foundation can now use the original adaptive allocation,
