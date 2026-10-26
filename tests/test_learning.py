@@ -804,18 +804,19 @@ def test_overnight_campaign_is_plan_only_by_default_and_source_pinned():
         str(Path(__file__).resolve().parents[1]/
             'scripts/overnight_teaching.py'),run_name='__campaign_import_test__')
     cases=scope['cases'](733,10_000_000,80_000_000)
-    assert len(cases)==6
-    assert sum(x['steps'] for x in cases)==270_000_000
-    assert [x['schedule'] for x in cases[3:]]==[
+    assert len(cases)==5
+    assert sum(x['steps'] for x in cases)==260_000_000
+    assert [x['schedule'] for x in cases[:3]]==[
         'balanced','staged','terrain-early']
+    assert [x['recipe'] for x in cases[3:]]==['main','command-heavy']
     from pathlib import Path
-    cmd=scope['cmd_for'](cases[3],Path('/tmp/campaign'),733,10_000_000,False)
+    cmd=scope['cmd_for'](cases[0],Path('/tmp/campaign'),733,10_000_000,False)
     assert '--resume' not in cmd
     assert cmd[cmd.index('--teaching-schedule')+1]=='balanced'
     assert cmd[cmd.index('--foundation-mix')+1]=='curious'
     assert cmd[cmd.index('--steps')+1]=='80000000'
     cmd_resume=scope['cmd_for'](
-        cases[3],Path('/tmp/campaign'),733,10_000_000,True)
+        cases[0],Path('/tmp/campaign'),733,10_000_000,True)
     assert cmd_resume[-2:]==['--resume','auto']
 
 

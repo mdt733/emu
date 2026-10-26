@@ -48,7 +48,7 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
 from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
-from .ppo import make_trainer, update_running_stats
+from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
 from .results import (
@@ -456,6 +456,9 @@ def train(args: TrainingConfig) -> int:
     last_save = resumed_step
     last_snapshot = resumed_step
     last_seen_nan_skips = [0]  # mutable box so the log block above can update it
+    previous_rows=read_metrics_csv(run_dir / 'metrics.csv')
+    rollback_count=int(float(previous_rows[-1].get('rollback_count',0)))
+                   if previous_rows else 0
     # Canonical rollback candidate: never overwrite a stronger existing
     # recovery snapshot after resume/fork.
     recovery_path = run_dir / 'checkpoints' / 'recovery.pkl'
@@ -591,6 +594,7 @@ def train(args: TrainingConfig) -> int:
                 step=total_steps,foundation_steps=args.foundation_steps,
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=governor.params.steady_difficulty).name
+        report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
         perf.add('governor_and_params', time.perf_counter() - governor_t0)
@@ -640,6 +644,10 @@ def train(args: TrainingConfig) -> int:
                     total_steps, teaching_field=new_field),
                 log_prefix=LOG_PREFIX)
             if restored is not None:
+                rollback_count += 1
+                print(f'{LOG_PREFIX} rollback_count={rollback_count} '
+                      f'at step={total_steps:,} (step clock is NOT rewound)',
+                      flush=True)
                 state, field = restored.state, restored.field
                 obs_mean, obs_var = restored.obs_mean, restored.obs_var
                 obs_count, lr_scale = restored.obs_count, restored.lr_scale
@@ -784,7 +792,41 @@ def train(args: TrainingConfig) -> int:
             'obs_norm_frozen': float(norm_frozen),
             'obs_norm_anchor_mean_l2': 0.0,
             'obs_norm_anchor_std_l2': 0.0,
+            'obs_norm_terrain_clip_frac': -1.0,
         }
+        # Read-only sample at the handover: does 10M of flat terrain
+        # make raw ToF ranges / grades saturate the +/-10 normalized clip?
+        # Sample only 128 observations every ~2M steps around the boundary.
+        # We do NOT silently alter the observation contract or optimizer.
+        norm_probe_interval=2_000_000
+        if (args.unified_capability_focus
+                and args.foundation_steps-2_000_000 <= total_steps
+                    <= args.foundation_steps+6_000_000
+                and total_steps // norm_probe_interval !=
+                    (total_steps-args.envs*ROLLOUT_STEPS)//norm_probe_interval):
+            from .contracts import (
+                TERRAIN_OBS_FIELDS, TERRAIN_RANGE_FIELDS, HISTORY_LEN)
+            sensor_names=set(TERRAIN_RANGE_FIELDS)|{
+                'ground_forward_grade_rad','ground_sideways_grade_rad'}
+            base=np.asarray(
+                [i for i,name in enumerate(TERRAIN_OBS_FIELDS)
+                 if name in sensor_names],dtype=np.int32)
+            indices=np.concatenate([
+                base+i*len(TERRAIN_OBS_FIELDS) for i in range(HISTORY_LEN)])
+            mask=build_obs_norm_mask(args.observation_schema)
+            indices=indices[mask[indices]>.5]
+            if len(indices):
+                sampled=np.asarray(raw_obs[:128,indices])
+                std=np.asarray(old_std)[indices]
+                centre=np.asarray(old_mean)[indices]
+                z=(sampled-centre)/np.maximum(std,1e-8)
+                norm_diag['obs_norm_terrain_clip_frac']=float(
+                    np.mean(np.abs(z)>=10.))
+                if norm_diag['obs_norm_terrain_clip_frac']>.10:
+                    print(f'{LOG_PREFIX} WARNING: '
+                          'terrain observation normalization clips '
+                          f'{100*norm_diag["obs_norm_terrain_clip_frac"]:.1f}% '
+                          f'around step {total_steps:,}',flush=True)
         next_total_steps = total_steps + args.envs * ROLLOUT_STEPS
         if obs_anchor is None and next_total_steps >= args.foundation_steps:
             obs_anchor = (np.asarray(obs_mean).copy(), np.asarray(new_std).copy())
@@ -826,6 +868,7 @@ def train(args: TrainingConfig) -> int:
             step=total_steps,foundation_steps=args.foundation_steps,
             foundation_mix=args.foundation_mix,
             steady_difficulty=governor.params.steady_difficulty).name
+    report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)

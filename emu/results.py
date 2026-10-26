@@ -1016,6 +1016,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         focus=np.asarray(metrics['specialist_focus'],dtype=np.int32)
         for i,name in enumerate(('command','resilience','slope','step','transition','control')):
             row[f'focus_worlds_{name}'] = float(np.count_nonzero(focus[0]==i))
+            # Birth allocation is NOT exposure: episodes can finish at
+            # different lengths and roles turn on gradually at the boundary.
+            # Count actual sampled PPO frames in each specialty.
+            row[f'focus_step_share_{name}'] = float(np.mean(focus==i))
             world_done=done & (focus==i)
             row[f'focus_episodes_{name}']=float(world_done.sum())
             row[f'focus_falls_{name}']=float((

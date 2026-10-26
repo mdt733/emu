@@ -257,7 +257,7 @@ def summary(root,all_cases,sha):
                      'overnight_summary.csv','overnight_summary.md',
                      'progress_by_age.csv','frozen_exams_by_age.csv',
                      'pip_freeze.txt','nvidia_smi.txt','disk_space.txt',
-                     'campaign_status.json'):
+                     'campaign_status.json','preflight_pass.json'):
             f=root/name
             if f.is_file():z.write(f,arcname=name)
         for case in all_cases:
@@ -340,6 +340,12 @@ def main():
          'EMU_UNIFIED_CONTINUOUS':'cold-growth-approved'}
     # Capture the environment that generated the weights before GPU work.
     # Do not infer reproducibility solely from the Git SHA.
+    if args.skip_smoke:
+        stamp=root/'preflight_pass.json'
+        ok=json.loads(stamp.read_text(encoding='utf-8')) if stamp.is_file() else {}
+        if ok.get('source_sha')!=sha:
+            ap.error('--skip-smoke requires a successful prior CPU+CUDA '
+                     'preflight stamped under this exact source SHA')
     for name,cmd in (
         ('pip_freeze.txt',[sys.executable,'-m','pip','freeze']),
         ('nvidia_smi.txt',['nvidia-smi','-q']),
@@ -365,7 +371,12 @@ def main():
             execute([sys.executable,'scripts/smoke_unified_focus.py',
                      '--device','cuda','--envs','2048','--full-update'],
                     root/'logs/preflight_cuda.log',env)
-            print(f'CPU+CUDA preflight elapsed {(time.monotonic()-start_smoke)/60:.1f} min',
+            preflight_elapsed=time.monotonic()-start_smoke
+            (root/'preflight_pass.json').write_text(
+                json.dumps({'source_sha':sha,
+                            'cpu_cuda_preflight_elapsed_s':preflight_elapsed},
+                           indent=2)+'\n',encoding='utf-8')
+            print(f'CPU+CUDA preflight elapsed {preflight_elapsed/60:.1f} min',
                   flush=True)
         for entry in entries:
             print(campaign_eta(root,entries),flush=True)
