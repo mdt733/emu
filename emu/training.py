@@ -572,6 +572,18 @@ def train(args: TrainingConfig) -> int:
                   f"{health.KL_STRESS_CHRONIC_WINDOW} updates -- ignoring the KL-stress gate so it can't freeze "
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
+        if args.unified_capability_focus:
+            # The fixed experimental nursery mix may override the ordinary
+            # governor's NEXT-birth regime allocation. Report what worlds
+            # will really sample, never only the governor's unused proposal.
+            for name in ('steady','transition','resilience'):
+                key='regime_frac_'+name
+                report[key]=float(params[key])
+            report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['teaching_profile']=teaching_profile(
+                step=total_steps,foundation_steps=args.foundation_steps,
+                foundation_mix=args.foundation_mix,
+                steady_difficulty=governor.params.steady_difficulty).name
         attach_field_influence(report, params)
         p = env.params_array(params)
         perf.add('governor_and_params', time.perf_counter() - governor_t0)
@@ -796,6 +808,15 @@ def train(args: TrainingConfig) -> int:
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
+    if args.unified_capability_focus:
+        for name in ('steady','transition','resilience'):
+            key='regime_frac_'+name
+            report[key]=float(params[key])
+        report['foundation_control_mix']=float(params['foundation_control_mix'])
+        report['teaching_profile']=teaching_profile(
+            step=total_steps,foundation_steps=args.foundation_steps,
+            foundation_mix=args.foundation_mix,
+            steady_difficulty=governor.params.steady_difficulty).name
     attach_field_influence(report, params)
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)

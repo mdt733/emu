@@ -56,9 +56,17 @@ def main():
     cold_upper=np.asarray(jax.device_get(
         cold.data.mocap_pos[:,env.terrain_step_mocap_id,2]))
     assert np.all(cold_upper<-1.),'foundation terrain slab must stay buried'
-    # The physical acceptance path explicitly overrides specialist_mix
-    # to test all roles without a 30M-step warmup. The actual cold birth
-    # has ZERO specialist activation through 20M, with a 10M slow blend.
+    # Verify the optional early grace-only cohort cannot accidentally
+    # activate slope/step/advanced-command roles during foundation.
+    from emu.capability_focus import CONTROL
+    params['foundation_control_mix']=1.0
+    nursery,_=env.reset(params)
+    active=np.asarray(jax.device_get(nursery.specialist_active))
+    assert active.any()
+    assert np.all(ids[active]==CONTROL)
+    params['foundation_control_mix']=0.0
+    # Explicitly override specialist_mix for full physical acceptance.
+    # The ordinary cold profile can hand over at either 10M or 20M.
     from emu.capability_focus import growth_mix
     assert growth_mix(step=0,foundation_steps=20_000_000,
                       steady_difficulty=.0) == 0.

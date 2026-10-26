@@ -890,7 +890,7 @@ def test_external_fork_only_inherits_same_source_recovery(monkeypatch, tmp_path)
 
 
 def test_two_teaching_profiles_keep_original_gait_training_alive():
-    """Main is NOT a 90/10 command-control specialist allocation."""
+    """The original adaptive allocation remains one selectable recipe."""
     from emu.capability_focus import teaching_profile
     from emu.training_config import FOUNDATION_STEPS
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
@@ -918,6 +918,52 @@ def test_two_teaching_profiles_keep_original_gait_training_alive():
     assert growing.name=='growth'
     assert growing.adaptive_specialists
     assert growing.specialist_fraction==pytest.approx(.5)
+
+
+def test_foundation_trials_choose_lessons_without_changing_learner():
+    """Experiments can improve basic gait without a second PPO path."""
+    from emu.capability_focus import teaching_profile,FOUNDATION_RECIPES
+    from emu.run import one_run_config
+    from emu.training import unified_launch_mode
+    from types import SimpleNamespace
+    from dataclasses import replace
+
+    assert set(FOUNDATION_RECIPES)=={'main','command-heavy','curious'}
+    for recipe in FOUNDATION_RECIPES:
+        for boundary in (10_000_000,20_000_000):
+            profile=teaching_profile(step=boundary-1,
+                 foundation_steps=boundary,foundation_mix=recipe,
+                 steady_difficulty=.4)
+            assert profile.name=='foundation' and not profile.adaptive_specialists
+            assert profile.specialist_fraction==0.
+            assert (profile.regime_mix is None) == (recipe=='main')
+            assert profile.foundation_control_mix==(.5 if recipe=='curious' else 0.)
+            after=teaching_profile(step=boundary+5_000_000,
+                 foundation_steps=boundary,foundation_mix=recipe,
+                 steady_difficulty=.4)
+            assert after.name=='growth'
+            assert after.specialist_fraction==pytest.approx(.5)
+            assert after.foundation_control_mix==0.
+            assert after.regime_mix is None
+    args=SimpleNamespace(
+         run_dir='/tmp/emu_experiment_recipe',profile='sim2real',
+         seed=734,device='cuda',envs=2048,steps=10_000_000,
+         unified_capabilities=True,terrain_actor=True,
+         terrain_step_max_m=.04, foundation_steps=10_000_000,
+         foundation_mix='curious')
+    cfg=one_run_config(args)
+    assert cfg.foundation_steps==10_000_000 and cfg.foundation_mix=='curious'
+    assert cfg.observation_schema=='terrain_360'
+    assert cfg.ppo_lr==pytest.approx(2e-4)
+    with pytest.MonkeyPatch.context() as m:
+        m.setenv('EMU_UNIFIED_CONTINUOUS','cold-growth-approved')
+        assert unified_launch_mode(cfg)=='continuous'
+    assert one_run_config(SimpleNamespace(
+        **{**vars(args),'steps':120_000_000})).foundation_mix=='curious'
+    with pytest.raises(ValueError,match='foundation'):
+        one_run_config(SimpleNamespace(**{**vars(args),'foundation_steps':7_000_000}))
+    with pytest.raises(ValueError,match='foundation'):
+        one_run_config(SimpleNamespace(**{**vars(args),'foundation_mix':'mystery'}))
 
 
 def test_foundation_frozen_main_learning_recipe_and_rewards():

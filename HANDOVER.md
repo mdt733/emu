@@ -10,9 +10,12 @@
 ## Frozen baseline parity status
 
 - Reference `main` source SHA: `2ec9e9db0a816c658131311129ef89ec7a595a12`. Keep `main` frozen.
-- One learner now explicitly describes **foundation** (existing adaptive
-  steady/transition/resilience regime governor; zero specialist births) and
+- One learner now explicitly describes **foundation** (adaptive main-style
+  3-regime sampling, or configurable command-heavy/curious variants) and
   **growth** (progressive six-cohort activation and own local targets).
+  The first 70 PPO updates remain steady-only for all recipes. Optional
+  `curious` allocates ~5% to easy grace after bootstrap. The cold foundation
+  can hand over at 10M or 20M; this is a saved per-run experiment setting.
   No second PPO, no separate checkpoint or 90/10 grace experiment in infancy.
 - Reference eight reward coefficients and original 32/4/8/2e-4 PPO recipe
   are frozen in a quick regression test. Parity of physics, achieved walking,

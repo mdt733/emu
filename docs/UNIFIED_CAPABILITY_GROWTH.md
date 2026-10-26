@@ -72,9 +72,11 @@ invented 90/10 command/grace specialist allocation. The latter would
 change the lesson distribution and introduce motor-cost shaping before
 we have any parity evidence.
 
-The **foundation profile** keeps the same eight reward weights, baseline
-task envelope and PPO settings, while completely disabling newly introduced
-specialist births/frontier decisions and exposing no new terrain.
+The **foundation profile** keeps the same eight baseline reward weights,
+task envelope and PPO settings. Its `main` recipe disables all new specialist
+births/frontier decisions and terrain; the optional `curious` experiment
+activates a small (~5% of all worlds) easy grace cohort after the original
+70-update steady bootstrap. Both use the SAME learner and actor.
 The **growth profile** uses the same robot and PPO, gradually activates
 focused worlds and their local physical targets. An independent main
 checkpoint/eval reference is still needed for *behavioural*, not numeric,
