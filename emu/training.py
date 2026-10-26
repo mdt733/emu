@@ -425,8 +425,11 @@ def train(args: TrainingConfig) -> int:
     rollout_lr_scale_for_metrics = lr_scale
     norm_diag = {'obs_norm_update_mean_l2': 0.0, 'obs_norm_update_std_l2': 0.0,
                  'obs_norm_anchor_mean_l2': 0.0, 'obs_norm_anchor_std_l2': 0.0,
-                 'obs_norm_frozen': 0.0, 'obs_norm_terrain_clip_frac': -1.0}
+                 'obs_norm_frozen': 0.0, 'obs_norm_terrain_clip_frac': -1.0,
+                 'obs_norm_terrain_clip_measured_step': -1.0}
     obs_anchor = None
+    terrain_clip_last = -1.0
+    terrain_clip_step = -1.0
 
     t0 = time.time()
     old_mean, old_std = obs_mean, obs_var ** 0.5
@@ -792,7 +795,8 @@ def train(args: TrainingConfig) -> int:
             'obs_norm_frozen': float(norm_frozen),
             'obs_norm_anchor_mean_l2': 0.0,
             'obs_norm_anchor_std_l2': 0.0,
-            'obs_norm_terrain_clip_frac': -1.0,
+            'obs_norm_terrain_clip_frac': terrain_clip_last,
+            'obs_norm_terrain_clip_measured_step': terrain_clip_step,
         }
         # Read-only sample at the handover: does 10M of flat terrain
         # make raw ToF ranges / grades saturate the +/-10 normalized clip?
@@ -820,8 +824,10 @@ def train(args: TrainingConfig) -> int:
                 std=np.asarray(old_std)[indices]
                 centre=np.asarray(old_mean)[indices]
                 z=(sampled-centre)/np.maximum(std,1e-8)
-                norm_diag['obs_norm_terrain_clip_frac']=float(
-                    np.mean(np.abs(z)>=10.))
+                terrain_clip_last=float(np.mean(np.abs(z)>=10.))
+                terrain_clip_step=float(total_steps)
+                norm_diag['obs_norm_terrain_clip_frac']=terrain_clip_last
+                norm_diag['obs_norm_terrain_clip_measured_step']=terrain_clip_step
                 if norm_diag['obs_norm_terrain_clip_frac']>.10:
                     print(f'{LOG_PREFIX} WARNING: '
                           'terrain observation normalization clips '

@@ -543,13 +543,13 @@ class RegimeGovernor:
         return frontier_events
 
     def advance_slope(self, row: dict[str,float], *, kl_ok: bool = True):
-        """A single slowly wandering incline target, with four directions.
+        """One shared *physical-practice* incline target, four directions.
 
-        Near-frontier completed episodes may earn a small increase. Failure
-        at harder-than-current slopes is ordinary exploration, not a reason
-        to retreat. Persistent failure at physically easier inclines eases
-        the target. Per-direction evidence cannot be borrowed from another
-        bearing, or from a terrain step. No training-age or gait gate.
+        The near/easy governor now consumes supported, actually MOVING
+        stable-episode evidence, not perfect command tracking. Full velocity
+        and heading tracking remain separately reported and frozen examined.
+        Missing near data never promotes; real instability on easy terrain
+        still retreats. Every direction must earn its own evidence.
         """
         if not self.unified_capability_focus:
             return 'off'
@@ -565,7 +565,12 @@ class RegimeGovernor:
             window=self.slope_evidence[direction]
             for cohort,outcome in (('near','attempts'),('near','successes'),
                                    ('easy','attempts'),('easy','successes')):
-                key=f'slope_{cohort}_{outcome}_{direction}'
+                # Stability earns physical incline practice. The old
+                # success key remains FULL command tracking for diagnostics
+                # and independent fixed examination.
+                key=(f'slope_{cohort}_stability_successes_{direction}'
+                     if outcome=='successes'
+                     else f'slope_{cohort}_attempts_{direction}')
                 value=float(row.get(key,0.))
                 if not math.isfinite(value) or value<0.:
                     raise ValueError(f'bad slope evidence {key}')
@@ -579,7 +584,7 @@ class RegimeGovernor:
         # informative failure, regardless of which direction suffered.
         easy_bad=any(
             v['easy_attempts']>=self.SLOPE_MIN_EPISODES_PER_DIRECTION and
-            v['easy_successes']/v['easy_attempts']<.30
+            v['easy_successes']/v['easy_attempts']<.45
             for v in windows.values())
         if easy_bad:
             p.slope_max_deg=max(.35,p.slope_max_deg*.975)
@@ -597,7 +602,7 @@ class RegimeGovernor:
                   for v in windows.values())
         if not ready:
             return 'collect_real_slope'
-        good=all(v['near_successes']/v['near_attempts']>=.65
+        good=all(v['near_successes']/v['near_attempts']>=.80
                  for v in windows.values())
         for window in windows.values():
             window['near_attempts']=window['near_successes']=0.
@@ -1123,8 +1128,10 @@ class RegimeGovernor:
             'frontier_event_accel': frontier_events.get('accel','off'),
             'frontier_event_vx_hi': frontier_events.get('vx_hi','off'),
             'frontier_event_vx_lo': frontier_events.get('vx_lo','off'),
-            'frontier_event_vy': frontier_events.get('vy','off'),
-            'frontier_event_yaw': frontier_events.get('yaw','off'),
+            # The specialist governor emits SIGNED pair labels; querying
+            # 'vy'/'yaw' always reported off despite active evidence.
+            'frontier_event_vy': frontier_events.get('vy_pos','off'),
+            'frontier_event_yaw': frontier_events.get('yaw_pos','off'),
             'global_retreat': global_retreat,
         }
         if self.unified_capability_focus:
@@ -1134,6 +1141,11 @@ class RegimeGovernor:
             report.update({f'focus_{k}_episodes':row.get(f'focus_episodes_{k}',0.)
                            for k in ('command','resilience','slope','step','transition','control')})
             report['control_shaft_j_per_m']=row.get('control_shaft_j_per_m',-1.)
+            for direction in self.SLOPE_DIRECTIONS:
+                report[f'slope_tracking_near_{direction}']=row.get(
+                    f'slope_near_successes_{direction}',0.)
+                report[f'slope_stability_near_{direction}']=row.get(
+                    f'slope_near_stability_successes_{direction}',0.)
             report['control_episode_quality']=row.get('control_episode_quality',-1.)
         return report
 

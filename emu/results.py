@@ -915,12 +915,14 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         row['physical_slope_deg_max']=float(raw_slope.max())
         row['physical_slope_world_fraction']=float(active.mean())
         for name in ('uphill','downhill','cross_left','cross_right'):
-            for outcome,word in (('attempt','attempts'),('success','successes')):
+            for outcome,word in (('attempt','attempts'),('success','successes'),
+                                 ('stable','stable_successes')):
                 key=f'slope_episode_{outcome}_{name}'
                 row[f'slope_{word}_{name}']=(
                     float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)
             for band in ('near','easy'):
-                for outcome,word in (('attempt','attempts'),('success','successes')):
+                for outcome,word in (('attempt','attempts'),('success','successes'),
+                                     ('stable','stability_successes')):
                     key=f'slope_episode_{band}_{outcome}_{name}'
                     row[f'slope_{band}_{word}_{name}']=(
                         float(np.asarray(metrics[key]).sum()) if key in metrics else 0.)

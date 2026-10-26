@@ -1799,11 +1799,19 @@ class EmuMJXEnv(TaskSampler):
             ('downhill',has_slope & along & (gx<0.)),
             ('cross_left',has_slope & ~along & (gy>=0.)),
             ('cross_right',has_slope & ~along & (gy<0.)))
-        slope_pass=(
+        # Two DISTINCT physical skills: a supported moving gait on the
+        # incline (even with drift), and accurate 3-axis command tracking.
+        # Neither may be inferred from merely being born on a slope.
+        # Still require meaningful forward travel so standing motionless
+        # cannot automatically push the teacher to harder terrain.
+        slope_stable=(
             timeout & ~terminal_fail & (ep_len>=120.) &
-            (ep_command_quality_sum/jnp.maximum(ep_len,1.)>=.60) &
             (ep_support_sum/jnp.maximum(ep_len,1.)>.10) &
             (ep_bad_sum/jnp.maximum(ep_len,1.)<.35) &
+            (ep_vx_sum/jnp.maximum(ep_len,1.)>.01))
+        slope_pass=(
+            slope_stable &
+            (ep_command_quality_sum/jnp.maximum(ep_len,1.)>=.60) &
             (ep_vx_sum/jnp.maximum(ep_len,1.)>.025))
         out_metrics = {
             **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
@@ -1819,12 +1827,15 @@ class EmuMJXEnv(TaskSampler):
                for name,active in slope_directions},
             **{f'slope_episode_success_{name}':(slope_pass & active).astype(jnp.float32)
                for name,active in slope_directions},
+            **{f'slope_episode_stable_{name}':(slope_stable & active).astype(jnp.float32)
+               for name,active in slope_directions},
             **{f'slope_episode_{band}_{outcome}_{name}':
                (mask & active & condition).astype(jnp.float32)
                for name,active in slope_directions
                for band,mask in (('near',slope_near),('easy',slope_easy))
                for outcome,condition in (('attempt',done),
-                                         ('success',slope_pass))},
+                                         ('success',slope_pass),
+                                         ('stable',slope_stable))},
             'command_probe_radius':unit_radius,
             'command_probe_weight_x':unit_x/jnp.maximum(1e-5,unit_radius),
             'command_probe_weight_y':unit_y/jnp.maximum(1e-5,unit_radius),
