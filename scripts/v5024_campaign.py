@@ -15,8 +15,7 @@ import subprocess
 import sys
 import time
 
-from overnight_teaching import (BRANCH as OLD_BRANCH, cmd_for,
-                                execute, summary, campaign_eta, git)
+from overnight_teaching import (cmd_for, execute, summary, campaign_eta, git)
 
 ROOT=Path(__file__).resolve().parents[1]
 BRANCH='feature/v5024-terrain-control'
@@ -127,11 +126,11 @@ def main():
         for arm in arms:
             print('CAMPAIGN ETA:',campaign_eta(root,arms),flush=True)
             dest=root/arm['name']
-            if dest.exists() and not (dest/'training_config.json').is_file():
-                raise RuntimeError('unexpected non-resumable run contents: '+str(dest))
-            cmd=cmd_for(arm,root,args.seed,args.foundation_steps,
-                        has_checkpoint(dest))
             try:
+                if dest.exists() and not (dest/'training_config.json').is_file():
+                    raise RuntimeError('unexpected non-resumable run contents: '+str(dest))
+                cmd=cmd_for(arm,root,args.seed,args.foundation_steps,
+                            has_checkpoint(dest))
                 execute(cmd,root/'logs'/(arm['name']+'.log'),env,
                         campaign=(root,arms))
                 outcome[arm['name']]='completed'
