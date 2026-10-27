@@ -137,3 +137,27 @@ Aggregate **140M world steps** for full P1+P2 (~half previous 290M). These are p
 **Reject/pause** when: changing challenge mixtures alone lowers measured old-cell survival, slope/step teachers repeatedly retreat to floors, a near-step task cannot earn its own progress signal, force frontier maxes without demonstrated recovery, the network protects itself by standing still, or the same-age new candidate loses against the restored-mature 360 control.
 
 **Engineer the smallest mechanisms capable of testing this model.** No second neural network, no new grand generic curriculum framework, no giant test suite, no tmux. Run foreground WSL commands only after P0/P1 code review. Maintain this checklist in `HANDOVER.md`; this document itself implements none of the training changes.
+
+## Execution: new 2026-10-27 overnight source-pinned implementation
+
+This P1/P2 plan is wired to the actual CLI and environment via
+`--growth-recipe`, `--retention-share`, `--terrain-lesson` and
+`--force-program`, plus `scripts/v5026_recovery_first.py`.
+The 20M foundation is intentionally a **single unchanged legacy 360
+cold start**. Every subsequent arm is a same-source validated fork
+with its own explicit learning configuration and full optimizer/policy
+and teacher checkpoint. P1 isolates main mature settings and a 25%
+genuinely moving control rehearsal cohort. P2 isolates coherent
+supported STEP/SLOPE tasks and high vs gentle force exposure.
+Running the experiment does NOT certify anything about Pinnacle or
+replace the separate original-source read-only P0 benchmark.
+
+P1 compares actual held-out fixed core/dynamic/resilience results,
+not merely requested frontier speed, and auto-selects a defensible
+40M source (or safe baseline) before P2. Report all comparisons
+as causal **recipe bundles** rather than proof of specific knob efficacy.
+All attempts and source SHA are recorded in the run's manifest and
+`overnight_results.zip`. The runnable source needs CPU/2048-world
+CUDA acceptance before serious training, and old result roots never
+receive new code. Never run under tmux unless user explicitly changes
+preference: run directly in the foreground WSL console.

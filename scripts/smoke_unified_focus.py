@@ -13,6 +13,10 @@ def main():
     ap.add_argument("--device",choices=("cpu","cuda"),default="cpu")
     ap.add_argument("--envs",type=int,default=12)
     ap.add_argument("--terrain-max-m",type=float,default=.04)
+    ap.add_argument("--growth-recipe",choices=("legacy","main-mature"),default="legacy")
+    ap.add_argument("--retention-share",type=float,default=0.)
+    ap.add_argument("--terrain-lesson",choices=("mixed","coherent"),default="mixed")
+    ap.add_argument("--force-program",choices=("gentle","aggressive"),default="aggressive")
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
     ap.add_argument("--full-update",action="store_true",
@@ -39,12 +43,15 @@ def main():
         observation_schema=OBS_SCHEMA_TERRAIN,
         attitude_profile="v5015",terrain_step_max_m=args.terrain_max_m,
         push_max_force_n=4.0,
+        retention_share=args.retention_share,
+        terrain_lesson=args.terrain_lesson,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
         velocity_i_multiplier=args.velocity_i_multiplier,
-        phase_speed_gain=(.75 if args.full_update else 1.25),
-        open_frontier=True,combo_mix_frac=(0. if args.full_update else .88))
-    governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+        phase_speed_gain=(1.25 if args.growth_recipe=="main-mature" else .75),
+        open_frontier=True,combo_mix_frac=(.88 if args.growth_recipe=="main-mature" else 0.))
+    governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True,
+                           frontier_push_safety_n=(.7 if args.force_program=="gentle" else 4.))
     params=governor.params_dict()
     params.update(terrain_exposure=.15,terrain_height_m=.004)
     # Verify the true cold start retains main's steady-only curriculum:

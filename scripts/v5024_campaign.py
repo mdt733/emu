@@ -271,40 +271,51 @@ def execute(command,log_path,env,*,campaign=None):
         with subprocess.Popen(command,cwd=ROOT,env=env,
              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
              text=True,bufsize=1,start_new_session=True) as proc:
-            for line in proc.stdout:
-                sys.stdout.write(line);sys.stdout.flush()
-                log.write(line)
-                if campaign is not None and ' step=' in line:
-                    now=time.monotonic()
-                    if now-last_eta>300.:
-                        last_eta=now
-                        folder=Path(command[command.index('--run-dir')+1])
-                        data=folder/'metrics.csv'
-                        if data.is_file() and not seen_header:
-                            with data.open(newline='',encoding='utf-8-sig') as fp:
-                                reader=csv.DictReader(fp)
-                                fields=set(reader.fieldnames or [])
-                            expected={'focus_alloc_command',
-                                      'focus_episodes_command',
-                                      'focus_step_share_command',
-                                      'slope_near_attempts_uphill',
-                                      'terrain_near_attempts_up',
-                                      'rollback_count','eval_core_vx_mae'}
-                            # eval_core_vx_mae is present only after the
-                            # first frozen exam, not the first PPO summary.
-                            expected.remove('eval_core_vx_mae')
-                            missing=expected-fields
-                            if missing:
-                                # The train CLI launches another Python
-                                # subprocess. Kill the whole candidate group
-                                # before moving to the next GPU experiment.
-                                os.killpg(proc.pid,signal.SIGTERM)
-                                raise RuntimeError(
-                                    f'Unrecognized training telemetry: {sorted(missing)}')
-                            seen_header=True
-                        eta=campaign_eta(*campaign)
-                        print('CAMPAIGN ETA:',eta,flush=True)
-                        log.write('CAMPAIGN ETA: '+eta+'\n')
+            try:
+                for line in proc.stdout:
+                    sys.stdout.write(line);sys.stdout.flush()
+                    log.write(line)
+                    if campaign is not None and ' step=' in line:
+                        now=time.monotonic()
+                        if now-last_eta>300.:
+                            last_eta=now
+                            folder=Path(command[command.index('--run-dir')+1])
+                            data=folder/'metrics.csv'
+                            if data.is_file() and not seen_header:
+                                with data.open(newline='',encoding='utf-8-sig') as fp:
+                                    reader=csv.DictReader(fp)
+                                    fields=set(reader.fieldnames or [])
+                                expected={'focus_alloc_command',
+                                          'focus_episodes_command',
+                                          'focus_step_share_command',
+                                          'slope_near_attempts_uphill',
+                                          'terrain_near_attempts_up',
+                                          'rollback_count','eval_core_vx_mae'}
+                                # eval_core_vx_mae is present only after the
+                                # first frozen exam, not the first PPO summary.
+                                expected.remove('eval_core_vx_mae')
+                                missing=expected-fields
+                                if missing:
+                                    # The train CLI launches another Python
+                                    # subprocess. Kill the whole candidate group
+                                    # before moving to the next GPU experiment.
+                                    os.killpg(proc.pid,signal.SIGTERM)
+                                    raise RuntimeError(
+                                        f'Unrecognized training telemetry: {sorted(missing)}')
+                                seen_header=True
+                            eta=campaign_eta(*campaign)
+                            print('CAMPAIGN ETA:',eta,flush=True)
+                            log.write('CAMPAIGN ETA: '+eta+'\n')
+            except BaseException:
+                # Foreground Ctrl+C must stop the WHOLE training process
+                # group instead of orphaning a GPU-hungry child.
+                os.killpg(proc.pid,signal.SIGTERM)
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid,signal.SIGKILL)
+                    proc.wait()
+                raise
             return_code=proc.wait()
     if return_code:
         raise RuntimeError(f'Command exited {return_code}; see {log_path}')
