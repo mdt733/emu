@@ -173,14 +173,12 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
     Teaching emphasis, reward/controller economics, PPO settings, seed,
     experiment duration and the parent checkpoint age are freely selectable.
     """
-    fixed=('observation_schema','terrain_step_max_m',
-           'unified_capability_focus','attitude_profile',
-           'pitch_command_max_deg','phase_speed_gain',
-           'domain_randomization','domain_robot_radius',
-           'domain_hardware_radius','domain_terrain_radius',
-           'domain_terrain_mode','contact_slope_deg',
-           'vx_hi_max','vx_lo_min','vy_max_mps','yaw_max_rad_s',
-           'push_max_force_n','foundation_steps')
+    # Only observation/command MEANING is an immutable checkpoint
+    # dependency. Command envelopes, hardware/domain variation, phase
+    # economics, pushes and teaching are exactly what researchers may
+    # deliberately vary. Saved configs/provenance describe those differences.
+    fixed=('observation_schema','unified_capability_focus',
+           'attitude_profile')
     bad={name:(getattr(parent,name),getattr(child,name))
          for name in fixed if getattr(parent,name)!=getattr(child,name)}
     if bad:

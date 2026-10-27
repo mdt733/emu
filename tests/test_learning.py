@@ -879,8 +879,13 @@ def test_research_fork_allows_valid_alternative_lessons_and_arbitrary_age(monkey
     assert unified_launch_mode(branch)=='continuous'
     verify_experiment_fork(parent,branch)
     verify_experiment_fork(parent,replace(branch,steps=125_000_000,seed=909))
+    # Even terrain ceilings and disturbance distributions are legitimate
+    # experiments if the sensor and control meanings remain compatible.
+    verify_experiment_fork(parent,replace(branch,terrain_step_max_m=.08,
+                                          domain_terrain_radius=.5,
+                                          domain_randomization=True))
     with pytest.raises(RuntimeError,match='physical/actor contract'):
-        verify_experiment_fork(parent,replace(branch,terrain_step_max_m=.08))
+        verify_experiment_fork(parent,replace(branch,observation_schema='sim2real_232'))
 
 
 def test_screen_forks_from_established_50m_not_newborn_20m(monkeypatch):

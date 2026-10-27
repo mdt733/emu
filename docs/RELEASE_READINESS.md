@@ -38,8 +38,9 @@ and start a new source-pinned run for any changes that alter learning.
 ## Evidence required before promoting to main
 
 - [x] Three 60M arms finished; owner's ZIP reviewed and SHA recorded.
-- [ ] Complete Experiment 1's guarded 20M foundation + twelve
-      20M same-source forks; refine a shortlist in Experiment 2, then
+- [ ] Complete Experiment 1's 50M diversified learner
+      (20M foundation + 30M six-specialist growth) and twelve
+      compatible 20M forks (50→70M); refine Experiment 2, then
       one 400M continuous **fresh** cold start.
 - [ ] Implement a **common schema-neutral physical benchmark** before claiming
       direct improvement over the 232-input Pinnacle. The existing

@@ -97,7 +97,8 @@ own post-fork training configuration, output directory and fresh physics
 episodes. Source, lineage, seed and controller settings are recorded.
 Research forks are now first-class: `--resume /path/to/checkpoints/final.pkl`
 into a **new run directory** is permitted after validating checkpoint,
-source SHA, 360 actor/sensors, and physics/config compatibility; no
+source SHA and 360 actor/sensor/command semantics; changed task/physics
+distribution knobs remain legal, explicitly reported experiments; no
 arbitrary parent age, seed or branch label restrictions. Same-run
 `--resume auto` remains strict.
 
