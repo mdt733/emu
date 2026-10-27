@@ -991,7 +991,7 @@ def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():
             attention_weights(schedule=bad,step=0,foundation_steps=10_000_000)
 
 
-def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp_path):
+def test_unified_continuous_launch_allows_explicit_research_configuration(monkeypatch, tmp_path):
     """One cold foundation continues indefinitely without special 40M state."""
     from dataclasses import replace
     from types import SimpleNamespace
@@ -1015,12 +1015,20 @@ def test_unified_continuous_launch_one_source_and_same_run_only(monkeypatch, tmp
         cfg,resume=str(root/'checkpoints/latest.pkl')))=='continuous'
     # Short cold starts and alternate seeds are now intentional experiments.
     assert unified_launch_mode(replace(cfg,steps=10_000_000,seed=42))=='continuous'
-    for invalid in (dict(steps=999_999),dict(envs=8),dict(seed=-1),
-                    dict(device='cpu'),dict(terrain_step_max_m=.05),
+    # These are valid experiments, not regressions to be prohibited.
+    for variation in (dict(envs=1024),dict(terrain_step_max_m=.05),
+                      dict(motor_guidance_weight=.02),
+                      dict(domain_randomization=True),
+                      dict(pitch_command_max_deg=6.),
+                      dict(cloud_probes_per_eval=2),
+                      dict(capability_field_mode='graph')):
+        assert unified_launch_mode(replace(cfg,**variation))=='continuous'
+    # Only an incompatible backend/schema, invalid run request, or
+    # nonexistent explicit resume path is refused at this layer.
+    for invalid in (dict(steps=999_999),dict(envs=0),dict(seed=-1),
+                    dict(device='cpu'),
                     dict(resume=str(tmp_path/'other/checkpoints/final.pkl')),
-                    dict(observation_schema='legacy_220'),
-                    dict(motor_guidance_weight=.02),
-                    dict(domain_randomization=True)):
+                    dict(observation_schema='legacy_220')):
         with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
             unified_launch_mode(replace(cfg,**invalid))
 

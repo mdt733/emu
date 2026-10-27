@@ -140,22 +140,16 @@ def unified_launch_mode(args: TrainingConfig) -> str:
     # One cold run across 20M, 40M, 100M, and beyond. No checkpoint-era
     # unlock: the specialists gradually become active inside this run.
     # The CLI checks identical Git SHA + saved config for same-run resume.
+    # Deliberate research must not require rewriting this function for
+    # each sensible knob. The CLI/config/env validate physically meaningful
+    # ranges and compatibility; a CUDA preflight tests resource constraints.
+    # These are REAL launch prerequisites, not a whitelist of permitted
+    # learning ideas or arbitrary birth/development ages.
     if (core and os.environ.get('EMU_UNIFIED_CONTINUOUS') == 'cold-growth-approved'
-            and args.steps >= 1_000_000
+            and args.steps >= 1_000_000 and args.envs > 0
             and args.foundation_steps in (10_000_000,20_000_000)
             and args.foundation_mix in ('main','command-heavy','curious')
-            and args.envs == 2048 and 0 <= args.seed < 2**31
-            and args.terrain_step_max_m == .04
-            and args.motor_guidance_weight == 0.
-            and args.contact_slope_deg == 0.
-            and not args.domain_randomization
-            and args.domain_terrain_radius == 0.
-            and args.domain_robot_radius == 0.
-            and args.domain_hardware_radius == 0.
-            and args.capability_field_mode == 'shadow'
-            and args.cloud_probes_per_eval == 0
-            and args.cloud_final_probes == 0
-            and args.pitch_command_max_deg == 8.):
+            and 0 <= args.seed < 2**31):
         parent = Path(args.resume).resolve() if args.resume else None
         own_dir = Path(args.run_dir).resolve() / 'checkpoints'
         explicit_parent = (
@@ -166,7 +160,7 @@ def unified_launch_mode(args: TrainingConfig) -> str:
     raise RuntimeError(
         'PRE-LAUNCH: Unified live training requires the explicit bounded CUDA smoke or '
         'EMU_UNIFIED_CONTINUOUS=cold-growth-approved for a source-pinned '
-        'single-run 360-input 2048-world CUDA learner. Explicit '
+        '360-input CUDA learner. Explicit '
         'same-source compatible research forks are allowed using --resume <checkpoint>.'
     )
 
