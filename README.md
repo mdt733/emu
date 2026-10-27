@@ -10,7 +10,8 @@ moving downhill, accumulating reward, or raising a curriculum target.
 
 [Public EMU Playground](https://mdt733.github.io/emu/) ·
 [Installation and commands](docs/INSTALL.md) ·
-[Current v5024 experiment](docs/V5024_RUN_PLAN.md) ·
+[Completed v5024 experiment](docs/V5024_RUN_PLAN.md) ·
+[Next two experiments and 400M graduation plan](docs/GRADUATION_CAMPAIGNS.md) ·
 [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Physical capability inventory](docs/CAPABILITY_DIMENSIONS.md) ·
 [Release readiness](docs/RELEASE_READINESS.md) ·
@@ -26,7 +27,7 @@ from `feature/v5024-terrain-control` at
 - **Candidate system:** 360-input, delayed 4×4 forward-ground sensor;
   one cold-start learner and one six-emphasis adaptive teacher.
 - **Frozen training source:** the separate v5024 branch and exact commit
-  above, used by the 3 × 60M GPU campaign. **Do not pull polish commits
+  above, used by the **completed** 3 × 60M GPU campaign. **Do not pull polish commits
   into its running or resumable checkout.**
 - **Published reference:** the older 232-input, 260M Pinnacle in the public
   Playground. It is a *temporary reference and rollback policy*, not the

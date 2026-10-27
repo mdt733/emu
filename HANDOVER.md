@@ -23,33 +23,28 @@ certified competence.
 **Design contract:** [UNIFIED_CAPABILITY_GROWTH](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Physical target inventory](docs/CAPABILITY_DIMENSIONS.md).
 
-## In-flight 180M experiment — do not perturb
+## Completed v5024 180M study — source frozen
 
-The source-pinned v5024 experiment compares three **independent cold
-starts** on the same seed 733, 2,048 CUDA worlds, and 60M steps each:
+Owner-provided `overnight_results(1).zip` confirms **three completed
+cold-start arms × 60,030,976 world steps**, zero PPO rollbacks, valid
+final checkpoints and passed CPU + 2,048-world CUDA preflight, from
+`feature/v5024-terrain-control` at
+`d26ae0c2c4097d7c7124759197a94504abc44995`.
+Frozen 60M broad scores: **A/main-balanced 0.642,
+B/command-heavy-balanced 0.594, C/command-heavy-steering 0.666**.
+A did better on growth110 survival (57.8% vs C's 48.4%);
+C tracked difficult yaw better (0.376 vs A's 0.548 rad/s MAE).
+Final taught slope limits remained about 0.9° and step heights
+0.25–0.34 cm; the true terrain-matrix and Pinnacle common physical
+benchmark are **still missing**. No winner is declared.
 
-| Arm | First 10M | Following 50M |
-|---|---|---|
-| A · main_balanced | Main-style foundation | Balanced six-way growth |
-| B · commandheavy_balanced | 90/5/5 command-heavy foundation | Balanced growth |
-| C · commandheavy_steering | Same command-heavy foundation | Steering-focused growth |
+The original GPU checkout and run root
+`~/robot_lab/emu_runs/v5024_cold_steering/` remain archived and
+should not be touched by cleanup or future scripts. A checkpoint from
+that exact source may resume only on that exact clean commit.
 
-The dedicated checkout is `~/emu-v5024`. The data root is
-`~/robot_lab/emu_runs/v5024_cold_steering/`; expected consolidated bundle:
-`overnight_results.zip`. The experiment owner controls the WSL GPU.
-**Completion/result status has not been observed in this chat.**
-Do not claim which arm wins until its logs and held-out exams arrive.
-
-The original v5024 launcher first runs 12-world CPU and full
-2,048-world CUDA PPO preflight, logs source/runtime manifests and 10M
-frozen generalist evaluations, and permits only **exact-SHA/config/root**
-checkpoint resume. It still imports reporting helpers from the
-old tournament script **on that original training branch**. Do not
-delete or update files in `~/emu-v5024` while any run is active or
-resumable; polish is entirely separate.
-
-See [V5024_RUN_PLAN](docs/V5024_RUN_PLAN.md) for the unchanged study
-design and [INSTALL](docs/INSTALL.md) for safe WSL commands.
+**Current graduation path:** [Two experiments + one long run +
+Pinnacle cross-schema benchmark](docs/GRADUATION_CAMPAIGNS.md).
 
 ## What v5024 changes — measured facts versus assumptions
 
@@ -124,15 +119,18 @@ manual/owner-approved workflow.
 
 ## Next engineering work
 
-- [ ] **Latest polish CI green** (Python + MJX CPU + browser + fresh viewer).
-  Do not assume CUDA acceptance from CPU CI.
-- [ ] Collect original **three-arm 180M logs, metrics, source SHA and ZIP**.
-  Check missing/failed runs before ranking.
+- [x] Polish CI on `bf04f33e` was green: Python/MJX CPU/browser/fresh viewer.
+  Later documentation commits need their own CI. CUDA is independently
+  verified only for the original v5024 study SHA.
+- [x] Owner's original three-arm 180M ZIP reviewed; all completed.
+  Paired frozen terrain matrix and cross-schema benchmark remain outstanding.
 - [ ] Compare frozen generalist scores AND separate supported/stable versus
   commanded/accurate uphill, downhill and camber physics, true step crossings,
   recovery, yaw/lateral drift and energy per *useful* distance.
-- [ ] Repeat the promising recipe(s) at seeds 734/735; avoid selecting
-  from one stochastic seed or inflated curriculum limits.
+- [ ] Experiment 1: cold-repeat A versus C at seed 734, 80M each.
+- [ ] Experiment 2: selected recipe OFF vs one terrain-control intervention
+  ON at seed 735, 80M each; decision depends on Exam 1.
+- [ ] Run 3: single fresh-seed 736, 400M cold-start candidate.
 - [ ] Verify cold training, 2,048-world full PPO update, same-source
   checkpoint lifecycle, policy export and actual 360 browser replay.
 - [ ] Review remaining production call sites and tests, then prune

@@ -37,8 +37,12 @@ and start a new source-pinned run for any changes that alter learning.
 
 ## Evidence required before promoting to main
 
-- [ ] Three 60M arms finish or failures are diagnosed without hiding the
-      missing evidence. Save `overnight_results.zip`, source SHA and configs.
+- [x] Three 60M arms finished; owner's ZIP reviewed and SHA recorded.
+- [ ] Complete documented two further controlled graduation campaigns,
+      then one 400M continuous fresh cold start.
+- [ ] Implement a **common schema-neutral physical benchmark** before claiming
+      direct improvement over the 232-input Pinnacle. The existing
+      360-only `capability-exam` and legacy exams are **not directly comparable**.
 - [ ] Frozen generalist **and** 1/2/3/5° directional terrain matrix on the
       candidates; report supported motion separately from precise tracking.
 - [ ] Check uphill commanded velocity, lateral downhill drift, yaw,

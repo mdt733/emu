@@ -9,7 +9,8 @@ recipes remain available but should not be mistaken for the current launch.
 | Document | Purpose |
 | --- | --- |
 | [INSTALL.md](INSTALL.md) | Fresh WSL installation, v5024 campaign, smoke checks, safe resume |
-| [V5024_RUN_PLAN.md](V5024_RUN_PLAN.md) | Three-arm cold-start experiment, held-out terrain matrix and evaluation |
+| [V5024_RUN_PLAN.md](V5024_RUN_PLAN.md) | Completed v5024 180M experiment and its original test design |
+| [GRADUATION_CAMPAIGNS.md](GRADUATION_CAMPAIGNS.md) | Next two controlled experiments, 400M run, common Pinnacle benchmark |
 | [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six teaching emphases, evidence-based target adjustments |
 | [CAPABILITY_DIMENSIONS.md](CAPABILITY_DIMENSIONS.md) | Actual versus proposed independent physical capability targets |
 | [SURFACE_LAB.md](SURFACE_LAB.md) | Real browser MuJoCo adjustable incline/step viewer |
@@ -22,8 +23,8 @@ recipes remain available but should not be mistaken for the current launch.
 The v5023 260M overnight tournament, alternative early foundation screens
 and older allocation-design notes were retired from this **active**
 documentation directory. Their complete sources remain in Git history and
-at the original experiment commits. The current comparison is
-[V5024_RUN_PLAN.md](V5024_RUN_PLAN.md), not the old launchers.
+at the original experiment commits. The next decision plan is
+[GRADUATION_CAMPAIGNS.md](GRADUATION_CAMPAIGNS.md), not the old launchers.
 
 ## Preservation rule
 
