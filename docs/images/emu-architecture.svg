@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 430" role="img" aria-labelledby="title desc">
+<title id="title">EMU: one robot, one shared brain, many physical lessons</title>
+<desc id="desc">Illustration of EMU receiving simulated sensor readings, learning through a neural policy, controlling six servos in a MuJoCo world, and improving through a curriculum of six types of lessons.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0c152d"/><stop offset="1" stop-color="#172644"/></linearGradient>
+<linearGradient id="body" x1="0" x2="1"><stop stop-color="#91d4ff"/><stop offset="1" stop-color="#6cc6be"/></linearGradient>
+<linearGradient id="accent" x1="0" x2="1"><stop stop-color="#50b6ed"/><stop offset="1" stop-color="#a6dfb7"/></linearGradient>
+<filter id="shadow"><feDropShadow dx="0" dy="7" stdDeviation="11" flood-opacity=".3"/></filter>
+</defs>
+<rect width="1280" height="430" rx="24" fill="url(#bg)"/>
+<g opacity=".10" stroke="#82bfff"><path d="M0 92H1280 M0 184H1280 M0 276H1280 M0 368H1280 M138 0V430 M276 0V430 M414 0V430 M552 0V430 M690 0V430 M828 0V430 M966 0V430 M1104 0V430"/></g>
+<text x="66" y="66" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#e7f4ff">EMU</text>
+<text x="66" y="94" font-family="Arial, sans-serif" font-size="14" fill="#a5b9d6">One body. One shared policy. A growing range of real physical skills.</text>
+<g filter="url(#shadow)">
+<rect x="60" y="130" width="275" height="234" rx="18" fill="#1d3354" stroke="#47739c" stroke-width="2"/>
+<rect x="502" y="130" width="275" height="234" rx="18" fill="#1d3354" stroke="#47739c" stroke-width="2"/>
+<rect x="944" y="130" width="275" height="234" rx="18" fill="#1d3354" stroke="#47739c" stroke-width="2"/>
+</g>
+<text x="88" y="164" font-family="Arial" font-size="18" fill="#ecf6ff" font-weight="700">SENSE</text>
+<text x="88" y="185" font-family="Arial" font-size="12" fill="#b8d0e8">4 × 4 ToF • flow • IMU</text>
+<g transform="translate(101 205)">
+<rect x="-8" y="-9" width="118" height="118" rx="12" fill="#112640"/>
+<g fill="#4d9dd0" stroke="#a0d5ed" stroke-opacity=".4" stroke-width="1">
+<rect x="0" y="0" width="22" height="22" rx="3"/><rect x="26" y="0" width="22" height="22" rx="3"/><rect x="52" y="0" width="22" height="22" rx="3"/><rect x="78" y="0" width="22" height="22" rx="3"/>
+<rect x="0" y="26" width="22" height="22" rx="3"/><rect x="26" y="26" width="22" height="22" rx="3"/><rect x="52" y="26" width="22" height="22" rx="3"/><rect x="78" y="26" width="22" height="22" rx="3"/>
+<rect x="0" y="52" width="22" height="22" rx="3"/><rect x="26" y="52" width="22" height="22" rx="3"/><rect x="52" y="52" width="22" height="22" rx="3"/><rect x="78" y="52" width="22" height="22" rx="3"/>
+<rect x="0" y="78" width="22" height="22" rx="3"/><rect x="26" y="78" width="22" height="22" rx="3"/><rect x="52" y="78" width="22" height="22" rx="3"/><rect x="78" y="78" width="22" height="22" rx="3"/>
+</g>
+<rect x="26" y="78" width="22" height="22" rx="3" fill="#415069"/><rect x="52" y="78" width="22" height="22" rx="3" fill="#415069"/>
+</g>
+<text x="226" y="235" font-family="Arial" font-size="13" fill="#bdd8ef">90 values</text>
+<text x="226" y="259" font-family="Arial" font-size="13" fill="#bdd8ef">× 4 frames</text>
+<text x="226" y="286" font-family="Arial" font-size="17" font-weight="700" fill="#84d5e8">360</text>
+<text x="88" y="343" font-family="Arial" font-size="12" fill="#a5bed7">No secret terrain labels for the actor</text>
+<path d="M345 246H489" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/><path d="M480 237l11 9-11 9" fill="none" stroke="#8dd9c5" stroke-width="4" stroke-linejoin="round"/>
+<text x="385" y="224" font-family="Arial" font-size="13" fill="#a8d4ef">observe</text>
+<text x="529" y="164" font-family="Arial" font-size="18" fill="#ecf6ff" font-weight="700">THINK</text>
+<text x="529" y="185" font-family="Arial" font-size="12" fill="#b8d0e8">PPO neural policy • 256 / 256</text>
+<g stroke="#89d5db" stroke-width="2">
+<path d="M560 227L629 208M560 227L629 245M560 280L629 208M560 280L629 245M560 280L629 290M560 227L629 290M629 208L698 236M629 245L698 236M629 290L698 270M629 245L698 270" opacity=".7"/>
+</g>
+<g fill="#9bdaef" stroke="#d6f9ff" stroke-width="1"><circle cx="560" cy="227" r="11"/><circle cx="560" cy="280" r="11"/><circle cx="629" cy="208" r="11"/><circle cx="629" cy="245" r="11"/><circle cx="629" cy="290" r="11"/><circle cx="698" cy="236" r="11"/><circle cx="698" cy="270" r="11"/></g>
+<text x="529" y="343" font-family="Arial" font-size="12" fill="#a5bed7">Gaussian actor + separate value critic</text>
+<path d="M788 246H930" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/><path d="M922 237l11 9-11 9" fill="none" stroke="#8dd9c5" stroke-width="4" stroke-linejoin="round"/>
+<text x="834" y="224" font-family="Arial" font-size="13" fill="#a8d4ef">6 actions</text>
+<text x="971" y="164" font-family="Arial" font-size="18" fill="#ecf6ff" font-weight="700">ACT &amp; LEARN</text>
+<text x="971" y="185" font-family="Arial" font-size="12" fill="#b8d0e8">Six position-controlled servos</text>
+<g stroke-linecap="round" stroke-linejoin="round" fill="none">
+<path d="M1040 202L1084 202L1106 225L1106 265L1054 265L1034 228Z" fill="url(#body)" stroke="#d1f6ff" stroke-width="3"/>
+<path d="M1069 265L1036 296L1032 328L1008 333" stroke="#a8def0" stroke-width="11"/>
+<path d="M1098 265L1135 296L1136 328L1162 332" stroke="#a8def0" stroke-width="11"/>
+</g>
+<g fill="#eebc73" stroke="#fff3cf" stroke-width="2"><circle cx="1069" cy="265" r="7"/><circle cx="1036" cy="296" r="7"/><circle cx="1098" cy="265" r="7"/><circle cx="1135" cy="296" r="7"/></g>
+<g font-family="Arial" font-size="10" fill="#d0e8f8"><text x="968" y="352">2 hips × (roll + pitch)</text><text x="1134" y="352">2 knees</text></g>
+<text x="640" y="405" font-family="Arial" font-size="15" font-weight="600" text-anchor="middle" fill="#d7f2fa">Six specialist lessons → real contact evidence → better shared policy → repeat</text>
+</svg>
