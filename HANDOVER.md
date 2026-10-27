@@ -134,6 +134,32 @@ manual/owner-approved workflow.
   causal comparisons; test low-vs-high push interference. Preserve
   20M cold foundation, compatible policy/source lineage, branch-only rule.
 
+## Recovery-first capability-growth redesign (proposed)
+
+**Current next mission:** [Competence-preserving growth plan](docs/RECOVERY_FIRST_GROWTH.md).
+The owner's speed/resilience tradeoff hypothesis is not yet proven:
+compare **same-speed, same-force** recovery at 20/50/70M and against the
+published champion. We will not accept losing previously stable
+movement/recovery merely to increase a frontier request.
+
+- [ ] P0: frozen physical matrix; distinguish real forgetting from higher
+  difficulty and from absent mature main commands
+- [ ] P1: 20M cold birth, then three 20M matched continuations: current
+  360 post-foundation control; main-mature speed/phase/rehearsal; same
+  main-mature plus permanent trained-skill retention; **80M aggregate**
+- [ ] P2: fork best 40M checkpoint into three 20M trials: old mixed
+  terrain (low push); coherent STEP/SLOPE (low push); coherent
+  STEP/SLOPE (rapid push growth); **140M P1+P2 aggregate**
+- [ ] P3: keep the best simple architecture, test bounded velocity-I
+  controller, repeat with fresh seed, then consider 400M only after
+  proof of retained core skills and growing signed physical competence
+- [ ] Do not confuse training frontier with qualified resilience or speed;
+  no new 4N target promotion until force-conditioned held-out recovery.
+  Preserve old physical and command abilities with retained-easy/near/stretch
+  practice, and track separate certified/teaching/probe surfaces.
+
+**No source code or GPU training was changed as part of this plan.**
+
 ## Next engineering work
 
 - [x] Polish CI on `bf04f33e` was green: Python/MJX CPU/browser/fresh viewer.

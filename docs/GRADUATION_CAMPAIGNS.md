@@ -57,6 +57,20 @@ export fails, fix it on a new review branch before GPU replication.
 benchmark harness (specified below). Do not compare numbers from
 two incompatible exam implementations.
 
+## Proposed recovery-first research programme
+
+**Updated decision:** Treat the apparent velocity-versus-resilience
+tradeoff as a *hypothesis*: test the same low-speed recovery cases
+across checkpoints before calling it forgetting. Preserve qualified
+easy/medium dynamic walking and recovery with ongoing rehearsal while
+expanding the harder speed/step/slope/force frontier independently.
+Read the explicit [P0–P3 controlled research plan](RECOVERY_FIRST_GROWTH.md):
+three matched post-foundation mature/retention trials, three
+coherent-terrain/force-isolation trials, an estimated 140M total
+world steps including shared 20M cold birth, then integrate and
+consider a 400M fresh cold-start only after physical gates pass.
+This is a plan, not training code or a launched run.
+
 ## Root-cause comparison with protected main
 
 **New conclusion:** See [source-versus-telemetry root-cause analysis](MAIN_VS_V5025_ROOT_CAUSES.md).
