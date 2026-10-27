@@ -253,7 +253,11 @@ def main(argv=None) -> int:
                    default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
-    q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
+    q.add_argument('--velocity-i-ramp-s',type=float,default=0.4,
+                   help='experimental vx/vy integral ramp seconds (0.1..5)')
+    q.add_argument('--velocity-i-multiplier',type=float,default=1.0,
+                   help='experimental command trim ceiling: 1=OFF, 1.5/2=trial')
+    q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')

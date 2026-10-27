@@ -255,6 +255,8 @@ class EnvState(NamedTuple):
     # The v5016 opt-in sensor queue persists independent acquisition and
     # delivery timing. Legacy policies leave this at None.
     sensor_state: Any = None
+    velocity_i_integral: Any = None  # two controller axes, not actor inputs
+    raw_velocity_command: Any = None  # true operator request
 
 
 class SensorSample(NamedTuple):
@@ -1232,7 +1234,9 @@ class EmuMJXEnv(TaskSampler):
                  gyro_bias_std_rad_s: float = 0.015,
                  terrain_step_max_m: float = 0.0,
                  paired_terrain_heights: bool = False,
-                 unified_capability_focus: bool = False):
+                 unified_capability_focus: bool = False,
+                 velocity_i_ramp_s: float = 0.4,
+                 velocity_i_multiplier: float = 1.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1397,6 +1401,15 @@ class EmuMJXEnv(TaskSampler):
         self.vy_max_mps = float(vy_max_mps)
         self.yaw_max_rad_s = float(yaw_max_rad_s)
         self.phase_speed_gain = float(phase_speed_gain)
+        if (not math.isfinite(velocity_i_ramp_s) or
+                not 0.1 <= velocity_i_ramp_s <= 5.0 or
+                not math.isfinite(velocity_i_multiplier) or
+                not 1.0 <= velocity_i_multiplier <= 3.0 or
+                (velocity_i_multiplier > 1.0 and
+                 (not unified_capability_focus or observation_schema != OBS_SCHEMA_TERRAIN))):
+            raise ValueError('velocity I requires unified terrain_360, ramp 0.1..5s, multiplier 1..3')
+        self.velocity_i_ramp_s = float(velocity_i_ramp_s)
+        self.velocity_i_multiplier = float(velocity_i_multiplier)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1633,7 +1646,15 @@ class EmuMJXEnv(TaskSampler):
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
         # instruction the actor already saw when choosing this action.
-        lesson = self._advance_commands(state, params, physics.resample_keys)
+        # Train and assess ORIGINAL operator velocities; the boosted
+        # controller request is never passed to the reward/teacher.
+        source_task = state.task
+        if self.velocity_i_multiplier > 1.0:
+            source_task = (source_task.at[:,T.vx].set(state.raw_velocity_command[:,0])
+                                     .at[:,T.vy].set(state.raw_velocity_command[:,1]))
+        lesson = self._advance_commands(
+            state._replace(task=source_task) if self.velocity_i_multiplier > 1.0 else state,
+            params, physics.resample_keys)
         task = lesson.task
         task_for_state = lesson.stored_task
         ramp_frac = lesson.ramp_frac
@@ -1643,7 +1664,7 @@ class EmuMJXEnv(TaskSampler):
 
         # 3. Measure the physical result, then reward the PREVIOUS command.
         # The ramped command is for the next observation, never this payment.
-        reward_task = state.task
+        reward_task = source_task
         metrics = self._metrics(data, reward_task, action, state.prev_action, phase, state.prev_foot_pos)
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
@@ -1732,7 +1753,23 @@ class EmuMJXEnv(TaskSampler):
             state.sensor_state, data, task, phase, physics.next_keys,
             state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
             else None)
-        base = self._base_obs(data, task, action, phase, ctrl, sensors)
+        integral_next = state.velocity_i_integral
+        raw_next = task[:,[T.vx,T.vy]]
+        if self.velocity_i_multiplier > 1.0:
+            from .velocity_trim import velocity_i_step
+            sensed = self._sensor_readout(sensors,self._body_packets(data)[0])
+            commanded, integral_next = velocity_i_step(
+                jnp,raw_next,sensed['velocity_body_xy_mps'],
+                sensed['velocity_confidence'],state.raw_velocity_command,
+                state.velocity_i_integral,dt=CONTROL_DT,
+                ramp_s=self.velocity_i_ramp_s,
+                multiplier=self.velocity_i_multiplier,
+                forward_limit=self.vx_hi_max,
+                reverse_limit=abs(self.vx_lo_min),
+                lateral_limit=self.vy_max_mps)
+            task_for_state=(task_for_state.at[:,T.vx].set(commanded[:,0])
+                                          .at[:,T.vy].set(commanded[:,1]))
+        base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1749,7 +1786,8 @@ class EmuMJXEnv(TaskSampler):
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
                            terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left, sensors)
+                           physics.push_force, physics.push_steps_left, sensors,
+                           integral_next,raw_next)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1847,6 +1885,10 @@ class EmuMJXEnv(TaskSampler):
             'cmd_resampled': resampled,
             # One maneuver verdict per source-to-target transition. These
             # diagnostics never enter actor observations or reward.
+            'policy_cmd_vx': state.task[:,T.vx],
+            'policy_cmd_vy': state.task[:,T.vy],
+            'velocity_i_x': state.velocity_i_integral[:,0],
+            'velocity_i_y': state.velocity_i_integral[:,1],
             'target_cmd_vx': state.cmd_target[:, 0],
             'target_cmd_vy': state.cmd_target[:, 1],
             'target_cmd_yaw': state.cmd_target[:, 2],
@@ -2502,7 +2544,9 @@ class EmuMJXEnv(TaskSampler):
         return EnvState(data, hist, next_keys, task, specialist_active, focus_id, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
+                         jnp.zeros((self.num_envs,2),dtype=jnp.float32),
+                         task[:,[T.vx,T.vy]])
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))

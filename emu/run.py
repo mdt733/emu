@@ -40,6 +40,14 @@ def one_run_config(args) -> TrainingConfig:
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
     teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
+    velocity_i_ramp_s=float(getattr(args,'velocity_i_ramp_s',0.4))
+    velocity_i_multiplier=float(getattr(args,'velocity_i_multiplier',1.0))
+    if (not math.isfinite(velocity_i_ramp_s) or
+            not 0.1 <= velocity_i_ramp_s <= 5.0 or
+            not math.isfinite(velocity_i_multiplier) or
+            not 1.0 <= velocity_i_multiplier <= 3.0 or
+            (velocity_i_multiplier > 1.0 and not unified)):
+        raise ValueError('velocity I requires unified learning, ramp 0.1..5s, multiplier 1..3')
     fixed_eval_every_steps=int(getattr(args,'fixed_eval_every_steps',60_000_000))
     if fixed_eval_every_steps < 1_000_000:
         raise ValueError('fixed eval cadence must be >=1M world steps')
@@ -94,6 +102,8 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    teaching_schedule=teaching_schedule,
+                   velocity_i_ramp_s=velocity_i_ramp_s,
+                   velocity_i_multiplier=velocity_i_multiplier,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.

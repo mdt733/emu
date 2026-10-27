@@ -852,6 +852,30 @@ def test_unified_same_source_target_extension_requires_completed_final(monkeypat
         runmod.inspect_run(new,provenance=prov,resume='auto')
 
 
+def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
+    from emu.velocity_trim import velocity_i_step
+    import numpy as np
+    request=np.asarray([[.10,0.],[-.08,.05]],dtype=np.float32)
+    observed=np.zeros_like(request)
+    confidence=np.ones((2,),dtype=np.float32)
+    z=np.zeros_like(request)
+    for _ in range(20):
+        corrected,z=velocity_i_step(
+            np,request,observed,confidence,request,z,
+            ramp_s=.4,multiplier=2.)
+    assert abs(float(corrected[0,0])-.20)<1e-5
+    assert float(corrected[0,1])==0.
+    assert abs(float(corrected[1,0])+.12)<1e-5
+    assert abs(float(corrected[1,1])-.10)<1e-5
+    _,release=velocity_i_step(np,request,request*2,confidence,
+                              request,z,ramp_s=.4,multiplier=2.)
+    assert np.all(release <= z)
+    off,zz=velocity_i_step(np,request,observed,confidence,
+                           request,z,ramp_s=.4,multiplier=1.)
+    np.testing.assert_array_equal(off,request)
+    np.testing.assert_array_equal(zz,np.zeros_like(z))
+
+
 def test_v5024_campaign_is_standalone_source_pinned_and_plan_only():
     """No retired overnight launcher is needed to plan the current study."""
     import runpy

@@ -93,6 +93,8 @@ def env_kwargs_from_args(args) -> dict:
         contact_slope_deg=args.contact_slope_deg,
         terrain_step_max_m=args.terrain_step_max_m,
         unified_capability_focus=args.unified_capability_focus,
+        velocity_i_ramp_s=args.velocity_i_ramp_s,
+        velocity_i_multiplier=args.velocity_i_multiplier,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,

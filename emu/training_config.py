@@ -188,6 +188,8 @@ class TrainingConfig:
     foundation_mix: str = 'main'  # main, command-heavy, curious
     fixed_eval_every_steps: int = EVAL_EVERY_STEPS
     teaching_schedule: str = 'balanced'  # balanced, staged, terrain-early
+    velocity_i_ramp_s: float = 0.4
+    velocity_i_multiplier: float = 1.0  # 1 means off
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -243,7 +245,8 @@ class TrainingConfig:
                     'domain_terrain_mode', 'observation_schema',
                     'terrain_step_max_m', 'unified_capability_focus',
                     'foundation_steps', 'foundation_mix', 'teaching_schedule',
-                    'fixed_eval_every_steps'}
+                    'fixed_eval_every_steps',
+                    'velocity_i_ramp_s', 'velocity_i_multiplier'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
