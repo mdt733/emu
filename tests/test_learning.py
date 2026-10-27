@@ -883,10 +883,12 @@ def test_research_fork_allows_valid_alternative_lessons_and_arbitrary_age(monkey
         verify_experiment_fork(parent,replace(branch,terrain_step_max_m=.08))
 
 
-def test_screen_forks_from_established_50m_not_newborn_20m():
+def test_screen_forks_from_established_50m_not_newborn_20m(monkeypatch):
     import runpy
-    scope=runpy.run_path(str(Path(__file__).resolve().parents[1]/
-                            'scripts/v5025_screen.py'),run_name='__screen_test__')
+    scripts_dir=Path(__file__).resolve().parents[1]/'scripts'
+    monkeypatch.syspath_prepend(str(scripts_dir))
+    scope=runpy.run_path(str(scripts_dir/'v5025_screen.py'),
+                         run_name='__screen_test__')
     assert scope['FOUNDATION_END']==20_000_000
     assert scope['START']==50_000_000
     assert scope['TARGET']==70_000_000
