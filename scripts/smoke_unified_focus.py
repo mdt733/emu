@@ -12,6 +12,8 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--device",choices=("cpu","cuda"),default="cpu")
     ap.add_argument("--envs",type=int,default=12)
+    ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
+    ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
     ap.add_argument("--full-update",action="store_true",
                     help="explicit 2048-world CUDA PPO preflight (no checkpoints/training campaign)")
     args=ap.parse_args()
@@ -36,6 +38,8 @@ def main():
         observation_schema=OBS_SCHEMA_TERRAIN,
         attitude_profile="v5015",terrain_step_max_m=.04,
         unified_capability_focus=True,
+        velocity_i_ramp_s=args.velocity_i_ramp_s,
+        velocity_i_multiplier=args.velocity_i_multiplier,
         phase_speed_gain=(.75 if args.full_update else 1.25),
         open_frontier=True,combo_mix_frac=(0. if args.full_update else .88))
     governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
@@ -193,6 +197,12 @@ def main():
     assert governor.params.frontier_vx_hi<.6
     stepped=env.step(state,jnp.zeros((args.envs,6),jnp.float32),params)
     stepped.obs.block_until_ready()
+    if args.velocity_i_multiplier>1.:
+        assert stepped.state.velocity_i_integral.shape==(args.envs,2)
+        assert bool(jax.device_get(jnp.all(jnp.isfinite(
+            stepped.state.velocity_i_integral))))
+        for field in ('policy_cmd_vx','policy_cmd_vy','velocity_i_x','velocity_i_y'):
+            assert field in stepped.metrics
     for key in ("specialist_focus","episode_command_quality",
                 "command_probe_radius","command_probe_weight_x",
                 "terrain_active_up","servo_shaft_drive_power_w",
