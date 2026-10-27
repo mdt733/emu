@@ -18,6 +18,8 @@
 
 ---
 
+**Jump to:** [Overview](#the-whole-project-in-one-minute) · [Robot](#1-the-physical-emu) · [Sensors](#2-how-emu-experiences-the-world-the-360-input-actor) · [PPO](#3-ppo-how-random-actions-become-useful-walking) · [Rewards](#4-what-counts-as-a-good-step-the-actual-reward) · [Six specialists](#5-six-specialists-parallel-classrooms-not-six-brains) · [Curriculum](#6-the-teacher-grow-hold-or-retreat-without-confusing-targets-for-talent) · [Recovery-first changes](#7-what-changed-in-the-recovery-first-version) · [Console guide](#8-how-to-read-emus-console-without-fooling-ourselves) · [Step limitation](#9-what-isnt-working-yet) · [Run / examine](#10-running-inspecting-and-comparing-emu) · [Source map](#11-a-map-of-the-codebase)
+
 ## The whole project in one minute
 
 Imagine trying to teach a tiny, top-heavy person to walk. You cannot simply make it stand still: EMU's mechanics require **continuous correction, foot placement and dynamic recovery**. Nor can you hand it a prerecorded animation and call that intelligence.
