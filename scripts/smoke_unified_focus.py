@@ -38,6 +38,7 @@ def main():
         max_episode_steps=(700 if args.full_update else 40),
         observation_schema=OBS_SCHEMA_TERRAIN,
         attitude_profile="v5015",terrain_step_max_m=args.terrain_max_m,
+        push_max_force_n=4.0,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
         velocity_i_multiplier=args.velocity_i_multiplier,

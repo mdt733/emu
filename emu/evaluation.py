@@ -92,7 +92,10 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
     env = EmuMJXEnv(
         str(ROBOT_XML), num_envs=config.envs, seed=seed,
         max_episode_steps=MAX_EPISODE_STEPS,
-        push_max_force_n=0.70, vx_hi_max=vx_hi, vx_lo_min=vx_lo,
+        # A held-out physical exam must use the learner's actual push
+        # physics: the new 360 learner can earn >0.70N challenges.
+        push_max_force_n=(config.push_max_force_n if config.unified_capability_focus else 0.70),
+        vx_hi_max=vx_hi, vx_lo_min=vx_lo,
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
