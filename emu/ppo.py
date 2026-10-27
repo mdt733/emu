@@ -741,8 +741,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # CRITICAL: env.step computes cmd_now from cmd_ramp_from/target.
             # Update BOTH this internal ramp and what the policy observed;
             # changing only the task vector is silently undone in env.step.
-            target_cmd=es.cmd_target.at[:,:3].set(actual_cmd)
-            from_cmd=es.cmd_ramp_from.at[:,:3].set(actual_cmd)
+            # Keep raw operator vx/vy in the lesson's command ramp;
+            # only the actor's request and observation are I-boosted.
+            # Otherwise the boosted request becomes tomorrow's 'raw' goal.
+            raw_ramp_cmd=jnp.stack((cmd[:,0],cmd[:,1],corrected),axis=-1)
+            target_cmd=es.cmd_target.at[:,:3].set(raw_ramp_cmd)
+            from_cmd=es.cmd_ramp_from.at[:,:3].set(raw_ramp_cmd)
             task=(es.task.at[:,T.vx].set(actual_cmd[:,0])
                          .at[:,T.vy].set(actual_cmd[:,1])
                          .at[:,T.yaw].set(corrected))
