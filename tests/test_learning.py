@@ -879,6 +879,15 @@ def test_v5024_campaign_is_standalone_source_pinned_and_plan_only():
         '--resume','auto']
     assert 'PLAN ONLY. --run is required' in source
     assert 'v5024_polish_study' in source
+    repeat=scope['select_arms'](scope['candidates'](734,80_000_000),['A','C'])
+    assert [x['name'] for x in repeat]==[
+        'main_balanced_s734','commandheavy_steering_s734']
+    assert len(repeat)==2 and sum(x['steps'] for x in repeat)==160_000_000
+    assert [x['schedule'] for x in repeat]==['balanced','steering']
+    assert scope['select_arms'](
+        scope['candidates'](734,80_000_000),['C','A'])==repeat
+    with pytest.raises(ValueError,match='only once'):
+        scope['select_arms'](scope['candidates'](734,80_000_000),['A','A'])
 
 
 def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():

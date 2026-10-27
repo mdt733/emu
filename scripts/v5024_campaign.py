@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Controlled v5024 three-arm cold-start study for the release-polish branch.
+"""Source-pinned cold-start comparison for the release-polish branch.
 
 Plan only by default; --run explicitly starts sequential GPU experiments.
 Uses a distinct default output root from the frozen training campaign.
@@ -315,6 +315,14 @@ def candidates(seed: int, steps: int):
     ]
 
 
+def select_arms(all_arms, requested):
+    """Select exactly A/B/C by name in canonical experiment order."""
+    if len(requested) != len(set(requested)):
+        raise ValueError('each --arms label may appear only once')
+    return [arm for key, arm in zip('ABC', all_arms)
+            if key in requested]
+
+
 def has_checkpoint(directory: Path):
     ck=directory/'checkpoints'
     return (any((ck/name).is_file() for name in ('latest.pkl','final.pkl'))
@@ -342,6 +350,9 @@ def main():
     parser.add_argument('--foundation-steps',type=int,choices=(10_000_000,20_000_000),
                         default=10_000_000)
     parser.add_argument('--seed',type=int,default=733)
+    parser.add_argument('--arms',nargs='+',choices=('A','B','C'),
+                        default=('A','B','C'),
+                        help='A main+balanced, B command+balanced, C command+steering; default all')
     parser.add_argument('--run',action='store_true',help='START the CUDA experiments')
     parser.add_argument('--skip-smoke',action='store_true',
                         help='only after same-source stamped CPU and CUDA preflight')
@@ -350,6 +361,8 @@ def main():
         parser.error('long runs must cover >=40M specialist development steps')
     if not 0<=args.seed<2**31:
         parser.error('seed must be in [0,2**31)')
+    if len(args.arms)!=len(set(args.arms)):
+        parser.error('--arms must not repeat the same arm')
     branch=git('branch','--show-current')
     if branch!=BRANCH:
         parser.error('expected branch '+BRANCH+', got '+branch)
@@ -359,8 +372,9 @@ def main():
     root=args.root.expanduser().resolve()
     if root==ROOT or ROOT in root.parents:
         parser.error('training output must be OUTSIDE repository')
-    arms=candidates(args.seed,args.steps)
-    print('SOURCE',sha,'\nROOT',root,'\n3 sequential independent cold policies')
+    arms=select_arms(candidates(args.seed,args.steps),args.arms)
+    print('SOURCE',sha,'\nROOT',root,
+          f'\n{len(arms)} sequential independent cold policies')
     for arm in arms:
         print('  ',arm['name'],arm['steps'],'resume=',has_checkpoint(root/arm['name']))
         print('   ', ' '.join(cmd_for(arm,root,args.seed,args.foundation_steps,
@@ -371,7 +385,9 @@ def main():
         return 0
     manifest={'source_sha':sha,'seed':args.seed,
               'foundation_steps':args.foundation_steps,'runs':arms,
-              'intent':'compare foundation (A/B) and steering (B/C)'}
+              'intent':('compare foundation (A/B) and steering (B/C)'
+                        if len(arms)==3 else
+                        'selected independent cold-start replication recipes')}
     root.mkdir(parents=True,exist_ok=True)
     manifest_path=root/'campaign_manifest.json'
     if manifest_path.is_file():
@@ -429,7 +445,7 @@ def main():
     if errors:
         print('Failed arms:',', '.join(errors),file=sys.stderr)
         return 1
-    print('All v5024 arms completed; held-out exams are in overnight_results.zip')
+    print('All selected arms completed; frozen exams are in overnight_results.zip')
     return 0
 
 

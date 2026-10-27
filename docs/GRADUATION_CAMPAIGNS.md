@@ -96,6 +96,64 @@ Before Run 1, implement and test an explicit two-arm runner or launch
 two separately pinned `emu train` commands. The documented campaign
 is *not* presently a runnable one-command 160M launcher.
 
+### Experiment 1 launcher (implemented; plan-only unless --run)
+
+The existing source-pinned `scripts/v5024_campaign.py` now supports
+`--arms A C`, so it can run only main/balanced and
+command-heavy/steering in canonical order. It retains 12-world CPU
+and 2048-world CUDA full-update preflight, exact-SHA continuation,
+per-arm cold checkpoints, frozen generalist exams and one report ZIP.
+It does **not** modify PPO, actor contracts, slope-teacher decisions,
+or results from the original v5024 training checkout.
+
+On a separate clean WSL checkout of `feature/v5024-release-polish`:
+
+```bash
+cd "$HOME/emu-graduation"
+source .venv/bin/activate
+python scripts/v5024_campaign.py --arms A C --steps 80000000 --seed 734 \
+  --root "$HOME/robot_lab/emu_runs/v5025_repeat_seed734" --run
+```
+
+The first line assumes the repository has been cloned and set up as
+documented in `INSTALL.md`. The campaign is **160M total steps**,
+and `--run` launches actual CUDA. A separate checkout prevents
+any source drift in `~/emu-v5024`. The output ZIP is
+`~/robot_lab/emu_runs/v5025_repeat_seed734/overnight_results.zip`.
+
+### Velocity-I ramp micro-experiment: planned, not yet implemented
+
+For already-saved A/C policies, compare baseline I=OFF against
+command-multiplier ceilings **1.5× and 2.0×** and ramp windows
+**0.2, 0.4 and 0.8 seconds**, including the proposed 400ms/2×
+setting. This is a *read-only inference experiment*, not six new
+80M training runs. The 20ms control cadence implies about 20 updates
+to reach a 400ms reference ramp under persistent full shortfall.
+
+Controller inputs must be *legitimate delayed and confidence-gated*
+flow-derived vx/vy, converted into the operator's velocity frame;
+never MJX truth. The feedback output adjusts only the **internal
+policy command**, within the safe command envelope. Integrator
+state must be bounded, reset/decayed on turns, stops, invalid sensing,
+falls and saturation; compare stopping overshoot, oscillation and falls.
+Report three separate quantities: original operator request, boosted
+policy request, and actual measured movement. Success is always
+against the **original operator request**, not the boosted demand.
+A multiplicative trim cannot correct zero-command lateral drift
+(2×0=0), so a bounded additive-bias experiment would be separate.
+
+**Training consequence:** Experiment 1 repeats the A/C recipes with
+I=OFF so its seed-734 results remain interpretable against seed 733.
+If the independent mini-sweep shows genuine benefit, the Experiment 2
+treatment MUST have velocity-I active in its train-time command loop
+and deployable runtime, with exact params/version logged. Its slope
+teacher then sees controller-assisted actual motion and should
+report stability and raw-operator tracking as distinct physical
+outcomes; any *certified* uphill tracking pass must follow raw
+operator vx/vy, not the doubled internal target. The baseline arm
+has I=OFF. A 360 policy trained without I is not silently redefined
+as an assisted champion.
+
 ## Experiment 2 — one controlled terrain-control intervention
 
 **Question:** can we convert stable slope contact into *commanded uphill
@@ -271,9 +329,8 @@ public-release approval. Then archive Pinnacle and prune temporary
       Pinnacle-vs-Pinnacle identity (same scenario+seed gives same scores).
 - [ ] Verify the 232- and 360-input policies run under identical physical
       model/control settings with only observation paths differing.
-- [ ] Add a two-arm *plan-only by default* source-pinned replication
-      launcher (or audited two-command runner) without adding another
-      general training framework.
+- [x] Add `--arms A C` to the existing guarded campaign launcher.
+      It remains plan-only unless `--run` is explicitly provided.
 - [ ] Complete Experiment 1 at seed 734; select one baseline recipe.
 - [ ] Inspect physical failures; implement **one opt-in** Experiment 2
       teaching change and test OFF vs ON, same source and seed.

@@ -128,6 +128,13 @@ manual/owner-approved workflow.
   commanded/accurate uphill, downhill and camber physics, true step crossings,
   recovery, yaw/lateral drift and energy per *useful* distance.
 - [ ] Experiment 1: cold-repeat A versus C at seed 734, 80M each.
+  Two-arm runner: `scripts/v5024_campaign.py --arms A C --steps 80000000
+  --seed 734 --root ~/robot_lab/emu_runs/v5025_repeat_seed734 --run`
+  from a **separate clean polish checkout**. Both train I=OFF; replay
+  with velocity-I settings 0.2/0.4/0.8s × 1.5/2× after checkpoints
+  (examiner micro-sweep **not yet implemented**). If useful, Experiment 2
+  enables I during training and scores raw operator requests separately
+  from corrected internal policy commands.
 - [ ] Experiment 2: selected recipe OFF vs one terrain-control intervention
   ON at seed 735, 80M each; decision depends on Exam 1.
 - [ ] Run 3: single fresh-seed 736, 400M cold-start candidate.
