@@ -80,10 +80,10 @@ class RegimeGovernor:
     TERRAIN_DESCENT_PRACTICE_MIN = 0.50
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
-    COMMAND_MIN_EDGE_EPISODES = 8
-    COMMAND_MIN_EASY_EPISODES = 8
+    COMMAND_MIN_EDGE_EPISODES = 4
+    COMMAND_MIN_EASY_EPISODES = 4
     SLOPE_DIRECTIONS = ('uphill','downhill','cross_left','cross_right')
-    SLOPE_MIN_EPISODES_PER_DIRECTION = 8
+    SLOPE_MIN_EPISODES_PER_DIRECTION = 4
 
     # One shared step size for ALL FOUR difficulty scalars (steady/
     # transition/resilience/posture) -- see environment.py's module
@@ -474,11 +474,11 @@ class RegimeGovernor:
                     frontier_events[axis] = 'hold'
 
             cur = float(self.params.frontier_push_n)
-            if self.fall_ema['resilience'] <= 0.22 and self.competence['resilience'] >= 0.60:
-                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+            if self.fall_ema['resilience'] <= 0.25 and self.competence['resilience'] >= 0.48:
+                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + (.08 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
                 frontier_events['push_n'] = 'expand'
-            elif self.fall_ema['resilience'] >= 0.45:
-                self.params.frontier_push_n = max(0.70, cur * (1.0 - FRONTIER_RETREAT_FRAC))
+            elif self.fall_ema['resilience'] >= 0.42:
+                self.params.frontier_push_n = max(0.70, cur * (1.0 - (.12 if self.unified_capability_focus else FRONTIER_RETREAT_FRAC)))
                 frontier_events['push_n'] = 'retreat'
             else:
                 frontier_events['push_n'] = 'hold'
@@ -488,7 +488,7 @@ class RegimeGovernor:
                           float(row.get('precision_vy', 0.0)),
                           float(row.get('precision_yaw', 0.0)))
             if global_fall <= 0.25 and settled >= 0.55:
-                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + 0.5*FRONTIER_GROWTH_FRAC))
+                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + (.015 if self.unified_capability_focus else .5*FRONTIER_GROWTH_FRAC)))
                 frontier_events['sensor'] = 'expand'
             elif global_fall >= 0.50:
                 self.params.frontier_sensor_scale = max(1.50, cur * (1.0 - 0.5*FRONTIER_RETREAT_FRAC))
@@ -508,7 +508,7 @@ class RegimeGovernor:
                 else:
                     self.frontier_bad_streak['combo'] = max(0, int(self.frontier_bad_streak.get('combo', 0)) - 1)
                 if easy_enough and ema >= 0.60 and cp >= 0.55:
-                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + FRONTIER_GROWTH_FRAC))
+                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + (.06 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
                     frontier_events['combo'] = 'expand_edge_proven'
                 elif self.frontier_bad_streak['combo'] >= self.FRONTIER_BAD_STREAK_LIMIT:
                     self.params.frontier_combo_radius = max(self.FRONTIER_FLOOR_COMBO, cur * (1.0 - FRONTIER_RETREAT_FRAC))
@@ -528,8 +528,8 @@ class RegimeGovernor:
                 else:
                     self.frontier_bad_streak['accel'] = max(0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
                 if self.fall_ema['transition'] <= 0.25 and self.competence['transition'] >= 0.60 and ema >= 0.55:
-                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - FRONTIER_GROWTH_FRAC))
-                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - 2.0*FRONTIER_GROWTH_FRAC))
+                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - (.025 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
+                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - (.05 if self.unified_capability_focus else 2.0*FRONTIER_GROWTH_FRAC)))
                     frontier_events['accel'] = 'expand_transition_proven'
                 elif self.fall_ema['transition'] >= 0.50 or self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT:
                     self.params.frontier_transition_hold_s = min(0.90, self.params.frontier_transition_hold_s * (1.0 + FRONTIER_RETREAT_FRAC))
@@ -587,7 +587,7 @@ class RegimeGovernor:
             v['easy_successes']/v['easy_attempts']<.45
             for v in windows.values())
         if easy_bad:
-            p.slope_max_deg=max(.35,p.slope_max_deg*.975)
+            p.slope_max_deg=max(.35,p.slope_max_deg*.88)
             self.slope_evidence={k:self._empty_slope_window()
                                  for k in self.SLOPE_DIRECTIONS}
             return 'retreat_easy_incline_failure'
@@ -602,14 +602,14 @@ class RegimeGovernor:
                   for v in windows.values())
         if not ready:
             return 'collect_real_slope'
-        good=all(v['near_successes']/v['near_attempts']>=.80
+        good=all(v['near_successes']/v['near_attempts']>=.65
                  for v in windows.values())
         for window in windows.values():
             window['near_attempts']=window['near_successes']=0.
         if not kl_ok:
             return 'hold_ppo_health'
         if good:
-            p.slope_max_deg=min(12.,p.slope_max_deg+.08)
+            p.slope_max_deg=min(15.,p.slope_max_deg+max(.25,.16*p.slope_max_deg))
             # No evidence from an older easier/severity band should be
             # recycled after the difficulty itself changes.
             self.slope_evidence={k:self._empty_slope_window()
@@ -673,13 +673,13 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                         raise ValueError(f'step successes exceed attempts {direction}/{band}')
             evidence['updates']+=1.
-            min_attempts=8
+            min_attempts=4
             easy_bad=any(
                 evidence[f'{d}_easy_attempts']>=min_attempts and
                 evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
                 for d in ('up','down'))
             if easy_bad:
-                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.975)
+                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.82)
                 self.terrain_evidence=self._empty_terrain_evidence()
                 return 'terrain_retreat_easy_failure'
             for direction in ('up','down'):
@@ -700,7 +700,7 @@ class RegimeGovernor:
                 if not kl_ok:
                     return 'terrain_hold_ppo_health'
                 if good:
-                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+.00025)
+                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+max(.0010,.18*p.terrain_height_m))
                     self.terrain_evidence=self._empty_terrain_evidence()
                     return 'terrain_height_expand_real_cross'
                 return 'terrain_hold_probe_learning'
@@ -801,7 +801,7 @@ class RegimeGovernor:
 
         def near_good(k):
             e=self.command_evidence[k]
-            return e['successes']/e['attempts']>=.72
+            return e['successes']/e['attempts']>=.60
 
         def close(*names, kind='both'):
             for k in names:
@@ -818,13 +818,13 @@ class RegimeGovernor:
             ('mixed','frontier_combo_radius',self.frontier_combo_safety,+1.,1.)):
             if easy_bad(sector):
                 old=abs(getattr(self.params,field))
-                setattr(self.params,field,sign*max(floor,old*.975))
+                setattr(self.params,field,sign*max(floor,old*.88))
                 events[sector]='retreat_easy_failure'
                 close(sector)
             elif near_ready(sector):
                 if safe and near_good(sector):
                     old=abs(getattr(self.params,field))
-                    factor=1.01 if sector=='mixed' else 1.025
+                    factor=1.10 if sector=='mixed' else 1.15
                     setattr(self.params,field,sign*min(limit,old*factor))
                     events[sector]='expand'
                 else:
@@ -845,14 +845,14 @@ class RegimeGovernor:
             field='frontier_'+axis
             if any(easy_bad(k) for k in pair):
                 setattr(self.params,field,
-                        max(floor,getattr(self.params,field)*.975))
+                        max(floor,getattr(self.params,field)*.88))
                 action='retreat_easy_failure'
                 close(*pair)
             elif all(near_ready(k) for k in pair):
                 if safe and all(near_good(k) for k in pair):
                     limit=getattr(self,field+'_safety')
                     setattr(self.params,field,min(
-                        limit,getattr(self.params,field)*1.025))
+                        limit,getattr(self.params,field)*1.15))
                     action='expand'
                 else:
                     action='hold_probe_learning'
@@ -1047,7 +1047,17 @@ class RegimeGovernor:
             else:
                 events['posture'] = action
 
-        self._apply_shared_push_budget(push_candidates)
+        # Keep main's first 20M budget; after foundation push the four
+        # difficulty scalars 2.5x faster but still share ONE growth budget.
+        if self.unified_capability_focus and specialist_growth_enabled:
+            base_rate=self.difficulty_base_step
+            self.difficulty_base_step=base_rate*2.5
+            try:
+                self._apply_shared_push_budget(push_candidates)
+            finally:
+                self.difficulty_base_step=base_rate
+        else:
+            self._apply_shared_push_budget(push_candidates)
         if len(push_candidates) > 1:
             shared_note = f'push_shared_x{len(push_candidates)}'
             for name, _ in push_candidates:

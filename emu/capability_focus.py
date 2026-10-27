@@ -143,22 +143,22 @@ def diamond_commands(jax, jnp, keys, vx_hi, vx_lo, vy_max, yaw_max,
         kind=jax.random.uniform(k_type,())
         # Opt-in steering curricula sample more pure vy/yaw commands,
         # while legacy balanced/staged/terrain runs stay bitwise intact.
-        weights=jnp.asarray([1.,1.+2.*steering_attention,
+        weights=jnp.asarray([1.5,1.+2.*steering_attention,
                               1.+2.*steering_attention],dtype=jnp.float32)
         biased_axis=jax.random.categorical(k_axis,jnp.log(weights))
         uniform_axis=jax.random.randint(k_axis,(),0,3)
-        axis=jnp.where(steering_attention>0.,biased_axis,uniform_axis)
+        axis=biased_axis
         other=jax.random.randint(k_other,(),0,2)
         second=(axis+1+other)%3
         selector=jnp.arange(3)
-        vertex_fraction=.27+.18*steering_attention
+        vertex_fraction=.46+.13*steering_attention
         mask=jnp.where(kind<vertex_fraction,selector==axis,
               jnp.where(kind<.81,(selector==axis)|(selector==second),
                         jnp.ones((3,),dtype=jnp.bool_)))
         # Positive random weights, normalized *after* selecting active axes.
         mass=jax.random.exponential(k_mass,(3,))*mask
         weights=mass/jnp.maximum(jnp.sum(mass),1e-6)
-        sign=jnp.where(jax.random.uniform(k_sign,(3,))<.5,-1.0,1.0)
+        sign=jnp.where(jax.random.uniform(k_sign,(3,))<jnp.asarray([.40,.50,.50]),-1.0,1.0)
         r=jax.random.uniform(k_radius,())
         u=jax.random.uniform(k_mix,())
         radius=jnp.where(r<.25,.3+.55*u,

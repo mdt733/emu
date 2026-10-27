@@ -131,6 +131,13 @@ manual/owner-approved workflow.
   growth) plus 12 × 20M research forks (290M total), including
   balanced/steering/terrain/staged and six velocity-I gain/ramp
   combinations. Launcher: `scripts/v5025_screen.py --run`.
+  Aggressive growth variant: signed speeds ×1.15 after 4 near
+  attempts and >=60% physical success; slopes +max(.25deg,16%)
+  after 4 per direction; steps +max(1mm,18%) after 4 up/down;
+  stronger resilience, transition, sensor and mixed growth;
+  2.5× post-20M steady/resilience challenge budget.
+  New cold-start output root:
+  `~/robot_lab/emu_runs/v5025_aggressive50_seed734`.
   Source-matched, physics-compatible research forks are allowed at any
   training age; old arbitrary hardcoded checkpoint gate removed.
   New training controller commands are boosted but teacher/reward

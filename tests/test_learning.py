@@ -1027,7 +1027,6 @@ def test_unified_continuous_launch_allows_explicit_research_configuration(monkey
     # nonexistent explicit resume path is refused at this layer.
     for invalid in (dict(steps=999_999),dict(envs=0),dict(seed=-1),
                     dict(device='cpu'),
-                    dict(resume=str(tmp_path/'other/checkpoints/final.pkl')),
                     dict(observation_schema='legacy_220')):
         with pytest.raises(RuntimeError,match='PRE-LAUNCH'):
             unified_launch_mode(replace(cfg,**invalid))

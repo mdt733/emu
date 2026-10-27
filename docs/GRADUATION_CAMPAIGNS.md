@@ -111,7 +111,7 @@ python scripts/v5025_screen.py          # plan
 python -u scripts/v5025_screen.py --run # real GPU
 ```
 
-Outputs go to `~/robot_lab/emu_runs/v5025_screen50_seed734/`;
+Outputs go to `~/robot_lab/emu_runs/v5025_aggressive50_seed734/`;
 `overnight_results.zip` holds comparisons/console references, not
 the large checkpoints themselves. First inspect code/CI and GPU smoke.
 **The source above is an implementation candidate**, not evidence
@@ -124,6 +124,41 @@ transitions and shaft work per useful distance. Controller ON must
 not win by redefining the requested velocity; compare its actual
 policy demand and saturation against raw operator demand. If a fork
 only raises training reward or a teacher frontier, do not promote it.
+
+### New accelerated six-capability curriculum — restart experiment
+
+At ~32M the previous learner had ≤0.08m/s certified vx despite very
+low global falls. The near-edge evidence gate, not demonstrated top
+speed, was the likely limiting factor.
+
+On the new SHA and entirely fresh root, the first **20M retains the
+proven main-style gait curriculum**. Afterward the governor expands
+practice aggressively on *completed physical evidence*, and retreats
+whenever easier challenges start failing:
+
+- vx+/vx−/vy±/yaw±: minimum 4 near-edge completions (was 8),
+  ≥60% success (was 72%), +15% per promotion (was +2.5%).
+  Mixed commands +10%; more pure-axis commands and extra forward
+  samples. Easy-command failures retreat 12%.
+- Four signed incline directions: ≥4 near-grade completions each,
+  ≥65% supported stability, +max(0.25°,16%) per promotion (was
+  +0.08°). Easy-slope failure retreats 12%; stable support is
+  **not** automatically accurate velocity tracking.
+- Step up AND down: ≥4 near-height real supported crossings each,
+  ≥55% success, +max(1mm,18%) (was +0.25mm). Easy failures retreat
+  18%. Real collidable geometry has **8cm** experiment headroom;
+  this is not a guaranteed achieved height.
+- Resilience push growth +8% per qualified update rather than 0.15%,
+  stronger retreat on persistent failure; practice headroom 4N.
+- Mixed requests, transition timing, sensor disturbance and four
+  conventional difficulty scalars now push faster after 20M.
+  Core retreat, KL/recovery guards and per-specialty grading remain.
+- Control/efficiency remains evaluated on moving shaft J/m, not idle.
+
+This is an *experiment*, not proven to halve learning time. New source
+and robot-world setup require cold-start training and a separate
+results root `v5025_aggressive50_seed734`. Do not combine the
+previous ~32M checkpoint with this changed source.
 
 ## Experiment 2 — one controlled terrain-control intervention
 

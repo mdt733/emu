@@ -1764,9 +1764,9 @@ class EmuMJXEnv(TaskSampler):
                 state.velocity_i_integral,dt=CONTROL_DT,
                 ramp_s=self.velocity_i_ramp_s,
                 multiplier=self.velocity_i_multiplier,
-                forward_limit=self.vx_hi_max,
-                reverse_limit=abs(self.vx_lo_min),
-                lateral_limit=self.vy_max_mps)
+                forward_limit=max(self.vx_hi_max,1.4),
+                reverse_limit=max(abs(self.vx_lo_min),.55),
+                lateral_limit=max(self.vy_max_mps,.55))
             task_for_state=(task_for_state.at[:,T.vx].set(commanded[:,0])
                                           .at[:,T.vy].set(commanded[:,1]))
         base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)

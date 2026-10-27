@@ -41,6 +41,7 @@ def arms(seed=734):
 
 def command(arm,root,seed,*,parent=None,resume=False):
     cmd=base.cmd_for(arm,root,seed,FOUNDATION_END,resume)
+    cmd[cmd.index('--terrain-step-max-m')+1]='0.08'
     cmd += ['--velocity-i-multiplier',str(arm.get('velocity_i_multiplier',1.)),
             '--velocity-i-ramp-s',str(arm.get('velocity_i_ramp_s',.4))]
     if parent is not None and not resume:
@@ -49,7 +50,7 @@ def command(arm,root,seed,*,parent=None,resume=False):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--root',type=Path,default=Path.home()/'robot_lab/emu_runs/v5025_screen50_seed734')
+    p.add_argument('--root',type=Path,default=Path.home()/'robot_lab/emu_runs/v5025_aggressive50_seed734')
     p.add_argument('--run',action='store_true',help='ACTUALLY RUN CUDA')
     p.add_argument('--skip-smoke',action='store_true')
     a=p.parse_args()
