@@ -2385,6 +2385,13 @@ class EmuMJXEnv(TaskSampler):
                  if specialist_active is None else specialist_active)
         step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
         slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
+        # A retained-skill CONTROL episode has the SAME flat environment
+        # across the P2 mixed/coherent arms. Otherwise E-D would also
+        # change retention physics and confound the terrain comparison.
+        if self.retention_share>0.:
+            flat_rehearsal=focused & (focus==CONTROL)
+            step_dose=jnp.where(flat_rehearsal,0.,step_dose)
+            slope_dose=jnp.where(flat_rehearsal,0.,slope_dose)
         if self.terrain_lesson=='coherent':
             # One coherent obstacle/grade mission at a time; retention
             # worlds rehearse on genuinely flat terrain.
