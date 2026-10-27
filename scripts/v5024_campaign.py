@@ -115,6 +115,11 @@ def summary(root,all_cases,sha):
             'fall_rate':metrics.get('fall_rate',''),
             'actual_vx':metrics.get('vx_mean',''),
             'requested_vx':metrics.get('cmd_vx_mean',''),
+            'policy_requested_vx':metrics.get('policy_cmd_vx_mean',''),
+            'policy_requested_vy':metrics.get('policy_cmd_vy_mean',''),
+            'operator_requested_vy':metrics.get('operator_cmd_vy_mean',''),
+            'velocity_i_x':metrics.get('velocity_i_x_mean',''),
+            'velocity_i_y':metrics.get('velocity_i_y_mean',''),
             'control_shaft_j_per_m':metrics.get('control_shaft_j_per_m',''),
             'fixed_exam_score':exam.get('eval_broad_score',''),
             'fixed_exam_core_survival':exam.get('eval_core_survival',''),
@@ -144,6 +149,8 @@ def summary(root,all_cases,sha):
         json.dumps(result,indent=2,sort_keys=True)+'\n',encoding='utf-8')
     fieldnames=['name','recipe','schedule','target','step','validated_final_present',
                 'reward','fall_rate','actual_vx','requested_vx',
+                'policy_requested_vx','policy_requested_vy',
+                'operator_requested_vy','velocity_i_x','velocity_i_y',
                 'control_shaft_j_per_m','fixed_exam_score',
                 'fixed_exam_core_survival','fixed_exam_core_vx_mae',
                 'slope_near_attempts','step_near_attempts','rollback_count']

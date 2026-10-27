@@ -117,6 +117,10 @@ def main():
         outcomes[shared['name']]='completed'
         (root/'campaign_status.json').write_text(json.dumps(outcomes,indent=2)+'\n')
         for arm in screen:
+            # Prevent updating the checkout while a source-pinned campaign
+            # is active. A different Git commit invalidates parent lineage.
+            if base.git('rev-parse','HEAD')!=sha or base.git('status','--porcelain'):
+                raise RuntimeError('source changed during campaign; stop, do not fork')
             dest=root/arm['name']
             try:
                 if dest.exists() and not (dest/'training_config.json').is_file():

@@ -844,6 +844,13 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'timeout_rate': done_mean(metrics, 'episode_timeout', default=0.0),
         'vx_mean': done_mean(metrics, 'episode_vx_mean', default=mean_metric(metrics, 'vx')),
         'cmd_vx_mean': done_mean(metrics, 'episode_cmd_vx_mean', default=mean_metric(metrics, 'cmd_vx')),
+        # Assisted control: distinguish OPERATOR demand, what the policy
+        # was actually asked to do, and accumulated correction.
+        'operator_cmd_vy_mean': mean_metric(metrics,'cmd_vy'),
+        'policy_cmd_vx_mean': mean_metric(metrics,'policy_cmd_vx'),
+        'policy_cmd_vy_mean': mean_metric(metrics,'policy_cmd_vy'),
+        'velocity_i_x_mean': mean_metric(metrics,'velocity_i_x'),
+        'velocity_i_y_mean': mean_metric(metrics,'velocity_i_y'),
         'bad_contact': done_mean(metrics, 'episode_bad_contact', default=mean_metric(metrics, 'bad_contact')),
         'support': done_mean(metrics, 'episode_support', default=mean_metric(metrics, 'support')),
         'fall_height': mean_metric(metrics, 'fall_height'),
