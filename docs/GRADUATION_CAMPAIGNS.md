@@ -57,6 +57,73 @@ export fails, fix it on a new review branch before GPU replication.
 benchmark harness (specified below). Do not compare numbers from
 two incompatible exam implementations.
 
+## Experiment 1 — broad research tournament (supersedes A2/C2 plan)
+
+The narrow A2/C2 160M repetition is **superseded by owner direction**.
+Instead, train **one 20M main-style foundation**, then branch its
+exact checkpoint into **twelve matched 20M specialist/control continuations**
+(260M cumulative GPU steps counting the shared foundation). This is a
+controlled short-horizon exploration, **not** twelve independent cold starts
+or a proof of seed robustness. A and C's 60M results motivate the arms.
+
+| Fork | Teaching | Velocity-I ramp | Ceiling |
+|---|---|---:|---:|
+| 1 balanced OFF | balanced | off | 1× |
+| 2 steering OFF | steering | off | 1× |
+| 3 terrain OFF | terrain-early | off | 1× |
+| 4 staged OFF | staged | off | 1× |
+| 5/6/7 balanced I | balanced | 0.2/0.4/0.8s | 1.5× |
+| 8/9/10 balanced I | balanced | 0.2/0.4/0.8s | 2× |
+| 11 steering I | steering | 0.4s | 2× |
+| 12 terrain I | terrain-early | 0.4s | 2× |
+
+The **user's 400ms / 2×** proposal is a real arm, not merely an
+offline notebook example. The source implements sensor-gated velocity-I
+in **live training**; teacher tracking/error stays referenced to raw
+operator velocity, while the actor receives its corrected internal
+command. Assisted slope stability and operator-command accuracy are
+different measurements. A multiplier cannot correct zero-vy lateral
+camber drift (0×2=0), so examine it honestly and consider a separate
+additive offset in Experiment 2 if evidence demands it.
+
+The original `d26ae0c2` 60M checkpoint belongs to a different source
+revision: **do not warm-start it** under changed controller code. The
+shared 20M foundation is trained on the exact experiment SHA and is
+then the valid single checkpoint ancestor for all forks. Each fork
+inherits the same source/actor/optimizer/normaliser/curriculum, with its
+own post-fork training configuration, output directory and fresh physics
+episodes. Source, lineage, seed and controller settings are recorded.
+Only the explicit `same-source-20m-v1` guarded runner authorises an
+external fork. Normal training/auto-resume restrictions remain.
+
+**Implemented launcher:** `scripts/v5025_screen.py`, **plan-only**
+unless `--run`; source must be clean on
+`feature/v5024-release-polish`. Fresh checkout/virtualenv, then:
+
+```bash
+python scripts/v5025_screen.py          # plan
+python -u scripts/v5025_screen.py --run # real GPU
+```
+
+Outputs go to `~/robot_lab/emu_runs/v5025_screen_seed734/`;
+`overnight_results.zip` holds comparisons/console references, not
+the large checkpoints themselves. First inspect code/CI and GPU smoke.
+**The source above is an implementation candidate**, not evidence
+that 260M CUDA steps have actually run successfully.
+
+**Shortlist rule:** keep 2–4 genuinely different Pareto candidates.
+Compare physically observed command tracking (especially uphill and
+camber), genuine support/step ascent, recovery, falls, stop/reverse
+transitions and shaft work per useful distance. Controller ON must
+not win by redefining the requested velocity; compare its actual
+policy demand and saturation against raw operator demand. If a fork
+only raises training reward or a teacher frontier, do not promote it.
+
+## Archived earlier A2/C2 replication draft
+
+The paragraphs below describe the earlier, narrower plan and are not
+the selected Experiment 1 launch.
+
 ## Experiment 1 — repeat the two viable v5024 recipes
 
 **Question:** is C's steering benefit repeatable, and does either recipe

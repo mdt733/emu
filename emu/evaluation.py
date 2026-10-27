@@ -101,6 +101,8 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # two-slab world and sensor meanings even with ZERO terrain exposure.
         # Archived 220/232/older tripod-360 panels remain unchanged.
         unified_capability_focus=bool(config.unified_capability_focus),
+        velocity_i_ramp_s=config.velocity_i_ramp_s,
+        velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )

@@ -249,6 +249,16 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             parent, validate=True, expected_observation_schema=config.observation_schema,
             expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
+        if os.environ.get('EMU_UNIFIED_SCREEN_FORK') == 'same-source-20m-v1':
+            parent_meta=payload['meta']
+            if (parent.parent.name != 'checkpoints'
+                    or int(parent_meta.get('step',-1)) !=
+                       update_boundary_at_or_after(20_000_000,config.envs)
+                    or config.steps != 40_000_000
+                    or config.foundation_steps != 20_000_000
+                    or config.seed != 734
+                    or parent.name != 'final.pkl'):
+                raise RuntimeError('screen fork requires 20M final of seed 734 and 40M target')
         if source != provenance['commit']:
             raise RuntimeError(
                 'External checkpoint source differs from current Git commit. '

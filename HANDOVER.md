@@ -127,7 +127,16 @@ manual/owner-approved workflow.
 - [ ] Compare frozen generalist scores AND separate supported/stable versus
   commanded/accurate uphill, downhill and camber physics, true step crossings,
   recovery, yaw/lateral drift and energy per *useful* distance.
-- [ ] Experiment 1: cold-repeat A versus C at seed 734, 80M each.
+- [ ] **Revised Experiment 1:** 20M shared source-pinned foundation
+  plus 12 × 20M same-source checkpoint forks (260M total), including
+  balanced/steering/terrain/staged and six velocity-I gain/ramp
+  combinations. Launcher: `scripts/v5025_screen.py --run`.
+  New training controller commands are boosted but teacher/reward
+  success uses the original operator velocity; no cross-source reuse
+  of the archived v5024 60M checkpoint.
+- [ ] The former A/C seed-734 80M replication is superseded. Its
+  original launcher remains separately available but not the current
+  experiment target.
   Two-arm runner: `scripts/v5024_campaign.py --arms A C --steps 80000000
   --seed 734 --root ~/robot_lab/emu_runs/v5025_repeat_seed734 --run`
   from a **separate clean polish checkout**. Both train I=OFF; replay

@@ -158,9 +158,17 @@ def unified_launch_mode(args: TrainingConfig) -> str:
             and args.pitch_command_max_deg == 8.):
         parent = Path(args.resume).resolve() if args.resume else None
         own_dir = Path(args.run_dir).resolve() / 'checkpoints'
+        authorised_fork = (
+            os.environ.get('EMU_UNIFIED_SCREEN_FORK') == 'same-source-20m-v1'
+            and parent is not None and parent.is_file()
+            and parent.suffix == '.pkl'
+            and parent.parent.name == 'checkpoints'
+            and parent.parent != own_dir
+            and args.steps == 40_000_000
+            and args.foundation_steps == 20_000_000)
         if not args.resume or args.resume == 'auto' or (
                 parent is not None and parent.parent == own_dir
-                and parent.suffix == '.pkl'):
+                and parent.suffix == '.pkl') or authorised_fork:
             return 'continuous'
     raise RuntimeError(
         'PRE-LAUNCH: Unified live training requires the explicit bounded CUDA smoke or '
