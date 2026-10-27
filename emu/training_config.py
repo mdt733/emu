@@ -190,6 +190,10 @@ class TrainingConfig:
     teaching_schedule: str = 'balanced'  # balanced, staged, terrain-early
     velocity_i_ramp_s: float = 0.4
     velocity_i_multiplier: float = 1.0  # 1 means off
+    growth_recipe: str = 'legacy'  # control or restored mature main-style learning
+    retention_share: float = 0.0  # dynamic core rehearsal, NOT static survival
+    terrain_lesson: str = 'mixed'  # coherent STEP/SLOPE tasks are an isolated treatment
+    force_program: str = 'aggressive'  # matched gentle vs high-push experiments
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -246,7 +250,9 @@ class TrainingConfig:
                     'terrain_step_max_m', 'unified_capability_focus',
                     'foundation_steps', 'foundation_mix', 'teaching_schedule',
                     'fixed_eval_every_steps',
-                    'velocity_i_ramp_s', 'velocity_i_multiplier'}
+                    'velocity_i_ramp_s', 'velocity_i_multiplier',
+                    'growth_recipe', 'retention_share', 'terrain_lesson',
+                    'force_program'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")

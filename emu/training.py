@@ -95,6 +95,8 @@ def env_kwargs_from_args(args) -> dict:
         unified_capability_focus=args.unified_capability_focus,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
         velocity_i_multiplier=args.velocity_i_multiplier,
+        retention_share=args.retention_share,
+        terrain_lesson=args.terrain_lesson,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -326,10 +328,19 @@ def train(args: TrainingConfig) -> int:
             d['steering_attention']=(1.0 if (
                 args.teaching_schedule=='steering' and
                 step>args.foundation_steps) else 0.0)
-            for name, weight in zip(
-                FOCUS_NAMES, attention_weights(
-                    schedule=args.teaching_schedule, step=step,
-                    foundation_steps=args.foundation_steps)):
+            weights=list(attention_weights(
+                schedule=args.teaching_schedule,step=step,
+                foundation_steps=args.foundation_steps))
+            # Reserve a deterministic share of all focused births for
+            # useful moving, low-disturbance retention (CONTROL role).
+            # The ordinary control role remains unchanged in baseline arms.
+            if step>args.foundation_steps and args.retention_share>0.:
+                base_control=weights[-1]
+                other_total=1.-base_control
+                target_control=max(base_control,args.retention_share)
+                weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
+                weights.append(target_control)
+            for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
             # original foundation started. Afterwards the candidate recipe

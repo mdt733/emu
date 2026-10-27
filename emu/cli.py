@@ -253,6 +253,14 @@ def main(argv=None) -> int:
                    default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
+    q.add_argument('--growth-recipe',choices=('legacy','main-mature'),default='legacy',
+                   help='experiment: old 360 recipe or restore main mature commands/phase/rehearsal')
+    q.add_argument('--retention-share',type=float,default=0.0,
+                   help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
+    q.add_argument('--terrain-lesson',choices=('mixed','coherent'),default='mixed',
+                   help='mixed random terrain tasks or deliberate straight physical crossings')
+    q.add_argument('--force-program',choices=('gentle','aggressive'),default='aggressive',
+                   help='gentle 0.7N research push ceiling or aggressive 4N push frontier')
     q.add_argument('--velocity-i-ramp-s',type=float,default=0.4,
                    help='experimental vx/vy integral ramp seconds (0.1..5)')
     q.add_argument('--velocity-i-multiplier',type=float,default=1.0,

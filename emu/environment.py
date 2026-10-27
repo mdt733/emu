@@ -1236,7 +1236,9 @@ class EmuMJXEnv(TaskSampler):
                  paired_terrain_heights: bool = False,
                  unified_capability_focus: bool = False,
                  velocity_i_ramp_s: float = 0.4,
-                 velocity_i_multiplier: float = 1.0):
+                 velocity_i_multiplier: float = 1.0,
+                 retention_share: float = 0.0,
+                 terrain_lesson: str = 'mixed'):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1410,6 +1412,10 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('velocity I requires unified terrain_360, ramp 0.1..5s, multiplier 1..3')
         self.velocity_i_ramp_s = float(velocity_i_ramp_s)
         self.velocity_i_multiplier = float(velocity_i_multiplier)
+        if terrain_lesson not in ('mixed','coherent') or not 0.<=retention_share<=.4:
+            raise ValueError('invalid recovery-first experiment contract')
+        self.terrain_lesson = terrain_lesson
+        self.retention_share = float(retention_share)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -2240,6 +2246,10 @@ class EmuMJXEnv(TaskSampler):
         if not self.unified_capability_focus:
             return task,active
         jax=self.jax
+        is_step=active & (focus==STEP)
+        is_slope=active & (focus==SLOPE)
+        coherent=self.terrain_lesson=='coherent'
+        is_coherent_terrain=(is_step|is_slope) & coherent
         is_command=active & (focus==COMMAND)
         is_resilience=active & (focus==RESILIENCE)
         is_transition=active & (focus==TRANSITION)
@@ -2251,7 +2261,7 @@ class EmuMJXEnv(TaskSampler):
         regime=jnp.where(is_command,0.,
                jnp.where(is_resilience,2.,
                jnp.where(is_transition,1.,
-               jnp.where(is_control,0.,task[:,T.regime]))))
+               jnp.where(is_control|is_coherent_terrain,0.,task[:,T.regime]))))
         task=task.at[:,T.regime].set(regime)
         ordinary=~(is_command|is_control)
         task=task.at[:,T.athletic_rehearsal].set(
@@ -2278,6 +2288,27 @@ class EmuMJXEnv(TaskSampler):
         desired=jnp.where(is_command[:,None],candidate,desired)
         easy=jnp.stack((control_vx,control_vy,control_yaw),axis=-1)
         desired=jnp.where(is_control[:,None],easy,desired)
+        # A real step needs forward intent to earn lip-progress reward.
+        # Keep the genuine physical obstacle but take unrelated turn,
+        # stop/reversal and resilience tasks out of the initial lesson.
+        if coherent:
+            kc=jax.vmap(lambda k:jax.random.fold_in(k,50321))(keys)
+            v=jax.vmap(lambda k:jax.random.uniform(k,()))(kc)
+            straight_vx=.10+.12*v
+            straight=jnp.stack((straight_vx,
+                jnp.zeros_like(straight_vx),jnp.zeros_like(straight_vx)),axis=-1)
+            desired=jnp.where(is_coherent_terrain[:,None],straight,desired)
+        # A single policy retains moving lower-speed expertise in a
+        # persistent CONTROL rehearsal cohort; it must not learn to stand
+        # motionless to avoid pushes or save energy.
+        if self.retention_share>0.:
+            kr=jax.vmap(lambda k:jax.random.fold_in(k,50322))(keys)
+            q=jax.vmap(lambda k:jax.random.uniform(k,(4,)))(kr)
+            rehearsal_vx=jnp.where(q[:,0]<.20,-(.04+.08*q[:,1]),
+                                   .05+.19*q[:,1])
+            rehearsal=jnp.stack((rehearsal_vx,
+                (q[:,2]*2.-1.)*.07,(q[:,3]*2.-1.)*.30),axis=-1)
+            desired=jnp.where(is_control[:,None],rehearsal,desired)
         # Every specialty practises the OTHER commands, but at half of
         # their sampled excursion around a small forward-walking reference.
         # This is not a separate command frontier and does not change the
@@ -2311,6 +2342,13 @@ class EmuMJXEnv(TaskSampler):
                              resilience*NONFOCUS_STRENGTH,resilience)
         resilience=jnp.where(is_control,resilience*(
             CONTROL_STRENGTH/NONFOCUS_STRENGTH),resilience)
+        if self.retention_share>0.:
+            # The rehearsal set includes manageable real shoves; not
+            # simply undisturbed standing or huge 4N shocks.
+            small=.10+.60*q[:,2]
+            resilience=jnp.where(is_control,
+                jnp.minimum(small/jnp.maximum(.70,self.push_max_force_n),
+                            jnp.maximum(.05,resilience)),resilience)
         task=task.at[:,T.resilience].set(resilience)
         # All active specialists have easier posture variation; control is
         # easier still, so its loss/effort lessons reward *doing* real work.
@@ -2347,6 +2385,13 @@ class EmuMJXEnv(TaskSampler):
                  if specialist_active is None else specialist_active)
         step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
         slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
+        if self.terrain_lesson=='coherent':
+            # One coherent obstacle/grade mission at a time; retention
+            # worlds rehearse on genuinely flat terrain.
+            step_dose=jnp.where(focused & ((focus==SLOPE)|(focus==CONTROL)),
+                                0.,step_dose)
+            slope_dose=jnp.where(focused & ((focus==STEP)|(focus==CONTROL)),
+                                 0.,slope_dose)
         # The governor may seed gentle physical severity on the exact 20M
         # boundary; the host-owned fade ensures the NEXT worlds do not
         # instantly get 15% obstacle births before gait has transitioned.

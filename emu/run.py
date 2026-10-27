@@ -42,6 +42,16 @@ def one_run_config(args) -> TrainingConfig:
     teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
     velocity_i_ramp_s=float(getattr(args,'velocity_i_ramp_s',0.4))
     velocity_i_multiplier=float(getattr(args,'velocity_i_multiplier',1.0))
+    growth_recipe=str(getattr(args,'growth_recipe','legacy'))
+    retention_share=float(getattr(args,'retention_share',0.0))
+    terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
+    force_program=str(getattr(args,'force_program','aggressive'))
+    if growth_recipe not in ('legacy','main-mature') or terrain_lesson not in ('mixed','coherent'):
+        raise ValueError('invalid experimental lesson selection')
+    if force_program not in ('gentle','aggressive') or not (0.<=retention_share<=.4):
+        raise ValueError('invalid force programme or retention share')
+    if not unified and (growth_recipe!='legacy' or retention_share or terrain_lesson!='mixed'):
+        raise ValueError('recovery-first lessons require unified actor')
     if (not math.isfinite(velocity_i_ramp_s) or
             not 0.1 <= velocity_i_ramp_s <= 5.0 or
             not math.isfinite(velocity_i_multiplier) or
@@ -104,31 +114,41 @@ def one_run_config(args) -> TrainingConfig:
                    teaching_schedule=teaching_schedule,
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
+                   growth_recipe=growth_recipe, retention_share=retention_share,
+                   terrain_lesson=terrain_lesson, force_program=force_program,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
-                   difficulty_base_step=.0014 if unified else cfg.difficulty_base_step,
-                   fall_target=.30 if unified else cfg.fall_target,
+                   difficulty_base_step=(.0024 if (unified and growth_recipe=='main-mature')
+                                         else .0014 if unified else cfg.difficulty_base_step),
+                   fall_target=(.34 if (unified and growth_recipe=='main-mature')
+                                else .30 if unified else cfg.fall_target),
                    # Keep the proven 20M command/phase economics rather than
                    # accidentally inheriting mature speed limits.
-                   vx_hi_max=.40 if unified else cfg.vx_hi_max,
-                   vx_lo_min=-.12 if unified else cfg.vx_lo_min,
-                   vy_max_mps=.14 if unified else cfg.vy_max_mps,
-                   yaw_max_rad_s=.90 if unified else cfg.yaw_max_rad_s,
+                   vx_hi_max=(.60 if growth_recipe=='main-mature' and unified else .40 if unified else cfg.vx_hi_max),
+                   vx_lo_min=(-.20 if growth_recipe=='main-mature' and unified else -.12 if unified else cfg.vx_lo_min),
+                   vy_max_mps=(.22 if growth_recipe=='main-mature' and unified else .14 if unified else cfg.vy_max_mps),
+                   yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' and unified else .90 if unified else cfg.yaw_max_rad_s),
                    freeze_obs_norm_after_steps=0 if unified else cfg.freeze_obs_norm_after_steps,
                    cloud_probes_per_eval=0 if unified else cfg.cloud_probes_per_eval,
                    cloud_final_probes=0 if unified else cfg.cloud_final_probes,
-                   combo_probe_frac=.08 if unified else cfg.combo_probe_frac,
-                   phase_speed_gain=.75 if unified else cfg.phase_speed_gain,
-                   regime_command_frac=.60 if unified else cfg.regime_command_frac,
-                   athletic_rehearsal_frac=0.0 if unified else cfg.athletic_rehearsal_frac,
-                   combo_mix_frac=0.0 if unified else cfg.combo_mix_frac,
+                   combo_probe_frac=(.12 if growth_recipe=='main-mature' and unified
+                                     else .08 if unified else cfg.combo_probe_frac),
+                   phase_speed_gain=(1.25 if growth_recipe=='main-mature' and unified
+                                     else .75 if unified else cfg.phase_speed_gain),
+                   regime_command_frac=(.85 if growth_recipe=='main-mature' and unified
+                                        else .60 if unified else cfg.regime_command_frac),
+                   athletic_rehearsal_frac=(.10 if growth_recipe=='main-mature' and unified
+                                            else 0.0 if unified else cfg.athletic_rehearsal_frac),
+                   combo_mix_frac=(.88 if growth_recipe=='main-mature' and unified
+                                   else 0.0 if unified else cfg.combo_mix_frac),
                    frontier_vx_hi_safety=1.4 if unified else cfg.frontier_vx_hi_safety,
                    frontier_vx_lo_safety=.55 if unified else cfg.frontier_vx_lo_safety,
                    frontier_vy_safety=.55 if unified else cfg.frontier_vy_safety,
                    frontier_yaw_safety=3.5 if unified else cfg.frontier_yaw_safety,
                    frontier_combo_safety=2.0 if unified else cfg.frontier_combo_safety,
-                   frontier_push_safety_n=4.0 if unified else cfg.frontier_push_safety_n,
+                   frontier_push_safety_n=(.70 if force_program=='gentle' and unified
+                                           else 4.0 if unified else cfg.frontier_push_safety_n),
                    # Main's foundation still sees ≤0.70N; the unified
                    # governor may later earn real larger pushes.
                    push_max_force_n=4.0 if unified else cfg.push_max_force_n,
