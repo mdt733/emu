@@ -117,6 +117,23 @@ and source provenance in a tagged release/Git history.
 The old demonstration has not been replaced, and GitHub Pages is a separate
 manual/owner-approved workflow.
 
+## Root-cause diagnosis after Experiment 1
+
+- [x] Audited protected-main maturation against the exact 290M-screen
+  source `ab29c027` and owner's complete training logs.
+  [Root-cause investigation](docs/MAIN_VS_V5025_ROOT_CAUSES.md).
+- [ ] **No 400M yet.** The 360 actor's 20M flat gait learned well, but
+  the mature learner never adopted main's broader/stronger athletic
+  command teaching. STEP/SLOPE cohorts inherit random incompatible
+  commands/regimes and near-lip ascent reward requires vx≥0.08m/s
+  before young step-focused worlds reliably request it. Real terrain
+  certification retreats to 0.35°/1.5mm; 4N push target maxes by ~24M.
+  Evaluate signed physical progress against Pinnacle with matched world
+  before claims of superiority.
+- [ ] Run isolated **main-parity mature-command** and **coherent-terrain**
+  causal comparisons; test low-vs-high push interference. Preserve
+  20M cold foundation, compatible policy/source lineage, branch-only rule.
+
 ## Next engineering work
 
 - [x] Polish CI on `bf04f33e` was green: Python/MJX CPU/browser/fresh viewer.

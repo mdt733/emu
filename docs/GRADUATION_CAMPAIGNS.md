@@ -57,6 +57,18 @@ export fails, fix it on a new review branch before GPU replication.
 benchmark harness (specified below). Do not compare numbers from
 two incompatible exam implementations.
 
+## Root-cause comparison with protected main
+
+**New conclusion:** See [source-versus-telemetry root-cause analysis](MAIN_VS_V5025_ROOT_CAUSES.md).
+Main's mature speed/phase/rehearsal training was not carried into the
+continuous 360 run, STEP/SLOPE assigned geometry without suitable
+goal-conditioned task/command coherence, step progress reward was
+often inaccessible at frontier vx <0.08m/s, terrain grading repeatedly
+eliminated practice, and 4N push target saturated very early.
+Exact causal attribution still needs isolated matched interventions.
+These findings supersede the notion that a higher promotion factor
+alone would fix the robot.
+
 ## Experiment 1 — completed 290M-screen outcome
 
 **Completed at source `ab29c027`:** common 50M foundation + 12 matched
