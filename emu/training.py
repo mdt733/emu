@@ -153,7 +153,7 @@ def unified_launch_mode(args: TrainingConfig) -> str:
         parent = Path(args.resume).resolve() if args.resume else None
         own_dir = Path(args.run_dir).resolve() / 'checkpoints'
         explicit_parent = (
-            parent is not None and parent.is_file() and
+            parent is not None and
             parent.suffix == '.pkl' and parent.parent.name == 'checkpoints')
         if not args.resume or args.resume == 'auto' or explicit_parent:
             return 'continuous'

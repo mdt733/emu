@@ -12,6 +12,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--device",choices=("cpu","cuda"),default="cpu")
     ap.add_argument("--envs",type=int,default=12)
+    ap.add_argument("--terrain-max-m",type=float,default=.04)
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
     ap.add_argument("--full-update",action="store_true",
@@ -36,7 +37,7 @@ def main():
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=args.envs,seed=733,
         max_episode_steps=(700 if args.full_update else 40),
         observation_schema=OBS_SCHEMA_TERRAIN,
-        attitude_profile="v5015",terrain_step_max_m=.04,
+        attitude_profile="v5015",terrain_step_max_m=args.terrain_max_m,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
         velocity_i_multiplier=args.velocity_i_multiplier,

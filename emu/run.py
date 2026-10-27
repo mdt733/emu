@@ -129,6 +129,9 @@ def one_run_config(args) -> TrainingConfig:
                    frontier_yaw_safety=3.5 if unified else cfg.frontier_yaw_safety,
                    frontier_combo_safety=2.0 if unified else cfg.frontier_combo_safety,
                    frontier_push_safety_n=4.0 if unified else cfg.frontier_push_safety_n,
+                   # Main's foundation still sees ≤0.70N; the unified
+                   # governor may later earn real larger pushes.
+                   push_max_force_n=4.0 if unified else cfg.push_max_force_n,
                    capability_field_mode='shadow' if unified else cfg.capability_field_mode,
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,

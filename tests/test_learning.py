@@ -928,6 +928,33 @@ def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
     np.testing.assert_array_equal(zz,np.zeros_like(z))
 
 
+def test_aggressive_governor_expands_by_real_physical_evidence():
+    from emu.curriculum import RegimeGovernor
+    g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    g.params.frontier_vx_hi=.08
+    assert g._advance_specialist_commands(
+        {'command_probe_attempts_vx_hi':4.,
+         'command_probe_successes_vx_hi':3.},
+        global_retreat=False,kl_ok=True)['vx_hi']=='expand'
+    assert g.params.frontier_vx_hi>=.092
+    assert g.params.frontier_vx_lo==-.02
+    assert g.advance_slope({})=='seed_real_incline_0p7deg'
+    slope_start=g.params.slope_max_deg
+    row={f'slope_near_attempts_{d}':4. for d in g.SLOPE_DIRECTIONS}
+    row.update({f'slope_near_stability_successes_{d}':3.
+                for d in g.SLOPE_DIRECTIONS})
+    assert g.advance_slope(row)=='expand_real_slope_angle'
+    assert g.params.slope_max_deg>=slope_start+.249
+    kw=dict(step=25_000_000,max_height_m=.08,
+            foundation_steps=20_000_000,unified=True)
+    assert g.advance_terrain({},**kw)=='terrain_unified_seed_4mm'
+    initial=g.params.terrain_height_m
+    row={f'terrain_near_attempts_{d}':4. for d in ('up','down')}
+    row.update({f'terrain_near_successes_{d}':3. for d in ('up','down')})
+    assert g.advance_terrain(row,**kw)=='terrain_height_expand_real_cross'
+    assert g.params.terrain_height_m>=initial+.00099
+
+
 def test_v5024_campaign_is_standalone_source_pinned_and_plan_only():
     """No retired overnight launcher is needed to plan the current study."""
     import runpy

@@ -97,12 +97,14 @@ def main():
             base.execute([sys.executable,'scripts/smoke_unified_focus.py',
                           '--device','cpu','--envs','12',
                           '--velocity-i-ramp-s','0.4',
-                          '--velocity-i-multiplier','2'],
+                          '--velocity-i-multiplier','2',
+                          '--terrain-max-m','0.08'],
                          root/'logs/preflight_cpu.log',env)
             base.execute([sys.executable,'scripts/smoke_unified_focus.py',
                           '--device','cuda','--envs','2048','--full-update',
                           '--velocity-i-ramp-s','0.4',
-                          '--velocity-i-multiplier','2'],
+                          '--velocity-i-multiplier','2',
+                          '--terrain-max-m','0.08'],
                          root/'logs/preflight_cuda.log',env)
             (root/'preflight_pass.json').write_text(
                 json.dumps({'source_sha':sha,'study':'v5025_screen'})+'\n')
