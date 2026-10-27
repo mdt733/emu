@@ -52,6 +52,15 @@ def validate_browser_bundle(bundle: dict, *, require_trained: bool = True) -> di
     policy = bundle.get('policy') or {}
     source = bundle.get('source') or {}
     obs = bundle.get('observation') or {}
+    controller = bundle.get('control') or {}
+    trim = controller.get('velocity_i') or {}
+    if not isinstance(trim,dict):
+        raise ValueError('invalid controller metadata')
+    if float(trim.get('multiplier',1.)) != 1.:
+        # Inference-only browser does not yet implement velocity-I.
+        # Prevent a misleading published "champion" that behaves
+        # differently from its actual controller-assisted training.
+        raise ValueError('velocity-I actor cannot publish until browser controller parity is implemented')
     if (policy.get('obs_dim') != dim or policy.get('base_obs_dim') != width
             or policy.get('history_len') != 4 or policy.get('action_dim') != 6):
         raise ValueError(f'actor shape mismatch for browser schema {schema}')

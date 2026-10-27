@@ -119,114 +119,20 @@ not win by redefining the requested velocity; compare its actual
 policy demand and saturation against raw operator demand. If a fork
 only raises training reward or a teacher frontier, do not promote it.
 
-## Archived earlier A2/C2 replication draft
-
-The paragraphs below describe the earlier, narrower plan and are not
-the selected Experiment 1 launch.
-
-## Experiment 1 — repeat the two viable v5024 recipes
-
-**Question:** is C's steering benefit repeatable, and does either recipe
-keep improving beyond 60M without losing supported locomotion?
-
-- **Source:** release-polish learning implementation, unchanged actor,
-  PPO, physical surfaces, learning rewards and evidence rules. Pin a
-  clean new experiment SHA before starting; no train-time code edits.
-- **Two independent COLD starts**, sequential CUDA, 2,048 worlds,
-  seed **734**, **80M world steps per arm = 160M total**.
-- **A2:** first 10M `--foundation-mix main`, then
-  `--teaching-schedule balanced`.
-- **C2:** first 10M `--foundation-mix command-heavy`, then
-  `--teaching-schedule steering`.
-- Identical robot/sensor contract 360 array-only, original gait
-  payments, PPO hyperparameters, source SHA, random seed,
-  4 cm terrain ceiling, eval definitions and saved checkpoints.
-- Frozen exams at **20M, 40M, 60M and 80M** (10M cadence acceptable
-  if current runner retains it). The 60M point compares with seed 733.
-  An 80M checkpoint tests whether late gains are stable.
-- No source-crossing warm start, inherited A/C checkpoint, automatic
-  training-arm champion selection, or GPU experiments sharing one run
-  directory. Use a fresh `v5025_repeat_seed734` data root.
-
-**Decision at the gate:** choose the *recipe*, not the highest training
-reward. Prioritise held-out flat/command tracking, hard survival,
-recovery, four-way incline control and actual step-up/down crossings;
-work per useful distance is a secondary constraint. Compare seed
-733 and seed 734 **at the same 60M age**. Treat a seed-specific reversal
-as uncertainty, not a reason to cherry-pick. If neither is an obvious
-all-round winner, keep both as a Pareto shortlist but choose one
-conservative baseline for Experiment 2.
-
-Implementation note: the existing polish `scripts/v5024_campaign.py`
-still launches THREE arms; **it does not yet implement a two-arm filter**.
-Before Run 1, implement and test an explicit two-arm runner or launch
-two separately pinned `emu train` commands. The documented campaign
-is *not* presently a runnable one-command 160M launcher.
-
-### Experiment 1 launcher (implemented; plan-only unless --run)
-
-The existing source-pinned `scripts/v5024_campaign.py` now supports
-`--arms A C`, so it can run only main/balanced and
-command-heavy/steering in canonical order. It retains 12-world CPU
-and 2048-world CUDA full-update preflight, exact-SHA continuation,
-per-arm cold checkpoints, frozen generalist exams and one report ZIP.
-It does **not** modify PPO, actor contracts, slope-teacher decisions,
-or results from the original v5024 training checkout.
-
-On a separate clean WSL checkout of `feature/v5024-release-polish`:
-
-```bash
-cd "$HOME/emu-graduation"
-source .venv/bin/activate
-python scripts/v5024_campaign.py --arms A C --steps 80000000 --seed 734 \
-  --root "$HOME/robot_lab/emu_runs/v5025_repeat_seed734" --run
-```
-
-The first line assumes the repository has been cloned and set up as
-documented in `INSTALL.md`. The campaign is **160M total steps**,
-and `--run` launches actual CUDA. A separate checkout prevents
-any source drift in `~/emu-v5024`. The output ZIP is
-`~/robot_lab/emu_runs/v5025_repeat_seed734/overnight_results.zip`.
-
-### Velocity-I ramp micro-experiment: planned, not yet implemented
-
-For already-saved A/C policies, compare baseline I=OFF against
-command-multiplier ceilings **1.5× and 2.0×** and ramp windows
-**0.2, 0.4 and 0.8 seconds**, including the proposed 400ms/2×
-setting. This is a *read-only inference experiment*, not six new
-80M training runs. The 20ms control cadence implies about 20 updates
-to reach a 400ms reference ramp under persistent full shortfall.
-
-Controller inputs must be *legitimate delayed and confidence-gated*
-flow-derived vx/vy, converted into the operator's velocity frame;
-never MJX truth. The feedback output adjusts only the **internal
-policy command**, within the safe command envelope. Integrator
-state must be bounded, reset/decayed on turns, stops, invalid sensing,
-falls and saturation; compare stopping overshoot, oscillation and falls.
-Report three separate quantities: original operator request, boosted
-policy request, and actual measured movement. Success is always
-against the **original operator request**, not the boosted demand.
-A multiplicative trim cannot correct zero-command lateral drift
-(2×0=0), so a bounded additive-bias experiment would be separate.
-
-**Training consequence:** Experiment 1 repeats the A/C recipes with
-I=OFF so its seed-734 results remain interpretable against seed 733.
-If the independent mini-sweep shows genuine benefit, the Experiment 2
-treatment MUST have velocity-I active in its train-time command loop
-and deployable runtime, with exact params/version logged. Its slope
-teacher then sees controller-assisted actual motion and should
-report stability and raw-operator tracking as distinct physical
-outcomes; any *certified* uphill tracking pass must follow raw
-operator vx/vy, not the doubled internal target. The baseline arm
-has I=OFF. A 360 policy trained without I is not silently redefined
-as an assisted champion.
-
 ## Experiment 2 — one controlled terrain-control intervention
 
-**Question:** can we convert stable slope contact into *commanded uphill
-motion*, and improve supported step-ups, without regressing flat walking?
+**Question:** which Experiment-1 gains survive integration and longer
+training—controller parameters, teaching allocation or terrain-specific
+practice—without sacrificing normal control?
 
 **Design is intentionally provisional until Experiment 1's physical matrix.**
+If velocity-I wins the screen, keep it ON from the selected training
+boundary and evaluate using the saved controller parameters. Its slope
+tracking pass/fail is judged against raw operator vx/vy, not the
+boosted policy command. The frozen examiner now reads controller metadata
+from exported policies. The public browser currently does NOT implement
+velocity-I; publishing assisted actors is deliberately blocked until
+browser/simulation parity is built and examined.
 Choose the dominant weakness and implement **one** teaching change, not
 a basket of unrelated PPO, reward, sensor and architecture modifications.
 
@@ -398,7 +304,8 @@ public-release approval. Then archive Pinnacle and prune temporary
       model/control settings with only observation paths differing.
 - [x] Add `--arms A C` to the existing guarded campaign launcher.
       It remains plan-only unless `--run` is explicitly provided.
-- [ ] Complete Experiment 1 at seed 734; select one baseline recipe.
+- [ ] Complete 20M + 12 × 20M Experiment 1 at seed 734;
+      identify 2–4 Pareto candidates.
 - [ ] Inspect physical failures; implement **one opt-in** Experiment 2
       teaching change and test OFF vs ON, same source and seed.
 - [ ] Freeze a single configuration for the 400M graduation run,

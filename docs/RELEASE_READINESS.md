@@ -38,8 +38,9 @@ and start a new source-pinned run for any changes that alter learning.
 ## Evidence required before promoting to main
 
 - [x] Three 60M arms finished; owner's ZIP reviewed and SHA recorded.
-- [ ] Complete documented two further controlled graduation campaigns,
-      then one 400M continuous fresh cold start.
+- [ ] Complete Experiment 1's guarded 20M foundation + twelve
+      20M same-source forks; refine a shortlist in Experiment 2, then
+      one 400M continuous **fresh** cold start.
 - [ ] Implement a **common schema-neutral physical benchmark** before claiming
       direct improvement over the 232-input Pinnacle. The existing
       360-only `capability-exam` and legacy exams are **not directly comparable**.
@@ -58,6 +59,11 @@ and start a new source-pinned run for any changes that alter learning.
 - [ ] Separate explicit release approval for any public showcase update.
 
 ## Public release readiness — 360-input policy plumbing
+
+**Assisted actor caution:** the new velocity-I correction currently
+belongs to the JAX training/evaluation path. The browser does not implement
+it yet. A release validator explicitly refuses non-OFF velocity-I
+policies until actual JS/MuJoCo replay parity is engineered and measured.
 
 The previous release gate accepted only 232 observations. The polish
 branch now validates **360-input schema-9 array-only actor policies** in

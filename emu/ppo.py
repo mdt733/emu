@@ -727,20 +727,31 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             next_estimate=estimate+delayed_gyro*CONTROL_DT
             corrected,error=heading_rate_request(
                 jnp,cmd[:,2],next_target,next_estimate,kp=kp,max_rate=limit)
-            actual_cmd=jnp.stack((cmd[:,0],cmd[:,1],corrected),axis=-1)
+            # An assisted actor must receive the same effective command it
+            # receives in training, but the examiner reports OPERATOR cmd.
+            # The env already computed its next controller demand on the
+            # previous step; don't integrate it a second time in this loop.
+            xy_policy=cmd[:,:2]
+            if env.velocity_i_multiplier>1.:
+                old_raw=es.raw_velocity_command
+                changed=jnp.any(jnp.abs(xy_policy-old_raw)>.005,axis=1)
+                xy_policy=jnp.where(changed[:,None],xy_policy,
+                                    es.task[:,[T.vx,T.vy]])
+            actual_cmd=jnp.concatenate((xy_policy,corrected[:,None]),axis=1)
             # CRITICAL: env.step computes cmd_now from cmd_ramp_from/target.
             # Update BOTH this internal ramp and what the policy observed;
             # changing only the task vector is silently undone in env.step.
             target_cmd=es.cmd_target.at[:,:3].set(actual_cmd)
             from_cmd=es.cmd_ramp_from.at[:,:3].set(actual_cmd)
-            task=(es.task.at[:,T.vx].set(cmd[:,0])
-                         .at[:,T.vy].set(cmd[:,1])
+            task=(es.task.at[:,T.vx].set(actual_cmd[:,0])
+                         .at[:,T.vy].set(actual_cmd[:,1])
                          .at[:,T.yaw].set(corrected))
-            hist=(es.hist.at[:,-1,command_idx[0]].set(cmd[:,0])
-                         .at[:,-1,command_idx[1]].set(cmd[:,1])
+            hist=(es.hist.at[:,-1,command_idx[0]].set(actual_cmd[:,0])
+                         .at[:,-1,command_idx[1]].set(actual_cmd[:,1])
                          .at[:,-1,command_idx[2]].set(corrected))
             staged=es._replace(
-                task=task, hist=hist, cmd_target=target_cmd,
+                task=task, hist=hist,
+                raw_velocity_command=cmd[:,:2],cmd_target=target_cmd,
                 cmd_ramp_from=from_cmd,
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
@@ -757,7 +768,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 actor_action=jnp.clip(mean,-1.,1.),
                 stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
                 floor_normal_world=floor_normal,floor_origin_world=floor_origin,
-                command=cmd,issued_yaw_rate=corrected,
+                command=cmd,
+                policy_cmd_vx=actual_cmd[:,0],policy_cmd_vy=actual_cmd[:,1],
+                issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
                 next_task_yaw_rate=out.state.task[:,T.yaw],
                 estimated_heading_rad=next_estimate,

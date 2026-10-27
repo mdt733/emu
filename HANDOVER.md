@@ -134,18 +134,10 @@ manual/owner-approved workflow.
   New training controller commands are boosted but teacher/reward
   success uses the original operator velocity; no cross-source reuse
   of the archived v5024 60M checkpoint.
-- [ ] The former A/C seed-734 80M replication is superseded. Its
-  original launcher remains separately available but not the current
-  experiment target.
-  Two-arm runner: `scripts/v5024_campaign.py --arms A C --steps 80000000
-  --seed 734 --root ~/robot_lab/emu_runs/v5025_repeat_seed734 --run`
-  from a **separate clean polish checkout**. Both train I=OFF; replay
-  with velocity-I settings 0.2/0.4/0.8s × 1.5/2× after checkpoints
-  (examiner micro-sweep **not yet implemented**). If useful, Experiment 2
-  enables I during training and scores raw operator requests separately
-  from corrected internal policy commands.
-- [ ] Experiment 2: selected recipe OFF vs one terrain-control intervention
-  ON at seed 735, 80M each; decision depends on Exam 1.
+- [ ] Experiment 2: refine 2–4 promising Experiment-1 directions into
+  robust longer or replicated tests, using actual slope, step and control
+  evidence. If I wins, keep its training/exam controller ON consistently,
+  and implement verified browser parity before release.
 - [ ] Run 3: single fresh-seed 736, 400M cold-start candidate.
 - [ ] Verify cold training, 2,048-world full PPO update, same-source
   checkpoint lifecycle, policy export and actual 360 browser replay.

@@ -375,6 +375,15 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if training.get('attitude_profile') not in ('v5014','v5015'):
         raise ValueError('missing supported training attitude profile')
     pitch = float(training.get('pitch_command_max_deg', float('nan')))
+    velocity_i=control.get('velocity_i') or {}
+    if not isinstance(velocity_i,dict):
+        raise ValueError('invalid velocity-I controller metadata')
+    ramp_i=float(velocity_i.get('ramp_s',.4))
+    mult_i=float(velocity_i.get('multiplier',1.))
+    if (not np.isfinite(ramp_i) or not .1<=ramp_i<=5. or
+            not np.isfinite(mult_i) or not 1.<=mult_i<=3. or
+            (mult_i>1. and schema!=3)):
+        raise ValueError('unsupported velocity-I controller or schema')
     phase_gain = float(control.get('phase_speed_gain', float('nan')))
     if not (np.isfinite(pitch) and 0 < pitch <= 45 and
             np.isfinite(phase_gain) and phase_gain >= 0):
@@ -700,6 +709,11 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                 "phase_rate_hz": 0.0, "sensor_scale": 0.0,
             },
             "phase_speed_gain": _scalar(run_cfg, 'phase_speed_gain', 0.75),
+            "velocity_i": {
+                "ramp_s": _scalar(run_cfg,'velocity_i_ramp_s',.4),
+                "multiplier": _scalar(run_cfg,'velocity_i_multiplier',1.),
+                "algorithm": "sensor_relative_shortfall_bounded_v1",
+            },
             "phase_speed_reference_mps": _scalar(run_cfg, 'vx_hi_max', 0.60),
             "sensor_noise_scale": 1.5,
             "phase_base_hz": 1.025,

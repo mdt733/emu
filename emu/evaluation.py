@@ -1600,6 +1600,10 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         attitude_profile=export['training']['attitude_profile'],
         pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
         phase_speed_gain=float(export['control']['phase_speed_gain']),
+        velocity_i_ramp_s=float(
+            (export['control'].get('velocity_i') or {}).get('ramp_s',.4)),
+        velocity_i_multiplier=float(
+            (export['control'].get('velocity_i') or {}).get('multiplier',1.)),
         sensor_noise_scale=export['sensor_settings'].get('sensor_noise_scale',0.),
         **{k:v for k,v in export['sensor_settings'].items()
            if k!='sensor_noise_scale'},
