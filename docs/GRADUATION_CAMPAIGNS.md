@@ -57,6 +57,19 @@ export fails, fix it on a new review branch before GPU replication.
 benchmark harness (specified below). Do not compare numbers from
 two incompatible exam implementations.
 
+## Experiment 1 — completed 290M-screen outcome
+
+**Completed at source `ab29c027`:** common 50M foundation + 12 matched
+50→70M forks. All finished; see the [result audit](EXPERIMENT1_FINDINGS.md).
+This replaces the earlier provisional claim that the experiment had not
+run. Best fixed generalist exam = staged OFF **0.7343**; balanced
+400ms/2× integral **0.7231**, versus same-lesson OFF **0.7139**.
+**All 12 finished with 1.5mm step-height practice; most slope practice
+fell back to 0.35°; 4N push and fast yaw frontier were not independently
+certified capabilities.** The 400M cold graduation run is NOT authorised
+by this evidence. Experiment 2 begins with equal-physics frozen exams,
+then isolated terrain/command/resilience/control repairs.
+
 ## Experiment 1 — broad research tournament (supersedes A2/C2 plan)
 
 The narrow A2/C2 160M repetition is **superseded by owner direction**.
@@ -345,8 +358,9 @@ public-release approval. Then archive Pinnacle and prune temporary
       model/control settings with only observation paths differing.
 - [x] Add `--arms A C` to the existing guarded campaign launcher.
       It remains plan-only unless `--run` is explicitly provided.
-- [ ] Complete established 50M + 12 × 20M Experiment 1 at seed 734;
-      identify 2–4 Pareto candidates.
+- [x] Complete established 50M + 12 × 20M Experiment 1 at seed 734;
+      all 13 training records verified from supplied overnight ZIP;
+      document limitation and rankings in `docs/EXPERIMENT1_FINDINGS.md`.
 - [ ] Inspect physical failures; implement **one opt-in** Experiment 2
       teaching change and test OFF vs ON, same source and seed.
 - [ ] Freeze a single configuration for the 400M graduation run,

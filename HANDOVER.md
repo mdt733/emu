@@ -127,26 +127,21 @@ manual/owner-approved workflow.
 - [ ] Compare frozen generalist scores AND separate supported/stable versus
   commanded/accurate uphill, downhill and camber physics, true step crossings,
   recovery, yaw/lateral drift and energy per *useful* distance.
-- [ ] **Revised Experiment 1:** 50M source-pinned shared learner (20M foundation + 30M specialist
-  growth) plus 12 × 20M research forks (290M total), including
-  balanced/steering/terrain/staged and six velocity-I gain/ramp
-  combinations. Launcher: `scripts/v5025_screen.py --run`.
-  Aggressive growth variant: signed speeds ×1.15 after 4 near
-  attempts and >=60% physical success; slopes +max(.25deg,16%)
-  after 4 per direction; steps +max(1mm,18%) after 4 up/down;
-  stronger resilience, transition, sensor and mixed growth;
-  2.5× post-20M steady/resilience challenge budget.
-  New cold-start output root:
-  `~/robot_lab/emu_runs/v5025_aggressive50_seed734`.
-  Source-matched, physics-compatible research forks are allowed at any
-  training age; old arbitrary hardcoded checkpoint gate removed.
-  New training controller commands are boosted but teacher/reward
-  success uses the original operator velocity; no cross-source reuse
-  of the archived v5024 60M checkpoint.
-- [ ] Experiment 2: refine 2–4 promising Experiment-1 directions into
-  robust longer or replicated tests, using actual slope, step and control
-  evidence. If I wins, keep its training/exam controller ON consistently,
-  and implement verified browser parity before release.
+- [x] **Experiment 1 290M completed and audited** from owner's
+  `overnight_results(2).zip`; exact source `ab29c027`, all twelve 70M
+  forks finished, no reported rollback. See
+  [Experiment 1 findings](docs/EXPERIMENT1_FINDINGS.md).
+  Staged OFF best broad exam 0.7343; balanced I 400ms/2× 0.7231 vs
+  balanced OFF 0.7139. **Not physical mastery**: all twelve step
+  frontiers at 1.5mm; most slopes at 0.35°; resilience all 4N;
+  commanded speed frontiers outrun observed motion.
+- [ ] Experiment 2: FIRST common real physical matrix on frozen 70M
+  (staged OFF, balanced OFF, balanced I 400ms/2x, I 800ms/2x);
+  THEN 2-4 isolated short teacher/controller repairs. Fix 0.35° slope
+  and 1.5mm step retreat-floor traps; separate real resilience recovery
+  evidence from merely requesting 4N. Keep raw commanded motion as
+  the criterion for assisted control; browser parity before publishing.
+  Preserve checkpoint source provenance with reviewed migration if needed.
 - [ ] Run 3: single fresh-seed 736, 400M cold-start candidate.
 - [ ] Verify cold training, 2,048-world full PPO update, same-source
   checkpoint lifecycle, policy export and actual 360 browser replay.
