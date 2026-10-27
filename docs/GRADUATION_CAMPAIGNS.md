@@ -57,6 +57,53 @@ export fails, fix it on a new review branch before GPU replication.
 benchmark harness (specified below). Do not compare numbers from
 two incompatible exam implementations.
 
+## Tonight's executable P1/P2 recovery-first campaign
+
+**Implementation committed on this feature branch:** `scripts/v5026_recovery_first.py`
+with new CLI training knobs `--growth-recipe`, `--retention-share`,
+`--terrain-lesson`, `--force-program`.
+
+- **New clean seed 735**, source-pinned 360 actor, fresh result root
+  `~/robot_lab/emu_runs/v5026_recovery_first_s735`.
+- **20M** original low-force/low-speed cold nursery, then **3×20M**
+  matched P1 comparisons: old 360 control (gentle real force);
+  main mature commands, gait phase and athletic rehearsal; and the
+  same with **25% low-disturbance, actually moving skill rehearsal**.
+  The core exercise includes signed reverse, lateral and yaw commands
+  and bounded mild shoves; its control worlds have no terrain
+  in the later coherent lessons.
+- At 40M compare frozen eval core, dynamic80, resilience75, vx MAE,
+  broad score. Fail the new candidate back to the measured control
+  when it fails old-skill safeguards; save `p1_selection.json` with
+  exact rule and all figures. This is screening, not a speed-force
+  physical P0 certification.
+- **3×20M** further forks 40→60M: random-terrain/gentle-push
+  control, coherent STEP/SLOPE/gentle push, coherent STEP/SLOPE/high
+  push. In coherent training STEP/SLOPE get positive 0.10–0.22m/s
+  forward operator commands, no yaw/lateral request and no
+  simultaneous step+grade for their primary lesson. Real supported
+  contact and original raw command remain the reward/exam criterion.
+- Total **140M aggregate training steps**. All runs are in the
+  **foreground terminal**, sequential, resume-aware, with CPU
+  checks and one full 2048 CUDA gradient update before foundation.
+  Ctrl+C forwards termination to child; restart the same command
+  on the exact unchanged source to resume.
+- The old 290M source and protected `main` remain untouched.
+  The 260M 232-schema Pinnacle **is not silently included in this
+  frozen 360 exam**; common 232/360 P0 is still separate and required
+  before any main replacement.
+- This is implemented but local CUDA has not been verified from
+  ChatGPT. CPU and Python CI are distinct from the user's CUDA
+  preflight; do not announce success prematurely.
+
+Foreground commands after `git pull --ff-only`:
+```bash
+cd ~/emu-graduation
+source .venv/bin/activate
+python scripts/v5026_recovery_first.py
+python -u scripts/v5026_recovery_first.py --run
+```
+
 ## Proposed recovery-first research programme
 
 **Updated decision:** Treat the apparent velocity-versus-resilience
