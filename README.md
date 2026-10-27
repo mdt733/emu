@@ -11,7 +11,7 @@ moving downhill, accumulating reward, or raising a curriculum target.
 [Public EMU Playground](https://mdt733.github.io/emu/) ·
 [Installation and commands](docs/INSTALL.md) ·
 [Completed v5024 experiment](docs/V5024_RUN_PLAN.md) ·
-[Next two experiments and 400M graduation plan](docs/GRADUATION_CAMPAIGNS.md) ·
+[50M + 12×20M exploration, refinement and 400M graduation](docs/GRADUATION_CAMPAIGNS.md) ·
 [Learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Physical capability inventory](docs/CAPABILITY_DIMENSIONS.md) ·
 [Release readiness](docs/RELEASE_READINESS.md) ·

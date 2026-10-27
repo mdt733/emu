@@ -79,7 +79,7 @@ def campaign_eta(root,cases):
     for case in cases:
         rows=read_rows(root/case['name']/'metrics.csv')
         seen=max((safe_float(r.get('step')) or 0. for r in rows),default=0.)
-        remaining+=max(0.,case['steps']-seen)
+        remaining+=max(0.,case['steps']-max(seen,case.get('from_steps',0)))
         if rows:
             speed=safe_float(rows[-1].get('steps_per_sec'))
             if speed is not None and speed>0.:
@@ -181,7 +181,7 @@ def summary(root,all_cases,sha):
     # the actual most recent on-policy observation AT OR BEFORE that age.
     # Missing or incomplete phases remain unknown, never interpolated.
     stages=[]
-    milestones=(10_000_000,20_000_000,40_000_000,60_000_000,80_000_000)
+    milestones=(10_000_000,20_000_000,40_000_000,50_000_000,60_000_000,70_000_000,80_000_000)
     for case in all_cases:
         path=root/case['name']/'metrics.csv'
         if not path.is_file():

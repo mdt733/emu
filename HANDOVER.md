@@ -127,10 +127,12 @@ manual/owner-approved workflow.
 - [ ] Compare frozen generalist scores AND separate supported/stable versus
   commanded/accurate uphill, downhill and camber physics, true step crossings,
   recovery, yaw/lateral drift and energy per *useful* distance.
-- [ ] **Revised Experiment 1:** 20M shared source-pinned foundation
-  plus 12 × 20M same-source checkpoint forks (260M total), including
+- [ ] **Revised Experiment 1:** 50M source-pinned shared learner (20M foundation + 30M specialist
+  growth) plus 12 × 20M research forks (290M total), including
   balanced/steering/terrain/staged and six velocity-I gain/ramp
   combinations. Launcher: `scripts/v5025_screen.py --run`.
+  Source-matched, physics-compatible research forks are allowed at any
+  training age; old arbitrary hardcoded checkpoint gate removed.
   New training controller commands are boosted but teacher/reward
   success uses the original operator velocity; no cross-source reuse
   of the archived v5024 60M checkpoint.

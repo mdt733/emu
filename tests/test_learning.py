@@ -852,30 +852,49 @@ def test_unified_same_source_target_extension_requires_completed_final(monkeypat
         runmod.inspect_run(new,provenance=prov,resume='auto')
 
 
-def test_graduation_fork_gate_is_explicit(monkeypatch,tmp_path):
+def test_research_fork_allows_valid_alternative_lessons_and_arbitrary_age(monkeypatch,tmp_path):
+    from dataclasses import replace
     from emu.training import unified_launch_mode
+    from emu.run import verify_experiment_fork
     from emu.training_config import TrainingConfig
     from emu.contracts import OBS_SCHEMA_TERRAIN
-    from dataclasses import replace
-    parent=tmp_path/'shared'/'checkpoints'/'final.pkl'
-    parent.parent.mkdir(parents=True)
-    parent.write_bytes(b'test-only')
-    cfg=replace(TrainingConfig(),device='cuda',envs=2048,steps=40_000_000,
-                foundation_steps=20_000_000,foundation_mix='main',
-                observation_schema=OBS_SCHEMA_TERRAIN,
-                terrain_step_max_m=.04,unified_capability_focus=True,
-                open_frontier=True,attitude_profile='v5015',
-                pitch_command_max_deg=8.,motor_guidance_weight=0.,
-                domain_randomization=False,
-                domain_terrain_radius=0.,domain_robot_radius=0.,
-                domain_hardware_radius=0.,capability_field_mode='shadow',
-                cloud_probes_per_eval=0,cloud_final_probes=0,
-                run_dir=str(tmp_path/'screen'),resume=str(parent))
+    parent_file=tmp_path/'base'/'checkpoints'/'final.pkl'
+    parent_file.parent.mkdir(parents=True)
+    parent_file.write_bytes(b'launch mode path probe only')
+    parent=replace(TrainingConfig(),device='cuda',envs=2048,
+        steps=50_000_000,foundation_steps=20_000_000,
+        observation_schema=OBS_SCHEMA_TERRAIN,
+        terrain_step_max_m=.04,unified_capability_focus=True,
+        open_frontier=True,attitude_profile='v5015',
+        pitch_command_max_deg=8.,domain_randomization=False,
+        domain_terrain_radius=0.,domain_robot_radius=0.,
+        domain_hardware_radius=0.,capability_field_mode='shadow',
+        cloud_probes_per_eval=0,cloud_final_probes=0,
+        run_dir=str(tmp_path/'base'))
+    branch=replace(parent,steps=70_000_000,
+        run_dir=str(tmp_path/'branch'),resume=str(parent_file),
+        teaching_schedule='steering',velocity_i_ramp_s=.4,
+        velocity_i_multiplier=2.)
     monkeypatch.setenv('EMU_UNIFIED_CONTINUOUS','cold-growth-approved')
-    with pytest.raises(RuntimeError,match='external warm starts'):
-        unified_launch_mode(cfg)
-    monkeypatch.setenv('EMU_UNIFIED_SCREEN_FORK','same-source-20m-v1')
-    assert unified_launch_mode(cfg)=='continuous'
+    assert unified_launch_mode(branch)=='continuous'
+    verify_experiment_fork(parent,branch)
+    verify_experiment_fork(parent,replace(branch,steps=125_000_000,seed=909))
+    with pytest.raises(RuntimeError,match='physical/actor contract'):
+        verify_experiment_fork(parent,replace(branch,terrain_step_max_m=.08))
+
+
+def test_screen_forks_from_established_50m_not_newborn_20m():
+    import runpy
+    scope=runpy.run_path(str(Path(__file__).resolve().parents[1]/
+                            'scripts/v5025_screen.py'),run_name='__screen_test__')
+    assert scope['FOUNDATION_END']==20_000_000
+    assert scope['START']==50_000_000
+    assert scope['TARGET']==70_000_000
+    arms=scope['arms'](734)
+    assert len(arms)==12
+    assert sum(a['steps']-a['from_steps'] for a in arms)==240_000_000
+    assert any(a['velocity_i_multiplier']==2. and
+               a['velocity_i_ramp_s']==.4 for a in arms)
 
 
 def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():

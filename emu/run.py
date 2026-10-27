@@ -167,6 +167,26 @@ def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig
                  .get('git_commit')) == provenance['commit'])
 
 
+def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> None:
+    """Keep real physical/actor contracts stable, not arbitrary research choices.
+
+    Teaching emphasis, reward/controller economics, PPO settings, seed,
+    experiment duration and the parent checkpoint age are freely selectable.
+    """
+    fixed=('observation_schema','terrain_step_max_m',
+           'unified_capability_focus','attitude_profile',
+           'pitch_command_max_deg','phase_speed_gain',
+           'domain_randomization','domain_robot_radius',
+           'domain_hardware_radius','domain_terrain_radius',
+           'domain_terrain_mode','contact_slope_deg',
+           'vx_hi_max','vx_lo_min','vy_max_mps','yaw_max_rad_s',
+           'push_max_force_n','foundation_steps')
+    bad={name:(getattr(parent,name),getattr(child,name))
+         for name in fixed if getattr(parent,name)!=getattr(child,name)}
+    if bad:
+        raise RuntimeError(f'Incompatible research fork physical/actor contract: {bad}')
+
+
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
@@ -249,21 +269,21 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             parent, validate=True, expected_observation_schema=config.observation_schema,
             expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
-        if os.environ.get('EMU_UNIFIED_SCREEN_FORK') == 'same-source-20m-v1':
-            parent_meta=payload['meta']
-            if (parent.parent.name != 'checkpoints'
-                    or int(parent_meta.get('step',-1)) !=
-                       update_boundary_at_or_after(20_000_000,config.envs)
-                    or config.steps != 40_000_000
-                    or config.foundation_steps != 20_000_000
-                    or config.seed != 734
-                    or parent.name != 'final.pkl'):
-                raise RuntimeError('screen fork requires 20M final of seed 734 and 40M target')
         if source != provenance['commit']:
             raise RuntimeError(
                 'External checkpoint source differs from current Git commit. '
                 'Use one cold-start run with --resume auto; do not transplant '
                 'old learning state across code revisions.')
+        # A newly created study is allowed to fork a source-matched
+        # checkpoint at ANY training age; verify that it uses the same
+        # robot/sensor/physical envelope, not the same lesson recipe.
+        if parent.parent != root/'checkpoints':
+            if parent.parent.name != 'checkpoints':
+                raise RuntimeError('research parent must be inside checkpoints/')
+            parent_cfg=parent.parent.parent/'training_config.json'
+            if not parent_cfg.is_file():
+                raise RuntimeError('research parent has no training_config.json')
+            verify_experiment_fork(TrainingConfig.load(parent_cfg), config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')

@@ -60,9 +60,10 @@ two incompatible exam implementations.
 ## Experiment 1 — broad research tournament (supersedes A2/C2 plan)
 
 The narrow A2/C2 160M repetition is **superseded by owner direction**.
-Instead, train **one 20M main-style foundation**, then branch its
-exact checkpoint into **twelve matched 20M specialist/control continuations**
-(260M cumulative GPU steps counting the shared foundation). This is a
+Instead, train **one learner to 50M** (20M proven steady-first foundation and
+30M of adaptive six-specialist growth), then branch its 50M checkpoint
+into **twelve matched 20M continuations (50→70M)**.
+This totals **290M environment steps**. This is a
 controlled short-horizon exploration, **not** twelve independent cold starts
 or a proof of seed robustness. A and C's 60M results motivate the arms.
 
@@ -88,13 +89,17 @@ additive offset in Experiment 2 if evidence demands it.
 
 The original `d26ae0c2` 60M checkpoint belongs to a different source
 revision: **do not warm-start it** under changed controller code. The
-shared 20M foundation is trained on the exact experiment SHA and is
-then the valid single checkpoint ancestor for all forks. Each fork
+shared 50M learner is trained on the exact experiment SHA, with
+20M steady-first foundation + 30M of full multi-dimensional practice,
+and is the valid common checkpoint ancestor for all forks. Each fork
 inherits the same source/actor/optimizer/normaliser/curriculum, with its
 own post-fork training configuration, output directory and fresh physics
 episodes. Source, lineage, seed and controller settings are recorded.
-Only the explicit `same-source-20m-v1` guarded runner authorises an
-external fork. Normal training/auto-resume restrictions remain.
+Research forks are now first-class: `--resume /path/to/checkpoints/final.pkl`
+into a **new run directory** is permitted after validating checkpoint,
+source SHA, 360 actor/sensors, and physics/config compatibility; no
+arbitrary parent age, seed or branch label restrictions. Same-run
+`--resume auto` remains strict.
 
 **Implemented launcher:** `scripts/v5025_screen.py`, **plan-only**
 unless `--run`; source must be clean on
@@ -105,11 +110,11 @@ python scripts/v5025_screen.py          # plan
 python -u scripts/v5025_screen.py --run # real GPU
 ```
 
-Outputs go to `~/robot_lab/emu_runs/v5025_screen_seed734/`;
+Outputs go to `~/robot_lab/emu_runs/v5025_screen50_seed734/`;
 `overnight_results.zip` holds comparisons/console references, not
 the large checkpoints themselves. First inspect code/CI and GPU smoke.
 **The source above is an implementation candidate**, not evidence
-that 260M CUDA steps have actually run successfully.
+that 290M CUDA steps have actually run successfully.
 
 **Shortlist rule:** keep 2–4 genuinely different Pareto candidates.
 Compare physically observed command tracking (especially uphill and
@@ -304,7 +309,7 @@ public-release approval. Then archive Pinnacle and prune temporary
       model/control settings with only observation paths differing.
 - [x] Add `--arms A C` to the existing guarded campaign launcher.
       It remains plan-only unless `--run` is explicitly provided.
-- [ ] Complete 20M + 12 × 20M Experiment 1 at seed 734;
+- [ ] Complete established 50M + 12 × 20M Experiment 1 at seed 734;
       identify 2–4 Pareto candidates.
 - [ ] Inspect physical failures; implement **one opt-in** Experiment 2
       teaching change and test OFF vs ON, same source and seed.
