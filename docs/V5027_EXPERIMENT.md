@@ -69,6 +69,10 @@ python scripts/v5027_coherent_retention.py
 python -u scripts/v5027_coherent_retention.py --run
 ```
 
-The new run root is `~/robot_lab/emu_runs/v5027_coherent_retention_s735`; the shareable report becomes `overnight_results.zip`, including `physical_summary.md` and each `unified_exam.json/md`.
+**WSL import-path correction (28 Oct):** the first preflight attempted to use the existing `~/emu-graduation/.venv`, whose editable installation imported `/home/mdt733/emu-graduation/emu/environment.py` even while the current working directory was `~/emu-v5027`. Original `coherent` happened to work, but `coherent-direct` was rejected by the old module. **No learner training started.** The launcher now explicitly prepends the current v5027 Git root to `PYTHONPATH` for every child process, and verifies `emu.environment` resolves to the current source before any physics/JAX preflight. It does not reinstall or modify the old virtual environment.
+
+The aborted first root `~/robot_lab/emu_runs/v5027_coherent_retention_s735` is retained as evidence, not deleted or silently overwritten. **The corrected campaign defaults to** `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`, with results bundle `overnight_results.zip`, including `physical_summary.md` and each `unified_exam.json/md`.
+
+From an already clean `~/emu-v5027` checkout, use `git pull --ff-only` to fetch the fix, then rerun the launcher. The expected provenance line before preflight is `EMU environment source: /home/mdt733/emu-v5027/emu/environment.py`. For future restarts, keep the Git SHA unchanged.
 
 **Do not `git pull` or modify source in the middle of a run.** Any branch commit changes the required training source SHA. The original 232-input Pinnacle remains protected and the public playground remains unchanged. No 400M graduation is proposed until controlled physical evidence supports it.

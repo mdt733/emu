@@ -7,6 +7,13 @@
 **Draft review:** [PR #15](https://github.com/mdt733/emu/pull/15)  
 **Public/main:** protected — **no merge, new champion or release without explicit owner approval**.
 
+### v5027 first WSL preflight: wrong editable-vEnv import; fixed on feature branch
+
+- [x] First launch from `~/emu-v5027` under `~/emu-graduation/.venv` hit old editable source: traceback `/home/mdt733/emu-graduation/emu/environment.py:1416` rejected `coherent-direct`. No PPO training began.
+- [x] Corrected v5027 launcher prepends its checked-out Git root to child-process `PYTHONPATH`, prints and asserts loaded `emu.environment` file equals current checkout. Does **not** modify installed venv, archived `ab64cac` source, or protected `main`.
+- [x] Preserves the old preflight-only root and its old manifest/logs; new source-pinned default root is `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.
+- [ ] User to pull fix into clean `~/emu-v5027`; new 3-way CPU + 2048 GPU preflight required before cold-start run.
+
 ## v5027 — new independent feature-branch follow-up (28 Oct 2026)
 
 - [x] Created `feature/v5027-coherent-retention` from the release-polish branch; **no main edits** and original `ab64cac` 140M v5026 data stays immutable.
