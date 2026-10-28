@@ -1,125 +1,94 @@
-# EMU release-candidate cleanup and promotion gates
+# EMU successor — measurable graduation and clean-release gates
 
-**Date:** 27 October 2026  
-**Training source (frozen):** `feature/v5024-terrain-control` at
-`d26ae0c2c4097d7c7124759197a94504abc44995`.  
-**Engineering cleanup:** `feature/v5024-release-polish`, forked from that commit.  
-**Protected:** `main`, public Pages/showcase, approved 260M Pinnacle,
-archived v5023 experiment checkpoints, and the running v5024 run directories.
+**Candidate status:** NOT APPROVED. Protected `main` still hosts the
+approved 232-input v5016 Pinnacle browser policy.
 
-## Why two branches?
+The target is not just higher rewards, harder curriculum targets, or
+a new neural input shape. It is a **genuinely better six-servo robot**:
+measured fast dynamic locomotion approaching the incumbent's ~1m/s
+**requested** forward-speed envelope, plus supported terrain crossing,
+resilience and efficient control.
 
-v5024's 3 × 60M campaign pins its exact source revision. Even a harmless
-documentation commit changes the SHA. **Do not pull the polish branch into
-the running training checkout**, and do not resume its checkpoints under
-polish code. Review and integrate cleanup only after collecting results,
-and start a new source-pinned run for any changes that alter learning.
+## 1. Training provenance and code hygiene
 
-## Cleanup policy
+- [ ] Fresh training or provably compatible source-pinned lineage;
+  log exact source SHA, seed, JAX/MuJoCo versions and checkpoint hashes
+- [ ] Hold completed training checkpoints immutable; **never** resume
+  the running source under a later cleanup branch
+- [ ] One simple launcher path and one shared campaign-support module;
+  dead experiments archived by immutable Git SHA, not active imports
+- [ ] No unexplained duplicated rewards, alternate actor schemas or
+  undocumented privileged observation fields
+- [ ] No stale README, dead links, superseded "current" run instructions
+- [ ] Automated Python checks, full 2048-world CUDA smoke, checkpoint
+  resume/export and browser build tested on the actual candidate revision
+- [ ] Current code and documentation pass peer review; no necessary
+  capability or release test was deleted merely to reduce code size
 
-1. Preserve actor contracts (legacy 220/232 and unified 360), training
-   lineage validation, physical simulation, failure recovery, policy export
-   and the protected browser champion until independently replaced.
-2. Keep tests that protect a real behaviour or boundary, regardless of
-   their original v5015/v5016/v5023 names. Remove only redundant or
-   unreachable cases **after** mapping coverage and replacing their checks.
-3. Keep the core read-first path: README → INSTALL → V5024_RUN_PLAN →
-   UNIFIED_CAPABILITY_GROWTH → CAPABILITY_DIMENSIONS.
-4. Clearly label completed experiment scripts/docs as historical. On the
-   frozen *training* branch, the v5024 runner still imports the older
-   tournament helpers and must remain untouched. On the **polish branch**,
-   those helpers have been consolidated into its v5024 launcher and the
-   v5023 tournament entrypoint removed. That is a changed source revision:
-   never use it to resume the frozen 180M experiment.
-5. Run small tests before GPU and hold behavioural changes until frozen
-   examiner results justify them. Reduce accidental complexity, not just
-   source line count.
+## 2. Independent physical competence
 
-## Evidence required before promoting to main
+Use **common physical tasks** to compare 232-input `main` and the
+360-input challenger; each actor keeps its own legitimate sensor
+configuration, but has the same body, ground, disturbances, command
+requests, horizon and comparable scoring.
 
-- [x] Three 60M arms finished; owner's ZIP reviewed and SHA recorded.
-- [ ] Complete Experiment 1's 50M diversified learner
-      (20M foundation + 30M six-specialist growth) and twelve
-      compatible 20M forks (50→70M); refine Experiment 2, then
-      one 400M continuous **fresh** cold start.
-- [ ] Implement a **common schema-neutral physical benchmark** before claiming
-      direct improvement over the 232-input Pinnacle. The existing
-      360-only `capability-exam` and legacy exams are **not directly comparable**.
-- [ ] Frozen generalist **and** 1/2/3/5° directional terrain matrix on the
-      candidates; report supported motion separately from precise tracking.
-- [ ] Check uphill commanded velocity, lateral downhill drift, yaw,
-      step-up AND down support, falls and work per useful distance.
-- [ ] Repeat promising arms with further seeds before claiming broad gains.
-- [ ] Independently verify cold-start, 2048-world CUDA update,
-      same-source resume/extension, export, and local-browser playback.
-- [ ] Current candidate CI green (Python/MJX CPU/browser/viewer); avoid
-      claiming that CPU CI verifies CUDA capacity.
-- [ ] Review diff versus v5024; ensure no stale branch or file paths in
-      public entry docs; identify actual unreferenced code/tests for deletion.
-- [ ] Reviewed PR, explicit owner approval for **main merge**.
-- [ ] Separate explicit release approval for any public showcase update.
+- [ ] Signed forward tracking at 0.15, 0.3, 0.6, ~1.0 m/s; record
+  actual mean velocity, steady-state error, falls and recovery. A
+  1m/s teacher request is **not** a 1m/s pass.
+- [ ] Reverse, lateral and yaw including direction changes and braking,
+  without hidden turning-back shortcuts
+- [ ] Four-bearing slopes (uphill, downhill, two cambers), record
+  physical stability **and** commanded motion/heading separately
+- [ ] Steps: support-verified **UP** and **DOWN** at 1, 2, 2.5, 3,
+  3.5cm and onward; no mixed up/down headline scores
+- [ ] Realistic combinations of incline + sharp ledge, orientation
+  variation and terrain perturbations; no false geometric shortcuts
+- [ ] Resilience conditioned on known shove, direction, command
+  and remaining support (not merely training resistance target)
+- [ ] Effort measured as meaningful shaft-work proxy per useful
+  metre; do not call it electrical consumption
+- [ ] Complete per-world JSON and time-resolved traces for difficult
+  events, more than one seed and more than eight worlds for claims
+- [ ] Retain already passed easier tasks when hard frontiers expand;
+  certify beyond the specific held-out curriculum fixtures
 
-## Public release readiness — 360-input policy plumbing
+## 3. Navigational safety and deployability
 
-**Assisted actor caution:** the new velocity-I correction currently
-belongs to the JAX training/evaluation path. The browser does not implement
-it yet. A release validator explicitly refuses non-OFF velocity-I
-policies until actual JS/MuJoCo replay parity is engineered and measured.
+- [ ] Delayed/noisy 4×4 ToF observations provide measurable lead time
+  to detect a high step or missing landing surface
+- [ ] The dynamically unstable policy can **actually slow, hold,
+  backstep and recover** under supervisor commands
+- [ ] Prove a deliberate safe refusal/replan is not a mere stalled
+  policy, and measure both false refusals and hazardous overcommitment
+- [ ] No supervisor has access to secret terrain geometry at runtime;
+  no hard-coded servo climbing animation or alternate actor
+- [ ] Verify exact actor/export observation contract in browser replay,
+  including all sensor timings and units
 
-The previous release gate accepted only 232 observations. The polish
-branch now validates **360-input schema-9 array-only actor policies** in
-the stdlib-only public release tool, including the 4×4 physical array
-extrinsics, sensor settings, exact field order and independently matched
-sensor SHA256. The already approved 232-input Pinnacle approval remains
-valid and unchanged. **No public deployment is triggered by this work.**
-The old untrained zero-action fixture, fallback and redundant
-`--require-champion` switch have been deleted: trained policy and
-valid provenance are unconditional build requirements.
+## 4. Release and rollback
 
-The current `showcase/deployment_request.json` remains pinned to the
-approved v5017 pose-lattice release. Future 360 publication still
-requires a separate owner-reviewed release request, policy artifact,
-checkpoint evidence, and GitHub Pages deployment.
+- [ ] Share comprehensible README, install and safety docs, concise
+  handover and historical links; avoid active v5024/v5025/26/27
+  launcher clutter
+- [ ] Leave the approved `showcase/champion.emupolicy` unchanged
+  until a candidate passes the independent common exam
+- [ ] Explicit owner approval for the new champion and for merging to
+  `main`; this checklist does not authorize either
+- [ ] Record release source and checkpoint fingerprints, deterministic
+  export, viewer smoke, and a clear rollback path to v5016 Pinnacle
+- [ ] Update the public Pages deployment only with a reviewed,
+  independently tested actor + frontend combination
 
-## Legacy retirement — explicit exit plan
+## Current study and historical information
 
-The old 220/232-input policy family, sim2real trial profiles, legacy-only
-examiners and their tests are **temporary scaffolding**, not a permanent
-second product. Retire them by audited deletion after:
+[v5028 considered ascent](V5028_CONSIDERED_STEPS.md) is a **research
+treatment**, not a candidate release. The owner reported the foreground
+launcher running on 29 Oct 2026; its results still require review.
 
-1. A 360-input champion and its saved observation/normalizer contract are
-   selected using held-out real-contact exams and replicated seeds.
-2. The local 360-input viewer and exported-policy replay are verified against
-   the Python actor, including terrain sensing and all controls.
-3. An owner-approved public release actually switches the showcase to the
-   new champion, with the old one preserved as an archived release/blob.
-4. Call-site and checkpoint format inventory shows the old schema is no
-   longer required for the supported trainer, exporter, CI or viewer.
-5. Remove obsolete compatibility branches, old CLI flags and their now-
-   irrelevant tests together; retain small backward-compatible readers
-   only when actual user data needs migration.
+[Research history](history/README.md) ·
+[Maintenance rules](MAINTENANCE.md) ·
+[Current handover](../HANDOVER.md) ·
+[Public playground](PLAYGROUND.md)
 
-The desired final `main` has **one active actor contract, one learner and
-one current release path**, not two maintained generations. Do not delete
-legacy runtime dependencies *before* the public release migrates.
-
-**This cleanup is not a new champion.** Keep the main policy and public
-showcase until matched, physically grounded evaluation supports promotion.
-
-## Audit decisions (after standalone launch consolidation)
-
-Source-level cleanup is underway, but none of these changes is claimed as
-GPU/behavioural validation. Do not choose a champion before the matched
-frozen comparisons. The future deletion of old-schema data paths depends
-on successful public migration, not on a desire for a smaller diff.
-
-| Item | Decision | Reason |
-| --- | --- | --- |
-| `scripts/overnight_teaching.py` | **Removed on polish** | v5024 campaign now owns its needed launch/report helpers; the v5023 tournament remains in Git history |
-| `emu/directional.py` / `terrain_spike.py` | Retain | Frozen exam, legacy courses and CI physical probes |
-| Legacy 220/232 contracts and corresponding tests | Retain | Public Pinnacle and checkpoint-export compatibility |
-| `scripts/smoke_training_lifecycle.py` | Retain | Checkpoint/resume/export acceptance |
-| `scripts/install_viewer_wsl.sh` | Retain | CPU-only standalone viewer installation |
-| v5023 tournament documents | Removed from active docs | Complete historical versions remain in Git history; current run has its own plan |
-| Surface-lab instructions | Consolidate | v5024 already includes the real MuJoCo viewer; no third checkout needed |
-| Source-check workflow naming and launch plans | Refresh | Historical version labels and stale plan options confuse the current release |
+The original v5024-era release checklist is
+[archived](history/V5024_RELEASE_READINESS.md).
