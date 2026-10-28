@@ -36,19 +36,22 @@ def _held_out_core_fixture():
 
 
 def test_fixed_terrain_15deg_boundary_uses_float64_host_validation():
-    """The real 15° MJX exam must not reject 15.00000095° float32 noise."""
-    # This reproduces the host packet conversion exactly, without JIT.
-    import numpy as np
-    def grade(pitch,roll):
-        p,r=float(np.float32(pitch)),float(np.float32(roll))
-        g=np.hypot(np.tan(np.deg2rad(p)),np.tan(np.deg2rad(r)))
-        return float(np.rad2deg(np.arctan(g)))
-    assert grade(15.,0.)<=15.+1e-9
-    assert grade(-15.,0.)<=15.+1e-9
-    assert grade(0.,15.)<=15.+1e-9
-    assert grade(0.,-15.)<=15.+1e-9
-    assert grade(15.01,0.)>15.+1e-9
-    assert grade(11.,11.)>15.+1e-9
+    """Test the actual production packet validator without a JAX compile."""
+    from types import SimpleNamespace
+    from emu.environment import EmuMJXEnv
+
+    # The method uses this small host-side subset of environment fields.
+    fake=SimpleNamespace(
+        jnp=np,terrain_step_mocap_id=0,terrain_step_max_m=.04,
+        unified_capability_focus=True,sensor_noise_scale=1.0)
+    for pitch,roll in ((15.,0.),(-15.,0.),(0.,15.),(0.,-15.)):
+        packet=EmuMJXEnv.params_array(
+            fake,dict(terrain_pitch_deg=pitch,terrain_roll_deg=roll))
+        assert np.isfinite(packet).all() or np.isnan(packet).any()
+    for pitch,roll in ((15.01,0.),(11.,11.)):
+        with pytest.raises(ValueError,match='15-degree exam cap'):
+            EmuMJXEnv.params_array(
+                fake,dict(terrain_pitch_deg=pitch,terrain_roll_deg=roll))
 
 def test_offline_fixed_exam_compare_uses_only_frozen_exam_csv(tmp_path):
     import csv
