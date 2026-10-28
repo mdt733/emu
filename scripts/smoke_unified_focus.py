@@ -95,6 +95,26 @@ def main():
         assert np.all((speeds>=.0699)&(speeds<=.1301)), speeds
         print(f"Considered STEP request: {speeds.min():.3f}.."
               f"{speeds.max():.3f}m/s",flush=True)
+        if not args.full_update:
+            # Force a real UP lip and position the torso 4cm before it,
+            # to prove the new per-world relief flag is reachable ONLY
+            # on the up-facing STEP worlds, not all focused environments.
+            params['terrain_exposure']=1.0
+            lip_state,_=env.reset(params)
+            geoms=np.asarray(jax.device_get(lip_state.data.geom_xmat[:,int(env.terrain_step_geom_id),:])).reshape(
+                (args.envs,3,3))
+            center=np.asarray(jax.device_get(lip_state.data.mocap_pos[:,env.terrain_step_mocap_id,:]))
+            from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M
+            lip=center-UNIFIED_SLAB_HALF_LENGTH_M*geoms[:,:,0]
+            target=lip-.04*geoms[:,:,0]
+            altered=lip_state.data.replace(
+                qpos=lip_state.data.qpos.at[:,:2].set(jnp.asarray(target[:,:2])))
+            altered=env.forward_batched(env.mjx_model,altered)
+            flags=np.asarray(jax.device_get(env._considered_step_window(lip_state,altered)))
+            assert flags[::2].all() and not flags[1::2].any(), flags
+            assert np.all(np.asarray(jax.device_get(lip_state.terrain_care_frames))==0)
+            params['terrain_exposure']=.15
+            print("Considered STEP gate: actual UP near-lip only; no DOWN relief",flush=True)
     if args.terrain_lesson=="coherent-direct":
         # Test the REAL post-specialist teacher command, not merely
         # the intended .10-.22 pre-attenuation sample.
