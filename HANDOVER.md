@@ -28,6 +28,17 @@
 - [ ] Pull evaluation-only `feature/v5027-results-audit` into `~/emu-v5027-eval`; rerun all A/B/C under a fresh results directory, teeing each completed-case console log. Old partial cases were only streamed, not saved as unified_exam.json.
 - [ ] Do not update immutable GPU `~/emu-v5027` (training source `5dec60c`) or protected `main`.
 
+## v5027 — completed independent 15° / 3.5cm physical exam (29 October 2026)
+
+- [x] Owner ran full 16-world/seed1729/0.15m/s physical exam for A/B/C from examiner fix source `5d44f02`, under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2/extended_physical_fixed_20261029_065743`. All three generated `unified_exam.json` and `unified_exam.md`. The prior exact-15° crash is fixed.
+- [x] 320 four-direction slope **provisional mission** passes: A **203/320**, B **137/320**, C **217/320**. At 12° uphill A 9/16, B 2/16, **C 16/16**; at 15° uphill A 8/16, B 0/16, C 8/16. At 15° downhill/right camber **all 0/16 missions**. Stable on support is not commanded slope walking.
+- [x] 3cm supported crossings A **5/16**, B **5/16**, C **6/16**, but full physical missions **0/16,1/16,1/16**. At 2.5cm A **13/16** crossings versus B 7/16/C 10/16. **Step-UP and step-DOWN splits not yet recovered** from raw JSON; no 3cm ascent mastery claim.
+- [x] Strict lateral/yaw command totals A **42/64**, B **50/64**, C **60/64**. C's moving retention strongly helps some directional steering at independent seed, but its prior 60M fixed resilience75 remains worse (48/64 vs A/B 55/64).
+- [x] Documentation-only interpretation on `feature/v5027-frontier-review`; **NO** edits to completed training/evaluation branches or protected `main`. [Extended findings](docs/V5027_EXTENDED_PHYSICAL_FINDINGS.md).
+- [ ] NEXT: collect existing completed 3× raw `unified_exam.json` plus logs from the run using the single `tar` command in extended findings; analyze up/down 3cm crossings, signed vx/vy/yaw bias and mission-failure reasons.
+- [ ] Before larger run, compare A original coherent + targeted 10–15% retention and STEP-only direct alternatives using frozen physical exam. Do not assume B direct terrain mutation is universally beneficial; B was weak on downhill/slope control.
+- [ ] Additional 32-world alternate-seed 12°/15° four-way matrix and 2.5–3.5cm physical crossings; heading/path precision and push recovery are still separate required validations.
+
 ## v5027 140M overnight completed — audited 29 October 2026
 
 - [x] Shared 20,054,016-step source-pinned foundation; A/B/C all reached 60,030,976 (140M aggregate, one seed735) with zero logged checkpoint rollbacks. Training source **`5dec60c4`**, archived completed run under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.

@@ -162,6 +162,8 @@ conditional results using 32 worlds / additional seeds. **Do not
 mistake slope stability for directed locomotion or step crossing for
 post-cross speed/heading control.**
 
+**New 29 Oct evaluation result:** The complete independent 16-world, seed1729, 5–15°/2–3.5cm A/B/C physical matrix is documented in [v5027 extended physical results](V5027_EXTENDED_PHYSICAL_FINDINGS.md). B's direct command adjustment significantly regressed steep grades relative to A; C improves steering and 12° uphill but not 3cm full mission. Preserve the original finished experiment, await per-world JSON for ascent-vs-descent analysis.
+
 ## Interpretation and next decision
 
 **A** remains the marginal winner on 60M frozen broad score and familiar recovery, but **B** preserves nearly all that competence while achieving more on-policy directed locomotion and one more verified 20mm uphill crossing. **C** demonstrates a meaningful learnable *control benefit* from moving retention, but a 25% allocation is too large or insufficiently targeted to claim recovery/no-forgetting protection.
