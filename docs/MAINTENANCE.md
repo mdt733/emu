@@ -46,6 +46,7 @@ can be understood without knowing the history of v5015 through v5028.
 - `emu/environment.py`: true physics, observations and physical evidence
 - `emu/rewards.py`: teaching payments only
 - `emu/curriculum.py` / `emu/capability_focus.py`: difficulty and roles
+- `emu/training_health.py`: PPO health/rollback decision logic
 - `emu/capability_field.py`: stored training-only physical competence evidence
 - `emu/capability_cloud.py`: held-out evaluation; never writes back into teaching field
 - `emu/training.py` / `emu/ppo.py`: one learner and policy lifecycle
