@@ -140,6 +140,96 @@ via regular inputs, and implement risk-based choice in the
 high-level navigator. Only consider new actor output or additional
 observation fields after proving the existing contract insufficient.
 
+## Careful crossing versus refusal — physical evidence and scoring design (29 Oct)
+
+**New evidence, no implementation yet:** the complete 16-world/condition
+seed-1729 archive was examined. At 0.15m/s, A physically crossed
+**8/8 UP at 2cm**, **6/8 UP at 2.5cm**, **0/8 UP at 3/3.5cm**.
+All observed 3/3.5cm A/B/C crossings were DOWN. A survived 8/8
+3cm-UP episodes yet achieved only about 0.018m/s average forward
+velocity (command +0.15m/s); this is a **stall, not a demonstrated
+intentional safe stop**. A's successful 2.5cm-UP crossings occurred at
+median control frame 151.5 (~3.03s), versus 132.5 (~2.65s) at 2cm;
+these are *completion times*, not proof that the actor slowed before
+the lip. The archived JSON contains per-world aggregates and crossing
+frames, **not** sensor/velocity/foot-contact time traces sufficient
+to diagnose deliberate slow-down or stopping distance.
+
+**Current training incentive conflict:** `rewards.py::_command_tracking`
+penalises instantaneous departure from a positive forward target.
+`environment.py` adds a one-time +10 payment for a newly verified
+supported crossing plus bounded ascent high-water guidance. A biped
+that briefly slows to place a foot more securely may therefore lose
+many frames of tracking reward, despite an eventual supported ascent.
+The current physical exam's full-episode forward MAE and zero-yaw
+heading tests likewise score a different thing from safe contact
+crossing. Preserve those diagnostics but never replace contact evidence
+with a single opaque pass/fail total.
+
+### Train *careful progress*, not an automatic stall
+
+- For a commanded exploratory step, give **first-class success** to a
+  verified sustained far-side foothold, followed by a finite supported
+  post-cross recovery window and positive signed goal progress.
+  Track time-to-lip, time-to-first-supported-crossing, forward speed
+  before/at/after the lip, peak slip, non-foot contact, heading drift
+  and actuator loading **separately**. A short deliberate slowdown
+  should not veto an eventual good crossing; surviving while stuck
+  before the lip must not earn it.
+- Use speed-shaped or approach-phase command tracking when the
+  experimental objective is controlled crossing. Prefer an explicit,
+  observable *lower speed command* from the higher-level supervisor;
+  retain the original operator/waypoint intent for mission reporting.
+  Where teacher-only geometry gates a bounded training reward, verify
+  the delayed/noisy ToF actually makes that situation observable to
+  the deployed actor. Do **not** give it privileged lip coordinates.
+- Give limited time/effort budget for probing and foot placement, not
+  a demand to preserve +0.15m/s every frame. Never pay a perpetual
+  stationary survival loop or successful 'crossing' without far-side
+  support and signed continuation. Record arrival time as a
+  secondary efficiency metric, not an absolute exclusion at the
+  first hesitation. Keep an explicit timeout/stall diagnosis.
+- For a clearly difficult obstacle in *navigation*, a deliberate
+  stop/retreat can count as a **separate** success only with (a) early
+  obstacle detection, (b) an actual supervisor decision, (c) no unsafe
+  lip/contact intrusion, (d) measured supported hold or safe retreat,
+  and (e) blocked-route reporting. The same motion under an
+  unmodified forward command is **not** refusal.
+- The ability classifier must depend on **UP versus DOWN**, angle
+  of approach, speed and grade; pool neither sign nor mere survival.
+  Update its policy-versioned empirical evidence as frontiers grow.
+  Treat 8/8 trials as encouraging small-sample evidence, not proof
+  of guaranteed safe execution.
+
+### Small next exam before any PPO modification
+
+Use the frozen actor and **new read-only examination instrumentation**
+on an isolated feature branch, without modifying original checkpoints:
+
+1. Capture per-control-frame ToF ranges/validity, commanded and achieved
+   vx/vy/yaw, root-foot positions, foot contact/support, slip and
+   contact events, edge-relative signed distance **offline only**.
+   Verify sensing lead distance and latency at flat, sloped and
+   up/down edges with varying azimuth and occlusion.
+2. Measure actual braking-to-supported-hold or braking-to-retreat
+   distance at initial speeds **0.08, 0.15, 0.22m/s**, both on flat
+   and approaching steps. Include sensing, inference, command-delivery
+   delays and robot oscillation. Do not substitute the browser
+   planner's illustrative 1.0m/s² braking constant for evidence.
+   Use a measured safe stopping envelope plus margin, not a
+   hardware-independent equation alone.
+3. For 1/2/2.5/3/3.5/4cm UP and DOWN, run (a) unchanged forward
+   request, (b) early moderated speed request, (c) early zero/retreat
+   request with matched physics and random seeds. Distinguish
+   completed safe crossings, stalls, controlled refusals, false
+   refusals, edge strikes, falls and post-cross heading/path errors.
+   Evaluate ambiguous observations and false flat/sloped detections.
+4. Only if early sensing and safe slowing are observed should we
+   compare a small careful-step training treatment to unchanged A.
+   Confirm the exploratory step learner continues attempting near
+   and beyond its currently certified frontier. Do not merge
+   cautious deployment outcomes into crossing promotion statistics.
+
 ## Hard acceptance gates before a big PPO run
 
 1. **Sensor gate:** real 4×4 delayed ToF detects a discontinuity
