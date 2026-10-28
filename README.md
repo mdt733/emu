@@ -83,7 +83,6 @@ emu/
   environment.py       physical MJX worlds, sensor readouts, teacher outcomes
   rewards.py           PPO teaching payments
   curriculum.py        active difficulty and teaching governor
-  training_health.py   PPO training-health, KL and rollback gates
   capability_field.py  learned command/recovery competence evidence
   capability_cloud.py  read-only held-out command/recovery probes
   capability_focus.py  six teacher roles and episode allocations
@@ -91,11 +90,8 @@ emu/
   training.py          rollouts, fixed evaluations, logging and checkpoints
   training_config.py   validated learning settings
   run.py, cli.py       guarded run/export/exam entrypoints
-  evaluation.py        stable fixed-eval and external examiner entrypoints
-  evaluation_atlas.py  physical command/recovery atlas
-  evaluation_directional.py  headed motion and terrain-course exams
-  evaluation_unified.py  independent 360-input step/slope/recovery exams
-  evaluation_commands.py  deterministic operator-command exam schedules
+  evaluation.py        fixed-eval, capability atlas and stable exam entrypoints
+  physical_exam.py     independent headed motion, steps, slopes and recovery
   viewer_src/          browser simulation and playground
 scripts/
   v5028_considered_steps.py   active source-pinned experiment launcher

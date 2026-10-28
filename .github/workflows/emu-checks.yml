@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile emu/training_health.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/evaluation_atlas.py emu/evaluation_directional.py emu/evaluation_commands.py emu/evaluation_unified.py scripts/campaign_support.py scripts/v5028_considered_steps.py
+          python -m py_compile emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5028_considered_steps.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.

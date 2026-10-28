@@ -86,10 +86,11 @@ do not claim CUDA validation or learned improvements.
   [docs/history](docs/history/README.md), preserving findings.
 - [x] Replace outdated 693-line v5024-centred README with a current,
   external-reader-friendly project overview.
-- [x] Split 1,827-line `emu/evaluation.py` into fixed PPO evaluation plus dedicated read-only physical atlas, directional/terrain, and unified 360 examiner modules, with a common operator-command schedule. Existing public CLI imports re-exported, numeric scoring unchanged. `tests/test_evaluation_split.py` checks identity and stable cases. **Pending CI confirmation.**
+- [x] Group the overly granular evaluation_* files into two clear entrypoints, `emu/evaluation.py` and `emu/physical_exam.py`; return the tiny training-health component to the governor. Kept public imports unchanged. Structure intentionally follows actual robot/training/evaluation responsibilities, **not file-length targets**. Pending full CI acceptance.
+- [x] Extract the former 1,827-line evaluator into two meaningful owners: fixed/PPO evaluation and atlas in `emu/evaluation.py`, with headed motion and unified 360 physical exams in `emu/physical_exam.py`. Existing public CLI imports re-exported, numeric scoring unchanged. `tests/test_evaluation_split.py` checks identity and stable cases. **Pending CI confirmation.**
 - [x] Retire v5026-only `scripts/rescore_unified_exam.py` into `docs/history/`; leave current release build/review scripts intact.
 - [x] Enable GitHub Actions checks for `feature/v5028-merge-polish` and cover extracted files in compile checks.
-- [x] Move the 100+ lines of PPO health/rollback gates to `emu/training_health.py`, keeping the state-dict and the old import identity; no change to source-pinned v5028.
+- [x] Move/retain the PPO health/rollback gates with curriculum governance (same serialized state-dict); the brief standalone module was folded back after reviewing file layout.
 - [x] Split the former 2,647-line curriculum monolith without changing the governing equations: `emu/curriculum.py` now owns regime governance and training health; `emu/capability_field.py` owns event evidence; `emu/capability_cloud.py` owns read-only held-out probes. `emu.curriculum` retains historical imports through re-exports. **Not yet CPU/JAX validated.**
 - [x] Refactor live campaign helper dependency away from old
   `v5024_campaign.py` to `scripts/campaign_support.py`.

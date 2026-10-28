@@ -1628,10 +1628,8 @@ def test_capability_module_split_keeps_archived_import_contract():
     assert HistoricalExam is record_capability_cloud_exam
     assert HistoricalVersion == FIELD_VERSION == 6
 
-def test_training_health_separation_preserves_checkpoint_contract():
-    from emu.curriculum import TrainingHealth as OldLocation
-    from emu.training_health import TrainingHealth
-    assert OldLocation is TrainingHealth
+def test_training_health_preserves_checkpoint_contract():
+    from emu.curriculum import TrainingHealth
     health=TrainingHealth()
     state=health.state_dict()
     recovered=TrainingHealth()

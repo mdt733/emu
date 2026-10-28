@@ -46,7 +46,7 @@ from .training_config import (
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
 from .curriculum import RegimeGovernor
-from .training_health import TrainingHealth
+from .curriculum import TrainingHealth
 from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
 from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
 from .results import summarize_rollout, augment_rollout_row
