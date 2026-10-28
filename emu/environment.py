@@ -1412,7 +1412,7 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('velocity I requires unified terrain_360, ramp 0.1..5s, multiplier 1..3')
         self.velocity_i_ramp_s = float(velocity_i_ramp_s)
         self.velocity_i_multiplier = float(velocity_i_multiplier)
-        if terrain_lesson not in ('mixed','coherent') or not 0.<=retention_share<=.4:
+        if terrain_lesson not in ('mixed','coherent','coherent-direct') or not 0.<=retention_share<=.4:
             raise ValueError('invalid recovery-first experiment contract')
         self.terrain_lesson = terrain_lesson
         self.retention_share = float(retention_share)
@@ -2248,8 +2248,9 @@ class EmuMJXEnv(TaskSampler):
         jax=self.jax
         is_step=active & (focus==STEP)
         is_slope=active & (focus==SLOPE)
-        coherent=self.terrain_lesson=='coherent'
+        coherent=self.terrain_lesson in ('coherent','coherent-direct')
         is_coherent_terrain=(is_step|is_slope) & coherent
+        direct_terrain=is_coherent_terrain & (self.terrain_lesson=='coherent-direct')
         is_command=active & (focus==COMMAND)
         is_resilience=active & (focus==RESILIENCE)
         is_transition=active & (focus==TRANSITION)
@@ -2313,7 +2314,11 @@ class EmuMJXEnv(TaskSampler):
         # their sampled excursion around a small forward-walking reference.
         # This is not a separate command frontier and does not change the
         # target/edge probes of COMMAND-focused worlds.
-        auxiliary=active & ~(is_command|is_control)
+        # Isolated v5027 treatment: preserve coherent STEP/SLOPE operator
+        # intent, rather than attenuating sampled 0.10-0.22m/s toward
+        # +0.04m/s. The original "coherent" option remains bit-for-bit
+        # comparable; all other specialists retain their previous sampler.
+        auxiliary=active & ~(is_command|is_control|direct_terrain)
         centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
         desired=jnp.where(auxiliary[:,None],
                           centre+NONFOCUS_STRENGTH*(desired-centre),desired)
@@ -2326,7 +2331,8 @@ class EmuMJXEnv(TaskSampler):
         new_phase=command_phase_rate(desired[:,0],desired[:,1],
                                     self.vx_hi_max,self.phase_speed_gain,base)
         # Auxiliary command changes must update gait phase rate too.
-        modified=is_command|is_control|auxiliary
+        # Direct coherent terrain targets also need the correct gait clock.
+        modified=is_command|is_control|auxiliary|direct_terrain
         task=task.at[:,T.vx].set(desired[:,0])
         task=task.at[:,T.vy].set(desired[:,1])
         task=task.at[:,T.yaw].set(desired[:,2])
@@ -2392,7 +2398,7 @@ class EmuMJXEnv(TaskSampler):
             flat_rehearsal=focused & (focus==CONTROL)
             step_dose=jnp.where(flat_rehearsal,0.,step_dose)
             slope_dose=jnp.where(flat_rehearsal,0.,slope_dose)
-        if self.terrain_lesson=='coherent':
+        if self.terrain_lesson in ('coherent','coherent-direct'):
             # One coherent obstacle/grade mission at a time; retention
             # worlds rehearse on genuinely flat terrain.
             step_dose=jnp.where(focused & ((focus==SLOPE)|(focus==CONTROL)),

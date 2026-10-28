@@ -15,7 +15,7 @@ def main():
     ap.add_argument("--terrain-max-m",type=float,default=.04)
     ap.add_argument("--growth-recipe",choices=("legacy","main-mature"),default="legacy")
     ap.add_argument("--retention-share",type=float,default=0.)
-    ap.add_argument("--terrain-lesson",choices=("mixed","coherent"),default="mixed")
+    ap.add_argument("--terrain-lesson",choices=("mixed","coherent","coherent-direct"),default="mixed")
     ap.add_argument("--force-program",choices=("gentle","aggressive"),default="aggressive")
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)

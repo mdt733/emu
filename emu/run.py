@@ -46,7 +46,7 @@ def one_run_config(args) -> TrainingConfig:
     retention_share=float(getattr(args,'retention_share',0.0))
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
     force_program=str(getattr(args,'force_program','aggressive'))
-    if growth_recipe not in ('legacy','main-mature') or terrain_lesson not in ('mixed','coherent'):
+    if growth_recipe not in ('legacy','main-mature') or terrain_lesson not in ('mixed','coherent','coherent-direct'):
         raise ValueError('invalid experimental lesson selection')
     if force_program not in ('gentle','aggressive') or not (0.<=retention_share<=.4):
         raise ValueError('invalid force programme or retention share')
