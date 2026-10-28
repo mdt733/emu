@@ -9,6 +9,15 @@ without duplicating JAX, configuration or RNG state. This file owns the
 physical world: reset, motor delivery, disturbances, stepping, sensor packets
 and measured events. rewards.py owns the scalar teaching payment.
 
+Read from top to bottom:
+  1. Fixed robot/contact contracts, terrain XML construction and state packets.
+  2. TaskSampler: teacher requests and command transitions (NOT actor truth).
+  3. Domain randomization: validated MJX model variation.
+  4. EmuMJXEnv: the single batched reset/physics/observation implementation.
+     Within it: motor/physics -> lesson/world reset -> sensor simulation
+     -> supported terrain evidence -> reward facts and deployable observations.
+No hidden alternate physics engine and no per-experiment environment subclass.
+
 Teacher-only task fields never become privileged actor sensor channels.
 See README.md for the teaching-to-physics overview.
 """
@@ -210,6 +219,8 @@ def add_unified_terrain(robot_xml: str) -> str:
     return ET.tostring(root,encoding='unicode')
 
 
+# Persistent batched physics and measured sensor packets. These are shared
+# across reset, PPO rollout, real terrain evaluation and observation assembly.
 class EnvState(NamedTuple):
     data: Any
     hist: Any
@@ -489,6 +500,8 @@ class CommandEnvelope(NamedTuple):
     yaw: Any
 
 
+# Teacher-side commands, specialist lessons and ramp timing. This class
+# samples requests; it never overrides the policy's six motor actions.
 class TaskSampler:
     """Stateless lesson-generation methods consumed by EmuMJXEnv.
 
@@ -1224,6 +1237,8 @@ def doctrine_dict() -> dict[str, float]:
         'GRAVITY_MAG_FRAC': GRAVITY_MAG_FRAC,
     }
 
+# One production MJX environment, one six-servo robot, one vectorised JAX
+# stepping path. Keep its physical model and deployment sensor contract here.
 class EmuMJXEnv(TaskSampler):
     """Batched robot universe, with task sampling inherited from TaskSampler.
 
@@ -1996,6 +2011,7 @@ class EmuMJXEnv(TaskSampler):
             {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
         )
 
+    # ---- Physics and the actuators' actual delivered forces ----
     def _simulate_physics(self, state: EnvState, action, params) -> PhysicalFrame:
         """Deliver the last servo target, apply pushes, and advance MJX.
 
@@ -2406,6 +2422,7 @@ class EmuMJXEnv(TaskSampler):
         task=task.at[:,T.birth_resilience_d].set(birth)
         return task,active
 
+    # ---- Teacher-only physical terrain placement at episode birth ----
     def _unified_terrain(self, data, keys, params,
                          focus_id=None, specialist_active=None):
         """Solid pair of independently sampled inclined contact surfaces.
@@ -2644,6 +2661,7 @@ class EmuMJXEnv(TaskSampler):
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
 
+    # ---- Sensor simulation and delayed deployable observations ----
     def _body_packets(self, data):
         jnp = self.jnp
         R = self._rotation_body_to_world(data)
@@ -3133,6 +3151,7 @@ class EmuMJXEnv(TaskSampler):
                 & (forward > -.16) & (forward < .12)
                 & (jnp.abs(lateral) < .22))
 
+    # ---- Teacher/evaluator-only supported crossing evidence ----
     def _terrain_crossing(self, state, data, metrics):
         """Sustained physical far-side crossing, teacher telemetry only.
 
@@ -3280,6 +3299,7 @@ class EmuMJXEnv(TaskSampler):
         foot_gain = foot_peak - state.terrain_ascent_foot_peak
         return 30.*root_gain + 20.*foot_gain, root_peak, foot_peak
 
+    # ---- Physical facts for reward and report, not hidden actor inputs ----
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
 
@@ -3442,6 +3462,7 @@ class EmuMJXEnv(TaskSampler):
             **spring_energy,
         }
 
+    # ---- Actor observation: sensor/command contract, no teacher geometry ----
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
