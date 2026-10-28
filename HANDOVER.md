@@ -39,6 +39,9 @@
 - [ ] **NEXT:** on a fresh read-only evaluation branch capture 4×4 ToF/validity, signed lip distance, velocity and foot-contact histories; measure real early braking/hold/retreat at 0.08/0.15/0.22m/s. Compare unchanged-forward, moderated-speed and early-stop commands across step-up/down heights with separate false-refusal and unsafe-contact scores. Do not assume a stalled walker has chosen a safe refusal.
 - [ ] Build a fresh independent experimental feature branch only after sensor/stopability gate; preserve `main`, existing 60M checkpoints and evaluation SHA. No 400M run based on curriculum targets alone.
 
+- [x] **29 Oct reward-economics review:** at +0.15m/s, standing briefly reduces the vx-only locomotion multiplier to ~0.133; a one-second full pause can forgo up to ~67 idealized reward units, versus one-shot +10 crossing and up to +9 ascent shaping. Early falls can incur >100 penalty. A's actual step-lesson commands are +0.07–0.13m/s after attenuation; the `cmd_vx>=0.08` ascent-guidance gate excludes about 1/6 of these commands. This may suppress considered ascent, but is not a causal finding from trained weights.
+- [ ] After the read-only ToF/braking gate, compare source-pinned cold-start control A versus a STEP-only self-paced underspeed-relief treatment and an explicit slower-request approach, plus a gate-only signed-progress/contact scorer diagnostic. Keep flat command/recovery and growth as retention checks. [Quantitative design](docs/TRAVERSABILITY_REFUSAL.md).
+
 ## v5027 — completed independent 15° / 3.5cm physical exam (29 October 2026)
 
 - [x] Owner ran full 16-world/seed1729/0.15m/s physical exam for A/B/C from examiner fix source `5d44f02`, under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2/extended_physical_fixed_20261029_065743`. All three generated `unified_exam.json` and `unified_exam.md`. The prior exact-15° crash is fixed.
