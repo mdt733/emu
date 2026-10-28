@@ -257,6 +257,7 @@ class EnvState(NamedTuple):
     sensor_state: Any = None
     velocity_i_integral: Any = None  # two controller axes, not actor inputs
     raw_velocity_command: Any = None  # true operator request
+    terrain_care_frames: Any = None  # used near-lip reward frames; reset every episode
 
 
 class SensorSample(NamedTuple):
@@ -1412,7 +1413,7 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('velocity I requires unified terrain_360, ramp 0.1..5s, multiplier 1..3')
         self.velocity_i_ramp_s = float(velocity_i_ramp_s)
         self.velocity_i_multiplier = float(velocity_i_multiplier)
-        if terrain_lesson not in ('mixed','coherent','coherent-direct') or not 0.<=retention_share<=.4:
+        if terrain_lesson not in ('mixed','coherent','coherent-direct','coherent-careful') or not 0.<=retention_share<=.4:
             raise ValueError('invalid recovery-first experiment contract')
         self.terrain_lesson = terrain_lesson
         self.retention_share = float(retention_share)
@@ -1678,9 +1679,17 @@ class EmuMJXEnv(TaskSampler):
         # ep_len; step_i is deliberately staggered for timeout diversity.
         metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
+        # Only real upward STEP specialist approaches receive a short
+        # self-paced reward allowance; general walking keeps its economics.
+        care_window = (self._considered_step_window(state, data)
+                       if self.terrain_lesson == 'coherent-careful'
+                       else jnp.zeros((self.num_envs,), dtype=jnp.bool_))
+        care_active = care_window & (state.terrain_care_frames < 120)
+        care_frames = state.terrain_care_frames + care_active.astype(jnp.int32)
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
+            careful_step=care_active,
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
                     jnp.where(state.specialist_active,state.focus_id,-1))
@@ -1793,7 +1802,7 @@ class EmuMJXEnv(TaskSampler):
                            terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors,
-                           integral_next,raw_next)
+                           integral_next,raw_next,care_frames)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1913,6 +1922,8 @@ class EmuMJXEnv(TaskSampler):
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             'episode_timeout': timeout.astype(jnp.float32),
+            'careful_step_relief': care_active.astype(jnp.float32),
+            'careful_step_frames_used': care_frames.astype(jnp.float32),
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
@@ -2248,7 +2259,7 @@ class EmuMJXEnv(TaskSampler):
         jax=self.jax
         is_step=active & (focus==STEP)
         is_slope=active & (focus==SLOPE)
-        coherent=self.terrain_lesson in ('coherent','coherent-direct')
+        coherent=self.terrain_lesson in ('coherent','coherent-direct','coherent-careful')
         is_coherent_terrain=(is_step|is_slope) & coherent
         direct_terrain=is_coherent_terrain & (self.terrain_lesson=='coherent-direct')
         is_command=active & (focus==COMMAND)
@@ -2398,7 +2409,7 @@ class EmuMJXEnv(TaskSampler):
             flat_rehearsal=focused & (focus==CONTROL)
             step_dose=jnp.where(flat_rehearsal,0.,step_dose)
             slope_dose=jnp.where(flat_rehearsal,0.,slope_dose)
-        if self.terrain_lesson in ('coherent','coherent-direct'):
+        if self.terrain_lesson in ('coherent','coherent-direct','coherent-careful'):
             # One coherent obstacle/grade mission at a time; retention
             # worlds rehearse on genuinely flat terrain.
             step_dose=jnp.where(focused & ((focus==SLOPE)|(focus==CONTROL)),
@@ -2604,7 +2615,7 @@ class EmuMJXEnv(TaskSampler):
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
                          jnp.zeros((self.num_envs,2),dtype=jnp.float32),
-                         task[:,[T.vx,T.vy]])
+                         task[:,[T.vx,T.vy]],izeros)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -3070,6 +3081,32 @@ class EmuMJXEnv(TaskSampler):
         elevated = inside & (top[:, None] > 0.001)
         return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
 
+    def _considered_step_window(self, state, data):
+        """Teacher-only 120-frame maximum STEP-UP negotiation window.
+
+        True lip geometry gates reward but never enters actor observations.
+        The counter does not reset if the walker backs away, preventing
+        perpetual near-edge underspeed-reward farming.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return jnp.zeros((self.num_envs,), dtype=jnp.bool_)
+        R = data.geom_xmat[:, int(self.terrain_step_geom_id), :].reshape(
+            (self.num_envs, 3, 3))
+        axis, across = R[:, :, 0], R[:, :, 1]
+        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
+        lip = center - UNIFIED_SLAB_HALF_LENGTH_M * axis
+        delta = data.qpos[:, :3] - lip
+        forward = jnp.sum(delta * axis, axis=1)
+        lateral = jnp.sum(delta * across, axis=1)
+        return (state.specialist_active & (state.focus_id == STEP)
+                & ((self.env_index % 2) == 0)
+                & (center[:, 2] > -1.0)
+                & (state.task[:, T.vx] > .02)
+                & (~state.terrain_crossed)
+                & (forward > -.16) & (forward < .12)
+                & (jnp.abs(lateral) < .22))
+
     def _terrain_crossing(self, state, data, metrics):
         """Sustained physical far-side crossing, teacher telemetry only.
 
@@ -3115,8 +3152,14 @@ class EmuMJXEnv(TaskSampler):
                                         contact.dist,floor,feet)
         supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
         active=centre[:,2]>(-1. if self.unified_capability_focus else -.5)
+        # Considered ascent may settle on the high side after gaining
+        # far-side contact. The old programmes keep the moving-contact gate;
+        # the new programme uses real signed lip progression + contact.
+        forward_ok = ((metrics['vx'] > .02)
+                      if self.terrain_lesson != 'coherent-careful'
+                      else jnp.ones_like(active))
         good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
-              supported & (metrics['vx']>.02) &
+              supported & forward_ok &
               (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
         streak=jnp.where(good,state.terrain_cross_streak+1,0)
         crossed=state.terrain_crossed | (streak>=5)
