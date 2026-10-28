@@ -250,6 +250,81 @@ on an isolated feature branch, without modifying original checkpoints:
    and beyond its currently certified frontier. Do not merge
    cautious deployment outcomes into crossing promotion statistics.
 
+## Root-cause hypothesis: instantaneous velocity economics can suppress climbing
+
+**Source-level quantitative check, 29 Oct; hypothesis, not causal proof.**
+`rewards.py::_command_tracking` includes
+`exp(-(62 * (actual_vx - cmd_vx)^2 + 40 * max(0,cmd_vx-actual_vx-0.025)^2 + ...))`
+for non-resilience underspeed. This multiplier enters a *maximum*
+`1.55 * locomotion_quality` payment **every 20ms control frame**,
+conditional on posture, contacts, gait maturity and heading.
+With `cmd_vx=0.15m/s`, the vx-only factor for actual forward velocities
+`0.15, 0.10, 0.05, 0.00m/s` is respectively
+`1.000, 0.835, 0.430, 0.133`.
+At idealized full physical-quality factors, one second of stopping rather
+than tracking +0.15 forgoes roughly 67 **undiscounted** locomotion
+reward units. Actual physical-quality factors and PPO discounted
+credit change the comparison; this is NOT a measured policy return.
+The verified crossing event pays one-off `+10` and the monotonic
+uphill high-water shaping pays at most `+9` per episode.
+There is also the historical early-fall penalty
+`65+0.1*(max_episode_steps-episode_age_steps)`, which can exceed
+100 for early falls in a 700-frame episode. This combination plausibly
+discourages risky, deliberate weight transfers.
+
+The original coherent A step-specialist target **before** auxiliary
+attenuation is `0.10+0.12*u` m/s. With
+`NONFOCUS_STRENGTH=0.5` about the `0.04` centre, the actor is
+actually requested `0.07+0.06*u` m/s, **not** the examiner's +0.15
+request and not B's direct +0.10–0.22. Yet the ascent-guidance
+eligibility gate `cmd_vx>=0.08` excludes the first **one-sixth** of
+this A command distribution (assuming uniform `u`).
+The same shaping gives no root-progress credit unless forward
+displacement exceeds 0.5mm *in a single 20ms frame*; training's
+five-frame supported crossing detector additionally requires measured
+`vx>0.02m/s` during every confirmation frame. The independent
+physical examiner does not require that instantaneous speed gate.
+
+**Engineering interpretation:** a positive velocity request should
+express the mission's desired *overall progress*, not a compulsory
+minimum instantaneous velocity while making a foothold. The control
+policy needs permission to temporarily trade speed for supported
+foot placement, without permission to permanently stand still.
+The actor must still learn the difference from realistic ToF and
+proprioception, not privileged terrain coordinates.
+
+### Matched training interventions to investigate, not yet implemented
+
+- **A control:** unchanged coherent step teaching; preserve all baseline
+  rewards, contact geometry, step-frontier and sensing.
+- **B self-paced ascent:** on STEP lessons, conditionally relax only
+  *underspeed* pressure while a real, sensor-observable ledge is being
+  approached/negotiated. Keep strong lateral/yaw tracking and overspeed,
+  stance slip, joint safety and fall consequences. Use bounded,
+  one-shot new foot-placement/signed-progress evidence and a short
+  post-cross controlled gait recovery; no free accumulating stationary
+  reward. Do not privilege the actor with a step-mode label.
+- **C explicitly slower request:** a supervisor requests a slower
+  speed in advance on step approaches while the existing per-frame
+  command-tracking economics remain intact. This teaches command-responsive
+  cautious locomotion rather than intrinsic self-pacing. Compare against B;
+  neither method is assumed superior.
+- **Gate-only diagnostic:** keep A economics but change bounded
+  near-lip progression/crossing confirmation to allow *windowed signed
+  progress plus sustained supported settlement*, not instantaneous vx
+  at each far-side contact. Report potential false-positive crossings
+  independently; no reward for pose- or root-only success.
+
+All arms must use newly source-pinned, matched cold-start foundations
+and independent held-out episodes; do not resume historical
+`5dec60c4` checkpoints on changed training source. Score
+`step_up` and `step_down` separately for contact success,
+time-to-cross, safe temporary slowdown, heading/path after crossing,
+fall/stall, effort and attempted frontier growth. Flat/command/recovery
+regressions are hard comparison axes, not collateral damage.
+Only run PPO after the existing read-only sensor/braking/stopability
+preflight confirms the required observations are available.
+
 ## Hard acceptance gates before a big PPO run
 
 1. **Sensor gate:** real 4×4 delayed ToF detects a discontinuity
