@@ -1,178 +1,152 @@
-# Installing and operating EMU
+# Install, train and inspect EMU (WSL2 / Ubuntu)
 
-This is the **current 360-input research workflow**. It replaces the stale
-v5023 checkout instructions that previously appeared here. The original
-220/232-input Pinnacle route is a temporary compatibility/reference path,
-not the default training procedure.
+The public `main` demonstration and 360-input research actor are
+**different policies**. This page describes the current v5028 research
+environment and how to inspect results without changing an ongoing
+source-pinned experiment.
 
-[Start page](../README.md) · [v5024 experiment](V5024_RUN_PLAN.md) ·
-[release/retirement gates](RELEASE_READINESS.md) ·
-[handover](../HANDOVER.md)
+[Project overview](../README.md) ·
+[Current handover](../HANDOVER.md) ·
+[v5028 experiment](V5028_CONSIDERED_STEPS.md) ·
+[physical exams](RELEASE_READINESS.md)
 
-## 1. Fresh WSL2 installation, separate from a running run
+## Software prerequisites
 
-From Ubuntu under WSL2, use a Linux filesystem directory. Prerequisites:
-Python **3.13+** with `venv`, Git, compatible Node/npm, and for CUDA a
-working NVIDIA GPU/WSL driver. The setup script installs dependencies and
-builds the browser viewer but **never starts training**.
+Windows 11 + WSL2 Ubuntu, an NVIDIA GPU with compatible Windows and
+WSL CUDA/JAX drivers, Python 3.13+ and a working MuJoCo/MJX
+installation. The observed owner environment uses an **RTX 4060 Ti
+8 GB**, **2,048 environments** and `~/emu-graduation/.venv`. The
+new actor has 360 observation inputs, six action outputs and delayed
+four-by-four terrain depth readings.
 
-```bash
-git clone --single-branch --branch feature/v5024-release-polish \
-  https://github.com/mdt733/emu.git "$HOME/emu-polish"
-cd "$HOME/emu-polish"
-bash scripts/setup_wsl.sh --cuda13 --install-node
-source .venv/bin/activate
-emu doctor --no-require-gpu --no-mjx-smoke
-```
+For a fresh machine, inspect/run `scripts/setup_wsl.sh` in a new clone
+and follow its explicit dependencies. It does **not** start a GPU
+training campaign. Don't overwrite an existing source-pinned venv or
+checkout during a running experiment.
 
-Omit `--cuda13` for a CPU-only installation. When already installed, use
-the existing checkout; do not clone over or reset local changes. No trained
-policy or run directory belongs inside the repository.
+## Existing owner setup: preserve the running v5028 SHA
 
-**Critical:** the 3 × 60M experiment was started from
-`feature/v5024-terrain-control` at
-`d26ae0c2c4097d7c7124759197a94504abc44995`. Keep that existing
-checkout at exactly this SHA for its entire interrupted-run resume
-lifecycle. Do not switch it to `feature/v5024-release-polish`.
+The owner launched `~/emu-v5028` on 29 October 2026.
+**Do not `git pull`, rebase, cherry-pick, change source or install a
+new editable checkout there while the GPU training run is live.**
+The exact historical training SHA is
+`38713791023681dc9883f6c374d92e46261b3baf`;
+the independent `feature/v5028-merge-polish` branch is not its
+resume source.
 
-## 2. Software and physical acceptance
-
-```bash
-source .venv/bin/activate
-bash scripts/check.sh
-python scripts/smoke_unified_focus.py --device cpu --envs 12
-
-# Optional, only on an appropriate NVIDIA GPU:
-XLA_PYTHON_CLIENT_PREALLOCATE=false \
-python scripts/smoke_unified_focus.py --device cuda --envs 2048 --full-update
-```
-
-The CUDA smoke runs a real production-shaped 2,048-world PPO update. It
-does not train a long run or make a policy good at walking; it detects
-compile, physical-simulation, optimiser and memory problems early.
-
-A bounded checkpoint/export lifecycle can be tested under a **new output
-root**, separate from live experiment directories:
+To inspect, **without launching**:
 
 ```bash
-ROOT="$HOME/robot_lab/emu_runs/accept_$(git rev-parse --short HEAD)_8"
-python scripts/smoke_training_lifecycle.py first --root "$ROOT" --unified --envs 8 &&
-python scripts/smoke_training_lifecycle.py continue --root "$ROOT" --unified --envs 8 &&
-python scripts/smoke_training_lifecycle.py verify --root "$ROOT" --unified --envs 8
+cd ~/emu-v5028
+git branch --show-current
+git rev-parse HEAD
+git status --short
+ls -lh ~/robot_lab/emu_runs/v5028_considered_steps_s735/
 ```
 
-The lifecycle verifies persistence/normalisation/export, not locomotion.
-Do not reuse an existing acceptance root.
+## Foreground training and honest failures
 
-## 3. v5024 3 × 60M controlled experiment — frozen code only
+The source-pinned v5028 launcher is plan-only unless `--run` is
+supplied. It checks source/checkout identity and then performs CPU and
+full **2,048-world CUDA PPO** preflights before spending GPU time.
+The owner venv was missing `pytest`, an optional testing package:
+use the small dependency-free reward check directly rather than
+silently skipping the test.
 
-Use your **existing** `~/emu-v5024` checkout at the training SHA, not the
-polish checkout. The launcher plans safely by default. The three arms
-(`main_balanced`, `commandheavy_balanced`,
-`commandheavy_steering`) each cold-start to 60M world steps at seed
-733 and 2,048 worlds. The launcher runs CPU then 2,048-world CUDA preflight
-before starting its sequential campaigns.
+In a **new** v5028 training session, after confirming no other GPU run
+is occupying that source and the checkout is clean:
 
 ```bash
-cd "$HOME/emu-v5024"
-test "$(git rev-parse HEAD)" = "d26ae0c2c4097d7c7124759197a94504abc44995" || {
-  echo "STOP: training source SHA mismatch"
-  exit 1
-}
-test -z "$(git status --porcelain)" || {
-  echo "STOP: dirty training checkout"
-  exit 1
-}
-source .venv/bin/activate
-python scripts/v5024_campaign.py                # preview ONLY
-# The following opts into real training, after GPU/disk confirmation:
-# python scripts/v5024_campaign.py --run
+cd ~/emu-v5028
+source ~/emu-graduation/.venv/bin/activate
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+python -m py_compile emu/environment.py emu/rewards.py \
+    scripts/smoke_unified_focus.py scripts/v5028_considered_steps.py
+
+python - <<'PY'
+import runpy
+scope = runpy.run_path("tests/test_considered_steps.py")
+scope["test_step_relief_only_underspeed"]()
+print("Reward check passed")
+PY
+
+# One console, no tmux; errors stay logged and visible.
+python -u scripts/v5028_considered_steps.py --run \
+    2>&1 | tee -a "$HOME/v5028_launcher_console.log"
+rc=${PIPESTATUS[0]}
+printf '\nEMU exit code: %s\n' "$rc"
 ```
 
-The actual run can be started inside `tmux` to survive a closed terminal:
+Do **not** paste a leading `set -euo pipefail` into a disposable
+WSL shell: a single missing dependency can exit that shell immediately.
+For a plain interactive launch, `set +e; set +u` leaves the console
+available for diagnosis. The Python launcher itself remains fail-fast
+on wrong source, incompatible checkpoints or CPU/GPU preflight errors.
+
+After a preflight-stamped interruption, use the **exact same SHA**
+and the normal `--run --skip-smoke` option. Never overwrite a
+manifest or pretend a partial run completed.
+
+## Results and physical examination
+
+v5028's output root:
+
+```text
+~/robot_lab/emu_runs/v5028_considered_steps_s735/
+  campaign_manifest.json
+  shared_foundation20/
+  A_original_coherent/
+  B_considered_up/
+  physical_exams/
+  physical_summary.md
+  overnight_results.zip
+  logs/
+```
+
+When collecting results, include the actual source SHA and entire
+`overnight_results.zip`. The **original** pinned launcher used
+`--worlds 8` per physical case, split into up/down worlds for steps;
+it does **not** meet the promised sixteen-world replication.
+Perform a separate read-only 16–32-world exam using the original
+policy's compatible source and frozen conditions before declaring
+3cm mastery. Distinguish **step-UP** from **step-DOWN** and supported
+crossing from command-heading success.
+
+A compatible policy can be exported and examined through `emu.cli`;
+the fixed examiner uses the real physical contact geometry and
+never supplies a training reward:
 
 ```bash
-tmux new -s emu-v5024
-cd "$HOME/emu-v5024"
-source .venv/bin/activate
-python -u scripts/v5024_campaign.py --run
+python -m emu.cli export-policy \
+  "$HOME/robot_lab/emu_runs/v5028_considered_steps_s735/B_considered_up/checkpoints/final.pkl" \
+  "$HOME/robot_lab/emu_runs/v5028_considered_steps_s735/B_considered_up.emupolicy"
+
+python -m emu.cli capability-exam --terrain-matrix \
+  --policy "$HOME/robot_lab/emu_runs/v5028_considered_steps_s735/B_considered_up.emupolicy" \
+  --output "$HOME/robot_lab/emu_runs/v5028_considered_steps_s735/independent_exam" \
+  --device cpu --worlds 16 --horizon 350 --speed 0.15 \
+  --matrix-grades-deg 5 8 10 12 15 \
+  --matrix-heights-cm 2 2.5 3 3.5
 ```
 
-Detach: `Ctrl+B`, then `D`. Reattach: `tmux attach -t emu-v5024`.
-**Do not launch a second copy if the first is already running.**
-Campaign logs, checkpoints and the final `overnight_results.zip` stay under
-`~/robot_lab/emu_runs/v5024_cold_steering/` (not Git).
+Run those last two commands **only after the intended final checkpoint
+exists**, and with a source compatible with that archived policy.
+Exam results are still simulation evidence, not hardware-safe refusal.
 
-### Interrupted run or completed-target extension
-
-The campaign uses the same source/config/root on relaunch and automatically
-requests `--resume auto` when a checkpoint exists. Verify the original
-`tmux` session/process is no longer active **before** relaunching. Never
-resume across a Git commit, change the `--foundation-steps`/schedule
-or edit saved training metadata. A finished unified lineage may raise
-only its cumulative target with matching source/configuration, but do not
-silently extend a controlled 60M study before comparing its arms.
-
-For a single-run 360-input cold learner, the entrypoint remains:
-
-```bash
-EMU_UNIFIED_CONTINUOUS=cold-growth-approved \
-XLA_PYTHON_CLIENT_PREALLOCATE=false \
-emu train \
-  --run-dir "$HOME/robot_lab/emu_runs/my_new_unified_run" \
-  --profile sim2real --terrain-actor --terrain-step-max-m 0.04 \
-  --unified-capabilities --foundation-mix main \
-  --foundation-steps 20000000 \
-  --steps 120000000 --envs 2048 --seed 733 --device cuda --plan
-```
-
-This is **plan only**. Remove `--plan` solely for a new, explicitly
-intended GPU training lineage after checking its source and run-root
-uniqueness. Its 20M foundation default intentionally differs from the
-v5024 tournament's 10M setting.
-
-## 4. Frozen physics exam (not training reward)
-
-For an exported **360-input** policy from the new learner:
-
-```bash
-JAX_PLATFORMS=cpu emu capability-exam --terrain-matrix \
-  --policy "/path/to/new360.emupolicy" \
-  --output "$HOME/robot_lab/emu_runs/my_unique_terrain_exam" \
-  --device cpu --worlds 8 --horizon 350
-```
-
-The physical matrix includes 1/2/3/5° uphill, downhill and cross-slope
-contacts, plus 0.3/0.5/1/2 cm step-ups and downs. Evaluate stable supported
-movement **separately** from commanded vx/vy/yaw tracking; report
-gravity-induced drift rather than treating it as skilled locomotion.
-
-The published Pinnacle uses the **232-input legacy contract** and cannot be
-mislabelled a 360-input model. Historical exam routes remain temporarily for
-reference comparison, then retire with the old public policy.
-
-## 5. Local viewer
+## Browser playground and manual surfaces
 
 ```bash
 emu viewer-build
 emu viewer showcase/champion.emupolicy --no-open
-# http://127.0.0.1:8765/
 ```
 
-The browser runs local MuJoCo physics, including configurable surface-lab
-slopes and steps. Use `emu viewer --live --root /path/to/run --no-open`
-to inspect a running source-matched policy in a **second terminal** without
-mutating its trainer or checkpoints. The viewer's HTTP server is local and
-unauthenticated; do not expose it publicly.
+The published playground uses the **protected** approved 232-input
+Pinnacle. The local experimental viewer and [surface laboratory](SURFACE_LAB.md)
+may inspect 360 policies, but do not implicitly replace the public
+champion. No public deployment without [release approval](RELEASE_READINESS.md).
 
-## Safety and source lifecycle
-
-- A green CPU CI run does not establish full CUDA capacity, walking
-  competence, checkpoint compatibility or servo hardware safety.
-- Keep approved Pinnacle/showcase/Pages unchanged until a 360 policy wins
-  appropriate independent exams and the owner approves promotion.
-- Retire old actor schemas, CLI modes and tests *after* the new policy is
-  accepted and the public release is replaced; do not maintain two systems
-  forever merely because both are historically interesting.
-- Preserve old policy bytes in Git history/release archive as a reproducible
-  rollback, not as permanent code complexity.
+For earlier launch recipes consult [historical research](history/README.md)
+at their **original recorded Git SHA**, never copy an obsolete command
+into the current checkout.
