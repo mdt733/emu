@@ -100,7 +100,12 @@ def physical_exams(root,arms,env,source_sha):
         for x in rows:
             n=len(x['worlds'])
             if entry['kind']=='step':
-                value=f"{x['crossed']}/{n} cross; {x['mission_passed']}/{n} mission"
+                up=[w for w in x['worlds'] if w['direction']=='step-up']
+                down=[w for w in x['worlds'] if w['direction']=='step-down']
+                up_ok=sum(bool(w['crossing_pass']) for w in up)
+                down_ok=sum(bool(w['crossing_pass']) for w in down)
+                value=(f"UP {up_ok}/{len(up)} DOWN {down_ok}/{len(down)} cross; "
+                       f"{x['mission_passed']}/{n} mission")
             elif entry['kind']=='slope':
                 value=f"{x['stable']}/{n} stable; {x['mission_passed']}/{n} mission"
             else:
@@ -146,7 +151,7 @@ def main():
         if json.loads(fp.read_text(encoding='utf-8'))!=manifest:
             p.error('different source or experiment; choose new --root')
     elif any(root.iterdir()):
-        p.error('root not empty and no v5027 manifest')
+        p.error('root not empty and no v5028 manifest')
     else:
         save(fp,manifest)
     # The operator reuses an editable venv installed in ~/emu-graduation.
@@ -220,7 +225,7 @@ def main():
             train_case(arm,ancestor)
         (root/'physical_policies').mkdir(exist_ok=True)
         physical_exams(root,arms,env,sha)
-        print('Complete. Compare actual uphill crossings and retained
+        print('Complete. Compare actual uphill crossings and retained '
               'core/recovery before selecting any next policy.',flush=True)
     except KeyboardInterrupt:
         print('\nInterrupted; run same unchanged source to resume.',file=sys.stderr)
