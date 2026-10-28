@@ -7,6 +7,15 @@
 **Draft review:** [PR #15](https://github.com/mdt733/emu/pull/15)  
 **Public/main:** protected — **no merge, new champion or release without explicit owner approval**.
 
+## v5027 — new independent feature-branch follow-up (28 Oct 2026)
+
+- [x] Created `feature/v5027-coherent-retention` from the release-polish branch; **no main edits** and original `ab64cac` 140M v5026 data stays immutable.
+- [x] Added isolated `--terrain-lesson coherent-direct`: focused STEP/SLOPE keep their sampled 0.10–0.22m/s forward intent rather than generic half-strength attenuation. Phase rate updated for this command. Existing `coherent` control remains unchanged.
+- [x] Added physical post-sampler command assertion in CPU/full CUDA smoke (focused STEP exactly 0.10–0.22m/s).
+- [x] Added `scripts/v5027_coherent_retention.py`, plan-only default; shared 20M seed735 cold start and 3×40M matched forks (old coherent, direct, direct+25% moving retention), full 2048 CUDA smoke, fixed 10M exams, final 0.15m/s matched CPU physical matrices and report bundle.
+- [ ] **NEXT:** run clean branch on WSL using [one-page launch guide](docs/V5027_EXPERIMENT.md), preserve source SHA and collect resulting `overnight_results.zip`. The implementation has **not** trained on the owner's GPU yet.
+- [ ] After results: assess real 1/2cm up/down, 3/5° directed grade, fixed core/dynamic/recovery, precision yaw, J/m; decide whether to combine, replicate or abandon. No 400M or public replacement on teacher numbers alone.
+
 ## Mission, in one paragraph
 
 Build **one cold-startable, continuously teachable six-actuator biped**
