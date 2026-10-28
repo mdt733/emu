@@ -15,7 +15,7 @@ def main():
     ap.add_argument("--terrain-max-m",type=float,default=.04)
     ap.add_argument("--growth-recipe",choices=("legacy","main-mature"),default="legacy")
     ap.add_argument("--retention-share",type=float,default=0.)
-    ap.add_argument("--terrain-lesson",choices=("mixed","coherent","coherent-direct"),default="mixed")
+    ap.add_argument("--terrain-lesson",choices=("mixed","coherent","coherent-direct","coherent-careful"),default="mixed")
     ap.add_argument("--force-program",choices=("gentle","aggressive"),default="aggressive")
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
@@ -87,6 +87,14 @@ def main():
     reassigned,_=env.reset(params)
     assert np.all(np.asarray(jax.device_get(reassigned.focus_id))==3)
     assert bool(jax.device_get(jnp.all(reassigned.specialist_active)))
+    if args.terrain_lesson=="coherent-careful":
+        # The treatment preserves A's slower actual STEP command band:
+        # 0.07-0.13m/s, not the unsuccessful B direct-command change.
+        from emu.environment import T
+        speeds=np.asarray(jax.device_get(reassigned.task[:,T.vx]))
+        assert np.all((speeds>=.0699)&(speeds<=.1301)), speeds
+        print(f"Considered STEP request: {speeds.min():.3f}.."
+              f"{speeds.max():.3f}m/s",flush=True)
     if args.terrain_lesson=="coherent-direct":
         # Test the REAL post-specialist teacher command, not merely
         # the intended .10-.22 pre-attenuation sample.
