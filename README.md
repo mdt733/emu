@@ -82,7 +82,9 @@ The current training experiment does **not** implement reliable ToF-conditioned 
 emu/
   environment.py       physical MJX worlds, sensor readouts, teacher outcomes
   rewards.py           PPO teaching payments
-  curriculum.py        evidence-driven physical frontier adjustment
+  curriculum.py        active difficulty and teaching governor
+  capability_field.py  learned command/recovery competence evidence
+  capability_cloud.py  read-only held-out command/recovery probes
   capability_focus.py  six teacher roles and episode allocations
   ppo.py               single shared policy, value model and optimiser
   training.py          rollouts, fixed evaluations, logging and checkpoints
