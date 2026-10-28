@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from .curriculum import FIELD_VERSION
+from .capability_field import FIELD_VERSION
 from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
                         SENSOR_OBS_DIM, TERRAIN_OBS_DIM, TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
@@ -556,7 +556,7 @@ def try_restore_recovery(
     try:
         import jax
         import jax.numpy as jnp
-        from .curriculum import CapabilityField
+        from .capability_field import CapabilityField
 
         payload = load_checkpoint(
             recovery_path,
