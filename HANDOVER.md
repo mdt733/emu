@@ -7,6 +7,16 @@
 **Draft review:** [PR #15](https://github.com/mdt733/emu/pull/15)  
 **Public/main:** protected — **no merge, new champion or release without explicit owner approval**.
 
+## v5027 140M overnight completed — audited 29 October 2026
+
+- [x] Shared 20,054,016-step source-pinned foundation; A/B/C all reached 60,030,976 (140M aggregate, one seed735) with zero logged checkpoint rollbacks. Training source **`5dec60c4`**, archived completed run under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.
+- [x] Original coherent A fixed score **0.76919**; direct B **0.76485**; direct+25% retention C **0.74474**. A and B maintain 64/64 dynamic80 and 55/64 resilience75; C 62/64 dynamic80, 48/64 resilience75. C is NOT better at fixed push survival.
+- [x] Matched 0.15m/s physical exam at 60M: all 1cm steps 8/8 supported; 2cm A **6/8**, B **7/8**, C **7/8** (uphill 2/4, 3/4, 3/4). Four-way 1–5° moving grades A **127/128**, B **126/128**, C **127/128**. **3cm and 15° are unexamined teaching frontiers**, not certified mastery.
+- [x] C's strict lateral/yaw total **28/32** versus A **16/32**, B **17/32** demonstrates a real control benefit from retention; but C's late broad score declined and fixed recovery worsened. Separate mobility/recovery from mere survival and on-policy fall fractions.
+- [ ] Next: repeat matched 2cm step/5° command physics at 32 worlds and new eval seeds; extend independent physical exam to 3cm/8–15°; test push recovery at several speeds. Consider a 10–15% targeted moving rehearsal rather than trusting the current 25% treatment.
+- [ ] No v5027 source changes or cross-SHA checkpoint resumption; maintain `~/emu-v5027` at `5dec60c4`. Do all new work on a separate experiment branch. No automated merge/public promotion.
+- [x] Full interpretation: [v5027 completed findings](docs/V5027_OVERNIGHT_FINDINGS.md).
+
 ### v5027 first WSL preflight: wrong editable-vEnv import; fixed on feature branch
 
 - [x] First launch from `~/emu-v5027` under `~/emu-graduation/.venv` hit old editable source: traceback `/home/mdt733/emu-graduation/emu/environment.py:1416` rejected `coherent-direct`. No PPO training began.

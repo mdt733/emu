@@ -1,6 +1,6 @@
 # v5027 — coherent commands × dynamic retention
 
-**Status:** implemented on `feature/v5027-coherent-retention`, awaiting user WSL CPU/2048 CUDA preflight and GPU experiment. **Not** a new champion; protected `main` unchanged.
+**Status:** complete; seed735 source-pinned 140M A/B/C campaign finished on 29 Oct 2026. See [audited overnight results](V5027_OVERNIGHT_FINDINGS.md). The protected `main` remains unchanged; no new champion has been approved.
 
 ## What the frozen v5026 physics actually showed
 
