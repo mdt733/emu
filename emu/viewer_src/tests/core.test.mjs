@@ -468,16 +468,22 @@ test('v5023 surface lab builds real 4-direction continuous inclines and variable
   for(const [kind,axis,sign] of [
     ['lab-uphill','gx',1],['lab-downhill','gx',-1],
     ['lab-camber-left','gy',1],['lab-camber-right','gy',-1]]) {
-    const out=withTerrain(xml,'sensor',{obstacle:kind,slopeDegrees:5});
-    assert.ok(out.includes('surface_lab_plane'));
-    assert.ok(!out.includes('name="floor"'));
-    const g=surfaceLabGradient(kind,5);
-    assert.equal(Math.sign(g[axis]),sign);
-    assert.ok(Math.abs(Math.atan(Math.hypot(g.gx,g.gy))*180/Math.PI-5)<1e-9);
-    const measured=surfaceSlope('sensor',null,0,0,0,{obstacle:kind,slopeDegrees:5});
-    assert.equal(measured.supported,true);
-    assert.ok(Math.abs(measured.degrees-5)<1e-9);
+    for(const degrees of [5,10,15,20]){
+      const out=withTerrain(xml,'sensor',{obstacle:kind,slopeDegrees:degrees});
+      assert.ok(out.includes('surface_lab_plane'));
+      assert.ok(!out.includes('name="floor"'));
+      const g=surfaceLabGradient(kind,degrees);
+      assert.equal(Math.sign(g[axis]),sign);
+      assert.ok(Math.abs(Math.atan(Math.hypot(g.gx,g.gy))*180/Math.PI-degrees)<1e-9);
+      const measured=surfaceSlope('sensor',null,0,0,0,{obstacle:kind,slopeDegrees:degrees});
+      assert.equal(measured.supported,true);
+      assert.ok(Math.abs(measured.degrees-degrees)<1e-9);
+    }
   }
+  const html=sourceText('../index.html');
+  assert.match(html,/id="surfaceSlope"[^>]*max="20"/);
+  assert.match(html,/data-lab-grade="15"/);
+  assert.match(html,/data-lab-step="3"/);
   for(const kind of ['lab-step-up','lab-step-down']){
     const xmlOut=withTerrain(xml,'sensor',{obstacle:kind,stepHeightCm:2.5});
     assert.ok(xmlOut.includes('depth_approach'));

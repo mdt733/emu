@@ -1,88 +1,61 @@
-# EMU surface laboratory — local MuJoCo viewer
+# EMU physical surface laboratory — 15° viewer frontier
 
-The variable-terrain viewer **is included** in both
-`feature/v5024-terrain-control` and `feature/v5024-release-polish`.
-There is no need to merge an old `feature/v5023-surface-lab` branch,
-clone a third checkout, or borrow another branch's Python environment.
+This is a **local browser MuJoCo physical diagnostic**, not a training
+curriculum or an independent MJX capability certificate.
 
-This is a **manual browser simulation**, not an automatic certificate
-of policy competence. Browser MuJoCo uses the trained actor and real
-inclined/stepped collision geometry. Its independent exam counterpart is
-`emu capability-exam --terrain-matrix` (MJX), with fixed cases and
-separate stable-versus-tracking metrics.
+The radial park already accepted a 1–20° *maximum difficulty setting*
+but did not guarantee an exact incline anywhere. The dedicated Surface
+Lab previously stopped at **12°**. On
+`feature/v5027-viewer-frontier` the same real rotated support boxes now
+allow **0.5–20°** in each of four directions, with quick buttons for
+5°, 10°, and 15°. The step lab remains 0.1–6.0 cm (quick 2/3 cm steps).
+No modifications to actor inputs, weights, training terrain, PPO,
+teacher, or protected `main`.
 
-## Start the viewer
+## Run the local viewer with the actual v5027 policy
 
-Use a separate terminal and existing installed checkout. For watching
-a source-pinned training run, keep its training shell/checkpoint directory
-untouched. Open the local viewer from the **same frozen training checkout**
-if possible:
-
-```bash
-cd "$HOME/emu-v5024"
-source .venv/bin/activate
-
-# Static/manual policy: any verified .emupolicy file
-emu viewer showcase/champion.emupolicy --no-open
-
-# OR live inspection of the first v5024 arm:
-emu viewer --live \
-  --root "$HOME/robot_lab/emu_runs/v5024_cold_steering/main_balanced_s733" \
-  --no-open
-```
-
-Open **http://127.0.0.1:8765/**. If that port is in use, append
-`--port 8766` and use **http://127.0.0.1:8766/**.
-
-A 360-input policy can be loaded using the viewer's **Load policy**
-control after being exported with `emu export-policy`. The approved
-published 232-input Pinnacle remains available for reference only.
-The live watcher is read-only; it selects validated saved checkpoints,
-never trains/resumes, modifies metadata or consumes the learner's GPU
-by itself. Browser simulation runs locally using MuJoCo/WASM. The
-viewer HTTP service has no authentication: keep it local.
-
-## Manual physical comparison
-
-The **FRONT DEPTH 4×4** display shows what the new array-only actor
-observes. Choose a surface under the laboratory controls:
-
-| Surface | Useful manual checks |
-| --- | --- |
-| Flat | Baseline standing, forward/reverse, sideways and yaw commands |
-| Continuous uphill/downhill/cross-left/cross-right | 1°, 2°, 3°, 5° grades first; compare fall, signed drift and tracking |
-| Step up / step down | 0.3, 0.5, 1 and 2 cm rises/drops; inspect genuine far-side support |
-| Combined commands | Walk uphill or across slope, then strafe/yaw instead of drifting under gravity |
-
-Inclines use a real rotated support surface, not tilted-gravity physics
-or a painted floor. Steps are actual discontinuous supports. Try a
-modest `vx≈0.04 m/s`, then independently vary `vy` and yaw. Reset
-between cases and compare heading assistance ON/OFF, sensor noise
-ON/OFF and matched commands at matched grades.
-
-The **essential distinction**: stable on a grade, actual progress
-against gravity, and accurate three-axis command following are three
-different results. Neither an expanded training slope target nor a
-visually upright robot proves the latter two.
-
-## Frozen matched assessment
-
-The new 360-input examiner provides read-only 1/2/3/5° directional
-incline comparisons and 0.3/0.5/1/2 cm up/down steps:
+The completed GPU campaign in `~/emu-v5027` remains frozen at source
+`5dec60c`. Use a separate clean viewer checkout from this branch.
+A verified exported A/B/C policy is already in the campaign root. If
+not, first verify its existence or export it from the **old source**.
 
 ```bash
-JAX_PLATFORMS=cpu emu capability-exam --terrain-matrix \
-  --policy /path/to/new360.emupolicy \
-  --output "$HOME/robot_lab/emu_runs/terrain_matrix_unique" \
-  --worlds 8 --horizon 350 --device cpu
+DEV="$HOME/emu-v5027-viewer"
+git clone --single-branch --branch feature/v5027-viewer-frontier \
+    https://github.com/mdt733/emu.git "$DEV"
+cd "$DEV"
+source "$HOME/emu-graduation/.venv/bin/activate"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+RUN="$HOME/robot_lab/emu_runs/v5027_coherent_retention_s735_r2"
+POLICY="$RUN/physical_policies/B_coherent_direct.emupolicy"
+test -f "$POLICY"
+# Auto-builds the local Vite/WASM browser bundle using npm, if missing.
+python -m emu.cli viewer "$POLICY" --port 8767 --no-open
 ```
 
-It writes `unified_exam.json` and `unified_exam.md`, separating
-supported moving stability from complete command tracking. Inspect
-uphill velocity, lateral downhill drift, yaw deviation and actual
-foot-contact completion, not only teacher difficulty.
+Open <http://127.0.0.1:8767/>. In **FRONT DEPTH · 4×4** select
+Ground: `Uphill · continuous plane` or `Downhill`, `Left camber`,
+`Right camber`, then choose 5°, 10°, 15° with quick buttons or set
+any half-degree between 0.5–20° using the slider.
 
-See the [v5024 experiment design](V5024_RUN_PLAN.md) and
-[release gates](RELEASE_READINESS.md). The published Pinnacle and
-existing training runs remain unchanged until an independently
-validated 360-input champion is approved.
+The Quick challenge button automatically switches into the physical
+Surface Lab while preserving a selected downhill/camber or step-down
+direction. Moving the sliders also rebuilds real contact geometry
+when the lab is active. Rebuilding resets the robot to its initial
+position; it does not edit or retrain the policy.
+
+To test 3 cm steps, choose Step up / Step down and 3 cm; keep a modest
+forward command around 0.15m/s initially, then try different speeds.
+The actual robot-relative uphill arrow is available in telemetry.
+Disable autonomous navigation for manual tests and try heading assist
+both ON/OFF. Use camera follow/chase or raw view as preferred.
+
+**Interpretation:** `slope≤15°` and `step≤3.1cm` in overnight logs are
+training frontiers. It is entirely possible to remain standing on a
+15° incline while drifting downhill instead of following commands.
+The viewer is a great way to *see* the behavior. For reproducible
+passing scores, use the [read-only frozen frontier examiner](V5027_OVERNIGHT_FINDINGS.md#new-read-only-high-frontier-physical-examiner-results-audit-branch).
+
+The public Pages site still uses the approved 232-input Pinnacle and
+is **not** auto-deployed by this feature. No main merge or champion
+promotion is implied.

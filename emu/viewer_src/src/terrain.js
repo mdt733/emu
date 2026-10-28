@@ -200,8 +200,8 @@ export const DEPTH_COURSES = Object.freeze([
 const LAB_SLOPES=new Set(['lab-uphill','lab-downhill','lab-camber-left','lab-camber-right']);
 export function surfaceLabGradient(kind,degrees=3) {
   if(!LAB_SLOPES.has(kind))return null;
-  if(!Number.isFinite(degrees)||degrees<0.5||degrees>12)
-    throw new Error('Surface lab incline must be 0.5–12 degrees');
+  if(!Number.isFinite(degrees)||degrees<0.5||degrees>20)
+    throw new Error('Surface lab incline must be 0.5–20 degrees');
   const grade=Math.tan(degrees*Math.PI/180);
   return {
     gx:kind==='lab-uphill'?grade:kind==='lab-downhill'?-grade:0,

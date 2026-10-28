@@ -61,7 +61,7 @@
         <option value="trough">Hill trough</option>
         <option value="log">Half-round log</option>
         <option value="angled">Angled ridge</option>
-        <optgroup label="v5023 surface laboratory">
+        <optgroup label="Physical surface laboratory · four directions">
           <option value="lab-uphill">Uphill · continuous plane</option>
           <option value="lab-downhill">Downhill · continuous plane</option>
           <option value="lab-camber-left">Left camber · continuous plane</option>
@@ -71,10 +71,18 @@
         </optgroup>
       </select></label>
       <label class="depth-row">Slope angle <output id="surfaceSlopeOut">3.0°</output>
-        <input id="surfaceSlope" type="range" min="0.5" max="12" value="3" step="0.5" /></label>
+        <input id="surfaceSlope" type="range" min="0.5" max="20" value="3" step="0.5" /></label>
       <label class="depth-row">Step height <output id="surfaceStepOut">2.0 cm</output>
         <input id="surfaceStep" type="range" min="0.1" max="6" value="2" step="0.1" /></label>
-      <div class="depth-foot">Surface tests use real browser MuJoCo collisions. They are manual physical diagnostics, not identical to an MJX training-world examination.</div>
+      <div class="depth-presets" role="group" aria-label="One-click physical terrain challenges">
+        <span>Quick challenges</span>
+        <button type="button" data-lab-grade="5">5°</button>
+        <button type="button" data-lab-grade="10">10°</button>
+        <button type="button" data-lab-grade="15">15°</button>
+        <button type="button" data-lab-step="2">2 cm step</button>
+        <button type="button" data-lab-step="3">3 cm step</button>
+      </div>
+      <div class="depth-foot">Park max slope sets an upper bound, not a constant grade. Surface Lab creates actual continuous slopes (0.5–20°) or sharp steps (0.1–6 cm). A viewer challenge is not an independent MJX capability exam.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">0 mm</output>

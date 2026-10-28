@@ -414,6 +414,24 @@ surfaceSlopeSlider.addEventListener('input',()=>{
 surfaceStepSlider.addEventListener('input',()=>{
   $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
 });
+// Presets select an actual browser-MuJoCo collision surface and reset the
+// model, not a decorative camera angle. Preserve the current incline
+// direction (or step up/down) when the operator is already testing one.
+const labGradeKinds=new Set(['lab-uphill','lab-downhill','lab-camber-left','lab-camber-right']);
+for(const preset of document.querySelectorAll('[data-lab-grade],[data-lab-step]')){
+  preset.addEventListener('click',()=>{
+    if(preset.dataset.labGrade){
+      surfaceSlopeSlider.value=preset.dataset.labGrade;
+      if(!labGradeKinds.has(depthCourse.value))depthCourse.value='lab-uphill';
+    }else{
+      surfaceStepSlider.value=preset.dataset.labStep;
+      if(depthCourse.value!=='lab-step-up' && depthCourse.value!=='lab-step-down')
+        depthCourse.value='lab-step-up';
+    }
+    applySurfaceLab();
+    changeDepthCourse();
+  });
+}
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
   const reading=sim?.depthReading;

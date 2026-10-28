@@ -371,8 +371,8 @@ export class EmuBrowserSim {
   }
   setSurfaceLab({slopeDegrees=this.surfaceSlopeDegrees,
                  stepHeightCm=this.surfaceStepHeightCm}={}) {
-    if(!Number.isFinite(slopeDegrees)||slopeDegrees<0.5||slopeDegrees>12)
-      throw new Error('Incline must be 0.5–12 degrees');
+    if(!Number.isFinite(slopeDegrees)||slopeDegrees<0.5||slopeDegrees>20)
+      throw new Error('Incline must be 0.5–20 degrees');
     if(!Number.isFinite(stepHeightCm)||stepHeightCm<0.1||stepHeightCm>6)
       throw new Error('Step must be 0.1–6 cm');
     if(slopeDegrees===this.surfaceSlopeDegrees &&
