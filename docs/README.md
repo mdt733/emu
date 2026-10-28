@@ -1,34 +1,33 @@
-# EMU documentation map
+# EMU documentation
 
-This directory separates **current operating guidance**, the **unified learning
-contract**, and **reproducibility records for completed studies**. Historical
-recipes remain available but should not be mistaken for the current launch.
+A single route through the project, with current instructions kept separate
+from completed research. Start at the [project README](../README.md) if you're
+new, and [HANDOVER](../HANDOVER.md) for the active engineering state.
 
 ## Current / maintained
 
-| Document | Purpose |
-| --- | --- |
-| [INSTALL.md](INSTALL.md) | Fresh WSL installation, v5024 campaign, smoke checks, safe resume |
-| [V5024_RUN_PLAN.md](V5024_RUN_PLAN.md) | Completed v5024 180M experiment and its original test design |
-| [GRADUATION_CAMPAIGNS.md](GRADUATION_CAMPAIGNS.md) | Next two controlled experiments, 400M run, common Pinnacle benchmark |
-| [UNIFIED_CAPABILITY_GROWTH.md](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six teaching emphases, evidence-based target adjustments |
-| [CAPABILITY_DIMENSIONS.md](CAPABILITY_DIMENSIONS.md) | Actual versus proposed independent physical capability targets |
-| [SURFACE_LAB.md](SURFACE_LAB.md) | Real browser MuJoCo adjustable incline/step viewer |
-| [PLAYGROUND.md](PLAYGROUND.md) | Protected public Pinnacle viewer and release safeguards |
-| [RELEASE_READINESS.md](RELEASE_READINESS.md) | Candidate branch, preservation rules and promotion gates |
-| [../HANDOVER.md](../HANDOVER.md) | Active experiment status and engineering handover |
+| Document | What it is |
+|---|---|
+| [INSTALL](INSTALL.md) | WSL setup, source-pinned training, examination and local viewer |
+| [Unified capability contract](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six focus curricula, physical evidence and retention |
+| [Capability inventory](CAPABILITY_DIMENSIONS.md) | Exact physical dimensions and honest scoring distinctions |
+| [v5028 considered steps](V5028_CONSIDERED_STEPS.md) | Running research experiment, A/B definitions and physical exams |
+| [Traversability and refusal](TRAVERSABILITY_REFUSAL.md) | Design only: ToF-aware, capability-conditioned cautious navigation |
+| [Surface laboratory](SURFACE_LAB.md) | Interactive manual incline/step inspection |
+| [Public playground](PLAYGROUND.md) | Browser demo and release protection |
+| [Release readiness](RELEASE_READINESS.md) | Evidence needed before replacing `main` |
+| [Maintenance](MAINTENANCE.md) | Keep the next addition smaller and clearer than the last |
 
-## Historical studies
+## Completed research — not current launch instructions
 
-The v5023 260M overnight tournament, alternative early foundation screens
-and older allocation-design notes were retired from this **active**
-documentation directory. Their complete sources remain in Git history and
-at the original experiment commits. The next decision plan is
-[GRADUATION_CAMPAIGNS.md](GRADUATION_CAMPAIGNS.md), not the old launchers.
+[Research history](history/README.md) preserves the v5024–v5027 studies,
+earlier graduation proposals, forensic diagnosis and per-world evidence.
+Those documents refer to **their recorded source commits**. Do not treat
+historical checkout/launch commands as instructions for today's actor.
 
-## Preservation rule
+## One rule worth repeating
 
-The published 232-input Pinnacle is a temporary reference/rollback
-policy while the 360-input system is evaluated. Old runtime and tests
-can be removed after the new public release is approved and deployed.
-Never delete a code path merely because its original version name is old.
+The public Pinnacle is the protected reference. A new policy must demonstrate
+fast **measured** commands approaching the predecessor's 1 m/s requested
+envelope **and** better real terrain competence on equivalent exams; merely
+raising a teacher target is not graduating a robot.
