@@ -20,6 +20,16 @@
 - [ ] Do not touch `~/emu-v5027` at historical source `5dec60c`,
   archived GPU checkpoint state or protected main.
 
+## Viewer frontier: manual 15° surfaces and 3cm steps (29 October 2026)
+
+- [x] Dedicated `feature/v5027-viewer-frontier` viewer-only branch from the completed v5027 results-audit branch. **Protected main and source-pinned learner `~/emu-v5027` at `5dec60c` unchanged.**
+- [x] Found and removed Surface Lab **12°** cap in browser UI, geometry validator, and simulator control; now continuous actual MuJoCo collision planes support **0.5–20°** uphill, downhill, left/right camber, correct robot-relative slope telemetry.
+- [x] Added one-click 5°/10°/15° and 2/3cm challenges preserving selected uphill/downhill/camber/step direction and automatically selecting the physics Surface Lab.
+- [x] Kept radial terrain park max 20° as a *limit*, not an exact incline; existing sharp step 0.1–6cm range untouched.
+- [x] Expanded existing browser physical-geometry test for all four directions across 5°/10°/15°/20°; feature-branch CI enabled.
+- [ ] Run viewer locally with source-validated v5027 exported B/C/A schema-9 .emupolicy, **not** the public Pinnacle. `docs/SURFACE_LAB.md` has clean WSL launch. Visually check 15° stability versus commanded uphill motion, downhill drift, foot collision at 3cm and heading-assist effects.
+- [ ] Cross-check visual performance against independent MJX frontier matrix. **No 15°/3cm mastery claim** from training targets or browser demo alone.
+
 ## v5027 140M overnight completed — audited 29 October 2026
 
 - [x] Shared 20,054,016-step source-pinned foundation; A/B/C all reached 60,030,976 (140M aggregate, one seed735) with zero logged checkpoint rollbacks. Training source **`5dec60c4`**, archived completed run under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.
