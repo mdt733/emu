@@ -370,7 +370,7 @@ def write_capability_field_artifacts(
     # writer contract also accepts minimal save_npz/write_summary fields
     # (for example independent delivery/export test doubles). Don't demand
     # new private array methods from those objects.
-    from .curriculum import CapabilityField
+    from .capability_field import CapabilityField
     if isinstance(field, CapabilityField):
         write_json(run_dir / 'capability_evidence.json',
                    capability_field_evidence_snapshot(field))
