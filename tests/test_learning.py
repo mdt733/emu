@@ -885,22 +885,6 @@ def test_research_fork_allows_valid_alternative_lessons_and_arbitrary_age(monkey
         verify_experiment_fork(parent,replace(branch,observation_schema='sim2real_232'))
 
 
-def test_screen_forks_from_established_50m_not_newborn_20m(monkeypatch):
-    import runpy
-    scripts_dir=Path(__file__).resolve().parents[1]/'scripts'
-    monkeypatch.syspath_prepend(str(scripts_dir))
-    scope=runpy.run_path(str(scripts_dir/'v5025_screen.py'),
-                         run_name='__screen_test__')
-    assert scope['FOUNDATION_END']==20_000_000
-    assert scope['START']==50_000_000
-    assert scope['TARGET']==70_000_000
-    arms=scope['arms'](734)
-    assert len(arms)==12
-    assert sum(a['steps']-a['from_steps'] for a in arms)==240_000_000
-    assert any(a['velocity_i_multiplier']==2. and
-               a['velocity_i_ramp_s']==.4 for a in arms)
-
-
 def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
     from emu.velocity_trim import velocity_i_step
     import numpy as np
@@ -923,6 +907,28 @@ def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
                            request,z,ramp_s=.4,multiplier=1.)
     np.testing.assert_array_equal(off,request)
     np.testing.assert_array_equal(zz,np.zeros_like(z))
+
+
+def test_v5028_campaign_is_source_pinned_and_preserves_matched_treatment(monkeypatch):
+    """Only one current A/B campaign, original coherent vs careful uphill."""
+    import runpy
+    from pathlib import Path
+    scripts=Path(__file__).resolve().parents[1]/"scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    scope=runpy.run_path(str(scripts/"v5028_considered_steps.py"),
+                         run_name="__v5028_contract_test__")
+    foundation,arms=scope["cases"]()
+    assert scope["BRANCH"]=="feature/v5028-considered-steps"
+    assert foundation["steps"]==20_000_000
+    assert len(arms)==2
+    assert [x["terrain"] for x in arms]==["coherent","coherent-careful"]
+    assert all(x["steps"]==80_000_000 for x in arms)
+    assert sum(x["steps"]-x["from_steps"] for x in arms)+foundation["steps"]==140_000_000
+    for arm in arms:
+        cmd=scope["args_for"](arm,Path("/tmp/v5028_contract"))
+        assert cmd[cmd.index("--envs")+1]=="2048"
+        assert cmd[cmd.index("--terrain-lesson")+1]==arm["terrain"]
+        assert cmd[cmd.index("--fixed-eval-every-steps")+1]=="10000000"
 
 
 def test_aggressive_governor_expands_by_real_physical_evidence():
@@ -950,44 +956,6 @@ def test_aggressive_governor_expands_by_real_physical_evidence():
     row.update({f'terrain_near_successes_{d}':3. for d in ('up','down')})
     assert g.advance_terrain(row,**kw)=='terrain_height_expand_real_cross'
     assert g.params.terrain_height_m>=initial+.00099
-
-
-def test_v5024_campaign_is_standalone_source_pinned_and_plan_only():
-    """No retired overnight launcher is needed to plan the current study."""
-    import runpy
-    from pathlib import Path
-    root=Path(__file__).resolve().parents[1]
-    script=root/'scripts/v5024_campaign.py'
-    source=script.read_text(encoding='utf-8')
-    assert 'from overnight_teaching' not in source
-    scope=runpy.run_path(str(script),run_name='__campaign_import_test__')
-    assert scope['BRANCH']=='feature/v5024-release-polish'
-    arms=scope['candidates'](733,60_000_000)
-    assert len(arms)==3
-    assert sum(a['steps'] for a in arms)==180_000_000
-    assert [(a['recipe'],a['schedule']) for a in arms]==[
-        ('main','balanced'),('command-heavy','balanced'),
-        ('command-heavy','steering')]
-    cmd=scope['cmd_for'](arms[2],Path('/tmp/campaign'),733,10_000_000,False)
-    assert '--resume' not in cmd
-    assert cmd[cmd.index('--foundation-steps')+1]=='10000000'
-    assert cmd[cmd.index('--teaching-schedule')+1]=='steering'
-    assert cmd[cmd.index('--steps')+1]=='60000000'
-    assert cmd[cmd.index('--envs')+1]=='2048'
-    assert scope['cmd_for'](
-        arms[0],Path('/tmp/campaign'),733,10_000_000,True)[-2:]==[
-        '--resume','auto']
-    assert 'PLAN ONLY. --run is required' in source
-    assert 'v5024_polish_study' in source
-    repeat=scope['select_arms'](scope['candidates'](734,80_000_000),['A','C'])
-    assert [x['name'] for x in repeat]==[
-        'main_balanced_s734','commandheavy_steering_s734']
-    assert len(repeat)==2 and sum(x['steps'] for x in repeat)==160_000_000
-    assert [x['schedule'] for x in repeat]==['balanced','steering']
-    assert scope['select_arms'](
-        scope['candidates'](734,80_000_000),['C','A'])==repeat
-    with pytest.raises(ValueError,match='only once'):
-        scope['select_arms'](scope['candidates'](734,80_000_000),['A','A'])
 
 
 def test_dynamic_attention_schedule_stays_normalised_and_changes_smoothly():

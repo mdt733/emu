@@ -18,7 +18,7 @@ import sys
 import subprocess
 import zipfile
 from pathlib import Path
-import v5024_campaign as base
+import campaign_support as base
 
 HERE=Path(__file__).resolve().parents[1]
 BRANCH='feature/v5028-considered-steps'
@@ -77,7 +77,7 @@ def physical_exams(root,arms,env,source_sha):
             raise RuntimeError('Incomplete physical exam output: '+str(directory))
         base.execute([sys.executable,'-m','emu.cli','capability-exam',
                       '--terrain-matrix','--policy',str(policy),
-                      '--output',str(directory),'--worlds','8',
+                      '--output',str(directory),'--worlds','16',
                       '--horizon','350','--speed','0.15','--device','cpu',
                       '--matrix-grades-deg','5','8','12','15',
                       '--matrix-heights-cm','2','2.5','3','3.5'],

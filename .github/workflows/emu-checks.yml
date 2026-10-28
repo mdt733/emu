@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile scripts/smoke_unified_focus.py scripts/smoke_training_lifecycle.py scripts/v5024_campaign.py
+          python -m py_compile scripts/smoke_unified_focus.py scripts/smoke_training_lifecycle.py scripts/campaign_support.py scripts/v5028_considered_steps.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
