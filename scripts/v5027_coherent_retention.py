@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import sys
+import subprocess
 import zipfile
 from pathlib import Path
 import v5024_campaign as base
@@ -24,7 +25,9 @@ BRANCH='feature/v5027-coherent-retention'
 SEED=735
 FOUNDATION=20_000_000
 FINAL=60_000_000
-DEFAULT_ROOT=Path.home()/'robot_lab/emu_runs/v5027_coherent_retention_s735'
+# Previous default was stamped by the aborted wrong-import preflight,
+# with no learner checkpoint. Preserve that audit instead of rewriting it.
+DEFAULT_ROOT=Path.home()/'robot_lab/emu_runs/v5027_coherent_retention_s735_r2'
 
 def cases():
     first=dict(name='shared_foundation20',recipe='main',schedule='balanced',
@@ -145,8 +148,35 @@ def main():
         p.error('root not empty and no v5027 manifest')
     else:
         save(fp,manifest)
+    # The operator reuses an editable venv installed in ~/emu-graduation.
+    # Running "python scripts/..." otherwise puts scripts/ ahead of an
+    # old editable site-packages mapping, silently importing the OLD
+    # emu/environment.py despite using this new Git checkout.
+    # Never rewrite/install another checkout into the operator's venv:
+    # pin this source root ahead of editable mappings for ALL children.
+    existing_pythonpath=os.environ.get('PYTHONPATH','')
     env={**os.environ,'XLA_PYTHON_CLIENT_PREALLOCATE':'false',
-         'EMU_UNIFIED_CONTINUOUS':'cold-growth-approved'}
+         'EMU_UNIFIED_CONTINUOUS':'cold-growth-approved',
+         'PYTHONPATH':str(HERE)+(os.pathsep+existing_pythonpath
+                                if existing_pythonpath else '')}
+    # Check in a distinct child interpreter under the EXACT environment
+    # used for CPU smoke, CUDA smoke, training, export and frozen exams.
+    # This import is cheap: do not compile MJX before confirming source.
+    check_source=(
+        "import importlib.util, pathlib, sys; "
+        "spec=importlib.util.find_spec('emu.environment'); "
+        "actual=pathlib.Path(spec.origin).resolve() if spec else None; "
+        "expected=pathlib.Path(sys.argv[1]).resolve(); "
+        "print('EMU environment source:', actual, flush=True); "
+        "sys.exit(0 if actual==expected else 29)"
+    )
+    result=subprocess.run(
+        [sys.executable,'-c',check_source,str(HERE/'emu/environment.py')],
+        cwd=HERE,env=env,check=False)
+    if result.returncode:
+        raise RuntimeError(
+            'Refusing v5027: Python is importing EMU from a different '
+            'checkout; no GPU work started. Expected '+str(HERE/'emu/environment.py'))
     try:
         if not a.skip_smoke:
             for label,terrain,retention in [
