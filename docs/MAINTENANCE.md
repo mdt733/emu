@@ -50,7 +50,11 @@ can be understood without knowing the history of v5015 through v5028.
 - `emu/capability_field.py`: stored training-only physical competence evidence
 - `emu/capability_cloud.py`: held-out evaluation; never writes back into teaching field
 - `emu/training.py` / `emu/ppo.py`: one learner and policy lifecycle
-- `emu/evaluation.py`: independent, frozen and directionally honest exams
+- `emu/evaluation.py`: stable fixed-training-evaluation entrypoint and legacy re-exports
+- `emu/evaluation_atlas.py`: independent speed/recovery atlas
+- `emu/evaluation_directional.py`: signed heading and contact-course exams
+- `emu/evaluation_unified.py`: independent 360-input step/slope/recovery exam
+- `emu/evaluation_commands.py`: one deterministic operator-requested exam schedule
 - `scripts/campaign_support.py`: shared foreground logging/reporting,
   never an experiment itself
 - `scripts/v5028_considered_steps.py`: current study, explicitly SHA pinned

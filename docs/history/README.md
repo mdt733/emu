@@ -16,6 +16,10 @@ and [current handover](../../HANDOVER.md).
 | v5027 | [Coherent commands experiment](V5027_EXPERIMENT.md) | Original source-pinned A/B/C setup |
 | v5027 | [Expanded physical findings](V5027_EXTENDED_PHYSICAL_FINDINGS.md) | Verified 2.0/2.5/3.0/3.5cm signed ascent/descents and slopes |
 
+The original read-only v5026 terrain-exam rescoring utility is preserved as
+[rescore_unified_exam_v5026.py](rescore_unified_exam_v5026.py). It is **not** an
+active evaluation or release script.
+
 A historical campaign launcher is meaningful at its recorded **Git source
 SHA**, not necessarily on the present research branch. Historical source
 and checkpoints are intentionally kept out of the current release-facing

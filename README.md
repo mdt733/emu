@@ -91,7 +91,11 @@ emu/
   training.py          rollouts, fixed evaluations, logging and checkpoints
   training_config.py   validated learning settings
   run.py, cli.py       guarded run/export/exam entrypoints
-  evaluation.py        independent, read-only physical examinations
+  evaluation.py        stable fixed-eval and external examiner entrypoints
+  evaluation_atlas.py  physical command/recovery atlas
+  evaluation_directional.py  headed motion and terrain-course exams
+  evaluation_unified.py  independent 360-input step/slope/recovery exams
+  evaluation_commands.py  deterministic operator-command exam schedules
   viewer_src/          browser simulation and playground
 scripts/
   v5028_considered_steps.py   active source-pinned experiment launcher

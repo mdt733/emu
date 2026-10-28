@@ -86,6 +86,9 @@ do not claim CUDA validation or learned improvements.
   [docs/history](docs/history/README.md), preserving findings.
 - [x] Replace outdated 693-line v5024-centred README with a current,
   external-reader-friendly project overview.
+- [x] Split 1,827-line `emu/evaluation.py` into fixed PPO evaluation plus dedicated read-only physical atlas, directional/terrain, and unified 360 examiner modules, with a common operator-command schedule. Existing public CLI imports re-exported, numeric scoring unchanged. `tests/test_evaluation_split.py` checks identity and stable cases. **Pending CI confirmation.**
+- [x] Retire v5026-only `scripts/rescore_unified_exam.py` into `docs/history/`; leave current release build/review scripts intact.
+- [x] Enable GitHub Actions checks for `feature/v5028-merge-polish` and cover extracted files in compile checks.
 - [x] Move the 100+ lines of PPO health/rollback gates to `emu/training_health.py`, keeping the state-dict and the old import identity; no change to source-pinned v5028.
 - [x] Split the former 2,647-line curriculum monolith without changing the governing equations: `emu/curriculum.py` now owns regime governance and training health; `emu/capability_field.py` owns event evidence; `emu/capability_cloud.py` owns read-only held-out probes. `emu.curriculum` retains historical imports through re-exports. **Not yet CPU/JAX validated.**
 - [x] Refactor live campaign helper dependency away from old

@@ -1,8 +1,8 @@
 """Current EMU curriculum controller.
 
-This module owns the task distribution only: regime difficulty/allocation, core
-retreat, and demonstrated physical frontiers. PPO/training health and rollback
-decisions live in TrainingHealth below.
+This module owns the task distribution only: regime difficulty/allocation,
+retreat, and physical teaching frontiers. PPO health, stored capability evidence
+and independent held-out exams each have separate canonical owners.
 """
 from __future__ import annotations
 
