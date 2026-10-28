@@ -645,29 +645,26 @@ def test_terrain_governor_refuses_down_only_success():
 
 
 def test_easier_failures_survive_unrelated_near_frontier_hold():
-    """An easy failure window must not starve behind frequent hard probes."""
+    """Repeated easy failures trigger retreat even while hard probes hold."""
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
-    for _ in range(3):
-        row={'command_probe_attempts_vx_hi':8.,
-             'command_probe_successes_vx_hi':0.,
-             'command_easy_attempts_vx_hi':2.,
-             'command_easy_successes_vx_hi':0.}
-        g._advance_specialist_commands(row,global_retreat=False,kl_ok=True)
-    assert g.command_evidence['vx_hi']['easy_attempts']==6.
-    old=g.params.frontier_vx_hi
-    g._advance_specialist_commands({
-        'command_probe_attempts_vx_hi':8.,
-        'command_easy_attempts_vx_hi':2.},
-        global_retreat=False,kl_ok=True)
-    assert g.params.frontier_vx_hi==old  # seed floor
-    assert g.command_evidence['vx_hi']['easy_attempts']==0.
     g.params.frontier_vx_hi=.10
-    for _ in range(4):
-        g._advance_specialist_commands({
-            'command_probe_attempts_vx_hi':8.,
-            'command_easy_attempts_vx_hi':2.},
-            global_retreat=False,kl_ok=True)
+    row={'command_probe_attempts_vx_hi':8.,
+         'command_probe_successes_vx_hi':0.,
+         'command_easy_attempts_vx_hi':2.,
+         'command_easy_successes_vx_hi':0.}
+    first=g._advance_specialist_commands(row,global_retreat=False,kl_ok=True)
+    assert first['vx_hi']=='hold_probe_learning'
+    assert g.command_evidence['vx_hi']['easy_attempts']==2.
+    second=g._advance_specialist_commands(row,global_retreat=False,kl_ok=True)
+    # The second easy batch completes the FOUR-attempt window and
+    # legitimately retreats immediately; expecting six accumulated easy
+    # failures would mean the safety teacher ignored real evidence.
+    assert second['vx_hi']=='retreat_easy_failure'
     assert g.params.frontier_vx_hi<.10
+    assert g.command_evidence['vx_hi']['easy_attempts']==0.
+    third=g._advance_specialist_commands(row,global_retreat=False,kl_ok=True)
+    assert third['vx_hi']=='hold_probe_learning'
+    assert g.command_evidence['vx_hi']['easy_attempts']==2.
 
 
 def test_v5024_steering_teacher_reallocates_roles_and_is_zero_during_foundation():
