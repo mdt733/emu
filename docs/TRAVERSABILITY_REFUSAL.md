@@ -161,6 +161,26 @@ penalises instantaneous departure from a positive forward target.
 supported crossing plus bounded ascent high-water guidance. A biped
 that briefly slows to place a foot more securely may therefore lose
 many frames of tracking reward, despite an eventual supported ascent.
+**Additional source-level mismatch to guard against:** in
+`environment.py::_terrain_ascent_guidance`, guidance requires
+`cmd_vx >= 0.08m/s`, and its root-progress credit requires per-frame
+signed displacement `moved > 0.0005m` (equivalent to ~0.025m/s across
+a 20ms control frame). In `_terrain_crossing`, the five consecutive
+supported far-side frames additionally require **actual**
+`vx > 0.02m/s`. The independent unified exam's five-frame
+supported-contact scorer has **no equivalent instantaneous vx gate**.
+An explicitly commanded careful slowdown below 0.08m/s can therefore
+lose the partial ascent guidance, and a physically safe far-side
+settle below 0.02m/s can fail the training crossing event even when
+the read-only examiner recognises contact. These rules were intended
+to exclude idle foot tapping, but need controlled causal investigation,
+not casual global relaxation. Candidate remedy: require *signed
+near-to-far progress over the approach/crossing window*, with
+supported far-side contact and bounded recovery, rather than requiring
+minimum instantaneous forward speed during each contact-confirmation
+frame. Retain one-shot high-water gating, no backwards progress farming,
+and independent anti-stall/timeout safeguards.
+
 The current physical exam's full-episode forward MAE and zero-yaw
 heading tests likewise score a different thing from safe contact
 crossing. Preserve those diagnostics but never replace contact evidence
