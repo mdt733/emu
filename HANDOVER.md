@@ -1,6 +1,6 @@
 # EMU — active engineering handover
 
-**Updated:** 27 October 2026  
+**Updated:** 29 October 2026  
 **Release-polish branch:** `feature/v5024-release-polish`  
 **Frozen GPU training branch:** `feature/v5024-terrain-control` at
 `d26ae0c2c4097d7c7124759197a94504abc44995`  
@@ -33,7 +33,9 @@
 - [x] Reviewed real 360 actor observation and rewards: existing 4×4 delayed ToF and mobility commands are present, but locomotion reward actively favors movement; **no learned/proven safe-refusal skill or ToF-aware navigator obstacle confidence exists yet**.
 - [x] Agreed behaviour: explore near capability frontier **during training**; in ordinary navigation detect the step ahead and slow, stop in dynamic balance, retreat or re-route **if this particular actor is unlikely to climb it**. Don't hardcode a 3cm threshold or let a freeze policy satisfy crossing.
 - [x] Detailed proposed architecture and preflight gates: [traversability and safe refusal](docs/TRAVERSABILITY_REFUSAL.md). Existing 4×4 sensing, same one six-action brain, no privileged physics input; initially use validated policy-conditioned capability estimate and ordinary vx/vy/yaw supervisor commands, not a second gait.
-- [ ] **NEXT:** ingest existing extended physical per-world JSON and instrument 4×4 detectability / stopping distance before training any new risk objective. Distinguish successful ascent from descent; explicit safe refusal, false refusal, unsafe edge contact and recovery as separate exam scores.
+- [x] Parsed existing extended per-world JSON: all 3cm+ crossings were descents; A UP=8/8 at 2cm, 6/8 at 2.5cm, 0/8 at 3cm. At 3cm UP all eight A worlds survived but stalled under positive command; not a deliberate refusal. A's 2.5cm successful UP crossing median is ~3.03s. Aggregated JSON cannot show pre-lip slowdown or actual stopping distance.
+- [x] Reviewed training economics: instantaneous forward-command tracking can disfavor a careful foot-placement pause despite the +10 once-per-crossing physical completion bonus. Documented separate ascent/contact, post-cross quality and deliberate refusal criteria; no scoring or PPO code changed.
+- [ ] **NEXT:** on a fresh read-only evaluation branch capture 4×4 ToF/validity, signed lip distance, velocity and foot-contact histories; measure real early braking/hold/retreat at 0.08/0.15/0.22m/s. Compare unchanged-forward, moderated-speed and early-stop commands across step-up/down heights with separate false-refusal and unsafe-contact scores. Do not assume a stalled walker has chosen a safe refusal.
 - [ ] Build a fresh independent experimental feature branch only after sensor/stopability gate; preserve `main`, existing 60M checkpoints and evaluation SHA. No 400M run based on curriculum targets alone.
 
 ## v5027 — completed independent 15° / 3.5cm physical exam (29 October 2026)
