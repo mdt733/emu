@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Source-pinned cold-start comparison for the release-polish branch.
+"""Shared foreground campaign helpers, not another experiment or trainer.
 
-Plan only by default; --run explicitly starts sequential GPU experiments.
-Uses a distinct default output root from the frozen training campaign.
-This standalone script contains the results/reporting helpers it needs:
-the obsolete v5023 tournament launcher is no longer a runtime dependency.
+Source-pinned experiment launchers own their own cases, source SHA and run
+directories. This module supplies the common subprocess/error handling,
+checkpoint presence checks, ETA display, metrics aggregation and ZIP report.
+The current launcher is v5028_considered_steps.py; old campaigns remain
+reproducible from their original source revisions in Git history.
 """
 from __future__ import annotations
 

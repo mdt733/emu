@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""v5027: isolate coherent step-command attenuation and moving retention.
+"""v5028: matched coherent walking versus deliberate supported step-up.
 
-Source-pinned, from random 360 actor weights; same 20M nursery for ALL arms.
-A original coherent-gentle, B coherent-direct-gentle, C B + 25% retention.
-Three 20->60M forks (140M aggregate PPO world steps). Each arm has fixed
-10M exams; after the training trials, run exactly matched CPU terrain
-matrices on the final exported actor. No Pinnacle writes or main changes.
+A and B start with the same fresh 20M-step 360-input cold foundation.
+A uses the original coherent lesson; B adds the bounded STEP-UP near-lip
+underspeed relief. Both continue separately to 80M steps (140M aggregate)
+with 2,048 CUDA worlds, source-pinned checkpoints and frozen terrain exams.
+The existing published Pinnacle and protected main are never modified.
 
-Plan-only by default; --run performs CPU/CUDA preflight and actual training.
+Plan-only by default; --run performs CPU/CUDA preflight and trains in the
+foreground. This refactored research branch is NOT a resume source for
+the running original v5028 training SHA.
 """
 from __future__ import annotations
 
