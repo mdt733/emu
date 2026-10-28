@@ -86,6 +86,7 @@ do not claim CUDA validation or learned improvements.
   [docs/history](docs/history/README.md), preserving findings.
 - [x] Replace outdated 693-line v5024-centred README with a current,
   external-reader-friendly project overview.
+- [x] Move the 100+ lines of PPO health/rollback gates to `emu/training_health.py`, keeping the state-dict and the old import identity; no change to source-pinned v5028.
 - [x] Split the former 2,647-line curriculum monolith without changing the governing equations: `emu/curriculum.py` now owns regime governance and training health; `emu/capability_field.py` owns event evidence; `emu/capability_cloud.py` owns read-only held-out probes. `emu.curriculum` retains historical imports through re-exports. **Not yet CPU/JAX validated.**
 - [x] Refactor live campaign helper dependency away from old
   `v5024_campaign.py` to `scripts/campaign_support.py`.
