@@ -134,9 +134,6 @@ def main(argv=None) -> int:
 
 
 # Run logging, metric tables and field evidence: same reporting owner.
-import csv
-import json
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -377,9 +374,7 @@ def write_capability_field_artifacts(
 
 
 # PPO rollout observations: report facts, never pay training reward.
-from typing import Any
 
-import numpy as np
 
 from .contracts import ACTION_DIM, COMBO_P, SEED_VX_LO, SEED_VX_HI, task_param_defaults
 from .rewards import PAYMENT_NAMES, FALL_PAYMENT_NAME, MOTOR_PAYMENT_NAME
@@ -1086,10 +1081,6 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
 
 
 # Optional read-only posture drift analysis from previously saved metrics.
-import argparse
-import csv
-import math
-from pathlib import Path
 from statistics import median
 
 MIN_DROP_M = 0.015  # diagnostic threshold, not a proven failure boundary

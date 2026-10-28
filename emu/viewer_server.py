@@ -20,8 +20,6 @@ from urllib.parse import urlsplit
 
 # Read-only live checkpoint watcher, bound to the same local viewer server.
 from dataclasses import dataclass
-import json
-from pathlib import Path
 from threading import Lock
 
 
@@ -264,8 +262,6 @@ import argparse
 import base64
 import csv
 import hashlib
-import json
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -773,17 +769,13 @@ def export_main(argv=None) -> int:
 
 
 # Local read-only capability-field viewer, separate from the trained actor feed.
-import argparse
-import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import urlparse
 
-import numpy as np
 from .contracts import seed_root
 
-from .curriculum import FIELD_VERSION
+from .capability_field import FIELD_VERSION
 from .contracts import VERSION
 
 HTML = r'''<!doctype html><meta charset="utf-8"><title>EMU capability field</title>

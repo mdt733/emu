@@ -326,7 +326,6 @@ def examine_command_transitions(positions_xy, heading_rad, commands, *,
 
 
 # Contact-pair footfalls, signed course progress, one episode at a time.
-import numpy as np
 
 
 

@@ -366,7 +366,6 @@ def joint_spring_energy(xp, joint_position_rad, spring_ref_rad, stiffness_nm_rad
 
 # Commands/tasks share the same MJX physical-world state and RNG.
 from types import SimpleNamespace
-from typing import Any, NamedTuple
 from .contracts import (
     CONTROL_DT, COMBO_P, PHASE_RATE_MAX_HZ, SEED_VX_HI, SEED_VX_LO,
     FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE,
