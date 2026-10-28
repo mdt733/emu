@@ -86,6 +86,7 @@ do not claim CUDA validation or learned improvements.
   [docs/history](docs/history/README.md), preserving findings.
 - [x] Replace outdated 693-line v5024-centred README with a current,
   external-reader-friendly project overview.
+- [x] Fold the sole `velocity_i_step` command controller into `emu/environment.py` with the same function body, retire `emu/velocity_trim.py`, and keep the single focused controller test. No PPO, reward or actor change intended.
 - [x] Group the overly granular evaluation_* files into two clear entrypoints, `emu/evaluation.py` and `emu/physical_exam.py`; return the tiny training-health component to the governor. Kept public imports unchanged. Structure intentionally follows actual robot/training/evaluation responsibilities, **not file-length targets**. Pending full CI acceptance.
 - [x] Extract the former 1,827-line evaluator into two meaningful owners: fixed/PPO evaluation and atlas in `emu/evaluation.py`, with headed motion and unified 360 physical exams in `emu/physical_exam.py`. Existing public CLI imports re-exported, numeric scoring unchanged. `tests/test_evaluation_split.py` checks identity and stable cases. **Pending CI confirmation.**
 - [x] Retire v5026-only `scripts/rescore_unified_exam.py` into `docs/history/`; leave current release build/review scripts intact.

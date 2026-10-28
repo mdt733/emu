@@ -886,7 +886,7 @@ def test_research_fork_allows_valid_alternative_lessons_and_arbitrary_age(monkey
 
 
 def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
-    from emu.velocity_trim import velocity_i_step
+    from emu.environment import velocity_i_step
     import numpy as np
     request=np.asarray([[.10,0.],[-.08,.05]],dtype=np.float32)
     observed=np.zeros_like(request)

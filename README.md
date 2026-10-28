@@ -80,7 +80,7 @@ The current training experiment does **not** implement reliable ToF-conditioned 
 
 ```text
 emu/
-  environment.py       physical MJX worlds, sensor readouts, teacher outcomes
+  environment.py       physical MJX worlds, sensor readouts, command trim, teacher outcomes
   rewards.py           PPO teaching payments
   curriculum.py        active difficulty and teaching governor
   capability_field.py  learned command/recovery competence evidence
