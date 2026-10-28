@@ -3095,13 +3095,15 @@ class EmuMJXEnv(TaskSampler):
             (self.num_envs, 3, 3))
         axis, across = R[:, :, 0], R[:, :, 1]
         center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
+        base_center = data.mocap_pos[:, self.unified_ground_mocap_id, :]
+        real_rise = jnp.sum((center - base_center) * R[:, :, 2], axis=1)
         lip = center - UNIFIED_SLAB_HALF_LENGTH_M * axis
         delta = data.qpos[:, :3] - lip
         forward = jnp.sum(delta * axis, axis=1)
         lateral = jnp.sum(delta * across, axis=1)
         return (state.specialist_active & (state.focus_id == STEP)
                 & ((self.env_index % 2) == 0)
-                & (center[:, 2] > -1.0)
+                & (center[:, 2] > -1.0) & (real_rise > .001)
                 & (state.task[:, T.vx] > .02)
                 & (~state.terrain_crossed)
                 & (forward > -.16) & (forward < .12)
