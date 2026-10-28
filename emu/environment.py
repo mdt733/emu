@@ -1689,7 +1689,7 @@ class EmuMJXEnv(TaskSampler):
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
-            careful_step=care_active,
+            careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
                     jnp.where(state.specialist_active,state.focus_id,-1))
