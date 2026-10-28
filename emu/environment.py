@@ -3159,7 +3159,7 @@ class EmuMJXEnv(TaskSampler):
         # the new programme uses real signed lip progression + contact.
         forward_ok = ((metrics['vx'] > .02)
                       if self.terrain_lesson != 'coherent-careful'
-                      else jnp.ones_like(active))
+                      else ((metrics['vx'] > .02) | (~down)))
         good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
               supported & forward_ok &
               (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
