@@ -88,6 +88,34 @@ C improved **sideways and turning coverage in the fixed physical examiner**, alt
 
 Curricula differ, so the on-policy vx and J/m rows must **not** be described as equal-command speed/efficiency superiority. The positive teaching frontier `vx=[...]` is a curriculum parameter, not observed velocity. Mechanical shaft J/m is not electrical battery cost.
 
+## 29 Oct follow-up — 15° validator roundoff, not a robot fall
+
+In the extended 16-world, seed1729 0.15m/s exam, A printed all
+5/8/10/12° cases then stopped on `uphill_15deg` due to
+`physical terrain total inclination exceeds 15-degree exam cap`.
+The exact requested fixture was 15.0°; the old float32
+trigonometric roundtrip produced **15.00000095°**. The new
+results-audit branch validates the float32 input in float64,
+with a 1e-9° guard tolerance. The physical 15° cap and
+MuJoCo geometry are **not** increased.
+
+Pre-crash A **provisional physical mission** pass counts from
+the console (not final saved JSON):
+
+| Grade | Uphill | Downhill | Left camber | Right camber |
+|---|---:|---:|---:|---:|
+| 5° | 16/16 | 16/16 | 16/16 | 13/16 |
+| 8° | 15/16 | 14/16 | 16/16 | 7/16 |
+| 10° | 13/16 | 11/16 | 15/16 | 6/16 |
+| 12° | 9/16 | 1/16 | 14/16 | 0/16 |
+
+Most conditions stayed physically stable even when tracking
+failed. The abort prevented full A JSON and all B/C exams;
+the scorer writes final JSON only on success. Rerun in a
+new unique output root and capture intermediate stdout with
+`tee`, rather than overwriting the first attempt.
+No trained-policy or public viewer files were changed.
+
 ## New read-only high-frontier physical examiner (results-audit branch)
 
 The source-pinned v5027 experiment **did not** test whether the 31mm/15°

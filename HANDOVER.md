@@ -20,6 +20,14 @@
 - [ ] Do not touch `~/emu-v5027` at historical source `5dec60c`,
   archived GPU checkpoint state or protected main.
 
+### 29 Oct — exact-15° frozen examiner fix
+
+- [x] Extended A 16-world/seed1729 physical matrix (0.15m/s) successfully measured 5/8/10/12° before failing at 15. A's *provisional mission* passes at 12°: uphill **9/16**, downhill **1/16**, left-camber **14/16**, right-camber **0/16**. Stable != command tracking. No completed A JSON or B/C result was produced.
+- [x] A legal 15.0° float32 fixed angle was reconstructed by float32 tan→atan as **15.00000095°**, falsely triggering the 15° max guard. Corrected **host-only** angle validation to float64 and 1e-9° tolerance; identical MJX physics, exact cap, and original 360 actor.
+- [x] Added direct production validator test for ±15° acceptance and combined >15° rejection. New CI branch enabled.
+- [ ] Pull evaluation-only `feature/v5027-results-audit` into `~/emu-v5027-eval`; rerun all A/B/C under a fresh results directory, teeing each completed-case console log. Old partial cases were only streamed, not saved as unified_exam.json.
+- [ ] Do not update immutable GPU `~/emu-v5027` (training source `5dec60c`) or protected `main`.
+
 ## v5027 140M overnight completed — audited 29 October 2026
 
 - [x] Shared 20,054,016-step source-pinned foundation; A/B/C all reached 60,030,976 (140M aggregate, one seed735) with zero logged checkpoint rollbacks. Training source **`5dec60c4`**, archived completed run under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.

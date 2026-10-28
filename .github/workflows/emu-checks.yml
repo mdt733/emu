@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention]
+    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5027-results-audit]
   workflow_dispatch:
 
 permissions:
