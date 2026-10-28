@@ -14,7 +14,10 @@ See README.md for the teaching-to-physics overview.
 """
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+from types import SimpleNamespace
 from typing import Any, NamedTuple
+import math
 import xml.etree.ElementTree as ET
 import numpy as np
 
@@ -27,9 +30,17 @@ from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
 )
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
-                       FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
-                       TERRAIN_TASK_FIELDS, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM, TASK_PARAM_FIELDS, P)
+from .contracts import (
+    SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM,
+    BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
+    TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P,
+    PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
+    FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE,
+    FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM, TERRAIN_TASK_FIELDS,
+    TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM,
+    TASK_PARAM_FIELDS, P
+)
 
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
@@ -365,13 +376,6 @@ def joint_spring_energy(xp, joint_position_rad, spring_ref_rad, stiffness_nm_rad
 
 
 # Commands/tasks share the same MJX physical-world state and RNG.
-from types import SimpleNamespace
-from .contracts import (
-    CONTROL_DT, COMBO_P, PHASE_RATE_MAX_HZ, SEED_VX_HI, SEED_VX_LO,
-    FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE,
-    FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START,
-    FIELD_EDGE_SCALES, P,
-)
 
 # Command-transition dynamics (see _sample_cmd_target / TRANSITION's own
 # difficulty path in _transition_hold_and_jump).
@@ -948,9 +952,6 @@ class TaskSampler:
         )
 
 # MJX model-level domain variations; physical topology remains fixed.
-from dataclasses import dataclass, asdict
-from typing import Any
-import math
 
 
 # Physical envelopes at radius=1.  Training should normally grow the three
