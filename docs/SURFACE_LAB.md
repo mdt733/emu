@@ -1,9 +1,9 @@
 # EMU surface laboratory — local MuJoCo viewer
 
-The variable-terrain viewer **is included** in both
-`feature/v5024-terrain-control` and `feature/v5024-release-polish`.
-There is no need to merge an old `feature/v5023-surface-lab` branch,
-clone a third checkout, or borrow another branch's Python environment.
+The variable-terrain viewer is part of the current source tree. No
+old v5023/v5024 feature branch needs merging to inspect the browser
+terrain laboratory. Use a separate terminal; never modify the source
+checkout or checkpoints of an actively running experiment.
 
 This is a **manual browser simulation**, not an automatic certificate
 of policy competence. Browser MuJoCo uses the trained actor and real
@@ -19,7 +19,7 @@ untouched. Open the local viewer from the **same frozen training checkout**
 if possible:
 
 ```bash
-cd "$HOME/emu-v5024"
+cd "$HOME/emu-v5028"
 source .venv/bin/activate
 
 # Static/manual policy: any verified .emupolicy file
