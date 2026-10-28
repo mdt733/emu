@@ -194,6 +194,10 @@ def main(argv=None) -> int:
     q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
     q.add_argument('--terrain-matrix',action='store_true',
                    help='matched 1/2/3/5 degree four-direction slope and step matrix')
+    q.add_argument('--matrix-grades-deg',type=float,nargs='+',default=None,
+                   help='optional four-direction physical matrix, e.g. 5 8 10 12 15; require --terrain-matrix')
+    q.add_argument('--matrix-heights-cm',type=float,nargs='+',default=None,
+                   help='optional paired UP/DOWN physical steps in cm, e.g. 2 2.5 3 3.5 (max 4)')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
@@ -304,7 +308,9 @@ def main(argv=None) -> int:
             policy=Path(args.policy),output=Path(args.output),
             worlds=args.worlds,horizon=args.horizon,speed=args.speed,
             seed=args.seed,device=args.device,quick=args.quick,
-            terrain_matrix=args.terrain_matrix)
+            terrain_matrix=args.terrain_matrix,
+            matrix_grades_deg=args.matrix_grades_deg,
+            matrix_heights_cm=args.matrix_heights_cm)
         for path in paths:
             print(path)
         return 0

@@ -1576,17 +1576,24 @@ def _unified_exam_json(manifest: dict) -> str:
                       allow_nan=False, default=native_scalar) + '\n'
 
 
-def unified_terrain_matrix_cases():
-    """Same *absolute* difficulties and seeds for every tested policy."""
-    degrees=(1.,2.,3.,5.)
+def unified_terrain_matrix_cases(*, grades_deg=None, heights_cm=None):
+    """Same absolute physical grades/heights and seeds for every tested policy.
+
+    New optional examiner-only fixtures permit measured 2.5–3.5cm and
+    8–15deg FRONTIER assessments without editing curriculum, reward, PPO,
+    sensor contract or previously trained weights. Defaults are identical
+    to the v5026/v5027 frozen matrix for backwards comparability.
+    """
+    degrees=(1.,2.,3.,5.) if grades_deg is None else tuple(grades_deg)
+    heights=(.3,.5,1.,2.) if heights_cm is None else tuple(heights_cm)
     directions=('uphill','downhill','cross_left','cross_right')
-    cases=[dict(name=f'{direction}_{int(deg)}deg',kind='slope',
-                slope_deg=deg,direction=direction)
+    cases=[dict(name=f'{direction}_{deg:g}deg'.replace('.','p'),kind='slope',
+                slope_deg=float(deg),direction=direction)
            for deg in degrees for direction in directions]
     cases.extend(
         dict(name=f'paired_steps_{cm:.1f}cm'.replace('.','p'),kind='step',
-             step_m=cm/100)
-        for cm in (.3,.5,1.,2.))
+             step_m=float(cm)/100)
+        for cm in heights)
     return cases
 
 
@@ -1594,7 +1601,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   worlds: int = 4, horizon: int = 300,
                                   speed: float = .10, seed: int = 1701,
                                   device: str = 'cpu', quick: bool = False,
-                                  terrain_matrix: bool = False) -> tuple[Path,Path]:
+                                  terrain_matrix: bool = False,
+                                  matrix_grades_deg=None,
+                                  matrix_heights_cm=None) -> tuple[Path,Path]:
     """One frozen array-only actor; identical MJX physics and seeds per case.
 
     No optimizer update, no teacher decisions, no automatic promotion. Uses
@@ -1668,10 +1677,26 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     ]
     if quick and terrain_matrix:
         raise ValueError('quick and terrain_matrix must not both be selected')
+    if (matrix_grades_deg is not None or matrix_heights_cm is not None) and not terrain_matrix:
+        raise ValueError('custom grade/step fixtures require --terrain-matrix')
     if terrain_matrix:
+        degrees=tuple(matrix_grades_deg or (1.,2.,3.,5.))
+        heights=tuple(matrix_heights_cm or (.3,.5,1.,2.))
+        # This is the physical exam's validated 4cm collision model, not
+        # the curriculum's unconstrained open teaching frontier. Reject
+        # invalid or duplicate fixtures rather than silently clipping them.
+        if (not degrees or not heights
+            or any(not math.isfinite(x) or x<=0 or x>15 for x in degrees)
+            or any(not math.isfinite(x) or x<=0 or x>4.0 for x in heights)
+            or len(set(degrees))!=len(degrees)
+            or len(set(heights))!=len(heights)
+            or any(abs(x*10-round(x*10))>1e-6 for x in heights)):
+            raise ValueError('exam grades must be unique 0<deg<=15; '
+                'step heights unique 0<cm<=4 with 0.1cm resolution')
         # Read-only, matched physics matrix: no learning, no teacher, no
         # adaptive difficulty, no replacing the generalist frozen exam.
-        cases=[dict(name='flat',kind='flat'),*unified_terrain_matrix_cases(),
+        cases=[dict(name='flat',kind='flat'),
+               *unified_terrain_matrix_cases(grades_deg=degrees,heights_cm=heights),
                dict(name='lateral_left',kind='command',vx=0.,vy=.05),
                dict(name='lateral_right',kind='command',vx=0.,vy=-.05),
                dict(name='yaw_left',kind='command',vx=0.,yaw=.20),
@@ -1757,6 +1782,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       backend=jax.default_backend(),quick=bool(quick),
                       terrain_matrix=bool(terrain_matrix),
+                      matrix_grades_deg=(list(degrees) if terrain_matrix else None),
+                      matrix_heights_cm=(list(heights) if terrain_matrix else None),
                       model='actual paired inclined MJX collision slabs',
                       contact='real foot contact, five supported far-side frames',
                       no_reward_or_curriculum_feedback=True,
