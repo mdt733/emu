@@ -28,6 +28,14 @@
 - [ ] Pull evaluation-only `feature/v5027-results-audit` into `~/emu-v5027-eval`; rerun all A/B/C under a fresh results directory, teeing each completed-case console log. Old partial cases were only streamed, not saved as unified_exam.json.
 - [ ] Do not update immutable GPU `~/emu-v5027` (training source `5dec60c`) or protected `main`.
 
+## Next engineering concept: traversability-aware refusal (29 Oct 2026)
+
+- [x] Reviewed real 360 actor observation and rewards: existing 4×4 delayed ToF and mobility commands are present, but locomotion reward actively favors movement; **no learned/proven safe-refusal skill or ToF-aware navigator obstacle confidence exists yet**.
+- [x] Agreed behaviour: explore near capability frontier **during training**; in ordinary navigation detect the step ahead and slow, stop in dynamic balance, retreat or re-route **if this particular actor is unlikely to climb it**. Don't hardcode a 3cm threshold or let a freeze policy satisfy crossing.
+- [x] Detailed proposed architecture and preflight gates: [traversability and safe refusal](docs/TRAVERSABILITY_REFUSAL.md). Existing 4×4 sensing, same one six-action brain, no privileged physics input; initially use validated policy-conditioned capability estimate and ordinary vx/vy/yaw supervisor commands, not a second gait.
+- [ ] **NEXT:** ingest existing extended physical per-world JSON and instrument 4×4 detectability / stopping distance before training any new risk objective. Distinguish successful ascent from descent; explicit safe refusal, false refusal, unsafe edge contact and recovery as separate exam scores.
+- [ ] Build a fresh independent experimental feature branch only after sensor/stopability gate; preserve `main`, existing 60M checkpoints and evaluation SHA. No 400M run based on curriculum targets alone.
+
 ## v5027 — completed independent 15° / 3.5cm physical exam (29 October 2026)
 
 - [x] Owner ran full 16-world/seed1729/0.15m/s physical exam for A/B/C from examiner fix source `5d44f02`, under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2/extended_physical_fixed_20261029_065743`. All three generated `unified_exam.json` and `unified_exam.md`. The prior exact-15° crash is fixed.
