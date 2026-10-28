@@ -1411,6 +1411,24 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             and (commanded<.01 or achieved>=.30*commanded)
             and yaw_response_ok
             and support_fraction>=.35 and bad_fraction<.20 and alive)
+        # A walker's alternating foot placements produce instantaneous yaw
+        # oscillation even when mean heading does not drift. Preserve the
+        # historical strict all-axis gate, but report a SECOND, explicitly
+        # defined mission gate so supported step crossing or accurate
+        # uphill progression is never buried beneath an unrelated 0.08rad/s
+        # yaw-MAE cutoff. Neither result overwrites the other.
+        movement_ok=bool(
+            np.all(np.isfinite(mae[:2])) and
+            np.all(mae[:2]<=tolerance[:2]) and
+            (commanded<.01 or achieved>=.30*commanded) and
+            support_fraction>=.35 and bad_fraction<.20 and alive)
+        if yaw_target<.04:  # straight movement: hold mean yaw, limit wobble
+            heading_ok=bool(np.isfinite(bias[2]) and np.isfinite(jitter[2])
+                and abs(bias[2])<=.08 and jitter[2]<=.20)
+        else:  # actual requested turn: preserve the strict yaw response gate
+            heading_ok=bool(np.isfinite(mae[2]) and
+                            mae[2]<=tolerance[2] and yaw_response_ok)
+        mission_tracking=bool(movement_ok and heading_ok)
         grade=float(np.degrees(np.arccos(np.clip(normal[world,2],-1.,1.))))
         # Ground *direction* must match the requested task, not just the
         # absolute inclination: uphill is not evidence for downhill.
@@ -1485,6 +1503,15 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             passed=bool(tracking and seen_push and seen_tilt and tail_supported>=.60)
         else:
             passed=tracking
+        kind=case.get('kind')
+        if kind=='slope':
+            mission_pass=bool(slope_stability_pass and mission_tracking)
+        elif kind in ('step','mixed'):
+            mission_pass=bool(crossing and mission_tracking)
+        elif kind=='recovery':
+            mission_pass=bool(passed)
+        else:
+            mission_pass=mission_tracking
         work_per_m=work/achieved if achieved>.01 else None
         action_delta=(float(np.mean(np.abs(np.diff(actions[:stop,world],axis=0))))
                       if actions is not None and stop>1 else None)
@@ -1524,7 +1551,10 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             mean_abs_actor_action_delta=round(action_delta,5) if action_delta is not None else None,
             mean_stance_slip_proxy=round(slip_mean,5) if slip_mean is not None else None,
             delivered_push_peak_n=round(float(np.max(pushes[:stop,world])),3),
-            case_pass=bool(passed)))
+            case_pass=bool(passed),
+            mission_pass=bool(mission_pass),
+            movement_tracking_pass=bool(movement_ok),
+            heading_control_pass=bool(heading_ok)))
     return results
 
 
@@ -1695,14 +1725,31 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                     or not up['edge_verified'] or not down['edge_verified']):
                     raise RuntimeError('two-slab paired real geometry did not match')
         summary=dict(case=case,worlds=rows,passed=sum(r['case_pass'] for r in rows),
+                     mission_passed=sum(r['mission_pass'] for r in rows),
+                     crossed=(sum(r['crossing_pass'] is True for r in rows)
+                              if step>0 else None),
                      survived=sum(r['survived'] for r in rows),
                      stable=sum(bool(r['slope_stability_pass']) for r in rows),
                      wall_seconds=round(time.perf_counter()-t0,2))
         results.append(summary)
-        print(f"{case['name']}: {summary['passed']}/{worlds} passes, "
-              f"{summary['survived']}/{worlds} survived",flush=True)
+        physical=(f", supported crossing {summary['crossed']}/{worlds}"
+                  if step>0 else
+                  f", stable {summary['stable']}/{worlds}"
+                  if case['kind']=='slope' else '')
+        print(f"{case['name']}: mission {summary['mission_passed']}/{worlds}, "
+              f"strict all-axis {summary['passed']}/{worlds}{physical}, "
+              f"survived {summary['survived']}/{worlds}",flush=True)
     manifest=dict(
-        schema='emu_unified_frozen_exam_v1',source_commit=source_commit(),
+        schema='emu_unified_frozen_exam_v2_dual_scores',
+        scoring_contract=dict(
+            strict='historical case_pass: 3-axis mean absolute velocity/yaw tracking, support and survival',
+            mission='physical task AND bounded forward/lateral MAE, supported useful movement, '
+                    'plus zero-yaw mean signed yaw-rate bias <=0.08rad/s and jitter <=0.20rad/s; '
+                    'actual yaw-command cases retain strict yaw response; not a heading-path guarantee',
+            task='step requires five consecutive far-side supported frames and survival; '
+                 'slope requires verified grade and physical moving stability',
+            preserve_old_case_pass=True),
+        source_commit=source_commit(),
         actor_artifact_sha256=export['artifact_sha256'],
         observation_schema=export['observation_schema'],
         sensor_revision=TERRAIN_ARRAY_ONLY_REVISION,
@@ -1725,15 +1772,23 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     md_path=output/'unified_exam.md'
     data_path.write_text(_unified_exam_json(manifest),encoding='utf-8')
     md=['# Unified EMU — frozen physical capability assessment','',
+        'Physical mission and strict all-axis tracking are **different scores**.',
+        'Walking gait yaw oscillation may fail strict yaw-rate MAE despite ',
+        'real supported crossing. Mission includes bounded signed yaw bias',
+        'and jitter; neither claims long-range heading precision.','',
         f"Source policy SHA256: {manifest['actor_artifact_sha256']}",
         f"Actor schema: {manifest['observation_schema']} / {manifest['sensor_revision']}",
         f"Exam source: {manifest['source_commit']}",'',
-        '| Physical lesson | Tracked passes | Physical stability | Survival |',
-        '|---|---:|---:|---:|']
+        '| Physical lesson | Mission pass | Strict all-axis | Supported crossing | Grade stability | Survival |',
+        '|---|---:|---:|---:|---:|---:|']
     for item in results:
         stable=(str(item['stable'])+'/'+str(worlds)
                 if item['case']['kind']=='slope' else '—')
-        md.append(f"| {item['case']['name']} | {item['passed']}/{worlds} | {stable} | {item['survived']}/{worlds} |")
+        crossed=(str(item['crossed'])+'/'+str(worlds)
+                 if item['crossed'] is not None else '—')
+        md.append(f"| {item['case']['name']} | "
+                  f"{item['mission_passed']}/{worlds} | {item['passed']}/{worlds} | "
+                  f"{crossed} | {stable} | {item['survived']}/{worlds} |")
     md.extend(['','Per-world support, true step contact, commanded vs achieved',
                'body velocities, recovery, slip proxy, actor action changes and shaft work',
                'are in unified_exam.json. The control lesson has no fabricated',

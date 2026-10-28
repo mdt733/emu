@@ -134,6 +134,36 @@ manual/owner-approved workflow.
   causal comparisons; test low-vs-high push interference. Preserve
   20M cold foundation, compatible policy/source lineage, branch-only rule.
 
+## 28 October — genuine terrain learning was masked by an overly strict exam headline
+
+- [x] Owner ran old frozen-source `ab64cac` physical matrix on all P2
+  policies: `unified_exam(5/6/7).json`, eight matched physical worlds
+  per terrain. All 3 survived 8/8 on flat; all strict 0/8 because
+  zero-command yaw MAE approximately 0.115–0.126rad/s exceeds 0.08,
+  despite mean signed yaw biases usually much smaller.
+- [x] Verified **real supported five-frame crossings**: D 3/5/10/20mm
+  = 8/8,8/8,4/8,4/8; E = 8/8,8/8,8/8,7/8;
+  F = 8/8,8/8,8/8,7/8. Both E/F managed 3/4 step-UP
+  at 20mm, versus D 0/4. The old strict `case_pass` remains 0/8,
+  so do not say either number is false: the criteria are different.
+- [x] E and F genuinely tracked forward vx across 3–5° inclines
+  substantially better than D. D uphill-5° mean vx MAE ~0.263m/s
+  versus E ~0.039 and F ~0.027; D downhill-5° ~0.183
+  versus E/F ~0.017. These are equal-physics measured motion,
+  **not** merely training slope targets.
+- [x] Source-level exam presentation updated on development branch
+  (not old `ab64cac`!) to report original strict all-axis score
+  and a separate provisional physically meaningful mission score,
+  true supported crossing and verified grade stability. The new
+  mission score bounds mean yaw drift and yaw jitter, not a full
+  heading-path exam. It does not rewrite any archived output or
+  train any network. The archived old source remains exact.
+- [ ] Repeat fixed 10/20mm and 3/5° results across different
+  seeds/32 worlds before claiming robust mastery. Keep real uphill
+  skill and generalist retention as independent selection objectives.
+  Fix forward-step command attenuation only in a new source-pinned
+  training version, never on saved P2 source.
+
 ## Completed v5026 recovery-first 140M audit — 28 Oct 2026
 
 - [x] All seven seed-735 jobs finished, zero reported rollbacks;
