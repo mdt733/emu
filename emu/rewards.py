@@ -163,17 +163,21 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None
     ramping = (m['ramp_frac'] < 1.0).astype(jnp.float32)
     tracking_gain = 1.0 + is_transition * ramping * (TRANSITION_TRACKING_BOOST - 1.0)
     tracking_gain = tracking_gain * jnp.where(is_resilience > 0.5, RESILIENCE_TRACKING_RELIEF, 1.0)
-    # Only a step-up near its lip may temporarily sacrifice forward speed
-    # to position a foot. The caller has a strict 120-frame episode budget;
-    # overspeed, yaw/lateral control and all physical safety pay stay intact.
-    forward_loss = 62.0 * vx_err * vx_err + 40.0 * underspeed * underspeed
-    if careful_step is not None:
-        relief = jnp.where((careful_step > 0) & (vx_err < 0.0), 0.10, 1.0)
-        forward_loss = forward_loss * relief
-    command_tracking = jnp.exp(-tracking_gain * (forward_loss + 14.0 * vy_err * vy_err
-                                                  + 4.5 * yaw_err * yaw_err
+    # Keep the original arithmetic EXACT when no careful step is active;
+    # this is a controlled STEP-only intervention, not a reward rewrite.
+    command_tracking = jnp.exp(-tracking_gain * (62.0 * vx_err * vx_err + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
                                                   + 18.0 * pitch_err * pitch_err
-                                                  + 120.0 * overspeed * overspeed))
+                                                  + 120.0 * overspeed * overspeed + 40.0 * underspeed * underspeed))
+    if careful_step is not None:
+        # Relieve 90% of UNDERspeed cost for at most 120 near-lip frames.
+        # Keep overspeed, lateral, yaw, posture and all physical costs intact.
+        discounted = jnp.exp(-tracking_gain * (
+            0.10 * (62.0 * vx_err * vx_err + 40.0 * underspeed * underspeed)
+            + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
+            + 18.0 * pitch_err * pitch_err
+            + 120.0 * overspeed * overspeed))
+        command_tracking = jnp.where(
+            (careful_step > 0) & (vx_err < 0.0), discounted, command_tracking)
     # Early frames score neutral tracking while initial pose noise settles;
     # a genuine fall still terminates and incurs its penalty.
     settled = (m['age_s'] > SETTLE_STEPS * CONTROL_DT).astype(jnp.float32)
