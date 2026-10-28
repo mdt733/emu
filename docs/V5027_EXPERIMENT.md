@@ -76,3 +76,5 @@ The aborted first root `~/robot_lab/emu_runs/v5027_coherent_retention_s735` is r
 From an already clean `~/emu-v5027` checkout, use `git pull --ff-only` to fetch the fix, then rerun the launcher. The expected provenance line before preflight is `EMU environment source: /home/mdt733/emu-v5027/emu/environment.py`. For future restarts, keep the Git SHA unchanged.
 
 **Do not `git pull` or modify source in the middle of a run.** Any branch commit changes the required training source SHA. The original 232-input Pinnacle remains protected and the public playground remains unchanged. No 400M graduation is proposed until controlled physical evidence supports it.
+
+**Follow-up examiner:** [Read-only 2.5–3.5cm / 8–15° matrix commands](V5027_OVERNIGHT_FINDINGS.md#new-read-only-high-frontier-physical-examiner-results-audit-branch). The trained v5027 source and checkpoints remain unchanged.

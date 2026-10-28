@@ -7,6 +7,19 @@
 **Draft review:** [PR #15](https://github.com/mdt733/emu/pull/15)  
 **Public/main:** protected — **no merge, new champion or release without explicit owner approval**.
 
+### Read-only post-v5027 frontier exam (new evaluation branch)
+
+- [x] `feature/v5027-results-audit` has **only** post-training findings,
+  handover, and optional custom read-only frozen examination fixtures
+  (`--matrix-grades-deg`, `--matrix-heights-cm`). This is NOT a
+  checkpoint continuation source.
+- [ ] Run a fresh separate `~/emu-v5027-eval` checkout against existing
+  exported A/B/C policies: actual 2/2.5/3/3.5cm up/down and four-direction
+  5/8/10/12/15° physical lessons, seed1729, worlds16.
+  `docs/V5027_OVERNIGHT_FINDINGS.md` includes the complete command.
+- [ ] Do not touch `~/emu-v5027` at historical source `5dec60c`,
+  archived GPU checkpoint state or protected main.
+
 ## v5027 140M overnight completed — audited 29 October 2026
 
 - [x] Shared 20,054,016-step source-pinned foundation; A/B/C all reached 60,030,976 (140M aggregate, one seed735) with zero logged checkpoint rollbacks. Training source **`5dec60c4`**, archived completed run under `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2`.

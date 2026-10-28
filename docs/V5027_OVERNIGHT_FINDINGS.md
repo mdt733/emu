@@ -88,6 +88,52 @@ C improved **sideways and turning coverage in the fixed physical examiner**, alt
 
 Curricula differ, so the on-policy vx and J/m rows must **not** be described as equal-command speed/efficiency superiority. The positive teaching frontier `vx=[...]` is a curriculum parameter, not observed velocity. Mechanical shaft J/m is not electrical battery cost.
 
+## New read-only high-frontier physical examiner (results-audit branch)
+
+The source-pinned v5027 experiment **did not** test whether the 31mm/15°
+practice target was actually mastered. On `feature/v5027-results-audit`
+only, `capability-exam --terrain-matrix` now accepts optional
+`--matrix-heights-cm` (unique 0.1cm increments up to 4cm) and
+`--matrix-grades-deg` (unique grades up to 15°). Defaults remain the
+old comparable 3/5/10/20mm and 1/2/3/5° fixtures. Same actual rotated
+MJX contact slabs, actor schema and frozen scorer; no optimizer, no
+checkpoint migration, no teacher/curriculum changes. The examiner
+records the requested grade/height arrays in output protocol metadata.
+
+Run from a **fresh separate evaluation checkout**, not the finished
+source-pinned `~/emu-v5027` learner. Use its existing exported actors:
+
+```bash
+git clone --single-branch --branch feature/v5027-results-audit \
+  https://github.com/mdt733/emu.git "$HOME/emu-v5027-eval"
+cd "$HOME/emu-v5027-eval"
+source "$HOME/emu-graduation/.venv/bin/activate"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -c 'import emu.environment as e; print(e.__file__)'
+RUN="$HOME/robot_lab/emu_runs/v5027_coherent_retention_s735_r2"
+OUT="$RUN/extended_physical_$(date +%Y%m%d_%H%M%S)"
+for ARM in A_coherent_original B_coherent_direct C_direct_retention; do
+  python -m emu.cli capability-exam --terrain-matrix \
+    --policy "$RUN/physical_policies/$ARM.emupolicy" \
+    --output "$OUT/$ARM" --worlds 16 --horizon 350 --seed 1729 \
+    --speed 0.15 --device cpu \
+    --matrix-grades-deg 5 8 10 12 15 \
+    --matrix-heights-cm 2 2.5 3 3.5
+done
+echo "Extended physical exams: $OUT"
+```
+
+**Caution:** this is an independent examiner-only revision with a
+different Git source SHA from the actual training. It loads immutable,
+contract-verified `.emupolicy` exports, and retains each actor's
+trained policy hash and age. Never `--resume` an old training
+checkpoint under this changed examiner SHA. Neither the extended
+exams nor their behavior on the owner's CPU have yet been verified.
+Treat 16-world results as screening, then repeat interesting
+conditional results using 32 worlds / additional seeds. **Do not
+mistake slope stability for directed locomotion or step crossing for
+post-cross speed/heading control.**
+
 ## Interpretation and next decision
 
 **A** remains the marginal winner on 60M frozen broad score and familiar recovery, but **B** preserves nearly all that competence while achieving more on-policy directed locomotion and one more verified 20mm uphill crossing. **C** demonstrates a meaningful learnable *control benefit* from moving retention, but a 25% allocation is too large or insufficiently targeted to claim recovery/no-forgetting protection.
