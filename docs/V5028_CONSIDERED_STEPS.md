@@ -51,9 +51,9 @@ Seed 735, 2048 CUDA envs, 20M common cold main-style foundation,
 then two matched 20→80M forks, **140M aggregate world steps**. No
 intermediate winner selection. Full 2048 CUDA PPO gradient acceptance,
 two CPU variants, source/checkout guard and every-10M fixed exams
-before/through training. Afterwards, independent 16-world/condition
+before/through training. The **original pinned launch** runs an independent **8-world/condition**
 physical matrix: **2/2.5/3/3.5cm UP and DOWN** and four directed
-**5/8/12/15-degree** slopes, 0.15m/s, 350 frames. It writes
+**5/8/12/15-degree** slopes, 0.15m/s, 350 frames. The post-run polish branch updates a **future** launcher to 16 worlds; it does not alter the running training source or its examination count. It writes
 `physical_summary.md`, independent per-world JSON and
 `overnight_results.zip`.
 
