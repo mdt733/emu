@@ -1,7 +1,11 @@
 # EMU v5028 — considered STEP-UP reinforcement experiment
 
-**Status:** training code and guarded launcher committed to
-`feature/v5028-considered-steps`; owner WSL/CUDA smoke and PPO are not yet run.
+**Status:** source-pinned experiment launched by owner on 29 October 2026;
+full CPU/CUDA preflight outcome and PPO metrics are not yet supplied.
+The live experiment uses `feature/v5028-considered-steps` at exact
+`38713791023681dc9883f6c374d92e46261b3baf` and **must not be modified**.
+This documentation is updated on the separate `feature/v5028-merge-polish`
+branch, which is not a resume source.
 Protected `main`, published Pinnacle and all historical v5027 checkpoints
 are unchanged. Source changes require a **new cold 20M parent**; do not
 transplant saved 5dec60c4/ab64cac training checkpoints.
