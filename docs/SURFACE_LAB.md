@@ -82,7 +82,7 @@ supported moving stability from complete command tracking. Inspect
 uphill velocity, lateral downhill drift, yaw deviation and actual
 foot-contact completion, not only teacher difficulty.
 
-See the [v5024 experiment design](V5024_RUN_PLAN.md) and
+See the [v5024 experiment design](history/V5024_RUN_PLAN.md) and
 [release gates](RELEASE_READINESS.md). The published Pinnacle and
 existing training runs remain unchanged until an independently
 validated 360-input champion is approved.
