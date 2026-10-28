@@ -11,6 +11,7 @@
 [Try the public playground](https://mdt733.github.io/emu/) ·
 [Install & run](docs/INSTALL.md) ·
 [Recovery-first research plan](docs/RECOVERY_FIRST_GROWTH.md) ·
+[Latest v5026 overnight findings](docs/V5026_OVERNIGHT_FINDINGS.md) ·
 [Technical learning design](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Physical dimensions](docs/CAPABILITY_DIMENSIONS.md) ·
 [Latest handover](HANDOVER.md) ·

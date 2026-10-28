@@ -134,6 +134,32 @@ manual/owner-approved workflow.
   causal comparisons; test low-vs-high push interference. Preserve
   20M cold foundation, compatible policy/source lineage, branch-only rule.
 
+## Completed v5026 recovery-first 140M audit — 28 Oct 2026
+
+- [x] All seven seed-735 jobs finished, zero reported rollbacks;
+  training source `ab64cac`, first 20M common foundation and six
+  20M continuation trials; owner archive `overnight_results(3).zip`.
+  See [v5026 findings](docs/V5026_OVERNIGHT_FINDINGS.md).
+- [x] P1 B/main-mature improved 40M fixed broad exam **0.7088** vs
+  A/control **0.6317**; C/mature+retention improved on-policy
+  useful movement and J/m but didn't exceed B's fixed broad result.
+  P1 B was the actual parent of P2 D/E/F.
+- [x] P2 D/mixed gentle won 60M fixed broad **0.7803** and
+  resilience75 **85.9%**, yet step/slope frontier retreated to
+  **1.5mm/0.35°**. E and F coherent terrain ended at **28/29mm**
+  and **15° teaching targets** with many supported training crossings,
+  but worse held-out broad scores and very low late uphill near-height
+  pass rates (~14–18%). These are NOT certified 3cm/15° skills.
+- [ ] **Next priority:** run fixed physical terrain/force matrix on
+  existing local P1 B/C and P2 D/E/F policy checkpoints *before new
+  training*. Then combine coherent terrain with useful retention,
+  preserving step command eligibility (coherent 0.10–0.22m/s is
+  later attenuated toward 0.04; ascent reward needs ≥0.08m/s).
+  No 400M launch until physical tests support competency and retained
+  lower-speed recovery.
+- [ ] Do not resume the archived `ab64cac` training source on the
+  later docs-only polish HEAD; use exact-source checkout.
+
 ## Recovery-first capability-growth redesign (proposed)
 
 **Current next mission:** [Competence-preserving growth plan](docs/RECOVERY_FIRST_GROWTH.md).
