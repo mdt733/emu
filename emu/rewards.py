@@ -51,7 +51,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -64,7 +64,7 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     is_resilience = (regime > 1.5).astype(jnp.float32)
     valid_alive = 1.0 - m['terminal']
 
-    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp)
+    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp, careful_step=careful_step)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, attitude_profile, jnp)
@@ -150,7 +150,7 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
     return reward, terms
 
 
-def _command_tracking(m, is_transition, is_resilience, jnp):
+def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None):
     """Follow velocity, yaw and chassis pitch requests without launch hacks."""
     vx_err = m['vx'] - m['cmd_vx']; vy_err = m['vy'] - m['cmd_vy']; yaw_err = m['yaw_rate'] - m['cmd_yaw']
     pitch_err = m['body_pitch'] - m['cmd_pitch']
@@ -163,9 +163,17 @@ def _command_tracking(m, is_transition, is_resilience, jnp):
     ramping = (m['ramp_frac'] < 1.0).astype(jnp.float32)
     tracking_gain = 1.0 + is_transition * ramping * (TRANSITION_TRACKING_BOOST - 1.0)
     tracking_gain = tracking_gain * jnp.where(is_resilience > 0.5, RESILIENCE_TRACKING_RELIEF, 1.0)
-    command_tracking = jnp.exp(-tracking_gain * (62.0 * vx_err * vx_err + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
+    # Only a step-up near its lip may temporarily sacrifice forward speed
+    # to position a foot. The caller has a strict 120-frame episode budget;
+    # overspeed, yaw/lateral control and all physical safety pay stay intact.
+    forward_loss = 62.0 * vx_err * vx_err + 40.0 * underspeed * underspeed
+    if careful_step is not None:
+        relief = jnp.where((careful_step > 0) & (vx_err < 0.0), 0.10, 1.0)
+        forward_loss = forward_loss * relief
+    command_tracking = jnp.exp(-tracking_gain * (forward_loss + 14.0 * vy_err * vy_err
+                                                  + 4.5 * yaw_err * yaw_err
                                                   + 18.0 * pitch_err * pitch_err
-                                                  + 120.0 * overspeed * overspeed + 40.0 * underspeed * underspeed))
+                                                  + 120.0 * overspeed * overspeed))
     # Early frames score neutral tracking while initial pose noise settles;
     # a genuine fall still terminates and incurs its penalty.
     settled = (m['age_s'] > SETTLE_STEPS * CONTROL_DT).astype(jnp.float32)
