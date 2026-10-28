@@ -1,6 +1,6 @@
 # v5027 expanded physical-frontier exam — 29 October 2026
 
-**Evidence basis:** owner-pasted completed `capability-exam --terrain-matrix` console log from 29 Oct, folder `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2/extended_physical_fixed_20261029_065743`. Three actors A/B/C each completed the same **16-world per condition** frozen MJX physical assessment at seed **1729**, requested vx **0.15m/s**, horizon **350** control frames, 5/8/10/12/15-degree four-direction grades, and 2/2.5/3/3.5cm paired up/down steps. Original training source remains **`5dec60c4`**, first examiner had an exact-15° float32 boundary error fixed at results-audit SHA `5d44f02`. The user pasted the full terminal log, but **the per-world JSON files have not yet been provided**; up/down crossing splits, velocity biases and case-failure diagnoses remain unavailable.
+**Evidence basis:** owner-provided finished per-world physical archive `v5027_15deg_3cm_physical_results.tar.gz`, in addition to the complete terminal log. The archive contains all three full `unified_exam.json` and `.md` files plus A/B/C console logs. Original output directory: `~/robot_lab/emu_runs/v5027_coherent_retention_s735_r2/extended_physical_fixed_20261029_065743`. Three policies were tested with identical **16 worlds/condition**, CPU MJX, seed **1729**, forward command **0.15m/s**, horizon **350** control frames, 5/8/10/12/15° four-direction grades and 2/2.5/3/3.5cm paired up/down steps. Original training source **`5dec60c4`** remains frozen; the exam source has the exact-15° boundary fix from results-audit SHA `5d44f02`. The per-world JSON has now been inspected. All evidence is simulated; not a hardware reliability claim.
 
 ## Directionally commanded slope missions — out of 16 each
 
@@ -46,7 +46,30 @@
 | **All crossings /64** | **38** | 30 | 35 |
 | **All complete missions /64** | **13** | 11 | 9 |
 
-3cm **physical crossing capability exists intermittently**, but complete 3cm motion is almost absent. Not enough evidence to say the robot can reliably climb 3cm: output totals aggregate UP and DOWN. Full per-world JSON must separate up/down via `worlds[].direction` and `crossing_pass`, and inspect `movement_tracking_pass`, `heading_control_pass`, velocity MAE and signed vx/vy/yaw bias.
+**Critical correction from per-world JSON: all 3.0 and 3.5 cm successes were STEP-DOWNS. None of the three policies ascended a 3.0 or 3.5 cm ledge in any of the eight uphill worlds.** 2.5cm step-up is possible for A, but still not reliably commanded after climbing.
+
+### Verified supported step-UP / step-DOWN splits (8 worlds each)
+
+| Height | A UP / DOWN | B UP / DOWN | C UP / DOWN |
+|---|---:|---:|---:|
+| 2.0cm | **8/8 · 8/8** | **8/8 · 8/8** | 6/8 · 8/8 |
+| 2.5cm | **6/8 · 7/8** | **0/8 · 7/8** | 2/8 · 8/8 |
+| 3.0cm | **0/8 · 5/8** | **0/8 · 5/8** | **0/8 · 6/8** |
+| 3.5cm | **0/8 · 4/8** | **0/8 · 2/8** | **0/8 · 5/8** |
+
+3.0cm uphill did *not* generally cause immediate falls: A/B/C all survived **8/8** uphill worlds, but **0/8** crossed or satisfied movement tracking. The signed forward vx command error (actual minus requested, averaged across the eight uphill worlds) is **A −0.132m/s**, **B −0.135m/s**, **C −0.137m/s**, at a requested **+0.15m/s**. This is an obstacle approach/progression failure: roughly ~0.013–0.018m/s mean achieved forward speed, not a successful three-centimetre climb.
+
+The **2cm uphill** episodes all crossed for A and B, but *full mission* scores were **A 1/8, B 0/8**, with movement tracking **8/8 each** and heading control **A 1/8, B 0/8**. So the missing post-crossing quality is largely yaw/heading control, not inability to produce forward travel. C crosses 6/8 uphill, passes the complete uphill mission 1/8, and has the same general yaw bottleneck.
+
+At **2.5cm uphill**, A crosses **6/8**, C **2/8**, B **0/8**. The two C crossings and all six A crossings fail the *full mission* on the heading gate; B's eight uphill worlds all fail survival. This makes A the clearest experimental STEP-UP reference, and disproves a simple monotonic benefit from fully preserving the direct terrain command.
+
+### Actual steep-slope failure mechanism in the per-world JSON
+
+A and C often maintain plausible forward velocity but fail mean yaw control; B additionally shows severe downhill velocity drift. Example **12° uphill**, vx signed biases (actual minus requested) A **−0.018m/s**, B **−0.034m/s**, C **−0.034m/s**, yet provisional mission passes **9/16, 2/16, 16/16**; heading gate passes exactly **9/16, 2/16, 16/16**. C is controlling rotation better, *not just going faster*.
+
+At **15° downhill**, all mission counts are 0/16. A survives 16/16 with forward vx MAE ~0.022m/s but yaw signed bias ~**+0.117rad/s**; B falls to 11/16 survival with mean forward **+0.247m/s bias** against +0.15m/s request and yaw bias **+0.388rad/s**; C survives 12/16 with vx MAE ~0.117m/s and yaw bias ~**−0.076rad/s**. This separates yaw limitation from true overspeed/loss of commanded motion. Right camber also produces severe sideways drift (A +0.110m/s signed vy bias at 15°, C +0.126m/s). Some strict passes remain 0 on all slopes because the legacy instantaneous yaw-MAE gate is much tighter than the provisional mission's bias/jitter test; both scores need retaining.
+
+**Scope caution:** The examiner's `path_travel_m` is an *absolute accumulated distance*, not signed goal progress; it is not a standalone proof of downhill course completion. The supported far-side crossing test is genuine physical foot-contact progression, but the “mission” score still needs a signed-path/heading audit before public promotion.
 
 ### Directional non-terrain commands, strict all-axis score
 
@@ -62,14 +85,15 @@ C again materially improves lateral/yaw command performance versus A/B on an ind
 
 ## What the evidence says to change next
 
-1. **Stop treating increased forward command on BOTH slope and step focus as a proven fix.** The B−A contrast is negative on the 8–15° physics matrix and for >2cm crossing. Under one-seed/same-parent A/B, a direct step-only arm and a separate slope-direct arm would clarify the trade-off.
-2. **Use A's original coherent approach as the terrain reference** and C as evidence for *targeted* low-stress directional movement rehearsal. Explore 10–15% rehearsal (not a promise of improvement); also consider preserving 25% for directional control only while separately enhancing push recovery, because C did not preserve previous 60M resilience75.
-3. Diagnose failures from detailed JSON: **downhill** and **right camber** fall apart before uphill and left camber. Determine whether the main failure is mean vx tracking, lateral drift, yaw drift/oscillation, insufficient path progress, or actual falls. Do not modify the reward/controller until this is known.
-4. For steps, first split 2.5/3cm **step-UP vs step-DOWN** and verify 5-frame supported far-side evidence on rising lip. 3cm physical crossing 5–6/16 pooled is not demonstrated 3cm ascent mastery.
-5. Repeat the most discriminating cases with a **new evaluation seed and 32 worlds** at matching speed and geometry. Multiple trials on one trained seed are still not multi-training-seed replication.
-6. Only after control diagnosis, perform bounded feature-branch experiments (e.g. original coherent + 10–15% moving rehearsals vs corrected STEP-only command treatment vs clean A baseline); don't spend 400M steps because training frontiers say 15°/3cm.
+1. **Treat main replacement, not isolated terrain scores, as the real objective.** The protected v5016 Pinnacle reportedly handles ≈1m/s on its trained slope-only curriculum. v5027's earned forward frontier at 60M is only ~0.37–0.43m/s, despite a configured safety headroom of 1.4m/s. Merely extending training does not guarantee frontier promotion or true 1m/s tracking. Require an identical physical command-speed sweep from .2 through 1.0m/s, with signed velocity MAE, heading/path, survival, recovery and mechanical J/m, compared to Pinnacle under a schema-neutral actual-contact protocol. Existing v5027 unified frozen terrain exams stop at 0.30m/s and do not certify speed.
+2. **Stop treating increased forward command on BOTH slope and step focus as a proven fix.** The B−A contrast is negative on the 8–15° matrix and for >2cm uphill ascent. Under same-parent A/B, a direct STEP-only arm and separate SLOPE-only arm would isolate the trade-off.
+3. **Use A's original coherent approach as the terrain reference** and C as evidence for *targeted* low-stress directional movement rehearsal. Explore 10–15% rehearsal (not a promise of improvement); also consider preserving 25% for directional control only while separately enhancing push recovery, because C did not preserve previous 60M resilience75.
+4. Focus the known failure mechanisms: downhill command overspeed and yaw drift (especially B), right camber lateral bias, steep uphill yaw stability (A/B), and 3cm upward ledge approach rather than merely standing in front of the lip. Repair physics-aware control and shaping without turning the policy into a scripted gait.
+5. The split is now known: 3cm upward is 0/8 across A/B/C; 2.5cm A 6/8. Make upward 3cm crossing with supported far-side contact a genuine graduation target, and report post-cross speed/heading separately.
+6. Repeat the most discriminating cases with a **new evaluation seed and 32 worlds** at matching speed and geometry. Multiple trials on one trained seed are still not multi-training-seed replication.
+7. Only after control diagnosis, perform bounded feature-branch experiments (e.g. original coherent + 10–15% moving rehearsals vs corrected STEP-only command treatment vs clean A baseline); don't spend 400M steps because training frontiers say 15°/3cm.
 
-The complete artifacts are at the run-root path above and can be bundled without rerunning simulation:
+The complete raw per-world results were bundled by the owner and inspected; the following remains a reproducible WSL archive command:
 
 ```bash
 ROOT="$HOME/robot_lab/emu_runs/v5027_coherent_retention_s735_r2"
