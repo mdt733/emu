@@ -1616,3 +1616,14 @@ def test_v5016_schema8_viewer_bundle_roundtrip(tmp_path):
     artifact.write_text(json.dumps(bad))
     with pytest.raises(ValueError,match='sensor contract'):
         load_exported_actor_for_exam(artifact)
+
+def test_capability_module_split_keeps_archived_import_contract():
+    """Historical curriculum-qualified symbols resolve to canonical owners."""
+    from emu.curriculum import CapabilityField as HistoricalField
+    from emu.curriculum import record_capability_cloud_exam as HistoricalExam
+    from emu.curriculum import FIELD_VERSION as HistoricalVersion
+    from emu.capability_field import CapabilityField, FIELD_VERSION
+    from emu.capability_cloud import record_capability_cloud_exam
+    assert HistoricalField is CapabilityField
+    assert HistoricalExam is record_capability_cloud_exam
+    assert HistoricalVersion == FIELD_VERSION == 6
