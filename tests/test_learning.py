@@ -34,6 +34,22 @@ def _held_out_core_fixture():
     return row
 
 
+
+def test_fixed_terrain_15deg_boundary_uses_float64_host_validation():
+    """The real 15° MJX exam must not reject 15.00000095° float32 noise."""
+    # This reproduces the host packet conversion exactly, without JIT.
+    import numpy as np
+    def grade(pitch,roll):
+        p,r=float(np.float32(pitch)),float(np.float32(roll))
+        g=np.hypot(np.tan(np.deg2rad(p)),np.tan(np.deg2rad(r)))
+        return float(np.rad2deg(np.arctan(g)))
+    assert grade(15.,0.)<=15.+1e-9
+    assert grade(-15.,0.)<=15.+1e-9
+    assert grade(0.,15.)<=15.+1e-9
+    assert grade(0.,-15.)<=15.+1e-9
+    assert grade(15.01,0.)>15.+1e-9
+    assert grade(11.,11.)>15.+1e-9
+
 def test_offline_fixed_exam_compare_uses_only_frozen_exam_csv(tmp_path):
     import csv
     import json

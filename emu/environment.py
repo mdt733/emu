@@ -1562,9 +1562,19 @@ class EmuMJXEnv(TaskSampler):
                 if np.isfinite(fixed_pitch) != np.isfinite(fixed_roll):
                     raise ValueError('explicit terrain pitch and roll must be provided together')
                 if np.isfinite(fixed_pitch):
-                    g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
-                               np.tan(np.deg2rad(fixed_roll)))
-                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0:
+                    # Fixed angles arrive as float32 task-packet values.
+                    # Computing tan -> atan IN float32 turns an exactly
+                    # 15-degree fixture into 15.00000095 degrees and
+                    # mistakenly rejects the permitted frontier. Convert
+                    # to float64 on the HOST for validation only; physics
+                    # still receives the unchanged float32 task packet.
+                    p64,r64=float(fixed_pitch),float(fixed_roll)
+                    g=np.hypot(np.tan(np.deg2rad(p64)),
+                               np.tan(np.deg2rad(r64)))
+                    # Numerical tolerance is far smaller than one float32
+                    # degree ULP; any materially >15-degree combined pitch
+                    # and roll remains forbidden.
+                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0+1e-9:
                         raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
                 if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
                     raise ValueError('fixed step height outside compiled physical range')
