@@ -1,4 +1,9 @@
-# EMU — active engineering handover
+# EMU — historical handover (pre-v5028 cleanup)
+
+> Preserved chronology as at 29 Oct 2026. For current actions use
+> [the maintained handover](../../HANDOVER.md). Links have been
+> adjusted for archival relocation; a missing historical overnight
+> summary link was redirected to the surviving extended physical findings.
 
 **Updated:** 29 October 2026
 **Release-polish branch:** `feature/v5024-release-polish`  
@@ -32,7 +37,7 @@
 
 - [x] Reviewed real 360 actor observation and rewards: existing 4×4 delayed ToF and mobility commands are present, but locomotion reward actively favors movement; **no learned/proven safe-refusal skill or ToF-aware navigator obstacle confidence exists yet**.
 - [x] Agreed behaviour: explore near capability frontier **during training**; in ordinary navigation detect the step ahead and slow, stop in dynamic balance, retreat or re-route **if this particular actor is unlikely to climb it**. Don't hardcode a 3cm threshold or let a freeze policy satisfy crossing.
-- [x] Detailed proposed architecture and preflight gates: [traversability and safe refusal](docs/TRAVERSABILITY_REFUSAL.md). Existing 4×4 sensing, same one six-action brain, no privileged physics input; initially use validated policy-conditioned capability estimate and ordinary vx/vy/yaw supervisor commands, not a second gait.
+- [x] Detailed proposed architecture and preflight gates: [traversability and safe refusal](../TRAVERSABILITY_REFUSAL.md). Existing 4×4 sensing, same one six-action brain, no privileged physics input; initially use validated policy-conditioned capability estimate and ordinary vx/vy/yaw supervisor commands, not a second gait.
 - [x] Parsed existing extended per-world JSON: all 3cm+ crossings were descents; A UP=8/8 at 2cm, 6/8 at 2.5cm, 0/8 at 3cm. At 3cm UP all eight A worlds survived but stalled under positive command; not a deliberate refusal. A's 2.5cm successful UP crossing median is ~3.03s. Aggregated JSON cannot show pre-lip slowdown or actual stopping distance.
 - [x] Reviewed training economics: instantaneous forward-command tracking can disfavor a careful foot-placement pause despite the +10 once-per-crossing physical completion bonus. Documented separate ascent/contact, post-cross quality and deliberate refusal criteria; no scoring or PPO code changed.
 - [x] **Specific speed-gate mismatch found:** training ascent guidance needs `cmd_vx >= 0.08m/s` and root travel `>0.5mm/frame` (~0.025m/s), while training crossing needs actual `vx > 0.02m/s` during *each* of five supported far-side frames. The independent physical examiner does **not** impose that instantaneous speed condition. Investigate time-window signed progress + supported far-side settling rather than globally dropping anti-stall gates; no existing policy or source changed.
@@ -40,7 +45,7 @@
 - [ ] Build a fresh independent experimental feature branch only after sensor/stopability gate; preserve `main`, existing 60M checkpoints and evaluation SHA. No 400M run based on curriculum targets alone.
 
 - [x] **29 Oct reward-economics review:** at +0.15m/s, standing briefly reduces the vx-only locomotion multiplier to ~0.133; a one-second full pause can forgo up to ~67 idealized reward units, versus one-shot +10 crossing and up to +9 ascent shaping. Early falls can incur >100 penalty. A's actual step-lesson commands are +0.07–0.13m/s after attenuation; the `cmd_vx>=0.08` ascent-guidance gate excludes about 1/6 of these commands. This may suppress considered ascent, but is not a causal finding from trained weights.
-- [ ] After the read-only ToF/braking gate, compare source-pinned cold-start control A versus a STEP-only self-paced underspeed-relief treatment and an explicit slower-request approach, plus a gate-only signed-progress/contact scorer diagnostic. Keep flat command/recovery and growth as retention checks. [Quantitative design](docs/TRAVERSABILITY_REFUSAL.md).
+- [ ] After the read-only ToF/braking gate, compare source-pinned cold-start control A versus a STEP-only self-paced underspeed-relief treatment and an explicit slower-request approach, plus a gate-only signed-progress/contact scorer diagnostic. Keep flat command/recovery and growth as retention checks. [Quantitative design](../TRAVERSABILITY_REFUSAL.md).
 
 ## 29 Oct — v5028 considered-step training campaign (fresh branch)
 
@@ -59,7 +64,7 @@
 - [x] 320 four-direction slope **provisional mission** passes: A **203/320**, B **137/320**, C **217/320**. At 12° uphill A 9/16, B 2/16, **C 16/16**; at 15° uphill A 8/16, B 0/16, C 8/16. At 15° downhill/right camber **all 0/16 missions**. Stable on support is not commanded slope walking.
 - [x] 3cm supported crossings A **5/16**, B **5/16**, C **6/16**, but full physical missions **0/16,1/16,1/16**. At 2.5cm A **13/16** crossings versus B 7/16/C 10/16. **Step-UP and step-DOWN splits not yet recovered** from raw JSON; no 3cm ascent mastery claim.
 - [x] Strict lateral/yaw command totals A **42/64**, B **50/64**, C **60/64**. C's moving retention strongly helps some directional steering at independent seed, but its prior 60M fixed resilience75 remains worse (48/64 vs A/B 55/64).
-- [x] Documentation-only interpretation on `feature/v5027-frontier-review`; **NO** edits to completed training/evaluation branches or protected `main`. [Extended findings](docs/V5027_EXTENDED_PHYSICAL_FINDINGS.md).
+- [x] Documentation-only interpretation on `feature/v5027-frontier-review`; **NO** edits to completed training/evaluation branches or protected `main`. [Extended findings](V5027_EXTENDED_PHYSICAL_FINDINGS.md).
 - [x] Collected and inspected full 3× raw `unified_exam.json`: A step-up success **8/8 at 2cm, 6/8 at 2.5cm, 0/8 at 3cm**; B **8/8, 0/8, 0/8**; C **6/8, 2/8, 0/8**. Every previous 3cm success was step-DOWN. At 3cm uphill, all 8 worlds survived but actual forward movement is only about 0.01–0.02m/s versus +0.15 commanded; post-2cm crossing fails chiefly heading gate.
 - [x] Diagnosed steep downhill/right camber via signed bias. At 15° downhill, A maintains vx MAE ~.022m/s but yaw bias +.117rad/s; B suffers vx overspeed bias +.247m/s and yaw bias +.388rad/s; C retains a weaker vx MAE ~.117m/s. At 15° right camber A/C sideways bias +.110/+ .126m/s.
 - [ ] Before larger run, compare A original coherent + targeted 10–15% retention and STEP-only direct alternatives using frozen physical exam. Do not assume B direct terrain mutation is universally beneficial; B was weak on downhill/slope control.
@@ -76,7 +81,7 @@
 - [x] C's strict lateral/yaw total **28/32** versus A **16/32**, B **17/32** demonstrates a real control benefit from retention; but C's late broad score declined and fixed recovery worsened. Separate mobility/recovery from mere survival and on-policy fall fractions.
 - [ ] Next: repeat matched 2cm step/5° command physics at 32 worlds and new eval seeds; extend independent physical exam to 3cm/8–15°; test push recovery at several speeds. Consider a 10–15% targeted moving rehearsal rather than trusting the current 25% treatment.
 - [ ] No v5027 source changes or cross-SHA checkpoint resumption; maintain `~/emu-v5027` at `5dec60c4`. Do all new work on a separate experiment branch. No automated merge/public promotion.
-- [x] Full interpretation: [v5027 completed findings](docs/V5027_OVERNIGHT_FINDINGS.md).
+- [x] Full interpretation: [v5027 completed findings](V5027_EXTENDED_PHYSICAL_FINDINGS.md).
 
 ### v5027 first WSL preflight: wrong editable-vEnv import; fixed on feature branch
 
@@ -91,7 +96,7 @@
 - [x] Added isolated `--terrain-lesson coherent-direct`: focused STEP/SLOPE keep their sampled 0.10–0.22m/s forward intent rather than generic half-strength attenuation. Phase rate updated for this command. Existing `coherent` control remains unchanged.
 - [x] Added physical post-sampler command assertion in CPU/full CUDA smoke (focused STEP exactly 0.10–0.22m/s).
 - [x] Added `scripts/v5027_coherent_retention.py`, plan-only default; shared 20M seed735 cold start and 3×40M matched forks (old coherent, direct, direct+25% moving retention), full 2048 CUDA smoke, fixed 10M exams, final 0.15m/s matched CPU physical matrices and report bundle.
-- [ ] **NEXT:** run clean branch on WSL using [one-page launch guide](docs/V5027_EXPERIMENT.md), preserve source SHA and collect resulting `overnight_results.zip`. The implementation has **not** trained on the owner's GPU yet.
+- [ ] **NEXT:** run clean branch on WSL using [one-page launch guide](V5027_EXPERIMENT.md), preserve source SHA and collect resulting `overnight_results.zip`. The implementation has **not** trained on the owner's GPU yet.
 - [ ] After results: assess real 1/2cm up/down, 3/5° directed grade, fixed core/dynamic/recovery, precision yaw, J/m; decide whether to combine, replicate or abandon. No 400M or public replacement on teacher numbers alone.
 
 ## Mission, in one paragraph
@@ -107,8 +112,8 @@ The actual goals are accurately commanded, stable, recoverable and
 mechanically sensible walking. A frontier is a *training request*, never
 certified competence.
 
-**Design contract:** [UNIFIED_CAPABILITY_GROWTH](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
-[Physical target inventory](docs/CAPABILITY_DIMENSIONS.md).
+**Design contract:** [UNIFIED_CAPABILITY_GROWTH](../UNIFIED_CAPABILITY_GROWTH.md) ·
+[Physical target inventory](../CAPABILITY_DIMENSIONS.md).
 
 ## Completed v5024 180M study — source frozen
 
@@ -131,7 +136,7 @@ should not be touched by cleanup or future scripts. A checkpoint from
 that exact source may resume only on that exact clean commit.
 
 **Current graduation path:** [Two experiments + one long run +
-Pinnacle cross-schema benchmark](docs/GRADUATION_CAMPAIGNS.md).
+Pinnacle cross-schema benchmark](GRADUATION_CAMPAIGNS.md).
 
 ## What v5024 changes — measured facts versus assumptions
 
@@ -208,7 +213,7 @@ manual/owner-approved workflow.
 
 - [x] Audited protected-main maturation against the exact 290M-screen
   source `ab29c027` and owner's complete training logs.
-  [Root-cause investigation](docs/MAIN_VS_V5025_ROOT_CAUSES.md).
+  [Root-cause investigation](MAIN_VS_V5025_ROOT_CAUSES.md).
 - [ ] **No 400M yet.** The 360 actor's 20M flat gait learned well, but
   the mature learner never adopted main's broader/stronger athletic
   command teaching. STEP/SLOPE cohorts inherit random incompatible
@@ -256,7 +261,7 @@ manual/owner-approved workflow.
 - [x] All seven seed-735 jobs finished, zero reported rollbacks;
   training source `ab64cac`, first 20M common foundation and six
   20M continuation trials; owner archive `overnight_results(3).zip`.
-  See [v5026 findings](docs/V5026_OVERNIGHT_FINDINGS.md).
+  See [v5026 findings](V5026_OVERNIGHT_FINDINGS.md).
 - [x] P1 B/main-mature improved 40M fixed broad exam **0.7088** vs
   A/control **0.6317**; C/mature+retention improved on-policy
   useful movement and J/m but didn't exceed B's fixed broad result.
@@ -279,7 +284,7 @@ manual/owner-approved workflow.
 
 ## Recovery-first capability-growth redesign (proposed)
 
-**Current next mission:** [Competence-preserving growth plan](docs/RECOVERY_FIRST_GROWTH.md).
+**Current next mission:** [Competence-preserving growth plan](RECOVERY_FIRST_GROWTH.md).
 The owner's speed/resilience tradeoff hypothesis is not yet proven:
 compare **same-speed, same-force** recovery at 20/50/70M and against the
 published champion. We will not accept losing previously stable
@@ -363,7 +368,7 @@ python -u scripts/v5026_recovery_first.py --run
 - [x] **Experiment 1 290M completed and audited** from owner's
   `overnight_results(2).zip`; exact source `ab29c027`, all twelve 70M
   forks finished, no reported rollback. See
-  [Experiment 1 findings](docs/EXPERIMENT1_FINDINGS.md).
+  [Experiment 1 findings](EXPERIMENT1_FINDINGS.md).
   Staged OFF best broad exam 0.7343; balanced I 400ms/2× 0.7231 vs
   balanced OFF 0.7139. **Not physical mastery**: all twelve step
   frontiers at 1.5mm; most slopes at 0.35°; resilience all 4N;
