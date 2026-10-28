@@ -87,6 +87,19 @@ def main():
     reassigned,_=env.reset(params)
     assert np.all(np.asarray(jax.device_get(reassigned.focus_id))==3)
     assert bool(jax.device_get(jnp.all(reassigned.specialist_active)))
+    if args.terrain_lesson=="coherent-direct":
+        # Test the REAL post-specialist teacher command, not merely
+        # the intended .10-.22 pre-attenuation sample.
+        from emu.environment import T
+        episode_vx=np.asarray(jax.device_get(reassigned.task[:,T.vx]))
+        episode_vy=np.asarray(jax.device_get(reassigned.task[:,T.vy]))
+        episode_yaw=np.asarray(jax.device_get(reassigned.task[:,T.yaw]))
+        assert np.all((episode_vx>=.0999)&(episode_vx<=.2201)),episode_vx
+        assert np.all(np.abs(episode_vy)<1e-6),episode_vy
+        assert np.all(np.abs(episode_yaw)<1e-6),episode_yaw
+        print(f"coherent-direct physical lesson request "
+              f"{episode_vx.min():.3f}..{episode_vx.max():.3f}m/s, "
+              "vx above ascent reward eligibility",flush=True)
     # Restore static reference roles for the remaining geometry smoke.
     params.update({f'focus_weight_{name}':0. for name in FOCUS_NAMES})
     params['specialist_mix']=0.0
