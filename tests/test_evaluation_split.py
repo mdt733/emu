@@ -57,3 +57,8 @@ def test_v5029_speed_ladder_is_read_only_and_exposed_on_cli(capsys):
     assert "--speed-ladder" in out
     assert "--ladder-speeds" in out
     assert api.evaluate_unified_capabilities is physical.evaluate_unified_capabilities
+
+def test_v5029_700_frame_speed_exam_cannot_timeout_on_last_frame():
+    import inspect
+    code=inspect.getsource(physical.evaluate_unified_capabilities)
+    assert 'max_episode_steps=max(700,horizon+50)' in code
