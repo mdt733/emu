@@ -221,6 +221,86 @@ def _gait_maturity(m, jnp):
     return locomotion_maturity, stepping_gate
 
 
+
+# --- Next-study OFFLINE hypotheses, not part of PPO training_reward ---
+# These can score real recorded trajectories without changing the current
+# actor, checkpoint, reward arithmetic or source-pinned campaign.
+def trailing_mean_trace(values, frames: int = 25, *, xp):
+    """Causal trailing mean over episode-local frames (axis 0).
+
+    Caller must split traces at resets; averaging across a terminal state
+    or a new velocity command would fabricate tracking competence.
+    """
+    if not isinstance(frames, int) or frames < 1:
+        raise ValueError("trailing frames must be a positive integer")
+    a = xp.asarray(values)
+    if a.ndim not in (1, 2) or a.shape[0] < 1:
+        raise ValueError("expected nonempty [time] or [time, worlds] trace")
+    total = xp.concatenate((xp.zeros_like(a[:1]), xp.cumsum(a, axis=0)), axis=0)
+    stop = xp.arange(a.shape[0]) + 1
+    start = xp.maximum(0, stop - frames)
+    shape = (a.shape[0],) + (1,) * (a.ndim - 1)
+    return (total[stop] - total[start]) / (stop - start).reshape(shape)
+
+
+def counterfactual_forward_tracking(
+    actual_vx, requested_vx, *, xp, frames: int = 25, history_share: float = .5
+):
+    """Forward part of main's reward, with optional 0.5s history blend.
+
+    This is a diagnostic (NOT the full multi-axis locomotion payment).
+    Both velocities are averaged over the SAME causal window.
+    The caller must split at reset and at operator-command discontinuities;
+    otherwise a transition across commands can look like tracking success.
+    share=0 reproduces original instantaneous forward reward exactly.
+    """
+    if not 0.0 <= history_share <= 1.0:
+        raise ValueError("history_share must be in 0..1")
+    actual, requested = xp.asarray(actual_vx), xp.asarray(requested_vx)
+    if actual.shape != requested.shape:
+        raise ValueError("actual/requested trace shape mismatch")
+
+    def score(a, c):
+        err = a - c
+        over = xp.maximum(0., err - SPEED_TOLERANCE)
+        under = xp.maximum(0., -err - SPEED_TOLERANCE)
+        return xp.exp(-(62. * err * err + 120. * over * over
+                        + 40. * under * under))
+
+    instant = score(actual, requested)
+    if history_share == 0.0:
+        return instant
+    history = score(trailing_mean_trace(actual, frames, xp=xp),
+                    trailing_mean_trace(requested, frames, xp=xp))
+    return (1.0 - history_share) * instant + history_share * history
+
+
+def verified_support_elevation_credit(
+    support_surface_delta_m, cog_delta_m, contact_on_target_surface,
+    stable_support, previous_verified_peak_m, *, direction: int,
+    xp, max_rise_m: float = .04, total_credit: float = 4.0
+):
+    """Bounded incremental *verified* vertical transfer (one-time per lip).
+
+    Proposed upward/downward-step study component, NOT active PPO reward.
+    A squat or jump alone has zero credit: the matching real target surface
+    must have changed, a foot must contact it, the CoG must move in the
+    matching signed direction and stable support must be maintained.
+    The caller owns a per-episode/obstacle high-water mark, never recycled
+    when the robot oscillates at a lip. This is not a fall reward.
+    """
+    if direction not in (-1, 1):
+        raise ValueError("direction must be +1 ascent or -1 descent")
+    if max_rise_m <= 0. or total_credit < 0.:
+        raise ValueError("height cap must be positive and reward nonnegative")
+    changed = xp.clip(direction * xp.asarray(support_surface_delta_m), 0., max_rise_m)
+    moved = xp.clip(direction * xp.asarray(cog_delta_m), 0., max_rise_m)
+    verified = xp.asarray(contact_on_target_surface) & xp.asarray(stable_support)
+    eligible = xp.where(verified, xp.minimum(changed, moved), 0.)
+    previous = xp.clip(xp.asarray(previous_verified_peak_m), 0., max_rise_m)
+    peak = xp.maximum(previous, eligible)
+    return total_credit * (peak - previous) / max_rise_m, peak
+
 def apply_early_fall_penalty(reward, terminal_fail, episode_age_steps,
                              max_episode_steps, *, xp):
     """Same early-death penalty as accepted main. Timeouts receive no penalty.

@@ -11,7 +11,8 @@ new, and [HANDOVER](../HANDOVER.md) for the active engineering state.
 | [INSTALL](INSTALL.md) | WSL setup, source-pinned training, examination and local viewer |
 | [Unified capability contract](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six focus curricula, physical evidence and retention |
 | [Capability inventory](CAPABILITY_DIMENSIONS.md) | Exact physical dimensions and honest scoring distinctions |
-| [v5028 considered steps](V5028_CONSIDERED_STEPS.md) | Running research experiment, A/B definitions and physical exams |
+| [v5029 speed restoration](../HANDOVER.md) | Active source-pinned 120M speed + terrain run |
+| [v5030 reward lab](V5030_REWARD_EXPERIMENTS.md) | Next-run opt-in reward hypotheses, analysis plan and anti-cheat checks |
 | [Traversability and refusal](TRAVERSABILITY_REFUSAL.md) | Design only: ToF-aware, capability-conditioned cautious navigation |
 | [Surface laboratory](SURFACE_LAB.md) | Interactive manual incline/step inspection |
 | [Public playground](PLAYGROUND.md) | Browser demo and release protection |
@@ -20,7 +21,7 @@ new, and [HANDOVER](../HANDOVER.md) for the active engineering state.
 
 ## Completed research — not current launch instructions
 
-[Research history](history/README.md) preserves the v5024–v5027 studies,
+[Research history](history/README.md) preserves the v5024–v5028 studies,
 earlier graduation proposals, forensic diagnosis and per-world evidence.
 Those documents refer to **their recorded source commits**. Do not treat
 historical checkout/launch commands as instructions for today's actor.
