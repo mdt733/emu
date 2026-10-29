@@ -325,6 +325,14 @@ def train(args: TrainingConfig) -> int:
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
+            # The 20M foundation uses original main-style births only.
+            # Afterward, honour the explicit run configuration even when
+            # resuming a cold-foundation checkpoint whose saved governor
+            # still contains athletic_rehearsal_frac=0. This value controls
+            # actual training births; it is not a checkpoint network field.
+            d['athletic_rehearsal_frac']=(
+                args.athletic_rehearsal_frac if profile.adaptive_specialists
+                else 0.0)
             d['steering_attention']=(1.0 if (
                 args.teaching_schedule=='steering' and
                 step>args.foundation_steps) else 0.0)

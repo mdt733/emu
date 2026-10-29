@@ -172,8 +172,12 @@ def add_episode_platform(robot_xml: str) -> str:
 # exactly coincide when step height is zero, and differ by h along the common
 # surface normal when a real step is active. Two boxes avoid six open mesh
 # triangles being convex-hulled into a phantom ramp by MuJoCo.
-UNIFIED_SLAB_HALF_LENGTH_M = 4.0
-UNIFIED_SLAB_HALF_WIDTH_M = 3.0
+# Keep 700-frame 14s high-speed walking on real support, not off a 4m edge.
+# Each box is still a single solid collider; the upper box remains dormant
+# for flat births and the exact same sharp step survives at the common lip.
+# This gives >=32m ahead from flat centre (2.0m/s * 14s + margin).
+UNIFIED_SLAB_HALF_LENGTH_M = 32.0
+UNIFIED_SLAB_HALF_WIDTH_M = 16.0
 UNIFIED_SLAB_HALF_DEPTH_M = .25
 
 
@@ -741,7 +745,12 @@ class TaskSampler:
             # envelope directly. The three axes are intentionally independent:
             # this is memory rehearsal of the old rectangular distribution, not
             # evidence for the new p-norm frontier.
-            vx_ath = jax.random.uniform(k_vx, (), minval=-0.20, maxval=0.60)
+            # Genuine high-speed *steady* practice, not a second actor or hard
+            # 0.60m/s ceiling: once the signed evidence frontier grows,
+            # rehearsal can probe 15% beyond it. The floor supports it.
+            athletic_hi=jnp.maximum(.60,1.15*params[P.frontier_vx_hi])
+            vx_ath = jax.random.uniform(k_vx, (), minval=-0.20,
+                                        maxval=athletic_hi)
             vy_ath = jax.random.uniform(k_vy, (), minval=-0.22, maxval=0.22)
             yaw_ath = jax.random.uniform(k_yaw, (), minval=-1.50, maxval=1.50)
             vx = jnp.where(is_athletic, vx_ath, vx)
@@ -758,6 +767,12 @@ class TaskSampler:
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
             vy = jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], vy)
             yaw = jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], yaw)
+            # The actual rehearsal command must set the gait clock;
+            # _sample_task calculated phase before the athletic override.
+            phase_rate=jnp.where(is_athletic,
+                command_phase_rate(vx,vy,self.vx_hi_max,
+                                   self.phase_speed_gain,base_phase_rate),
+                phase_rate)
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
                     steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
                     is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32)]
@@ -2297,6 +2312,11 @@ class EmuMJXEnv(TaskSampler):
         jnp=self.jnp
         focus=self.focus_id if focus_id is None else focus_id
         active=self._specialist_enabled(keys,params,focus)
+        if self.unified_capability_focus:
+            # Rehearsal is an explicit baseline subset of the SAME policy.
+            # Its genuine fast command must not be rewritten to a 0.1m/s
+            # slope/step/control/auxiliary lesson on the next line.
+            active=active & (task[:,T.athletic_rehearsal]<.5)
         if not self.unified_capability_focus:
             return task,active
         jax=self.jax
@@ -2427,7 +2447,8 @@ class EmuMJXEnv(TaskSampler):
 
     # ---- Teacher-only physical terrain placement at episode birth ----
     def _unified_terrain(self, data, keys, params,
-                         focus_id=None, specialist_active=None):
+                         focus_id=None, specialist_active=None,
+                         athletic_rehearsal=None):
         """Solid pair of independently sampled inclined contact surfaces.
 
         Local top faces share n, tangent e/w; the discontinuity is along
@@ -2466,6 +2487,12 @@ class EmuMJXEnv(TaskSampler):
         mix=jnp.clip(params[P.specialist_mix],0.,1.)
         step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose*mix)
         slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose*mix)
+        if athletic_rehearsal is not None:
+            # This cohort gets an uninterrupted flat running lane.
+            # Read-only fixed geometry overrides still win below.
+            rehearsal=athletic_rehearsal>.5
+            step_p=jnp.where(rehearsal,0.,step_p)
+            slope_p=jnp.where(rehearsal,0.,slope_p)
         has_fixed_height=jnp.isfinite(params[P.terrain_fixed_height_m])
         step_active=jnp.where(
             has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,
@@ -2538,7 +2565,8 @@ class EmuMJXEnv(TaskSampler):
         )
 
     def _episode_terrain(self, data, keys, params,
-                         focus_id=None, specialist_active=None):
+                         focus_id=None, specialist_active=None,
+                         athletic_rehearsal=None):
         """Sample real episode terrain with an exactly flat dormant state.
 
         A zero terrain exposure or height buries the *same* physical box
@@ -2551,7 +2579,8 @@ class EmuMJXEnv(TaskSampler):
         if self.unified_capability_focus:
             return self._unified_terrain(
                 data,keys,params,focus_id=focus_id,
-                specialist_active=specialist_active)
+                specialist_active=specialist_active,
+                athletic_rehearsal=athletic_rehearsal)
         jax, jnp = self.jax, self.jnp
         k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
         def choose(key):
@@ -2637,7 +2666,9 @@ class EmuMJXEnv(TaskSampler):
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
         data = self._episode_terrain(
-            data, keys, params, focus_id, specialist_active)
+            data, keys, params, focus_id, specialist_active,
+            task[:,T.athletic_rehearsal] if self.unified_capability_focus
+            else None)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)

@@ -235,6 +235,9 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
         f"fps={(wall_fps if wall_fps is not None else train_fps):.0f} "
         f"vx=[{report.get('frontier_vx_lo',0.0):+.2f},{report.get('frontier_vx_hi',0.0):+.2f}] "
         f"act/cmd={row['vx_mean']:+.2f}/{row['cmd_vx_mean']:+.2f} "
+        f"fast>{0.3:.1f}={100*row.get('cmd_vx_over_03_frac',0.):.0f}%"
+        f"/{row.get('actual_vx_at_cmd_over_03',-1.):+.2f}m/s "
+        f"rehearsal={100*row.get('occupancy_athletic_rehearsal',0.):.0f}% "
         f"slope={slope} step≤{ceiling_cm:.1f}cm({exposure:.0f}%) "
         f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m"
         f"{terrain_pair}"
@@ -1077,6 +1080,19 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         row['control_episode_quality']=float(quality[ctl_done].mean()) if ctl_done.any() else -1.
         smooth=np.asarray(metrics.get('reward_weighted_smoothness',0.))
         row['control_smoothness_payment']=float(smooth[ctl].mean()) if ctl.any() else -1.
+    # Audit the commands PPO actually consumed, not only the governor's
+    # target frontier. A high requested frontier with zero high-speed
+    # episodes is NOT learned fast walking.
+    requests=np.asarray(metrics['cmd_vx'])
+    actual=np.asarray(metrics['vx'])
+    for threshold,tag in ((.30,'03'),(.50,'05'),(.80,'08')):
+        mask=requests>=threshold
+        row[f'cmd_vx_over_{tag}_frac']=float(mask.mean())
+        row[f'actual_vx_at_cmd_over_{tag}']=(
+            float(actual[mask].mean()) if mask.any() else -1.)
+        row[f'abs_vx_error_at_cmd_over_{tag}']=(
+            float(np.abs(actual[mask]-requests[mask]).mean())
+            if mask.any() else -1.)
     return row
 
 

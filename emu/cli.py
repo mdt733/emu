@@ -259,6 +259,8 @@ def main(argv=None) -> int:
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
     q.add_argument('--growth-recipe',choices=('legacy','main-mature'),default='legacy',
                    help='experiment: old 360 recipe or restore main mature commands/phase/rehearsal')
+    q.add_argument('--athletic-rehearsal-share',type=float,default=None,
+                   help='v5029: 0..0.5 of unified growth births keep full-speed flat steady gait; default inherits profile')
     q.add_argument('--retention-share',type=float,default=0.0,
                    help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
     q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',

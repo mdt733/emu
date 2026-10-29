@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish]
+    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5028_considered_steps.py
+          python -m py_compile emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5028_considered_steps.py scripts/v5029_speed_restoration.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.

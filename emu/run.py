@@ -44,6 +44,14 @@ def one_run_config(args) -> TrainingConfig:
     velocity_i_multiplier=float(getattr(args,'velocity_i_multiplier',1.0))
     growth_recipe=str(getattr(args,'growth_recipe','legacy'))
     retention_share=float(getattr(args,'retention_share',0.0))
+    rehearsal_arg=getattr(args,'athletic_rehearsal_share',None)
+    if rehearsal_arg is not None and (
+            not unified or not math.isfinite(rehearsal_arg)
+            or not 0.0<=rehearsal_arg<=0.5):
+        raise ValueError('--athletic-rehearsal-share requires unified learning and 0..0.5')
+    athletic_share=(float(rehearsal_arg) if rehearsal_arg is not None
+                    else .10 if unified and growth_recipe=='main-mature'
+                    else 0.0 if unified else cfg.athletic_rehearsal_frac)
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
     force_program=str(getattr(args,'force_program','aggressive'))
     if growth_recipe not in ('legacy','main-mature') or terrain_lesson not in ('mixed','coherent','coherent-direct','coherent-careful'):
@@ -138,8 +146,7 @@ def one_run_config(args) -> TrainingConfig:
                                      else .75 if unified else cfg.phase_speed_gain),
                    regime_command_frac=(.85 if growth_recipe=='main-mature' and unified
                                         else .60 if unified else cfg.regime_command_frac),
-                   athletic_rehearsal_frac=(.10 if growth_recipe=='main-mature' and unified
-                                            else 0.0 if unified else cfg.athletic_rehearsal_frac),
+                   athletic_rehearsal_frac=athletic_share,
                    combo_mix_frac=(.88 if growth_recipe=='main-mature' and unified
                                    else 0.0 if unified else cfg.combo_mix_frac),
                    frontier_vx_hi_safety=1.4 if unified else cfg.frontier_vx_hi_safety,
