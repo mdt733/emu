@@ -316,7 +316,8 @@ def main():
         params.update(terrain_pitch_deg=float("nan"),terrain_roll_deg=float("nan"),
                       terrain_fixed_height_m=float("nan"),terrain_edge_angle_deg=float("nan"),
                       terrain_exposure=.15,terrain_height_m=.004,
-                      slope_exposure=.15,slope_max_deg=.7,specialist_mix=.35)
+                      slope_exposure=.15,slope_max_deg=.7,specialist_mix=.35,
+                      athletic_rehearsal_frac=args.fast_rehearsal_share)
     rollout=32 if args.full_update else 2
     trainer=make_trainer(env,seed=733,lr=2e-4,rollout=rollout,
                          epochs=(4 if args.full_update else 1),
@@ -346,6 +347,17 @@ def main():
             pass
     from emu.results import summarize_rollout
     row=summarize_rollout(rolled,frontier_params=params)
+    if args.full_update and args.fast_rehearsal_share>0.:
+        # The REAL PPO batch must contain fast lessons, not merely a
+        # separate preflight reset that never reaches a gradient.
+        assert abs(row['occupancy_athletic_rehearsal']-
+                   args.fast_rehearsal_share)<.06, (
+            "fast cohort missing from training PPO rollout")
+        assert row['cmd_vx_over_03_frac']>.04, (
+            "PPO consumed too few actual >0.3m/s requests")
+        print(f"CUDA PPO fast-gait occupancy: "
+              f"{100*row['occupancy_athletic_rehearsal']:.1f}%; "
+              f"requests>0.3m/s={100*row['cmd_vx_over_03_frac']:.1f}%",flush=True)
     for k in ("focus_worlds_command","focus_worlds_control",
               "command_probe_attempts_vx_hi","control_shaft_j_per_m"):
         assert k in row,k
