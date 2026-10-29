@@ -96,71 +96,42 @@ supported long-floor motion, real step retention and broader fixed exams.
   slopes, and other roles retain standard tracking economics.
   No new actor input, no hard-coded servo climbing manoeuvre.
 
-## Historical v5028 training experiment (complete; preserved)
+## Completed v5028, source preserved
 
-The owner reported **the launcher started running** on the morning of
-29 October. The original `~/emu-graduation/.venv` lacked `pytest`;
-using its direct Python reward-function test avoided that ancillary
-dependency. User has **not yet shared GPU preflight success or metrics**;
-do not claim CUDA validation or learned improvements.
+The A/B study completed both 80M policies at frozen source
+`38713791023681dc9883f6c374d92e46261b3baf`. The matched
+16-world exams at 0.15m/s and 14.9° showed real 2cm supported ascent
+7/8 each, 2.5cm 4/8 A versus 6/8 B; neither reached 3cm.
+The B near-lip underspeed treatment improved some upsteps but
+downhill/overall tracking were mixed. Both remained at a +0.369m/s
+requested command frontier despite main's roughly 1m/s ambition.
+See `docs/V5028_CONSIDERED_STEPS.md` and
+`docs/V5028_SPEED_FRONTIER_AUDIT.md` for complete findings.
 
-- Checkout: `~/emu-v5028`; **leave it untouched while running**.
-- Exact source: `38713791023681dc9883f6c374d92e46261b3baf`.
-- Launch: `python -u scripts/v5028_considered_steps.py --run`
-  in foreground (no tmux). The source checker refuses dirty/mismatched
-  checkouts; launcher does CPU + 2048-world CUDA PPO preflight.
-- Design: a **fresh seed735 shared 20M foundation**, original coherent
-  A 20→80M, considered-step B 20→80M; **140M aggregate world steps**.
-  Same 360 policy shape, same gentle commands, other specialist lessons,
-  PPO and real collision physics.
-- Run output: `~/robot_lab/emu_runs/v5028_considered_steps_s735/`,
-  `overnight_results.zip`, metrics, fixed exams, physical policies,
-  independent per-world JSON and console logs.
-- **Original pinned launcher passes `--worlds 8` to each final terrain
-  condition** (four UP and four DOWN if paired). A previous summary
-  mistakenly promised 16. The **polish branch** corrected its future
-  launcher to 16, but the running source remains at eight. Plan a
-  separate read-only **16–32-world** re-exam afterwards; do not
-  touch running source to fix presentation.
-- Exact-source interrupted runs may resume their own compatible
-  checkpoints. **Never resume archived v5027 weights into changed source**.
+The earlier CLI omitted the coherent-careful choice, then the physical
+exam rejected an exact 15° fixture from float32 roundoff. Both are fixed
+on later branches; the original immutable training source is retained.
+A temporary external CLI shim was used to finish the original
+checkpoint without editing the running source. The reward audit
+identified fast command starvation, zero actual athletic rehearsal
+despite config, and the four-metre collision-slab edge.
 
-## 30 Oct physical examiner boundary — corrected diagnosis
+## v5030 housekeeping and reward-lab design
 
-Both source-pinned 80M checkpoints completed. The A 8-world frozen exam
-failed upon reaching 15° because the environment enforces
-`np.rad2deg(np.arctan(g)) > 15.0` after **float32** quantisation.
-One legitimate 15° axis yields approximately **15.000001** and triggers a
-false over-limit exception. The checkout/actor is not faulty.
+Only `feature/v5030-reward-lab` is being modified while v5029 runs.
+The old v5028 launcher (and its launch-only helper/test) is retired
+from the latest tree; use its original pinned source SHA to reproduce.
+The v5029 launcher and the shared evaluator/physics are kept. Design
+and pure, inactive helper functions are in
+[reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
 
-The independent polish branch fixes only the numerical guard using a
-1e-5° tolerance, and adds a no-MJX regression test including exact
-uphill/downhill/cross-slope 15° and real >15° rejection. Running v5028
-SHA and checkpoints stay untouched. To recover on the original exact source,
-run an explicit 14.9° frozen A/B matrix in fresh separate directories, label
-the results truthfully and collect them in a standalone comparison bundle.
-Do not ask the original hard-coded 15° campaign launcher to rerun until the
-source-bound 15° guard can be corrected under a new experiment contract.
-
-## 29 Oct campaign incident — corrected diagnosis
-
-The original SHA `38713791` successfully completed the matched A policy at
-80,019,456 steps (frozen broad 0.759, core 1.0). B did **not** start PPO:
-the source-pinned CLI `emu/cli.py` accidentally omitted
-`coherent-careful` from `--terrain-lesson` options, while environment
-and run config already supported the mode. This is a real **CLI parser defect**
-in the original committed SHA, **not** an old installed package.
-
-**Do not amend original branch/working tree:** source-pinned parent and A
-checkpoint require that exact SHA. For recovery run the original unchanged
-campaign using a strictly targeted, external `sitecustomize.py` argparse
-compatibility shim. Verify `--help` exposes the one additional permitted
-choice; then `--run --skip-smoke` reuses preflight, 20M foundation and
-completed 80M A; starts only B and later frozen exams. No reward or actor
-source changes; the shim modifies argparse choices only, in memory.
-
-Permanent one-line CLI fix and regression test live **on the independent
-polish branch only** and must not be pulled into the current experiment.
+Proposed *conditional* matched reward studies: A unchanged, B causal
+25-frame (0.5s) blended forward tracking, C B + verified CoG and
+support-surface height transfer from a fixed step budget, or D B +
+one-shot 0.5-0.8s near-lip underspeed allowance. No new reward is
+wired into PPO; choose A/B vs A/C vs A/D from final v5029 measured
+speed ladder and supported up/down step evidence. No cross-SHA
+continuation without explicit source and state-contract acceptance.
 
 ## 29 Oct maintenance — done on separate polish branch only
 
@@ -194,22 +165,21 @@ polish branch only** and must not be pulled into the current experiment.
 
 ## Next actions in order
 
-1. Finish or collect a recoverable v5028 run without modifying its
-   working tree. Obtain the original `overnight_results.zip`.
-2. Compare A/B **directionally supported ascents** and 3cm frontier,
-   approach time, after-cross velocity/heading, survival, push recovery
-   and shaft-work. Inspect 1m/s capability separately; training teacher
-   envelopes are not actual speed certification.
-3. Run source-pinned, independent broader physical exams; ensure
-   the cleaned runner's new 16-world setting does not mislabel
-   historical eight-world outputs.
-4. Evaluate ToF detection distance, actual braking/hold ability and
-   credible **refusal versus stalling**. The route supervisor described
-   in [TRAVERSABILITY_REFUSAL](docs/TRAVERSABILITY_REFUSAL.md) is design
-   only; stopping may need stepping in place on this unstable robot.
-5. Maintain parallel capability/retention experiments, choose a
-   reproducible winner using a **common 232-vs-360 physical exam**,
-   then only with owner approval merge a tidy candidate into `main`.
+1. Let v5029 finish at its **original SHA**, without pulling this
+   housekeeping branch into its running checkout. Read the actual
+   `overnight_results.zip` and both independent exam JSON files.
+2. Confirm actual vs commanded speed by >.3/.5/.8m/s band, fall
+   locations and 700-frame speed-ladder support. Distinguish target
+   frontier from proven 0.6–1.0m/s velocity.
+3. Check retained 2/2.5/3/3.5cm supported uphill/downhill crossing,
+   5–14.9° grade tracking, yaw, resilience and shaft J/m.
+4. Select **one** small matched A/B reward comparison from v5030
+   design. Integrate and test its reward-only state/physical gating
+   under a *fresh pinned source*, never mutate v5029 checkpoint
+   semantics silently. Use GPU only after quick CPU and 2048-world
+   acceptance.
+5. Only after matched actual-speed + terrain examinations, consider
+   replacing protected `main` by explicit approval.
 
 ## Documents
 

@@ -86,6 +86,16 @@ fixed-exam score as a perfectly matched physical protocol.
 
 See [the failure audit and new acceptance plan](docs/V5028_SPEED_FRONTIER_AUDIT.md).
 
+## Next ideas: v5030 locomotion reward study (not active)
+
+While v5029 trains, the separate `feature/v5030-reward-lab` branch
+retires the old v5028 launcher and prepares two **inactive, pure**
+reward prototypes: half-second causal forward-speed tracking, and
+verified support-surface/CoG step transfer. The conditional A/B plan
+is in [v5030 reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
+No reward changes are loaded into v5029, and no next-run winner has
+been selected before its speed ladder and step exams finish.
+
 ## Completed experiment: considered step-ups
 
 The v5027 physical exam found that the strongest prior coherent policy crossed **2.0 cm uphill in 8/8 trials**, **2.5 cm in 6/8**, and **3.0 cm in 0/8**, under the tested +0.15 m/s, 16-world paired conditions. Surviving in front of 3 cm was **not** a deliberate, verified refusal.
@@ -130,7 +140,7 @@ emu/
   physical_exam.py     independent headed motion, steps, slopes and recovery
   viewer_src/          browser simulation and playground
 scripts/
-  v5028_considered_steps.py   archived source-pinned A/B launcher
+  # v5028 A/B launcher archived in its exact frozen Git commit
   v5029_speed_restoration.py   current 120M source-pinned single-run launcher
   smoke_unified_focus.py     CPU / CUDA physics + PPO preflight
   smoke_training_lifecycle.py
