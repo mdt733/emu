@@ -212,7 +212,7 @@ def main():
     tilt=np.rad2deg(np.arccos(np.clip(n[:,2],-1.,1.)))
     ups=np.asarray(jax.device_get(state.data.mocap_pos[:,env.terrain_step_mocap_id,:]))
     base=np.asarray(jax.device_get(state.data.mocap_pos[:,env.unified_ground_mocap_id,:]))
-    active=ups[:,2]>-1.
+    active=np.linalg.norm(ups-np.asarray((0.,0.,-2.)),axis=1)>1.
     assert np.all(tilt>3.),"fixed pitch/roll did not rotate real collision"
     assert np.all(active),"fixed physical step override did not activate"
     expected=np.asarray([-np.tan(np.deg2rad(3.)),

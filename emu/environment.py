@@ -3120,6 +3120,18 @@ class EmuMJXEnv(TaskSampler):
             origin=origin+UNIFIED_SLAB_HALF_DEPTH_M*normal
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
+    def _unified_platform_active(self, data):
+        """Explicit fixed-topology activation, independent of slab centre Z.
+
+        Extended sloped boxes have centres metres above/below the edge and
+        must NOT be mistaken for the buried inactive platform. Only the
+        exact fixed burial at (0,0,-2) denotes absence in unified worlds.
+        """
+        jnp=self.jnp
+        centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
+        burial=jnp.asarray((0.,0.,-2.),dtype=centre.dtype)
+        return jnp.sum((centre-burial)**2,axis=1)>1.0
+
     def _support_signed_heights(self, data, positions):
         """Teacher-only distance above real local support (plane OR box top).
 
@@ -3137,7 +3149,7 @@ class EmuMJXEnv(TaskSampler):
             half=self.mj_model.geom_size[geom,:3]
             inside=(jnp.abs(local[:,:,0])<=half[0]) & (
                     jnp.abs(local[:,:,1])<=half[1])
-            active=data.mocap_pos[:,self.terrain_step_mocap_id,2]>-1.
+            active=self._unified_platform_active(data)
             return jnp.where(inside & active[:,None],
                              local[:,:,2]-half[2],flat)
         if self.terrain_step_mocap_id < 0:
@@ -3179,7 +3191,7 @@ class EmuMJXEnv(TaskSampler):
         lateral = jnp.sum(delta * across, axis=1)
         return (state.specialist_active & (state.focus_id == STEP)
                 & ((self.env_index % 2) == 0)
-                & (center[:, 2] > -1.0) & (real_rise > .001)
+                & self._unified_platform_active(data) & (real_rise > .001)
                 & (state.task[:, T.vx] > .02)
                 & (~state.terrain_crossed)
                 & (forward > -.16) & (forward < .12)
@@ -3230,7 +3242,8 @@ class EmuMJXEnv(TaskSampler):
         floor_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
                                         contact.dist,floor,feet)
         supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
-        active=centre[:,2]>(-1. if self.unified_capability_focus else -.5)
+        active=(self._unified_platform_active(data)
+                if self.unified_capability_focus else centre[:,2]>-.5)
         # Considered ascent may settle on the high side after gaining
         # far-side contact. The old programmes keep the moving-contact gate;
         # the new programme uses real signed lip progression + contact.
