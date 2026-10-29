@@ -1605,7 +1605,10 @@ class EmuMJXEnv(TaskSampler):
                 if np.isfinite(fixed_pitch):
                     g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
                                np.tan(np.deg2rad(fixed_roll)))
-                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0:
+                    # Float32 tan/atan round-trip makes a genuine 15-degree
+                    # single-axis grade appear as 15.000001. Tolerate
+                    # numerical error, never a meaningful over-limit slope.
+                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0 + 1e-5:
                         raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
                 if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
                     raise ValueError('fixed step height outside compiled physical range')

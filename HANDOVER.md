@@ -78,6 +78,23 @@ do not claim CUDA validation or learned improvements.
 - Exact-source interrupted runs may resume their own compatible
   checkpoints. **Never resume archived v5027 weights into changed source**.
 
+## 30 Oct physical examiner boundary — corrected diagnosis
+
+Both source-pinned 80M checkpoints completed. The A 8-world frozen exam
+failed upon reaching 15° because the environment enforces
+`np.rad2deg(np.arctan(g)) > 15.0` after **float32** quantisation.
+One legitimate 15° axis yields approximately **15.000001** and triggers a
+false over-limit exception. The checkout/actor is not faulty.
+
+The independent polish branch fixes only the numerical guard using a
+1e-5° tolerance, and adds a no-MJX regression test including exact
+uphill/downhill/cross-slope 15° and real >15° rejection. Running v5028
+SHA and checkpoints stay untouched. To recover on the original exact source,
+run an explicit 14.9° frozen A/B matrix in fresh separate directories, label
+the results truthfully and collect them in a standalone comparison bundle.
+Do not ask the original hard-coded 15° campaign launcher to rerun until the
+source-bound 15° guard can be corrected under a new experiment contract.
+
 ## 29 Oct campaign incident — corrected diagnosis
 
 The original SHA `38713791` successfully completed the matched A policy at
