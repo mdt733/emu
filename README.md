@@ -14,7 +14,7 @@ EMU learns to balance and move using reinforcement learning in MuJoCo/MJX. It ha
 
 ## Two realities: published robot and research robot
 
-| | Published Pinnacle (`main`) | Research successor (`feature/v5028-considered-steps`) |
+| | Published Pinnacle (`main`) | Research successor (`feature/v5029-speed-restoration`) |
 |---|---|---|
 | Status | Protected reference and live browser demo | Experimental; **not released** |
 | Observation contract | 232-input sensor policy | 360-input terrain-array policy |
@@ -50,7 +50,43 @@ The 360-input policy receives simulated delayed/noisy measurements, including th
 
 We score at least four different outcomes separately: physical crossing, mission/velocity tracking, heading/path retention, and safe recovery. A step **down** does not count as a step **up**.
 
-## Current experiment: considered step-ups
+## Next experiment: v5029 speed restoration
+
+**Source:** `feature/v5029-speed-restoration` (fresh Git checkout).
+**Launch:** `python -u scripts/v5029_speed_restoration.py --run` with the
+already-installed CUDA venv, **only after CPU CI and 2048 CUDA preflight pass**.
+This is a NEW 120M-step cold start at seed737; it never resumes an incompatible
+v5028 checkpoint. Outputs live under
+`~/robot_lab/emu_runs/v5029_speed_restoration_s737/` outside Git.
+
+V5028's A and B completed 80M steps and independent matched 16-world exams.
+The considered-step B arm crossed 2.5cm uphill 6/8 vs A 4/8, though both
+remain unproven at 3cm, and high-speed command teaching regressed. Its
+problem was **not an identified global motor penalty**: the unified
+specialists took nearly all births and rewrote them to low speeds, while
+the 10% athletic rehearsal configured at fork never reached the actual
+rollout. The flat 4m-half-length slab could also punish sustained >0.3m/s
+motion when the robot falls off the physical surface.
+
+V5029 keeps exactly six complementary learning roles *plus* a 25% subset
+of genuine athletic (flat, steady, unattenuated, moving) rehearsal births
+after the first 20M. A larger 32m-half-length / 16m-half-width support box
+retains the exact two-sided sharp ledge topology but stops an honest fast
+gait running off a short floor. The actual born command, gait frequency,
+physical terrain and JAX reward match. This isn't free fast-speed mastery:
+the speed frontier still expands only on earned evidence.
+
+The terminal shows **actual** requested-speed occupancy (>0.3m/s) and mean
+measured velocity of those requests, separate from the nominal frontier.
+Independent read-only speed-ladder exams ask 0.1,0.2,0.3,0.4,0.5,0.6,0.8 and
+1.0m/s, and a separate 16-world directional slope/step matrix checks that
+the old 2–2.5cm gains weren't lost. Both 80M v5028 policies and `main`
+remain protected; changed collision geometry prevents treating an earlier
+fixed-exam score as a perfectly matched physical protocol.
+
+See [the failure audit and new acceptance plan](docs/V5028_SPEED_FRONTIER_AUDIT.md).
+
+## Completed experiment: considered step-ups
 
 The v5027 physical exam found that the strongest prior coherent policy crossed **2.0 cm uphill in 8/8 trials**, **2.5 cm in 6/8**, and **3.0 cm in 0/8**, under the tested +0.15 m/s, 16-world paired conditions. Surviving in front of 3 cm was **not** a deliberate, verified refusal.
 
@@ -59,7 +95,7 @@ The v5028 study tests whether per-frame forward-velocity pressure prevented care
 - **A — coherent control:** original STEP reward, gentle coherent commands.
 - **B — considered uphill:** same commands, but a tightly limited, near-lip reduction in *forward underspeed* pressure and supported-settling acceptance. No free standing reward, no relaxation of sideways/yaw, slip, overspeed or fall safety.
 
-The two branches start from the **same fresh 20M-step cold foundation**, then train separately to **80M each** on **2,048 MJX environments**: **140M aggregate world steps**. Frozen physical exams independently compare real ascents, descents and grades. The user has reported launching the campaign; **results are not yet audited**.
+The two branches start from the **same fresh 20M-step cold foundation**, then train separately to **80M each** on **2,048 MJX environments**: **140M aggregate world steps**. Frozen physical exams independently compare real ascents, descents and grades. Both runs and their independent 16-world matrix are complete; see the v5029 findings above and the audit.
 
 See [experiment contract and source-pinned launcher](docs/V5028_CONSIDERED_STEPS.md). Don't pull commits into its checkout while it runs.
 
@@ -94,7 +130,8 @@ emu/
   physical_exam.py     independent headed motion, steps, slopes and recovery
   viewer_src/          browser simulation and playground
 scripts/
-  v5028_considered_steps.py   active source-pinned experiment launcher
+  v5028_considered_steps.py   archived source-pinned A/B launcher
+  v5029_speed_restoration.py   current 120M source-pinned single-run launcher
   smoke_unified_focus.py     CPU / CUDA physics + PPO preflight
   smoke_training_lifecycle.py
 docs/

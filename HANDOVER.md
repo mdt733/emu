@@ -1,10 +1,12 @@
 # EMU — current engineering handover
 
-**Updated:** 29 October 2026  
+**Updated:** 30 October 2026  
 **Protected published reference:** `main` — 232-input Pinnacle, approved browser policy  
-**Active source-pinned GPU run:** `feature/v5028-considered-steps`,
-exact SHA `38713791023681dc9883f6c374d92e46261b3baf`  
-**Separate code/documentation cleanup:** `feature/v5028-merge-polish`  
+**Completed 80M A/B:** `feature/v5028-considered-steps` at exact SHA
+`38713791023681dc9883f6c374d92e46261b3baf` (frozen, do not modify)
+**Current fresh next run:** `feature/v5029-speed-restoration` (new 120M
+cold start, seed737; do not run before exact-source CUDA preflight).
+**Old cleanup/integration branch:** `feature/v5028-merge-polish`
 **Golden rule:** **do not pull/change the running checkout; do not merge or
 replace the public champion without explicit owner approval.**
 
@@ -28,6 +30,48 @@ counts as success. Fast actual walking **and** careful climbing are the
 joint graduation criteria. Commands/terrain should grow based on physical
 evidence, not hard-coded maturity age or inflated frontiers.
 
+## v5029 speed-restoration mission (30 Oct 2026)
+
+**Root cause, source audited:** At v5028 80M the command frontier only
+grew from 0.06 to ~0.369m/s. Six active specialist roles rewrote virtually
+all birth commands to low speeds. Configured mature 10% athletic rehearsal
+was *zero* in the rollout because resuming the 20M foundation restored
+the zero-valued curriculum state. Ordinary locomotion reward coefficients
+were unchanged from protected `main`; the new per-specialist proxy
+cost is small. Flat v5028 collision support was only 4m from centre,
+so 1m/s for 14s would mean falling off the floor.
+
+**v5029 code changes on a separate new branch**:
+- Two actual convex collision slabs remain, now 32m half-length and
+  16m half-width. The buried platform is identified from its **full
+  known buried pose**, not its centre height (sloped box centres can
+  be lower than -1m once their boxes become long).
+- 20M first-stage foundation keeps original main-style births.
+  Afterward `--athletic-rehearsal-share .25` gives 25% real flat,
+  STEADY, unattenuated fast-gait births, chosen before six specialist
+  assignments. All worlds still share *one actor/optimizer*.
+  The phase/gait clock is recomputed for true rehearsal commands.
+  Fast rehearsal targets start up to .6m/s and can extend
+  `1.15*earned_forward_frontier`; no permanent .6 hard stop.
+- Explicit run-config athletic share wins over a restored ancestor
+  controller's zero when constructing new task packets.
+- Telemetry reports the fraction requested at >.3/.5/.8m/s and
+  measured velocity and tracking error in each band, besides frontier
+  value. Independent read-only speed ladder covers .1–1m/s.
+- One `scripts/v5029_speed_restoration.py` launcher,
+  **120M steps fresh**, seed737, 2048 CUDA worlds, 20M cold nursery,
+  six balanced focus roles, considered STEP and gentle push programme,
+  with source and dirty-checkout guards, CPU smoke, actual 2048 CUDA
+  PPO full-update preflight, SHA-matched resume and read-only speed/
+  slope-step exams; bundle remains under a NEW run root.
+
+**Launch after green GitHub Actions and first-time local GPU preflight:**
+`cd ~/emu-v5029 && source ~/emu-graduation/.venv/bin/activate &&
+python -u scripts/v5029_speed_restoration.py --run`.
+
+No claim that speed improved yet; v5029 needs actual measured commands,
+supported long-floor motion, real step retention and broader fixed exams.
+
 ## What actually ran / what is known
 
 - v5027 A/B/C were a shared source-frozen seed735, 20M nursery plus
@@ -49,7 +93,7 @@ evidence, not hard-coded maturity age or inflated frontiers.
   slopes, and other roles retain standard tracking economics.
   No new actor input, no hard-coded servo climbing manoeuvre.
 
-## The currently running v5028 training experiment
+## Historical v5028 training experiment (complete; preserved)
 
 The owner reported **the launcher started running** on the morning of
 29 October. The original `~/emu-graduation/.venv` lacked `pytest`;

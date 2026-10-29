@@ -203,3 +203,36 @@ policy a replacement for the 232-input showcase. The A/B files
 show real growing step skill, but not competitive fast commanded
 motion. Avoid editing `main`, the original training SHA or
 the finished checkpoints.
+
+## v5029 implemented intervention
+
+Implementation: `feature/v5029-speed-restoration`, one source-pinned
+120M cold-start runner. The experiment deliberately does **not** change
+the eight main locomotion payment weights or add a second neural policy.
+It changes the physical opportunity for speed, the share of exposed
+fast gait and source-pinned diagnostics.
+
+- **Geometry:** real boxes now ±32m along the forward axis and ±16m
+  laterally, long enough for 1m/s × 700 × 0.02s =14m. A long inclined
+  box may have its centre far below zero: all unified platform-activity
+  predicates now compare its actual mocap centre to the explicit buried
+  location (0,0,-2), not a bogus centre-height threshold.
+- **Learned speed exposure:** 25% mature births are true STEADY,
+  flat, fast walking; `_specialist_task` cannot rewrite them into
+  easy auxiliary lessons. Above .6m/s the cohort follows earned forward
+  frontier growth rather than a permanent speed cap. The first 20M
+  retain main's no-rehearsal cold gait. A JAX/MJX CPU+2048 CUDA
+  preflight must prove real command occupancy and flat contact.
+- **Gait rate:** recompute the phase target from the final athletic
+  command after the sampler's velocity override.
+- **Measured speed:** rollout logs distinguish frontier from
+  actual requested threshold occupancy and achieved velocity. The
+  independent CPU policy exam includes a speed ladder 0.10–1.0m/s
+  at 700 frames, and a separate 16-world terrain matrix.
+- **Training:** seed737, 120M steps, 2048 worlds, one 360 actor,
+  source-pinned from scratch. Do not resume v5028 checkpoints across
+  changed geometry. Preserve main and both completed v5028 policies.
+
+The mechanical step reward's careful near-lip underspeed treatment is
+retained, but its benefit is judged separately on measured crossing,
+downhill retention and speed rather than assuming it must be better.
