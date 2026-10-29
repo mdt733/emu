@@ -40,3 +40,14 @@ def test_step_relief_only_underspeed():
     drifting['vy']=np.array([0.2],dtype=np.float32)
     assert score(drifting,np.ones((1,),dtype=np.float32)) < score(
         slow,np.ones((1,),dtype=np.float32))
+
+def test_cli_accepts_considered_step_lesson(capsys):
+    """Prevent a valid reward/runner lesson being blocked by argparse again."""
+    from emu.cli import main
+    try:
+        main(["train", "--help"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("train --help should exit successfully")
+    assert "coherent-careful" in capsys.readouterr().out

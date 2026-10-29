@@ -261,8 +261,8 @@ def main(argv=None) -> int:
                    help='experiment: old 360 recipe or restore main mature commands/phase/rehearsal')
     q.add_argument('--retention-share',type=float,default=0.0,
                    help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
-    q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct'),default='mixed',
-                   help='mixed, coherent with legacy auxiliary attenuation, or coherent-direct with preserved crossing commands')
+    q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',
+                   help='mixed, coherent, coherent-direct, or bounded considered-step ascent')
     q.add_argument('--force-program',choices=('gentle','aggressive'),default='aggressive',
                    help='gentle 0.7N research push ceiling or aggressive 4N push frontier')
     q.add_argument('--velocity-i-ramp-s',type=float,default=0.4,

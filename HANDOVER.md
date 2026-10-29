@@ -78,6 +78,26 @@ do not claim CUDA validation or learned improvements.
 - Exact-source interrupted runs may resume their own compatible
   checkpoints. **Never resume archived v5027 weights into changed source**.
 
+## 29 Oct campaign incident — corrected diagnosis
+
+The original SHA `38713791` successfully completed the matched A policy at
+80,019,456 steps (frozen broad 0.759, core 1.0). B did **not** start PPO:
+the source-pinned CLI `emu/cli.py` accidentally omitted
+`coherent-careful` from `--terrain-lesson` options, while environment
+and run config already supported the mode. This is a real **CLI parser defect**
+in the original committed SHA, **not** an old installed package.
+
+**Do not amend original branch/working tree:** source-pinned parent and A
+checkpoint require that exact SHA. For recovery run the original unchanged
+campaign using a strictly targeted, external `sitecustomize.py` argparse
+compatibility shim. Verify `--help` exposes the one additional permitted
+choice; then `--run --skip-smoke` reuses preflight, 20M foundation and
+completed 80M A; starts only B and later frozen exams. No reward or actor
+source changes; the shim modifies argparse choices only, in memory.
+
+Permanent one-line CLI fix and regression test live **on the independent
+polish branch only** and must not be pulled into the current experiment.
+
 ## 29 Oct maintenance — done on separate polish branch only
 
 - [x] Inventory 105 Git tree entries, including 20 Markdown documents
