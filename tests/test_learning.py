@@ -1635,3 +1635,44 @@ def test_training_health_preserves_checkpoint_contract():
     recovered=TrainingHealth()
     recovered.load_state_dict(state)
     assert recovered.state_dict() == state
+
+
+def test_v5029_fast_rehearsal_fraction_is_explicit_and_cold_starts_main(capsys,tmp_path):
+    """CLI and run config must agree before an expensive 120M campaign."""
+    from emu.cli import main
+    import json
+    args=['train','--run-dir',str(tmp_path/'fresh'),
+          '--steps','120000000','--envs','2048','--seed','737',
+          '--device','cuda','--profile','sim2real',
+          '--terrain-actor','--terrain-step-max-m','.08',
+          '--unified-capabilities','--foundation-steps','20000000',
+          '--growth-recipe','main-mature',
+          '--terrain-lesson','coherent-careful',
+          '--athletic-rehearsal-share','.25','--plan']
+    assert main(args)==0
+    output=capsys.readouterr().out
+    config=json.loads(output[output.index('{'):output.rindex('}')+1])
+    assert config['athletic_rehearsal_frac']==pytest.approx(.25)
+    assert config['foundation_steps']==20_000_000
+    assert config['vx_hi_max']==pytest.approx(.60)
+    assert config['unified_capability_focus'] is True
+    assert not (tmp_path/'fresh').exists()
+    for invalid in ('-0.1','0.51','nan'):
+        bad=list(args);bad[bad.index('.25')]=invalid
+        with pytest.raises(ValueError,match='athletic-rehearsal-share'):
+            main(bad)
+
+
+def test_v5029_sampled_fast_command_metrics_do_not_confuse_target_with_speed():
+    from emu.results import summarize_rollout
+    # Full rollout summarizer requires observed physics/payment fields,
+    # so check the explicit source-level indicator and real sampler in
+    # the preflight's 2048-world GPU acceptance rather than mocking PPO.
+    from emu.environment import UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_WIDTH_M
+    from emu.contracts import CONTROL_DT
+    assert UNIFIED_SLAB_HALF_LENGTH_M>=32.
+    assert UNIFIED_SLAB_HALF_LENGTH_M>1.8*700*CONTROL_DT+2.
+    assert UNIFIED_SLAB_HALF_WIDTH_M>=16.
+    import inspect
+    src=inspect.getsource(summarize_rollout)
+    assert "cmd_vx_over_" in src and "actual_vx_at_cmd_over_" in src

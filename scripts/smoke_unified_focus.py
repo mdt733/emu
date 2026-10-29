@@ -19,9 +19,13 @@ def main():
     ap.add_argument("--force-program",choices=("gentle","aggressive"),default="aggressive")
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
+    ap.add_argument("--fast-rehearsal-share",type=float,default=0.,
+                    help="v5029 physical fast-gait cohort (0..0.5), test real births")
     ap.add_argument("--full-update",action="store_true",
                     help="explicit 2048-world CUDA PPO preflight (no checkpoints/training campaign)")
     args=ap.parse_args()
+    if not 0.<=args.fast_rehearsal_share<=.5:
+        ap.error("--fast-rehearsal-share must be between 0 and 0.5")
     if args.full_update:
         if args.envs!=2048 or args.device!="cuda":
             ap.error("--full-update requires --device cuda --envs 2048")
@@ -87,6 +91,40 @@ def main():
     reassigned,_=env.reset(params)
     assert np.all(np.asarray(jax.device_get(reassigned.focus_id))==3)
     assert bool(jax.device_get(jnp.all(reassigned.specialist_active)))
+    if args.fast_rehearsal_share>0.:
+        # The complete v5029 birth contract, on REAL batched MJX worlds:
+        # several roles plus 25% (configured) plain fast flat rehearsal,
+        # with no commander rewrite and no phantom step under the runner.
+        from emu.environment import T, UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_WIDTH_M
+        from emu.contracts import CONTROL_DT
+        assert UNIFIED_SLAB_HALF_LENGTH_M>2.*700*CONTROL_DT
+        assert UNIFIED_SLAB_HALF_WIDTH_M>700*CONTROL_DT
+        params.update(athletic_rehearsal_frac=args.fast_rehearsal_share,
+                      terrain_exposure=1., terrain_height_m=.035,
+                      slope_exposure=1., slope_max_deg=5.)
+        fast,_=env.reset(params)
+        ath=np.asarray(jax.device_get(fast.task[:,T.athletic_rehearsal]))>.5
+        selected=int(ath.sum())
+        assert selected>0, "No fast rehearsal selected despite configured share"
+        if args.envs==2048:
+            assert abs(ath.mean()-args.fast_rehearsal_share)<.045
+        ath_commands=np.asarray(jax.device_get(fast.task[:,T.vx]))[ath]
+        assert np.any(ath_commands>.30), "No real >0.3m/s commands in fast cohort"
+        selected_active=np.asarray(jax.device_get(fast.specialist_active))
+        assert not np.any(selected_active[ath]),"specialist rewrote fast runner"
+        upper=np.asarray(jax.device_get(
+            fast.data.mocap_pos[:,env.terrain_step_mocap_id,2]))
+        assert np.all(upper[ath]<-1.),"fast runner has an unexpected step"
+        normals=np.asarray(jax.device_get(
+            fast.data.geom_xmat[:,int(env.ids['floor_geom']),:])).reshape(
+                (args.envs,3,3))[:,:,2]
+        assert np.allclose(normals[ath],(0.,0.,1.),atol=1e-5), (
+            "fast rehearsal must use real flat support")
+        print(f"FAST REHEARSAL PASS: {selected}/{args.envs} full-speed flat births; "
+              f"max requested={ath_commands.max():.3f}m/s; "
+              f"collision half-length={UNIFIED_SLAB_HALF_LENGTH_M:g}m",flush=True)
+        params.update(athletic_rehearsal_frac=0., terrain_exposure=.15,
+                      terrain_height_m=.004,slope_exposure=0.,slope_max_deg=0.)
     if args.terrain_lesson=="coherent-careful":
         # The treatment preserves A's slower actual STEP command band:
         # 0.07-0.13m/s, not the unsuccessful B direct-command change.

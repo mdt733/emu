@@ -946,3 +946,24 @@ def test_unified_exam_scorer_writes_strict_json_from_physical_trace():
     with pytest.raises(TypeError,match='unsupported frozen-exam value'):
         _unified_exam_json({'bad':np.zeros(2)})
 
+
+
+def test_v5029_extended_collision_slab_keeps_real_sharp_lip():
+    from emu.environment import (
+        UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_WIDTH_M,
+        add_unified_terrain,
+    )
+    from emu.contracts import ROBOT_XML
+    import xml.etree.ElementTree as ET
+    root=ET.fromstring(add_unified_terrain(str(ROBOT_XML)))
+    geoms={g.get('name'):g for g in root.findall('.//geom')}
+    floor=geoms['floor']
+    top=geoms['episode_terrain_surface']
+    assert floor.get('type')==top.get('type')=='box'
+    assert floor.get('contype')=='1' and top.get('contype')=='2'
+    for box in (floor,top):
+        dims=[float(s) for s in box.get('size').split()]
+        assert dims[0]==UNIFIED_SLAB_HALF_LENGTH_M
+        assert dims[1]==UNIFIED_SLAB_HALF_WIDTH_M
+    assert len([g for g in root.findall('.//geom')
+                if g.get('name')=='floor'])==1
