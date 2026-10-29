@@ -53,6 +53,9 @@ so 1m/s for 14s would mean falling off the floor.
   The phase/gait clock is recomputed for true rehearsal commands.
   Fast rehearsal targets start up to .6m/s and can extend
   `1.15*earned_forward_frontier`; no permanent .6 hard stop.
+  These births request positive .06..adaptive-forward speed, with only
+  +/- .05m/s lateral and +/- .25rad/s yaw so the exponential tracking
+  reward is not drowned in unrelated full-power steering errors.
 - Explicit run-config athletic share wins over a restored ancestor
   controller's zero when constructing new task packets.
 - Telemetry reports the fraction requested at >.3/.5/.8m/s and

@@ -749,10 +749,13 @@ class TaskSampler:
             # 0.60m/s ceiling: once the signed evidence frontier grows,
             # rehearsal can probe 15% beyond it. The floor supports it.
             athletic_hi=jnp.maximum(.60,1.15*params[P.frontier_vx_hi])
-            vx_ath = jax.random.uniform(k_vx, (), minval=-0.20,
+            # Teach forward speed without saturating the tracking reward
+            # on simultaneous extreme turn/side requests. Broad commands
+            # stay in COMMAND and TRANSITION specialists.
+            vx_ath = jax.random.uniform(k_vx, (), minval=.06,
                                         maxval=athletic_hi)
-            vy_ath = jax.random.uniform(k_vy, (), minval=-0.22, maxval=0.22)
-            yaw_ath = jax.random.uniform(k_yaw, (), minval=-1.50, maxval=1.50)
+            vy_ath = jax.random.uniform(k_vy, (), minval=-.05, maxval=.05)
+            yaw_ath = jax.random.uniform(k_yaw, (), minval=-.25, maxval=.25)
             vx = jnp.where(is_athletic, vx_ath, vx)
             vy = jnp.where(is_athletic, vy_ath, vy)
             yaw = jnp.where(is_athletic, yaw_ath, yaw)

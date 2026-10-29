@@ -109,6 +109,11 @@ def main():
         if args.envs==2048:
             assert abs(ath.mean()-args.fast_rehearsal_share)<.045
         ath_commands=np.asarray(jax.device_get(fast.task[:,T.vx]))[ath]
+        ath_lateral=np.asarray(jax.device_get(fast.task[:,T.vy]))[ath]
+        ath_turn=np.asarray(jax.device_get(fast.task[:,T.yaw]))[ath]
+        assert np.all(ath_commands>=.0599)
+        assert np.max(np.abs(ath_lateral))<=.0501
+        assert np.max(np.abs(ath_turn))<=.2501
         if args.envs==2048:
             assert np.any(ath_commands>.30), "No real >0.3m/s commands in fast cohort"
         selected_active=np.asarray(jax.device_get(fast.specialist_active))
