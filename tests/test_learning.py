@@ -909,28 +909,6 @@ def test_velocity_i_command_trim_is_bounded_and_keeps_raw_zero():
     np.testing.assert_array_equal(zz,np.zeros_like(z))
 
 
-def test_v5028_campaign_is_source_pinned_and_preserves_matched_treatment(monkeypatch):
-    """Only one current A/B campaign, original coherent vs careful uphill."""
-    import runpy
-    from pathlib import Path
-    scripts=Path(__file__).resolve().parents[1]/"scripts"
-    monkeypatch.syspath_prepend(str(scripts))
-    scope=runpy.run_path(str(scripts/"v5028_considered_steps.py"),
-                         run_name="__v5028_contract_test__")
-    foundation,arms=scope["cases"]()
-    assert scope["BRANCH"]=="feature/v5028-considered-steps"
-    assert foundation["steps"]==20_000_000
-    assert len(arms)==2
-    assert [x["terrain"] for x in arms]==["coherent","coherent-careful"]
-    assert all(x["steps"]==80_000_000 for x in arms)
-    assert sum(x["steps"]-x["from_steps"] for x in arms)+foundation["steps"]==140_000_000
-    for arm in arms:
-        cmd=scope["args_for"](arm,Path("/tmp/v5028_contract"))
-        assert cmd[cmd.index("--envs")+1]=="2048"
-        assert cmd[cmd.index("--terrain-lesson")+1]==arm["terrain"]
-        assert cmd[cmd.index("--fixed-eval-every-steps")+1]=="10000000"
-
-
 def test_aggressive_governor_expands_by_real_physical_evidence():
     from emu.curriculum import RegimeGovernor
     g=RegimeGovernor(open_frontier=True,unified_capability_focus=True)

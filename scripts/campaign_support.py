@@ -4,18 +4,17 @@
 Source-pinned experiment launchers own their own cases, source SHA and run
 directories. This module supplies the common subprocess/error handling,
 checkpoint presence checks, ETA display, metrics aggregation and ZIP report.
-The current launcher is v5028_considered_steps.py; old campaigns remain
-reproducible from their original source revisions in Git history.
+The active source-pinned launch is v5029_speed_restoration.py.
+Completed v5028 is reproducible from its frozen original commit;
+do not keep historical launchers alive in the next research tree.
 """
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import math
 import os
 import signal
-import shutil
 import shlex
 import subprocess
 import sys
@@ -29,23 +28,6 @@ FOCUS = ('command', 'resilience', 'slope', 'step', 'transition', 'control')
 def git(*args):
     return subprocess.check_output(
         ['git',*args],cwd=ROOT,text=True,stderr=subprocess.STDOUT).strip()
-
-
-def cmd_for(case,root,seed,foundation_steps,resume):
-    cmd=[
-        sys.executable,'-m','emu.cli','train',
-        '--run-dir',str(root/case['name']),
-        '--profile','sim2real','--terrain-actor',
-        '--terrain-step-max-m','0.04','--unified-capabilities',
-        '--foundation-mix',case['recipe'],
-        '--foundation-steps',str(foundation_steps),
-        '--teaching-schedule',case['schedule'],
-        '--fixed-eval-every-steps','10000000',
-        '--steps',str(case['steps']),
-        '--envs','2048','--seed',str(seed),'--device','cuda']
-    if resume:
-        cmd+=['--resume','auto']
-    return cmd
 
 
 def read_rows(path):

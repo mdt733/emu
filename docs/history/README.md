@@ -25,4 +25,8 @@ SHA**, not necessarily on the present research branch. Historical source
 and checkpoints are intentionally kept out of the current release-facing
 workflow; inspect the committed source SHA before reproducing any run.
 
-For the active stepping experiment, see [v5028](../V5028_CONSIDERED_STEPS.md).
+The completed v5028 A/B experiment and its old source-pinned launcher
+are preserved at `38713791023681dc9883f6c374d92e46261b3baf`.
+The experimental launcher is intentionally **not** in the current
+`scripts/` tree. See [v5028 experiment record](../V5028_CONSIDERED_STEPS.md)
+and [speed-regression audit](../V5028_SPEED_FRONTIER_AUDIT.md).

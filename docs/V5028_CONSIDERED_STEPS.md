@@ -1,3 +1,10 @@
+> **Archived experiment (completed):** v5028 A/B source was frozen at
+> `38713791023681dc9883f6c374d92e46261b3baf`. To reproduce its
+> historical launcher, check out that exact commit in a separate worktree.
+> This document is a record, **not a current launch instruction**.
+> The v5029 study runs from its own pinned source; experimental reward
+> designs follow in `docs/V5030_REWARD_EXPERIMENTS.md`.
+
 # EMU v5028 — considered STEP-UP reinforcement experiment
 
 **Status:** source-pinned experiment launched by owner on 29 October 2026;
