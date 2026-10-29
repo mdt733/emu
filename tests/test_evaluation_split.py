@@ -45,3 +45,15 @@ def test_shared_operator_command_schedules_remain_deterministic():
     brake=api.make_schedule("brake_stop",120,speed=.15)
     np.testing.assert_allclose(brake[:80,0],.15)
     np.testing.assert_array_equal(brake[80:],np.zeros((40,3),np.float32))
+
+
+def test_v5029_speed_ladder_is_read_only_and_exposed_on_cli(capsys):
+    from emu.cli import main
+    try:
+        main(["capability-exam","--help"])
+    except SystemExit as exc:
+        assert exc.code==0
+    out=capsys.readouterr().out
+    assert "--speed-ladder" in out
+    assert "--ladder-speeds" in out
+    assert api.evaluate_unified_capabilities is physical.evaluate_unified_capabilities

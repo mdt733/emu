@@ -935,12 +935,14 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             jitter=np.std(errors,axis=0)
             speed=np.linalg.norm(body,axis=1)
             achieved=float(np.sum(np.linalg.norm(np.diff(xyz[:stop,world],axis=0),axis=1)))
+            actual_forward_mean=float(np.mean(body[:,0]))
             commanded=float(np.sum(np.linalg.norm(requested[:,:2],axis=1))*CONTROL_DT)
         else:
             mae=np.array([float('inf')]*3)
             bias=np.full(3,float('nan'))
             jitter=np.full(3,float('nan'))
             achieved=0.
+            actual_forward_mean=None
             commanded=0.
         contact_any=np.any(contacts_lower[:stop,world] | contacts_upper[:stop,world],axis=1)
         support_fraction=float(np.mean((support[:stop,world]>.05)&contact_any))
@@ -1085,6 +1087,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             tracking_mae_vy_mps=round(float(mae[1]),4) if np.isfinite(mae[1]) else None,
             tracking_mae_yaw_rad_s=round(float(mae[2]),4) if np.isfinite(mae[2]) else None,
             tracking_signed_bias_vx_mps=round(float(bias[0]),4) if np.isfinite(bias[0]) else None,
+            achieved_mean_vx_mps=(round(actual_forward_mean,4)
+                                  if actual_forward_mean is not None else None),
             tracking_signed_bias_vy_mps=round(float(bias[1]),4) if np.isfinite(bias[1]) else None,
             tracking_signed_bias_yaw_rad_s=round(float(bias[2]),4) if np.isfinite(bias[2]) else None,
             tracking_jitter_vx_mps=round(float(jitter[0]),4) if np.isfinite(jitter[0]) else None,
@@ -1151,7 +1155,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   device: str = 'cpu', quick: bool = False,
                                   terrain_matrix: bool = False,
                                   matrix_grades_deg=None,
-                                  matrix_heights_cm=None) -> tuple[Path,Path]:
+                                  matrix_heights_cm=None,
+                                  speed_ladder: bool = False,
+                                  ladder_speeds=None) -> tuple[Path,Path]:
     """One frozen array-only actor; identical MJX physics and seeds per case.
 
     No optimizer update, no teacher decisions, no automatic promotion. Uses
@@ -1223,8 +1229,20 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         dict(name='push_1N',kind='recovery',push_n=1.0),
         dict(name='tilt_10deg',kind='recovery',tilt_deg=10.),
     ]
-    if quick and terrain_matrix:
-        raise ValueError('quick and terrain_matrix must not both be selected')
+    if sum(bool(x) for x in (quick,terrain_matrix,speed_ladder))>1:
+        raise ValueError('quick, terrain_matrix and speed_ladder are mutually exclusive')
+    if ladder_speeds is not None and not speed_ladder:
+        raise ValueError('--ladder-speeds requires --speed-ladder')
+    if speed_ladder:
+        speeds=tuple(ladder_speeds or (.10,.20,.30,.40,.50,.60,.80,1.0))
+        if (not speeds or len(speeds)>16 or
+                len(set(speeds))!=len(speeds) or
+                any(not math.isfinite(v) or v<.04 or v>1.8 for v in speeds)):
+            raise ValueError('speed ladder requires unique requests in 0.04..1.8m/s')
+        # Independent READ-ONLY flat-world command tests. Report the
+        # achieved mean velocity and tracking error, not just survival.
+        cases=[dict(name=f'flat_vx_{v:.2f}'.replace('.','p'),
+                    kind='flat',vx=float(v)) for v in speeds]
     if (matrix_grades_deg is not None or matrix_heights_cm is not None) and not terrain_matrix:
         raise ValueError('custom grade/step fixtures require --terrain-matrix')
     if terrain_matrix:
@@ -1309,6 +1327,12 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                   if step>0 else
                   f", stable {summary['stable']}/{worlds}"
                   if case['kind']=='slope' else '')
+        if speed_ladder:
+            actuals=[r['achieved_mean_vx_mps'] for r in rows
+                     if r['achieved_mean_vx_mps'] is not None]
+            avg=sum(actuals)/len(actuals) if actuals else float('nan')
+            print(f"  commanded {case['vx']:.2f}m/s; achieved "
+                  f"{avg:.3f}m/s (mean of measured worlds)",flush=True)
         print(f"{case['name']}: mission {summary['mission_passed']}/{worlds}, "
               f"strict all-axis {summary['passed']}/{worlds}{physical}, "
               f"survived {summary['survived']}/{worlds}",flush=True)
@@ -1330,6 +1354,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       backend=jax.default_backend(),quick=bool(quick),
                       terrain_matrix=bool(terrain_matrix),
+                      speed_ladder=bool(speed_ladder),
+                      ladder_speeds=(list(speeds) if speed_ladder else None),
                       matrix_grades_deg=(list(degrees) if terrain_matrix else None),
                       matrix_heights_cm=(list(heights) if terrain_matrix else None),
                       model='actual paired inclined MJX collision slabs',

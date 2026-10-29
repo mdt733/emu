@@ -192,6 +192,10 @@ def main(argv=None) -> int:
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
     q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
+    q.add_argument('--speed-ladder',action='store_true',
+                   help='read-only flat 0.1..1.0m/s measured speed ladder')
+    q.add_argument('--ladder-speeds',type=float,nargs='+',default=None,
+                   help='optional requested forward speeds in m/s; requires --speed-ladder')
     q.add_argument('--terrain-matrix',action='store_true',
                    help='matched 1/2/3/5 degree four-direction slope and step matrix')
     q.add_argument('--matrix-grades-deg',type=float,nargs='+',default=None,
@@ -312,7 +316,9 @@ def main(argv=None) -> int:
             seed=args.seed,device=args.device,quick=args.quick,
             terrain_matrix=args.terrain_matrix,
             matrix_grades_deg=args.matrix_grades_deg,
-            matrix_heights_cm=args.matrix_heights_cm)
+            matrix_heights_cm=args.matrix_heights_cm,
+            speed_ladder=args.speed_ladder,
+            ladder_speeds=args.ladder_speeds)
         for path in paths:
             print(path)
         return 0

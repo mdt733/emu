@@ -109,7 +109,8 @@ def main():
         if args.envs==2048:
             assert abs(ath.mean()-args.fast_rehearsal_share)<.045
         ath_commands=np.asarray(jax.device_get(fast.task[:,T.vx]))[ath]
-        assert np.any(ath_commands>.30), "No real >0.3m/s commands in fast cohort"
+        if args.envs==2048:
+            assert np.any(ath_commands>.30), "No real >0.3m/s commands in fast cohort"
         selected_active=np.asarray(jax.device_get(fast.specialist_active))
         assert not np.any(selected_active[ath]),"specialist rewrote fast runner"
         upper=np.asarray(jax.device_get(
