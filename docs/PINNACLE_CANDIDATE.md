@@ -71,19 +71,20 @@ and with no other 2048-GPU training active:
 git clone --single-branch --branch release/v5032-pinnacle-candidate \
   https://github.com/mdt733/emu.git "$HOME/emu-pinnacle"
 cd "$HOME/emu-pinnacle"
-source "$HOME/emu-pinnacle/.venv/bin/activate"  # or your known CUDA Python 3.13 venv
+# On a fresh machine or new venv, install the exact GPU + dev dependencies:
+bash scripts/setup_wsl.sh --cuda13 --install-node --check
+source .venv/bin/activate
 git branch --show-current
 git rev-parse HEAD
 git status --short
 python scripts/train_pinnacle.py
 ```
 
-Plan-only outputs the full command without writing a checkpoint. If
-using a shared existing venv (`~/emu-graduation/.venv`), activate
-that venv instead, **but only if the EMU Python import resolves to this
-checkout**; the launcher independently rejects wrong imports.
-If using this checkout's own `.venv`, install with
-`bash scripts/setup_wsl.sh --cuda13 --install-node --check`.
+Plan-only outputs the full command without writing a checkpoint. On the existing GPU PC, you may alternatively activate the
+already-proven `~/emu-graduation/.venv` instead of installing a second
+CUDA environment. The source-import validation prevents silently
+using another checkout's EMU implementation. A new machine should
+follow the full install above before running training.
 
 After CI is green and the working tree is clean:
 
