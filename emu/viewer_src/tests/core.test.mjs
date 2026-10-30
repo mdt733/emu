@@ -678,13 +678,15 @@ test('default park has real obstacle ring, clear spawn, and opt-out parity',()=>
   const base='<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
   const park=generateTerrainPark({trees:false});
   assert.ok(park.flatRadius>=4);
-  assert.equal(park.features.length,6);
+  assert.equal(park.features.length,8);
   assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)>2.5));
   assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)<park.flatRadius));
   assert.ok(park.features.every(f=>f.geoms.includes('type=')));
   assert.ok(park.features.some(f=>f.id==='crest'&&f.geoms.includes('quat=')));
   assert.ok(park.features.some(f=>f.id==='step-up'));
   assert.ok(park.features.some(f=>f.id==='step-down'));
+  assert.ok(park.features.some(f=>f.id==='camber'));
+  assert.ok(park.features.some(f=>f.id==='ripple'));
   assert.ok(park.features.some(f=>f.id==='log'));
   assert.ok(park.features.some(f=>f.id==='angled'));
   assert.ok(park.features.some(f=>f.id==='trough'));
