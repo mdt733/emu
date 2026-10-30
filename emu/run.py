@@ -5,6 +5,7 @@ This module owns only the stable single-run CLI, provenance and resume.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -226,12 +227,49 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
         raise RuntimeError(f'Incompatible research fork physical/actor contract: {bad}')
 
 
-def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tuple[Path | None, bool]:
+
+def _validate_cross_source_research_parent(
+        parent: Path, *, payload: dict, expected_source: str, expected_sha256: str,
+        provenance: dict) -> None:
+    """Explicitly approve ONE immutable external research ancestor.
+
+    Shape, normalizer, optimizer and sensor identity are already checked by
+    load_checkpoint. This additionally binds the *entire checkpoint bytes*
+    and its recorded source to the operator's exact declaration. Never use
+    for automatic resume; checkpoints in an interrupted study must retain
+    their new source SHA and resume via --resume auto.
+    """
+    source = (payload['meta'].get('source_provenance') or {}).get('git_commit')
+    if (len(expected_source) != 40 or len(expected_sha256) != 64
+            or any(c not in '0123456789abcdef' for c in expected_source)
+            or any(c not in '0123456789abcdef' for c in expected_sha256)):
+        raise RuntimeError('Research ancestor requires full lower-case source SHA and SHA256')
+    if (source != expected_source or source == provenance['commit']
+            or parent.name != 'final.pkl' or parent.parent.name != 'checkpoints'):
+        raise RuntimeError('Research parent must be completed final.pkl from exact declared earlier source')
+    digest = hashlib.sha256()
+    with parent.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    if digest.hexdigest() != expected_sha256:
+        raise RuntimeError('Research parent checkpoint SHA256 changed: refusing cross-source fork')
+    print('EXPLICIT CROSS-SOURCE RESEARCH FORK APPROVED: '
+          f'{source[:12]} -> {provenance["commit"][:12]}; '
+          f'parent SHA256={expected_sha256[:16]}...; original unchanged',
+          flush=True)
+
+
+def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
+                research_parent_source: str = '', research_parent_sha256: str = '') -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
     Returns (validated checkpoint to resume from, already complete?).
     A resume from another experiment does not rewrite that ancestor.
     """
+    if bool(research_parent_source) != bool(research_parent_sha256):
+        raise RuntimeError('Research fork requires BOTH exact source SHA and checkpoint SHA256')
+    if research_parent_source and resume in ('', 'auto'):
+        raise RuntimeError('Research parent hashes require an explicit external --resume checkpoint')
     root = Path(config.run_dir).resolve()
     repo = source_repo_root()
     if repo and (root == repo.resolve() or repo.resolve() in root.parents):
@@ -309,10 +347,16 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str) -> tup
             expected_sensor_contract=training_sensor_contract(config))
         source = payload['meta'].get('source_provenance', {}).get('git_commit')
         if source != provenance['commit']:
-            raise RuntimeError(
-                'External checkpoint source differs from current Git commit. '
-                'Use one cold-start run with --resume auto; do not transplant '
-                'old learning state across code revisions.')
+            if not (research_parent_source and research_parent_sha256):
+                raise RuntimeError(
+                    'External checkpoint source differs from current Git commit. '
+                    'Cross-source research requires explicit full ancestor source SHA '
+                    'and checkpoint SHA256, or start a new cold training lineage.')
+            _validate_cross_source_research_parent(
+                parent, payload=payload, expected_source=research_parent_source,
+                expected_sha256=research_parent_sha256, provenance=provenance)
+        elif research_parent_source:
+            raise RuntimeError('Research cross-source flags are not allowed for same-source resume')
         # A newly created study is allowed to fork a source-matched
         # checkpoint at ANY training age; verify that it uses the same
         # robot/sensor/physical envelope, not the same lesson recipe.
@@ -342,7 +386,10 @@ def train_one(args) -> int:
         print('Planning only; no checkpoint opened or training launched.')
         return 0
     provenance = git_provenance()
-    parent, completed = inspect_run(config, provenance=provenance, resume=args.resume)
+    parent, completed = inspect_run(
+        config, provenance=provenance, resume=args.resume,
+        research_parent_source=getattr(args,'research_parent_source',''),
+        research_parent_sha256=getattr(args,'research_parent_sha256',''))
     if completed:
         print(f'Already complete: validated {parent} (no PPO update).')
         return 0
