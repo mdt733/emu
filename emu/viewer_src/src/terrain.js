@@ -146,7 +146,12 @@ function createParkFeatures() {
     {id:'crest',x:0,y:2.85,radius:.77,
       geoms:[
         slope('crest_rise',0,2.20,2.64,0,.06),
-        box('crest_top',0,2.83,.035,.18,.34,.025,'0.36 0.61 0.53 1',90),
+        // At yaw=90 degrees local X becomes world Y. The old half-X=.18
+        // covered only y=2.65..3.01, leaving unsupported 1-cm gaps
+        // before/after the flat top. Extend 5 mm PAST each ramp edge
+        // (y=2.635..3.025); the <1-mm top step at overlap is preferable
+        // to a 6-cm support drop. The full crest remains 6 cm tall.
+        box('crest_top',0,2.83,.035,.195,.34,.025,'0.36 0.61 0.53 1',90),
         slope('crest_fall',0,3.02,3.46,.06,0),
       ].join('\n')},
     {id:'log',x:0,y:-2.80,radius:.59,
