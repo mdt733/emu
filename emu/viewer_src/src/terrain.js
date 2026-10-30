@@ -189,8 +189,8 @@ function createParkFeatures(challengeLevel='balanced') {
     feature('step-down','Gentle approach, step down',-2.70,0,.90,
       'Walk up a ramp, then drop '+short(p.down),
       [slopeX('drop_entry',-2.39,-1.98,down,0),
-       // 2cm physical overlap with ramp endpoint, <1mm surface mismatch.
-       box('drop_plateau',-2.63,0,down/2,.26,.33,down/2,'0.53 0.48 0.35 1')].join('\n')),
+       // 5mm overlap with ramp endpoint; <0.5mm height change at worst.
+       box('drop_plateau',-2.63,0,down/2,.245,.33,down/2,'0.53 0.48 0.35 1')].join('\n')),
     feature('ripple','Rolling ripples',-2.10,-2.15,.72,
       'Two shallow '+short(p.ripple)+' humps',
       [slope('ripple_a_up',-2.10,-2.68,-2.44,0,ripple),
