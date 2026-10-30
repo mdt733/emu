@@ -261,6 +261,7 @@ class EnvState(NamedTuple):
     # Prevent repeated lip-rocking and foot-tapping from farming rewards.
     terrain_ascent_root_peak: Any
     terrain_ascent_foot_peak: Any
+    terrain_verified_height_peak: Any  # reward-only per-lip high-water mark
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -1304,7 +1305,8 @@ class EmuMJXEnv(TaskSampler):
                  retention_share: float = 0.0,
                  terrain_lesson: str = 'mixed',
                  physical_exam_legacy_actor: bool = False,
-                 temporal_vx_reward_share: float = 0.0):
+                 temporal_vx_reward_share: float = 0.0,
+                 verified_ascent_reallocation: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1498,6 +1500,12 @@ class EmuMJXEnv(TaskSampler):
                 or (temporal_vx_reward_share>0 and not self.unified_capability_focus)):
             raise ValueError('temporal vx reward requires unified terrain and share 0..1')
         self.temporal_vx_reward_share=float(temporal_vx_reward_share)
+        if (not np.isfinite(verified_ascent_reallocation) or
+                not 0.0<=verified_ascent_reallocation<=4.0 or
+                (verified_ascent_reallocation>0. and
+                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
+            raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
+        self.verified_ascent_reallocation=float(verified_ascent_reallocation)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1857,12 +1865,50 @@ class EmuMJXEnv(TaskSampler):
         ascent_payment = jnp.zeros_like(reward)
         root_peak = state.terrain_ascent_root_peak
         foot_peak = state.terrain_ascent_foot_peak
+        verified_peak = state.terrain_verified_height_peak
         if self.observation_schema == OBS_SCHEMA_TERRAIN:
             # A single bounded foothold/progress lesson for ASCENT, before
             # the very sparse far-side completion. Both high-water marks are
             # reset at the next episode birth; no pay for rocking backwards.
             ascent_payment, root_peak, foot_peak = self._terrain_ascent_guidance(
                 state, data, metrics, terrain_up)
+            if self.verified_ascent_reallocation > 0.:
+                # Transfer part of the EXISTING max-nine-point ascent shaping
+                # (6.6 root travel + 2.4 foot reach) to genuine upper contact.
+                # The +10 supported-crossing payment remains unchanged.
+                ascent_payment = ascent_payment * (
+                    (9.0-self.verified_ascent_reallocation)/9.0)
+                from .directional import contact_pair_mask
+                contact = getattr(data, '_impl', data).contact
+                feet = tuple(int(x) for x in self.ids['foot_geoms'])
+                upper_pairs = contact_pair_mask(
+                    jnp,contact.geom1,contact.geom2,contact.dist,
+                    int(self.terrain_step_geom_id),feet)
+                upper_contact = jnp.any(upper_pairs,axis=1)
+                base_id = int(self.ids['floor_geom'])
+                base_n = data.geom_xmat[:,base_id,:].reshape(
+                    (self.num_envs,3,3))[:,:,2]
+                lower_top = (data.geom_xpos[:,base_id,:] +
+                             UNIFIED_SLAB_HALF_DEPTH_M*base_n)
+                torso = data.xpos[:,self.torso_id,:]
+                torso_above_lower = jnp.sum(
+                    (torso-lower_top)*base_n,axis=1)
+                # Real signed CoG ascent relative to its neutral pose on the
+                # LOWER slab. Lifting in place earns nothing without target
+                # upper-foot contact and a physically upright, supported body.
+                expected_flat = NEUTRAL_ROOT_Z + state.task[:,T.height]
+                cog_delta = jnp.maximum(0.,torso_above_lower-expected_flat)
+                cap = jnp.maximum(.003,jnp.minimum(.04,physical_height))
+                valid = (self._considered_step_window(state,data) &
+                         terrain_up & upper_contact &
+                         (metrics['support']>=.5) &
+                         (metrics['bad_contact']<.5) &
+                         (metrics['terminal']<.5))
+                eligible = jnp.where(valid,jnp.minimum(cog_delta,cap),0.)
+                verified_peak = jnp.maximum(verified_peak,eligible)
+                transfer = self.verified_ascent_reallocation * (
+                    verified_peak-state.terrain_verified_height_peak)/cap
+                ascent_payment = ascent_payment + transfer
             reward = reward + ascent_payment
             ep_return = ep_return + ascent_payment
             # Completion still requires real, sustained far-side MJX support.
@@ -1905,7 +1951,7 @@ class EmuMJXEnv(TaskSampler):
 
         stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, state.focus_id, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
                            ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
-                           terrain_streak,terrain_crossed,root_peak,foot_peak,
+                           terrain_streak,terrain_crossed,root_peak,foot_peak,verified_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors,
                            integral_next,raw_next,care_frames,
@@ -2737,7 +2783,7 @@ class EmuMJXEnv(TaskSampler):
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(data, hist, next_keys, task, specialist_active, focus_id, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
                          zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
+                         jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros, zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
                          jnp.zeros((self.num_envs,2),dtype=jnp.float32),
                          task[:,[T.vx,T.vy]],izeros,
