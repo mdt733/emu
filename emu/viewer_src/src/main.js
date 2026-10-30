@@ -35,6 +35,8 @@ const depthCells=Array.from({length:16},()=>{
 });
 const treesToggle = $('treesToggle');
 const parkFeaturesToggle = $('parkFeaturesToggle');
+const parkChallengeLevel = $('parkChallengeLevel');
+const parkCourseList = $('parkCourseList');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
@@ -266,10 +268,12 @@ async function activatePolicy(index) {
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
     sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+    sim.setParkChallengeLevel(parkChallengeLevel.value);
     sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
                        stepHeightCm:Number(surfaceStepSlider.value)});
     if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    updateParkCourseInfo();
     updateDepthSettings();
     if(terrainMode.value==='sensor' && demoActive)stopDemo();
     sim.follow = followToggle.checked;
@@ -362,16 +366,44 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.textContent = cameraLabel(cameraMode);
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
+function updateParkCourseInfo() {
+  parkCourseList.replaceChildren();
+  if(terrainMode.value!=='park' || !parkFeaturesToggle.checked ||
+     !sim?.park?.features?.length){
+    const item=document.createElement('li');
+    item.textContent='Select the terrain park and enable the course.';
+    parkCourseList.appendChild(item);
+    return;
+  }
+  for(const feature of sim.park.features){
+    const item=document.createElement('li');
+    const title=document.createElement('strong');
+    title.textContent=feature.label+' — ';
+    item.appendChild(title);
+    item.appendChild(document.createTextNode(feature.challenge));
+    parkCourseList.appendChild(item);
+  }
+}
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
   parkFeaturesToggle.disabled = terrainMode.value!=='park';
+  parkChallengeLevel.disabled = terrainMode.value!=='park';
   if(terrainMode.value==='sensor'&&demoActive)stopDemo();
   if(terrainMode.value!=='sensor')depthCourse.value='viewer';
   else if(depthCourse.value==='viewer'){depthCourse.value='flat';sim?.setSensorObstacle('flat');}
   if (!sim) return;
-  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
-  catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
+  try {
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    if(goalDemoActive())navigator.reset();
+    updateStickLabels();
+    updateParkCourseInfo();
+  } catch(err) {
+    terrainMode.value='flat';
+    sim.setTerrainMode('flat');
+    updateParkCourseInfo();
+    setStatus(`Terrain unavailable: ${err.message}`,'error');
+  }
 }
 function updateDepthSettings(){
   $('depthTiltOut').textContent=depthTilt.value+'°';
@@ -400,7 +432,7 @@ function changeDepthCourse(){
   try{
     if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
-    navigator.reset();updateStickLabels();
+    navigator.reset();updateStickLabels();updateParkCourseInfo();
   }catch(error){setStatus('Depth lab course: '+error.message,'error');}
 }
 for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
@@ -522,7 +554,16 @@ function updateDepthGrid(){
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
-parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Park obstacle collision unavailable: ${err.message}`,'error');}});
+parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{
+  sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park course unavailable: ${err.message}`,'error');}});
+parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
+  sim.setParkChallengeLevel(parkChallengeLevel.value);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
