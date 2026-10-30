@@ -7,6 +7,16 @@ export const PARK_FLAT_RADIUS_M = 4.2;
 export const PARK_MAX_DEGREES = 10;
 export const PARK_RADIUS_M = 11;
 export const PARK_GRID = 129;
+// Deliberately graduated browser challenges, based on current 100M physical
+// evidence. These are viewer diagnostics, NOT training or exam fixtures.
+export const PARK_CHALLENGE_PRESETS = Object.freeze({
+  gentle: Object.freeze({up:1.2, down:1.5, crest:1.5, log:1.5,
+                         ridge:0.9, banks:0.7, camber:0.9, ripple:0.6}),
+  balanced: Object.freeze({up:2.0, down:2.5, crest:2.5, log:2.4,
+                           ridge:1.5, banks:1.4, camber:1.5, ripple:1.2}),
+  stretch: Object.freeze({up:3.0, down:3.5, crest:5.0, log:4.0,
+                          ridge:3.0, banks:2.5, camber:3.0, ripple:2.4}),
+});
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const rounded = n => Number(n.toFixed(6));
 
@@ -50,7 +60,9 @@ export function parkHeight(x,y,maximum=PARK_MAX_DEGREES,seed=733) {
 // spawn flat and preventing cliffs between radial difficulty bands.
 export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
                                      radius=PARK_RADIUS_M,resolution=PARK_GRID,
-                                     trees=true,features=true}={}) {
+                                     trees=true,features=true,challengeLevel='balanced'}={}) {
+  if(!Object.prototype.hasOwnProperty.call(PARK_CHALLENGE_PRESETS,challengeLevel))
+    throw new Error('Unknown park challenge level');
   if(!Number.isFinite(maxDegrees)||maxDegrees<1||maxDegrees>20)
     throw new Error('Terrain maximum must be 1–20 degrees');
   if(!Number.isInteger(resolution)||resolution<17||resolution>257||resolution%2!==1)
@@ -109,27 +121,42 @@ export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
                      shade:random()});
     }
   }
-  const featureList=features?createParkFeatures():[];
+  const featureList=features?createParkFeatures(challengeLevel):[];
   return {radius,resolution,cell,heights,maxHeight:maximum,trees:treeList,
-          features:featureList,sampleHeight,maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
+          features:featureList,challengeLevel,sampleHeight,maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
 }
 
 
 // Real, deterministic collision features around the central park. None
 // crosses spawn (r < 1.7m); no separate obstacle system or new files.
-function createParkFeatures() {
+function createParkFeatures(challengeLevel='balanced') {
+  const p=PARK_CHALLENGE_PRESETS[challengeLevel];
+  if(!p)throw new Error('Unknown park challenge level');
+  const metre=cm=>cm/100;
+  const short=cm=>cm.toFixed(1)+' cm';
   const box=(name,x,y,z,hx,hy,hz,colour='0.47 0.59 0.40 1',yaw=0)=>
     '<geom name="park_feature_'+name+'" type="box" pos="'+
     [x,y,z].map(rounded).join(' ')+'" size="'+
     [hx,hy,hz].map(rounded).join(' ')+'" euler="0 0 '+yaw+
     '" friction="1.5 .005 .0001" rgba="'+colour+'"/>';
-  // A finite rotated support slab whose top passes through two real heights.
+  // Physical support slab from two actual endpoint heights, rotating around Y.
+  // A small buried thickness makes the upper face meet the horizontal ground.
+  const slopeX=(name,x0,x1,z0,z1,y=0,width=.34)=>{
+    const angle=Math.atan2(z1-z0,x1-x0),thickness=.18;
+    const x=(x0+x1)/2+thickness*Math.sin(angle);
+    const z=(z0+z1)/2-thickness*Math.cos(angle);
+    return '<geom name="park_feature_'+name+'" type="box" pos="'+
+      [x,y,z].map(rounded).join(' ')+'" size="'+
+      [(x1-x0)/(2*Math.cos(angle)),width,thickness].map(rounded).join(' ')+
+      '" euler="0 '+rounded(-angle*180/Math.PI)+' 0" friction="1.5 .005 .0001" rgba="0.36 0.61 0.53 1"/>';
+  };
+  // Same support construction along +Y. Distinct real contacting boxes
+  // remain joined at their physical top faces; never insert empty gaps.
   const slope=(name,x,y0,y1,z0,z1)=>{
     const angle=Math.atan2(z1-z0,y1-y0),thickness=.18;
     const ym=(y0+y1)/2,zm=(z0+z1)/2;
     const cy=ym+thickness*Math.sin(angle),cz=zm-thickness*Math.cos(angle);
     const cp=Math.cos(angle/2),sp=Math.sin(angle/2),c=Math.SQRT1_2;
-    // Quaternion yaw(+90°) * pitch(-angle) rotates local +X to +Y/uphill.
     const quat=[c*cp,c*sp,-c*sp,c*cp];
     return '<geom name="park_feature_'+name+'" type="box" pos="'+
       [x,cy,cz].map(rounded).join(' ')+'" size="'+
@@ -137,32 +164,48 @@ function createParkFeatures() {
       '" quat="'+quat.map(rounded).join(' ')+
       '" friction="1.5 .005 .0001" rgba="0.36 0.61 0.53 1"/>';
   };
+  const feature=(id,label,x,y,radius,challenge,geoms)=>
+    ({id,label,x,y,radius,challenge,geoms});
+  const up=metre(p.up),down=metre(p.down),crest=metre(p.crest);
+  const log=metre(p.log),ridge=metre(p.ridge),bank=metre(p.banks);
+  const camber=metre(p.camber),ripple=metre(p.ripple);
   return [
-    {id:'step-up',x:2.80,y:0,radius:.55,
-      geoms:box('step_up',2.80,0,.025,.42,.33,.025)},
-    {id:'step-down',x:-2.80,y:0,radius:.56,
-      // Cross this raised slab from east to west to walk off a 5cm edge.
-      geoms:box('step_down_ledge',-2.80,0,.025,.45,.33,.025,'0.53 0.48 0.35 1')},
-    {id:'crest',x:0,y:2.85,radius:.77,
-      geoms:[
-        slope('crest_rise',0,2.20,2.64,0,.06),
-        // At yaw=90 degrees local X becomes world Y. The old half-X=.18
-        // covered only y=2.65..3.01, leaving unsupported 1-cm gaps
-        // before/after the flat top. Extend 5 mm PAST each ramp edge
-        // (y=2.635..3.025); the <1-mm top step at overlap is preferable
-        // to a 6-cm support drop. The full crest remains 6 cm tall.
-        box('crest_top',0,2.83,.035,.195,.34,.025,'0.36 0.61 0.53 1',90),
-        slope('crest_fall',0,3.02,3.46,.06,0),
-      ].join('\n')},
-    {id:'log',x:0,y:-2.80,radius:.59,
-      geoms:'<geom name="park_feature_log" type="cylinder" pos="0 -2.80 .025" size=".055 .47" euler="90 0 0" friction="1.5 .005 .0001" rgba=".58 .40 .24 1"/>'},
-    {id:'angled',x:-2.12,y:2.11,radius:.59,
-      geoms:box('angled_ridge',-2.12,2.11,.028,.045,.40,.028,'0.64 0.50 0.31 1',29)},
-    {id:'trough',x:2.08,y:-2.15,radius:.78,
-      // Level bottom between two raised banks. Not an impossible hole cut
-      // through the existing hfield: down/up transitions are real.
-      geoms:box('trough_near',1.70,-2.15,.021,.16,.38,.021,'0.50 0.55 0.40 1')+
-        '\n'+box('trough_far',2.48,-2.15,.021,.16,.38,.021,'0.50 0.55 0.40 1')},
+    feature('step-up','Step up',2.80,0,.58,short(p.up)+' raised support, then step down',
+      box('step_up',2.80,0,up/2,.42,.33,up/2)),
+    feature('camber','Changing camber',2.10,2.16,.66,
+      short(p.camber)+' gentle cross-grade ridge',
+      [slope('camber_in',2.10,1.78,2.16,0,camber),
+       slope('camber_out',2.10,2.16,2.54,camber,0)].join('\n')),
+    feature('crest','Rounded crest',0,2.85,.78,
+      short(p.crest)+' flat-to-incline-to-flat-to-descent',
+      [slope('crest_rise',0,2.20,2.64,0,crest),
+       // The top extends 5mm beyond both ramp ends: no unsupported seams.
+       box('crest_top',0,2.83,crest/2,.195,.34,crest/2,'0.36 0.61 0.53 1',90),
+       slope('crest_fall',0,3.02,3.46,crest,0)].join('\n')),
+    feature('angled','Diagonal ridge',-2.12,2.11,.56,
+      short(p.ridge)+' support lip at 29 degrees',
+      box('angled_ridge',-2.12,2.11,ridge/2,.045,.40,ridge/2,
+          '0.64 0.50 0.31 1',29)),
+    feature('step-down','Gentle approach, step down',-2.70,0,.90,
+      'Walk up a ramp, then drop '+short(p.down),
+      [slopeX('drop_entry',-2.39,-1.98,down,0),
+       // 2cm physical overlap with ramp endpoint, <1mm surface mismatch.
+       box('drop_plateau',-2.63,0,down/2,.26,.33,down/2,'0.53 0.48 0.35 1')].join('\n')),
+    feature('ripple','Rolling ripples',-2.10,-2.15,.72,
+      'Two shallow '+short(p.ripple)+' humps',
+      [slope('ripple_a_up',-2.10,-2.68,-2.44,0,ripple),
+       slope('ripple_a_down',-2.10,-2.44,-2.20,ripple,0),
+       slope('ripple_b_up',-2.10,-2.20,-1.96,0,ripple*.8),
+       slope('ripple_b_down',-2.10,-1.96,-1.72,ripple*.8,0)].join('\n')),
+    feature('log','Low round log',0,-2.80,.58,
+      short(p.log)+' rounded obstacle (full diameter)',
+      '<geom name="park_feature_log" type="cylinder" pos="0 -2.80 '+
+      rounded(log/2)+'" size="'+[rounded(log/2),.47].join(' ')+
+      '" euler="90 0 0" friction="1.5 .005 .0001" rgba=".58 .40 .24 1"/>'),
+    feature('trough','Double-bank valley',2.08,-2.15,.86,
+      'Two '+short(p.banks)+' banks with a level middle',
+      box('trough_near',1.70,-2.15,bank/2,.16,.38,bank/2,'0.50 0.55 0.40 1')+
+       '\n'+box('trough_far',2.48,-2.15,bank/2,.16,.38,bank/2,'0.50 0.55 0.40 1')),
   ];
 }
 
