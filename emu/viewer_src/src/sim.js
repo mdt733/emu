@@ -78,6 +78,7 @@ export class EmuBrowserSim {
     this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
+    this.parkMarkers = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
@@ -109,6 +110,7 @@ export class EmuBrowserSim {
     );
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
+    this.parkChallengeLevel = 'balanced';
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
@@ -282,6 +284,14 @@ export class EmuBrowserSim {
       for (const material of this.treeCrowns.userData.sharedMaterials) material.dispose();
       this.treeCrowns = null;
     }
+    if(this.parkMarkers){
+      this.scene.remove(this.parkMarkers);
+      for(const item of this.parkMarkers.children){
+        item.material.map?.dispose();
+        item.material.dispose();
+      }
+      this.parkMarkers=null;
+    }
     this.park = null;
     this.depthReading=null;
     this.depthLastMs=0;
@@ -390,6 +400,14 @@ export class EmuBrowserSim {
     this.depthConfig=values;
     this.depthLastMs=0;
   }
+  setParkChallengeLevel(level) {
+    if(!['gentle','balanced','stretch'].includes(level))
+      throw new Error('Unknown park challenge level');
+    if(level===this.parkChallengeLevel)return;
+    this.parkChallengeLevel=level;
+    // Only browser collision geometry changes. Never touch policy weights.
+    if(this.terrainMode==='park')this.loadModel();
+  }
   setParkFeaturesEnabled(enabled) {
     const next=Boolean(enabled);
     if(next===this.parkFeaturesEnabled)return;
@@ -425,7 +443,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.park = this.terrainMode==='park'
       ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
-                             trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled})
+                             trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
+                             challengeLevel:this.parkChallengeLevel})
       : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
@@ -453,6 +472,7 @@ export class EmuBrowserSim {
       this.scene.add(this.parkGridOverlay);
       this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
       this.scene.add(this.treeCrowns);
+      this.createParkMarkers();
     }
     const d = this.bundle.control.default_commands || {};
     this.commandTarget = {
@@ -484,6 +504,37 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
+  }
+
+  createParkMarkers() {
+    if(!this.park?.features.length)return;
+    const group=new THREE.Group();
+    this.park.features.forEach((feature,i)=>{
+      // 2D signs are NON-COLLIDING presentation only, never an actor input.
+      const canvas=document.createElement('canvas');
+      canvas.width=384;canvas.height=80;
+      const ctx=canvas.getContext('2d');
+      if(!ctx)return;
+      ctx.fillStyle='rgba(12,29,34,0.86)';
+      ctx.beginPath();ctx.roundRect(4,5,376,70,15);ctx.fill();
+      ctx.strokeStyle='rgba(110,231,206,0.78)';
+      ctx.lineWidth=3;ctx.stroke();
+      ctx.fillStyle='#e9fff7';
+      ctx.font='600 28px sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText((i+1)+'. '+feature.label,192,40,360);
+      const tex=new THREE.CanvasTexture(canvas);
+      tex.colorSpace=THREE.SRGBColorSpace;
+      const mat=new THREE.SpriteMaterial({map:tex,transparent:true,
+        depthTest:true,depthWrite:false});
+      const sign=new THREE.Sprite(mat);
+      sign.position.set(feature.x,feature.y,
+        this.park.sampleHeight(feature.x,feature.y)+0.20);
+      sign.scale.set(.90,.19,1);
+      group.add(sign);
+    });
+    this.parkMarkers=group;
+    this.scene.add(group);
   }
 
   reset() {
@@ -565,10 +616,15 @@ export class EmuBrowserSim {
     // navigation avoid untrained steps/logs, but manual joystick can inspect.
     return [
       ...(this.parkTreesEnabled?this.park.trees:[]),
-      ...(this.parkFeaturesEnabled ? this.park.features.flatMap(f=>
-        f.id==='crest'?[{x:f.x,y:f.y-.26},{x:f.x,y:f.y+.26}]
-        : f.id==='trough'?[{x:f.x-.28,y:f.y},{x:f.x+.28,y:f.y}]
-        : [{x:f.x,y:f.y}]) : []),
+      ...(this.parkFeaturesEnabled ? this.park.features.flatMap(f=>{
+        // Planner is intentionally conservative. Include the *physical*
+        // obstacle footprint, not just one centre point; human joystick
+        // driving remains unrestricted for actual challenge attempts.
+        const spread=Math.max(0,f.radius-.34);
+        return [{x:f.x,y:f.y},{x:f.x+spread,y:f.y},
+          {x:f.x-spread,y:f.y},{x:f.x,y:f.y+spread},
+          {x:f.x,y:f.y-spread}];
+      }) : []),
     ];
   }
 
