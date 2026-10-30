@@ -265,6 +265,21 @@ button:disabled { opacity: .4; cursor: default; }
 .settings-drawer .control-row { display: flex; flex-direction: column; align-items: start; gap: 15px; padding: 10px 0 16px; }
 .settings-drawer .control-row label { font-size: 13px; }
 .settings-drawer input[type="range"] { accent-color: #8cc4f7; }
+.park-course-info {
+  width: 100%; padding: 10px 11px; border-radius: 12px;
+  border: 1px solid rgba(115,202,178,.22);
+  background: rgba(19,38,43,.45); line-height: 1.45;
+}
+.park-course-info > b { display: block; font-size: 11px; letter-spacing: .05em; color: #a6ead4; }
+.park-course-info ol { margin: 8px 0; padding-left: 19px; font-size: 11px; color: #bfd3d0; }
+.park-course-info li { margin: 5px 0; }
+.park-course-info li strong { font-weight: 650; color: #f0f8f4; }
+.park-course-info small { display: block; font-size: 10px; color: #9daeb6; }
+#parkChallengeLevel {
+  max-width: 215px; min-height: 34px; padding: 4px 6px; border-radius: 8px;
+  color: #e5f4f2; background: #172c30; border: 1px solid rgba(140,206,196,.35);
+}
+#parkChallengeLevel:disabled { opacity: .45; }
 .drawer-footer { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 14px; font-size: 11px; color: #91a8be; }
 .drawer-footer a { color: #a9d6ff; }
 .showcase-banner { position: absolute; left: 10px; bottom: 12px; z-index: 15; max-width: min(390px, calc(100vw - 20px)); padding: 9px 13px; border-radius: 12px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
