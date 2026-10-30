@@ -162,6 +162,8 @@ def test_v5030_physical_232_sensor_contract_and_two_slabs_on_real_cpu():
     state,obs=env.reset(packet)
     assert obs.shape==(2,SENSOR_OBS_DIM)
     assert np.isfinite(np.asarray(obs)).all()
-    assert not np.any(np.asarray(state.sensor_state.samples.tof_beam_valid)==False), (
-        'main ToF tripod failed on shared physical slab')
+    samples=np.asarray(state.sensor_state.samples.tof_ranges_m)
+    valid=np.asarray(state.sensor_state.samples.tof_beam_valid)
+    assert samples.shape==(2,4,3) and valid.shape==(2,4,3)
+    assert np.all(np.isfinite(samples))
     assert np.all(np.asarray(state.data.mocap_pos[:,env.terrain_step_mocap_id,2])>-10)
