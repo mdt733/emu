@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration, feature/v5030-reward-lab, feature/v5031-verified-ascent, feature/v5031-cross-source-fork, fix/viewer-park-optical-flow, fix/viewer-crest-contact-seam, feature/viewer-graduated-park]
+    branches: [release/v5032-pinnacle-candidate]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile emu/run.py scripts/v5031_verified_ascent_ab.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5029_speed_restoration.py scripts/v5030_compare_main.py scripts/v5030_temporal_reward_ab.py scripts/v5030_recover_v5029_exams.py
+          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5030_compare_main.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
@@ -82,6 +82,7 @@ jobs:
           emu capability-exam --help > /dev/null
           emu train --help > /dev/null
           python scripts/smoke_training_lifecycle.py --help > /dev/null
+          python scripts/train_pinnacle.py > /dev/null
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 60000000 --envs 2048 --seed 733 --device cuda --profile sim2real --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities --foundation-steps 10000000 --foundation-mix command-heavy --teaching-schedule steering --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
@@ -107,9 +108,9 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Exercise single shared-policy unified specialists on MJX CPU
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12
-      - name: v5030 B actual 25-frame reward PPO gradient (CPU)
+      - name: 25-frame forward tracking PPO gradient (CPU)
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --temporal-vx-reward-share .5
-      - name: v5031 verified support-transfer reward PPO gradient (CPU)
+      - name: Verified physical support-transfer PPO gradient (CPU)
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --temporal-vx-reward-share .5 --verified-ascent-reallocation 3
 
   browser:
