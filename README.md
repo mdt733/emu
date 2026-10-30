@@ -14,7 +14,7 @@ EMU learns to balance and move using reinforcement learning in MuJoCo/MJX. It ha
 
 ## Two realities: published robot and research robot
 
-| | Published Pinnacle (`main`) | Research successor (`feature/v5029-speed-restoration`) |
+| | Published Pinnacle (`main`) | Research successor (`feature/v5031-verified-ascent`) |
 |---|---|---|
 | Status | Protected reference and live browser demo | Experimental; **not released** |
 | Observation contract | 232-input sensor policy | 360-input terrain-array policy |
@@ -50,67 +50,54 @@ The 360-input policy receives simulated delayed/noisy measurements, including th
 
 We score at least four different outcomes separately: physical crossing, mission/velocity tracking, heading/path retention, and safe recovery. A step **down** does not count as a step **up**.
 
-## Next experiment: v5029 speed restoration
+## Current research — v5031 verified support transfer (31 October 2026)
 
-**Source:** `feature/v5029-speed-restoration` (fresh Git checkout).
-**Launch:** `python -u scripts/v5029_speed_restoration.py --run` with the
-already-installed CUDA venv, **only after CPU CI and 2048 CUDA preflight pass**.
-This is a NEW 120M-step cold start at seed737; it never resumes an incompatible
-v5028 checkpoint. Outputs live under
-`~/robot_lab/emu_runs/v5029_speed_restoration_s737/` outside Git.
+The 360-input research successor is not yet a replacement for the
+published `main` policy. The [fresh installation and
+GPU acceptance guide](docs/INSTALL.md) covers Windows/WSL2, Python 3.13,
+JAX CUDA 13, Node 24, pytest, and a source-isolated new checkout.
 
-V5028's A and B completed 80M steps and independent matched 16-world exams.
-The considered-step B arm crossed 2.5cm uphill 6/8 vs A 4/8, though both
-remain unproven at 3cm, and high-speed command teaching regressed. Its
-problem was **not an identified global motor penalty**: the unified
-specialists took nearly all births and rewrote them to low speeds, while
-the 10% athletic rehearsal configured at fork never reached the actual
-rollout. The flat 4m-half-length slab could also punish sustained >0.3m/s
-motion when the robot falls off the physical surface.
+The v5030 temporal-reward study compared a normal per-frame forward-speed
+reward against a 25-frame (0.5 s) blended reward. At 80M, the temporal
+reward arm B had the better broad fixed score (0.7587 vs 0.7453).
+B is the **research baseline**, not a public release.
 
-V5029 keeps exactly six complementary learning roles *plus* a 25% subset
-of genuine athletic (flat, steady, unattenuated, moving) rehearsal births
-after the first 20M. A larger 32m-half-length / 16m-half-width support box
-retains the exact two-sided sharp ledge topology but stops an honest fast
-gait running off a short floor. The actual born command, gait frequency,
-physical terrain and JAX reward match. This isn't free fast-speed mastery:
-the speed frontier still expands only on earned evidence.
+In matched real-geometry physical exams B80 sustained 0.6 m/s requests
+in 15/16 worlds (mean achieved 0.541 m/s) and 0.8 m/s in 10/16,
+but a requested 1.0 m/s was not sustained. It climbed a real 2 cm
+step up in 8/8 cases, 2.5 cm in 3/8, and 3 cm in 0/8. At 3 cm it
+largely *stalled* instead of falling, which guides the next lesson.
 
-The terminal shows **actual** requested-speed occupancy (>0.3m/s) and mean
-measured velocity of those requests, separate from the nominal frontier.
-Independent read-only speed-ladder exams ask 0.1,0.2,0.3,0.4,0.5,0.6,0.8 and
-1.0m/s, and a separate 16-world directional slope/step matrix checks that
-the old 2–2.5cm gains weren't lost. Both 80M v5028 policies and `main`
-remain protected; changed collision geometry prevents treating an earlier
-fixed-exam score as a perfectly matched physical protocol.
+The source-pinned [v5031 experiment](docs/V5031_VERIFIED_ASCENT.md)
+forks both arms from the **same v5030 B80 checkpoint** at 80,019,456
+steps, and continues to 100M with and without **reallocation of 3
+existing ascent-shaping reward points** to verified foot contact plus
+actual supported height transfer. It does not add free reward, hide a
+command change, or suppress normal stride-related yaw oscillation.
+The experiment must clear CPU tests and full 2048-world CUDA preflights
+before training; outcomes are not yet established.
 
-See [the failure audit and new acceptance plan](docs/V5028_SPEED_FRONTIER_AUDIT.md).
+**Source safety:** frozen training branch
+`feature/v5031-verified-ascent`, SHA
+`93cb5cf5a541416ab4366140b2205aca6bfb89a7`.
+An implementation/docs fix goes onto a separate branch, never into
+the experiment's running checkout. Current v5031 is a **checkpoint
+continuation**, not a new-machine cold-start launcher: new systems
+need the backed-up B80 policy or must reproduce the earlier cold-start
+lineage at its source SHA. See [the handover](HANDOVER.md) for details.
 
-## Next ideas: v5030 locomotion reward study (not active)
+### Completed studies
 
-While v5029 trains, the separate `feature/v5030-reward-lab` branch
-retires the old v5028 launcher and prepares two reward hypotheses:
-the half-second causal forward-speed tracking arm is now implemented
-behind an opt-in training switch, while verified CoG/support-height
-transfer remains an inactive, anti-cheating prototype. The conditional A/B plan
-is in [v5030 reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
-The completed v5029 source and checkpoint remain immutable. The
-new v5030 branch includes a physically matched 232-vs-360 examiner
-and a small common-foundation A/B runner; no reward improvement is
-claimed until measured physical outcomes confirm it.
-
-## Completed experiment: considered step-ups
-
-The v5027 physical exam found that the strongest prior coherent policy crossed **2.0 cm uphill in 8/8 trials**, **2.5 cm in 6/8**, and **3.0 cm in 0/8**, under the tested +0.15 m/s, 16-world paired conditions. Surviving in front of 3 cm was **not** a deliberate, verified refusal.
-
-The v5028 study tests whether per-frame forward-velocity pressure prevented careful foothold preparation:
-
-- **A — coherent control:** original STEP reward, gentle coherent commands.
-- **B — considered uphill:** same commands, but a tightly limited, near-lip reduction in *forward underspeed* pressure and supported-settling acceptance. No free standing reward, no relaxation of sideways/yaw, slip, overspeed or fall safety.
-
-The two branches start from the **same fresh 20M-step cold foundation**, then train separately to **80M each** on **2,048 MJX environments**: **140M aggregate world steps**. Frozen physical exams independently compare real ascents, descents and grades. Both runs and their independent 16-world matrix are complete; see the v5029 findings above and the audit.
-
-See [experiment contract and source-pinned launcher](docs/V5028_CONSIDERED_STEPS.md). Don't pull commits into its checkout while it runs.
+The [v5028 considered-steps study](docs/V5028_CONSIDERED_STEPS.md)
+established reliable 2 cm supported upsteps and occasional 2.5 cm
+upsteps but exposed slow-speed specialist dominance. The
+[v5029 speed-restoration audit](docs/V5028_SPEED_FRONTIER_AUDIT.md)
+led to long 32 m physical support slabs and real fast-gait rehearsal.
+The [v5030 reward study](docs/V5030_REWARD_EXPERIMENTS.md)
+then established the temporal-forward-tracking research baseline.
+All previous trained checkpoints and the protected published
+champion are retained. Past launch instructions are historical
+and should be read only with their recorded Git commits.
 
 ## Reading training results without fooling ourselves
 
@@ -143,9 +130,10 @@ emu/
   physical_exam.py     independent headed motion, steps, slopes and recovery
   viewer_src/          browser simulation and playground
 scripts/
-  # v5028 A/B launcher archived in its exact frozen Git commit
-  v5029_speed_restoration.py   current 120M source-pinned single-run launcher
-  smoke_unified_focus.py     CPU / CUDA physics + PPO preflight
+  v5031_verified_ascent_ab.py   B80→100M pinned matched ascent reward continuation
+  v5030_temporal_reward_ab.py   completed reward A/B reproducibility
+  smoke_unified_focus.py       CPU / CUDA physics + PPO preflight
+  setup_wsl.sh                 fresh WSL install and browser build
   smoke_training_lifecycle.py
 docs/
   README.md            current documentation index
