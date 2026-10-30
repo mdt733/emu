@@ -199,6 +199,39 @@ test('park heightfield has the same valid optical flow as a flat MuJoCo plane',(
     'array sensor must receive corrected pose on each live frame');
 });
 
+test('park crest incline/flat seams have continuous physical support',()=>{
+  // A yaw-90 box uses its local X half-size as the extent along world Y.
+  // The original centre=2.83, half-X=0.18 plateau covered 2.65..3.01:
+  // 1-cm unsupported gaps after rise end 2.64 and before fall 3.02.
+  const crest=generateTerrainPark({trees:false,features:true}).features
+    .find(feature=>feature.id==='crest');
+  assert.ok(crest,'park must retain real crest collision geometry');
+  const tag=crest.geoms.split('\n').find(x=>x.includes('name="park_feature_crest_top"'));
+  assert.ok(tag,'crest must have a real upper support box');
+  const vector=(name)=>{
+    const match=tag.match(new RegExp('\\b'+name+'="([^"]+)"'));
+    assert.ok(match,'missing '+name+' in crest support');
+    return match[1].split(/\s+/).map(Number);
+  };
+  const [x,y,z]=vector('pos');
+  const [hx,hy,hz]=vector('size');
+  const [rx,ry,rz]=vector('euler');
+  assert.equal(rz,90,'plateau local X must remain along world Y');
+  assert.ok(Math.abs(rx)<1e-9 && Math.abs(ry)<1e-9);
+  assert.ok(x===0 && Math.abs(y-2.83)<1e-9);
+  const near=y-hx,far=y+hx;
+  assert.ok(near<=2.64-.002,'unsupported ascent/plateau gap: '+near);
+  assert.ok(far>=3.02+.002,'unsupported plateau/descent gap: '+far);
+  assert.ok(Math.abs(z+hz-.06)<1e-9,'flat top must stay at 6 cm');
+  // At either 5-mm overlap the near-end sloped upper face differs from
+  // the 6-cm plateau by <1mm; a long fake lip would also be a regression.
+  const riseMismatch=(.06/.44)*(2.64-near);
+  const fallMismatch=(.06/.44)*(far-3.02);
+  assert.ok(riseMismatch>=0 && riseMismatch<.001);
+  assert.ok(fallMismatch>=0 && fallMismatch<.001);
+  assert.ok(hy>=.33,'do not narrow the real supported ramp width');
+});
+
 // 3. Realistic sensor timing is part of the trained actor interface.
 test('delayed ToF/flow emulation retains reading time and dropout confidence',()=>{
   const c={schema:'sim2real_232',
