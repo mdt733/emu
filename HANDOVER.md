@@ -4,8 +4,7 @@
 **Protected published reference:** `main` — 232-input Pinnacle, approved browser policy  
 **Completed 80M A/B:** `feature/v5028-considered-steps` at exact SHA
 `38713791023681dc9883f6c374d92e46261b3baf` (frozen, do not modify)
-**Current fresh next run:** `feature/v5029-speed-restoration` (new 120M
-cold start, seed737; do not run before exact-source CUDA preflight).
+**Latest completed reward study:** `feature/v5030-reward-lab` at pinned source `a7be11b` (seed747, completed 60M A/B); reporter on separate `feature/v5030-physical-report`.
 **Old cleanup/integration branch:** `feature/v5028-merge-polish`
 **Golden rule:** **do not pull/change the running checkout; do not merge or
 replace the public champion without explicit owner approval.**
@@ -234,3 +233,16 @@ before local GPU training.
 Before using CUDA, check new branch CI, then the launcher’s CPU
 and 2048-world GPU preflight. **Never pull this new source into
 the archived v5029 training checkout.**
+
+## 31 October 2026 — v5030 physical A/B reviewed
+
+**Pinned completed training/exam source:** `a7be11b587f0912e642e100b22ec6d617f548f5b` (seed747; shared cold20M; both 60,030,976 steps).
+**Read-only reporting branch:** `feature/v5030-physical-report` (report script + results, *not* a compatible training source for old checkpoints).
+**Full findings:** [V5030 physical A/B results](docs/V5030_PHYSICAL_AB_RESULTS.md).
+**Reporter:** `python scripts/v5030_physical_report.py /path/to/v5030_temporal_physical_comparison.zip --output-dir /tmp/emu_report` (supports existing run root too; no PPO/actor changes).
+
+A original: broad frozen score 0.7432; B half-second: 0.7526. In the matched 16-world 0.6m/s 700-frame ladder, A achieved 0.544m/s, 14/16 survival, 0.098m/s forward MAE and 0.563rad/s mean absolute per-world signed yaw bias. B achieved 0.558m/s, 16/16 survival, 0.051m/s MAE and 0.121rad/s yaw bias. This is a **useful B advantage**; yaw **jitter** at higher stride speed is not itself a new target for negative reward. At commanded 0.8m/s only 7/16 A and 8/16 B survive; at 1.0m/s none survives past the short launch, so peak transient speed is not proof of sustained gait.
+
+For true supported crossing, upstep 2cm A/B=6/8 each, 2.5cm A=0/8 B=2/8, 3cm A/B=0/8. Dowstep 2.5cm A=7/8 B=8/8 and 3cm A=4/8 B=7/8. Uphill 8° mission A=10/16 B=1/16 and downhill 12° A=11/16 B=0/16: both have 16/16 survival there, so mission losses reflect directional tracking, not immediate physical falling.
+
+**Next steps:** (1) stride-aware heading/net path drift and optional progressive-start speed ladder as *evaluator-only*, preserving abrupt-start check; (2) if still warranted, one controlled physics-verified bounded 2.5–3.5cm supported-upstep reward trial (avoid stacking near-lip forgiveness and reward-only state migrations without source contract acceptance); (3) one integrated long cold-start Pinnacle campaign only after measured physical retention, selecting the best checkpoint by held-out exams. Do not change protected `main`, the completed A/B source, or the archived running checkout.
