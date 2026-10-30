@@ -21,7 +21,7 @@ import zipfile
 
 import campaign_support as base
 
-BRANCH = "feature/v5031-verified-ascent"
+BRANCH = "feature/v5031-cross-source-fork"
 PARENT_SHA = "a7be11b587f0912e642e100b22ec6d617f548f5b"
 SEED = 747
 ENVS = 2048
@@ -36,7 +36,7 @@ ANCESTOR_DEFAULT = (
     Path.home() / "robot_lab/emu_runs/v5030_ab_learning_horizon_s747/"
     "at80M/B_halfsecond25/checkpoints/final.pkl"
 )
-ROOT_DEFAULT = Path.home() / "robot_lab/emu_runs/v5031_verified_ascent_s747"
+ROOT_DEFAULT = Path.home() / "robot_lab/emu_runs/v5031_verified_ascent_fork_v2_s747"
 
 
 def json_at(path):
@@ -84,8 +84,8 @@ def parent_check(path):
     return {"ancestor":str(path),"sha256":hashfile(path),"source_sha":PARENT_SHA}
 
 
-def train_command(root, case, resume):
-    return [
+def train_command(root, case, resume, parent_sha256):
+    command = [
         sys.executable,"-m","emu.cli","train",
         "--run-dir",str(root/case["name"]),"--profile","sim2real",
         "--device","cuda","--seed",str(SEED),"--envs",str(ENVS),
@@ -99,6 +99,14 @@ def train_command(root, case, resume):
         "--fixed-eval-every-steps","20000000",
         "--resume",str(resume),
     ]
+    if str(resume)!="auto":
+        # The source SHA and complete checkpoint hash are EXPLICIT operator
+        # intent. Never pass this override to same-run --resume auto.
+        if not parent_sha256:
+            raise RuntimeError("Missing verified B80 ancestor SHA256")
+        command.extend(("--research-parent-source",PARENT_SHA,
+                        "--research-parent-sha256",parent_sha256))
+    return command
 
 
 def smoke(share, device, full):
@@ -144,8 +152,8 @@ def brief(root, source_sha):
                 r["case"] for r in documents[b][suite]["results"]]:
             raise RuntimeError("Different exam cases in "+suite)
     s=["# EMU v5031 — verified ascent A/B physical report","",
-       f"Frozen source: \`{source_sha}\`  ",
-       f"Common ancestor: B at 80M, original source \`{PARENT_SHA}\`  ",
+       f"Frozen source: `{source_sha}`  ",
+       f"Common ancestor: B at 80M, original source `{PARENT_SHA}`  ",
        "Both compared at 100M, same seed and same physical fixtures.","",
        "## Supported uphill and downhill crossings","",
        "| Height | Control UP | Transfer UP | Control DOWN | Transfer DOWN |",
@@ -207,20 +215,25 @@ def main():
               "branch":BRANCH,"seed":SEED,"envs":ENVS,
               "control_share":.5,"reallocated_credits":[0.,3.],
               "from_steps":START_M*1_000_000,"target_steps":TARGET_M*1_000_000,
-              "ancestor":ancestor,"cases":CASES,
+              "ancestor":ancestor,"cases":list(CASES),
               "explicit_compatible_cross_source_fork":True}
     print("V5031 80->100M SAME B80 POLICY A/B; only verified transfer differs",flush=True)
     print("SOURCE",sha,"PARENT",PARENT_SHA,flush=True)
     for c in CASES:
-        print(c["name"]," ".join(train_command(root,c,parent)),flush=True)
+        print(c["name"]," ".join(train_command(root,c,parent,ancestor["sha256"])),flush=True)
     if not args.run:
         print("PLAN ONLY. Add --run to test and train.",flush=True)
         return 0
     root.mkdir(parents=True,exist_ok=True)
     mf=root/"campaign_manifest.json"
     if mf.is_file():
-        if json_at(mf)!=manifest:
-            raise RuntimeError("Experiment manifest or ancestor checkpoint changed")
+        existing=json_at(mf)
+        if existing!=manifest:
+            diff=[key for key in sorted(set(existing)|set(manifest))
+                  if existing.get(key)!=manifest.get(key)]
+            raise RuntimeError(
+                "Experiment manifest or ancestor checkpoint changed: "+
+                ", ".join(diff))
     elif any(root.iterdir()):
         raise RuntimeError("Nonempty output without manifest")
     else:
@@ -264,7 +277,7 @@ def main():
                 resume="auto"
             else:
                 resume=parent
-            base.execute(train_command(root,c,resume),
+            base.execute(train_command(root,c,resume,ancestor["sha256"]),
                          root/"logs"/(c["name"]+".log"),env,
                          campaign=(root,CASES))
             if not final.is_file():
