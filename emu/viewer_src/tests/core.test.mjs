@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {parsePolicy} from '../src/policy.js';
 import {parseShowcaseManifest} from '../src/showcase.js';
-import {withTerrain,generateTerrainPark,surfaceSlope,surfaceLabGradient} from '../src/terrain.js';
+import {withTerrain,generateTerrainPark,surfaceSlope,surfaceLabGradient,PARK_CHALLENGE_PRESETS} from '../src/terrain.js';
 import {SensorObserver} from '../src/sensor.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
@@ -199,38 +199,83 @@ test('park heightfield has the same valid optical flow as a flat MuJoCo plane',(
     'array sensor must receive corrected pose on each live frame');
 });
 
-test('park crest incline/flat seams have continuous physical support',()=>{
-  // A yaw-90 box uses its local X half-size as the extent along world Y.
-  // The original centre=2.83, half-X=0.18 plateau covered 2.65..3.01:
-  // 1-cm unsupported gaps after rise end 2.64 and before fall 3.02.
-  const crest=generateTerrainPark({trees:false,features:true}).features
-    .find(feature=>feature.id==='crest');
-  assert.ok(crest,'park must retain real crest collision geometry');
-  const tag=crest.geoms.split('\n').find(x=>x.includes('name="park_feature_crest_top"'));
-  assert.ok(tag,'crest must have a real upper support box');
-  const vector=(name)=>{
+test('park has eight graduated genuine support challenges, clear spawn and complete labels',()=>{
+  const ids=['step-up','camber','crest','angled','step-down','ripple','log','trough'];
+  const presets=['gentle','balanced','stretch'];
+  const expected=[1.2,2.0,3.0];
+  for(let i=0;i<presets.length;i++){
+    const level=presets[i],p=PARK_CHALLENGE_PRESETS[level];
+    assert.equal(p.up,expected[i]);
+    const park=generateTerrainPark({challengeLevel:level,trees:false,features:true});
+    assert.equal(park.challengeLevel,level);
+    assert.deepEqual(park.features.map(f=>f.id),ids);
+    for(const feature of park.features){
+      assert.ok(feature.label && feature.challenge,
+        'every challenge needs a human-readable label and difficulty');
+      assert.ok(Math.hypot(feature.x,feature.y)-feature.radius>1.65,
+        'keep a generous obstacle-free central birth area');
+      assert.match(feature.geoms,/friction="1\.5/,'real support needs actual MuJoCo collision');
+      assert.match(feature.geoms,/park_feature_/);
+    }
+    const xml=withTerrain(
+      '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>',
+      'park',{park});
+    assert.match(xml,/name="park_feature_crest_rise"/);
+    assert.match(xml,/name="park_feature_drop_entry"/);
+    assert.match(xml,/name="park_feature_ripple_b_down"/);
+    assert.doesNotMatch(xml,/name="floor" type="plane"/);
+  }
+  assert.throws(()=>generateTerrainPark({challengeLevel:'unknown'}),/Unknown park/);
+  const html=sourceText('../index.html'),main=sourceText('../src/main.js');
+  assert.match(html,/id="parkChallengeLevel"/);
+  assert.match(html,/id="parkCourseList"/);
+  assert.match(main,/setParkChallengeLevel\(parkChallengeLevel.value\)/);
+  assert.match(main,/updateParkCourseInfo\(\)/);
+});
+
+test('all graduated crest and step-down joints retain continuous physical support',()=>{
+  // Yaw=90: crest top local X half-size is its footprint along world Y.
+  // Park's former 6-cm crest included real 1cm unsupported seams.
+  const vector=(tag,name)=>{
     const match=tag.match(new RegExp('\\b'+name+'="([^"]+)"'));
-    assert.ok(match,'missing '+name+' in crest support');
+    assert.ok(match,'missing '+name+' in physical support');
     return match[1].split(/\s+/).map(Number);
   };
-  const [x,y,z]=vector('pos');
-  const [hx,hy,hz]=vector('size');
-  const [rx,ry,rz]=vector('euler');
-  assert.equal(rz,90,'plateau local X must remain along world Y');
-  assert.ok(Math.abs(rx)<1e-9 && Math.abs(ry)<1e-9);
-  assert.ok(x===0 && Math.abs(y-2.83)<1e-9);
-  const near=y-hx,far=y+hx;
-  assert.ok(near<=2.64-.002,'unsupported ascent/plateau gap: '+near);
-  assert.ok(far>=3.02+.002,'unsupported plateau/descent gap: '+far);
-  assert.ok(Math.abs(z+hz-.06)<1e-9,'flat top must stay at 6 cm');
-  // At either 5-mm overlap the near-end sloped upper face differs from
-  // the 6-cm plateau by <1mm; a long fake lip would also be a regression.
-  const riseMismatch=(.06/.44)*(2.64-near);
-  const fallMismatch=(.06/.44)*(far-3.02);
-  assert.ok(riseMismatch>=0 && riseMismatch<.001);
-  assert.ok(fallMismatch>=0 && fallMismatch<.001);
-  assert.ok(hy>=.33,'do not narrow the real supported ramp width');
+  for(const level of ['gentle','balanced','stretch']){
+    const p=PARK_CHALLENGE_PRESETS[level];
+    const features=generateTerrainPark({challengeLevel:level,trees:false,features:true}).features;
+    const crest=features.find(f=>f.id==='crest');
+    const tag=crest.geoms.split('\n').find(x=>x.includes('name="park_feature_crest_top"'));
+    assert.ok(tag,'crest must have real top support');
+    const [x,y,z]=vector(tag,'pos');
+    const [hx,hy,hz]=vector(tag,'size');
+    const [rx,ry,rz]=vector(tag,'euler');
+    assert.equal(rz,90,'crest local X must remain along world Y');
+    assert.ok(Math.abs(rx)<1e-9 && Math.abs(ry)<1e-9);
+    assert.ok(x===0&&Math.abs(y-2.83)<1e-9);
+    const near=y-hx,far=y+hx;
+    assert.ok(near<=2.64-.002,'unsupported incline/top gap');
+    assert.ok(far>=3.02+.002,'unsupported top/descent gap');
+    assert.ok(Math.abs(z+hz-p.crest/100)<2e-6,'crest must use selected physical height');
+    const riseMismatch=(p.crest/100/.44)*(2.64-near);
+    const fallMismatch=(p.crest/100/.44)*(far-3.02);
+    assert.ok(riseMismatch>=0 && riseMismatch<.001);
+    assert.ok(fallMismatch>=0 && fallMismatch<.001);
+    assert.ok(hy>=.33);
+
+    // The descending ledge's ramp ends at x=-2.39, top box begins
+    // just 5 mm before that point; no "fall through crack" artefact.
+    const drop=features.find(f=>f.id==='step-down');
+    const plateau=drop.geoms.split('\n').find(x=>x.includes('drop_plateau'));
+    const [dx,dy,dz]=vector(plateau,'pos');
+    const [halfX,halfY,halfZ]=vector(plateau,'size');
+    assert.ok(dx+halfX>=-2.39+.004,'unsupported approach/landing seam');
+    assert.ok(dx+halfX<=-2.39+.01,'too-large support overlap');
+    assert.ok(Math.abs(dz+halfZ-p.down/100)<2e-6);
+    assert.ok(halfY>=.33);
+  }
 });
+
 
 // 3. Realistic sensor timing is part of the trained actor interface.
 test('delayed ToF/flow emulation retains reading time and dropout confidence',()=>{
