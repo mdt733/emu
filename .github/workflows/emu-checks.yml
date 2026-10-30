@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration, feature/v5030-reward-lab]
+    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration, feature/v5030-reward-lab, feature/v5031-verified-ascent]
   workflow_dispatch:
 
 permissions:
@@ -109,6 +109,8 @@ jobs:
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12
       - name: v5030 B actual 25-frame reward PPO gradient (CPU)
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --temporal-vx-reward-share .5
+      - name: v5031 verified support-transfer reward PPO gradient (CPU)
+        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --temporal-vx-reward-share .5 --verified-ascent-reallocation 3
 
   browser:
     runs-on: ubuntu-latest
