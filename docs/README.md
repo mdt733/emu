@@ -8,11 +8,12 @@ new, and [HANDOVER](../HANDOVER.md) for the active engineering state.
 
 | Document | What it is |
 |---|---|
-| [INSTALL](INSTALL.md) | WSL setup, source-pinned training, examination and local viewer |
+| [INSTALL](INSTALL.md) | **New Windows/WSL GPU machine**: Python 3.13, CUDA JAX, Node, pytest, acceptance, backups and recovery |
 | [Unified capability contract](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six focus curricula, physical evidence and retention |
 | [Capability inventory](CAPABILITY_DIMENSIONS.md) | Exact physical dimensions and honest scoring distinctions |
-| [v5029 speed restoration](../HANDOVER.md) | Active source-pinned 120M speed + terrain run |
-| [v5030 reward lab](V5030_REWARD_EXPERIMENTS.md) | Next-run opt-in reward hypotheses, analysis plan and anti-cheat checks |
+| [Current engineering handover](../HANDOVER.md) | v5030 B80 results, frozen v5031 source, next goals and source safety |
+| [v5031 verified ascent](V5031_VERIFIED_ASCENT.md) | Active 80→100M matched support-transfer research fork |
+| [v5030 reward lab](V5030_REWARD_EXPERIMENTS.md) | Completed 25-frame reward study and reproducibility contract |
 | [Traversability and refusal](TRAVERSABILITY_REFUSAL.md) | Design only: ToF-aware, capability-conditioned cautious navigation |
 | [Surface laboratory](SURFACE_LAB.md) | Interactive manual incline/step inspection |
 | [Public playground](PLAYGROUND.md) | Browser demo and release protection |
@@ -28,7 +29,7 @@ historical checkout/launch commands as instructions for today's actor.
 
 ## One rule worth repeating
 
-The public Pinnacle is the protected reference. A new policy must demonstrate
+For a fresh PC, start with [INSTALL](INSTALL.md), not the archived experiment launchers.\n\nThe public Pinnacle is the protected reference. A new policy must demonstrate
 fast **measured** commands approaching the predecessor's 1 m/s requested
 envelope **and** better real terrain competence on equivalent exams; merely
 raising a teacher target is not graduating a robot.
