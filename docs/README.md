@@ -29,7 +29,9 @@ historical checkout/launch commands as instructions for today's actor.
 
 ## One rule worth repeating
 
-For a fresh PC, start with [INSTALL](INSTALL.md), not the archived experiment launchers.\n\nThe public Pinnacle is the protected reference. A new policy must demonstrate
+For a fresh PC, start with [INSTALL](INSTALL.md), not the archived experiment launchers.
+
+The public Pinnacle is the protected reference. A new policy must demonstrate
 fast **measured** commands approaching the predecessor's 1 m/s requested
 envelope **and** better real terrain competence on equivalent exams; merely
 raising a teacher target is not graduating a robot.
