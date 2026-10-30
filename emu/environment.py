@@ -1297,7 +1297,8 @@ class EmuMJXEnv(TaskSampler):
                  velocity_i_ramp_s: float = 0.4,
                  velocity_i_multiplier: float = 1.0,
                  retention_share: float = 0.0,
-                 terrain_lesson: str = 'mixed'):
+                 terrain_lesson: str = 'mixed',
+                 physical_exam_legacy_actor: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1314,6 +1315,15 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
+        # Strict, examiner-only exception: place a legacy 232-input actor
+        # into the SAME v5029 two-slab physical world. It must keep its
+        # original simulated 3-ToF/flow/IMU readings, not 360 array channels.
+        # No active training run ever sets this flag.
+        if physical_exam_legacy_actor and (
+                not unified_capability_focus or observation_schema!=OBS_SCHEMA_SENSOR
+                or terrain_step_max_m<=0):
+            raise ValueError('legacy physical baseline requires unified two-slab geometry and sim2real_232')
+        self.physical_exam_legacy_actor=bool(physical_exam_legacy_actor)
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1350,7 +1360,8 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }, schema=observation_schema, array_only=unified_capability_focus)
+        }, schema=observation_schema, array_only=(unified_capability_focus and
+                observation_schema==OBS_SCHEMA_TERRAIN))
             if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
@@ -1376,8 +1387,9 @@ class EmuMJXEnv(TaskSampler):
         )
         self.unified_ground_mocap_id = -1
         if self.unified_capability_focus:
-            if self.observation_schema != OBS_SCHEMA_TERRAIN or self.terrain_step_max_m <= 0:
-                raise ValueError('unified terrain requires terrain_360 and real step geometry')
+            if ((self.observation_schema != OBS_SCHEMA_TERRAIN and
+                 not self.physical_exam_legacy_actor) or self.terrain_step_max_m <= 0):
+                raise ValueError('unified terrain requires terrain_360 or explicit exam-only 232 baseline')
             ground_body=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,
                                           'unified_ground')
             self.unified_ground_mocap_id=int(self.mj_model.body_mocapid[ground_body])
@@ -2723,7 +2735,7 @@ class EmuMJXEnv(TaskSampler):
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
         projected_gravity,_,_=self._body_packets(data)
-        if self.unified_capability_focus:
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
             ranges4,valid4=self._terrain_4x4_ranges(data)
             fit=fit_forward_array_ground(jnp,ranges4,valid4,projected_gravity)
             # Legacy diagnostic shape only; zero 3-ToF cells are NOT actor
@@ -2953,7 +2965,7 @@ class EmuMJXEnv(TaskSampler):
         the simulated ground normal or qvel. Fold-in does not perturb
         physics/lesson RNG streams or the old 220-input behavior.
         """
-        if self.unified_capability_focus:
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
             return self._unified_sensor_sample(data,task,keys,gyro_bias)
         jax, jnp = self.jax, self.jnp
         scale = jnp.where(task[:, T.sensor_scale] >= 0.,
@@ -3040,7 +3052,7 @@ class EmuMJXEnv(TaskSampler):
         s = state.samples
         tf = HISTORY_LEN - 1 - self.tof_delay_frames
         ff = HISTORY_LEN - 1 - self.flow_delay_frames
-        if self.unified_capability_focus:
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
             ground=fit_forward_array_ground(
                 jnp,s.terrain_ranges_m[:,tf,:],s.terrain_valid[:,tf,:],
                 gravity_body)

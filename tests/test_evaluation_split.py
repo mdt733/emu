@@ -86,3 +86,34 @@ def test_v5030_fast_flat_ladder_extends_only_its_own_schedule_envelope():
     with pytest.raises(ValueError,match='straight flat steady'):
         physical.make_schedule('speed_step',120,speed=.8,
                                lateral=0.,yaw_rate=0.,fast_flat_ladder=True)
+
+
+
+def test_v5030_explicit_main_sensor_contract_in_shared_physical_world():
+    """There is no fake 232=>360 conversion, only shared real colliders."""
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN
+    import inspect
+    spec=inspect.signature(EmuMJXEnv)
+    assert spec.parameters['physical_exam_legacy_actor'].default is False
+    src=inspect.getsource(EmuMJXEnv.__init__)
+    assert "physical_exam_legacy_actor" in src
+    assert "add_unified_terrain" in src
+    assert "observation_schema==OBS_SCHEMA_TERRAIN" in src
+    from emu.cli import main
+    import pytest
+    with pytest.raises(SystemExit) as ex:
+        main(['capability-exam','--help'])
+    assert ex.value.code==0
+    # An opt-in flag is mandatory: never silently reinterpret main weights.
+    assert '--legacy-main-baseline' in inspect.getsource(main)
+
+
+def test_v5030_legacy_baseline_is_strictly_nontraining():
+    from emu.environment import EmuMJXEnv
+    from emu.physical_exam import evaluate_unified_capabilities
+    import inspect
+    assert "physical_exam_legacy_actor=bool(legacy_main_baseline)" in inspect.getsource(
+        evaluate_unified_capabilities)
+    assert 'physical_exam_legacy_actor' not in inspect.getsource(
+        __import__('emu.training',fromlist=['env_kwargs_from_args']).env_kwargs_from_args)

@@ -1164,14 +1164,18 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   matrix_grades_deg=None,
                                   matrix_heights_cm=None,
                                   speed_ladder: bool = False,
-                                  ladder_speeds=None) -> tuple[Path,Path]:
-    """One frozen array-only actor; identical MJX physics and seeds per case.
+                                  ladder_speeds=None,
+                                  legacy_main_baseline: bool = False) -> tuple[Path,Path]:
+    """One frozen policy per exam, matched MJX physics and seeds per case.
 
-    No optimizer update, no teacher decisions, no automatic promotion. Uses
-    real rotated slabs plus support pairs; refuses legacy 360 meaning.
+    Standard mode is the 360 array-only actor. Explicit baseline mode uses
+    a verified 232 sensor actor in identical two-slab physical geometry,
+    retaining the real policy's original sensor contract. Never convert
+    network weights or pretend the two sensor streams are identical.
+    No optimiser, curriculum feedback or actor training occurs.
     """
     import json
-    from .contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN,TERRAIN_ARRAY_ONLY_REVISION
+    from .contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN,OBS_SCHEMA_SENSOR,TERRAIN_ARRAY_ONLY_REVISION
     from .viewer_server import load_exported_actor_for_exam
     from .ppo import configure_jax,require_backend
     if worlds<2 or worlds>32 or worlds%2 or horizon<100 or horizon>700:
@@ -1187,11 +1191,14 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     if output==policy.parent or output in policy.parents or policy in output.parents:
         raise ValueError('exam output must be separate from source artifact')
     params,norm,export=load_exported_actor_for_exam(policy)
-    if (export.get('observation_schema')!=OBS_SCHEMA_TERRAIN
-        or not export.get('array_only')
-        or export.get('sensor_model_revision',export.get('sensor_contract',{}).get('sensor_model_revision')) not in
-           (None,TERRAIN_ARRAY_ONLY_REVISION)):
-        raise ValueError('requires versioned array-only 360-input unified policy')
+    is_legacy=(export.get('observation_schema')==OBS_SCHEMA_SENSOR and
+               not export.get('array_only'))
+    if legacy_main_baseline:
+        if not is_legacy:
+            raise ValueError('legacy baseline requires verified sim2real_232 policy')
+    elif (export.get('observation_schema')!=OBS_SCHEMA_TERRAIN
+          or not export.get('array_only')):
+        raise ValueError('standard physical exam requires verified array-only terrain_360 policy')
     configure_jax(device)
     import jax
     import jax.numpy as jnp
@@ -1202,6 +1209,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         # the exact final trace frame. No physical/reward changes.
         max_episode_steps=max(700,horizon+50),observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_step_max_m=.04,
+        physical_exam_legacy_actor=bool(legacy_main_baseline),
         push_max_force_n=3.2,
         attitude_profile=export['training']['attitude_profile'],
         pitch_command_max_deg=float(export['training']['pitch_command_max_deg']),
@@ -1360,7 +1368,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         source_commit=source_commit(),
         actor_artifact_sha256=export['artifact_sha256'],
         observation_schema=export['observation_schema'],
-        sensor_revision=TERRAIN_ARRAY_ONLY_REVISION,
+        sensor_revision=(TERRAIN_ARRAY_ONLY_REVISION if not legacy_main_baseline
+                         else 'sim2real_232_original_tripod'),
+        legacy_main_baseline=bool(legacy_main_baseline),
         source_training_step=export['source']['step'],
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       backend=jax.default_backend(),quick=bool(quick),
@@ -1372,6 +1382,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                       model='actual paired inclined MJX collision slabs',
                       contact='real foot contact, five supported far-side frames',
                       no_reward_or_curriculum_feedback=True,
+                      physical_fixture_revision='two_32m_half_length_sharp_slabs_v5029',
+                      232_actor_sensors_preserved=bool(legacy_main_baseline),
                       recovery_azimuth_bins_sampled=min(worlds,8),
                       recovery_azimuth_bins_total=8),
         results=results,

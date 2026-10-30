@@ -192,6 +192,8 @@ def main(argv=None) -> int:
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
     q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
+    q.add_argument('--legacy-main-baseline',action='store_true',
+                   help='explicit read-only sim2real_232 showcase on the SAME 360 two-slab physics')
     q.add_argument('--speed-ladder',action='store_true',
                    help='read-only flat 0.1..1.0m/s measured speed ladder')
     q.add_argument('--ladder-speeds',type=float,nargs='+',default=None,
@@ -318,7 +320,8 @@ def main(argv=None) -> int:
             matrix_grades_deg=args.matrix_grades_deg,
             matrix_heights_cm=args.matrix_heights_cm,
             speed_ladder=args.speed_ladder,
-            ladder_speeds=args.ladder_speeds)
+            ladder_speeds=args.ladder_speeds,
+            legacy_main_baseline=args.legacy_main_baseline)
         for path in paths:
             print(path)
         return 0
