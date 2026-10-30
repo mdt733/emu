@@ -780,7 +780,14 @@ export class EmuBrowserSim {
       }
       return 0;
     };
-    return {R,torso,vbody,gyro,heightAt};
+    // The park replaces the MuJoCo plane with a heightfield. The array-only
+    // optical-flow sensor raycaster handles planes/boxes, so it needs the same
+    // terrain-height fallback that the 4x4 ToF raycaster already receives.
+    // Only provide it for the park: adding a fictitious z=0 fallback to sloped
+    // finite-box diagnostics would make downhill optical flow read a ghost floor.
+    const terrainHeightAt=this.terrainMode==='park'&&this.park ?
+      (x,y)=>this.park.sampleHeight(x,y):null;
+    return {R,torso,vbody,gyro,heightAt,terrainHeightAt};
   }
 
   terrainActorPose() {
