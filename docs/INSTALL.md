@@ -101,11 +101,15 @@ python --version
 python -m pytest --version
 ```
 
-**Important:** `pytest` is required by current v5031 experiment preflights
+**Important:** `pytest` is required by v5031 experiment preflights,
 even though it is a development dependency. A complete GPU install must
-include `pip install -e ".[dev]"`; `setup_wsl.sh --cuda13` now installs
-the dev extras automatically, *without* automatically running tests.
-The `--check` flag explicitly executes the Python and browser suites.
+include `python -m pip install -e ".[dev]"`. The improved
+`setup_wsl.sh` on this documentation/maintenance branch installs the
+dev extras with `--cuda13` even without `--check`; **older frozen
+source checkouts do not yet have that fix**. The recommended command
+above includes `--check`, which also installs dev extras on older
+checkouts and explicitly runs the Python and browser suites. If you
+omit `--check` on a historical branch, install `.[dev]` yourself.
 
 If you choose to install manually instead of using the setup script:
 
