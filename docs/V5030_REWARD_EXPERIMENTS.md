@@ -147,7 +147,7 @@ without opportunities.
 
 ## Implementation scope deliberately postponed
 
-The current v5030 research branch now includes an **explicit opt-in B**
+The v5030 research branch now includes an **explicit opt-in B**
 switch `--temporal-vx-reward-share .5` and an exact 25-frame rolling
 forward-command history. With the switch at 0, the historical reward
 calculation is unchanged. The source also includes a physically matched
@@ -155,10 +155,30 @@ calculation is unchanged. The source also includes a physically matched
 showcase, and `scripts/v5030_compare_main.py` runs both original
 policy schemas in identical real collision fixtures.
 
+The completed source-pinned v5029 robot is untouched. The experimental
+v5030 source has two independent executable launchers:
+
+- `python -u scripts/v5030_compare_main.py --run`: frozen main 232
+  and v5029 360 actors, same seeded **real 32m paired slabs** and
+  independent physical scoring. The original main sensor model, not
+  forged 360 inputs, is used. Results include the .1–1.0m/s ladder
+  and matched grade/step directions. Both policies are immutable.
+- `python -u scripts/v5030_temporal_reward_ab.py --run`: new
+  common 20M seed747 foundation, then two *matched* 20→60M arms.
+  The ONLY treatment difference is `temporal_vx_reward_share`
+  0 (A) versus 0.5 (B); all PPO, sensor, geometry and teacher
+  settings are otherwise identical. Each completed arm receives
+  exactly the same physical ladder and matrix. The launcher refuses
+  an unclean/new source SHA, includes CPU and 2048-world CUDA PPO
+  preflight, and keeps outputs outside the Git checkout.
+
+These are modest first-stage screens, **not a new 260M Pinnacle**
+training campaign. Do not adopt the B treatment without a measured
+A/B improvement and no terrain/heading regression.
+
 The following remain **not** enabled in PPO:
 per-step surface-reference state, budget
-lifecycle, new actor observation, changed reward weights, new PPO arm
-launcher, or checkpoint migration. Once the v5029 outcomes select the
+lifecycle, new actor observation, changed reward weights, additional reward C/D gates, or checkpoint migration. Once the v5029 outcomes select the
 best small A/B, build opt-in switches with the baseline bitwise
 unchanged, a source-pinned same-config pair and tiny CPU/GPU acceptance
 before committing to a large GPU campaign.

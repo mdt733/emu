@@ -89,12 +89,15 @@ See [the failure audit and new acceptance plan](docs/V5028_SPEED_FRONTIER_AUDIT.
 ## Next ideas: v5030 locomotion reward study (not active)
 
 While v5029 trains, the separate `feature/v5030-reward-lab` branch
-retires the old v5028 launcher and prepares two **inactive, pure**
-reward prototypes: half-second causal forward-speed tracking, and
-verified support-surface/CoG step transfer. The conditional A/B plan
+retires the old v5028 launcher and prepares two reward hypotheses:
+the half-second causal forward-speed tracking arm is now implemented
+behind an opt-in training switch, while verified CoG/support-height
+transfer remains an inactive, anti-cheating prototype. The conditional A/B plan
 is in [v5030 reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
-No reward changes are loaded into v5029, and no next-run winner has
-been selected before its speed ladder and step exams finish.
+The completed v5029 source and checkpoint remain immutable. The
+new v5030 branch includes a physically matched 232-vs-360 examiner
+and a small common-foundation A/B runner; no reward improvement is
+claimed until measured physical outcomes confirm it.
 
 ## Completed experiment: considered step-ups
 

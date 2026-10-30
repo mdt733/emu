@@ -209,3 +209,28 @@ v5029 checkpoint transplant across changed source/physical state.
 The C ascent credit remains an offline, bounded physics-gated prototype
 pending A/B evidence. Source commits must be pinned and CI verified
 before local GPU training.
+
+
+### Current post-v5029 operational deliverables
+
+- `scripts/v5030_compare_main.py` is the **read-only**
+  same-physics 16-world benchmark for main (original schema-2 232
+  actor) and v5029 (schema-3 360 array actor). Sensors are NOT
+  up/down-converted, and the protected main showcase blob and XML
+  are identical across main and the v5030 source tree.
+- `scripts/v5030_temporal_reward_ab.py` defines the focused
+  cold 20M foundation + two matched 20M→60M reward continuations
+  (A share0, B share0.5, 25 causal frames/0.5s). The 20M starting
+  checkpoint is *source-compatible* for both; no v5029 transplant.
+  Physical exams are automatically scheduled at the end.
+- `--temporal-vx-reward-share` is **OFF by default**.
+  C verified-height and D temporary-pause rewards are still design
+  hypotheses and should not be mixed into A/B.
+- Do not treat the new main physical cross-schema comparison as a
+  claim that the same visual information is available to both
+  networks: it intentionally tests their *real* distinct sensor
+  contracts on matching physical challenges.
+
+Before using CUDA, check new branch CI, then the launcher’s CPU
+and 2048-world GPU preflight. **Never pull this new source into
+the archived v5029 training checkout.**
