@@ -110,9 +110,13 @@ def main():
         md=folder/"unified_exam.md"
         if data.is_file() and md.is_file():
             report=json.loads(data.read_text())
+            expected_cases=8 if name=="speed_ladder" else 25
             if (report["source_commit"]!=exam_sha
-                or report["actor_artifact_sha256"]!=json.loads(data.read_text())["actor_artifact_sha256"]):
-                raise RuntimeError("Existing exam source mismatch; manual review required")
+                    or report["source_training_step"]<120_000_000
+                    or len(report["results"])!=expected_cases
+                    or report["protocol"].get(
+                        "speed_ladder" if name=="speed_ladder" else "terrain_matrix") is not True):
+                raise RuntimeError("Existing exam source/protocol mismatch; manual review required")
             print("COMPLETE; not rerunning:",folder,flush=True)
             continue
         if folder.exists() and any(folder.iterdir()):
@@ -127,9 +131,10 @@ def main():
         report=json.loads(data.read_text())
         if report["source_commit"]!=exam_sha or report["source_training_step"]<120_000_000:
             raise RuntimeError("Completed exam has unexpected source or training-age provenance")
-        if len(report["results"])!=len(
-                [c for c in report["results"]]):
-            raise RuntimeError("Invalid exam document")
+        expected_cases=8 if name=="speed_ladder" else 25
+        if len(report["results"])!=expected_cases or not all(
+                len(case["worlds"])==16 for case in report["results"]):
+            raise RuntimeError("Incomplete physical examination: "+name)
         print("Exam complete:",name,len(report["results"]),"conditions",flush=True)
     # The final package includes the original 120M training report and all
     # independent per-world results. No rewriting the old overnight ZIP.
