@@ -1,8 +1,8 @@
 # V5031 — verified uphill transfer, controlled B→C experiment
 
-**Status:** Source prepared; GPU acceptance and actual 100M training NOT yet run.
+**Status:** v2 cross-source guard repair prepared; 2048-world GPU acceptance and 100M training pending at new pinned source.
 **Protected:** `main` champion and the completed v5030 80M A/B study.
-**Source:** `feature/v5031-verified-ascent`; preserve its exact commit SHA in the new campaign manifest.
+**Source:** `feature/v5031-cross-source-fork`; preserve its exact commit SHA in the new campaign manifest. The original `feature/v5031-verified-ascent` remains preserved at `93cb5cf`.
 **Common ancestor:** v5030 B half-second reward, 80,019,456 steps, seed747, original SHA `a7be11b587f0912e642e100b22ec6d617f548f5b`.
 
 ## Why this experiment
@@ -54,7 +54,60 @@ stay identical. A cross-source B80 fork is explicitly authorised
 hashes and both CPU and 2048-world CUDA preflight checks. Do not
 silently resume v5030 with this changed source inside its old run dir.
 
-## Remote launch (Tailscale + GNU Screen)
+
+## 31 October — source-guard repair and safe re-launch (v2)
+
+The initial `feature/v5031-verified-ascent` campaign passed all CPU/2048-world
+CUDA preflights, but its **first training attempt never started**: the
+central `emu.run.inspect_run` correctly rejected the original v5030 B80
+checkpoint's different source SHA. The original launcher recorded
+cross-source intent in its manifest but had not supplied a matching
+explicit proof to this central guard. Never remove the central guard
+or edit an ancestor checkpoint to fool provenance.
+
+**Corrected source branch:** `feature/v5031-cross-source-fork`.
+This code permits an external cross-source *research* fork only when
+the command expressly includes BOTH the ancestor's complete 40-character
+Git SHA and the full SHA256 digest of the actual immutable `final.pkl`.
+The full schema/360-sensor/NN/optimizer-state rewind validation still
+runs; original-parent `TrainingConfig` compatibility is rechecked,
+and the ancestor must be older than the requested target. Missing,
+mismatched or gratuitous flags fail closed. Same-source
+`--resume auto` never uses or requires these flags.
+
+This experiment's launcher pins the known v5030 B80 Git SHA and the
+actual local ancestor SHA256 before starting. New campaign results go
+to a **fresh root** so the old failure manifest remains untouched:
+
+`~/robot_lab/emu_runs/v5031_verified_ascent_fork_v2_s747/`
+
+**No previous B80 or first failed v5031 data needs deleting.**
+The unchanged ancestor checkpoint remains outside the new root and
+is only READ; new v5031 PPO/checkpoint state is written under the v2
+root. Current CI and exact-SHA CUDA preflights must pass again before
+either B or C runs. This is essential because the repaired source has
+a new Git SHA; previous preflight stamps do not authorize it.
+
+From a WSL Ubuntu terminal (inside your persistent GNU Screen session):
+
+```bash
+git clone --single-branch --branch feature/v5031-cross-source-fork \
+  https://github.com/mdt733/emu.git "$HOME/emu-v5031-fork"
+cd "$HOME/emu-v5031-fork"
+source "$HOME/emu-graduation/.venv/bin/activate"
+python -m pytest -q tests/test_cross_source_research_fork.py tests/test_v5031_verified_ascent.py
+python scripts/v5031_verified_ascent_ab.py
+
+# Only after clean plan and successful source-specific checks:
+python -u scripts/v5031_verified_ascent_ab.py --run
+```
+
+Do not pull the new branch into `~/emu-v5031`, modify v5030's source,
+reuse `~/robot_lab/emu_runs/v5031_verified_ascent_s747/` or change the
+published `main` actor. Once either v2 arm has begun, do not pull new
+commits in the v2 checkout either.
+
+## Historical v1 remote launch (superseded; do not use)
 
 Everything is on GitHub. No downloadable ZIP is needed.
 
