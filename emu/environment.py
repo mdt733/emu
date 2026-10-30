@@ -30,7 +30,8 @@ import math
 import xml.etree.ElementTree as ET
 import numpy as np
 
-from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .rewards import (training_reward, apply_early_fall_penalty,
+                      verified_support_elevation_credit, REWARD_ONLY_METRICS)
 from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL,
@@ -1898,16 +1899,17 @@ class EmuMJXEnv(TaskSampler):
                 # upper-foot contact and a physically upright, supported body.
                 expected_flat = NEUTRAL_ROOT_Z + state.task[:,T.height]
                 cog_delta = jnp.maximum(0.,torso_above_lower-expected_flat)
-                cap = jnp.maximum(.003,jnp.minimum(.04,physical_height))
                 valid = (self._considered_step_window(state,data) &
                          terrain_up & upper_contact &
                          (metrics['support']>=.5) &
                          (metrics['bad_contact']<.5) &
-                         (metrics['terminal']<.5))
-                eligible = jnp.where(valid,jnp.minimum(cog_delta,cap),0.)
-                verified_peak = jnp.maximum(verified_peak,eligible)
-                transfer = self.verified_ascent_reallocation * (
-                    verified_peak-state.terrain_verified_height_peak)/cap
+                         (metrics['terminal']<.5) & ~physics_diverged)
+                transfer,verified_peak = verified_support_elevation_credit(
+                    physical_height,cog_delta,upper_contact,valid,
+                    state.terrain_verified_height_peak,direction=1,xp=jnp,
+                    max_rise_m=.04,
+                    total_credit=self.verified_ascent_reallocation,
+                    normalize_by_actual_height=True)
                 ascent_payment = ascent_payment + transfer
             reward = reward + ascent_payment
             ep_return = ep_return + ascent_payment
