@@ -836,6 +836,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
             if 'terrain_cross_new' in metrics else 0.0,
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
+        'terrain_verified_transfer_reward_sum': float(
+            np.asarray(metrics.get('terrain_verified_transfer_credit',0.)).sum()),
+        'terrain_verified_transfer_reward_events': float(
+            (np.asarray(metrics.get('terrain_verified_transfer_credit',0.))>1e-6).sum()),
         'ep_len_mean': done_mean(metrics, 'episode_length', default=0.0),
         'ep_rew_mean': done_mean(metrics, 'episode_return', default=0.0),
         'fall_rate': done_mean(metrics, 'episode_fell', default=mean_metric(metrics, 'terminal')),
