@@ -234,3 +234,39 @@ before local GPU training.
 Before using CUDA, check new branch CI, then the launcher’s CPU
 and 2048-world GPU preflight. **Never pull this new source into
 the archived v5029 training checkout.**
+
+
+## 31 October 2026 — v5030 80M learning-horizon verdict and v5031 ready-for-preflight
+
+- Source-pinned v5030 A/B at 80,019,456 steps each, from original \`a7be11b\`.
+  Broad frozen score A 0.745292, B 0.758657 (B retains advantage,
+  although both nearly plateaued at 60→80M). B is now selected as the
+  **research baseline**, not promoted to main.
+- Matched B80 physical facts: at 0.6m/s request actual 0.541m/s,
+  15/16 survived; at 0.8m/s 10/16 survived; at 1m/s 0/16 sustained;
+  12-degree uphill missions 13/16. 2cm uphill supported ascent 8/8,
+  2.5cm 3/8, 3cm 0/8, 3.5cm 0/8. On 3cm all 8 survived, but
+  far-side reached 0/8, mean vx ~0.010m/s: **stalling at the lip**.
+  Yaw-rate stride oscillation remains diagnostic, not a suppression target.
+- New independent branch \`feature/v5031-verified-ascent\` from immutable
+  \`a7be11b\`. See [v5031 study](docs/V5031_VERIFIED_ASCENT.md).
+  A single opt-in, reward-only scalar tracks a per-episode high-water
+  mark of physically verified upper-slab contact plus torso elevation.
+  Default-off is the B reward; treatment reassigns 3 of the existing 9
+  ascent shaping points to transfer, preserving the +10 real supported
+  completion bonus. No actor input/PPO optimizer or physics changes.
+- \`scripts/v5031_verified_ascent_ab.py\` source-pins and forks both
+  candidates from the SAME completed original B80 final checkpoint;
+  80→100M each, seed747, 2048 envs. Mandatory CPU/JAX and both
+  2048 CUDA full-update preflights; immutable new root, per-arm exams
+  and intermediate report. This is an explicitly validated cross-source
+  checkpoint fork, not a silent in-place resume.
+- **Before GPU launch:** require green GitHub Actions on exact source SHA
+  and successful launcher plan against the user's on-disk B80 checkpoint.
+  **No GPU preflight or v5031 training success has been claimed yet.**
+- If validated height-transfer payment is zero in rollouts or 3cm
+  supported crossing does not improve without speed/heading regression,
+  inspect foot-contact and near-lip traces; do not keep adding rewards
+  indiscriminately. After this study, progressive 0.6→1.0m/s ramp
+  assessment is the next evaluator refinement; big 200–300M cold-start
+  Pinnacle waits for validated improvements.
