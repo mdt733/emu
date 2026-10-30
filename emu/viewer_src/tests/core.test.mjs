@@ -163,6 +163,42 @@ test('terrain park creates a physical heightfield with solid tree trunks',()=>{
   assert.ok(park.heights.some(x=>x>.05));
 });
 
+test('park heightfield has the same valid optical flow as a flat MuJoCo plane',()=>{
+  // MuJoCo geometry types: plane=0, hfield=1. The array-only raycaster
+  // handles planes and boxes directly; hfields require an explicit height
+  // function. This regression previously made the park centre wobble/fall
+  // even while the same policy walked on the flat ground mode.
+  const {ArrayFlowObserver}=depthLabSensor;
+  const settings={sensor_noise_scale:0};
+  const contract={sensor_model_revision:'forward_tof4x4_array_plane_fit_no_tripod_2',
+    settings};
+  const observer=new ArrayFlowObserver(contract);
+  const identity=[1,0,0,0,1,0,0,0,1];
+  const pose={R:identity,torso:[0,0,.26],vbody:[.20,0,0],
+    gyro:[0,0,0],heightAt:()=>0,terrainHeightAt:()=>0};
+  const plane={ngeom:1,geom_type:[0],geom_bodyid:[0],
+    geom_size:[0,0,0]};
+  const hfield={...plane,geom_type:[1]};
+  const data={geom_xpos:[0,0,0],geom_xmat:identity};
+  const ordinary=observer.synth(pose,plane,data,false);
+  const park=observer.synth(pose,hfield,data,false);
+  assert.equal(ordinary.flowValid,true,'flat plane must give valid optical flow');
+  assert.equal(park.flowValid,true,'flat centre of park hfield must give valid optical flow');
+  assert.ok(Math.abs(park.flow[0]-ordinary.flow[0])<1e-5,
+    'same support geometry must produce the same optic-flow velocity');
+  assert.ok(Math.abs(park.flow[1]-ordinary.flow[1])<1e-5);
+  const missing=observer.synth({...pose,terrainHeightAt:null},hfield,data,false);
+  assert.equal(missing.flowValid,false,
+    'without fallback, MuJoCo heightfield is invisible to flow raycaster');
+  const sim=sourceText('../src/sim.js');
+  const sensorPose=sim.slice(sim.indexOf('  sensorPose() {'),
+    sim.indexOf('  terrainActorPose() {'));
+  assert.match(sensorPose,/terrainHeightAt=this\.terrainMode==='park'/,
+    'browser sensorPose must actually pass terrain-height fallback for park');
+  assert.match(sim,/this\.arraySensor\.advance\(\s*this\.sensorPose\(\)/,
+    'array sensor must receive corrected pose on each live frame');
+});
+
 // 3. Realistic sensor timing is part of the trained actor interface.
 test('delayed ToF/flow emulation retains reading time and dropout confidence',()=>{
   const c={schema:'sim2real_232',
