@@ -244,7 +244,7 @@ def _gait_maturity(m, jnp):
 
 
 
-# --- Next-study OFFLINE hypotheses, not part of PPO training_reward ---
+# --- Pure diagnostic helpers (verified support credit is opt-in v5031) ---
 # These can score real recorded trajectories without changing the current
 # actor, checkpoint, reward arithmetic or source-pinned campaign.
 def trailing_mean_trace(values, frames: int = 25, *, xp):
@@ -300,11 +300,14 @@ def counterfactual_forward_tracking(
 def verified_support_elevation_credit(
     support_surface_delta_m, cog_delta_m, contact_on_target_surface,
     stable_support, previous_verified_peak_m, *, direction: int,
-    xp, max_rise_m: float = .04, total_credit: float = 4.0
+    xp, max_rise_m: float = .04, total_credit: float = 4.0,
+    normalize_by_actual_height: bool = False
 ):
     """Bounded incremental *verified* vertical transfer (one-time per lip).
 
-    Proposed upward/downward-step study component, NOT active PPO reward.
+    v5031 uses this pure component only when an explicit reward budget
+    is reallocated from existing uphill guidance. Other callers remain
+    offline diagnostics; no privileged observations reach the actor.
     A squat or jump alone has zero credit: the matching real target surface
     must have changed, a foot must contact it, the CoG must move in the
     matching signed direction and stable support must be maintained.
@@ -321,7 +324,12 @@ def verified_support_elevation_credit(
     eligible = xp.where(verified, xp.minimum(changed, moved), 0.)
     previous = xp.clip(xp.asarray(previous_verified_peak_m), 0., max_rise_m)
     peak = xp.maximum(previous, eligible)
-    return total_credit * (peak - previous) / max_rise_m, peak
+    # In the v5031 experiment, a real 2cm supported ascent can earn its
+    # whole allocated budget; an impossible 4cm reference height must not
+    # silently halve the payment. Zero-height worlds earn nothing.
+    denom = (xp.maximum(.003, changed) if normalize_by_actual_height
+             else max_rise_m)
+    return total_credit * (peak - previous) / denom, peak
 
 def apply_early_fall_penalty(reward, terminal_fail, episode_age_steps,
                              max_episode_steps, *, xp):
