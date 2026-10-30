@@ -241,6 +241,21 @@ def main():
     env={**os.environ,"PYTHONPATH":str(base.ROOT),
          "XLA_PYTHON_CLIENT_PREALLOCATE":"false",
          "EMU_UNIFIED_CONTINUOUS":"cold-growth-approved"}
+    # Validate the ACTUAL cross-source checkpoint handoff before GPU
+    # preflights. The first v5031 launcher wasted CUDA compilations before
+    # hitting the central source mismatch; this read-only CLI check makes
+    # that impossible to overlook before training.
+    for c in CASES:
+        stage=root/c["name"]
+        if (stage/"checkpoints/final.pkl").is_file():
+            continue
+        resume=("auto" if stage.exists() and base.has_checkpoint(stage)
+                else parent)
+        checked_source()
+        base.execute(
+            train_command(root,c,resume,ancestor["sha256"])+
+            ["--check-resume-only"],
+            root/"logs"/("verify_parent_"+c["name"]+".log"),env)
     stamp=root/"preflight_pass.json"
     acceptance={"source_sha":sha,"parent_sha256":ancestor["sha256"],
                 "cpu":True,"full_cuda_2048":True,"budgets":[0.,3.]}
