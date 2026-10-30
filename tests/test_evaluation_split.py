@@ -117,3 +117,51 @@ def test_v5030_legacy_baseline_is_strictly_nontraining():
         evaluate_unified_capabilities)
     assert 'physical_exam_legacy_actor' not in inspect.getsource(
         __import__('emu.training',fromlist=['env_kwargs_from_args']).env_kwargs_from_args)
+
+
+
+def test_v5030_main_physical_baseline_cli_contract(capsys):
+    from emu.cli import main
+    import pytest
+    with pytest.raises(SystemExit) as ex:
+        main(['capability-exam','--help'])
+    assert ex.value.code==0
+    assert '--legacy-main-baseline' in capsys.readouterr().out
+
+
+def test_v5030_physical_232_sensor_contract_and_two_slabs_on_real_cpu():
+    import pytest
+    pytest.importorskip('mujoco')
+    pytest.importorskip('jax')
+    import jax
+    import numpy as np
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import ROBOT_XML,OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN,SENSOR_OBS_DIM,TERRAIN_OBS_DIM
+    from emu.viewer_server import load_exported_actor_for_exam
+    from pathlib import Path
+    policy=Path(__file__).resolve().parents[1]/'showcase/champion.emupolicy'
+    _,_,main=load_exported_actor_for_exam(policy)
+    assert main['observation_schema']==OBS_SCHEMA_SENSOR
+    settings=main['sensor_settings']
+    env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
+        observation_schema=OBS_SCHEMA_SENSOR,
+        unified_capability_focus=True,
+        physical_exam_legacy_actor=True,
+        terrain_step_max_m=.04,
+        sensor_noise_scale=settings.get('sensor_noise_scale',0.),
+        **{k:v for k,v in settings.items() if k!='sensor_noise_scale'},
+        attitude_profile=main['training']['attitude_profile'],
+        pitch_command_max_deg=float(main['training']['pitch_command_max_deg']),
+        phase_speed_gain=float(main['control']['phase_speed_gain']))
+    assert env.obs_dim==SENSOR_OBS_DIM and env.unified_ground_mocap_id>=0
+    assert env.terrain_step_geom_id>=0
+    packet={'specialist_mix':0.,'terrain_pitch_deg':3.,
+            'terrain_roll_deg':0.,'terrain_fixed_height_m':.02,
+            'terrain_edge_angle_deg':0.,'probe_cmd_vx':.15,
+            'probe_cmd_vy':0.,'probe_cmd_yaw':0.}
+    state,obs=env.reset(packet)
+    assert obs.shape==(2,SENSOR_OBS_DIM)
+    assert np.isfinite(np.asarray(obs)).all()
+    assert not np.any(np.asarray(state.sensor_state.samples.tof_beam_valid)==False), (
+        'main ToF tripod failed on shared physical slab')
+    assert np.all(np.asarray(state.data.mocap_pos[:,env.terrain_step_mocap_id,2])>-10)

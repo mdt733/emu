@@ -19,11 +19,15 @@ def main():
     ap.add_argument("--force-program",choices=("gentle","aggressive"),default="aggressive")
     ap.add_argument("--velocity-i-ramp-s",type=float,default=.4)
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
+    ap.add_argument("--temporal-vx-reward-share",type=float,default=0.,
+                    help="v5030 B: direct 25-frame reward blend (default disabled)")
     ap.add_argument("--fast-rehearsal-share",type=float,default=0.,
                     help="v5029 physical fast-gait cohort (0..0.5), test real births")
     ap.add_argument("--full-update",action="store_true",
                     help="explicit 2048-world CUDA PPO preflight (no checkpoints/training campaign)")
     args=ap.parse_args()
+    if not 0.<=args.temporal_vx_reward_share<=1.:
+        ap.error("--temporal-vx-reward-share must be 0..1")
     if not 0.<=args.fast_rehearsal_share<=.5:
         ap.error("--fast-rehearsal-share must be between 0 and 0.5")
     if args.full_update:
@@ -48,6 +52,7 @@ def main():
         attitude_profile="v5015",terrain_step_max_m=args.terrain_max_m,
         push_max_force_n=4.0,
         retention_share=args.retention_share,
+        temporal_vx_reward_share=args.temporal_vx_reward_share,
         terrain_lesson=args.terrain_lesson,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
@@ -347,6 +352,13 @@ def main():
             pass
     from emu.results import summarize_rollout
     row=summarize_rollout(rolled,frontier_params=params)
+    if args.temporal_vx_reward_share>0.:
+        # Actual PPO uses the opted-in B reward. Presence of the returned
+        # scalar is NOT treated as proof of learning; just a finite gradient.
+        assert all(bool(jax.device_get(jnp.all(jnp.isfinite(v))))
+                   for v in jax.tree_util.tree_leaves(updated.params))
+        print(f"Temporal 25-frame forward reward active: "
+              f"share={args.temporal_vx_reward_share:.2f}",flush=True)
     if args.full_update and args.fast_rehearsal_share>0.:
         # The REAL PPO batch must contain fast lessons, not merely a
         # separate preflight reset that never reaches a gradient.

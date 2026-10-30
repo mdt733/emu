@@ -147,8 +147,16 @@ without opportunities.
 
 ## Implementation scope deliberately postponed
 
-The following are **not** enabled on any training branch yet:
-25-frame reward-state ring, per-step surface-reference state, budget
+The current v5030 research branch now includes an **explicit opt-in B**
+switch `--temporal-vx-reward-share .5` and an exact 25-frame rolling
+forward-command history. With the switch at 0, the historical reward
+calculation is unchanged. The source also includes a physically matched
+`--legacy-main-baseline` examiner mode for the protected 232-input
+showcase, and `scripts/v5030_compare_main.py` runs both original
+policy schemas in identical real collision fixtures.
+
+The following remain **not** enabled in PPO:
+per-step surface-reference state, budget
 lifecycle, new actor observation, changed reward weights, new PPO arm
 launcher, or checkpoint migration. Once the v5029 outcomes select the
 best small A/B, build opt-in switches with the baseline bitwise

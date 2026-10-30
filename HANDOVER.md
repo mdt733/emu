@@ -189,3 +189,23 @@ continuation without explicit source and state-contract acceptance.
 [Post-polish maintenance](docs/MAINTENANCE.md) ·
 [Research archive](docs/history/README.md) ·
 [Public release checks](docs/RELEASE_READINESS.md)
+
+
+## 30 Oct — main physical baseline + controlled A/B build
+
+A source-isolated `feature/v5030-reward-lab` now supports
+`emu capability-exam --legacy-main-baseline` to run protected
+`showcase/champion.emupolicy` (232 sensor actor, original tripod/flow
+sensor semantics) on the SAME v5029 32m two-slab collision topology,
+seed, task schedules, and scoring as the 360-input candidate.
+`scripts/v5030_compare_main.py --run` generates independent 16-world,
+0.1–1.0m/s speed ladder and slope/step matrix for both actors.
+
+An exact reward-only 25-frame forward-command history and opt-in
+`--temporal-vx-reward-share` implement B without touching baseline
+reward arithmetic when share=0. The A/B campaign uses a fresh, common
+20M foundation at one source commit then matched continuations; no
+v5029 checkpoint transplant across changed source/physical state.
+The C ascent credit remains an offline, bounded physics-gated prototype
+pending A/B evidence. Source commits must be pinned and CI verified
+before local GPU training.
