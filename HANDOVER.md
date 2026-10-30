@@ -5,10 +5,19 @@
 **Active research:** v5031 same-B80-ancestor reward/control experiment;
 its source-pinned training checkout, original B80 checkpoint and results
 MUST NOT be modified or merged during viewer work.
-**Viewer-only fix:** `fix/viewer-crest-contact-seam`, based on
-`fix/viewer-park-optical-flow`. Repairs two 1-cm *actual collision gaps*
-in the park's 6-cm crest (ascent→flat top→descent) without changing the
-neural policy or experiment code.
+**Viewer-only research branch:** `feature/viewer-graduated-park`,
+based on both `fix/viewer-park-optical-flow` and
+`fix/viewer-crest-contact-seam`. The viewer now offers eight real
+graded challenges with Gentle/Balanced/Stretch settings, numbered
+non-colliding signposts and corrected continuous crest/drop support.
+See [viewer graded park](docs/VIEWER_GRADUATED_PARK.md).
+**Completed v5031 100M matched physical exams:** C100 (verified ascent)
+outperforms B100 control on 2.0cm up (8/8 vs 7/8), 2.5cm up
+(4/8 vs 2/8), 3.5cm down (7/8 vs 1/8), and 12° downhill
+mission (13/16 vs 1/16). Neither climbs 3cm up (0/8), nor survives
+the 1.0m/s continuous speed ladder (0/16). Frozen broad scores
+0.7750 C / 0.7759 B: near-tie, not a final release winner. One seed
+only. Neither training policy/manifest/source was modified.
 **Next locomotion research:** `docs/TERRAIN_TRANSITION_GAP.md` audits
 the two-planar-slab training/evaluation domain and proposes held-out
 crest/valley/camber/organic transitions before modifying training.
