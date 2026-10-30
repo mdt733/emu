@@ -1,5 +1,24 @@
 # EMU — current engineering handover
 
+**Updated:** 31 October 2026
+**Protected public actor:** `main` is still frozen (232-input Pinnacle).
+**Active research:** v5031 same-B80-ancestor reward/control experiment;
+its source-pinned training checkout, original B80 checkpoint and results
+MUST NOT be modified or merged during viewer work.
+**Viewer-only fix:** `fix/viewer-crest-contact-seam`, based on
+`fix/viewer-park-optical-flow`. Repairs two 1-cm *actual collision gaps*
+in the park's 6-cm crest (ascent→flat top→descent) without changing the
+neural policy or experiment code.
+**Next locomotion research:** `docs/TERRAIN_TRANSITION_GAP.md` audits
+the two-planar-slab training/evaluation domain and proposes held-out
+crest/valley/camber/organic transitions before modifying training.
+The old planar slope and sharp-step exams remain mandatory controls.
+**Fresh-PC install guide:** latest maintained version is on
+`docs/v5031-fresh-install-20261031`; older experiment branches
+do not contain that docs-only maintenance update.
+
+## Historical status captured 30 October 2026 (superseded)
+
 **Updated:** 30 October 2026  
 **Protected published reference:** `main` — 232-input Pinnacle, approved browser policy  
 **Completed 80M A/B:** `feature/v5028-considered-steps` at exact SHA
