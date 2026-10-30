@@ -1,34 +1,48 @@
 # EMU documentation
 
-A single route through the project, with current instructions kept separate
-from completed research. Start at the [project README](../README.md) if you're
-new, and [HANDOVER](../HANDOVER.md) for the active engineering state.
+Start at the [project README](../README.md) for scope,
+[HANDOVER](../HANDOVER.md) for what is currently frozen,
+or the [candidate runbook](PINNACLE_CANDIDATE.md) if you're
+preparing the next Pinnacle training run.
 
-## Current / maintained
+## Current, maintained
 
-| Document | What it is |
+| Document | Purpose |
 |---|---|
-| [INSTALL](INSTALL.md) | WSL setup, source-pinned training, examination and local viewer |
-| [Unified capability contract](UNIFIED_CAPABILITY_GROWTH.md) | One actor, six focus curricula, physical evidence and retention |
-| [Capability inventory](CAPABILITY_DIMENSIONS.md) | Exact physical dimensions and honest scoring distinctions |
-| [v5029 speed restoration](../HANDOVER.md) | Active source-pinned 120M speed + terrain run |
-| [v5030 reward lab](V5030_REWARD_EXPERIMENTS.md) | Next-run opt-in reward hypotheses, analysis plan and anti-cheat checks |
-| [Traversability and refusal](TRAVERSABILITY_REFUSAL.md) | Design only: ToF-aware, capability-conditioned cautious navigation |
-| [Surface laboratory](SURFACE_LAB.md) | Interactive manual incline/step inspection |
-| [Public playground](PLAYGROUND.md) | Browser demo and release protection |
-| [Release readiness](RELEASE_READINESS.md) | Evidence needed before replacing `main` |
-| [Maintenance](MAINTENANCE.md) | Keep the next addition smaller and clearer than the last |
+| [**PINNACLE CANDIDATE**](PINNACLE_CANDIDATE.md) | **Only current flagship cold-start trainer**, exact recipe, exam gates, viewer preview and release plan |
+| [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |
+| [HANDOVER](../HANDOVER.md) | Source freeze, proven v5031 findings, future TODO and rollback |
+| [RELEASE READINESS](RELEASE_READINESS.md) | Owner-approval checkpoints and physical graduation criteria |
+| [UNIFIED CAPABILITY GROWTH](UNIFIED_CAPABILITY_GROWTH.md) | Six focus curricula, one actor and physically earned frontiers |
+| [CAPABILITY DIMENSIONS](CAPABILITY_DIMENSIONS.md) | Detailed motion, resilience, terrain and J/m metrics |
+| [VIEWER GRADUATED PARK](VIEWER_GRADUATED_PARK.md) | Eight real-collision viewer challenges and three difficulty levels |
+| [PLAYGROUND](PLAYGROUND.md) | Protected public demo, source-safe viewer and GitHub Pages |
+| [MAINTENANCE](MAINTENANCE.md) | Branch, checkpoint, code hygiene and clear ownership |
+| [TRAVERSABILITY REFUSAL](TRAVERSABILITY_REFUSAL.md) | **Deferred design only**: ToF-informed slowdown, retreat and replan |
 
-## Completed research — not current launch instructions
+## Completed experiments — not active launch commands
 
-[Research history](history/README.md) preserves the v5024–v5028 studies,
-earlier graduation proposals, forensic diagnosis and per-world evidence.
-Those documents refer to **their recorded source commits**. Do not treat
-historical checkout/launch commands as instructions for today's actor.
+- [v5028 considered step-ups](V5028_CONSIDERED_STEPS.md) and
+  [speed-restoration audit](V5028_SPEED_FRONTIER_AUDIT.md)
+- [v5030 temporal reward study](V5030_REWARD_EXPERIMENTS.md)
+- [v5031 verified support-transfer A/B](V5031_VERIFIED_ASCENT.md)
+- [Older research history](history/README.md)
+- [Full v5031 handover snapshot](history/HANDOVER_V5031_COMPLETE.md)
 
-## One rule worth repeating
+Their original **source SHA** remains the reproducible reference.
+Historical source code was removed from the *active release-candidate
+tree*, not destroyed in Git. Do not launch old experiments from
+today's branch or transplant incompatible training checkpoints.
 
-The public Pinnacle is the protected reference. A new policy must demonstrate
-fast **measured** commands approaching the predecessor's 1 m/s requested
-envelope **and** better real terrain competence on equivalent exams; merely
-raising a teacher target is not graduating a robot.
+## Deferred until after the flagship decision
+
+[Organic terrain transitions](TERRAIN_TRANSITION_GAP.md) and
+[manual surface lab](SURFACE_LAB.md) remain reference material.
+We will revisit physically supported 3-cm-plus step-ups and smooth
+rolling/crest surfaces after the clean 260M candidate is trained
+and evaluated.
+
+**Non-negotiable:** public `main` is still the approved 232-input
+reference. Exporting a trained policy does not approve publication:
+a successor must pass common physical exams, release provenance
+checks and explicit owner approval.
