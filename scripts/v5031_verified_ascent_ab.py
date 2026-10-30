@@ -144,8 +144,8 @@ def brief(root, source_sha):
                 r["case"] for r in documents[b][suite]["results"]]:
             raise RuntimeError("Different exam cases in "+suite)
     s=["# EMU v5031 — verified ascent A/B physical report","",
-       f"Frozen source: \`{source_sha}\`  ",
-       f"Common ancestor: B at 80M, original source \`{PARENT_SHA}\`  ",
+       f"Frozen source: `{source_sha}`  ",
+       f"Common ancestor: B at 80M, original source `{PARENT_SHA}`  ",
        "Both compared at 100M, same seed and same physical fixtures.","",
        "## Supported uphill and downhill crossings","",
        "| Height | Control UP | Transfer UP | Control DOWN | Transfer DOWN |",
@@ -207,7 +207,7 @@ def main():
               "branch":BRANCH,"seed":SEED,"envs":ENVS,
               "control_share":.5,"reallocated_credits":[0.,3.],
               "from_steps":START_M*1_000_000,"target_steps":TARGET_M*1_000_000,
-              "ancestor":ancestor,"cases":CASES,
+              "ancestor":ancestor,"cases":list(CASES),
               "explicit_compatible_cross_source_fork":True}
     print("V5031 80->100M SAME B80 POLICY A/B; only verified transfer differs",flush=True)
     print("SOURCE",sha,"PARENT",PARENT_SHA,flush=True)
@@ -219,8 +219,13 @@ def main():
     root.mkdir(parents=True,exist_ok=True)
     mf=root/"campaign_manifest.json"
     if mf.is_file():
-        if json_at(mf)!=manifest:
-            raise RuntimeError("Experiment manifest or ancestor checkpoint changed")
+        existing=json_at(mf)
+        if existing!=manifest:
+            differing=[key for key in sorted(set(existing)|set(manifest))
+                       if existing.get(key)!=manifest.get(key)]
+            raise RuntimeError(
+                "Experiment manifest or ancestor checkpoint changed; "
+                "mismatching fields: "+", ".join(differing))
     elif any(root.iterdir()):
         raise RuntimeError("Nonempty output without manifest")
     else:
