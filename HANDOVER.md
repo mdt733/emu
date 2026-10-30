@@ -1,14 +1,18 @@
 # EMU — current engineering handover
 
-**Updated:** 30 October 2026  
+**Updated:** 31 October 2026  
 **Protected published reference:** `main` — 232-input Pinnacle, approved browser policy  
-**Completed 80M A/B:** `feature/v5028-considered-steps` at exact SHA
-`38713791023681dc9883f6c374d92e46261b3baf` (frozen, do not modify)
-**Current fresh next run:** `feature/v5029-speed-restoration` (new 120M
-cold start, seed737; do not run before exact-source CUDA preflight).
-**Old cleanup/integration branch:** `feature/v5028-merge-polish`
-**Golden rule:** **do not pull/change the running checkout; do not merge or
-replace the public champion without explicit owner approval.**
+**Current source-pinned study:** `feature/v5031-verified-ascent` at exact
+SHA `93cb5cf5a541416ab4366140b2205aca6bfb89a7`; B80→100M paired
+reward control/treatment, seed747, 2048 CUDA worlds. The 80M B ancestor
+is from frozen v5030 `a7be11b587f0912e642e100b22ec6d617f548f5b`.
+**Current install/rebuild procedure:** [docs/INSTALL.md](docs/INSTALL.md)
+— Windows GPU/WSL2, Python 3.13, JAX CUDA 13, Node 24,
+`pytest` and independently verified 2048-world GPU preflight.
+**Docs/installer maintenance branch:** `docs/v5031-fresh-install-20261031`;
+do not merge or pull its updated files into an active v5031 experiment.
+**Golden rule:** **never modify a running source SHA or replace
+the public champion without explicit owner approval.**
 
 This is the concise read-first handover. The full pre-polish chronology
 remains in [historical handover](docs/history/HANDOVER_PRE_POLISH.md).
@@ -30,7 +34,7 @@ counts as success. Fast actual walking **and** careful climbing are the
 joint graduation criteria. Commands/terrain should grow based on physical
 evidence, not hard-coded maturity age or inflated frontiers.
 
-## v5029 speed-restoration mission (30 Oct 2026)
+## Historical — v5029 speed-restoration mission (30 Oct 2026)
 
 **Root cause, source audited:** At v5028 80M the command frontier only
 grew from 0.06 to ~0.369m/s. Six active specialist roles rewrote virtually
@@ -116,7 +120,7 @@ checkpoint without editing the running source. The reward audit
 identified fast command starvation, zero actual athletic rehearsal
 despite config, and the four-metre collision-slab edge.
 
-## v5030 housekeeping and reward-lab design
+## Historical — v5030 housekeeping and reward-lab design
 
 Only `feature/v5030-reward-lab` is being modified while v5029 runs.
 The old v5028 launcher (and its launch-only helper/test) is retired
@@ -163,7 +167,7 @@ continuation without explicit source and state-contract acceptance.
 - [ ] **Do not merge/cherry-pick this branch into active v5028 while it
   runs.** Post-run code integration creates a new source SHA.
 
-## Next actions in order
+## Historical 30 October next actions (superseded by v5030 B80 and v5031)
 
 1. Let v5029 finish at its **original SHA**, without pulling this
    housekeeping branch into its running checkout. Read the actual
@@ -183,6 +187,8 @@ continuation without explicit source and state-contract acceptance.
 
 ## Documents
 
+[Fresh installation](docs/INSTALL.md) ·
+[Current v5031 experiment](docs/V5031_VERIFIED_ASCENT.md) ·
 [Architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Capability map](docs/CAPABILITY_DIMENSIONS.md) ·
 [Current v5028 experiment](docs/V5028_CONSIDERED_STEPS.md) ·
@@ -191,7 +197,7 @@ continuation without explicit source and state-contract acceptance.
 [Public release checks](docs/RELEASE_READINESS.md)
 
 
-## 30 Oct — main physical baseline + controlled A/B build
+## Historical 30 Oct — main physical baseline + controlled A/B build
 
 A source-isolated `feature/v5030-reward-lab` now supports
 `emu capability-exam --legacy-main-baseline` to run protected
