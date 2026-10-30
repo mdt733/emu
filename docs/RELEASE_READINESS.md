@@ -1,7 +1,12 @@
 # EMU successor — measurable graduation and clean-release gates
 
-**Candidate status:** NOT APPROVED. Protected `main` still hosts the
-approved 232-input v5016 Pinnacle browser policy.
+**Candidate status (31 October 2026): source prepared, not trained,
+not approved.** The protected `main` still hosts the 232-input v5016
+Pinnacle browser policy. The only active candidate is
+`release/v5032-pinnacle-candidate`, a pinned 260M 360-input cold start.
+See [the complete current runbook](PINNACLE_CANDIDATE.md).
+**Do not** replace `showcase/champion.emupolicy` or alter the
+manual GitHub Pages release workflow until explicit approval.
 
 The target is not just higher rewards, harder curriculum targets, or
 a new neural input shape. It is a **genuinely better six-servo robot**:
@@ -79,16 +84,23 @@ requests, horizon and comparable scoring.
 - [ ] Update the public Pages deployment only with a reviewed,
   independently tested actor + frontend combination
 
-## Current study and historical information
+## Current candidate, release workflow and retained historical reference
 
-[v5028 considered ascent](V5028_CONSIDERED_STEPS.md) is a **research
-treatment**, not a candidate release. The owner reported the foreground
-launcher running on 29 Oct 2026; its results still require review.
+The [new Pinnacle candidate runbook](PINNACLE_CANDIDATE.md) is the
+single source of truth for the current 260M cold-start recipe and
+its protected, SHA-pinned run and physical exams. The completed
+[v5031 physical reward study](V5031_VERIFIED_ASCENT.md) is evidence
+for the teaching recipe, **not** an approved release.
 
-[Research history](history/README.md) ·
-[Maintenance rules](MAINTENANCE.md) ·
-[Current handover](../HANDOVER.md) ·
-[Public playground](PLAYGROUND.md)
+Before publication, the owner must review the exact exported
+actor and checkpoint SHA256, 360-input sensor contract, measured
+flat/slope/step commands, energy/falls, browser playback and
+rollback plan. The only approved release format is checked by
+`scripts/verify_showcase_release.py`, and the GitHub Pages
+workflow remains explicitly protected. Never infer approval
+from a successful training exit, higher reward or merged commit.
 
-The original v5024-era release checklist is
-[archived](history/V5024_RELEASE_READINESS.md).
+[Maintenance](MAINTENANCE.md) ·
+[Historical research](history/README.md) ·
+[Public playground](PLAYGROUND.md) ·
+[Previous candidate handover](history/HANDOVER_V5031_COMPLETE.md).
