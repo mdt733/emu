@@ -1900,8 +1900,7 @@ class EmuMJXEnv(TaskSampler):
                 # upper-foot contact and a physically upright, supported body.
                 expected_flat = NEUTRAL_ROOT_Z + state.task[:,T.height]
                 cog_delta = jnp.maximum(0.,torso_above_lower-expected_flat)
-                valid = (self._considered_step_window(state,data) &
-                         terrain_up & upper_contact &
+                valid = (care_window & terrain_up & upper_contact &
                          (metrics['support']>=.5) &
                          (metrics['bad_contact']<.5) &
                          (metrics['terminal']<.5) & ~physics_diverged)
