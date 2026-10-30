@@ -282,6 +282,10 @@ def main(argv=None) -> int:
     q.add_argument('--velocity-i-multiplier',type=float,default=1.0,
                    help='experimental command trim ceiling: 1=OFF, 1.5/2=trial')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
+    q.add_argument('--research-parent-source',default='',
+                   help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
+    q.add_argument('--research-parent-sha256',default='',
+                   help='explicit cross-source fork only: SHA256 of immutable parent final.pkl')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
