@@ -390,6 +390,11 @@ def train_one(args) -> int:
         config, provenance=provenance, resume=args.resume,
         research_parent_source=getattr(args,'research_parent_source',''),
         research_parent_sha256=getattr(args,'research_parent_sha256',''))
+    if getattr(args, 'check_resume_only', False):
+        print(f'RESUME VERIFICATION PASS: {parent or "cold start"}'
+              f' (already complete={completed}); no PPO run or output created',
+              flush=True)
+        return 0
     if completed:
         print(f'Already complete: validated {parent} (no PPO update).')
         return 0
