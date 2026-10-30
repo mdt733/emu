@@ -14,7 +14,7 @@ Usage: bash scripts/setup_wsl.sh [--viewer-only] [--install-node] [--cuda13] [--
   (default)       Install EMU Python + browser viewer and run basic doctor/plan
   --viewer-only   Install EMU and build the viewer; skip training checks/plans
   --install-node  Install/use repository Node 24 via user-local nvm
-  --cuda13        Install CUDA 13 JAX wheels for NVIDIA/WSL GPU experiments
+  --cuda13        Install CUDA 13 JAX wheels and EMU training/preflight deps (incl. pytest)
   --check         Also run full Python and browser tests (never implicit)
 No training is started, no Git state is changed.
 EOF
@@ -82,9 +82,13 @@ if [[ ! -d .venv ]]; then "$PYTHON" -m venv .venv; fi
 source .venv/bin/activate
 python -c 'import sys; assert sys.version_info >= (3,13), "Existing .venv uses older Python. Preserve it and recreate after review."'
 if ((CUDA13)); then
+  python -m pip install --upgrade pip
   python -m pip install 'jax[cuda13]'
 fi
-if ((CHECK)); then
+# Research launchers require pytest for source-specific CPU preflights.
+# --cuda13 must install the declared dev extras even when --check (full
+# test execution) is omitted. This affects only this new .venv.
+if ((CHECK || CUDA13)); then
   python -m pip install -e '.[dev]'
 else
   python -m pip install -e .
@@ -107,5 +111,6 @@ printf 'Viewer: source .venv/bin/activate && emu viewer showcase/champion.emupol
 printf 'Open http://127.0.0.1:8765/ in your browser.\n'
 printf 'Focused physical terrain proof: python -m emu.terrain_spike --worlds 2\n'
 if ((CUDA13)); then
-  printf 'GPU acceptance is separate: emu doctor --v5015-smoke --domain-smoke\n'
+  printf 'GPU acceptance is separate: emu doctor --require-gpu and the experiment-specific 2048 CUDA PPO smoke\n'
+  python -m pytest --version
 fi
