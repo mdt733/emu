@@ -1,7 +1,20 @@
-# EMU engineering hygiene — add a capability, retire an obsolete path
+# EMU engineering hygiene — flagship source freeze and minimal active paths
+
+**31 October 2026:** `release/v5032-pinnacle-candidate` is the sole
+active next-Pinnacle code line; run it from a NEW checkout, not an
+earlier v5031 GPU checkout. The old published `main` actor stays frozen.
+Organic terrain and extra step-up interventions are deferred.
+
+**Current inventory:** one canonical `scripts/train_pinnacle.py`
+launcher, shared `campaign_support.py`, real MJX physics/evaluator
+and browser. The historical v5029 and v5030/v5031 A/B launchers
+are intentionally absent from this release-candidate branch but
+remain reproducible at their original full Git SHAs.
+[Current runbook](PINNACLE_CANDIDATE.md) · [handover](../HANDOVER.md).
+
 
 **Goal:** a public-ready project whose active implementation and documentation
-can be understood without knowing the history of v5015 through v5028.
+can be understood without knowing the history of v5015 through v5031.
 
 ## Non-negotiable constraints
 
