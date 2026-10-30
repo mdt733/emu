@@ -4,7 +4,7 @@
 Source-pinned experiment launchers own their own cases, source SHA and run
 directories. This module supplies the common subprocess/error handling,
 checkpoint presence checks, ETA display, metrics aggregation and ZIP report.
-The active source-pinned launch is v5029_speed_restoration.py.
+The one active flagship cold-start launcher is train_pinnacle.py.
 Completed v5028 is reproducible from its frozen original commit;
 do not keep historical launchers alive in the next research tree.
 """
@@ -157,13 +157,14 @@ def summary(root,all_cases,sha):
          '- A single seed is discovery, not evidence of repeatability.',
          '- Per-run training reward/fall/vx are NOT matched across teaching mixes.',
          '- See frozen_exams_by_age.csv for comparable same-age measurements.',
+         '- A 260M training target is not release evidence without common physical exams.',
          '']
     (root/'overnight_summary.md').write_text('\n'.join(md),encoding='utf-8')
     # Comparable windows, not only end-of-run scores. Every report row is
     # the actual most recent on-policy observation AT OR BEFORE that age.
     # Missing or incomplete phases remain unknown, never interpolated.
     stages=[]
-    milestones=(10_000_000,20_000_000,40_000_000,50_000_000,60_000_000,70_000_000,80_000_000)
+    milestones=tuple(v*1_000_000 for v in (10,20,40,60,80,100,120,160,200,260))
     for case in all_cases:
         path=root/case['name']/'metrics.csv'
         if not path.is_file():
