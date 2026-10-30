@@ -97,6 +97,7 @@ def env_kwargs_from_args(args) -> dict:
         velocity_i_multiplier=args.velocity_i_multiplier,
         retention_share=args.retention_share,
         terrain_lesson=args.terrain_lesson,
+        temporal_vx_reward_share=args.temporal_vx_reward_share,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,

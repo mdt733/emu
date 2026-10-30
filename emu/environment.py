@@ -284,6 +284,11 @@ class EnvState(NamedTuple):
     velocity_i_integral: Any = None  # two controller axes, not actor inputs
     raw_velocity_command: Any = None  # true operator request
     terrain_care_frames: Any = None  # used near-lip reward frames; reset every episode
+    # NEW v5030 reward-only rolling 25-frame history (never actor input).
+    # This is a fresh source/checkpoint shape: no cross-SHA resume.
+    vx_reward_history: Any = None
+    cmd_vx_reward_history: Any = None
+    vx_reward_count: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1298,7 +1303,8 @@ class EmuMJXEnv(TaskSampler):
                  velocity_i_multiplier: float = 1.0,
                  retention_share: float = 0.0,
                  terrain_lesson: str = 'mixed',
-                 physical_exam_legacy_actor: bool = False):
+                 physical_exam_legacy_actor: bool = False,
+                 temporal_vx_reward_share: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1487,6 +1493,11 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('invalid recovery-first experiment contract')
         self.terrain_lesson = terrain_lesson
         self.retention_share = float(retention_share)
+        if (not np.isfinite(temporal_vx_reward_share)
+                or not 0.0<=temporal_vx_reward_share<=1.0
+                or (temporal_vx_reward_share>0 and not self.unified_capability_focus)):
+            raise ValueError('temporal vx reward requires unified terrain and share 0..1')
+        self.temporal_vx_reward_share=float(temporal_vx_reward_share)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1752,6 +1763,28 @@ class EmuMJXEnv(TaskSampler):
         # ep_len; step_i is deliberately staggered for timeout diversity.
         metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
+        # v5030 B: exact trailing 25-frame 0.5s *reward-only* forward
+        # history. Use PREVIOUS request; never contaminate with next task.
+        # Clear at every transition/ramp so command changes don't look like
+        # free success, and reset on episode birth via the state reset path.
+        history_ready=(state.task[:,T.regime]<.5) & (
+            state.cmd_ramp_frac>=.999) & ~physics_diverged
+        slot=jnp.mod(state.step_i,25).astype(jnp.int32)
+        idx=jnp.arange(self.num_envs)
+        hist_v=jnp.where(history_ready[:,None],
+                         state.vx_reward_history,0.)
+        hist_c=jnp.where(history_ready[:,None],
+                         state.cmd_vx_reward_history,0.)
+        hist_v=hist_v.at[idx,slot].set(
+            jnp.where(history_ready,metrics['vx'],0.))
+        hist_c=hist_c.at[idx,slot].set(
+            jnp.where(history_ready,metrics['cmd_vx'],0.))
+        hist_n=jnp.where(history_ready,
+                          jnp.minimum(state.vx_reward_count+1,25),0)
+        temporal=(hist_v.sum(axis=1)/jnp.maximum(1,hist_n),
+                  hist_c.sum(axis=1)/jnp.maximum(1,hist_n),
+                  self.temporal_vx_reward_share*(
+                      hist_n.astype(jnp.float32)/25.))
         # Only real upward STEP specialist approaches receive a short
         # self-paced reward allowance; general walking keeps its economics.
         care_window = (self._considered_step_window(state, data)
@@ -1763,6 +1796,7 @@ class EmuMJXEnv(TaskSampler):
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
             careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
+            temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
                     jnp.where(state.specialist_active,state.focus_id,-1))
@@ -1874,7 +1908,8 @@ class EmuMJXEnv(TaskSampler):
                            terrain_streak,terrain_crossed,root_peak,foot_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors,
-                           integral_next,raw_next,care_frames)
+                           integral_next,raw_next,care_frames,
+                           hist_v,hist_c,hist_n)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2705,7 +2740,9 @@ class EmuMJXEnv(TaskSampler):
                          jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros,
                          cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
                          jnp.zeros((self.num_envs,2),dtype=jnp.float32),
-                         task[:,[T.vx,T.vy]],izeros)
+                         task[:,[T.vx,T.vy]],izeros,
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))

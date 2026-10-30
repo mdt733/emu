@@ -53,6 +53,10 @@ def one_run_config(args) -> TrainingConfig:
                     else .10 if unified and growth_recipe=='main-mature'
                     else 0.0 if unified else cfg.athletic_rehearsal_frac)
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
+    temporal_share=float(getattr(args,'temporal_vx_reward_share',0.))
+    if (not math.isfinite(temporal_share) or not 0.<=temporal_share<=1.0
+            or (temporal_share>0. and not unified)):
+        raise ValueError('--temporal-vx-reward-share requires unified actor and 0..1')
     force_program=str(getattr(args,'force_program','aggressive'))
     if growth_recipe not in ('legacy','main-mature') or terrain_lesson not in ('mixed','coherent','coherent-direct','coherent-careful'):
         raise ValueError('invalid experimental lesson selection')
@@ -124,6 +128,7 @@ def one_run_config(args) -> TrainingConfig:
                    velocity_i_multiplier=velocity_i_multiplier,
                    growth_recipe=growth_recipe, retention_share=retention_share,
                    terrain_lesson=terrain_lesson, force_program=force_program,
+                   temporal_vx_reward_share=temporal_share,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.

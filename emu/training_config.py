@@ -193,6 +193,7 @@ class TrainingConfig:
     growth_recipe: str = 'legacy'  # control or restored mature main-style learning
     retention_share: float = 0.0  # dynamic core rehearsal, NOT static survival
     terrain_lesson: str = 'mixed'  # coherent STEP/SLOPE tasks are an isolated treatment
+    temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
@@ -252,7 +253,7 @@ class TrainingConfig:
                     'fixed_eval_every_steps',
                     'velocity_i_ramp_s', 'velocity_i_multiplier',
                     'growth_recipe', 'retention_share', 'terrain_lesson',
-                    'force_program'}
+                    'force_program', 'temporal_vx_reward_share'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")

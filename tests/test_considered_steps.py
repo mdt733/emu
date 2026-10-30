@@ -123,3 +123,43 @@ def test_v5030_verified_support_height_requires_real_landing_and_no_farming():
     import pytest
     with pytest.raises(ValueError):
         measured(.03,.03,True,True,0.,direction=0)
+
+
+
+def test_v5030_training_temporal_vx_reward_is_opt_in_and_safe():
+    from emu.rewards import _command_tracking
+    m=packets(.0,requested=.4)
+    z=np.zeros((1,),np.float32)
+    instant=score(m)
+    unchanged=_command_tracking(m,z,z,np,temporal_vx=None)[0]
+    assert unchanged==instant
+    # 25-frame average can forgive brief slowdown, but not free standing.
+    avg=np.asarray([.32],np.float32)
+    cmd=np.asarray([.4],np.float32)
+    for weight in (0.,.5,1.):
+        v=float(_command_tracking(m,z,z,np,temporal_vx=(
+            avg,cmd,np.asarray([weight],np.float32)))[0])
+        if weight==0:
+            assert v==instant
+        else:
+            assert v>instant and v<1.
+    # Ballistic overspeed is NEVER forgiven by history.
+    over=packets(.9,requested=.4)
+    high=float(_command_tracking(over,z,z,np,temporal_vx=(
+        np.asarray([.4]),cmd,np.asarray([1.]))) [0])
+    assert high<.001
+
+
+def test_v5030_temporal_reward_cli_contract(tmp_path):
+    from emu.cli import main
+    from emu.run import one_run_config
+    import json,pytest
+    from argparse import Namespace
+    # Validation occurs before any GPU or file creation.
+    for value in (-1.,1.1,float('nan')):
+        with pytest.raises(ValueError,match='temporal-vx-reward-share'):
+            from emu.run import one_run_config
+            one_run_config(Namespace(profile='sim2real',
+                unified_capabilities=True,temporal_vx_reward_share=value,
+                device='cpu',seed=733,envs=12,steps=40000000,
+                run_dir=str(tmp_path),resume=''))

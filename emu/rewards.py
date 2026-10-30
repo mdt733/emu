@@ -51,7 +51,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -64,7 +64,8 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     is_resilience = (regime > 1.5).astype(jnp.float32)
     valid_alive = 1.0 - m['terminal']
 
-    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp, careful_step=careful_step)
+    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
+        careful_step=careful_step, temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, attitude_profile, jnp)
@@ -150,7 +151,7 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
     return reward, terms
 
 
-def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None):
+def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None, temporal_vx=None):
     """Follow velocity, yaw and chassis pitch requests without launch hacks."""
     vx_err = m['vx'] - m['cmd_vx']; vy_err = m['vy'] - m['cmd_vy']; yaw_err = m['yaw_rate'] - m['cmd_yaw']
     pitch_err = m['body_pitch'] - m['cmd_pitch']
@@ -178,6 +179,27 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None
             + 120.0 * overspeed * overspeed))
         command_tracking = jnp.where(
             (careful_step > 0) & (vx_err < 0.0), discounted, command_tracking)
+    if temporal_vx is not None:
+        # Smooth only forward tracking. Preserve every instantaneous
+        # overspeed cost, and the original lateral/yaw/pitch penalties.
+        # A change in requested speed flushes history in the environment;
+        # no stale previous command can subsidise a new fast request.
+        mean_vx,mean_cmd,share=temporal_vx
+        mean_err=mean_vx-mean_cmd
+        mean_under=jnp.maximum(0.0,-mean_err-speed_tol)
+        smooth_cost=(62.0*mean_err*mean_err+40.0*mean_under*mean_under+
+                     120.0*overspeed*overspeed+
+                     14.0*vy_err*vy_err+4.5*yaw_err*yaw_err+
+                     18.0*pitch_err*pitch_err)
+        if careful_step is not None:
+            smooth_discounted=(
+                .10*(62.0*mean_err*mean_err+40.0*mean_under*mean_under)+
+                120.0*overspeed*overspeed+14.0*vy_err*vy_err+
+                4.5*yaw_err*yaw_err+18.0*pitch_err*pitch_err)
+            smooth_cost=jnp.where((careful_step>0)&(vx_err<0.0),
+                                  smooth_discounted,smooth_cost)
+        smooth_score=jnp.exp(-tracking_gain*smooth_cost)
+        command_tracking=(1.-share)*command_tracking+share*smooth_score
     # Early frames score neutral tracking while initial pose noise settles;
     # a genuine fall still terminates and incurs its penalty.
     settled = (m['age_s'] > SETTLE_STEPS * CONTROL_DT).astype(jnp.float32)
