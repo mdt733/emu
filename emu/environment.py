@@ -1864,6 +1864,7 @@ class EmuMJXEnv(TaskSampler):
             step_near=terrain_active & False
             step_easy=terrain_active & False
         ascent_payment = jnp.zeros_like(reward)
+        verified_transfer_payment = jnp.zeros_like(reward)
         root_peak = state.terrain_ascent_root_peak
         foot_peak = state.terrain_ascent_foot_peak
         verified_peak = state.terrain_verified_height_peak
@@ -1904,13 +1905,13 @@ class EmuMJXEnv(TaskSampler):
                          (metrics['support']>=.5) &
                          (metrics['bad_contact']<.5) &
                          (metrics['terminal']<.5) & ~physics_diverged)
-                transfer,verified_peak = verified_support_elevation_credit(
+                verified_transfer_payment,verified_peak = verified_support_elevation_credit(
                     physical_height,cog_delta,upper_contact,valid,
                     state.terrain_verified_height_peak,direction=1,xp=jnp,
                     max_rise_m=.04,
                     total_credit=self.verified_ascent_reallocation,
                     normalize_by_actual_height=True)
-                ascent_payment = ascent_payment + transfer
+                ascent_payment = ascent_payment + verified_transfer_payment
             reward = reward + ascent_payment
             ep_return = ep_return + ascent_payment
             # Completion still requires real, sustained far-side MJX support.
@@ -2091,6 +2092,7 @@ class EmuMJXEnv(TaskSampler):
                     ('attempt',done),
                     ('success',timeout & ~terminal_fail & terrain_crossed))},
             'terrain_ascent_guidance':ascent_payment,
+            'terrain_verified_transfer_credit':verified_transfer_payment,
             # Teacher-only direction: actor observations remain unchanged.
             'terrain_active_up': terrain_up.astype(jnp.float32),
             'terrain_active_down': terrain_down.astype(jnp.float32),
