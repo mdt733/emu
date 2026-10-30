@@ -1207,7 +1207,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         # A 700-frame speed exam must not be marked as a failed survival
         # just because the simulator's own normal episode timer fired on
         # the exact final trace frame. No physical/reward changes.
-        max_episode_steps=max(700,horizon+50),observation_schema=OBS_SCHEMA_TERRAIN,
+        max_episode_steps=max(700,horizon+50),observation_schema=export['observation_schema'],
         unified_capability_focus=True,terrain_step_max_m=.04,
         physical_exam_legacy_actor=bool(legacy_main_baseline),
         push_max_force_n=3.2,
