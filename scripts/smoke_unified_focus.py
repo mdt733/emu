@@ -21,6 +21,8 @@ def main():
     ap.add_argument("--velocity-i-multiplier",type=float,default=1.)
     ap.add_argument("--temporal-vx-reward-share",type=float,default=0.,
                     help="v5030 B: direct 25-frame reward blend (default disabled)")
+    ap.add_argument("--verified-ascent-reallocation",type=float,default=0.,
+                    help="v5031: reallocate 0..4 of nine existing uphill shaping points")
     ap.add_argument("--fast-rehearsal-share",type=float,default=0.,
                     help="v5029 physical fast-gait cohort (0..0.5), test real births")
     ap.add_argument("--full-update",action="store_true",
@@ -28,6 +30,8 @@ def main():
     args=ap.parse_args()
     if not 0.<=args.temporal_vx_reward_share<=1.:
         ap.error("--temporal-vx-reward-share must be 0..1")
+    if not 0.<=args.verified_ascent_reallocation<=4.:
+        ap.error("--verified-ascent-reallocation must be 0..4")
     if not 0.<=args.fast_rehearsal_share<=.5:
         ap.error("--fast-rehearsal-share must be between 0 and 0.5")
     if args.full_update:
@@ -53,6 +57,7 @@ def main():
         push_max_force_n=4.0,
         retention_share=args.retention_share,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
+        verified_ascent_reallocation=args.verified_ascent_reallocation,
         terrain_lesson=args.terrain_lesson,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
