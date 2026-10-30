@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration, feature/v5030-reward-lab, feature/v5031-verified-ascent, feature/v5031-cross-source-fork, fix/viewer-park-optical-flow]
+    branches: [feature/v5024-terrain-control, feature/v5024-release-polish, feature/v5027-coherent-retention, feature/v5028-merge-polish, feature/v5029-speed-restoration, feature/v5030-reward-lab, feature/v5031-verified-ascent, feature/v5031-cross-source-fork, fix/viewer-park-optical-flow, fix/viewer-crest-contact-seam]
   workflow_dispatch:
 
 permissions:
