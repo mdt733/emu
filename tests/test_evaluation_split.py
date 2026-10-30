@@ -62,3 +62,27 @@ def test_v5029_700_frame_speed_exam_cannot_timeout_on_last_frame():
     import inspect
     code=inspect.getsource(physical.evaluate_unified_capabilities)
     assert 'max_episode_steps=max(700,horizon+50)' in code
+
+
+def test_v5030_fast_flat_ladder_extends_only_its_own_schedule_envelope():
+    import pytest
+    for requested in (.8,1.0,1.4,1.8):
+        with pytest.raises(ValueError,match='safe test envelope'):
+            physical.make_schedule('steady',120,speed=requested)
+        trace=physical.make_schedule('steady',120,speed=requested,
+                                     lateral=0.,yaw_rate=0.,
+                                     fast_flat_ladder=True)
+        np.testing.assert_allclose(trace[:,0],requested,atol=1e-7)
+        np.testing.assert_array_equal(trace[:,1:],np.zeros((120,2),np.float32))
+    for invalid in (1.81,2.0,-1.81):
+        with pytest.raises(ValueError,match='safe test envelope'):
+            physical.make_schedule('steady',120,speed=invalid,
+                                   lateral=0.,yaw_rate=0.,
+                                   fast_flat_ladder=True)
+    for kwargs in ({'lateral':.05},{'yaw_rate':.2}):
+        with pytest.raises(ValueError,match='straight flat steady'):
+            physical.make_schedule('steady',120,speed=.8,
+                                   fast_flat_ladder=True,**kwargs)
+    with pytest.raises(ValueError,match='straight flat steady'):
+        physical.make_schedule('speed_step',120,speed=.8,
+                               lateral=0.,yaw_rate=0.,fast_flat_ladder=True)

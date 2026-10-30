@@ -33,14 +33,21 @@ SCENARIOS = ('steady', 'turn_stop_left', 'turn_stop_right',
 
 
 def make_schedule(scenario, horizon, *, speed=.10, lateral=.06,
-                  yaw_rate=0., turn_rate=.25):
+                  yaw_rate=0., turn_rate=.25, fast_flat_ladder=False):
     if scenario not in SCENARIOS:
         raise ValueError('unknown scenario: '+str(scenario))
     if not 30 <= int(horizon) <= 700:
         raise ValueError('schedule horizon must be between 30 and 700 frames')
     if not all(math.isfinite(x) for x in (speed, lateral, yaw_rate, turn_rate)):
         raise ValueError('commands must be finite')
-    if abs(speed) > .6 or abs(lateral) > .25 or abs(yaw_rate) > 1.5 or not 0 < turn_rate <= 1.5:
+    # Existing directional/operator schedules retain the proven 0.6 m/s
+    # guard. Only the explicit, read-only, zero-lateral/yaw FLAT speed
+    # ladder can exercise the separately validated 0.04..1.8m/s range.
+    if fast_flat_ladder and (scenario!='steady' or lateral!=0. or yaw_rate!=0.):
+        raise ValueError('fast speed ladder requires straight flat steady motion')
+    max_speed=1.8 if fast_flat_ladder else .6
+    if (abs(speed)>max_speed or abs(lateral)>.25 or abs(yaw_rate)>1.5
+            or not 0 < turn_rate<=1.5):
         raise ValueError('command outside safe test envelope')
     n = int(horizon)
     cmds = np.tile(np.array([speed, lateral, yaw_rate], dtype=np.float32), (n, 1))
@@ -1289,7 +1296,8 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         yaw=float(case.get('yaw',0.))
         scenario=case.get('scenario','steady')
         schedule=make_schedule(scenario,horizon,speed=vx,lateral=vy,
-                               yaw_rate=yaw,turn_rate=.25)
+                               yaw_rate=yaw,turn_rate=.25,
+                               fast_flat_ladder=bool(speed_ladder))
         packet=dict(regime_frac_steady=1.,regime_frac_transition=0.,
             regime_frac_resilience=0.,steady_difficulty=0.,
             transition_difficulty=0.,resilience_difficulty=0.,
