@@ -82,6 +82,13 @@
         <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
         <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
         <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
+        <label class="nav-controller-setting">Navigation controller
+          <select id="navControllerMode" aria-label="Autonomous navigation controller">
+            <option value="predictive" selected>Predictive · 1 s forecast</option>
+            <option value="classic">Classic · path tracking (A/B)</option>
+          </select>
+        </label>
+        <div class="live-foot">Dashed orange = forecast motion · teal = planned route. Both controllers drive the same trained neural gait.</div>
         <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
           <span>Pose lattice · position + facing</span></div>
         <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
