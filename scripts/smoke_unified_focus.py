@@ -25,9 +25,21 @@ def main():
                     help="v5031: reallocate 0..4 of nine existing uphill shaping points")
     ap.add_argument("--fast-rehearsal-share",type=float,default=0.,
                     help="v5029 physical fast-gait cohort (0..0.5), test real births")
+    ap.add_argument("--science-arm",type=int,default=-1,
+                    help="v5033 real intervention smoke, -1 historical")
     ap.add_argument("--full-update",action="store_true",
                     help="explicit 2048-world CUDA PPO preflight (no checkpoints/training campaign)")
     args=ap.parse_args()
+    science={}
+    if args.science_arm>=0:
+        from emu.science import expected_fields
+        science=expected_fields(args.science_arm)
+        for key,value in science.items():
+            attr={"athletic_rehearsal_frac":"fast_rehearsal_share"}.get(key,key)
+            if hasattr(args,attr):
+                setattr(args,attr,value)
+    elif args.science_arm!=-1:
+        ap.error("--science-arm must be -1 or 00..23")
     if not 0.<=args.temporal_vx_reward_share<=1.:
         ap.error("--temporal-vx-reward-share must be 0..1")
     if not 0.<=args.verified_ascent_reallocation<=4.:
@@ -58,6 +70,9 @@ def main():
         retention_share=args.retention_share,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         verified_ascent_reallocation=args.verified_ascent_reallocation,
+        science_arm=args.science_arm,
+        motor_guidance_weight=float(science.get("motor_guidance_weight",0.)),
+        vx_hi_max=float(science.get("vx_hi_max",.60)),
         terrain_lesson=args.terrain_lesson,
         unified_capability_focus=True,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
@@ -65,7 +80,10 @@ def main():
         phase_speed_gain=(1.25 if args.growth_recipe=="main-mature" else .75),
         open_frontier=True,combo_mix_frac=(.88 if args.growth_recipe=="main-mature" else 0.))
     governor=RegimeGovernor(open_frontier=True,unified_capability_focus=True,
-                           frontier_push_safety_n=(.7 if args.force_program=="gentle" else 4.))
+                           science_arm=args.science_arm,
+                           frontier_push_safety_n=float(science.get(
+                               "frontier_push_safety_n",
+                               .7 if args.force_program=="gentle" else 4.)))
     params=governor.params_dict()
     params.update(terrain_exposure=.15,terrain_height_m=.004)
     # Verify the true cold start retains main's steady-only curriculum:
@@ -402,7 +420,8 @@ def main():
     assert governor.advance_slope(qualified)=='expand_real_slope_angle'
     assert governor.params.slope_max_deg>.70
     archived=governor.state_dict()
-    recovered=RegimeGovernor(open_frontier=True,unified_capability_focus=True)
+    recovered=RegimeGovernor(open_frontier=True,unified_capability_focus=True,
+                             science_arm=args.science_arm)
     recovered.load_state_dict(archived)
     assert recovered.state_dict()==archived
     print(f"PASS: {args.envs} real MJX worlds; six specialist roles; "
