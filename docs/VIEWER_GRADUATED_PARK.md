@@ -1,10 +1,10 @@
 # Viewer playground — graduated real-contact obstacle park
 
-**Research viewer included in the v5032 candidate tree · 31 October 2026.**
-The park optical-flow and crest-support fixes and eight graduated
-obstacles are integrated in `release/v5032-pinnacle-candidate`.
-The published `main` champion and historical v5031 policy/checkpoint
-files remain unchanged.
+**Current `main` viewer · 31 October 2026.** The park optical-flow
+and crest-support fixes and eight graduated obstacles are part
+of the published v5032 360-input baseline. Historical 232-input
+main is preserved at rollback commit
+`2ec9e9db0a816c658131311129ef89ec7a595a12`.
 
 ## Why we changed the course
 
@@ -47,8 +47,8 @@ physics, not the trained actor, and rebuilds/resets the simulation.
 versus MJX, differences in collision support and sensing, route commands
 and a single hand-driven demonstration can alter survival. For claims,
 use a matched frozen exam with the same policy/commands/conditions.
-The `v5031_verified_ascent_physical_comparison` bundle supplies the
-100M baseline in the repository-independent physical-exam protocol.
+The [v5032 260M release card](V5032_PINNACLE_RELEASE.md) supplies
+independent physical-exam results for the currently released actor.
 
 ## How to watch via remote GPU / Tailscale
 
