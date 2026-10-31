@@ -52,6 +52,32 @@ The teacher's six *training focus groups* are **not** these six
 independent exam dimensions. Training exposure, reward, learned
 difficulty and physical proficiency are deliberately different.
 
+## When is slowing down actually the RIGHT answer?
+
+There are **two distinct tests** and we must not mix them:
+
+- **Low-level velocity-command examiner:** when we request 0.15m/s
+  downhill, can the learned motor controller track that command and
+  steer without drifting? Slowing to 0.04m/s is an intentional *miss*
+  of this exact command, even if it survives.
+- **High-level destination/safety examiner (future):** when we ask
+  the robot to reach a target beyond a steep descent, **choosing a
+  safer speed or a brief preparatory crouch is GOOD** if it still
+  completes the route in finite time with genuine support and acceptable
+  progress. Stalling, walking away from the destination or cycling
+  in place cannot earn safety credit.
+
+This distinction applies to step-ups too. Pre-extending the legs,
+loading springs, carefully testing a foothold and adjusting stride
+timing can be competent behaviour; none should be penalised just
+because the torso departs from its nominal height. The *outcome*
+matters: safe, supported arrival, not obedience to one idealised
+walking pose.
+
+Current v1 reports the existing **low-level commands** plus
+world-frame route diagnostics. It does NOT falsely claim to test
+autonomous terrain-aware route planning or discretionary slowing yet.
+
 ## From individual cases to an honest capability envelope
 
 Each frozen case reports:
