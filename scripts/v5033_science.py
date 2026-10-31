@@ -16,6 +16,7 @@ import csv
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -57,6 +58,12 @@ def source_guard() -> str:
     sha=git("rev-parse","HEAD")
     if git("branch","--show-current")!=BRANCH or git("status","--porcelain"):
         raise RuntimeError("Run only from clean "+BRANCH+" source checkout")
+    # A shared editable venv may still point at an older EMU checkout.
+    import emu.run
+    actual=Path(emu.run.__file__).resolve()
+    wanted=REPO/"emu/run.py"
+    if actual!=wanted:
+        raise RuntimeError(f"Wrong EMU import: {actual}, expected {wanted}")
     return sha
 
 
@@ -240,6 +247,37 @@ def exam_commands(policy: Path, location: Path, *, final: bool) -> list[list[str
     return exams
 
 
+def preserve_stage_a_full_checkpoint(arm: int, root: Path) -> None:
+    """Copy immutable stage A full learner state BEFORE extending to stage B.
+
+    B legitimately replaces its own final.pkl on extension, but it must
+    not destroy the stage A optimiser/curriculum evidence. Preserve by a
+    full independent copy, never a mutable hardlink.
+    """
+    name=arm_name(arm)
+    original=root/"arms"/name/"checkpoints"/"final.pkl"
+    dest=root/"stage_a_finals"/(name+".pkl")
+    stamp=dest.with_suffix(".sha256")
+    if not original.is_file():
+        raise RuntimeError("Cannot preserve missing Stage A final: "+name)
+    digest=sha256(original)
+    if dest.exists() or stamp.exists():
+        if not dest.is_file() or not stamp.is_file() or stamp.read_text().strip()!=digest:
+            raise RuntimeError("Prior Stage A backup/source hash mismatch: "+name)
+        if sha256(dest)!=digest:
+            raise RuntimeError("Preserved Stage A checkpoint bytes changed: "+name)
+        return
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    temp=dest.with_suffix(".tmp")
+    if temp.exists():
+        raise RuntimeError("Incomplete Stage A backup: "+str(temp))
+    shutil.copy2(original,temp)
+    if sha256(temp)!=digest:
+        raise RuntimeError("Stage A copy checksum mismatch: "+name)
+    temp.replace(dest)
+    stamp.write_text(digest+"\n")
+
+
 def export_and_examine(arm: int, stage: str, root: Path, env: dict[str,str],
                        *, no_exams: bool = False) -> None:
     name=arm_name(arm)
@@ -354,6 +392,10 @@ def main() -> int:
     root=args.root.expanduser().resolve()
     if root==REPO or REPO in root.parents:
         ap.error("Results belong OUTSIDE Git")
+    immutable_parent_root=PARENT.parent.parent.resolve()
+    if (root==immutable_parent_root or
+            immutable_parent_root in root.parents or root in immutable_parent_root.parents):
+        ap.error("Science root must not include or overwrite v5032 parent run")
     env=_python_env()
     print("V5033",args.stage.upper(),"source SHA",sha,"parent",PARENT_SOURCE,flush=True)
     print("Parent checkpoint:",PARENT,"(sha256",PARENT_SHA256+")",flush=True)
@@ -378,8 +420,10 @@ def main() -> int:
         dest=root/"arms"/name
         local=(dest/"checkpoints"/"latest.pkl").is_file() or (
             dest/"checkpoints"/"final.pkl").is_file()
-        if args.stage=="b" and not (dest/"checkpoints"/"final.pkl").is_file():
-            raise RuntimeError("Stage B requires COMPLETED own Stage A final.pkl: "+name)
+        if args.stage=="b":
+            if not (dest/"checkpoints"/"final.pkl").is_file():
+                raise RuntimeError("Stage B requires COMPLETED own Stage A final.pkl: "+name)
+            preserve_stage_a_full_checkpoint(arm,root)
         cmd=command(arm,args.stage,root,has_local_checkpoint=local)
         cfg=resolved_config(cmd,env)
         verify_arm_configuration(arm,cfg,root,args.stage)
