@@ -148,7 +148,12 @@ def axis(case: dict, world: dict, protocol: dict) -> tuple:
     if kind == "transition":
         return "transition", case.get("scenario", case["name"]), None, None
     if kind == "mixed":
-        return "mixed_terrain", case["name"], None, None
+        # This physically includes a step; a supported downhill transfer
+        # does not prove the same incline-plus-step manoeuvre uphill.
+        d = world.get("direction")
+        if case.get("step_m", 0.) > 0 and d not in ("step-up", "step-down"):
+            raise ValueError("mixed supported-step world lost its direction")
+        return "mixed_terrain", case["name"] + "/" + (d or "unknown"), None, None
     raise ValueError("unrecognised case kind: " + str(kind))
 
 
@@ -270,12 +275,18 @@ def build_report(exams: list[dict]) -> dict:
                               fixture=fixture, horizon_frames=horizon, backend=backend,
                               requested_terrain_speed_mps=speed,
                               **curve_area(points)))
-    present = {row["family"] for row in cases}
+    # Coverage means BOTH signs of motion and all four slope bearings,
+    # not "some slope" or "some yaw". Never hide weakest directions.
+    present = {row["family"] + "/" + row["direction"] for row in cases}
     required = {
-        "locomotion": {"longitudinal", "lateral", "yaw"},
-        "control": {"yaw", "transition"},
-        "terrain": {"slope", "step"},
-        "resilience": {"recovery"},
+        "locomotion": {"longitudinal/forward", "longitudinal/reverse",
+                       "lateral/left", "lateral/right",
+                       "yaw/left", "yaw/right"},
+        "control": {"yaw/left", "yaw/right",
+                    "transition/rest_start", "transition/brake_stop"},
+        "terrain": {"slope/uphill", "slope/downhill", "slope/cross_left",
+                    "slope/cross_right", "step/step-up", "step/step-down"},
+        "resilience": {"recovery/push", "recovery/tilt"},
     }
     coverage = {k: dict(tested=sorted(present & v),
                         missing=sorted(v - present),
