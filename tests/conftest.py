@@ -38,7 +38,7 @@ def archived_232_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
             f"Rollback SHA={V5016_ROLLBACK_SHA}: {exc}"
         )
     git_blob = hashlib.sha1(
-        f"blob {len(raw)}\\0".encode("ascii") + raw
+        f"blob {len(raw)}\0".encode("ascii") + raw
     ).hexdigest()
     assert git_blob == V5016_POLICY_BLOB_SHA, (
         "Archived 232 policy bytes differ from approved rollback blob"
