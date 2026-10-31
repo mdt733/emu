@@ -93,6 +93,7 @@ before comparing it with the current published robot.
 | How are results saved? | `emu/results.py` |
 | How do I run ONE clean flagship experiment? | `scripts/train_pinnacle.py` |
 | How does live browser playback work? | `emu/viewer_server.py`, `emu/viewer_src/` |
+| How are the new policy and old main compared? | `scripts/compare_policies.py` |
 | How is the public release approved? | `scripts/verify_showcase_release.py` |
 
 **[Complete architecture, boundaries and data flow](docs/ARCHITECTURE.md)**
