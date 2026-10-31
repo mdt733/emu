@@ -11,15 +11,17 @@ Read this file in order:
 6. The final checkpoint and report are published only after validation.
 
 Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-winning training strategy (see ladder_recipe.py / branch_lab.py).
+stable cold-start training followed by evidence-driven capability growth.
 
 KNOWN DEBT: most of these stages still inhabit a long `train` body.
-See docs/SIMPLIFICATION.md Pass D before extracting code; avoid wrapper mazes.
+Keep extraction local to existing modules; avoid new wrapper mazes.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +30,9 @@ import numpy as np
 from .checkpoint_io import resume_training_lineage, promote_checkpoint, try_restore_recovery
 from .environment import EmuMJXEnv
 from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
-from .curriculum import CapabilityField
-from .curriculum import record_capability_cloud_exam
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .capability_field import CapabilityField
+from .capability_cloud import record_capability_cloud_exam
+from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -45,7 +47,8 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
-from .ppo import make_trainer, update_running_stats
+from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
+from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
 from .results import (
@@ -88,6 +91,14 @@ def env_kwargs_from_args(args) -> dict:
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
         contact_slope_deg=args.contact_slope_deg,
+        terrain_step_max_m=args.terrain_step_max_m,
+        unified_capability_focus=args.unified_capability_focus,
+        velocity_i_ramp_s=args.velocity_i_ramp_s,
+        velocity_i_multiplier=args.velocity_i_multiplier,
+        retention_share=args.retention_share,
+        terrain_lesson=args.terrain_lesson,
+        temporal_vx_reward_share=args.temporal_vx_reward_share,
+        verified_ascent_reallocation=args.verified_ascent_reallocation,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -113,6 +124,51 @@ def env_kwargs_from_args(args) -> dict:
 # Run modes.
 # ---------------------------------------------------------------------------
 
+def unified_launch_mode(args: TrainingConfig) -> str:
+    """Explicit authorisation boundary; deliberately independent of JAX/GPU.
+
+    Prefer one clean cold-start source and run directory across the entire
+    training target. The runner independently enforces Git and checkpoint
+    provenance; this gate accepts research forks; inspect_run verifies compatibility.
+    """
+    if not args.unified_capability_focus:
+        return 'legacy'
+    core = (args.device == 'cuda'
+            and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_step_max_m >= .001
+            and args.open_frontier)
+    if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
+            and args.envs in (8, 12, 2048)
+            and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS):
+        return 'bounded'
+    # One cold run across 20M, 40M, 100M, and beyond. No checkpoint-era
+    # unlock: the specialists gradually become active inside this run.
+    # The CLI checks identical Git SHA + saved config for same-run resume.
+    # Deliberate research must not require rewriting this function for
+    # each sensible knob. The CLI/config/env validate physically meaningful
+    # ranges and compatibility; a CUDA preflight tests resource constraints.
+    # These are REAL launch prerequisites, not a whitelist of permitted
+    # learning ideas or arbitrary birth/development ages.
+    if (core and os.environ.get('EMU_UNIFIED_CONTINUOUS') == 'cold-growth-approved'
+            and args.steps >= 1_000_000 and args.envs > 0
+            and args.foundation_steps in (10_000_000,20_000_000)
+            and args.foundation_mix in ('main','command-heavy','curious')
+            and 0 <= args.seed < 2**31):
+        parent = Path(args.resume).resolve() if args.resume else None
+        own_dir = Path(args.run_dir).resolve() / 'checkpoints'
+        explicit_parent = (
+            parent is not None and
+            parent.suffix == '.pkl' and parent.parent.name == 'checkpoints')
+        if not args.resume or args.resume == 'auto' or explicit_parent:
+            return 'continuous'
+    raise RuntimeError(
+        'PRE-LAUNCH: Unified live training requires the explicit bounded CUDA smoke or '
+        'EMU_UNIFIED_CONTINUOUS=cold-growth-approved for a source-pinned '
+        '360-input CUDA learner. Explicit '
+        'same-source compatible research forks are allowed using --resume <checkpoint>.'
+    )
+
+
 def train(args: TrainingConfig) -> int:
     """Run one checkpoint lineage; no branch-selection logic lives here.
 
@@ -122,6 +178,11 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
+    launch_mode = unified_launch_mode(args)
+    bounded_acceptance = launch_mode == 'bounded'
+    continuous_growth = launch_mode == 'continuous'
+    # Main-style 20M cold birth, then a gradual exposure blend. A specialist
+    # adjusts its physical target independently once its lessons are active.
     allow_cpu_mjx = args.device == 'cpu'
     configure_jax(args.device)
     import jax
@@ -133,13 +194,17 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # Schema/physical sensor meaning is part of the learning state; never
-    # confuse the legacy Pitch15 actor with a 232-channel learner.
+    # Schema/physical sensor meaning is part of the learning state:
+    # legacy 220, sim2real 232 and terrain 360 policies cannot share
+    # an observation normalizer or checkpoint merely by array reshaping.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM
-    obs_meta = (dict(checkpoint_schema=8, observation_schema=OBS_SCHEMA_SENSOR,
-                     sensor_contract=sensor_contract, obs_dim=obs_dim)
-                if sensor_contract is not None else {})
+    obs_dim = (TERRAIN_OBS_DIM if args.observation_schema == OBS_SCHEMA_TERRAIN else
+               SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
+    obs_meta = (dict(
+        checkpoint_schema=(9 if args.observation_schema == OBS_SCHEMA_TERRAIN else 8),
+        observation_schema=args.observation_schema,
+        sensor_contract=sensor_contract, obs_dim=obs_dim)
+        if sensor_contract is not None else {})
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
         run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs,
         expected_observation_schema=args.observation_schema,
@@ -147,7 +212,11 @@ def train(args: TrainingConfig) -> int:
     if already_complete:
         return 0
 
+    parent_meta = ((resumed_payload or {}).get('meta') or {})
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
+            'ancestor_checkpoint_source': ((parent_meta.get('source_provenance') or {}).get('git_commit')),
+            'ancestor_checkpoint_step': parent_meta.get('step'),
+            'ancestor_checkpoint_path': args.resume if resumed_payload is not None else None,
             'config': vars(args), 'doctrine': {**doctrine_dict(), **{f'DOMAIN_{k}': v for k, v in domain_doctrine_dict().items()}},
             'resumed_from_step': resumed_step if resumed_payload is not None else None}
     write_json(run_dir / 'run_meta.json', meta)
@@ -157,9 +226,31 @@ def train(args: TrainingConfig) -> int:
                     max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
+    if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
+        raise ValueError('terrain_360 actor requires a physical terrain topology, including flat foundation')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
-    fixed_eval_worlds = build_eval_worlds(args)
+    # A two-update CUDA acceptance verifies PPO, physical telemetry,
+    # complete checkpoint state, warm resume and actor export. The full
+    # 10-panel/350-frame fixed exam is for measuring trained walking, and
+    # took ~8 minutes on an untrained eight-world smoke. Never pretend
+    # this bounded protocol is a held-out walking evaluation.
+    # Held-out exams must not allocate five additional 2048-world MJX
+    # environments alongside the 2048-world learner on an 8GB GPU.
+    # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
+    # only independent evaluation batch size is capped for this 20M run.
+    eval_args = replace(args, envs=32) if continuous_growth else args
+    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    if continuous_growth:
+        print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
+              f'foundation={args.foundation_mix} until {args.foundation_steps:,} steps; '
+              'specialists blend in over the next 10M; frozen evaluations '
+              'use 32 worlds rather than risking 8GB GPU exhaustion.',
+              flush=True)
+    if bounded_acceptance:
+        print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
+              'walking exams disabled; use independent frozen policy exam '
+              'after checkpoint/resume/export verification', flush=True)
 
     # Sparse capability cloud: intentionally much smaller than the fixed
     # continuity evaluator. Each cloud point is one real vx+vy+yaw command
@@ -192,7 +283,8 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_hi_safety=args.frontier_vx_hi_safety,
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
-                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n)
+                              frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
+                              unified_capability_focus=args.unified_capability_focus)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -230,6 +322,59 @@ def train(args: TrainingConfig) -> int:
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
+        if args.unified_capability_focus:
+            profile = teaching_profile(
+                step=step, foundation_steps=args.foundation_steps,
+                foundation_mix=args.foundation_mix,
+                steady_difficulty=float(governor.params.steady_difficulty))
+            d['specialist_mix'] = profile.specialist_fraction
+            # The 20M foundation uses original main-style births only.
+            # Afterward, honour the explicit run configuration even when
+            # resuming a cold-foundation checkpoint whose saved governor
+            # still contains athletic_rehearsal_frac=0. This value controls
+            # actual training births; it is not a checkpoint network field.
+            d['athletic_rehearsal_frac']=(
+                args.athletic_rehearsal_frac if profile.adaptive_specialists
+                else 0.0)
+            d['steering_attention']=(1.0 if (
+                args.teaching_schedule=='steering' and
+                step>args.foundation_steps) else 0.0)
+            weights=list(attention_weights(
+                schedule=args.teaching_schedule,step=step,
+                foundation_steps=args.foundation_steps))
+            # Reserve a deterministic share of all focused births for
+            # useful moving, low-disturbance retention (CONTROL role).
+            # The ordinary control role remains unchanged in baseline arms.
+            if step>args.foundation_steps and args.retention_share>0.:
+                base_control=weights[-1]
+                other_total=1.-base_control
+                target_control=max(base_control,args.retention_share)
+                weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
+                weights.append(target_control)
+            for name,weight in zip(FOCUS_NAMES,weights):
+                d['focus_weight_'+name]=weight
+            # Keep the 70-update steady-only bootstrap exactly where the
+            # original foundation started. Afterwards the candidate recipe
+            # may request a different balance of the SAME ordinary regimes.
+            after_bootstrap=(governor._updates_done_total>governor.BOOTSTRAP_UPDATES)
+            d['foundation_control_mix']=(
+                profile.foundation_control_mix if after_bootstrap else 0.0)
+            if profile.regime_mix is not None and after_bootstrap:
+                for key,portion in zip(
+                    ('regime_frac_steady','regime_frac_transition',
+                     'regime_frac_resilience'),profile.regime_mix):
+                    d[key]=portion
+            # A zero specialist allocation is not a separate PPO or a
+            # synthetic zero-gradient loss. It simply sends all worlds
+            # through main's ordinary gait sampler. Terrain stays dormant.
+            if not profile.adaptive_specialists:
+                d['terrain_exposure'] = 0.0
+                d['terrain_height_m'] = 0.0
+                d['slope_exposure'] = 0.0
+                d['slope_max_deg'] = 0.0
+        elif step < args.foundation_steps:
+            d['terrain_exposure'] = 0.0
+            d['terrain_height_m'] = 0.0
         source_field = field if teaching_field is None else teaching_field
         packet = source_field.teaching_packet(
             step=int(step), mode=str(args.capability_field_mode),
@@ -259,6 +404,10 @@ def train(args: TrainingConfig) -> int:
 
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
+    if args.terrain_step_max_m:
+        print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
+              "but physical exposure/height remain ZERO until independently proven crossing-based "
+              "curriculum activation is implemented.", flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
     import jax.numpy as jnp
     obs_mean = jnp.zeros((obs_dim,), dtype=jnp.float32)
@@ -298,8 +447,11 @@ def train(args: TrainingConfig) -> int:
     rollout_lr_scale_for_metrics = lr_scale
     norm_diag = {'obs_norm_update_mean_l2': 0.0, 'obs_norm_update_std_l2': 0.0,
                  'obs_norm_anchor_mean_l2': 0.0, 'obs_norm_anchor_std_l2': 0.0,
-                 'obs_norm_frozen': 0.0}
+                 'obs_norm_frozen': 0.0, 'obs_norm_terrain_clip_frac': -1.0,
+                 'obs_norm_terrain_clip_measured_step': -1.0}
     obs_anchor = None
+    terrain_clip_last = -1.0
+    terrain_clip_step = -1.0
 
     t0 = time.time()
     old_mean, old_std = obs_mean, obs_var ** 0.5
@@ -311,7 +463,7 @@ def train(args: TrainingConfig) -> int:
     norm_diag['obs_norm_update_mean_l2'] = float(np.linalg.norm(np.asarray(obs_mean - old_mean)))
     norm_diag['obs_norm_update_std_l2'] = float(np.linalg.norm(np.asarray(obs_var ** 0.5 - old_std)))
     norm_diag['obs_norm_frozen'] = float(norm_frozen)
-    if warmup_end_steps >= FOUNDATION_STEPS:
+    if warmup_end_steps >= args.foundation_steps:
         obs_anchor = (np.asarray(obs_mean).copy(), np.asarray(obs_var ** 0.5).copy())
     state.obs.block_until_ready()
     metric_transfer_t0 = time.perf_counter()
@@ -329,6 +481,9 @@ def train(args: TrainingConfig) -> int:
     last_save = resumed_step
     last_snapshot = resumed_step
     last_seen_nan_skips = [0]  # mutable box so the log block above can update it
+    previous_rows=read_metrics_csv(run_dir / 'metrics.csv')
+    rollback_count=(int(float(previous_rows[-1].get('rollback_count',0)))
+                    if previous_rows else 0)
     # Canonical rollback candidate: never overwrite a stronger existing
     # recovery snapshot after resume/fork.
     recovery_path = run_dir / 'checkpoints' / 'recovery.pkl'
@@ -377,7 +532,9 @@ def train(args: TrainingConfig) -> int:
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
         nonlocal last_eval_step, best_eval_score
-        if not force and step - last_eval_step < EVAL_EVERY_STEPS:
+        if bounded_acceptance:
+            return
+        if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out, best_eval_score = record_fixed_exam(
@@ -436,7 +593,10 @@ def train(args: TrainingConfig) -> int:
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
-        report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        report = governor.advance_curriculum(
+            row, step=total_steps, max_height_m=args.terrain_step_max_m,
+            foundation_steps=args.foundation_steps,
+            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -445,6 +605,21 @@ def train(args: TrainingConfig) -> int:
                   f"{health.KL_STRESS_CHRONIC_WINDOW} updates -- ignoring the KL-stress gate so it can't freeze "
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
+        if args.unified_capability_focus:
+            # The fixed experimental nursery mix may override the ordinary
+            # governor's NEXT-birth regime allocation. Report what worlds
+            # will really sample, never only the governor's unused proposal.
+            for name in ('steady','transition','resilience'):
+                key='regime_frac_'+name
+                report[key]=float(params[key])
+            report['foundation_control_mix']=float(params['foundation_control_mix'])
+            for name in FOCUS_NAMES:
+                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
+            report['teaching_profile']=teaching_profile(
+                step=total_steps,foundation_steps=args.foundation_steps,
+                foundation_mix=args.foundation_mix,
+                steady_difficulty=governor.params.steady_difficulty).name
+        report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
         perf.add('governor_and_params', time.perf_counter() - governor_t0)
@@ -481,7 +656,11 @@ def train(args: TrainingConfig) -> int:
         # One explicit temporal rewind: policy/optimiser + teacher + health +
         # field + observation coordinates + LR, then fresh physics for EVERY
         # world. If recovery fails, retain the collapse streak and retry later.
-        if args.allow_rollback and report['needs_recovery']:
+        # The historical first-20M foundation deliberately disabled
+        # checkpoint rollbacks; resume and later unified recovery remain.
+        if (args.allow_rollback and
+                (not args.unified_capability_focus or total_steps >= args.foundation_steps)
+                and report['needs_recovery']):
             restored = try_restore_recovery(
                 recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,
@@ -490,6 +669,10 @@ def train(args: TrainingConfig) -> int:
                     total_steps, teaching_field=new_field),
                 log_prefix=LOG_PREFIX)
             if restored is not None:
+                rollback_count += 1
+                print(f'{LOG_PREFIX} rollback_count={rollback_count} '
+                      f'at step={total_steps:,} (step clock is NOT rewound)',
+                      flush=True)
                 state, field = restored.state, restored.field
                 obs_mean, obs_var = restored.obs_mean, restored.obs_var
                 obs_count, lr_scale = restored.obs_count, restored.lr_scale
@@ -550,7 +733,9 @@ def train(args: TrainingConfig) -> int:
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips,
+                              slope_deg=args.contact_slope_deg,
+                              contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
@@ -632,9 +817,46 @@ def train(args: TrainingConfig) -> int:
             'obs_norm_frozen': float(norm_frozen),
             'obs_norm_anchor_mean_l2': 0.0,
             'obs_norm_anchor_std_l2': 0.0,
+            'obs_norm_terrain_clip_frac': terrain_clip_last,
+            'obs_norm_terrain_clip_measured_step': terrain_clip_step,
         }
+        # Read-only sample at the handover: does 10M of flat terrain
+        # make raw ToF ranges / grades saturate the +/-10 normalized clip?
+        # Sample only 128 observations every ~2M steps around the boundary.
+        # We do NOT silently alter the observation contract or optimizer.
+        norm_probe_interval=2_000_000
+        if (args.unified_capability_focus
+                and args.foundation_steps-2_000_000 <= total_steps
+                    <= args.foundation_steps+6_000_000
+                and total_steps // norm_probe_interval !=
+                    (total_steps-args.envs*ROLLOUT_STEPS)//norm_probe_interval):
+            from .contracts import (
+                TERRAIN_OBS_FIELDS, TERRAIN_RANGE_FIELDS, HISTORY_LEN)
+            sensor_names=set(TERRAIN_RANGE_FIELDS)|{
+                'ground_forward_grade_rad','ground_sideways_grade_rad'}
+            base=np.asarray(
+                [i for i,name in enumerate(TERRAIN_OBS_FIELDS)
+                 if name in sensor_names],dtype=np.int32)
+            indices=np.concatenate([
+                base+i*len(TERRAIN_OBS_FIELDS) for i in range(HISTORY_LEN)])
+            mask=build_obs_norm_mask(args.observation_schema)
+            indices=indices[mask[indices]>.5]
+            if len(indices):
+                sampled=np.asarray(raw_obs[:128,indices])
+                std=np.asarray(old_std)[indices]
+                centre=np.asarray(old_mean)[indices]
+                z=(sampled-centre)/np.maximum(std,1e-8)
+                terrain_clip_last=float(np.mean(np.abs(z)>=10.))
+                terrain_clip_step=float(total_steps)
+                norm_diag['obs_norm_terrain_clip_frac']=terrain_clip_last
+                norm_diag['obs_norm_terrain_clip_measured_step']=terrain_clip_step
+                if norm_diag['obs_norm_terrain_clip_frac']>.10:
+                    print(f'{LOG_PREFIX} WARNING: '
+                          'terrain observation normalization clips '
+                          f'{100*norm_diag["obs_norm_terrain_clip_frac"]:.1f}% '
+                          f'around step {total_steps:,}',flush=True)
         next_total_steps = total_steps + args.envs * ROLLOUT_STEPS
-        if obs_anchor is None and next_total_steps >= FOUNDATION_STEPS:
+        if obs_anchor is None and next_total_steps >= args.foundation_steps:
             obs_anchor = (np.asarray(obs_mean).copy(), np.asarray(new_std).copy())
         if obs_anchor is not None:
             norm_diag['obs_norm_anchor_mean_l2'] = float(np.linalg.norm(np.asarray(obs_mean) - obs_anchor[0]))
@@ -656,10 +878,25 @@ def train(args: TrainingConfig) -> int:
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
     health_ppo = health.observe_ppo(row)
-    report = governor.update(row, kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+    report = governor.advance_curriculum(
+        row, step=total_steps, max_height_m=args.terrain_step_max_m,
+        foundation_steps=args.foundation_steps,
+        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
+    if args.unified_capability_focus:
+        for name in ('steady','transition','resilience'):
+            key='regime_frac_'+name
+            report[key]=float(params[key])
+        report['foundation_control_mix']=float(params['foundation_control_mix'])
+        for name in FOCUS_NAMES:
+            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
+        report['teaching_profile']=teaching_profile(
+            step=total_steps,foundation_steps=args.foundation_steps,
+            foundation_mix=args.foundation_mix,
+            steady_difficulty=governor.params.steady_difficulty).name
+    report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
@@ -691,7 +928,9 @@ def train(args: TrainingConfig) -> int:
         params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips), flush=True)
+    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips,
+                      slope_deg=args.contact_slope_deg,
+                      contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
     print(f'{LOG_PREFIX} training complete', flush=True)
     return 0
 

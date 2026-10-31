@@ -53,12 +53,29 @@ OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
 # 55x4 Pitch15 actor or its observation normalizer as this 58x4 interface.
 OBS_SCHEMA_LEGACY = "pitch15_220"
 OBS_SCHEMA_SENSOR = "sim2real_232"
+# Opt-in G5: 4x4 physically intersected, occlusion-aware raw ranges plus
+# independent per-cell validity. 58 + 32 = 90 fields, 4 history frames.
+# The original 55x4 and 58x4 actor contracts NEVER change.
+OBS_SCHEMA_TERRAIN = "terrain_360"
 SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
     "ground_forward_grade_rad", "ground_sideways_grade_rad",
     "ground_visibility_confidence",
 )
 SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
 SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
+TERRAIN_RANGE_FIELDS = tuple(f"tof4x4_range_{r}{c}_m" for r in range(4) for c in range(4))
+TERRAIN_VALID_FIELDS = tuple(f"tof4x4_valid_{r}{c}" for r in range(4) for c in range(4))
+TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FIELDS
+TERRAIN_BASE_OBS_DIM = len(TERRAIN_OBS_FIELDS)
+TERRAIN_OBS_DIM = TERRAIN_BASE_OBS_DIM * HISTORY_LEN
+TERRAIN_SENSOR_REVISION = "forward_tof4x4_real_plane_box_foot_1"
+TERRAIN_ARRAY_ONLY_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
+# Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
+# pitched 70 degrees below horizontal with 60-degree vertical spread.
+# Horizontal fan spans 45 degrees. These physical extrinsics are hashed.
+TERRAIN_TOF_PITCH_DEG = (40., 60., 80., 100.)
+TERRAIN_TOF_YAW_DEG = (-22.5, -7.5, 7.5, 22.5)
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -74,7 +91,9 @@ SENSOR_SETTINGS_DEFAULTS = {
 }
 
 
-def sensor_observation_contract(settings: dict | None = None) -> dict:
+def sensor_observation_contract(settings: dict | None = None, *,
+                                schema: str = OBS_SCHEMA_SENSOR,
+                                array_only: bool = False) -> dict:
     """Canonical, independently verifiable v5016 observation identity.
 
     Sensor mount geometry and fields are part of the meaning of a saved
@@ -87,6 +106,10 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
     from .directional import (TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
                               TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
 
+    if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
+        raise ValueError(f"unknown sensor actor schema {schema!r}")
+    if array_only and schema != OBS_SCHEMA_TERRAIN:
+        raise ValueError('array-only mode requires terrain_360 actor')
     values = dict(SENSOR_SETTINGS_DEFAULTS if settings is None else settings)
     if set(values) != set(SENSOR_SETTINGS_DEFAULTS):
         raise ValueError("sensor observation settings keys mismatch")
@@ -116,6 +139,31 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
         "tof_range_limits_m": [TOF_MIN_RANGE_M, TOF_MAX_RANGE_M],
         "settings": values,
     }
+    if schema == OBS_SCHEMA_TERRAIN:
+        body.update(
+            schema=OBS_SCHEMA_TERRAIN,
+            sensor_model_revision=TERRAIN_SENSOR_REVISION,
+            base_fields=list(TERRAIN_OBS_FIELDS),
+            tof4x4_mount_body_m=[0., 0., 0.],
+            tof4x4_pitch_from_horizontal_deg=list(TERRAIN_TOF_PITCH_DEG),
+            tof4x4_yaw_deg=list(TERRAIN_TOF_YAW_DEG),
+            tof4x4_range_limits_m=[TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
+            tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
+            tof4x4_validity="one bit per cell, delayed, zero on dropout",
+        )
+        if array_only:
+            # New cold-source lineage: no physical tripod. The three existing
+            # grade/confidence actor columns are estimated from the SAME 4x4
+            # delayed rays; 360 width is retained but source identity changes.
+            body.pop('tripod_mounts_body_m')
+            body.pop('tripod_beams_body')
+            body.pop('tof_range_limits_m')
+            body.update(
+                sensor_model_revision=TERRAIN_ARRAY_ONLY_REVISION,
+                array_ground_estimator="weighted_4x4_plane_residual_8mm_v1",
+                array_ground_max_fit_residual_m=.008,
+                array_ground_min_valid_cells=6,
+            )
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {**body, "sha256": digest}
 
@@ -123,6 +171,7 @@ def sensor_observation_contract(settings: dict | None = None) -> dict:
 OBS_FIELDS_BY_SCHEMA = {
     OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
     OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
+    OBS_SCHEMA_TERRAIN: TERRAIN_OBS_FIELDS,
 }
 
 
@@ -183,7 +232,50 @@ FIELD_NODE_START = FIELD_NODE_FRAC + 1
 FIELD_EDGE_FRAC = FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE
 FIELD_EDGE_START = FIELD_EDGE_FRAC + 1
 TASK_PARAM_DIM = FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
-P = SimpleNamespace(**_base_index, field_node_frac=FIELD_NODE_FRAC, field_edge_frac=FIELD_EDGE_FRAC)
+
+# G4: the existing flat/220/232 task vector is an immutable legacy contract.
+# Only the opt-in finite-terrain environment appends this v1 extension AFTER
+# all field anchors. No existing P indices or actor columns move.
+TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))
+TERRAIN_TASK_PARAM_DIM = TASK_PARAM_DIM + len(TERRAIN_TASK_FIELDS)
+# Second independent extension ONLY for the new two-solid-slab world. The
+# historical 360-input single-platform model keeps its exact task packet.
+# NaN means "sample a fresh value from the adaptive episode envelope".
+# The optional explicit values are for exact held-out physical geometry exams.
+UNIFIED_TERRAIN_FIELDS = (
+    ('slope_exposure',0.0), ('slope_max_deg',0.0),
+    ('terrain_pitch_deg',float('nan')), ('terrain_roll_deg',float('nan')),
+    ('terrain_fixed_height_m',float('nan')),
+    ('terrain_edge_angle_deg',float('nan')),
+    # Teacher-only foundation→growth blend, never an actor observation.
+    ('specialist_mix',0.0),
+    # Grace-only pre-growth teaching. All non-control specialists remain off.
+    ('foundation_control_mix',0.0),
+    # Six teacher-only probabilities; zero sum keeps historical exam mapping.
+    *((f'focus_weight_{name}',0.0) for name in
+      ('command','resilience','slope','step','transition','control')),
+    ('steering_attention',0.0),
+)
+UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
+P = SimpleNamespace(
+    **_base_index,
+    field_node_frac=FIELD_NODE_FRAC,
+    field_edge_frac=FIELD_EDGE_FRAC,
+    terrain_exposure=TASK_PARAM_DIM,
+    terrain_height_m=TASK_PARAM_DIM + 1,
+    slope_exposure=TERRAIN_TASK_PARAM_DIM,
+    slope_max_deg=TERRAIN_TASK_PARAM_DIM + 1,
+    terrain_pitch_deg=TERRAIN_TASK_PARAM_DIM + 2,
+    terrain_roll_deg=TERRAIN_TASK_PARAM_DIM + 3,
+    terrain_fixed_height_m=TERRAIN_TASK_PARAM_DIM + 4,
+    terrain_edge_angle_deg=TERRAIN_TASK_PARAM_DIM + 5,
+    specialist_mix=TERRAIN_TASK_PARAM_DIM + 6,
+    foundation_control_mix=TERRAIN_TASK_PARAM_DIM + 7,
+    **{f'focus_weight_{name}':TERRAIN_TASK_PARAM_DIM+8+i
+       for i,name in enumerate(
+           ('command','resilience','slope','step','transition','control'))},
+    steering_attention=TERRAIN_TASK_PARAM_DIM+14,
+)
 
 
 def task_param_defaults() -> dict[str, float]:

@@ -1,0 +1,187 @@
+name: EMU engineering checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [release/v5032-pinnacle-candidate]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# When multiple revisions arrive on the same draft PR, only test the newest.
+# Avoid dozens of obsolete overlapping runs and failure notifications.
+# Manual dispatch and separate PRs retain independent concurrency groups.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Compile and validate setup syntax
+        run: |
+          python -m compileall -q emu tests scripts
+          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/compare_policies.py
+          bash -n scripts/setup_wsl.sh
+          bash scripts/setup_wsl.sh --help > /dev/null
+      # One G3 physical acceptance probe; no PPO training or new test framework.
+      - name: Verify exact approved 260M 360-input public actor
+        run: python scripts/verify_showcase_release.py
+      - name: Verify source and artifact are still the published v5032 model
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("showcase/champion.emupolicy").read_text())
+          a=json.loads(Path("showcase/release_approval.json").read_text())
+          assert p["schema"]==3 and p["policy"]["obs_dim"]==360
+          assert p["source"]["step"]==260046848
+          assert a["training_source_commit"]=="9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
+          assert a["checkpoint_sha256"]=="238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b"
+          PY
+      - name: G3 finite-step MJX contact and episode reset smoke (CPU)
+        run: |
+          timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
+          timeout 180s python -m emu.terrain_spike --environment --worlds 4
+      - name: G5 real 4x4 actor + PPO gradient (production MJX CPU)
+        run: timeout 240s python -m emu.terrain_spike --actor --worlds 4 --device cpu
+      - name: G4 matched uninterrupted terrain course (read-only CPU actor)
+        run: |
+          timeout 240s emu terrain-exam \
+            --policy showcase/champion.emupolicy \
+            --output "$RUNNER_TEMP/g4-terrain-course" \
+            --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
+          python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==4 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
+      - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
+        run: |
+          timeout 300s emu capability-exam \
+            --policy showcase/champion.emupolicy \
+            --output "$RUNNER_TEMP/pinnacle-main-360" \
+            --device cpu --worlds 2 --horizon 100 \
+            --speed .15 --speed-ladder --ladder-speeds .15
+          python - <<'PY'
+          import json,os
+          from emu.contracts import OBS_SCHEMA_TERRAIN
+          d=json.load(open(os.environ['RUNNER_TEMP']+'/pinnacle-main-360/unified_exam.json'))
+          assert d['observation_schema']==OBS_SCHEMA_TERRAIN
+          assert d['legacy_main_baseline'] is False
+          assert len(d['results'])==1
+          assert len(d['results'][0]['worlds'])==2
+          assert d['protocol']['legacy_232_actor_sensors_preserved'] is False
+          assert d['source_training_step']==260046848
+          print('Main 360 actor completed real matching two-slab physical exam')
+          PY
+      - name: Run full Python checks (do not hide pre-existing failures)
+        run: python -m pytest -q tests
+      - name: Smoke public doctor CLI (CPU-only)
+        run: emu doctor --no-require-gpu --no-mjx-smoke
+      - name: Smoke public planning, exams and exporter imports
+        run: |
+          emu directional-exam --help > /dev/null
+          emu terrain-exam --help > /dev/null
+          emu capability-exam --help > /dev/null
+          emu train --help > /dev/null
+          python scripts/smoke_training_lifecycle.py --help > /dev/null
+          python scripts/train_pinnacle.py > /dev/null
+          python scripts/compare_policies.py --help > /dev/null
+          # Real CLI, exact flagship flags, read-only checkpoint gate.
+          # This must PASS without a GPU and before any CPU/CUDA PPO training.
+          # It would have caught the first v5032 launch failure.
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from train_pinnacle import command, training_environment
+          root=Path(os.environ['RUNNER_TEMP'])/'pinnacle-real-gate'
+          subprocess.run(command(root)+['--check-resume-only'],
+                         check=True,env=training_environment())
+          PY
+          emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 60000000 --envs 2048 --seed 733 --device cuda --profile sim2real --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities --foundation-steps 10000000 --foundation-mix command-heavy --teaching-schedule steering --plan > /dev/null
+          emu evaluate --help > /dev/null
+          emu export-policy --help > /dev/null
+          python - <<'PY'
+          from emu.checkpoint_io import resume_training_lineage, git_provenance
+          from emu.run import train_one, one_run_config
+          from emu.evaluation import atlas_main, directional_main
+          from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
+          print('All public entrypoint owners import cleanly')
+          PY
+
+  # One unified shared-policy, six-cohort physical PPO smoke on CPU.
+  unified-focus-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install CPU learning dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Exercise single shared-policy unified specialists on MJX CPU
+        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12
+      - name: 25-frame forward tracking PPO gradient (CPU)
+        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --temporal-vx-reward-share .5
+      - name: Verified physical support-transfer PPO gradient (CPU)
+        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --temporal-vx-reward-share .5 --verified-ascent-reallocation 3
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: emu/viewer_src/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --prefix emu/viewer_src --no-audit --no-fund
+      - name: Run browser controls and packaging checks
+        run: npm test --prefix emu/viewer_src
+      - name: Prepare protected champion
+        run: python3 scripts/prepare_showcase.py
+      - name: Build browser
+        run: npm run build --prefix emu/viewer_src
+      - name: Reject modifications to tracked source
+        run: |
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+      - name: Verify policy and WASM assets
+        run: python3 scripts/verify_showcase_dist.py
+      # The deleted experimental browser harness is not invoked here.
+      # The twelve maintained viewer contracts run above. Full manual
+      # MuJoCo browser acceptance remains a release-review step.
+
+  cpu-viewer-ubuntu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate WSL viewer bootstrap syntax
+        run: |
+          bash -n scripts/install_viewer_wsl.sh
+          bash scripts/install_viewer_wsl.sh --self-test
+      - name: Fresh Ubuntu CPU-only viewer install (no training)
+        run: bash scripts/install_viewer_wsl.sh --destination "$RUNNER_TEMP/emu-viewer-cpu" --branch "${{ github.head_ref || github.ref_name }}" --no-launch

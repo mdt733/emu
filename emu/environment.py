@@ -9,20 +9,48 @@ without duplicating JAX, configuration or RNG state. This file owns the
 physical world: reset, motor delivery, disturbances, stepping, sensor packets
 and measured events. rewards.py owns the scalar teaching payment.
 
+Read from top to bottom:
+  1. Fixed robot/contact contracts, terrain XML construction and state packets.
+  2. TaskSampler: teacher requests and command transitions (NOT actor truth).
+  3. Domain randomization: validated MJX model variation.
+  4. EmuMJXEnv: the single batched reset/physics/observation implementation.
+     Within it: motor/physics -> lesson/world reset -> sensor simulation
+     -> supported terrain evidence -> reward facts and deployable observations.
+No hidden alternate physics engine and no per-experiment environment subclass.
+
 Teacher-only task fields never become privileged actor sensor channels.
 See README.md for the teaching-to-physics overview.
 """
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+from types import SimpleNamespace
 from typing import Any, NamedTuple
+import math
+import xml.etree.ElementTree as ET
 import numpy as np
 
-from .rewards import training_reward, apply_early_fall_penalty, REWARD_ONLY_METRICS
+from .rewards import (training_reward, apply_early_fall_penalty,
+                      verified_support_elevation_credit, REWARD_ONLY_METRICS)
+from .capability_focus import (focus_indices, diamond_commands,
+                               control_effort_weights, COMMAND, RESILIENCE,
+                               SLOPE, STEP, TRANSITION, CONTROL,
+                               NONFOCUS_STRENGTH, CONTROL_STRENGTH)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
-                          simulate_downward_optical_flow, estimate_flow_velocity)
-from .contracts import (SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields, sensor_observation_contract, COMBO_P, PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS,
-                       FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM,
-                       TASK_PARAM_FIELDS, P)
+                          fit_forward_array_ground,
+                          simulate_downward_optical_flow, estimate_flow_velocity,
+)
+from .contracts import (
+    SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM,
+    BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
+    TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P,
+    PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
+    FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE,
+    FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM, TERRAIN_TASK_FIELDS,
+    TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM,
+    TASK_PARAM_FIELDS, P
+)
 
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
@@ -91,11 +119,120 @@ STEADY_RESILIENCE_BORROW_FRAC = 0.15
 #     to deviate for balance recovery without the tracking term collapsing
 #     toward zero the moment a push lands.
 
+# Opt-in G3 platform. These are collision dimensions, NOT a terrain teacher.
+# Episode height/direction/yaw live in mjx.Data.mocap_pos/mocap_quat, which
+# can change at reset without rebuilding the shared model or JIT structure.
+TERRAIN_PLATFORM_HALF_LENGTH_M = 0.90
+TERRAIN_PLATFORM_HALF_WIDTH_M = 0.48
+TERRAIN_PLATFORM_HALF_DEPTH_M = 0.15
+TERRAIN_PLATFORM_EDGE_X_M = 0.25
+
+
+def add_episode_platform(robot_xml: str) -> str:
+    """Augment the existing robot model with one finite collision platform.
+
+    A mocap body's real geom is moved only at episode boundaries.  It has
+    no degrees of freedom and introduces no hidden channels to the policy.
+    The on-disk robot.xml and default training configuration are untouched.
+    """
+    root = ET.parse(robot_xml).getroot()
+    world = root.find('worldbody')
+    if world is None:
+        raise ValueError('robot.xml has no worldbody')
+    # CRITICAL: a MuJoCo ground *plane* is an infinite half-space.
+    # A platform buried BELOW it is not "out of contact": without
+    # collision filtering the plane/box pair is deeply interpenetrating,
+    # even in an episode where the terrain is disabled. That static pair
+    # must never consume constraint/contact slots or perturb normal gait.
+    #
+    # Bit 1 = floor, bit 2 = terrain. Existing collision-enabled
+    # robot geoms (feet and torso) can touch BOTH support types, but
+    # passive non-contacting shin/thigh rods remain non-contacting.
+    # Mask original robot geoms ONLY in this opt-in compiled model;
+    # the on-disk robot and flat champion physics stay untouched.
+    for geom_name in ('torso_box', 'r_foot_ball', 'l_foot_ball'):
+        contact_geom = root.find(f".//geom[@name='{geom_name}']")
+        if contact_geom is None:
+            raise ValueError(f'missing robot contact geom {geom_name}')
+        contact_geom.set('contype', '3')
+        contact_geom.set('conaffinity', '3')
+    platform = ET.SubElement(world, 'body', {
+        'name': 'episode_terrain_platform', 'mocap': 'true',
+        'pos': '0 0 -1',
+    })
+    ET.SubElement(platform, 'geom', {
+        'name': 'episode_terrain_surface', 'type': 'box',
+        'size': f'{TERRAIN_PLATFORM_HALF_LENGTH_M} {TERRAIN_PLATFORM_HALF_WIDTH_M} {TERRAIN_PLATFORM_HALF_DEPTH_M}',
+        'contype': '2', 'conaffinity': '2',
+        'friction': '1.5 0.005 0.0001', 'rgba': '0.65 0.50 0.24 1',
+    })
+    return ET.tostring(root, encoding='unicode')
+
+
+# Unified terrain is a pair of adjacent *solid* convex slabs. Their tops
+# exactly coincide when step height is zero, and differ by h along the common
+# surface normal when a real step is active. Two boxes avoid six open mesh
+# triangles being convex-hulled into a phantom ramp by MuJoCo.
+# Keep 700-frame 14s high-speed walking on real support, not off a 4m edge.
+# Each box is still a single solid collider; the upper box remains dormant
+# for flat births and the exact same sharp step survives at the common lip.
+# This gives >=32m ahead from flat centre (2.0m/s * 14s + margin).
+UNIFIED_SLAB_HALF_LENGTH_M = 32.0
+UNIFIED_SLAB_HALF_WIDTH_M = 16.0
+UNIFIED_SLAB_HALF_DEPTH_M = .25
+
+
+def add_unified_terrain(robot_xml: str) -> str:
+    """Replace the infinite floor with movable lower + higher solid slabs.
+
+    The old XML/main is NEVER modified. Floor and platform are two mocap
+    collision boxes, not mesh-triangle soup. Distinct contact bits permit
+    feet/torso vs either slab, while excluding slab-slab self contacts.
+    Their poses are sampled per episode through mjx.Data, with NO per-episode
+    model rebuild and no privileged actor-input channels.
+    """
+    root=ET.parse(robot_xml).getroot()
+    world=root.find('worldbody')
+    if world is None:
+        raise ValueError('robot.xml requires worldbody')
+    floor=world.find("geom[@name='floor']")
+    if floor is None or floor.get('type') != 'plane':
+        raise ValueError('unified physical terrain expects named plane floor')
+    # Preserve original floor's contact friction and appearance.
+    friction=floor.get('friction','1.5 0.005 0.0001')
+    rgba=floor.get('rgba','0.2 0.25 0.3 1')
+    world.remove(floor)
+    for geom_name in ('torso_box','r_foot_ball','l_foot_ball'):
+        geom=root.find(f".//geom[@name='{geom_name}']")
+        if geom is None:
+            raise ValueError(f'missing contact geometry {geom_name}')
+        geom.set('contype','3')
+        geom.set('conaffinity','3')
+    size=(f'{UNIFIED_SLAB_HALF_LENGTH_M} {UNIFIED_SLAB_HALF_WIDTH_M} '
+          f'{UNIFIED_SLAB_HALF_DEPTH_M}')
+    ground=ET.SubElement(world,'body',dict(name='unified_ground',mocap='true',
+                                            pos='0 0 -0.25'))
+    ET.SubElement(ground,'geom',dict(name='floor',type='box',size=size,
+                                     contype='1',conaffinity='1',
+                                     friction=friction,rgba=rgba))
+    elevated=ET.SubElement(world,'body',dict(name='episode_terrain_platform',
+                                              mocap='true',pos='0 0 -2'))
+    ET.SubElement(elevated,'geom',dict(name='episode_terrain_surface',
+                                      type='box',size=size,
+                                      contype='2',conaffinity='2',
+                                      friction=friction,rgba='0.65 0.50 0.24 1'))
+    return ET.tostring(root,encoding='unicode')
+
+
+# Persistent batched physics and measured sensor packets. These are shared
+# across reset, PPO rollout, real terrain evaluation and observation assembly.
 class EnvState(NamedTuple):
     data: Any
     hist: Any
     rng: Any
     task: Any
+    specialist_active: Any  # teacher-only birth focus, not an actor observation
+    focus_id: Any  # sampled per-episode teaching identity; never an actor input
     prev_action: Any
     # Reward-only previous foot pose for true stance-slip measurement.
     prev_foot_pos: Any
@@ -118,6 +255,14 @@ class EnvState(NamedTuple):
     # "has this episode shown a sustained pattern of stepping", which a
     # real gait clears easily and true freezing does not.
     ep_step_evidence_sum: Any
+    ep_command_quality_sum: Any   # physical vx/vy/yaw tracking across entire episode
+    terrain_cross_streak: Any
+    terrain_crossed: Any
+    # Ascent-only high-water marks, teacher state, never actor observations.
+    # Prevent repeated lip-rocking and foot-tapping from farming rewards.
+    terrain_ascent_root_peak: Any
+    terrain_ascent_foot_peak: Any
+    terrain_verified_height_peak: Any  # reward-only per-lip high-water mark
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -138,12 +283,22 @@ class EnvState(NamedTuple):
     # The v5016 opt-in sensor queue persists independent acquisition and
     # delivery timing. Legacy policies leave this at None.
     sensor_state: Any = None
+    velocity_i_integral: Any = None  # two controller axes, not actor inputs
+    raw_velocity_command: Any = None  # true operator request
+    terrain_care_frames: Any = None  # used near-lip reward frames; reset every episode
+    # NEW v5030 reward-only rolling 25-frame history (never actor input).
+    # This is a fresh source/checkpoint shape: no cross-SHA resume.
+    vx_reward_history: Any = None
+    cmd_vx_reward_history: Any = None
+    vx_reward_count: Any = None
 
 
 class SensorSample(NamedTuple):
     """One raw sensor snapshot; no estimated grade or velocity stored."""
     tof_ranges_m: Any
     tof_beam_valid: Any
+    terrain_ranges_m: Any
+    terrain_valid: Any
     flow_rad_s: Any
     flow_valid: Any
     gyro_body_rad_s: Any
@@ -243,14 +398,6 @@ def joint_spring_energy(xp, joint_position_rad, spring_ref_rad, stiffness_nm_rad
 
 
 # Commands/tasks share the same MJX physical-world state and RNG.
-from types import SimpleNamespace
-from typing import Any, NamedTuple
-from .contracts import (
-    CONTROL_DT, COMBO_P, PHASE_RATE_MAX_HZ, SEED_VX_HI, SEED_VX_LO,
-    FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE,
-    FIELD_EDGE_STRIDE, FIELD_NODE_START, FIELD_EDGE_START,
-    FIELD_EDGE_SCALES, P,
-)
 
 # Command-transition dynamics (see _sample_cmd_target / TRANSITION's own
 # difficulty path in _transition_hold_and_jump).
@@ -317,6 +464,31 @@ def command_phase_rate(vx, vy, vx_hi_max, phase_speed_gain, base_phase_rate):
 
 
 
+def velocity_i_step(xp,requested,observed,confidence,previous,integral,
+                    *,dt=0.02,ramp_s=0.4,multiplier=2.,
+                    forward_limit=.40,reverse_limit=.12,lateral_limit=.14):
+    """Vectorized controller: normalized signed shortfall ramps 0->1 in ramp_s."""
+    if not (dt>0 and .1<=ramp_s<=5. and 1.<=multiplier<=3. and
+            min(forward_limit,reverse_limit,lateral_limit)>0):
+        raise ValueError('invalid velocity-I parameters')
+    if multiplier==1.:
+        return requested,xp.zeros_like(integral)
+    req=xp.asarray(requested)
+    est=xp.asarray(observed)
+    confid=xp.asarray(confidence)
+    valid=(confid>=.35) & xp.all(xp.isfinite(est),axis=1)
+    active=xp.abs(req)>=.025
+    changed=(req*previous<0)|(xp.abs(req-previous)>xp.maximum(.05,.5*xp.abs(previous)))
+    shortfall=xp.clip((req-est)*xp.sign(req)/xp.maximum(xp.abs(req),.04),-1.,1.)
+    candidate=xp.clip(integral+shortfall*(dt/ramp_s),0.,1.)
+    state=xp.where(changed|~active,0.,
+                   xp.where(valid[:,None],candidate,integral*.90))
+    demand=req*(1.+(multiplier-1.)*state)
+    demand=xp.stack((xp.clip(demand[:,0],-reverse_limit,forward_limit),
+                     xp.clip(demand[:,1],-lateral_limit,lateral_limit)),axis=-1)
+    return demand,state
+
+
 class CommandFrame(NamedTuple):
     """The next command request, its ramp state, and transition diagnostics."""
     task: Any                 # advanced command for the next observation
@@ -339,6 +511,8 @@ class CommandEnvelope(NamedTuple):
     yaw: Any
 
 
+# Teacher-side commands, specialist lessons and ramp timing. This class
+# samples requests; it never overrides the policy's six motor actions.
 class TaskSampler:
     """Stateless lesson-generation methods consumed by EmuMJXEnv.
 
@@ -380,16 +554,36 @@ class TaskSampler:
         jnp = self.jnp
         steady_d = params[P.steady_difficulty]
         command_frac = jnp.clip(params[P.regime_command_frac], 0.0, 1.0)
+        # The unified actor first receives main's ordinary steady-difficulty
+        # command interpolation. The newly-earned physical limits gradually
+        # take over after the foundation. Legacy actor maths is untouched.
+        vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
+        vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
+        yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
+        vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
         if self.open_frontier:
-            vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
-            vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
-            yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
-            vy_max = jnp.maximum(0.0, params[P.frontier_vy])
-        else:
-            vx_hi = self._lerp(SEED_VX_HI, self.vx_hi_max, steady_d)
-            vx_lo = self._lerp(SEED_VX_LO, self.vx_lo_min, steady_d)
-            yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
-            vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
+            if self.unified_capability_focus:
+                mix = jnp.clip(params[P.specialist_mix], 0., 1.)
+                # A newly seeded specialist frontier (.06 m/s, etc.) is
+                # initially SMALLER than main's already-earned 20M command
+                # experience. Never replace that successful foundation with
+                # an easier limit during the specialist fade-in. Only let
+                # specialist evidence EXTEND each signed main-style axis.
+                vx_hi = jnp.maximum(vx_hi,
+                    self._lerp(SEED_VX_HI,
+                        jnp.maximum(SEED_VX_HI,params[P.frontier_vx_hi]),mix))
+                vx_lo = jnp.minimum(vx_lo,
+                    self._lerp(SEED_VX_LO,
+                        jnp.minimum(SEED_VX_LO,params[P.frontier_vx_lo]),mix))
+                yaw_max = jnp.maximum(yaw_max,
+                    mix*jnp.maximum(0.,params[P.frontier_yaw]))
+                vy_max = jnp.maximum(vy_max,
+                    mix*jnp.maximum(0.,params[P.frontier_vy]))
+            else:
+                vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
+                vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
+                yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
+                vy_max = jnp.maximum(0.0, params[P.frontier_vy])
         full = CommandEnvelope(vx_hi, vx_lo, vy_max, yaw_max)
         reduced = CommandEnvelope(
             SEED_VX_HI + command_frac * (vx_hi - SEED_VX_HI),
@@ -539,6 +733,16 @@ class TaskSampler:
                 birth_resilience_d = jnp.clip(resilience_d, 0.0, 1.0)
             if self.open_frontier:
                 resilience_frac = jnp.clip(params[P.frontier_push_n] / jnp.maximum(self.push_max_force_n, 1e-6), 0.0, 1.0)
+                if self.unified_capability_focus:
+                    # Main's foundation scaled pushes with earned resilience
+                    # difficulty and a 0.70 N physical maximum. Unified has
+                    # 3.2 N *headroom* but must not use its whole frontier
+                    # merely because open-frontier sampling is enabled.
+                    foundation_frac = birth_resilience_d * (
+                        .70 / jnp.maximum(self.push_max_force_n, 1e-6))
+                    resilience_frac = self._lerp(
+                        foundation_frac, resilience_frac,
+                        jnp.clip(params[P.specialist_mix], 0., 1.))
             else:
                 resilience_frac = birth_resilience_d
             resilience_task = jnp.where(regime > 1.5, jnp.maximum(resilience_frac, 0.08 / jnp.maximum(self.push_max_force_n, 1e-6)),
@@ -548,9 +752,17 @@ class TaskSampler:
             # envelope directly. The three axes are intentionally independent:
             # this is memory rehearsal of the old rectangular distribution, not
             # evidence for the new p-norm frontier.
-            vx_ath = jax.random.uniform(k_vx, (), minval=-0.20, maxval=0.60)
-            vy_ath = jax.random.uniform(k_vy, (), minval=-0.22, maxval=0.22)
-            yaw_ath = jax.random.uniform(k_yaw, (), minval=-1.50, maxval=1.50)
+            # Genuine high-speed *steady* practice, not a second actor or hard
+            # 0.60m/s ceiling: once the signed evidence frontier grows,
+            # rehearsal can probe 15% beyond it. The floor supports it.
+            athletic_hi=jnp.maximum(.60,1.15*params[P.frontier_vx_hi])
+            # Teach forward speed without saturating the tracking reward
+            # on simultaneous extreme turn/side requests. Broad commands
+            # stay in COMMAND and TRANSITION specialists.
+            vx_ath = jax.random.uniform(k_vx, (), minval=.06,
+                                        maxval=athletic_hi)
+            vy_ath = jax.random.uniform(k_vy, (), minval=-.05, maxval=.05)
+            yaw_ath = jax.random.uniform(k_yaw, (), minval=-.25, maxval=.25)
             vx = jnp.where(is_athletic, vx_ath, vx)
             vy = jnp.where(is_athletic, vy_ath, vy)
             yaw = jnp.where(is_athletic, yaw_ath, yaw)
@@ -565,6 +777,12 @@ class TaskSampler:
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
             vy = jnp.where(jnp.isfinite(params[P.probe_cmd_vy]), params[P.probe_cmd_vy], vy)
             yaw = jnp.where(jnp.isfinite(params[P.probe_cmd_yaw]), params[P.probe_cmd_yaw], yaw)
+            # The actual rehearsal command must set the gait clock;
+            # _sample_task calculated phase before the athletic override.
+            phase_rate=jnp.where(is_athletic,
+                command_phase_rate(vx,vy,self.vx_hi_max,
+                                   self.phase_speed_gain,base_phase_rate),
+                phase_rate)
             cols = [regime, vx, vy, yaw, height, pitch, roll, step_height, resilience_task, phase_rate,
                     steady_d, params[P.transition_difficulty], birth_resilience_d, posture_d,
                     is_athletic.astype(jnp.float32), sensor_scale_task, field_use.astype(jnp.float32)]
@@ -718,6 +936,15 @@ class TaskSampler:
         # but only ever actually USED where should_resample is True, i.e.
         # only ever for TRANSITION envs.
         new_target, new_field_taught = self._sample_cmd_target(rk_target, params, cmd_now[:, :3])
+        # Transition-focused episodes push command-change timing and
+        # acceleration, not the maximum walking envelope at the same time.
+        # Reduce the NEXT requested velocity too, not only its birth task.
+        if self.unified_capability_focus:
+            trans_focus=state.specialist_active & (state.focus_id==TRANSITION)
+            centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
+            new_target=jnp.where(trans_focus[:,None],
+                       centre+NONFOCUS_STRENGTH*(new_target-centre),
+                       new_target)
         if self.attitude_profile == 'v5015':
             pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
             pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
@@ -763,9 +990,6 @@ class TaskSampler:
         )
 
 # MJX model-level domain variations; physical topology remains fixed.
-from dataclasses import dataclass, asdict
-from typing import Any
-import math
 
 
 # Physical envelopes at radius=1.  Training should normally grow the three
@@ -1038,6 +1262,8 @@ def doctrine_dict() -> dict[str, float]:
         'GRAVITY_MAG_FRAC': GRAVITY_MAG_FRAC,
     }
 
+# One production MJX environment, one six-servo robot, one vectorised JAX
+# stepping path. Keep its physical model and deployment sensor contract here.
 class EmuMJXEnv(TaskSampler):
     """Batched robot universe, with task sampling inherited from TaskSampler.
 
@@ -1071,7 +1297,17 @@ class EmuMJXEnv(TaskSampler):
                  flow_delay_frames: int = 1,
                  tof_dropout_prob: float = 0.01,
                  flow_dropout_prob: float = 0.02,
-                 gyro_bias_std_rad_s: float = 0.015):
+                 gyro_bias_std_rad_s: float = 0.015,
+                 terrain_step_max_m: float = 0.0,
+                 paired_terrain_heights: bool = False,
+                 unified_capability_focus: bool = False,
+                 velocity_i_ramp_s: float = 0.4,
+                 velocity_i_multiplier: float = 1.0,
+                 retention_share: float = 0.0,
+                 terrain_lesson: str = 'mixed',
+                 physical_exam_legacy_actor: bool = False,
+                 temporal_vx_reward_share: float = 0.0,
+                 verified_ascent_reallocation: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1088,6 +1324,15 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
+        # Strict, examiner-only exception: place a legacy 232-input actor
+        # into the SAME v5029 two-slab physical world. It must keep its
+        # original simulated 3-ToF/flow/IMU readings, not 360 array channels.
+        # No active training run ever sets this flag.
+        if physical_exam_legacy_actor and (
+                not unified_capability_focus or observation_schema!=OBS_SCHEMA_SENSOR
+                or terrain_step_max_m<=0):
+            raise ValueError('legacy physical baseline requires unified two-slab geometry and sim2real_232')
+        self.physical_exam_legacy_actor=bool(physical_exam_legacy_actor)
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1124,20 +1369,64 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }) if observation_schema == OBS_SCHEMA_SENSOR else None)
+        }, schema=observation_schema, array_only=(unified_capability_focus and
+                observation_schema==OBS_SCHEMA_TERRAIN))
+            if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
         self.num_envs = int(num_envs)
+        self.unified_capability_focus = bool(unified_capability_focus)
+        self.focus_id = jnp.asarray(focus_indices(self.num_envs))
         self.max_episode_steps = int(max_episode_steps)
         self.robot_xml = str(robot_xml)
-        self.mj_model = mujoco.MjModel.from_xml_path(self.robot_xml)
+        # Experimental G3 only. Default zero uses the exact old XML path,
+        # collision topology and JAX shapes. Never activate mid-checkpoint.
+        if not np.isfinite(terrain_step_max_m) or not 0 <= terrain_step_max_m <= .08:
+            raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
+        self.terrain_step_max_m = float(terrain_step_max_m)
+        self.paired_terrain_heights = bool(paired_terrain_heights)
+        self.terrain_pair_seed = int(seed)
+        self.mj_model = (
+            mujoco.MjModel.from_xml_string(add_unified_terrain(self.robot_xml))
+            if self.unified_capability_focus else
+            mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
+            if self.terrain_step_max_m > 0 else
+            mujoco.MjModel.from_xml_path(self.robot_xml)
+        )
+        self.unified_ground_mocap_id = -1
+        if self.unified_capability_focus:
+            if ((self.observation_schema != OBS_SCHEMA_TERRAIN and
+                 not self.physical_exam_legacy_actor) or self.terrain_step_max_m <= 0):
+                raise ValueError('unified terrain requires terrain_360 or explicit exam-only 232 baseline')
+            ground_body=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,
+                                          'unified_ground')
+            self.unified_ground_mocap_id=int(self.mj_model.body_mocapid[ground_body])
+            if self.unified_ground_mocap_id < 0:
+                raise RuntimeError('unified ground must have a real movable mocap body')
+        self.terrain_step_mocap_id = -1
+        self.terrain_step_geom_id = -1
+        if self.terrain_step_max_m:
+            platform_body = mujoco.mj_name2id(
+                self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
+            self.terrain_step_mocap_id = int(self.mj_model.body_mocapid[platform_body])
+            self.terrain_step_geom_id = mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
+            if self.terrain_step_mocap_id < 0:
+                raise RuntimeError('physical episode terrain requires a mocap body')
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
         # disabling MuJoCo's compiled identity-frame shortcut BEFORE put_model.
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
         self.contact_slope_deg = float(contact_slope_deg)
+        if self.terrain_step_max_m and not self.unified_capability_focus and (
+                self.contact_slope_deg != 0 or
+                (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
+            raise ValueError('legacy finite-step G3 probe cannot mix with inclined terrain')
+        if self.unified_capability_focus and (
+                self.contact_slope_deg != 0 or self.domain_config.terrain_radius>0):
+            raise ValueError('unified dynamic slope is episode sampled; disable old model-level incline randomizers')
         self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
         orientation = contact_plane_quaternion(self.contact_slope_deg,
                                                self.contact_uphill_xy)
@@ -1194,6 +1483,30 @@ class EmuMJXEnv(TaskSampler):
         self.vy_max_mps = float(vy_max_mps)
         self.yaw_max_rad_s = float(yaw_max_rad_s)
         self.phase_speed_gain = float(phase_speed_gain)
+        if (not math.isfinite(velocity_i_ramp_s) or
+                not 0.1 <= velocity_i_ramp_s <= 5.0 or
+                not math.isfinite(velocity_i_multiplier) or
+                not 1.0 <= velocity_i_multiplier <= 3.0 or
+                (velocity_i_multiplier > 1.0 and
+                 (not unified_capability_focus or observation_schema != OBS_SCHEMA_TERRAIN))):
+            raise ValueError('velocity I requires unified terrain_360, ramp 0.1..5s, multiplier 1..3')
+        self.velocity_i_ramp_s = float(velocity_i_ramp_s)
+        self.velocity_i_multiplier = float(velocity_i_multiplier)
+        if terrain_lesson not in ('mixed','coherent','coherent-direct','coherent-careful') or not 0.<=retention_share<=.4:
+            raise ValueError('invalid recovery-first experiment contract')
+        self.terrain_lesson = terrain_lesson
+        self.retention_share = float(retention_share)
+        if (not np.isfinite(temporal_vx_reward_share)
+                or not 0.0<=temporal_vx_reward_share<=1.0
+                or (temporal_vx_reward_share>0 and not self.unified_capability_focus)):
+            raise ValueError('temporal vx reward requires unified terrain and share 0..1')
+        self.temporal_vx_reward_share=float(temporal_vx_reward_share)
+        if (not np.isfinite(verified_ascent_reallocation) or
+                not 0.0<=verified_ascent_reallocation<=4.0 or
+                (verified_ascent_reallocation>0. and
+                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
+            raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
+        self.verified_ascent_reallocation=float(verified_ascent_reallocation)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1317,6 +1630,57 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
+        if self.terrain_step_mocap_id >= 0:
+            # Explicit versioned task extension. Flat runs keep their old
+            # exact shape and P-index semantics, even on this feature branch.
+            terrain = np.asarray(
+                [float(params.get(name, default)) for name, default in TERRAIN_TASK_FIELDS],
+                dtype=np.float32)
+            if not (np.isfinite(terrain).all() and
+                    0.0 <= terrain[0] <= 1.0 and
+                    0.0 <= terrain[1] <= self.terrain_step_max_m):
+                raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
+            packed = np.concatenate((packed, terrain))
+            assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
+            if self.unified_capability_focus:
+                slope = np.asarray(
+                    [float(params.get(name, default))
+                     for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
+                if (not np.isfinite(slope[:2]).all() or not 0.<=slope[0]<=1. or
+                        not 0.<=slope[1]<=15.0):
+                    raise ValueError('slope exposure must be [0,1], probe cap 15 degrees')
+                fixed_pitch,fixed_roll=slope[2],slope[3]
+                if np.isfinite(fixed_pitch) != np.isfinite(fixed_roll):
+                    raise ValueError('explicit terrain pitch and roll must be provided together')
+                if np.isfinite(fixed_pitch):
+                    g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
+                               np.tan(np.deg2rad(fixed_roll)))
+                    # Float32 tan/atan round-trip makes a genuine 15-degree
+                    # single-axis grade appear as 15.000001. Tolerate
+                    # numerical error, never a meaningful over-limit slope.
+                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0 + 1e-5:
+                        raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
+                if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
+                    raise ValueError('fixed step height outside compiled physical range')
+                if np.isfinite(slope[5]) and abs(slope[5])>45.0:
+                    raise ValueError('fixed edge yaw outside +/-45-degree exam range')
+                if not np.isfinite(slope[6]) or not 0. <= slope[6] <= 1.:
+                    raise ValueError('specialist_mix must be between zero and one')
+                if not np.isfinite(slope[7]) or not 0. <= slope[7] <= 1.:
+                    raise ValueError('foundation_control_mix must be between zero and one')
+                focus_weights=slope[8:14]
+                if (not np.isfinite(focus_weights).all() or
+                    (focus_weights<0.).any() or
+                    (focus_weights.sum()>0. and not np.isclose(
+                        focus_weights.sum(),1.,atol=1e-4))):
+                    raise ValueError('focus weights must be nonnegative and sum to one')
+                if (not np.isfinite(slope[14]) or
+                    slope[14]<0. or slope[14]>1.):
+                    raise ValueError('steering attention must be within [0,1]')
+                if not np.all(np.isfinite(slope[~np.isnan(slope)])):
+                    raise ValueError('invalid physical terrain override')
+                packed=np.concatenate((packed,slope))
+                assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
@@ -1382,7 +1746,15 @@ class EmuMJXEnv(TaskSampler):
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
         # instruction the actor already saw when choosing this action.
-        lesson = self._advance_commands(state, params, physics.resample_keys)
+        # Train and assess ORIGINAL operator velocities; the boosted
+        # controller request is never passed to the reward/teacher.
+        source_task = state.task
+        if self.velocity_i_multiplier > 1.0:
+            source_task = (source_task.at[:,T.vx].set(state.raw_velocity_command[:,0])
+                                     .at[:,T.vy].set(state.raw_velocity_command[:,1]))
+        lesson = self._advance_commands(
+            state._replace(task=source_task) if self.velocity_i_multiplier > 1.0 else state,
+            params, physics.resample_keys)
         task = lesson.task
         task_for_state = lesson.stored_task
         ramp_frac = lesson.ramp_frac
@@ -1392,7 +1764,7 @@ class EmuMJXEnv(TaskSampler):
 
         # 3. Measure the physical result, then reward the PREVIOUS command.
         # The ramped command is for the next observation, never this payment.
-        reward_task = state.task
+        reward_task = source_task
         metrics = self._metrics(data, reward_task, action, state.prev_action, phase, state.prev_foot_pos)
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
@@ -1400,10 +1772,44 @@ class EmuMJXEnv(TaskSampler):
         # ep_len; step_i is deliberately staggered for timeout diversity.
         metrics = {**metrics, 'age_s': (state.ep_len + 1.0) * CONTROL_DT,
                   'stepping_activity_so_far': stepping_activity_so_far, 'ramp_frac': ramp_frac}
+        # v5030 B: exact trailing 25-frame 0.5s *reward-only* forward
+        # history. Use PREVIOUS request; never contaminate with next task.
+        # Clear at every transition/ramp so command changes don't look like
+        # free success, and reset on episode birth via the state reset path.
+        history_ready=(state.task[:,T.regime]<.5) & (
+            state.cmd_ramp_frac>=.999) & ~physics_diverged
+        slot=jnp.mod(state.step_i,25).astype(jnp.int32)
+        idx=jnp.arange(self.num_envs)
+        hist_v=jnp.where(history_ready[:,None],
+                         state.vx_reward_history,0.)
+        hist_c=jnp.where(history_ready[:,None],
+                         state.cmd_vx_reward_history,0.)
+        hist_v=hist_v.at[idx,slot].set(
+            jnp.where(history_ready,metrics['vx'],0.))
+        hist_c=hist_c.at[idx,slot].set(
+            jnp.where(history_ready,metrics['cmd_vx'],0.))
+        hist_n=jnp.where(history_ready,
+                          jnp.minimum(state.vx_reward_count+1,25),0)
+        temporal=(hist_v.sum(axis=1)/jnp.maximum(1,hist_n),
+                  hist_c.sum(axis=1)/jnp.maximum(1,hist_n),
+                  self.temporal_vx_reward_share*(
+                      hist_n.astype(jnp.float32)/25.))
+        # Only real upward STEP specialist approaches receive a short
+        # self-paced reward allowance; general walking keeps its economics.
+        care_window = (self._considered_step_window(state, data)
+                       if self.terrain_lesson == 'coherent-careful'
+                       else jnp.zeros((self.num_envs,), dtype=jnp.bool_))
+        care_active = care_window & (state.terrain_care_frames < 120)
+        care_frames = state.terrain_care_frames + care_active.astype(jnp.int32)
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
-            motor_guidance_weight=self.motor_guidance_weight)
+            careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
+            temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
+            motor_guidance_weight=self.motor_guidance_weight,
+            motor_guidance_per_world=(control_effort_weights(jnp,
+                    jnp.where(state.specialist_active,state.focus_id,-1))
+                if self.unified_capability_focus else None))
         timeout = step_i >= self.max_episode_steps
         # Even after rollback, a diverged world must terminate and respawn.
         terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
@@ -1421,14 +1827,118 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = state.ep_bad_sum + metrics['bad_contact']
         ep_support_sum = state.ep_support_sum + metrics['support']
         ep_step_evidence_sum = state.ep_step_evidence_sum + metrics['step_evidence']
+        # Teacher-only episode quality: using one good final frame would let
+        # the robot coast into a high velocity for a moment and 'pass'.
+        vx_e=metrics['vx']-metrics['cmd_vx']
+        vy_e=metrics['vy']-metrics['cmd_vy']
+        yaw_e=metrics['yaw_rate']-metrics['cmd_yaw']
+        tracking_frame=jnp.exp(-(35.*vx_e*vx_e+28.*vy_e*vy_e+2.0*yaw_e*yaw_e))
+        ep_command_quality_sum = state.ep_command_quality_sum + tracking_frame * (
+            .50 + .50*jnp.clip(metrics['support'],0.,1.)) * (
+            1. - jnp.clip(metrics['bad_contact'],0.,1.))
+        # G4 examiner/teacher: evidence comes exclusively from actual
+        # root travel AND far-side MJX foot contacts. No privileged terrain
+        # height or approach position is ever passed to the actor.
+        terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
+            state, data, metrics)
+        terrain_cross_new = terrain_crossed & ~state.terrain_crossed
+        terrain_up = terrain_active & ((self.env_index % 2) == 0)
+        terrain_down = terrain_active & ((self.env_index % 2) == 1)
+        # Physical step severity: displacement between the two actual
+        # surface collider centres projected onto their shared normal.
+        # Never infer it from the requested teacher height or flat fallback.
+        if self.unified_capability_focus:
+            base_id=int(self.ids['floor_geom'])
+            upper_id=int(self.terrain_step_geom_id)
+            support_n=data.geom_xmat[:,base_id,:].reshape(
+                (self.num_envs,3,3))[:,:,2]
+            physical_height=jnp.abs(jnp.sum((
+                data.geom_xpos[:,upper_id,:]-data.geom_xpos[:,base_id,:])
+                * support_n,axis=1))
+            physical_height=jnp.where(terrain_active,physical_height,0.)
+            ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+            step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
+            step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
+        else:
+            physical_height=jnp.zeros_like(reward)
+            step_near=terrain_active & False
+            step_easy=terrain_active & False
+        ascent_payment = jnp.zeros_like(reward)
+        verified_transfer_payment = jnp.zeros_like(reward)
+        root_peak = state.terrain_ascent_root_peak
+        foot_peak = state.terrain_ascent_foot_peak
+        verified_peak = state.terrain_verified_height_peak
+        if self.observation_schema == OBS_SCHEMA_TERRAIN:
+            # A single bounded foothold/progress lesson for ASCENT, before
+            # the very sparse far-side completion. Both high-water marks are
+            # reset at the next episode birth; no pay for rocking backwards.
+            ascent_payment, root_peak, foot_peak = self._terrain_ascent_guidance(
+                state, data, metrics, terrain_up)
+            if self.verified_ascent_reallocation > 0.:
+                # Transfer part of the EXISTING max-nine-point ascent shaping
+                # (6.6 root travel + 2.4 foot reach) to genuine upper contact.
+                # The +10 supported-crossing payment remains unchanged.
+                ascent_payment = ascent_payment * (
+                    (9.0-self.verified_ascent_reallocation)/9.0)
+                from .directional import contact_pair_mask
+                contact = getattr(data, '_impl', data).contact
+                feet = tuple(int(x) for x in self.ids['foot_geoms'])
+                upper_pairs = contact_pair_mask(
+                    jnp,contact.geom1,contact.geom2,contact.dist,
+                    int(self.terrain_step_geom_id),feet)
+                upper_contact = jnp.any(upper_pairs,axis=1)
+                base_id = int(self.ids['floor_geom'])
+                base_n = data.geom_xmat[:,base_id,:].reshape(
+                    (self.num_envs,3,3))[:,:,2]
+                lower_top = (data.geom_xpos[:,base_id,:] +
+                             UNIFIED_SLAB_HALF_DEPTH_M*base_n)
+                torso = data.xpos[:,self.torso_id,:]
+                torso_above_lower = jnp.sum(
+                    (torso-lower_top)*base_n,axis=1)
+                # Real signed CoG ascent relative to its neutral pose on the
+                # LOWER slab. Lifting in place earns nothing without target
+                # upper-foot contact and a physically upright, supported body.
+                expected_flat = NEUTRAL_ROOT_Z + state.task[:,T.height]
+                cog_delta = jnp.maximum(0.,torso_above_lower-expected_flat)
+                valid = (care_window & terrain_up & upper_contact &
+                         (metrics['support']>=.5) &
+                         (metrics['bad_contact']<.5) &
+                         (metrics['terminal']<.5) & ~physics_diverged)
+                verified_transfer_payment,verified_peak = verified_support_elevation_credit(
+                    physical_height,cog_delta,upper_contact,valid,
+                    state.terrain_verified_height_peak,direction=1,xp=jnp,
+                    max_rise_m=.04,
+                    total_credit=self.verified_ascent_reallocation,
+                    normalize_by_actual_height=True)
+                ascent_payment = ascent_payment + verified_transfer_payment
+            reward = reward + ascent_payment
+            ep_return = ep_return + ascent_payment
+            # Completion still requires real, sustained far-side MJX support.
+            reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
+            ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema == OBS_SCHEMA_SENSOR
+            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
             else None)
-        base = self._base_obs(data, task, action, phase, ctrl, sensors)
+        integral_next = state.velocity_i_integral
+        raw_next = task[:,[T.vx,T.vy]]
+        if self.velocity_i_multiplier > 1.0:
+            sensed = self._sensor_readout(sensors,self._body_packets(data)[0])
+            commanded, integral_next = velocity_i_step(
+                jnp,raw_next,sensed['velocity_body_xy_mps'],
+                sensed['velocity_confidence'],state.raw_velocity_command,
+                state.velocity_i_integral,dt=CONTROL_DT,
+                ramp_s=self.velocity_i_ramp_s,
+                multiplier=self.velocity_i_multiplier,
+                forward_limit=max(self.vx_hi_max,1.4),
+                reverse_limit=max(abs(self.vx_lo_min),.55),
+                lateral_limit=max(self.vy_max_mps,.55))
+            task_for_state=(task_for_state.at[:,T.vx].set(commanded[:,0])
+                                          .at[:,T.vy].set(commanded[:,1]))
+        base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # carryover_qvel is this step's own (already divergence-safe)
@@ -1441,10 +1951,13 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
-        stepped = EnvState(data, hist, physics.next_keys, task_for_state, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
-                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum,
+        stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, state.focus_id, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
+                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
+                           terrain_streak,terrain_crossed,root_peak,foot_peak,verified_peak,
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left, sensors)
+                           physics.push_force, physics.push_steps_left, sensors,
+                           integral_next,raw_next,care_frames,
+                           hist_v,hist_c,hist_n)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1455,12 +1968,97 @@ class EmuMJXEnv(TaskSampler):
         vx_err = jnp.abs(metrics['vx'] - metrics['cmd_vx'])
         vy_err = jnp.abs(metrics['vy'] - metrics['cmd_vy'])
         yaw_err = jnp.abs(metrics['yaw_rate'] - metrics['cmd_yaw'])
+        # Normalized L1 radius at the actual episode's requested command.
+        # This is evidence context, not an observation/reward. For COMMAND
+        # specialists the target remains fixed for the full episode.
+        fx=jnp.where(metrics['cmd_vx']>=0.,
+                     jnp.maximum(.01,params[P.frontier_vx_hi]),
+                     jnp.maximum(.01,jnp.abs(params[P.frontier_vx_lo])))
+        unit_x=jnp.abs(metrics['cmd_vx'])/fx
+        unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
+        unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
+        unit_radius=unit_x+unit_y+unit_z
+        if self.unified_capability_focus:
+            # Read the ACTUAL tilted COLLISION geom, not requested lesson
+            # severity, world gravity or a guessed angle. This is teacher
+            # evidence and never enters the neural observation.
+            Rfloor=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+                (self.num_envs,3,3))
+            floor_normal=Rfloor[:,:,2]
+            gx=-floor_normal[:,0]/jnp.maximum(.01,floor_normal[:,2])
+            gy=-floor_normal[:,1]/jnp.maximum(.01,floor_normal[:,2])
+            physical_slope=jnp.rad2deg(jnp.arctan(
+                jnp.sqrt(gx*gx+gy*gy)))
+            slope_role=state.specialist_active & (state.focus_id==SLOPE)
+        else:
+            gx=jnp.zeros_like(unit_x);gy=jnp.zeros_like(unit_x)
+            physical_slope=jnp.zeros_like(unit_x)
+            slope_role=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        # Smaller-than-seed incline lessons remain meaningful retreat
+        # territory; do not let a stale .25-degree recognition threshold
+        # erase their completed-episode evidence.
+        has_slope=slope_role & (physical_slope>=.10)
+        # Severity bands use the REAL collision geom, never a teacher's
+        # claimed task difficulty. Easy failures and near-target successes
+        # are different lessons. These masks only affect host-side evidence.
+        slope_fraction=physical_slope/jnp.maximum(params[P.slope_max_deg],.1)
+        slope_near=has_slope & (slope_fraction>=.78) & (slope_fraction<=1.05)
+        slope_easy=has_slope & (slope_fraction>=.36) & (slope_fraction<.68)
+        along=jnp.abs(gx)>=jnp.abs(gy)
+        slope_directions=(
+            ('uphill',has_slope & along & (gx>=0.)),
+            ('downhill',has_slope & along & (gx<0.)),
+            ('cross_left',has_slope & ~along & (gy>=0.)),
+            ('cross_right',has_slope & ~along & (gy<0.)))
+        # Two DISTINCT physical skills: a supported moving gait on the
+        # incline (even with drift), and accurate 3-axis command tracking.
+        # Neither may be inferred from merely being born on a slope.
+        # Still require meaningful forward travel so standing motionless
+        # cannot automatically push the teacher to harder terrain.
+        slope_stable=(
+            timeout & ~terminal_fail & (ep_len>=120.) &
+            (ep_support_sum/jnp.maximum(ep_len,1.)>.10) &
+            (ep_bad_sum/jnp.maximum(ep_len,1.)<.35) &
+            (ep_vx_sum/jnp.maximum(ep_len,1.)>.01))
+        slope_pass=(
+            slope_stable &
+            (ep_command_quality_sum/jnp.maximum(ep_len,1.)>=.60) &
+            (ep_vx_sum/jnp.maximum(ep_len,1.)>.025))
         out_metrics = {
             **{k: v for k, v in metrics.items() if k not in REWARD_ONLY_METRICS},
+            # Same physical slip value used by the gait reward; publish a
+            # read-only diagnostic for the independent frozen examiner.
+            # It is NOT an actor input, reward change or curriculum result.
+            'exam_stance_slip_proxy':metrics['stance_slip'],
+            'physical_slope_deg':physical_slope,
+            'physical_slope_gx':gx,
+            'physical_slope_gy':gy,
+            'slope_specialist_active':has_slope.astype(jnp.float32),
+            **{f'slope_episode_attempt_{name}':(done & active).astype(jnp.float32)
+               for name,active in slope_directions},
+            **{f'slope_episode_success_{name}':(slope_pass & active).astype(jnp.float32)
+               for name,active in slope_directions},
+            **{f'slope_episode_stable_{name}':(slope_stable & active).astype(jnp.float32)
+               for name,active in slope_directions},
+            **{f'slope_episode_{band}_{outcome}_{name}':
+               (mask & active & condition).astype(jnp.float32)
+               for name,active in slope_directions
+               for band,mask in (('near',slope_near),('easy',slope_easy))
+               for outcome,condition in (('attempt',done),
+                                         ('success',slope_pass),
+                                         ('stable',slope_stable))},
+            'command_probe_radius':unit_radius,
+            'command_probe_weight_x':unit_x/jnp.maximum(1e-5,unit_radius),
+            'command_probe_weight_y':unit_y/jnp.maximum(1e-5,unit_radius),
+            'command_probe_weight_z':unit_z/jnp.maximum(1e-5,unit_radius),
             'transition_frac': ramping,
             'cmd_resampled': resampled,
             # One maneuver verdict per source-to-target transition. These
             # diagnostics never enter actor observations or reward.
+            'policy_cmd_vx': state.task[:,T.vx],
+            'policy_cmd_vy': state.task[:,T.vy],
+            'velocity_i_x': state.velocity_i_integral[:,0],
+            'velocity_i_y': state.velocity_i_integral[:,1],
             'target_cmd_vx': state.cmd_target[:, 0],
             'target_cmd_vy': state.cmd_target[:, 1],
             'target_cmd_yaw': state.cmd_target[:, 2],
@@ -1472,10 +2070,49 @@ class EmuMJXEnv(TaskSampler):
             **{f'reward_{k}': v for k, v in terms.items()},
             'reward_weighted_fall_penalty': fall_payment,
             'episode_done': done.astype(jnp.float32),
+            'specialist_focus': jnp.where(state.specialist_active,
+                                           state.focus_id,-1).astype(jnp.float32),
+            'episode_command_quality': ep_command_quality_sum/jnp.maximum(ep_len,1.),
             'episode_length': ep_len,
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             'episode_timeout': timeout.astype(jnp.float32),
+            'careful_step_relief': care_active.astype(jnp.float32),
+            'careful_step_frames_used': care_frames.astype(jnp.float32),
+            'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
+            'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
+            'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            'physical_step_height_m': physical_height,
+            **{f'terrain_episode_{band}_{outcome}_{direction}':
+                (mask & cohort & condition).astype(jnp.float32)
+                for direction,cohort in (('up',terrain_up),('down',terrain_down))
+                for band,mask in (('near',step_near),('easy',step_easy))
+                for outcome,condition in (
+                    ('attempt',done),
+                    ('success',timeout & ~terminal_fail & terrain_crossed))},
+            'terrain_ascent_guidance':ascent_payment,
+            'terrain_verified_transfer_credit':verified_transfer_payment,
+            # Teacher-only direction: actor observations remain unchanged.
+            'terrain_active_up': terrain_up.astype(jnp.float32),
+            'terrain_active_down': terrain_down.astype(jnp.float32),
+            'terrain_episode_attempt_up': (done & terrain_up).astype(jnp.float32),
+            'terrain_episode_attempt_down': (done & terrain_down).astype(jnp.float32),
+            'terrain_episode_success_up': (timeout & ~terminal_fail & terrain_up & terrain_crossed).astype(jnp.float32),
+            'terrain_episode_success_down': (timeout & ~terminal_fail & terrain_down & terrain_crossed).astype(jnp.float32),
+            'terrain_episode_fall_up': (terminal_fail & terrain_up).astype(jnp.float32),
+            'terrain_episode_fall_down': (terminal_fail & terrain_down).astype(jnp.float32),
+            # Direction + approach speed cohorts: teacher-only counters, not
+            # actor observations. Absolute task vx is the commanded speed.
+            **{f'terrain_episode_{outcome}_up_{label}': jnp.logical_and(
+                condition,terrain_up & (
+                    (metrics['cmd_vx']>=lo) & (metrics['cmd_vx']<hi))
+                ).astype(jnp.float32)
+               for label,lo,hi in (
+                   ('slow',.10,.16),('medium',.16,.23),('fast',.23,.31))
+               for outcome,condition in (
+                   ('attempt',(done)),
+                   ('success',(timeout & ~terminal_fail & terrain_crossed)),
+                   ('fall',(terminal_fail)))},
             'episode_vx_mean': ep_vx_sum / denom,
             'episode_cmd_vx_mean': ep_cmd_vx_sum / denom,
             'episode_bad_contact': ep_bad_sum / denom,
@@ -1491,6 +2128,7 @@ class EmuMJXEnv(TaskSampler):
             {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
         )
 
+    # ---- Physics and the actuators' actual delivered forces ----
     def _simulate_physics(self, state: EnvState, action, params) -> PhysicalFrame:
         """Deliver the last servo target, apply pushes, and advance MJX.
 
@@ -1717,6 +2355,387 @@ class EmuMJXEnv(TaskSampler):
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
+    def _focus_for_birth(self, keys, params):
+        """Sample one role when an episode begins, not each physics frame.
+
+        With no schedule weights supplied, preserve the older fixed world
+        role map for held-out exams and legacy physical acceptance tests.
+        With weights, zero-probability roles can never be sampled.
+        """
+        # Legacy 220/232/single-platform teacher packets do NOT contain
+        # the unified schedule extension. The original fixed focus map
+        # remains entirely untouched for those older environments.
+        if not self.unified_capability_focus:
+            return self.focus_id
+        jax,jnp=self.jax,self.jnp
+        w=params[P.focus_weight_command:P.focus_weight_control+1]
+        logits=jnp.where(w>0.,jnp.log(jnp.maximum(w,1e-30)),-1e9)
+        drawn=jax.vmap(lambda k:jax.random.categorical(
+            jax.random.fold_in(k,50246),logits))(keys).astype(jnp.int32)
+        return jnp.where(jnp.sum(w)>0.,drawn,self.focus_id)
+
+    def _specialist_enabled(self, keys, params, focus_id=None):
+        """Sample the host-chosen specialist teaching share at episode birth.
+
+        The host holds this at zero for the first 20M cold gait steps, then
+        linearly activates every allocated cohort over 10M. This is exposure
+        scheduling, NOT a declaration of mastery; each physical target
+        continues moving on its OWN completed-episode evidence.
+        RNG streams remain independent of the legacy task/sensor sampler.
+        """
+        jax,jnp=self.jax,self.jnp
+        if not self.unified_capability_focus:
+            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        # The host supplies the sole training-age exposure blend; there is
+        # no separate age or cross-specialist gate inside the world.
+        mix=jnp.clip(params[P.specialist_mix],0.,1.)
+        k=jax.vmap(lambda x:jax.random.fold_in(x,50240))(keys)
+        sampled=jax.vmap(lambda x:jax.random.uniform(x,()))(k)
+        ordinary_focus=sampled<mix
+        # When the normal specialist mix is zero (foundation), an optional
+        # small slice of CONTROL worlds can practise graceful useful walking.
+        # Slope/step/advanced command cohorts remain completely inactive.
+        focus=self.focus_id if focus_id is None else focus_id
+        grace=(focus==CONTROL) & (
+            sampled<jnp.clip(params[P.foundation_control_mix],0.,1.))
+        return ordinary_focus | grace
+
+    def _specialist_task(self, task, keys, params, focus_id=None):
+        """Change difficulty emphasis, never policy or actor observation.
+
+        The 2048 worlds share the same robot, contacts, neural weights, and
+        optimizer. Commands sample the measured L1 boundary, while control
+        teaches cheaper/smoother gait inside an easier reliable envelope.
+        Real incline+step collision is a separate mandatory launch gate.
+        """
+        jnp=self.jnp
+        focus=self.focus_id if focus_id is None else focus_id
+        active=self._specialist_enabled(keys,params,focus)
+        if self.unified_capability_focus:
+            # Rehearsal is an explicit baseline subset of the SAME policy.
+            # Its genuine fast command must not be rewritten to a 0.1m/s
+            # slope/step/control/auxiliary lesson on the next line.
+            active=active & (task[:,T.athletic_rehearsal]<.5)
+        if not self.unified_capability_focus:
+            return task,active
+        jax=self.jax
+        is_step=active & (focus==STEP)
+        is_slope=active & (focus==SLOPE)
+        coherent=self.terrain_lesson in ('coherent','coherent-direct','coherent-careful')
+        is_coherent_terrain=(is_step|is_slope) & coherent
+        direct_terrain=is_coherent_terrain & (self.terrain_lesson=='coherent-direct')
+        is_command=active & (focus==COMMAND)
+        is_resilience=active & (focus==RESILIENCE)
+        is_transition=active & (focus==TRANSITION)
+        is_control=active & (focus==CONTROL)
+        # Command specialist gets a single steady target, so its *ended*
+        # episode is meaningful evidence of that command direction.
+        # Transition and resilience specialists keep their own existing
+        # dynamics, with all worlds still carrying normal contact tasks.
+        regime=jnp.where(is_command,0.,
+               jnp.where(is_resilience,2.,
+               jnp.where(is_transition,1.,
+               jnp.where(is_control|is_coherent_terrain,0.,task[:,T.regime]))))
+        task=task.at[:,T.regime].set(regime)
+        ordinary=~(is_command|is_control)
+        task=task.at[:,T.athletic_rehearsal].set(
+            jnp.where(ordinary,task[:,T.athletic_rehearsal],0.))
+        key_probe=jax.vmap(lambda k:jax.random.fold_in(k,50241))(keys)
+        # In unified mode the governor's frontiers START SMALL and expand
+        # on proven episodes; don't add a second hard-coded 20M ramp.
+        span=jnp.asarray(1.0,dtype=jnp.float32)
+        candidate=diamond_commands(
+            jax,jnp,key_probe,
+            params[P.frontier_vx_hi],params[P.frontier_vx_lo],
+            params[P.frontier_vy],params[P.frontier_yaw],
+            probe_scale=params[P.frontier_combo_radius],
+            steering_attention=params[P.steering_attention])
+        # The control reference must still WALK; no zero-velocity energy
+        # farming. Other commands remain small but not all exactly zero.
+        k_control=jax.vmap(lambda k:jax.random.fold_in(k,50242))(keys)
+        u=jax.vmap(lambda k:jax.random.uniform(k,(3,)))(k_control)
+        steady_hi=jnp.minimum(params[P.frontier_vx_hi],.06+.22*span)
+        control_vx=.04+jnp.minimum(.15,steady_hi-.04)*u[:,0]
+        control_vy=(u[:,1]*2-1)*params[P.frontier_vy]*span*.18
+        control_yaw=(u[:,2]*2-1)*params[P.frontier_yaw]*span*.18
+        desired=jnp.stack([task[:,T.vx],task[:,T.vy],task[:,T.yaw]],axis=-1)
+        desired=jnp.where(is_command[:,None],candidate,desired)
+        easy=jnp.stack((control_vx,control_vy,control_yaw),axis=-1)
+        desired=jnp.where(is_control[:,None],easy,desired)
+        # A real step needs forward intent to earn lip-progress reward.
+        # Keep the genuine physical obstacle but take unrelated turn,
+        # stop/reversal and resilience tasks out of the initial lesson.
+        if coherent:
+            kc=jax.vmap(lambda k:jax.random.fold_in(k,50321))(keys)
+            v=jax.vmap(lambda k:jax.random.uniform(k,()))(kc)
+            straight_vx=.10+.12*v
+            straight=jnp.stack((straight_vx,
+                jnp.zeros_like(straight_vx),jnp.zeros_like(straight_vx)),axis=-1)
+            desired=jnp.where(is_coherent_terrain[:,None],straight,desired)
+        # A single policy retains moving lower-speed expertise in a
+        # persistent CONTROL rehearsal cohort; it must not learn to stand
+        # motionless to avoid pushes or save energy.
+        if self.retention_share>0.:
+            kr=jax.vmap(lambda k:jax.random.fold_in(k,50322))(keys)
+            q=jax.vmap(lambda k:jax.random.uniform(k,(4,)))(kr)
+            rehearsal_vx=jnp.where(q[:,0]<.20,-(.04+.08*q[:,1]),
+                                   .05+.19*q[:,1])
+            rehearsal=jnp.stack((rehearsal_vx,
+                (q[:,2]*2.-1.)*.07,(q[:,3]*2.-1.)*.30),axis=-1)
+            desired=jnp.where(is_control[:,None],rehearsal,desired)
+        # Every specialty practises the OTHER commands, but at half of
+        # their sampled excursion around a small forward-walking reference.
+        # This is not a separate command frontier and does not change the
+        # target/edge probes of COMMAND-focused worlds.
+        # Isolated v5027 treatment: preserve coherent STEP/SLOPE operator
+        # intent, rather than attenuating sampled 0.10-0.22m/s toward
+        # +0.04m/s. The original "coherent" option remains bit-for-bit
+        # comparable; all other specialists retain their previous sampler.
+        auxiliary=active & ~(is_command|is_control|direct_terrain)
+        centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
+        desired=jnp.where(auxiliary[:,None],
+                          centre+NONFOCUS_STRENGTH*(desired-centre),desired)
+        old_speed=jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2)
+        new_speed=jnp.sqrt(desired[:,0]**2+desired[:,1]**2)
+        base=jnp.clip(task[:,T.phase_rate]-
+                      self.phase_speed_gain*jnp.clip(
+                        old_speed/jnp.maximum(.05,self.vx_hi_max),0.,1.5),
+                      .85,1.20)
+        new_phase=command_phase_rate(desired[:,0],desired[:,1],
+                                    self.vx_hi_max,self.phase_speed_gain,base)
+        # Auxiliary command changes must update gait phase rate too.
+        # Direct coherent terrain targets also need the correct gait clock.
+        modified=is_command|is_control|auxiliary|direct_terrain
+        task=task.at[:,T.vx].set(desired[:,0])
+        task=task.at[:,T.vy].set(desired[:,1])
+        task=task.at[:,T.yaw].set(desired[:,2])
+        task=task.at[:,T.phase_rate].set(
+            jnp.where(modified,new_phase,task[:,T.phase_rate]))
+        # Resilience focused worlds get current earned push severity. Control
+        # stays gentler in disturbed starts; neither makes pushes vanish
+        # from ordinary/terrain specialists.
+        resilience=jnp.where(is_resilience,
+             jnp.clip(params[P.frontier_push_n]/jnp.maximum(.05,self.push_max_force_n),.02,1.),
+             task[:,T.resilience])
+        resilience=jnp.where(active & ~is_resilience,
+                             resilience*NONFOCUS_STRENGTH,resilience)
+        resilience=jnp.where(is_control,resilience*(
+            CONTROL_STRENGTH/NONFOCUS_STRENGTH),resilience)
+        if self.retention_share>0.:
+            # The rehearsal set includes manageable real shoves; not
+            # simply undisturbed standing or huge 4N shocks.
+            small=.10+.60*q[:,2]
+            resilience=jnp.where(is_control,
+                jnp.minimum(small/jnp.maximum(.70,self.push_max_force_n),
+                            jnp.maximum(.05,resilience)),resilience)
+        task=task.at[:,T.resilience].set(resilience)
+        # All active specialists have easier posture variation; control is
+        # easier still, so its loss/effort lessons reward *doing* real work.
+        for column in (T.height,T.pitch,T.roll):
+            task=task.at[:,column].set(jnp.where(
+                is_control,CONTROL_STRENGTH*task[:,column],
+                jnp.where(active,NONFOCUS_STRENGTH*task[:,column],
+                          task[:,column])))
+        birth=task[:,T.birth_resilience_d]
+        birth=jnp.where(is_resilience,params[P.resilience_difficulty],
+                        jnp.where(active,birth*NONFOCUS_STRENGTH,birth))
+        birth=jnp.where(is_control,
+                        params[P.resilience_difficulty]*CONTROL_STRENGTH,birth)
+        task=task.at[:,T.birth_resilience_d].set(birth)
+        return task,active
+
+    # ---- Teacher-only physical terrain placement at episode birth ----
+    def _unified_terrain(self, data, keys, params,
+                         focus_id=None, specialist_active=None,
+                         athletic_rehearsal=None):
+        """Solid pair of independently sampled inclined contact surfaces.
+
+        Local top faces share n, tangent e/w; the discontinuity is along
+        their common normal. Both slabs always exist in model topology.
+        A dormant upper slab is buried and the lower slab spans the world;
+        non-dormant upper/lower slabs abut exactly at the sharp lip.
+        Changing ONLY mocap_pos/quat at reset keeps JAX compilation fixed.
+        """
+        jax,jnp=self.jax,self.jnp
+        def draw(key):
+            ks=jax.random.split(jax.random.fold_in(key,50245),6)
+            return jnp.stack([jax.random.uniform(ks[i],()) for i in range(6)])
+        u=jax.vmap(draw)(keys)
+        focus=self.focus_id if focus_id is None else focus_id
+        focused=(self._specialist_enabled(keys,params,focus)
+                 if specialist_active is None else specialist_active)
+        step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
+        slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
+        # A retained-skill CONTROL episode has the SAME flat environment
+        # across the P2 mixed/coherent arms. Otherwise E-D would also
+        # change retention physics and confound the terrain comparison.
+        if self.retention_share>0.:
+            flat_rehearsal=focused & (focus==CONTROL)
+            step_dose=jnp.where(flat_rehearsal,0.,step_dose)
+            slope_dose=jnp.where(flat_rehearsal,0.,slope_dose)
+        if self.terrain_lesson in ('coherent','coherent-direct','coherent-careful'):
+            # One coherent obstacle/grade mission at a time; retention
+            # worlds rehearse on genuinely flat terrain.
+            step_dose=jnp.where(focused & ((focus==SLOPE)|(focus==CONTROL)),
+                                0.,step_dose)
+            slope_dose=jnp.where(focused & ((focus==STEP)|(focus==CONTROL)),
+                                 0.,slope_dose)
+        # The governor may seed gentle physical severity on the exact 20M
+        # boundary; the host-owned fade ensures the NEXT worlds do not
+        # instantly get 15% obstacle births before gait has transitioned.
+        mix=jnp.clip(params[P.specialist_mix],0.,1.)
+        step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose*mix)
+        slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose*mix)
+        if athletic_rehearsal is not None:
+            # This cohort gets an uninterrupted flat running lane.
+            # Read-only fixed geometry overrides still win below.
+            rehearsal=athletic_rehearsal>.5
+            step_p=jnp.where(rehearsal,0.,step_p)
+            slope_p=jnp.where(rehearsal,0.,slope_p)
+        has_fixed_height=jnp.isfinite(params[P.terrain_fixed_height_m])
+        step_active=jnp.where(
+            has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,
+            (u[:,0]<step_p)&(params[P.terrain_height_m]>1e-6))
+        slope_active=(u[:,1]<slope_p) & (params[P.slope_max_deg]>1e-6)
+        # Severity, not just episode frequency, is reduced in worlds
+        # assigned another speciality. Fixed examiner overrides remain
+        # exact physical fixtures regardless of the teacher focus.
+        slope_strength=jnp.where(focused & (focus==SLOPE),1.0,
+                       jnp.where(focused & (focus==CONTROL),
+                                 CONTROL_STRENGTH,NONFOCUS_STRENGTH))
+        slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]*slope_strength
+        slope_rad=jnp.deg2rad(jnp.where(slope_active,slope_mag,0.))
+        # Azimuth 0,180deg: longitudinal uphill/downhill. 90,270deg:
+        # sideways camber. Explicit pitch/roll overrides serve the
+        # reproducible CPU/held-out examiner and do not alter actor inputs.
+        azimuth=2.*jnp.pi*u[:,3]
+        fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
+            params[P.terrain_roll_deg])
+        gx=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_pitch_deg])),
+                     jnp.tan(slope_rad)*jnp.cos(azimuth))
+        gy=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_roll_deg])),
+                     jnp.tan(slope_rad)*jnp.sin(azimuth))
+        normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
+        normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
+        # Shortest quaternion taking world +Z into physical support normal.
+        qt=jnp.stack((1.+normal[:,2],-normal[:,1],normal[:,0],
+                      jnp.zeros_like(gx)),axis=1)
+        qt=qt/jnp.linalg.norm(qt,axis=1,keepdims=True)
+        edge_yaw=jnp.where(jnp.isfinite(params[P.terrain_edge_angle_deg]),
+                           jnp.deg2rad(params[P.terrain_edge_angle_deg]),
+                           (u[:,4]-.5)*.70)
+        qy=jnp.stack((jnp.cos(edge_yaw/2),jnp.zeros_like(gx),
+                      jnp.zeros_like(gx),jnp.sin(edge_yaw/2)),axis=1)
+        q=self._quat_mul(qt,qy)
+        qw,qx,qyy,qz=q[:,0],q[:,1],q[:,2],q[:,3]
+        direction=jnp.stack((1.-2.*(qyy*qyy+qz*qz),
+                             2.*(qx*qyy+qw*qz),
+                             2.*(qx*qz-qw*qyy)),axis=1)
+        edge=jnp.stack((jnp.full_like(gx,TERRAIN_PLATFORM_EDGE_X_M),
+                        jnp.zeros_like(gx),
+                        gx*TERRAIN_PLATFORM_EDGE_X_M),axis=1)
+        # Up: left lower / right upper; down: left upper / right lower.
+        down=(self.env_index.astype(jnp.int32)%2)==1
+        side=jnp.where(down,-1.,1.)[:,None]
+        L=UNIFIED_SLAB_HALF_LENGTH_M
+        D=UNIFIED_SLAB_HALF_DEPTH_M
+        floor_active=edge-side*L*direction-D*normal
+        floor_dormant=-D*normal
+        floor_pos=jnp.where(step_active[:,None],floor_active,floor_dormant)
+        ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
+        # Height is the physical normal displacement, not an impossible
+        # world-vertical offset that would force the two faces to overlap.
+        step_strength=jnp.where(focused & (focus==STEP),1.0,
+                      jnp.where(focused & (focus==CONTROL),
+                                CONTROL_STRENGTH,NONFOCUS_STRENGTH))
+        height=jnp.where(has_fixed_height,
+                         params[P.terrain_fixed_height_m],
+                         ceiling*(.30+.70*u[:,5])*step_strength)
+        upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
+        buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
+        upper_pos=jnp.where(step_active[:,None],upper_pos,buried)
+        floor_i=self.unified_ground_mocap_id
+        upper_i=self.terrain_step_mocap_id
+        return data.replace(
+            mocap_pos=data.mocap_pos.at[:,floor_i,:].set(floor_pos).at[:,upper_i,:].set(upper_pos),
+            mocap_quat=data.mocap_quat.at[:,floor_i,:].set(q).at[:,upper_i,:].set(q),
+            qpos=data.qpos.at[:,2].add(
+                jnp.where(step_active & down,height*normal[:,2],0.))
+        )
+
+    def _episode_terrain(self, data, keys, params,
+                         focus_id=None, specialist_active=None,
+                         athletic_rehearsal=None):
+        """Sample real episode terrain with an exactly flat dormant state.
+
+        A zero terrain exposure or height buries the *same* physical box
+        below the ground. Up/down pairs, height and edge angle only matter
+        for exposed worlds. The task parameters affect geometry through the
+        actual MJX reset, not an actor-visible difficulty label.
+        """
+        if self.terrain_step_mocap_id < 0:
+            return data
+        if self.unified_capability_focus:
+            return self._unified_terrain(
+                data,keys,params,focus_id=focus_id,
+                specialist_active=specialist_active,
+                athletic_rehearsal=athletic_rehearsal)
+        jax, jnp = self.jax, self.jnp
+        k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
+        def choose(key):
+            kh, ka, ke = jax.random.split(key, 3)
+            magnitude = 0.3 + 0.7*jax.random.uniform(kh, ())
+            angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
+            selection_u = jax.random.uniform(ke, ())
+            return magnitude, angle, selection_u
+        magnitude, angle, selection_u = jax.vmap(choose)(k)
+        if self.unified_capability_focus:
+            # Not exclusive: steps are emphasized in 20% of worlds, while
+            # *all* specialists and even control see low-dose real edges.
+            focus=self.focus_id
+            active_focus=self._specialist_enabled(keys,params)
+            dose=jnp.where(active_focus & (focus==STEP),4.0,.25)
+            probability=jnp.clip(params[P.terrain_exposure]*dose,0.,1.)
+        else:
+            probability=params[P.terrain_exposure]
+        selected = selection_u < probability
+        if self.paired_terrain_heights:
+            # Independent frozen exam only. Each adjacent UP/DOWN pair has
+            # identical real height AND edge yaw. Live curriculum keeps
+            # its per-episode severity sampling unchanged.
+            pair_index = jnp.arange(self.num_envs, dtype=jnp.int32)//2
+            pair_keys = jax.vmap(lambda x: jax.random.fold_in(
+                jax.random.PRNGKey(self.terrain_pair_seed), x))(pair_index)
+            magnitude = .3 + .7*jax.vmap(
+                lambda x: jax.random.uniform(x, ()))(pair_keys)
+            angle = jax.vmap(lambda x: jax.random.uniform(
+                jax.random.fold_in(x, 19), (), minval=-.35, maxval=.35))(pair_keys)
+        ceiling = jnp.clip(params[P.terrain_height_m], 0.0, self.terrain_step_max_m)
+        active = selected & (ceiling > 1e-6)
+        height = jnp.where(active, ceiling * magnitude, 0.0)
+        # Stratified even/odd up/down worlds in the exposed subset, so a
+        # small batch with 100% exposure still sees both physical types.
+        down = (self.env_index.astype(jnp.int32) % 2) == 1
+        ca, sa = jnp.cos(angle), jnp.sin(angle)
+        side = jnp.where(down, -1.0, 1.0)
+        mid_x = TERRAIN_PLATFORM_EDGE_X_M + side*TERRAIN_PLATFORM_HALF_LENGTH_M*ca
+        mid_y = side*TERRAIN_PLATFORM_HALF_LENGTH_M*sa
+        center = jnp.stack((
+            mid_x, mid_y, height - TERRAIN_PLATFORM_HALF_DEPTH_M), axis=1)
+        # No ghost contacts or ray returns during the first 20M flat steps:
+        # absent terrain remains buried ~85cm below the real contact plane.
+        buried = jnp.asarray([0.0, 0.0, -1.0], dtype=jnp.float32)
+        center = jnp.where(active[:, None], center, buried)
+        zeros = jnp.zeros_like(angle)
+        yaw_quat = jnp.stack((jnp.cos(angle/2), zeros, zeros,
+                              jnp.sin(angle/2)), axis=1)
+        idx = self.terrain_step_mocap_id
+        return data.replace(
+            mocap_pos=data.mocap_pos.at[:, idx, :].set(center),
+            mocap_quat=data.mocap_quat.at[:, idx, :].set(yaw_quat),
+            qpos=data.qpos.at[:, 2].add(jnp.where(active & down, height, 0.0)),
+        )
+
     def _reset_with_keys(self, keys, params, carryover_qvel=None):
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
@@ -1734,12 +2753,21 @@ class EmuMJXEnv(TaskSampler):
          carry_keys, tilt_keys, pos_keys, angvel_keys, linvel_keys, joint_keys) = self._split_batch(keys, 12)
         data = self._make_batched_data()
         task = self._sample_task(task_keys, params)
+        focus_id = self._focus_for_birth(keys, params)
+        task, specialist_active = self._specialist_task(
+            task, keys, params, focus_id)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
              linvel_keys, joint_keys, carry_keys),
             carryover_qvel,
         )
+        # One episode-local collision course. The standard flat path above
+        # is bitwise untouched whenever terrain_step_max_m is zero.
+        data = self._episode_terrain(
+            data, keys, params, focus_id, specialist_active,
+            task[:,T.athletic_rehearsal] if self.unified_capability_focus
+            else None)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
@@ -1749,19 +2777,26 @@ class EmuMJXEnv(TaskSampler):
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
-                   if self.observation_schema == OBS_SCHEMA_SENSOR else None)
+                   if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else None)
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
-        return EnvState(data, hist, next_keys, task, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors)
+        return EnvState(data, hist, next_keys, task, specialist_active, focus_id, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
+                         zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros, zeros,
+                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
+                         jnp.zeros((self.num_envs,2),dtype=jnp.float32),
+                         task[:,[T.vx,T.vy]],izeros,
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros)
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
 
+    # ---- Sensor simulation and delayed deployable observations ----
     def _body_packets(self, data):
         jnp = self.jnp
         R = self._rotation_body_to_world(data)
@@ -1785,9 +2820,22 @@ class EmuMJXEnv(TaskSampler):
         f=int(self.ids['floor_geom'])
         floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
         floor_o=data.geom_xpos[:,f,:]
+        projected_gravity,_,_=self._body_packets(data)
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
+            ranges4,valid4=self._terrain_4x4_ranges(data)
+            fit=fit_forward_array_ground(jnp,ranges4,valid4,projected_gravity)
+            # Legacy diagnostic shape only; zero 3-ToF cells are NOT actor
+            # observations, and no independent tripod rays were sampled.
+            return dict(
+                ranges_m=jnp.zeros((self.num_envs,3),dtype=jnp.float32),
+                beam_valid=jnp.zeros((self.num_envs,3),dtype=jnp.bool_),
+                valid=fit['valid'],
+                optical_depth_m=fit['optical_depth_m'],
+                forward_grade_rad=fit['ground_forward_grade_rad'],
+                sideways_grade_rad=fit['ground_sideways_grade_rad'],
+                visibility_confidence=fit['ground_visibility_confidence'])
         ranges,beam_valid=simulate_tripod_ranges(
             jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
-        projected_gravity,_,_=self._body_packets(data)
         estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
         return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
 
@@ -1803,14 +2851,26 @@ class EmuMJXEnv(TaskSampler):
         jnp=self.jnp
         R=self._rotation_body_to_world(data)
         torso=data.xpos[:,self.torso_id,:]
-        floor=int(self.ids['floor_geom'])
-        normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
-        origin=data.geom_xpos[:,floor,:]
-        beam=-R[:,:,2]
-        denom=jnp.sum(beam*normal,axis=-1)
-        distance=jnp.sum((origin-torso)*normal,axis=-1)
-        true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
-        true_depth=jnp.where(denom<-.3,true_depth,0.)
+        if self.unified_capability_focus:
+            # Flow scale is the measured surface distance from the actual
+            # downward camera, never a projected infinite plane.
+            down_ray=(-R[:,:,2])[:,None,:]
+            depth_floor=self._ray_box_distance(
+                data,int(self.ids['floor_geom']),torso,down_ray)[:,0]
+            depth_upper=self._ray_box_distance(
+                data,int(self.terrain_step_geom_id),torso,down_ray)[:,0]
+            true_depth=jnp.minimum(depth_floor,depth_upper)
+            true_depth=jnp.where(jnp.isfinite(true_depth)&
+                                  (true_depth>0.)&(true_depth<.60),true_depth,0.)
+        else:
+            floor=int(self.ids['floor_geom'])
+            normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
+            origin=data.geom_xpos[:,floor,:]
+            beam=-R[:,:,2]
+            denom=jnp.sum(beam*normal,axis=-1)
+            distance=jnp.sum((origin-torso)*normal,axis=-1)
+            true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
+            true_depth=jnp.where(denom<-.3,true_depth,0.)
         _,body_velocity,_=self._body_packets(data)
         # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
         # the second world-to-body rotation used by the legacy 220 actor.
@@ -1835,6 +2895,154 @@ class EmuMJXEnv(TaskSampler):
                     ground_visibility_confidence=ground['visibility_confidence'],
                     **estimate)
 
+    def _ray_box_distance(self, data, geom_id, origin, rays):
+        """Full 3-D ray/OBB slab test, including pitch, roll and edge yaw."""
+        jnp=self.jnp
+        R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
+        centre=data.geom_xpos[:,geom_id,:]
+        if origin.ndim == 3:
+            local_o=jnp.einsum('eki,eij->ekj',origin-centre[:,None,:],R)
+        else:
+            local_o=jnp.einsum('ei,eij->ej',origin-centre,R)[:,None,:]
+        local_d=jnp.einsum('eki,eij->ekj',rays,R)
+        half=jnp.asarray(self.mj_model.geom_size[geom_id,:3],dtype=jnp.float32)
+        parallel=jnp.abs(local_d)<1e-7
+        safe=jnp.where(parallel,1.,local_d)
+        t1=(-half-local_o)/safe
+        t2=(half-local_o)/safe
+        inside=jnp.abs(local_o)<=half
+        near=jnp.max(jnp.where(
+            parallel,jnp.where(inside,-jnp.inf,jnp.inf),jnp.minimum(t1,t2)),axis=-1)
+        far=jnp.min(jnp.where(
+            parallel,jnp.where(inside,jnp.inf,-jnp.inf),jnp.maximum(t1,t2)),axis=-1)
+        return jnp.where(far>=jnp.maximum(near,0.),
+                         jnp.where(near>0.,near,far),jnp.inf)
+
+    def _terrain_4x4_ranges(self, data, errors_m=None):
+        """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
+
+        No height-map truth, per-ray CPU raycasts, or actor-visible collision IDs.
+        A fixed-topology JAX slab/sphere intersection works on batched MJX data.
+        """
+        jnp = self.jnp
+        beam_dirs = jnp.asarray([
+            [math.cos(math.radians(p))*math.cos(math.radians(y)),
+             math.cos(math.radians(p))*math.sin(math.radians(y)),
+             -math.sin(math.radians(p))]
+            for p in TERRAIN_TOF_PITCH_DEG for y in TERRAIN_TOF_YAW_DEG],
+            dtype=jnp.float32)
+        R = self._rotation_body_to_world(data)
+        origin = data.xpos[:, self.torso_id, :]
+        ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
+        if self.unified_capability_focus:
+            # Both measured slant ranges are to actual collidable boxes.
+            # Infinite-plane fallback would create phantom upper/lower
+            # support beyond the sharp step discontinuity.
+            floor_t=self._ray_box_distance(
+                data,int(self.ids['floor_geom']),origin,ray)
+            box_t=self._ray_box_distance(
+                data,int(self.terrain_step_geom_id),origin,ray)
+            terrain_t=jnp.minimum(floor_t,box_t)
+        else:
+            floor = int(self.ids['floor_geom'])
+            normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
+            floor_orig = data.geom_xpos[:, floor, :]
+            denom = jnp.einsum('eki,ei->ek', ray, normal)
+            plane_t = jnp.einsum('ei,ei->e',floor_orig-origin,normal)[:,None] / jnp.where(
+                jnp.abs(denom)>1e-7,denom,1.)
+            plane_t = jnp.where(denom< -1e-6,plane_t,jnp.inf)
+
+            if self.terrain_step_mocap_id >= 0:
+                i = self.terrain_step_mocap_id
+                centre = data.mocap_pos[:,i,:]
+                q = data.mocap_quat[:,i,:]
+                ca = 1.-2.*q[:,3]**2
+                sa = 2.*q[:,0]*q[:,3]
+                offset = origin-centre
+                local_o = jnp.stack((
+                    ca*offset[:,0]+sa*offset[:,1],
+                    -sa*offset[:,0]+ca*offset[:,1],offset[:,2]),axis=-1)
+                local_d = jnp.stack((
+                    ca[:,None]*ray[:,:,0]+sa[:,None]*ray[:,:,1],
+                    -sa[:,None]*ray[:,:,0]+ca[:,None]*ray[:,:,1],
+                    ray[:,:,2]),axis=-1)
+                half = jnp.asarray((TERRAIN_PLATFORM_HALF_LENGTH_M,
+                                    TERRAIN_PLATFORM_HALF_WIDTH_M,
+                                    TERRAIN_PLATFORM_HALF_DEPTH_M),dtype=jnp.float32)
+                parallel = jnp.abs(local_d)<1e-7
+                safe = jnp.where(parallel,1.,local_d)
+                first = (-half-local_o[:,None,:])/safe
+                last = (half-local_o[:,None,:])/safe
+                inside = jnp.abs(local_o[:,None,:])<=half
+                entering = jnp.where(parallel,jnp.where(inside,-jnp.inf,jnp.inf),
+                                     jnp.minimum(first,last))
+                leaving = jnp.where(parallel,jnp.where(inside,jnp.inf,-jnp.inf),
+                                    jnp.maximum(first,last))
+                near = jnp.max(entering,axis=-1)
+                far = jnp.min(leaving,axis=-1)
+                box_t = jnp.where(far>=jnp.maximum(near,0.),
+                                  jnp.where(near>0.,near,far),jnp.inf)
+                terrain_t = jnp.minimum(plane_t,box_t)
+            else:
+                terrain_t = plane_t
+
+        foot_ids = jnp.asarray(self.ids['foot_geoms'],dtype=jnp.int32)
+        foot_centres = data.geom_xpos[:,foot_ids,:]
+        diff = origin[:,None,:]-foot_centres
+        b = jnp.einsum('eki,eji->ekj',ray,diff)
+        radii = jnp.asarray(self.mj_model.geom_size[np.asarray(self.ids['foot_geoms']),0])
+        c = jnp.sum(diff*diff,axis=-1)-radii[None,:]**2
+        disc = b*b-c[:,None,:]
+        near = -b-jnp.sqrt(jnp.maximum(0.,disc))
+        far = -b+jnp.sqrt(jnp.maximum(0.,disc))
+        hit = jnp.where(near>1e-6,near,far)
+        occlusion_t = jnp.min(jnp.where((disc>=0.)&(hit>1e-6),hit,jnp.inf),axis=-1)
+        valid = ((terrain_t>=TERRAIN_TOF_MIN_M)&(terrain_t<=TERRAIN_TOF_MAX_M)&
+                 (occlusion_t>=terrain_t))
+        result = terrain_t+(errors_m if errors_m is not None else 0.)
+        return (jnp.where(valid,jnp.clip(result,TERRAIN_TOF_MIN_M,
+                                        TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
+                valid)
+
+    def _unified_sensor_sample(self, data, task, keys, gyro_bias):
+        """Array-only sensor: 4x4 ranges, optical flow and gyro, NO tripod.
+
+        Physics truth is used only to produce the simulated optical signal,
+        exactly as in old sensor forward synthesis. Actual actor readout
+        uses the delayed array fit; no privileged slope or exact root velocity.
+        """
+        jax,jnp=self.jax,self.jnp
+        scale=jnp.where(task[:,T.sensor_scale]>=0.,
+                        task[:,T.sensor_scale],self.sensor_noise_scale)
+        noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5016),(8,),dtype=jnp.float32))(keys)
+        four_noise=jax.vmap(lambda k:jax.random.normal(
+            jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
+        four,valid=self._terrain_4x4_ranges(
+            data,errors_m=scale[:,None]*.002*four_noise)
+        R=self._rotation_body_to_world(data)
+        torso=data.xpos[:,self.torso_id,:]
+        down=(-R[:,:,2])[:,None,:]
+        floor_depth=self._ray_box_distance(
+            data,int(self.ids['floor_geom']),torso,down)[:,0]
+        upper_depth=self._ray_box_distance(
+            data,int(self.terrain_step_geom_id),torso,down)[:,0]
+        depth=jnp.minimum(floor_depth,upper_depth)
+        depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
+                        depth,0.)
+        _,vbody,_=self._body_packets(data)
+        physical_gyro=data.qvel[:,3:6]
+        flow,flow_valid=simulate_downward_optical_flow(
+            jnp,vbody,physical_gyro,depth,
+            flow_error_rad_s=scale[:,None]*.035*noise[:,3:5])
+        measured_gyro=physical_gyro+gyro_bias+scale[:,None]*.025*noise[:,5:8]
+        zero_ranges=jnp.zeros((self.num_envs,3),dtype=jnp.float32)
+        return SensorSample(
+            zero_ranges,jnp.zeros_like(zero_ranges,dtype=jnp.bool_),
+            four,valid,flow,flow_valid,measured_gyro,
+            jnp.zeros((self.num_envs,),dtype=jnp.int32),
+            jnp.zeros((self.num_envs,),dtype=jnp.int32))
+
     def _sensor_sample(self, data, task, keys, gyro_bias):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
 
@@ -1843,6 +3051,8 @@ class EmuMJXEnv(TaskSampler):
         the simulated ground normal or qvel. Fold-in does not perturb
         physics/lesson RNG streams or the old 220-input behavior.
         """
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
+            return self._unified_sensor_sample(data,task,keys,gyro_bias)
         jax, jnp = self.jax, self.jnp
         scale = jnp.where(task[:, T.sensor_scale] >= 0.,
                           task[:, T.sensor_scale], self.sensor_noise_scale)
@@ -1853,8 +3063,17 @@ class EmuMJXEnv(TaskSampler):
             flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
             gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
         ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        if self.observation_schema == OBS_SCHEMA_TERRAIN:
+            four_noise = jax.vmap(lambda k: jax.random.normal(
+                jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
+            ranges4, valid4 = self._terrain_4x4_ranges(
+                data,errors_m=scale[:,None]*.002*four_noise)
+        else:
+            ranges4 = jnp.zeros((self.num_envs,16),dtype=jnp.float32)
+            valid4 = jnp.zeros((self.num_envs,16),dtype=jnp.bool_)
         return SensorSample(
             probe['tof_ranges_m'], probe['tof_beam_valid'],
+            ranges4,valid4,
             probe['flow_rad_s'], probe['flow_return_valid'],
             probe['measured_gyro_body_rad_s'], ages, ages)
 
@@ -1890,10 +3109,13 @@ class EmuMJXEnv(TaskSampler):
         flow_failed = jax.vmap(lambda k: jax.random.uniform(
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
         tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
+        terrain_valid = raw.terrain_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
         latest = SensorSample(
             jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
             jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
+            jnp.where(tof_due[:,None],jnp.where(terrain_valid,raw.terrain_ranges_m,0.),old.terrain_ranges_m),
+            jnp.where(tof_due[:,None],terrain_valid,old.terrain_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
             jnp.where(flow_due, flow_valid, old.flow_valid),
             jnp.where(flow_due[:, None], raw.gyro_body_rad_s, old.gyro_body_rad_s),
@@ -1916,6 +3138,36 @@ class EmuMJXEnv(TaskSampler):
         s = state.samples
         tf = HISTORY_LEN - 1 - self.tof_delay_frames
         ff = HISTORY_LEN - 1 - self.flow_delay_frames
+        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
+            ground=fit_forward_array_ground(
+                jnp,s.terrain_ranges_m[:,tf,:],s.terrain_valid[:,tf,:],
+                gravity_body)
+            flow_valid=s.flow_valid[:,ff]
+            estimate=estimate_flow_velocity(
+                jnp,s.flow_rad_s[:,ff,:],s.gyro_body_rad_s[:,ff,:],
+                ground['optical_depth_m'],flow_valid=flow_valid,
+                tof_valid=ground['depth_valid'])
+            tof_age=s.tof_age_frames[:,tf]
+            flow_age=s.flow_age_frames[:,ff]
+            freshness=jnp.clip(
+                1.-.25*(tof_age.astype(jnp.float32)/self.tof_period_frames+
+                         flow_age.astype(jnp.float32)/self.flow_period_frames),
+                .25,1.)
+            return dict(
+                measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
+                velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
+                velocity_confidence=estimate['velocity_confidence']*freshness,
+                tof_estimated_depth_m=ground['optical_depth_m'],
+                ground_forward_grade_rad=ground['ground_forward_grade_rad'],
+                ground_sideways_grade_rad=ground['ground_sideways_grade_rad'],
+                ground_visibility_confidence=ground['ground_visibility_confidence']*
+                    jnp.clip(1.-.25*tof_age.astype(jnp.float32)/
+                             self.tof_period_frames,.25,1.),
+                ground_valid=ground['valid'],
+                terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
+                terrain_valid=s.terrain_valid[:,tf,:],
+                flow_valid=flow_valid,
+                tof_age_frames=tof_age,flow_age_frames=flow_age)
         ranges = s.tof_ranges_m[:, tf, :]
         beams_valid = jnp.all(s.tof_beam_valid[:, tf, :], axis=1)
         ground = fit_tripod_ground(jnp, ranges, gravity_body)
@@ -1950,6 +3202,8 @@ class EmuMJXEnv(TaskSampler):
             ground_visibility_confidence=jnp.where(
                 ground_valid, ground['visibility_confidence'] * grade_freshness, 0.),
             ground_valid=ground_valid,
+            terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
+            terrain_valid=s.terrain_valid[:,tf,:],
             flow_valid=flow_valid,
             tof_age_frames=tof_age, flow_age_frames=flow_age)
 
@@ -1963,8 +3217,237 @@ class EmuMJXEnv(TaskSampler):
         floor = int(self.ids['floor_geom'])
         normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
         origin = data.geom_xpos[:,floor,:]
+        if self.unified_capability_focus:
+            origin=origin+UNIFIED_SLAB_HALF_DEPTH_M*normal
         return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
 
+    def _unified_platform_active(self, data):
+        """Explicit fixed-topology activation, independent of slab centre Z.
+
+        Extended sloped boxes have centres metres above/below the edge and
+        must NOT be mistaken for the buried inactive platform. Only the
+        exact fixed burial at (0,0,-2) denotes absence in unified worlds.
+        """
+        jnp=self.jnp
+        centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
+        burial=jnp.asarray((0.,0.,-2.),dtype=centre.dtype)
+        return jnp.sum((centre-burial)**2,axis=1)>1.0
+
+    def _support_signed_heights(self, data, positions):
+        """Teacher-only distance above real local support (plane OR box top).
+
+        This does NOT go to the 220/232 policy. The approximate top-surface
+        classifier is valid away from vertical side contacts; crossing
+        acceptance must still inspect real contact pairs and trajectory.
+        """
+        flat = self._floor_signed_heights(data, positions)
+        if self.unified_capability_focus:
+            jnp=self.jnp
+            geom=int(self.terrain_step_geom_id)
+            R=data.geom_xmat[:,geom,:].reshape((self.num_envs,3,3))
+            delta=positions-data.geom_xpos[:,geom,None,:]
+            local=jnp.einsum('epi,eij->epj',delta,R)
+            half=self.mj_model.geom_size[geom,:3]
+            inside=(jnp.abs(local[:,:,0])<=half[0]) & (
+                    jnp.abs(local[:,:,1])<=half[1])
+            active=self._unified_platform_active(data)
+            return jnp.where(inside & active[:,None],
+                             local[:,:,2]-half[2],flat)
+        if self.terrain_step_mocap_id < 0:
+            return flat
+        jnp = self.jnp
+        i = self.terrain_step_mocap_id
+        center = data.mocap_pos[:, i, :]
+        quat = data.mocap_quat[:, i, :]
+        c = 1.0 - 2.0*quat[:, 3]**2
+        si = 2.0*quat[:, 0]*quat[:, 3]
+        delta = positions[:, :, :2] - center[:, None, :2]
+        local_x = delta[:, :, 0]*c[:, None] + delta[:, :, 1]*si[:, None]
+        local_y = -delta[:, :, 0]*si[:, None] + delta[:, :, 1]*c[:, None]
+        inside = ((jnp.abs(local_x) < TERRAIN_PLATFORM_HALF_LENGTH_M) &
+                  (jnp.abs(local_y) < TERRAIN_PLATFORM_HALF_WIDTH_M))
+        top = center[:, 2] + TERRAIN_PLATFORM_HALF_DEPTH_M
+        elevated = inside & (top[:, None] > 0.001)
+        return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
+
+    def _considered_step_window(self, state, data):
+        """Teacher-only 120-frame maximum STEP-UP negotiation window.
+
+        True lip geometry gates reward but never enters actor observations.
+        The counter does not reset if the walker backs away, preventing
+        perpetual near-edge underspeed-reward farming.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return jnp.zeros((self.num_envs,), dtype=jnp.bool_)
+        R = data.geom_xmat[:, int(self.terrain_step_geom_id), :].reshape(
+            (self.num_envs, 3, 3))
+        axis, across = R[:, :, 0], R[:, :, 1]
+        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
+        base_center = data.mocap_pos[:, self.unified_ground_mocap_id, :]
+        real_rise = jnp.sum((center - base_center) * R[:, :, 2], axis=1)
+        lip = center - UNIFIED_SLAB_HALF_LENGTH_M * axis
+        delta = data.qpos[:, :3] - lip
+        forward = jnp.sum(delta * axis, axis=1)
+        lateral = jnp.sum(delta * across, axis=1)
+        return (state.specialist_active & (state.focus_id == STEP)
+                & ((self.env_index % 2) == 0)
+                & self._unified_platform_active(data) & (real_rise > .001)
+                & (state.task[:, T.vx] > .02)
+                & (~state.terrain_crossed)
+                & (forward > -.16) & (forward < .12)
+                & (jnp.abs(lateral) < .22))
+
+    # ---- Teacher/evaluator-only supported crossing evidence ----
+    def _terrain_crossing(self, state, data, metrics):
+        """Sustained physical far-side crossing, teacher telemetry only.
+
+        Real foot-floor/box contacts come from MJX. A step-down is not a
+        zero-height reading: its target support is the actual lower floor.
+        The initial edge location is known ONLY to this independent examiner.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return state.terrain_cross_streak*0,state.terrain_crossed & False,(
+                jnp.zeros((self.num_envs,),dtype=jnp.bool_))
+        from .directional import contact_pair_mask
+        i = self.terrain_step_mocap_id
+        centre=data.mocap_pos[:,i,:]
+        q=data.mocap_quat[:,i,:]
+        down=(self.env_index.astype(jnp.int32)%2)==1
+        side=jnp.where(down,-1.,1.)
+        if self.unified_capability_focus:
+            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
+                (self.num_envs,3,3))
+            axis=R[:,:,0]
+            across=R[:,:,1]
+            half_length=UNIFIED_SLAB_HALF_LENGTH_M
+            edge=centre-side[:,None]*half_length*axis
+            delta=data.qpos[:,:3]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=jnp.sum(delta*across,axis=1)
+        else:
+            ca=1.0-2.0*q[:,3]**2
+            sa=2.0*q[:,0]*q[:,3]
+            axis=jnp.stack((ca,sa),axis=1)
+            edge=centre[:,:2]-side[:,None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+            delta=data.qpos[:,:2]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=-delta[:,0]*sa+delta[:,1]*ca
+        contact=getattr(data,'_impl',data).contact
+        feet=tuple(int(x) for x in self.ids['foot_geoms'])
+        box_geom=int(self.terrain_step_geom_id)
+        floor=int(self.ids['floor_geom'])
+        box_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                                      contact.dist,box_geom,feet)
+        floor_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                                        contact.dist,floor,feet)
+        supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
+        active=(self._unified_platform_active(data)
+                if self.unified_capability_focus else centre[:,2]>-.5)
+        # Considered ascent may settle on the high side after gaining
+        # far-side contact. The old programmes keep the moving-contact gate;
+        # the new programme uses real signed lip progression + contact.
+        forward_ok = ((metrics['vx'] > .02)
+                      if self.terrain_lesson != 'coherent-careful'
+                      else ((metrics['vx'] > .02) | (~down)))
+        good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
+              supported & forward_ok &
+              (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
+        streak=jnp.where(good,state.terrain_cross_streak+1,0)
+        crossed=state.terrain_crossed | (streak>=5)
+        return streak,crossed,active
+
+    def _terrain_ascent_guidance(self, state, data, metrics, terrain_up):
+        """Small, non-repeatable physical ascent teaching; NEVER an actor input.
+
+        Up to 6.6 progress + 2.4 foot-placement reward PER EPISODE.
+        Pay only near the real lip, when commanded forward and stable. Progress
+        needs new root travel and a real MJX floor-foot support pair; foot
+        placement needs the OTHER foot actually grounded and the swing ball
+        bottom above the upper platform. Merely lifting in place, moving while
+        falling, backwards rocking or an unsupported leap cannot farm rewards.
+        Real crossing remains scored independently in _terrain_crossing.
+        """
+        jnp = self.jnp
+        if self.terrain_step_mocap_id < 0:
+            return (jnp.zeros_like(metrics['vx']), state.terrain_ascent_root_peak,
+                    state.terrain_ascent_foot_peak)
+        from .directional import contact_pair_mask
+        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
+        q = data.mocap_quat[:, self.terrain_step_mocap_id, :]
+        if self.unified_capability_focus:
+            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
+                (self.num_envs,3,3))
+            axis,across,normal=R[:,:,0],R[:,:,1],R[:,:,2]
+            edge=center-UNIFIED_SLAB_HALF_LENGTH_M*axis
+            delta=data.qpos[:,:3]-edge
+            forward=jnp.sum(delta*axis,axis=1)
+            lateral=jnp.sum(delta*across,axis=1)
+            moved=jnp.sum((data.qpos[:,:3]-state.data.qpos[:,:3])*axis,axis=1)
+        else:
+            axis = jnp.stack((1.-2.*q[:,3]**2, 2.*q[:,0]*q[:,3]), axis=1)
+            edge = center[:,:2] - TERRAIN_PLATFORM_HALF_LENGTH_M*axis
+            delta = data.qpos[:,:2] - edge
+            forward = jnp.sum(delta*axis, axis=1)
+            lateral = -delta[:,0]*axis[:,1] + delta[:,1]*axis[:,0]
+            moved = jnp.sum((data.qpos[:,:2]-state.data.qpos[:,:2])*axis, axis=1)
+
+        c = getattr(data, '_impl', data).contact
+        feet = tuple(int(x) for x in self.ids['foot_geoms'])
+        floor_pairs = contact_pair_mask(
+            jnp, c.geom1, c.geom2, c.dist, int(self.ids['floor_geom']), feet)
+        floor_stance = jnp.any(floor_pairs, axis=1)
+        healthy = (terrain_up & (metrics['terminal']<.5) &
+                   (metrics['bad_contact']<.5) & floor_stance &
+                   (metrics['cmd_vx']>=.08) &
+                   (jnp.abs(metrics['cmd_vy'])<.08) &
+                   (jnp.abs(metrics['cmd_yaw'])<.5) &
+                   (jnp.abs(lateral)<.22) & (forward>-.13))
+
+        # Positive *new* root progress, up to 10cm past the lip. It must
+        # actually move forward during this frame, while a foot is grounded.
+        eligible_root = healthy & (moved>.0005) & (forward<.12)
+        root_now = jnp.clip(forward, -.12, .10)
+        root_peak = jnp.where(
+            eligible_root, jnp.maximum(state.terrain_ascent_root_peak, root_now),
+            state.terrain_ascent_root_peak)
+        root_gain = root_peak - state.terrain_ascent_root_peak
+
+        # A forward-reaching airborne foot, safely above the actual ledge
+        # top, with the opposite foot's floor contact confirmed by MJX.
+        # This signal is monotonic; 1,000 taps at the edge pay at most once.
+        fp = data.xpos[:, self.foot_bodies, :]
+        if self.unified_capability_focus:
+            foot_delta=fp-edge[:,None,:]
+            foot_forward=jnp.sum(foot_delta*axis[:,None,:],axis=2)
+            foot_lateral=jnp.sum(foot_delta*across[:,None,:],axis=2)
+            # Measured surface-normal clearance above the ACTUAL inclined
+            # upper top face; world Z would reward fake footholds on camber.
+            foot_clearance=jnp.sum((fp-center[:,None,:])*normal[:,None,:],
+                                   axis=2)-UNIFIED_SLAB_HALF_DEPTH_M-.018
+        else:
+            foot_delta = fp[:,:,:2] - edge[:,None,:]
+            foot_forward = jnp.sum(foot_delta*axis[:,None,:], axis=2)
+            foot_lateral = (-foot_delta[:,:,0]*axis[:,None,1] +
+                            foot_delta[:,:,1]*axis[:,None,0])
+            upper_z = center[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
+            foot_bottom = fp[:,:,2] - .018  # 18mm ball radius
+            foot_clearance=foot_bottom-upper_z[:,None]
+        opposite_stance = jnp.flip(floor_pairs, axis=1)
+        reachable = ((~floor_pairs) & opposite_stance &
+                     (foot_clearance>.004) &
+                     (jnp.abs(foot_lateral)<.22))
+        reach = jnp.where(reachable, jnp.clip(foot_forward+.06, 0., .12), 0.)
+        best_reach = jnp.max(reach, axis=1)
+        eligible_foot = healthy & (forward<.06) & (forward>-.11)
+        foot_peak = jnp.where(
+            eligible_foot, jnp.maximum(state.terrain_ascent_foot_peak, best_reach),
+            state.terrain_ascent_foot_peak)
+        foot_gain = foot_peak - state.terrain_ascent_foot_peak
+        return 30.*root_gain + 20.*foot_gain, root_peak, foot_peak
+
+    # ---- Physical facts for reward and report, not hidden actor inputs ----
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
         """Measure physical facts (not a score or the deployable actor packet).
 
@@ -1998,8 +3481,8 @@ class EmuMJXEnv(TaskSampler):
         # Height means clearance above the actual contact plane, not world Z.
         # Otherwise a robot walking uphill appears higher and its grounded
         # uphill foot can be incorrectly rewarded as a swing foot.
-        height = self._floor_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
-        foot_ground_distance = self._floor_signed_heights(data,foot_pos)
+        height = self._support_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
+        foot_ground_distance = self._support_signed_heights(data,foot_pos)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -2028,7 +3511,7 @@ class EmuMJXEnv(TaskSampler):
         # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = self._floor_signed_heights(data,data.xpos[:,self.bad_bodies,:])
+        bad_z = self._support_signed_heights(data,data.xpos[:,self.bad_bodies,:])
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
@@ -2127,6 +3610,7 @@ class EmuMJXEnv(TaskSampler):
             **spring_energy,
         }
 
+    # ---- Actor observation: sensor/command contract, no teacher geometry ----
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
         """Deployable actor observation: sensors/estimators, not teacher truth."""
         jnp = self.jnp
@@ -2164,7 +3648,7 @@ class EmuMJXEnv(TaskSampler):
         base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
                                 foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
                                 shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema == OBS_SCHEMA_SENSOR:
+        if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
             # No direct access to simulated true velocity, floor normal or
             # even instantaneous raw ToF/flow readings: the persistent sensor
             # ring owns acquisition cadence, delay, dropout and gyro bias.
@@ -2183,6 +3667,9 @@ class EmuMJXEnv(TaskSampler):
                 sensor['ground_sideways_grade_rad'],
                 sensor['ground_visibility_confidence']), axis=1)
             base = jnp.concatenate((base, terrain), axis=1)
+            if self.observation_schema == OBS_SCHEMA_TERRAIN:
+                base = jnp.concatenate((base,sensor['terrain_ranges_m'],
+                    sensor['terrain_valid'].astype(jnp.float32)),axis=1)
         assert base.shape[1] == self.base_obs_dim, (
             f"_base_obs produced {base.shape[1]} columns, "
             f"{self.observation_schema} requires {self.base_obs_dim}")

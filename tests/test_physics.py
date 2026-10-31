@@ -214,20 +214,33 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
-    # Execute the *actual protected* Pitch15 120M actor through the very
-    # same CPU MJX stepping kernel. This needs neither the historical
-    # training .pkl nor a synthetic stand-in for the trained weights.
+    # Evaluate the CURRENT approved 232-input v5016 actor, not a former
+    # 220-input policy that no longer lives at the public champion path.
+    # The legacy 220-input trainer above remains independently exercised.
     from emu.viewer_server import load_exported_actor_for_exam
+    from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
     from pathlib import Path
     hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
     actor, exported_norm, export = load_exported_actor_for_exam(hero)
-    assert export['source']['step'] == 120061952
+    assert export['source']['step'] == 260112384
+    assert export['source']['checkpoint_schema'] == 8
+    assert export['observation_schema'] == OBS_SCHEMA_SENSOR
     assert len(actor['pi']) == 3
-    assert actor['pi'][0]['w'].shape == (OBS_DIM,256)
-    # Two-world, four-control-frame smoke; physical performance is NOT
-    # inferred from an unconditioned four-frame sanity check.
-    actual = trainer['evaluate_trace'](
-        actor,env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
+    assert actor['pi'][0]['w'].shape == (SENSOR_OBS_DIM,256)
+    settings=export['sensor_settings']
+    sensor_env=EmuMJXEnv(str(ROBOT_XML),num_envs=2,seed=1701,
+                        phase_speed_gain=export['control']['phase_speed_gain'],
+                        attitude_profile=export['training']['attitude_profile'],
+                        pitch_command_max_deg=export['training']['pitch_command_max_deg'],
+                        sensor_noise_scale=settings['sensor_noise_scale'],
+                        observation_schema=OBS_SCHEMA_SENSOR,
+                        **{k:v for k,v in settings.items()
+                           if k!='sensor_noise_scale'})
+    sensor_trainer=make_trainer(sensor_env,seed=1701,lr=.0002,rollout=2,
+                                epochs=1,minibatches=1)
+    # Two worlds, four actual physics frames; no invented policy weights.
+    actual = sensor_trainer['evaluate_trace'](
+        actor,sensor_env.params_array({'probe_cmd_vx':.1,'probe_cmd_vy':0.,'probe_cmd_yaw':0.}),
         jnp.asarray(exported_norm['mean']),jnp.asarray(exported_norm['std']),
         jax.random.PRNGKey(199),4)
     actual=jax.device_get(actual)
@@ -292,8 +305,8 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     assert report['source_artifact_type']=='exported_actor'
     assert report['checkpoint_sha256'] is None
     assert len(report['source_artifact_sha256'])==64
-    assert report['checkpoint_training_step']==120061952
-    assert report['source_training_commit']=='a5996b8cda2c394c7c65e3e938282a3808ded121'
+    assert report['checkpoint_training_step']==260112384
+    assert report['source_training_commit']=='ff7626e959a4cf2bb91d02818203ca9a74d1c577'
     assert len(report['worlds'])==2
     assert all('course_pass' in world for world in report['worlds'])
     for world in report['worlds']:
@@ -470,7 +483,7 @@ def test_audit_ground_relative_environment_metrics_and_observation_cpu_mjx():
 def test_training_config_real_incline_is_real_mjx_geometry(tmp_path):
     import jax
     from types import SimpleNamespace
-    from emu.branch_lab import one_run_config
+    from emu.run import one_run_config
     from emu.training import env_kwargs_from_args
     from emu.environment import EmuMJXEnv, DomainRandomizationConfig
     from emu.contracts import ROBOT_XML
@@ -862,3 +875,95 @@ def test_v5016_real_mjx_efficiency_exam_uses_pre_step_action_not_reward_only_fie
     assert result.shape==(5,)
     assert np.all(np.isfinite(result))
     assert result[0]>=0 and result[2]>=0 and result[4]>=0
+
+def test_unified_exam_scorer_writes_strict_json_from_physical_trace():
+    """Regress the user's CPU examiner crash AFTER all eight cases simulated.
+
+    NumPy scalar comparisons (in particular directed-grade verification)
+    must not leak into the published JSON report. No CUDA or PPO needed.
+    """
+    import json
+    from emu.evaluation import score_unified_capability_trace, _unified_exam_json
+
+    h, n = 40, 2
+    pose = np.repeat(np.eye(3)[None,:,:], n, axis=0)
+    frames = {
+        'position_xy': np.zeros((h,n,2)),
+        'done': np.zeros((h,n), dtype=bool),
+        'fell': np.zeros((h,n), dtype=bool),
+        'command': np.tile([.10,0.,0.], (h,n,1)),
+        'heading_rad': np.zeros((h,n)),
+        'initial_ground_xmat': pose.copy(),
+        'initial_upper_xmat': pose.copy(),
+        'initial_unified_ground_mocap_pos': np.zeros((n,3)),
+        'initial_terrain_mocap_pos': np.zeros((n,3)),
+        'initial_root_quat': np.tile([1.,0.,0.,0.], (n,1)),
+        'floor_contact': np.ones((h,n,2),dtype=bool),
+        'terrain_platform_contact': np.zeros((h,n,2),dtype=bool),
+        'terrain_support': np.ones((h,n)),
+        'terrain_bad_contact': np.zeros((h,n)),
+        'servo_shaft_drive_power_w': np.ones((h,n)),
+        'applied_push_force_n': np.zeros((h,n)),
+        'actor_action': np.zeros((h,n,6)),
+        'stance_slip_proxy': np.zeros((h,n)),
+    }
+    cases = (
+        dict(name='flat',kind='flat'),
+        dict(name='uphill_2deg',kind='slope',slope_deg=2.,direction='uphill'),
+        dict(name='paired_steps_0p8cm',kind='step',step_m=.008),
+        dict(name='push_1N',kind='recovery',push_n=1.),
+    )
+    results=[]
+    for case in cases:
+        rows=score_unified_capability_trace(frames,case=case)
+        assert len(rows)==n
+        for row in rows:
+            for field in ('grade_verified','height_verified','case_pass',
+                          'survived','fell'):
+                assert type(row[field]) is bool, (case['name'],field,type(row[field]))
+            # Zero-motion synthetic trace, +0.10 m/s commanded: longitudinal
+            # error is persistent (-0.10), not an oscillation. Distinguish the
+            # same way for lateral/yaw without altering graded pass criteria.
+            assert abs(row['tracking_signed_bias_vx_mps'] + .10)<.0001
+            assert row['tracking_jitter_vx_mps']==0.0
+            assert row['tracking_signed_bias_vy_mps']==0.0
+            assert row['tracking_jitter_vy_mps']==0.0
+            assert row['tracking_signed_bias_yaw_rad_s']==0.0
+            assert row['tracking_jitter_yaw_rad_s']==0.0
+            if case['kind']=='step':
+                assert type(row['edge_verified']) is bool
+        results.append(dict(case=case,worlds=rows,
+                            passed=sum(x['case_pass'] for x in rows),
+                            survived=sum(x['survived'] for x in rows)))
+    manifest=dict(schema='emu_unified_frozen_exam_v1',results=results)
+    assert json.loads(_unified_exam_json(manifest)) == manifest
+    # Serialization also accepts native NumPy scalars (not textified values).
+    payload=json.loads(_unified_exam_json({
+        'verified':np.bool_(False),'count':np.int32(2),'value':np.float32(.5)}))
+    assert payload=={'verified':False,'count':2,'value':.5}
+    with pytest.raises(ValueError,match='Out of range float values'):
+        _unified_exam_json({'bad':float('nan')})
+    with pytest.raises(TypeError,match='unsupported frozen-exam value'):
+        _unified_exam_json({'bad':np.zeros(2)})
+
+
+
+def test_v5029_extended_collision_slab_keeps_real_sharp_lip():
+    from emu.environment import (
+        UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_WIDTH_M,
+        add_unified_terrain,
+    )
+    from emu.contracts import ROBOT_XML
+    import xml.etree.ElementTree as ET
+    root=ET.fromstring(add_unified_terrain(str(ROBOT_XML)))
+    geoms={g.get('name'):g for g in root.findall('.//geom')}
+    floor=geoms['floor']
+    top=geoms['episode_terrain_surface']
+    assert floor.get('type')==top.get('type')=='box'
+    assert floor.get('contype')=='1' and top.get('contype')=='2'
+    for box in (floor,top):
+        dims=[float(s) for s in box.get('size').split()]
+        assert dims[0]==UNIFIED_SLAB_HALF_LENGTH_M
+        assert dims[1]==UNIFIED_SLAB_HALF_WIDTH_M
+    assert len([g for g in root.findall('.//geom')
+                if g.get('name')=='floor'])==1

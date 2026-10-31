@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, actor_observation_fields
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_RANGE_FIELDS, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -96,8 +96,10 @@ def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
     import numpy as _np
     fields = actor_observation_fields(observation_schema)
     normalised = OBS_NORMALIZED_FIELDS
-    if observation_schema == OBS_SCHEMA_SENSOR:
+    if observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
+    if observation_schema == OBS_SCHEMA_TERRAIN:
+        normalised = normalised | set(TERRAIN_RANGE_FIELDS)
     base = _np.asarray(
         [1.0 if name in normalised else 0.0 for name in fields],
         dtype=_np.float32,
@@ -725,20 +727,35 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             next_estimate=estimate+delayed_gyro*CONTROL_DT
             corrected,error=heading_rate_request(
                 jnp,cmd[:,2],next_target,next_estimate,kp=kp,max_rate=limit)
-            actual_cmd=jnp.stack((cmd[:,0],cmd[:,1],corrected),axis=-1)
+            # An assisted actor must receive the same effective command it
+            # receives in training, but the examiner reports OPERATOR cmd.
+            # The env already computed its next controller demand on the
+            # previous step; don't integrate it a second time in this loop.
+            xy_policy=cmd[:,:2]
+            if env.velocity_i_multiplier>1.:
+                old_raw=es.raw_velocity_command
+                changed=jnp.any(jnp.abs(xy_policy-old_raw)>.005,axis=1)
+                xy_policy=jnp.where(changed[:,None],xy_policy,
+                                    es.task[:,[T.vx,T.vy]])
+            actual_cmd=jnp.concatenate((xy_policy,corrected[:,None]),axis=1)
             # CRITICAL: env.step computes cmd_now from cmd_ramp_from/target.
             # Update BOTH this internal ramp and what the policy observed;
             # changing only the task vector is silently undone in env.step.
-            target_cmd=es.cmd_target.at[:,:3].set(actual_cmd)
-            from_cmd=es.cmd_ramp_from.at[:,:3].set(actual_cmd)
-            task=(es.task.at[:,T.vx].set(cmd[:,0])
-                         .at[:,T.vy].set(cmd[:,1])
+            # Keep raw operator vx/vy in the lesson's command ramp;
+            # only the actor's request and observation are I-boosted.
+            # Otherwise the boosted request becomes tomorrow's 'raw' goal.
+            raw_ramp_cmd=jnp.stack((cmd[:,0],cmd[:,1],corrected),axis=-1)
+            target_cmd=es.cmd_target.at[:,:3].set(raw_ramp_cmd)
+            from_cmd=es.cmd_ramp_from.at[:,:3].set(raw_ramp_cmd)
+            task=(es.task.at[:,T.vx].set(actual_cmd[:,0])
+                         .at[:,T.vy].set(actual_cmd[:,1])
                          .at[:,T.yaw].set(corrected))
-            hist=(es.hist.at[:,-1,command_idx[0]].set(cmd[:,0])
-                         .at[:,-1,command_idx[1]].set(cmd[:,1])
+            hist=(es.hist.at[:,-1,command_idx[0]].set(actual_cmd[:,0])
+                         .at[:,-1,command_idx[1]].set(actual_cmd[:,1])
                          .at[:,-1,command_idx[2]].set(corrected))
             staged=es._replace(
-                task=task, hist=hist, cmd_target=target_cmd,
+                task=task, hist=hist,
+                raw_velocity_command=cmd[:,:2],cmd_target=target_cmd,
                 cmd_ramp_from=from_cmd,
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
@@ -752,8 +769,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
                 foot_xyz=foot_xyz,floor_contact=contacts,
+                actor_action=jnp.clip(mean,-1.,1.),
+                stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
                 floor_normal_world=floor_normal,floor_origin_world=floor_origin,
-                command=cmd,issued_yaw_rate=corrected,
+                command=cmd,
+                policy_cmd_vx=actual_cmd[:,0],policy_cmd_vy=actual_cmd[:,1],
+                issued_yaw_rate=corrected,
                 delivered_task_yaw_rate=staged.task[:,T.yaw],
                 next_task_yaw_rate=out.state.task[:,T.yaw],
                 estimated_heading_rad=next_estimate,
@@ -778,7 +799,30 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 servo_shaft_brake_power_w=out.metrics['servo_shaft_brake_power_w'],
                 spring_potential_energy_j=out.metrics['spring_potential_energy_j'],
                 shin_spring_energy_j=out.metrics['shin_spring_energy_j'],
-                done=out.done,fell=out.metrics['episode_fell'])
+                done=out.done,fell=out.metrics['episode_fell'],
+                # Read-only physical diagnostics, using the same pre-reset
+                # reward measurements as the actual training environment.
+                terrain_support=out.metrics['support'],
+                terrain_bad_contact=out.metrics['bad_contact'],
+                terrain_vx=out.metrics['vx'],
+                terrain_height=out.metrics['height'],
+                terrain_gravity_z=out.metrics['gravity_z'],
+                terrain_fall_height=out.metrics['fall_height'],
+                terrain_fall_tilt=out.metrics['fall_tilt'],
+                terrain_fall_roll_rate=out.metrics['fall_roll_rate'],
+                terrain_fall_pitch_rate=out.metrics['fall_pitch_rate'],
+                terrain_timeout=out.metrics['episode_timeout'],
+                # Actual disturbance delivered in the previous MJX step;
+                # recorded only for frozen recovery assessment.
+                applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
+            if env.terrain_step_mocap_id >= 0:
+                # Same collision pairs as the training environment; the
+                # frozen examiner never infers support from root altitude.
+                platform_id = int(env.terrain_step_geom_id)
+                contact = getattr(es.data, '_impl', es.data).contact
+                sample['terrain_platform_contact'] = contact_pair_mask(
+                    jnp, contact.geom1, contact.geom2, contact.dist,
+                    int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
@@ -787,6 +831,42 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
+        if env.terrain_step_mocap_id >= 0:
+            if env.unified_capability_focus:
+                # Same two actual MJX collision surfaces; no constructed
+                # heightfield or training-only success labels in the examiner.
+                return dict(
+                    **frames,
+                    initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
+                    initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
+                    initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
+                    initial_upper_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,env.terrain_step_geom_id,:],(env.num_envs,3,3)),
+                    initial_ground_xmat=jnp.reshape(
+                        initial.data.geom_xmat[:,int(env.ids['floor_geom']),:],(env.num_envs,3,3)),
+                    initial_root_quat=initial.data.qpos[:,3:7],
+                    last_position_xy=last_xy,
+                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                    last_floor_contact=last_contacts,
+                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                    spring_reference_rad=env.spring_reference,
+                    spring_stiffness_nm_rad=env.spring_stiffness,
+                    servo_peak_limit_nm=env.servo_stall_torque_nm)
+            return dict(
+                **frames,
+                initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],
+                initial_terrain_mocap_quat=initial.data.mocap_quat[:, env.terrain_step_mocap_id, :],
+                last_position_xy=last_xy,
+                last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                last_floor_contact=last_contacts,
+                last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                spring_reference_rad=env.spring_reference,
+                spring_stiffness_nm_rad=env.spring_stiffness,
+                servo_peak_limit_nm=env.servo_stall_torque_nm)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,

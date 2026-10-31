@@ -17,14 +17,15 @@ from typing import Any
 
 import numpy as np
 
-from .curriculum import FIELD_VERSION
-from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
-                        SENSOR_OBS_DIM, sensor_observation_contract)
+from .capability_field import FIELD_VERSION
+from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
+                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
 CHECKPOINT_SCHEMA = 7  # Historical Pitch15 pickle format, never renumber.
 SENSOR_CHECKPOINT_SCHEMA = 8
+TERRAIN_CHECKPOINT_SCHEMA = 9
 ROBOT_MODEL_SHA256 = hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 
 
@@ -84,19 +85,31 @@ def _validate_observation_meta(meta: dict[str, Any], where: str = '',
         if 'sensor_contract' in meta:
             raise ValueError(f"checkpoint{where} has sensor metadata inside legacy schema 7")
         return OBS_DIM
-    if expected_observation_schema != OBS_SCHEMA_SENSOR:
+    schema_versions = {OBS_SCHEMA_SENSOR:(SENSOR_CHECKPOINT_SCHEMA,SENSOR_OBS_DIM),
+                       OBS_SCHEMA_TERRAIN:(TERRAIN_CHECKPOINT_SCHEMA,TERRAIN_OBS_DIM)}
+    if expected_observation_schema not in schema_versions:
         raise ValueError(f"unknown expected checkpoint observation schema {expected_observation_schema!r}")
-    if disk_schema != SENSOR_CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_SENSOR:
-        raise ValueError(f"checkpoint observation schema mismatch{where}: expected sim2real_232 schema 8")
+    expected_version, expected_dim = schema_versions[expected_observation_schema]
+    if disk_schema != expected_version or schema != expected_observation_schema:
+        raise ValueError(f"checkpoint observation schema mismatch{where}: expected {expected_observation_schema} schema {expected_version}")
     supplied = meta.get('sensor_contract')
     if not isinstance(supplied, dict) or not isinstance(supplied.get('settings'), dict):
         raise ValueError(f"checkpoint{where} missing complete sensor contract")
-    canonical = sensor_observation_contract(supplied['settings'])
+    # The legacy tripod+array and the new array-only terrain actors both
+    # contain 360 observations, but their physical sensor meanings differ.
+    # Reconstruct the *declared* geometry independently before trusting a
+    # hash or ever opening the optimizer state. The explicit caller's
+    # expected_sensor_contract below still forbids cross-lineage resume.
+    array_only = (expected_observation_schema == OBS_SCHEMA_TERRAIN
+                  and supplied.get('sensor_model_revision') == TERRAIN_ARRAY_ONLY_REVISION)
+    canonical = sensor_observation_contract(
+        supplied['settings'],schema=expected_observation_schema,
+        array_only=array_only)
     if supplied != canonical:
         raise ValueError(f"checkpoint{where} sensor contract fingerprint/geometry mismatch")
     if expected_sensor_contract is None or expected_sensor_contract != canonical:
         raise ValueError(f"checkpoint{where} sensor contract differs from requested run")
-    return SENSOR_OBS_DIM
+    return expected_dim
 
 
 def _validate_rewind_meta(meta: dict[str, Any], where: str = '') -> None:
@@ -150,9 +163,9 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     meta.setdefault('robot_model_sha256', ROBOT_MODEL_SHA256)
     meta.setdefault('created_unix', float(time.time()))
     schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
-    if schema == OBS_SCHEMA_SENSOR:
+    if schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
         dimension = _validate_observation_meta(
-            meta, f" at {path}", expected_observation_schema=OBS_SCHEMA_SENSOR,
+            meta, f" at {path}", expected_observation_schema=schema,
             expected_sensor_contract=meta.get('sensor_contract'))
     else:
         dimension = _validate_observation_meta(meta, f" at {path}")
@@ -472,16 +485,38 @@ def resume_training_lineage(
     except Exception as exc:
         raise RuntimeError(f'--resume failed for {resume_path}: {exc}') from exc
 
-    # Preserve stronger run-local rollback candidates across external forks.
+    # A rollback checkpoint is learning state AND teaching recipe, not just
+    # matching network weights. Never transplant a recovery snapshot from a
+    # different source revision into a new source-pinned experiment.
     src_ckpt_dir = resume_path.parent
     dst_ckpt_dir = run_dir / 'checkpoints'
     if src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
         src_recovery = src_ckpt_dir / 'recovery.pkl'
         dst_recovery = dst_ckpt_dir / 'recovery.pkl'
         if src_recovery.exists() and not dst_recovery.exists():
-            dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_recovery, dst_recovery)
-            print(f"{LOG} --resume: seeded recovery.pkl from the source run ({src_recovery}).", flush=True)
+            active_source = source_provenance_from_env().get('git_commit')
+            ancestor_source = ((resumed_payload['meta'].get('source_provenance') or {})
+                               .get('git_commit'))
+            if not active_source or ancestor_source != active_source:
+                print(f"{LOG} --resume: cross-source ancestor; not inheriting "
+                      f"{src_recovery.name} (new run must earn its own recovery).", flush=True)
+            else:
+                try:
+                    recovery = load_checkpoint(
+                        src_recovery, validate=True,
+                        expected_observation_schema=expected_observation_schema,
+                        expected_sensor_contract=expected_sensor_contract)
+                    rollback_source = ((recovery['meta'].get('source_provenance') or {})
+                                       .get('git_commit'))
+                    if rollback_source != active_source:
+                        raise ValueError('source commit differs from new run')
+                except (OSError, ValueError, RuntimeError) as exc:
+                    print(f"{LOG} --resume: source recovery not inherited: {exc}", flush=True)
+                else:
+                    dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_recovery, dst_recovery)
+                    print(f"{LOG} --resume: seeded same-source recovery.pkl "
+                          f"from {src_recovery}.", flush=True)
     return resumed_payload, resumed_step, False
 
 
@@ -521,12 +556,19 @@ def try_restore_recovery(
     try:
         import jax
         import jax.numpy as jnp
-        from .curriculum import CapabilityField
+        from .capability_field import CapabilityField
 
         payload = load_checkpoint(
             recovery_path,
             expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY),
             expected_sensor_contract=getattr(env, 'sensor_contract', None))
+        active_source = source_provenance_from_env().get('git_commit')
+        snapshot_source = ((payload['meta'].get('source_provenance') or {})
+                           .get('git_commit'))
+        if active_source and snapshot_source != active_source:
+            print(f"{log_prefix} AUTO-RECOVERY: refusing a rollback from a "
+                  "different source commit.", flush=True)
+            return None
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
@@ -653,14 +695,27 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
         "EMU_GIT_DESCRIBE": str(provenance.get("describe", "")),
         "EMU_GIT_DIRTY": "true" if provenance.get("dirty") else "false",
     })
+    # A subprocess traceback is useless if we only echo its first
+    # "Traceback" line. Keep a small bounded diagnostic tail while still
+    # writing the FULL uncropped output to the canonical run console.log.
+    from collections import deque
+    error_tail = deque(maxlen=40)
     with (run_dir / "console.log").open("a", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         assert proc.stdout is not None
         for line in proc.stdout:
             log.write(line); log.flush()
             t = line.strip()
-            if t.startswith(LOG + " step=") or "fixed-eval step=" in t or "AUTO-RECOVERY" in t or "training complete" in t or "Traceback" in t:
-                print("    " + t[:260], flush=True)
+            if t:
+                error_tail.append(t)
+            if (t.startswith(LOG + " step=") or
+                    t.startswith(LOG + "   lessons ") or
+                    "fixed-eval step=" in t or "AUTO-RECOVERY" in t or
+                    "training complete" in t or "Traceback" in t):
+                print("    " + t[:350], flush=True)
         rc = proc.wait()
     if rc:
+        print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)
+        for line in error_tail:
+            print("    " + line[:600], flush=True)
         raise RuntimeError(f"training failed for {run_dir.name}; see {run_dir/'console.log'}")

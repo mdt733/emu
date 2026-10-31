@@ -118,7 +118,7 @@ fi
   die 'Locked npm dependencies are missing.'
 
 say 'Preparing the committed 260M actor (Python standard library only).'
-python3 "$DEST/scripts/prepare_showcase.py" --require-champion
+python3 "$DEST/scripts/prepare_showcase.py"
 say 'Installing browser-only Node dependencies.'
 npm ci --prefix "$DEST/emu/viewer_src" --no-audit --no-fund
 say 'Running viewer tests.'

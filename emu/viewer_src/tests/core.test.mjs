@@ -4,8 +4,9 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {parsePolicy} from '../src/policy.js';
 import {parseShowcaseManifest} from '../src/showcase.js';
-import {withTerrain,generateTerrainPark,surfaceSlope} from '../src/terrain.js';
+import {withTerrain,generateTerrainPark,surfaceSlope,surfaceLabGradient,PARK_CHALLENGE_PRESETS} from '../src/terrain.js';
 import {SensorObserver} from '../src/sensor.js';
+import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {commandStickPositions,DemoHandoff} from '../src/demo-handoff.js';
 import {VirtualStick} from '../src/joystick.js';
@@ -49,6 +50,106 @@ test('policy loading preserves schema-2 sensor contracts and safe local assets',
   assert.throws(()=>parseShowcaseManifest({...manifest,policy:'../secret'}));
 });
 
+test('schema-9 360 policy uses exact 4x4 terrain contract',()=>{
+  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
+    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
+  for(let i=0;i<16;i++)fields.push(`tof4x4_range_${Math.floor(i/4)}${i%4}_m`);
+  for(let i=0;i<16;i++)fields.push(`tof4x4_valid_${Math.floor(i/4)}${i%4}`);
+  const c={
+    schema:'terrain_360',sensor_model_revision:'forward_tof4x4_real_plane_box_foot_1',
+    history_len:4,action_dim:6,base_fields:fields,
+    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
+    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
+    tof_range_limits_m:[.035,.6],
+    tof4x4_mount_body_m:[0,0,0],
+    tof4x4_pitch_from_horizontal_deg:[40,60,80,100],
+    tof4x4_yaw_deg:[-22.5,-7.5,7.5,22.5],
+    tof4x4_range_limits_m:[.04,1.5],
+    tof4x4_occlusion:'nearest ray-sphere foot hit masks terrain return',
+    tof4x4_validity:'one bit per cell, delayed, zero on dropout',
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}
+  };
+  const bundle={format:'emu-policy',schema:3,source:{checkpoint_schema:9},
+    robot_xml:'<mujoco/>',policy:{action_dim:6,history_len:4,base_obs_dim:90,
+      obs_dim:360,layers:[{},{},{}]},observation:{base_fields:fields,sensor_contract:c},control:{}};
+  assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,360);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{...bundle.observation,sensor_contract:{...c,
+      tof4x4_pitch_from_horizontal_deg:[30,60,80,100]}}})),/schema-9/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    source:{checkpoint_schema:8}})),/schema-9/);
+});
+
+test('array-only 360 terrain policy keeps legacy actors separate and derives ground from rays',()=>{
+  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
+    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
+  for(let i=0;i<16;i++)fields.push(`tof4x4_range_${Math.floor(i/4)}${i%4}_m`);
+  for(let i=0;i<16;i++)fields.push(`tof4x4_valid_${Math.floor(i/4)}${i%4}`);
+  const c={schema:'terrain_360',sensor_model_revision:'forward_tof4x4_array_plane_fit_no_tripod_2',
+    base_fields:fields,history_len:4,action_dim:6,
+    array_ground_estimator:'weighted_4x4_plane_residual_8mm_v1',
+    array_ground_max_fit_residual_m:.008,array_ground_min_valid_cells:6,
+    tof4x4_mount_body_m:[0,0,0],tof4x4_pitch_from_horizontal_deg:[40,60,80,100],
+    tof4x4_yaw_deg:[-22.5,-7.5,7.5,22.5],tof4x4_range_limits_m:[.04,1.5],
+    tof4x4_occlusion:'nearest ray-sphere foot hit masks terrain return',
+    tof4x4_validity:'one bit per cell, delayed, zero on dropout',
+    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
+      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}};
+  const bundle={format:'emu-policy',schema:3,source:{checkpoint_schema:9},
+    robot_xml:'<mujoco/>',policy:{action_dim:6,history_len:4,base_obs_dim:90,
+      obs_dim:360,layers:[{},{},{}]},observation:{base_fields:fields,sensor_contract:c},control:{}};
+  assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,360);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{...bundle.observation,sensor_contract:{...c,
+      tripod_mounts_body_m:[[0,0,0]]}}})),/array-only/);
+  const dirs=depthLabSensor.terrainActorRays([1,0,0,0,1,0,0,0,1]);
+  const ranges=dirs.map(v=>-.25/v[2]);
+  const fit=depthLabSensor.fitArrayGround(ranges,Array(16).fill(true),[0,0,-1]);
+  assert.equal(fit.valid,true);
+  assert.ok(Math.abs(fit.depth-.25)<1e-3,fit.depth);
+  assert.ok(Math.abs(fit.forward)<1e-3);
+  assert.ok(Math.abs(fit.side)<1e-3);
+  const broken=ranges.slice();
+  broken[0]-=.065;broken[1]-=.065;broken[2]-=.065;broken[3]-=.065;
+  assert.equal(depthLabSensor.fitArrayGround(broken,Array(16).fill(true),[0,0,-1]).valid,false);
+});
+
+test('schema-9 4x4 rays intersect physical floor/box and foot occlusion',()=>{
+  const {terrainActorRays,actorTerrainDistance,TerrainActorObserver}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  const rays=terrainActorRays(R);
+  assert.equal(rays.length,16);
+  assert.ok(rays[0][0]>rays[12][0]);
+  // Plane z=0 and raised box from x=.25 to .45, top z=.02.
+  const model={ngeom:3,geom_type:[0,6,2],geom_bodyid:[0,0,1],
+    geom_size:[0,0,0,.10,.2,.15,.018,0,0]};
+  const data={
+    geom_xpos:[0,0,0,.35,0,-.13,0,0,-1],
+    geom_xmat:Array(3).fill(R).flat()
+  };
+  const origin=[0,0,.26],ray=rays[8];
+  const ground=actorTerrainDistance(origin,ray,model,data,[]);
+  assert.ok(ground>.04&&ground<1.5);
+  const footHit=origin.map((v,i)=>v+ray[i]*.1);
+  data.geom_xpos.splice(6,3,...footHit);
+  assert.equal(actorTerrainDistance(origin,ray,model,data,[2]),0);
+  const contract={schema:'terrain_360',
+    settings:{tof_period_frames:2,tof_delay_frames:1,tof_dropout_prob:0,sensor_noise_scale:0}};
+  const observer=new TerrainActorObserver(contract);
+  const pose={R,torso:origin};
+  observer.reset(pose,model,data,[2],false);
+  assert.equal(observer.read().valid[8],false);
+  // Delay holds last reading for a frame even when the occluding foot moves.
+  data.geom_xpos.splice(6,3,0,0,-1);
+  observer.advance(pose,model,data,[2],false);
+  assert.equal(observer.read().valid[8],false);
+  observer.advance(pose,model,data,[2],false);
+  assert.equal(observer.read().valid[8],false);
+  observer.advance(pose,model,data,[2],false);
+  assert.equal(observer.read().valid[8],true);
+});
+
 // 2. Terrain has real physics geometry; not merely decorative foliage.
 test('terrain park creates a physical heightfield with solid tree trunks',()=>{
   const xml='<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
@@ -61,6 +162,120 @@ test('terrain park creates a physical heightfield with solid tree trunks',()=>{
   assert.equal(surfaceSlope('park',park,0,0,0).degrees,0);
   assert.ok(park.heights.some(x=>x>.05));
 });
+
+test('park heightfield has the same valid optical flow as a flat MuJoCo plane',()=>{
+  // MuJoCo geometry types: plane=0, hfield=1. The array-only raycaster
+  // handles planes and boxes directly; hfields require an explicit height
+  // function. This regression previously made the park centre wobble/fall
+  // even while the same policy walked on the flat ground mode.
+  const {ArrayFlowObserver}=depthLabSensor;
+  const settings={sensor_noise_scale:0};
+  const contract={sensor_model_revision:'forward_tof4x4_array_plane_fit_no_tripod_2',
+    settings};
+  const observer=new ArrayFlowObserver(contract);
+  const identity=[1,0,0,0,1,0,0,0,1];
+  const pose={R:identity,torso:[0,0,.26],vbody:[.20,0,0],
+    gyro:[0,0,0],heightAt:()=>0,terrainHeightAt:()=>0};
+  const plane={ngeom:1,geom_type:[0],geom_bodyid:[0],
+    geom_size:[0,0,0]};
+  const hfield={...plane,geom_type:[1]};
+  const data={geom_xpos:[0,0,0],geom_xmat:identity};
+  const ordinary=observer.synth(pose,plane,data,false);
+  const park=observer.synth(pose,hfield,data,false);
+  assert.equal(ordinary.flowValid,true,'flat plane must give valid optical flow');
+  assert.equal(park.flowValid,true,'flat centre of park hfield must give valid optical flow');
+  assert.ok(Math.abs(park.flow[0]-ordinary.flow[0])<1e-5,
+    'same support geometry must produce the same optic-flow velocity');
+  assert.ok(Math.abs(park.flow[1]-ordinary.flow[1])<1e-5);
+  const missing=observer.synth({...pose,terrainHeightAt:null},hfield,data,false);
+  assert.equal(missing.flowValid,false,
+    'without fallback, MuJoCo heightfield is invisible to flow raycaster');
+  const sim=sourceText('../src/sim.js');
+  const sensorPose=sim.slice(sim.indexOf('  sensorPose() {'),
+    sim.indexOf('  terrainActorPose() {'));
+  assert.match(sensorPose,/terrainHeightAt=this\.terrainMode==='park'/,
+    'browser sensorPose must actually pass terrain-height fallback for park');
+  assert.match(sim,/this\.arraySensor\.advance\(\s*this\.sensorPose\(\)/,
+    'array sensor must receive corrected pose on each live frame');
+});
+
+test('park has eight graduated genuine support challenges, clear spawn and complete labels',()=>{
+  const ids=['step-up','camber','crest','angled','step-down','ripple','log','trough'];
+  const presets=['gentle','balanced','stretch'];
+  const expected=[1.2,2.0,3.0];
+  for(let i=0;i<presets.length;i++){
+    const level=presets[i],p=PARK_CHALLENGE_PRESETS[level];
+    assert.equal(p.up,expected[i]);
+    const park=generateTerrainPark({challengeLevel:level,trees:false,features:true});
+    assert.equal(park.challengeLevel,level);
+    assert.deepEqual(park.features.map(f=>f.id),ids);
+    for(const feature of park.features){
+      assert.ok(feature.label && feature.challenge,
+        'every challenge needs a human-readable label and difficulty');
+      assert.ok(Math.hypot(feature.x,feature.y)-feature.radius>1.65,
+        'keep a generous obstacle-free central birth area');
+      assert.match(feature.geoms,/friction="1\.5/,'real support needs actual MuJoCo collision');
+      assert.match(feature.geoms,/park_feature_/);
+    }
+    const xml=withTerrain(
+      '<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>',
+      'park',{park});
+    assert.match(xml,/name="park_feature_crest_rise"/);
+    assert.match(xml,/name="park_feature_drop_entry"/);
+    assert.match(xml,/name="park_feature_ripple_b_down"/);
+    assert.doesNotMatch(xml,/name="floor" type="plane"/);
+  }
+  assert.throws(()=>generateTerrainPark({challengeLevel:'unknown'}),/Unknown park/);
+  const html=sourceText('../index.html'),main=sourceText('../src/main.js');
+  assert.match(html,/id="parkChallengeLevel"/);
+  assert.match(html,/id="parkCourseList"/);
+  assert.match(main,/setParkChallengeLevel\(parkChallengeLevel.value\)/);
+  assert.match(main,/updateParkCourseInfo\(\)/);
+});
+
+test('all graduated crest and step-down joints retain continuous physical support',()=>{
+  // Yaw=90: crest top local X half-size is its footprint along world Y.
+  // Park's former 6-cm crest included real 1cm unsupported seams.
+  const vector=(tag,name)=>{
+    const match=tag.match(new RegExp('\\b'+name+'="([^"]+)"'));
+    assert.ok(match,'missing '+name+' in physical support');
+    return match[1].split(/\s+/).map(Number);
+  };
+  for(const level of ['gentle','balanced','stretch']){
+    const p=PARK_CHALLENGE_PRESETS[level];
+    const features=generateTerrainPark({challengeLevel:level,trees:false,features:true}).features;
+    const crest=features.find(f=>f.id==='crest');
+    const tag=crest.geoms.split('\n').find(x=>x.includes('name="park_feature_crest_top"'));
+    assert.ok(tag,'crest must have real top support');
+    const [x,y,z]=vector(tag,'pos');
+    const [hx,hy,hz]=vector(tag,'size');
+    const [rx,ry,rz]=vector(tag,'euler');
+    assert.equal(rz,90,'crest local X must remain along world Y');
+    assert.ok(Math.abs(rx)<1e-9 && Math.abs(ry)<1e-9);
+    assert.ok(x===0&&Math.abs(y-2.83)<1e-9);
+    const near=y-hx,far=y+hx;
+    assert.ok(near<=2.64-.002,'unsupported incline/top gap');
+    assert.ok(far>=3.02+.002,'unsupported top/descent gap');
+    assert.ok(Math.abs(z+hz-p.crest/100)<2e-6,'crest must use selected physical height');
+    const riseMismatch=(p.crest/100/.44)*(2.64-near);
+    const fallMismatch=(p.crest/100/.44)*(far-3.02);
+    assert.ok(riseMismatch>=0 && riseMismatch<.001);
+    assert.ok(fallMismatch>=0 && fallMismatch<.001);
+    assert.ok(hy>=.33);
+
+    // The descending ledge's ramp ends at x=-2.39, top box begins
+    // just 5 mm before that point; no "fall through crack" artefact.
+    const drop=features.find(f=>f.id==='step-down');
+    const plateau=drop.geoms.split('\n').find(x=>x.includes('drop_plateau'));
+    const [dx,dy,dz]=vector(plateau,'pos');
+    const [halfX,halfY,halfZ]=vector(plateau,'size');
+    assert.ok(dx+halfX>=-2.39+.004,'unsupported approach/landing seam');
+    assert.ok(dx+halfX<=-2.39+.01,'too-large support overlap');
+    assert.ok(Math.abs(dz+halfZ-p.down/100)<2e-6);
+    assert.ok(halfY>=.33);
+  }
+});
+
 
 // 3. Realistic sensor timing is part of the trained actor interface.
 test('delayed ToF/flow emulation retains reading time and dropout confidence',()=>{
@@ -296,4 +511,282 @@ test('background Worker handles route requests without blocking the viewer',asyn
     route:{steps:[],solved:true}}});
   assert.equal((await result).route.solved,true);
   broker.dispose();
+});
+
+
+test('v5022 front sensor uses 4x4 raw range geometry and adjustable physical mount',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const torso=[0,0,.2584],identity=[1,0,0,0,1,0,0,0,1];
+  const a=depthProbeRays(torso,identity,{forward:.09,tilt:50});
+  const b=depthProbeRays(torso,identity,{forward:.15,tilt:65});
+  assert.equal(a.directions.length,16);
+  assert.ok(a.directions.every(zone=>zone.length===5));
+  assert.ok(a.directions[0][0][2]>a.directions[15][0][2]);
+  assert.ok(Math.abs(b.origin[0]-a.origin[0]-.06)<1e-9);
+  assert.ok(b.directions[5][0][2]<a.directions[5][0][2]);
+  // Synthetic plane forward model checks bearing, not a magic height grid.
+  const plane=(origin,direction)=>direction[2]<-.001
+    ? Math.max(0,-origin[2]/direction[2]):Infinity;
+  const measured=readDepthProbe(a,plane);
+  assert.equal(measured.ranges.length,16);
+  assert.ok(measured.valid.some(Boolean));
+  assert.ok(measured.valid.some((x,i)=>x&&measured.ranges[i]>0));
+  const missing=readDepthProbe(a,()=>Infinity);
+  assert.ok(missing.valid.every(x=>!x));
+  assert.ok(missing.ranges.every(x=>x===0));
+});
+
+test('viewer height display removes geometric slant and never promotes a blocked ray',()=>{
+  const {depthProbeRays,readDepthProbe,terrainHeightOffsetsCm}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const tilt of [45,70,90]){
+    const pose=depthProbeRays([0,0,.2584],R,{tilt});
+    const onPlane=z=>readDepthProbe(pose,(origin,ray)=>{
+      return ray[2]<-.001?(z-origin[2])/ray[2]:Infinity;
+    },{subrays:4});
+    const flat=onPlane(0);
+    const heights=terrainHeightOffsetsCm(flat);
+    assert.ok(flat.valid.every(Boolean));
+    assert.ok(Math.max(...flat.ranges)-Math.min(...flat.ranges)>.001);
+    assert.ok(heights.every(cm=>cm!==null&&Math.abs(cm)<1e-8),
+      'flat should read 0cm despite different oblique range values');
+    assert.ok(terrainHeightOffsetsCm(onPlane(.05)).every(cm=>Math.abs(cm-5)<1e-8));
+    assert.ok(terrainHeightOffsetsCm(onPlane(-.05)).every(cm=>Math.abs(cm+5)<1e-8));
+    assert.ok(terrainHeightOffsetsCm(onPlane(.05),.05).every(cm=>Math.abs(cm)<1e-8));
+  }
+  const pose=depthProbeRays([0,0,.2584],R);
+  const self=readDepthProbe(pose,()=>({distance:.11,kind:'self'}),{subrays:1});
+  assert.ok(self.valid.every(Boolean));
+  assert.ok(terrainHeightOffsetsCm(self).every(cm=>cm===null));
+  const missing=readDepthProbe(pose,()=>Infinity,{subrays:1});
+  assert.ok(terrainHeightOffsetsCm(missing).every(cm=>cm===null));
+});
+
+test('v5022 diagnostic obstacle courses alter REAL MuJoCo support geometry',()=>{
+  const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05" /></worldbody></mujoco>';
+  const rise=withTerrain(xml,'sensor',{obstacle:'step-up'});
+  const down=withTerrain(xml,'sensor',{obstacle:'step-down'});
+  const hill=withTerrain(xml,'sensor',{obstacle:'crest'});
+  const log=withTerrain(xml,'sensor',{obstacle:'log'});
+  assert.ok(rise.includes('depth_landing'));
+  assert.ok(!rise.includes('name="floor"'));
+  assert.ok(rise!==down);
+  assert.ok(hill.includes('depth_rise')&&hill.includes('depth_exit'));
+  assert.ok(log.includes('depth_log')&&log.includes('name="floor"'));
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'unknown'}));
+});
+
+
+test('v5023 surface lab builds real 4-direction continuous inclines and variable steps',()=>{
+  const xml='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05" /></worldbody></mujoco>';
+  for(const [kind,axis,sign] of [
+    ['lab-uphill','gx',1],['lab-downhill','gx',-1],
+    ['lab-camber-left','gy',1],['lab-camber-right','gy',-1]]) {
+    const out=withTerrain(xml,'sensor',{obstacle:kind,slopeDegrees:5});
+    assert.ok(out.includes('surface_lab_plane'));
+    assert.ok(!out.includes('name="floor"'));
+    const g=surfaceLabGradient(kind,5);
+    assert.equal(Math.sign(g[axis]),sign);
+    assert.ok(Math.abs(Math.atan(Math.hypot(g.gx,g.gy))*180/Math.PI-5)<1e-9);
+    const measured=surfaceSlope('sensor',null,0,0,0,{obstacle:kind,slopeDegrees:5});
+    assert.equal(measured.supported,true);
+    assert.ok(Math.abs(measured.degrees-5)<1e-9);
+  }
+  for(const kind of ['lab-step-up','lab-step-down']){
+    const xmlOut=withTerrain(xml,'sensor',{obstacle:kind,stepHeightCm:2.5});
+    assert.ok(xmlOut.includes('depth_approach'));
+    assert.ok(xmlOut.includes('depth_landing'));
+    assert.ok(!xmlOut.includes('name="floor"'));
+  }
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'lab-uphill',slopeDegrees:30}));
+  assert.throws(()=>withTerrain(xml,'sensor',{obstacle:'lab-step-up',stepHeightCm:20}));
+});
+
+
+test('v5022 depth inspector compares 16/64/80 casts without averaging a step into a ramp',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  for(const [subrays,expected] of [[1,16],[4,64],[5,80]]){
+    let calls=0;
+    const r=readDepthProbe(pose,()=>{calls++;return .25;},{subrays});
+    assert.equal(calls,expected);
+    assert.ok(r.valid.every(Boolean));
+    assert.ok(r.ranges.every(x=>Math.abs(x-.25)<1e-8));
+    assert.equal(r.selfOccluded.length,16);
+    assert.equal(r.hitPoints.length,16);
+  }
+  assert.throws(()=>readDepthProbe(pose,()=>.2,{subrays:8}));
+});
+
+test('v5022 4-ray edge zones report mixed step returns and robot occlusion',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  // Across each zone, two rays see a riser and two see ground.
+  let calls=0;
+  const mixed=readDepthProbe(pose,()=>{
+    const j=calls++%4;
+    return {distance:j<2?.18:.27,kind:j===0?'self':'terrain'};
+  },{subrays:4});
+  assert.ok(mixed.valid.every(Boolean));
+  assert.ok(mixed.mixed.every(Boolean));
+  assert.ok(mixed.selfOccluded.every(Boolean));
+  // Lower median of .18/.18/.27/.27 is the measured .18 surface,
+  // NOT the non-existent averaged .225 intermediate height.
+  assert.ok(mixed.ranges.every(x=>Math.abs(x-.18)<1e-8));
+  assert.ok(mixed.hitPoints.every(p=>p.every(Number.isFinite)));
+});
+
+
+test('v5022 slant range gradient on a single flat surface is not a step',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1],{tilt:35});
+  const flat=readDepthProbe(pose,(origin,ray)=>({
+    distance:origin[2]/(-ray[2]),
+    kind:'terrain',surface:'same_flat_ground',
+  }),{subrays:4});
+  assert.ok(flat.valid.some(Boolean));
+  assert.ok(flat.mixed.every(v=>!v));
+  assert.ok(flat.selfOccluded.every(v=>!v));
+});
+
+
+test('depth obstacle terrain leaves live sensor telemetry safe in every course',()=>{
+  // Previously surfaceSlope('sensor') threw every frame; the sensor kept
+  // scanning but the UI stopped updating outside the radial park.
+  for(const mode of ['flat','ramp','park','sensor']){
+    const park=mode==='park'?generateTerrainPark({features:false,trees:false}):null;
+    const output=surfaceSlope(mode,park,0,0,0);
+    assert.equal(typeof output.supported,'boolean');
+    assert.ok(Number.isFinite(output.degrees));
+  }
+  assert.equal(surfaceSlope('sensor',null,.5,0,0).supported,false);
+});
+
+test('depth mount can sit at torso root and has fixed 4x4 zone geometry',()=>{
+  const {depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const forward of [0,.01,.045,.09,.18]){
+    const p=depthProbeRays([0,0,.25],R,{forward,tilt:50});
+    assert.equal(p.origin[0],forward);
+    assert.equal(p.directions.length,16);
+    assert.ok(p.directions.every(z=>z.length===5));
+  }
+  assert.throws(()=>depthProbeRays([0,0,.25],R,{forward:-.01,tilt:50}));
+});
+
+test('default park has real obstacle ring, clear spawn, and opt-out parity',()=>{
+  const base='<mujoco><worldbody><geom name="floor" type="plane"/></worldbody></mujoco>';
+  const park=generateTerrainPark({trees:false});
+  assert.ok(park.flatRadius>=4);
+  assert.equal(park.features.length,8);
+  assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)>2.5));
+  assert.ok(park.features.every(f=>Math.hypot(f.x,f.y)<park.flatRadius));
+  assert.ok(park.features.every(f=>f.geoms.includes('type=')));
+  assert.ok(park.features.some(f=>f.id==='crest'&&f.geoms.includes('quat=')));
+  assert.ok(park.features.some(f=>f.id==='step-up'));
+  assert.ok(park.features.some(f=>f.id==='step-down'));
+  assert.ok(park.features.some(f=>f.id==='camber'));
+  assert.ok(park.features.some(f=>f.id==='ripple'));
+  assert.ok(park.features.some(f=>f.id==='log'));
+  assert.ok(park.features.some(f=>f.id==='angled'));
+  assert.ok(park.features.some(f=>f.id==='trough'));
+  assert.equal(park.sampleHeight(0,0),0);
+  const xml=withTerrain(base,'park',{park});
+  assert.match(xml,/park_feature_step_up/);
+  assert.match(xml,/park_feature_crest_rise/);
+  assert.match(xml,/park_feature_crest_fall/);
+  assert.match(xml,/park_feature_log/);
+  assert.match(xml,/park_feature_trough_near/);
+  const noFeatures=generateTerrainPark({trees:false,features:false});
+  assert.equal(noFeatures.features.length,0);
+  assert.equal(noFeatures.flatRadius,park.flatRadius);
+  const cleanXml=withTerrain(base,'park',{park:noFeatures});
+  assert.doesNotMatch(cleanXml,/park_feature_/);
+  assert.match(cleanXml,/viewer_park_ground/);
+  // Feature toggling must not mutate the physical hfield itself.
+  assert.deepEqual(Array.from(park.heights),Array.from(noFeatures.heights));
+});
+
+
+test('square 45-degree optical footprint stays square at 90-degree downward tilt',()=>{
+  const {depthProbeRays,depthGridRays}=depthLabSensor;
+  const eye=[0,0,.26],R=[1,0,0,0,1,0,0,0,1];
+  const footprint=depthGridRays(R,{tilt:90});
+  assert.equal(footprint.length,25);
+  const hit=footprint.map(ray=>{
+    assert.ok(ray[2]<0);
+    const t=-eye[2]/ray[2];
+    return eye.map((p,k)=>p+t*ray[k]);
+  });
+  const half=.26*Math.tan(Math.PI/8);
+  for(let row=0;row<5;row++)for(let col=0;col<5;col++){
+    const p=hit[row*5+col];
+    assert.ok(Math.abs(p[0]-(1-row/2)*half)<1e-10);
+    assert.ok(Math.abs(p[1]-(col/2-1)*half)<1e-10);
+    assert.ok(Math.abs(p[2])<1e-10);
+  }
+  // Corner cells form a true nondegenerate square, not a V/triangle.
+  assert.ok(Math.abs(hit[0][0]-hit[4][0])<1e-10);
+  assert.ok(Math.abs(hit[0][1]-hit[20][1])<1e-10);
+  const zones=depthProbeRays(eye,R,{forward:0,tilt:90,height:0});
+  assert.equal(zones.directions.length,16);
+  for(let row=0;row<4;row++)for(let col=0;col<4;col++){
+    const ray=zones.directions[row*4+col][0];
+    const t=-eye[2]/ray[2],p=eye.map((x,k)=>x+t*ray[k]);
+    assert.ok(Math.abs(p[0]-(.75-row*.5)*half)<1e-10);
+    assert.ok(Math.abs(p[1]-(col*.5-.75)*half)<1e-10);
+  }
+});
+
+test('sensor square FoV remains independent in both axes at all pitch settings',()=>{
+  const {depthGridRays,depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1];
+  for(const tilt of [0,25,50,75,90]){
+    const rays=depthGridRays(R,{tilt});
+    assert.ok(rays.every(ray=>Math.abs(Math.hypot(...ray)-1)<1e-10));
+    // Centre row left/right spread exists at 90 degrees too.
+    assert.ok(Math.abs(rays[10][1]-rays[14][1])>.6);
+    // Upper/lower spread is independent of horizontal image-plane axis.
+    assert.ok(Math.hypot(...rays[2].map((x,i)=>x-rays[22][i]))>.6);
+    const probe=depthProbeRays([0,0,.26],R,{tilt,forward:0});
+    assert.equal(probe.directions.length,16);
+    assert.ok(probe.directions.every(zone=>zone.length===5));
+  }
+  assert.throws(()=>depthGridRays(R,{tilt:91}));
+});
+
+
+test('0mm 70-degree provisional optical mount preserves side and front coverage',()=>{
+  const {depthProbeRays}=depthLabSensor;
+  const R=[1,0,0,0,1,0,0,0,1],torso=[0,0,.2584];
+  const probe=depthProbeRays(torso,R);
+  assert.ok(Math.abs(probe.origin[0])<1e-10);
+  assert.ok(Math.abs(probe.origin[2]-.2184)<1e-10);
+  const ground=(row,col)=>{
+    const ray=probe.directions[row*4+col][0];
+    const t=-probe.origin[2]/ray[2];
+    return probe.origin.map((v,k)=>v+t*ray[k]);
+  };
+  const farL=ground(0,1),farR=ground(0,2);
+  const nearL=ground(3,0),nearR=ground(3,3);
+  assert.ok(farL[0]>.15 && farR[0]>.15);
+  assert.ok(nearL[1]<-.05 && nearR[1]>.05);
+  assert.ok(Math.abs(nearL[0]-nearR[0])<1e-10);
+  assert.ok(farL[0]-nearL[0]>.14);
+});
+
+
+test('near outer zones of 0/70 mount distinguish left-to-right ground grade',()=>{
+  const {depthProbeRays,readDepthProbe}=depthLabSensor;
+  const pose=depthProbeRays([0,0,.2584],[1,0,0,0,1,0,0,0,1]);
+  // Ground plane z=tan(10°)*worldY, not privileged future sample heights.
+  const m=Math.tan(10*Math.PI/180);
+  const scan=readDepthProbe(pose,(origin,dir)=>{
+    const denom=dir[2]-m*dir[1];
+    return denom<0?-origin[2]/denom:Infinity;
+  },{subrays:4});
+  assert.ok(scan.valid[12] && scan.valid[15]);
+  assert.ok(scan.ranges[12]-scan.ranges[15]>.012);
+  // The 4x4 grid represents slant range, not a precomputed ground angle.
+  assert.equal(scan.ranges.length,16);
 });

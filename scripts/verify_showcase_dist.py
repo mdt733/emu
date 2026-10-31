@@ -18,6 +18,8 @@ def verify(dist: Path, *, expected_source_commit: str = '') -> dict:
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     if expected_source_commit and manifest.get('source_commit') != expected_source_commit:
         raise ValueError(f'Static viewer revision mismatch: expected {expected_source_commit}, found {manifest.get("source_commit")!r}')
+    if manifest.get('trained') is not True:
+        raise ValueError('Public showcase must contain a trained approved policy')
     policy = manifest.get('policy')
     if manifest.get('schema') != 1 or manifest.get('mode') != 'showcase' or policy != 'policies/champion.emupolicy':
         raise ValueError(f'Invalid showcase manifest: {manifest_path}')
@@ -26,7 +28,7 @@ def verify(dist: Path, *, expected_source_commit: str = '') -> dict:
         raise FileNotFoundError(f'Static policy missing: {policy_path}')
     exported = json.loads(policy_path.read_text(encoding='utf-8'))
     from verify_showcase_release import validate_browser_bundle, verify_approved_release
-    validate_browser_bundle(exported, require_trained=manifest.get('trained') is True)
+    validate_browser_bundle(exported, require_trained=True)
     if (ROOT / 'showcase' / 'release_approval.json').is_file():
         verify_approved_release(ROOT / 'showcase' / 'champion.emupolicy',
                                 ROOT / 'showcase' / 'release_approval.json')

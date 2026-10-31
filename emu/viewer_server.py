@@ -20,8 +20,6 @@ from urllib.parse import urlsplit
 
 # Read-only live checkpoint watcher, bound to the same local viewer server.
 from dataclasses import dataclass
-import json
-from pathlib import Path
 from threading import Lock
 
 
@@ -32,30 +30,14 @@ class Snapshot:
     phase: str
 
 
-def _run_priority(relative_parts: tuple[str, ...]) -> tuple[int, str]:
-    """Later ladder rounds outrank their parent, independent of runner version."""
-    first = relative_parts[0] if relative_parts else ''
-    if first.startswith('round') and first[5:].isdigit():
-        return (1000 + int(first[5:]), '/'.join(relative_parts))
-    if first == 'foundation20':
-        return (500, '/'.join(relative_parts))
-    # Historical 00_foundation/10_adapt/40_generalist directories, or any
-    # user-defined numbered stage. No dependency on a retired forge recipe.
-    if len(first) >= 3 and first[:2].isdigit() and first[2] == '_':
-        return (int(first[:2]) + 500, '/'.join(relative_parts))
-    return (100, '/'.join(relative_parts))
-
-
 def candidates(root: Path) -> list[tuple[str, Path]]:
-    """Newest logical ladder stages first, regardless of recipe filenames.
+    """Return the newest validated-looking checkpoint candidates first.
 
-    Only existing checkpoint directories are visited; this also recognises
-    arbitrary arm names and history without importing any training runners.
+    The live watcher checks source and actor validity before publishing.
+    No retired ladder/tournament ordering is used.
     """
     root = Path(root)
     dirs = [p for p in root.rglob('checkpoints') if p.is_dir()]
-    dirs.sort(key=lambda ck: _run_priority(ck.parent.relative_to(root).parts),
-              reverse=True)
     result: list[tuple[str, Path]] = []
     for ck in dirs:
         rel = ck.parent.relative_to(root)
@@ -64,10 +46,8 @@ def candidates(root: Path) -> list[tuple[str, Path]]:
         result.extend((phase, p) for p in sorted(
             ck.glob('snapshot_step_*.pkl'), reverse=True))
     result.append(('complete', root / 'final.pkl'))
-    # A 12-hour tournament starts several NEW runs from the same 20M
-    # ancestor, so neither round number nor absolute policy step says which
-    # branch is currently active. Watch the most recently published on-disk
-    # checkpoint; atomic writer signatures still protect against torn saves.
+    # Watch the newest on-disk checkpoint regardless of directory naming.
+    # Atomic writer signatures protect against torn or overwritten saves.
     result.sort(
         key=lambda candidate: (
             candidate[1].stat().st_mtime_ns if candidate[1].is_file() else -1,
@@ -282,8 +262,6 @@ import argparse
 import base64
 import csv
 import hashlib
-import json
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -299,8 +277,9 @@ from .contracts import (
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
     OBS_DIM,
-    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
+    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
     SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
+    TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS,
     sensor_observation_contract,
     SIM_DT,
 )
@@ -341,17 +320,37 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
                                     bundle.get('control') or {})
     source = bundle.get('source') or {}
     training = bundle.get('training') or {}
-    if bundle.get('format') != FORMAT or bundle.get('schema') != SCHEMA:
-        raise ValueError('not an EMU schema-1 exported actor')
+    if bundle.get('format') != FORMAT or bundle.get('schema') not in (1,2,3):
+        raise ValueError('not an EMU schema-1/2/3 exported actor')
+    schema = bundle['schema']
+    obs_dim = TERRAIN_OBS_DIM if schema==3 else SENSOR_OBS_DIM if schema==2 else OBS_DIM
+    base_dim = TERRAIN_BASE_OBS_DIM if schema==3 else SENSOR_BASE_OBS_DIM if schema==2 else BASE_OBS_DIM
+    fields = TERRAIN_OBS_FIELDS if schema==3 else SENSOR_OBS_FIELDS if schema==2 else BASE_OBS_FIELDS
+    actor_schema = OBS_SCHEMA_TERRAIN if schema==3 else OBS_SCHEMA_SENSOR if schema==2 else OBS_SCHEMA_LEGACY
+    if schema in (2,3):
+        # The public schema-2 bundle must agree with the REAL train-time
+        # sensor timing, geometry and contract hash; size alone is unsafe.
+        provided = observation.get('sensor_contract')
+        if not isinstance(provided,dict):
+            raise ValueError('missing schema-2 sensor contract')
+        # Both archived 360-tripod and the new 360-array-only contracts
+        # may be examined, but never interpreted as each other.
+        array_only = (schema==3 and
+            provided.get('sensor_model_revision') ==
+                'forward_tof4x4_array_plane_fit_no_tripod_2')
+        expected = sensor_observation_contract(
+            provided.get('settings'),schema=actor_schema,array_only=array_only)
+        if provided != expected:
+            raise ValueError('schema-2 sensor contract hash/geometry mismatch')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
         policy.get('history_len'), policy.get('action_dim')) != (
-            OBS_DIM, BASE_OBS_DIM, HISTORY_LEN, ACTION_DIM):
+            obs_dim, base_dim, HISTORY_LEN, ACTION_DIM):
         raise ValueError('export actor observations/actions differ from the current contract')
     if (policy.get('hidden_sizes') != list(PPO_HIDDEN_SIZES) or
         policy.get('activation') != 'tanh' or
         policy.get('output') != 'deterministic_mean_clipped'):
         raise ValueError('export policy network differs from current actor')
-    if (observation.get('base_fields') != list(BASE_OBS_FIELDS) or
+    if (observation.get('base_fields') != list(fields) or
         observation.get('history_order') != 'oldest_to_newest'):
         raise ValueError('export policy channel names/history order differ')
     if (control.get('actuated_joints') != list(ACTUATED_JOINTS) or
@@ -366,11 +365,21 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if (source.get('robot_model_sha256') != model_hash or
         bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
         raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
-    if source.get('checkpoint_schema') != 7 or not isinstance(source.get('step'), int):
-        raise ValueError('export provenance is not a known schema-7 training lineage')
+    expected_ckpt_schema=9 if schema==3 else 8 if schema==2 else 7
+    if source.get('checkpoint_schema') != expected_ckpt_schema or not isinstance(source.get('step'), int):
+        raise ValueError(f'export provenance is not a known schema-{expected_ckpt_schema} training lineage')
     if training.get('attitude_profile') not in ('v5014','v5015'):
         raise ValueError('missing supported training attitude profile')
     pitch = float(training.get('pitch_command_max_deg', float('nan')))
+    velocity_i=control.get('velocity_i') or {}
+    if not isinstance(velocity_i,dict):
+        raise ValueError('invalid velocity-I controller metadata')
+    ramp_i=float(velocity_i.get('ramp_s',.4))
+    mult_i=float(velocity_i.get('multiplier',1.))
+    if (not np.isfinite(ramp_i) or not .1<=ramp_i<=5. or
+            not np.isfinite(mult_i) or not 1.<=mult_i<=3. or
+            (mult_i>1. and schema!=3)):
+        raise ValueError('unsupported velocity-I controller or schema')
     phase_gain = float(control.get('phase_speed_gain', float('nan')))
     if not (np.isfinite(pitch) and 0 < pitch <= 45 and
             np.isfinite(phase_gain) and phase_gain >= 0):
@@ -390,7 +399,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
             raise ValueError(f'nonfinite exported {name}')
         return out
 
-    layer_sizes = (OBS_DIM, *PPO_HIDDEN_SIZES, ACTION_DIM)
+    layer_sizes = (obs_dim, *PPO_HIDDEN_SIZES, ACTION_DIM)
     specs = policy.get('layers')
     if not isinstance(specs, list) or len(specs) != 3:
         raise ValueError('export must contain exactly three actor layers')
@@ -404,15 +413,21 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         layers.append({'w': w, 'b': b})
     if actor_hash.hexdigest() != source.get('actor_sha256'):
         raise ValueError('exported actor hash does not match declared source')
-    mean = decode(observation.get('mean'), (OBS_DIM,), 'normalizer mean')
-    std = decode(observation.get('std'), (OBS_DIM,), 'normalizer std')
-    mask = decode(observation.get('normalize_mask'), (OBS_DIM,), 'normalizer mask')
-    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask()):
+    mean = decode(observation.get('mean'), (obs_dim,), 'normalizer mean')
+    std = decode(observation.get('std'), (obs_dim,), 'normalizer std')
+    mask = decode(observation.get('normalize_mask'), (obs_dim,), 'normalizer mask')
+    if np.any(std <= 0) or not np.array_equal(mask, build_obs_norm_mask(actor_schema)):
         raise ValueError('export observation standard deviations/mask incompatible')
     return {'pi': layers}, {'mean': mean, 'std': std}, {
         'source': source, 'training': training, 'control': control,
         'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
         'robot_model_sha256': model_hash,
+        'observation_schema': actor_schema,
+        'sensor_settings': dict(observation['sensor_contract']['settings']) if schema in (2,3) else {},
+        'array_only': bool(schema==3 and
+            observation['sensor_contract'].get('sensor_model_revision') ==
+                'forward_tof4x4_array_plane_fit_no_tripod_2'),
+        'obs_dim': obs_dim,
     }
 
 
@@ -557,14 +572,17 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     # cross the versioned schema-8 gate before any browser export takes place.
     unverified = load_checkpoint(checkpoint, validate=False)
     meta_hint = unverified.get('meta') or {}
-    is_sensor = meta_hint.get('observation_schema') == OBS_SCHEMA_SENSOR
+    actor_schema = meta_hint.get('observation_schema',OBS_SCHEMA_LEGACY)
+    is_sensor = actor_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
     if is_sensor:
         contract = meta_hint.get('sensor_contract')
         payload = load_checkpoint(
-            checkpoint, expected_observation_schema=OBS_SCHEMA_SENSOR,
+            checkpoint, expected_observation_schema=actor_schema,
             expected_sensor_contract=contract)
-        obs_dim, base_dim = SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM
-        obs_fields = SENSOR_OBS_FIELDS
+        if actor_schema == OBS_SCHEMA_TERRAIN:
+            obs_dim,base_dim,obs_fields = TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS
+        else:
+            obs_dim,base_dim,obs_fields = SENSOR_OBS_DIM,SENSOR_BASE_OBS_DIM,SENSOR_OBS_FIELDS
     else:
         payload = load_checkpoint(checkpoint)
         contract = None
@@ -624,7 +642,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": 2 if is_sensor else SCHEMA,
+        "schema": 3 if actor_schema==OBS_SCHEMA_TERRAIN else 2 if is_sensor else SCHEMA,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -671,7 +689,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
             "normalize_mask": _f32_blob(build_obs_norm_mask(
-                OBS_SCHEMA_SENSOR if is_sensor else OBS_SCHEMA_LEGACY)),
+                actor_schema)),
         },
         "control": {
             "sim_dt": SIM_DT,
@@ -687,6 +705,11 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                 "phase_rate_hz": 0.0, "sensor_scale": 0.0,
             },
             "phase_speed_gain": _scalar(run_cfg, 'phase_speed_gain', 0.75),
+            "velocity_i": {
+                "ramp_s": _scalar(run_cfg,'velocity_i_ramp_s',.4),
+                "multiplier": _scalar(run_cfg,'velocity_i_multiplier',1.),
+                "algorithm": "sensor_relative_shortfall_bounded_v1",
+            },
             "phase_speed_reference_mps": _scalar(run_cfg, 'vx_hi_max', 0.60),
             "sensor_noise_scale": 1.5,
             "phase_base_hz": 1.025,
@@ -746,17 +769,13 @@ def export_main(argv=None) -> int:
 
 
 # Local read-only capability-field viewer, separate from the trained actor feed.
-import argparse
-import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import urlparse
 
-import numpy as np
 from .contracts import seed_root
 
-from .curriculum import FIELD_VERSION
+from .capability_field import FIELD_VERSION
 from .contracts import VERSION
 
 HTML = r'''<!doctype html><meta charset="utf-8"><title>EMU capability field</title>

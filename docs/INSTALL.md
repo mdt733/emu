@@ -1,268 +1,260 @@
-# Install & operate EMU
+# EMU — fresh install and recovery (Windows 11 / WSL2 Ubuntu / NVIDIA)
 
-EMU has a Python JAX/MJX learning environment and a separate JavaScript MuJoCo/WebAssembly viewer. **GPU training requires a working NVIDIA driver exposed to WSL**; browser viewing does not.
+**Reviewed: 31 October 2026.** This is the maintained rebuild procedure.
+The new **`main`** baseline is the completed 360-input,
+260,046,848-step Pinnacle. The previous 232-input actor is
+preserved at commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
+For the current policy and held-out results, see
+[the release card](V5032_PINNACLE_RELEASE.md). The old
+[cold-start runbook](PINNACLE_CANDIDATE.md) is now history.
 
-## Fresh Windows / WSL2
+No step below launches training or replaces the released policy.
+Never install into, change, pull, or overwrite an **active** training
+checkout or virtual environment. Fresh machine setup uses a NEW directory,
+a NEW local `.venv` and results stored OUTSIDE Git.
 
-From an administrator PowerShell on Windows 11:
+[Project overview](../README.md) ·
+[Current handover](../HANDOVER.md) ·
+[Release rules](RELEASE_READINESS.md) ·
+[Official JAX installation guide](https://docs.jax.dev/en/latest/installation.html) ·
+[NVIDIA CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/)
 
-```powershell
-wsl --list --verbose
-wsl --install -d Ubuntu-24.04
-wsl --update
-```
+## 1. Windows host — GPU and WSL
 
-Do not reinstall or unregister an existing suitable Ubuntu environment. In Ubuntu, check Python 3.13+; Ubuntu 24.04's stock Python may be 3.12. One choice is the third-party deadsnakes PPA (evaluate its security/update policy before using it):
+1. Install a current NVIDIA **Windows** display driver that supports CUDA
+   on WSL2. For JAX CUDA 13, NVIDIA/JAX document a driver **580+**
+   requirement; verify the current JAX/driver guidance when rebuilding.
+   The RTX 4060 Ti used for EMU supports CUDA 13.
+2. In **administrator PowerShell**, install/update WSL2 and Ubuntu:
+
+   ```powershell
+   wsl --install -d Ubuntu
+   wsl --update
+   wsl --list --verbose
+   nvidia-smi
+   ```
+
+   Restart Windows if requested. Confirm Ubuntu is WSL **version 2**.
+   Configure the Ubuntu username and password on its first launch.
+3. Enter Ubuntu with `wsl -d Ubuntu` and check:
+
+   ```bash
+   uname -m
+   nvidia-smi || /usr/lib/wsl/lib/nvidia-smi
+   ```
+
+   Expect `x86_64` and a visible NVIDIA GPU. A `CUDA Version` reported by
+   `nvidia-smi` is the driver's *capability*, not proof that JAX has been
+   installed. **Do not install a Linux NVIDIA display driver in WSL**,
+   or install a generic `cuda-drivers` meta-package: WSL uses the driver
+   supplied by Windows. With JAX's pip-installed CUDA wheels you
+   ordinarily need **no separate Linux CUDA toolkit**.
+
+## 2. Ubuntu — Git, Python 3.13 and Node 24
+
+Use the Linux filesystem (for example `~/emu-research`), not `/mnt/c`,
+for a high-throughput MJX checkout or results.
+
+Ubuntu 24.04 ordinarily ships Python 3.12, whereas `pyproject.toml`
+requires **Python 3.13+**. This reproducible route installs a user-local
+Python 3.13 without replacing Ubuntu's system Python. On a system that
+already has working `python3.13`, skip the `pipx`/`uv` bootstrap.
 
 ```bash
-sudo apt update
-sudo apt install -y git curl ca-certificates software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install -y python3.13 python3.13-venv
+sudo apt-get update
+sudo apt-get install -y git curl ca-certificates pipx
+pipx ensurepath
+export PATH="$HOME/.local/bin:$PATH"
+pipx install uv
+uv python install 3.13
 python3.13 --version
 ```
 
-Do not replace `/usr/bin/python3`. Install the Windows NVIDIA driver, **not the Linux graphics driver inside WSL**. Check `nvidia-smi`. See [NVIDIA CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
+`uv` fetches a supported Python 3.13 distribution. Do not replace
+`/usr/bin/python3` or use `--break-system-packages`. Python 3.13
+installation can alternatively be provided by your distribution; the
+version check above is what matters.
 
-## Clone, install and verify
+The repo pins the viewer's Node major version in `.nvmrc` (**24**).
+The setup script can install user-local Node via nvm automatically;
+there is no need to install Node manually here.
+
+## 3. Clone the source, install CUDA JAX and all test tools
+
+This example checks out the **current released `main` source**.
+For a future source-pinned training study, use the approved
+branch and exact SHA in the [handover](../HANDOVER.md).
+For the public viewer alone, see [CPU-only setup](PLAYGROUND.md).
 
 ```bash
-git clone https://github.com/mdt733/emu.git "$HOME/emu"
-cd "$HOME/emu"
-bash scripts/setup_wsl.sh --cuda13 --install-node
+git clone --single-branch --branch main \
+  https://github.com/mdt733/emu.git "$HOME/emu-research"
+cd "$HOME/emu-research"
+git branch --show-current
+git rev-parse HEAD
+
+# Creates this checkout's .venv; installs JAX CUDA 13 + EMU + pytest,
+# installs Node 24, builds the viewer and runs CPU/browser tests.
+bash scripts/setup_wsl.sh --cuda13 --install-node --check
+
 source .venv/bin/activate
-emu doctor --v5015-smoke --domain-smoke
-bash scripts/check.sh
-emu ladder --stage plan
+python --version
+python -m pytest --version
 ```
 
-For CPU-only inspection use `bash scripts/setup_wsl.sh --install-node` and `emu doctor --no-require-gpu --no-mjx-smoke`. The installer builds the viewer, not a long run.
+**Important:** The historical 260M launcher's CPU preflight uses `pytest`.
+`setup_wsl.sh --cuda13` installs `.[dev]` on this source branch even
+without `--check`; `--check` additionally runs the Python and browser
+suites. Always use a **new environment** for a new source-pinned training
+campaign; never switch an active trainer's editable install.
 
-**The six-servo policy shape is fixed:** 220 observations → 6 actions. Training checkpoint schema 7 preserves weights, optimiser, normaliser and curriculum. Do not resume across a changed source revision or reuse run roots with different environment counts.
-
-
-
-### v5016 spring and real-contact slope checks
-
-The independent physical exam now accepts a genuinely inclined infinite
-MuJoCo collision plane (the original XML stays unchanged, and gravity stays
-vertical). This is **not** the earlier tilted-gravity approximation, and
-the printed report explicitly identifies which kind of slope was examined.
+If you choose to install manually instead of using the setup script:
 
 ```bash
-cd "$HOME/emu-v5016"
+cd "$HOME/emu-research"
+python3.13 -m venv .venv
 source .venv/bin/activate
-OUT="$HOME/robot_lab/emu_exams/v5016_real_slope_$(date +%Y%m%d_%H%M%S)"
-emu directional-exam --policy showcase/champion.emupolicy \
-  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-  --seed 1701 --scenario steady --speed .10 \
-  --angle 2 --direction uphill --contact-slope --compare-heading
+python -m pip install --upgrade pip
+python -m pip install "jax[cuda13]"
+python -m pip install -e ".[dev]"
 ```
 
-For a full planned protected-policy course campaign, the
-`--profile physical` batch now has **13 scenarios**, including real 2°
-uphill/downhill/cross slope cases. Run the planned command without `--run`
-first. These experiments never alter the protected actor or train PPO.
+The manual path is **training only**: building the browser viewer requires
+Node 24 and the locked dependencies in `emu/viewer_src/package-lock.json`.
+Do not mix the manual path with the script in an existing running venv.
 
-The physical JSON records each passive shin's spring-energy charging/release
-and whether its release coincided with uninterrupted stance contact. Stance
-release is only an energy-timing observation—not energy delivered to the
-ground, an efficiency percentage, or proof of spring-assisted propulsion.
-`robot.xml` still lacks shin/torso sentinel contacts, and the actual
-incline is a single infinite plane rather than rocks, steps or varying
-per-world terrain.
-
-### v5016 read-only physical reality exam (do this BEFORE expensive training)
-
-The protected Pitch15 public policy is a legitimate **frozen actor** and now
-works as an examiner input without the historical training PKL. Use a new,
-isolated output directory outside Git; this creates reports only.
-
-For a matched 10-course exam (heading correction OFF/ON, seed-controlled),
-first print the planned jobs, then opt in explicitly with `--run`:
+## 4. Verify the actual GPU backend — not just a successful pip install
 
 ```bash
-cd "$HOME/emu-v5016"
+cd "$HOME/emu-research"
 source .venv/bin/activate
-BASE="$HOME/robot_lab/emu_exams/pitch15_$(date +%Y%m%d_%H%M%S)"
-emu directional-batch --policy showcase/champion.emupolicy \
-  --profile physical --device cuda --worlds 4 --seed 1701 \
-  --output "$BASE"
-# When the plan looks right, append --run to the command above.
-# Repeat with a DIFFERENT BASE for held-out seeds 1702 and 1703.
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+python -m pip check
+
+python - <<'PY'
+import sys
+import jax
+import mujoco
+import mujoco.mjx
+import optax
+import pytest
+print("Python:", sys.version.split()[0])
+print("JAX:", jax.__version__)
+print("MuJoCo:", mujoco.__version__)
+print("Available JAX devices:", jax.devices())
+print("GPU devices:", jax.devices("gpu"))
+assert jax.devices("gpu"), "CUDA installation is NOT working"
+PY
+
+emu doctor --require-gpu
+python -m pytest -q tests/test_v5031_verified_ascent.py
 ```
 
-The executable source is the approved exported policy, never any training root.
-Individual output directories are source- and checkpoint-hash checked; partial
-or stale results fail closed instead of being silently overwritten.
-For a single case, use:
+The command `jax.devices("gpu")` must show a CUDA device; merely seeing
+`gpu` in `nvidia-smi` or having `jax` import successfully is insufficient.
+
+**Acceptance checks, no training campaign:** run the real 360-input
+sensor/terrain and PPO smoke on a small CPU batch, then on the intended
+2048-world CUDA batch. The full CUDA smoke compiles and executes a
+real PPO update, consumes substantial GPU memory and should be run only
+when no other training process is using the GPU.
 
 ```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
+python scripts/smoke_unified_focus.py \
+  --device cpu --envs 12 \
+  --terrain-max-m .08 --growth-recipe main-mature \
+  --terrain-lesson coherent-careful \
+  --temporal-vx-reward-share .5 \
+  --verified-ascent-reallocation 3
 
-OUT="$HOME/robot_lab/emu_exams/pitch15_steady_$(date +%Y%m%d_%H%M%S)"
-emu directional-exam --policy showcase/champion.emupolicy \
-  --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-  --seed 1701 --scenario steady --speed 0.10 --angle 0
-
-# Bounded independent stop/resume and turning checks, different output roots.
-for SCENE in rest_start speed_step brake_stop stop_resume reverse turn_stop_left turn_stop_right; do
-  OUT="$HOME/robot_lab/emu_exams/pitch15_${SCENE}_$(date +%Y%m%d_%H%M%S)"
-  emu directional-exam --policy showcase/champion.emupolicy \
-    --output "$OUT" --device cuda --worlds 4 --horizon 350 \
-    --seed 1701 --scenario "$SCENE" --speed 0.10 --angle 0
-done
+python scripts/smoke_unified_focus.py \
+  --device cuda --envs 2048 --full-update \
+  --terrain-max-m .08 --growth-recipe main-mature \
+  --terrain-lesson coherent-careful \
+  --fast-rehearsal-share .25 \
+  --temporal-vx-reward-share .5 \
+  --verified-ascent-reallocation 3
 ```
 
-If the CUDA examiner fails due to VRAM, collect the error and consider
-`--worlds 2`; do not silently substitute a CPU pass for GPU acceptance.
-Exam markdown reports signed progress, alternating touchdown candidates,
-per-servo torque-duty evidence, shaft work per signed metre and maneuver
-latency. Inspect the corresponding raw JSON before judging any policy.
-These tests never update the 120M trained policy, the showcase or a
-running WSL experiment. They do **not** establish electrical consumption,
-winding temperature, calibrated ground reaction forces or safe hardware use.
+This proves the source can execute on the machine; it does **not**
+prove that a new random policy can walk or that the trained checkpoint
+is valid. The [completed Pinnacle campaign](PINNACLE_CANDIDATE.md) required
+separate CPU and 2048-world CUDA preflights under its exact source
+SHA before it permitted training. A *future* campaign must do
+the same using its own validated source and resolved configuration.
 
-## GPU acceptance before a large campaign
-
-The following is a deliberately small but complete **two-update** fresh-checkpoint test. Use a never-used root outside Git:
+## 5. Examine the released baseline (training is not the setup default)
 
 ```bash
-ROOT="$HOME/robot_lab/emu_runs/acceptance_$(date +%Y%m%d_%H%M%S)"
-python scripts/smoke_training_lifecycle.py first --root "$ROOT"
-python scripts/smoke_training_lifecycle.py continue --root "$ROOT"
-python scripts/smoke_training_lifecycle.py verify --root "$ROOT"
+mkdir -p "$HOME/robot_lab/emu_runs"
+cd "$HOME/emu-research"
+git status --short
+git rev-parse HEAD
+python -m pip freeze > "$HOME/robot_lab/emu-python-packages.txt"
+python -m emu.cli train --help
+python scripts/verify_showcase_release.py
+python -m emu.cli capability-exam \
+  --policy showcase/champion.emupolicy \
+  --output "$HOME/robot_lab/emu_exams/pinnacle_260m" \
+  --device cpu --quick
 ```
 
-This proves update, save, warm resume, independent fixed evaluation and actor export, **not walking ability**. Use `nvidia-smi` to watch VRAM. Earlier 8GB RTX 4060 Ti runs succeeded at 2048 worlds, but this is not a promise for other machines.
+This reads the checked-in **trained 360-input policy**. It
+does not use your GPU to train anything or assume the full
+optimizer checkpoint is present. To reproduce the original
+260M policy's *training*, consult the exact source SHA and
+[historical runbook](PINNACLE_CANDIDATE.md) and use
+an independent run root. **Never run the old cold-start
+launcher casually from a later `main` checkout.**
+Do not run competing 2048-world GPU campaigns on 8GB VRAM.
 
-## v5016 common pitch and opt-in motor teaching — future trials
+All live checkpoints and exam results belong under
+`~/robot_lab/emu_runs/`, **outside** the Git checkout. Keep:
+the exact training SHA, run manifest, installed Python package
+versions, seed, accepted GPU preflight, complete checkpoints,
+normalization/optimizer/curriculum state, exported actors, and physical
+exam protocols. The checkpoint files **are not stored in GitHub**.
+Back them up separately if you want to migrate a trained bird.
 
-`emu train --profile sim2real` keeps the mature PPO, v5015 posture model and
-220-input/six-action actor, but sets the same ±30° commanded chassis pitch
-limit for every new physical-learning experiment. This does not change or
-retrain the protected Pitch15 policy. The historical `emu ladder` still
-describes the old Pitch15 comparison; **do not use that ladder as the v5016
-efficiency/terrain tournament**.
+Do not modify a checkout after starting a source-pinned run.
+For code/report changes, use another Git branch and separate working tree.
 
-Two pure plans for future matched experiments, with unique new run roots:
+## 6. Viewer, remote SSH and power management (optional)
+
+The public `main`-lineage demo is deliberately protected. In the
+installed checkout, after `emu viewer-build` (setup does this already):
 
 ```bash
-cd "$HOME/emu-v5016"
-source .venv/bin/activate
-BASE="$HOME/robot_lab/emu_runs/v5016_study_$(date +%Y%m%d_%H%M%S)"
-emu train --run-dir "$BASE/baseline" --profile sim2real \
-  --steps 12000000 --envs 512 --device cuda --seed 733 --plan
-emu train --run-dir "$BASE/motor_preview" --profile sim2real \
-  --steps 12000000 --envs 512 --device cuda --seed 733 \
-  --motor-guidance-weight 0.06 --plan
+emu viewer showcase/champion.emupolicy --no-open
 ```
 
-These are **plan-only previews**, not an instruction to launch independent
-cold starts or to compare unlike training ancestries. The actual study should
-use one short shared foundation, fork matched training arms from exactly the
-same checkpoint, retain source lineage and exam identical held-out courses.
-Only run after GPU acceptance and interpretation of the protected champion
-exams. The motor term is an uncalibrated training proxy for overload and
-mechanical shaft demand; spring return and electrical consumption are *not*
-inferred. Treat ±30° as an aspirational teaching envelope to verify in the
-presence of walking, not evidence that every physical angle is attainable.
+Open `http://127.0.0.1:8765/` locally. Use
+[the playground guide](PLAYGROUND.md) for a viewer-only installation
+without training dependencies.
 
-## Train and inspect
+For remote unattended training via Tailscale SSH, use a persistent
+terminal session such as GNU Screen (`sudo apt-get install screen`,
+`screen -S emu`, detach with Ctrl+A then D, resume with
+`screen -D -RR emu`). Keep Windows awake, not asleep or powered off.
+The SSH/Tailscale service and Ubuntu distro must remain reachable;
+Screen does not survive a host reboot, though an interrupted run may
+be checkpoint-resumable with the exact original SHA.
 
-```bash
-RUN="$HOME/robot_lab/emu_runs/study_$(date +%Y%m%d_%H%M%S)"
-emu ladder --stage foundation --root "$RUN" --seed 733 --envs 2048 --device cuda
-emu ladder --stage auto --root "$RUN" --seed 733 --envs 2048 --device cuda --stop-after round1
-emu report --root "$RUN"
-emu viewer --live --root "$RUN" --no-open
-```
+## 7. Quick troubleshooting
 
-The 20M foundation is shared; four arms reach approximately 80M each. Two eligible finalists can reach 100M; a winner can reach 120M. See `emu ladder --stage plan` for the live recipe. Only completed validated checkpoints feed the viewer. Open `http://127.0.0.1:8765/`. The read-only viewer server is **unauthenticated and local-only**; never forward its port publicly.
+| Symptom | Interpretation / remedy |
+|---|---|
+| `No module named pytest` | Wrong/incomplete venv. Activate this checkout's `.venv` and run `python -m pip install -e ".[dev]"`. |
+| `No module named emu` | Activate the right environment and run `python -m pip install -e ".[dev]"` from the checkout. |
+| `python3.13: command not found` | Ensure `~/.local/bin` is on `PATH`; use `uv python install 3.13` or your distribution's 3.13 package. |
+| JAX has CPU only / `jax.devices("gpu")` fails | Confirm Windows GPU driver, WSL2, `nvidia-smi` inside WSL, `jax[cuda13]` and driver compatibility. Avoid overriding pip CUDA libraries with `LD_LIBRARY_PATH`. |
+| CUDA / XLA out of memory on 8 GB | Ensure no concurrent GPU runs, use `XLA_PYTHON_CLIENT_PREALLOCATE=false`, and respect source-specific 2048-world preflights. Do not quietly halve world count in a matched A/B study. |
+| Git error: not a repository | `cd` into the actual checked-out EMU directory, not `~`. |
+| Manifest / source SHA mismatch | Stop. Never rewrite an ancestor SHA, bypass hashes or delete a manifest to force continuation. |
+| No checkpoints on the new PC | Git stores *code*, not the learned neural policy. Restore backed-up run directories or cold-start using the original campaign contract. |
 
-For one-off deterministic browser policy export:
-
-```bash
-emu export-policy /path/to/checkpoints/final.pkl /tmp/my_robot.emupolicy
-```
-
-## One continuous run (no experimental branches)
-
-For one 120M-step trajectory, use `emu train` rather than `emu ladder`.
-The mature profile starts from scratch (so this does **not** reproduce the
-historical 20M-foundation/forked Pitch15 experiment). `--pitch-deg 15` uses
-that study's promising pitch command range; 1024 worlds is a more conservative
-starting point for an 8 GB GPU, though it still needs real GPU validation.
-Use a unique run directory *outside* Git and do not change its source revision
-or options during training.
-
-```bash
-RUN="$HOME/robot_lab/emu_runs/single120_pitch15"
-emu train --run-dir "$RUN" --steps 120000000 --envs 1024 --seed 733 --device cuda --profile mature --pitch-deg 15
-```
-
-In a second WSL terminal using the same checkout and environment:
-
-```bash
-emu viewer-build
-emu viewer --live --root "$HOME/robot_lab/emu_runs/single120_pitch15" --no-open
-```
-
-Open http://127.0.0.1:8765/ in Windows. Viewer is read-only,
-runs inference on the browser CPU and loads completed checkpoints as they
-arrive; initially it may say 'Waiting for first checkpoint'. If interrupted,
-repeat the identical training command with `--resume auto`. A source
-revision change requires a new run root, not reuse of the existing one.
-
-## Tests and troubleshooting
-
-`bash scripts/check.sh` runs the intentionally small Python and browser contract suite plus CLI/CPU-doctor checks. The GitHub browser CI job separately builds the static frontend and verifies the bundled policy/WASM assets. Passing tests is **not** physical gait proof. Verify signed command tracking, footfall pairs, dynamic slopes, servo torque/power and simulator parity independently.
-
-If an install fails, do not delete old experiments. Verify `git status --short`, `git rev-parse HEAD`, `python -c "import emu; print(emu.__file__)"`, `nvidia-smi`, and the failing run's `console.log`. Optional `warp` import warnings don't necessarily mean MJX failed. If a checkpoint is corrupt, preserve the original and use the validated automatic recovery paths. Any source change requires a new campaign identity.
-
-## Public release
-
-The only deployable policy in Git is `showcase/champion.emupolicy`. The manual GitHub Pages workflow checks its pinned Git blob hash; training `.pkl` files stay local. [PLAYGROUND.md](PLAYGROUND.md) describes build and publishing.
-
-### v5016 optional real-contact slope training (planning only)
-
-The new sim2real training mode can use one shared, genuinely inclined contact
-floor per run, with vertical gravity. This is a conservative FIRST STEP,
-**not** per-world random terrain. Historical runs retain zero incline.
-
-```bash
-OUT="$HOME/robot_lab/emu_runs/v5016_grade_$(date +%Y%m%d_%H%M%S)"
-emu train --profile sim2real --run-dir "$OUT/flat" --steps 12000000 \
-    --envs 512 --device cuda --seed 733 --plan
-emu train --profile sim2real --run-dir "$OUT/grade2" --steps 12000000 \
-    --envs 512 --device cuda --seed 733 --contact-slope-deg 2 --plan
-```
-
-These commands do not launch training. Physical grading requires matched
-frozen-policy exams on both flat and real slopes and a separate GPU acceptance.
-Never combine this mode with the older tilted-gravity `domain_terrain_radius`.
-
-
-### v5016 per-world contact slope pilot — plan only
-
-The independently randomized physical terrain preview is now a single
-flag on the existing `sim2real` training command. **No training starts
-when `--plan` is present.** It is not the historical tilted-gravity
-domain study, and not a heightfield or loose/uneven ground.
-
-```bash
-RUN="$HOME/robot_lab/emu_runs/v5016_contact_pilot_$(date +%Y%m%d_%H%M%S)"
-emu train --run-dir "$RUN" --profile sim2real \
-  --contact-terrain-radius 0.4 --steps 2048 --envs 4 \
-  --device cpu --seed 733 --plan
-```
-
-Radius 1 corresponds to **up to 5° of actual inclination** in any azimuth,
-with world-specific friction variation and unchanged vertical gravity.
-Worlds have different fixed planes sampled once at environment creation.
-Do not combine `--contact-terrain-radius` with `--contact-slope-deg`.
-Separate CPU and bounded GPU memory/performance acceptance is needed before
-trying 512/2048 worlds or comparing teaching methods. This is a
-simulation capability, not validated servo or on-robot estimator fidelity.
+**Authoritative future references:** [JAX NVIDIA installation](https://docs.jax.dev/en/latest/installation.html),
+[NVIDIA WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/),
+[uv Python management](https://docs.astral.sh/uv/guides/install-python/).
+Package versions and CUDA driver requirements may change; prefer
+these upstream sources when provisioning a new machine.

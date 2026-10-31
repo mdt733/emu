@@ -17,29 +17,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def prepare(*, output_dir: Path, policy_path: Path | None = None,
-            source_url: str = '', source_commit: str = '', require_champion: bool = False) -> dict:
+            source_url: str = '', source_commit: str = '') -> dict:
     champion = ROOT / 'showcase' / 'champion.emupolicy'
-    fixture = ROOT / 'emu' / 'viewer_src' / 'demo_zero.emupolicy'
-    if policy_path is not None:
-        selected = policy_path.expanduser().resolve()
-        trained = selected != fixture.resolve()
-    else:
-        trained = champion.is_file()
-        selected = champion if trained else fixture
-    if require_champion and not trained:
-        raise ValueError('No champion policy: refusing to publish an untrained preview')
+    # Release builds always require a real trained policy. The old
+    # zero-action fallback was misleading and had no publishing use.
+    selected = policy_path.expanduser().resolve() if policy_path is not None else champion
     if not selected.is_file():
-        raise FileNotFoundError(f'Policy not found: {selected}')
+        raise FileNotFoundError(f'Trained policy not found: {selected}')
+    trained = True
 
-    # GitHub Pages bundles schema-1 (legacy 220) OR schema-2 (v5016 232).
-    # Both use local browser inference. No checkpoint/pickle is ever served.
+    # The public site bundles only a trained, validated browser-native
+    # .emupolicy. Python checkpoints are never served.
     from verify_showcase_release import validate_browser_bundle
     bundle = json.loads(selected.read_text(encoding='utf-8'))
     validate_browser_bundle(bundle, require_trained=trained)
     source = bundle.get('source') or {}
-    if trained and int(source.get('step') or 0) <= 0:
+    if int(source.get('step') or 0) <= 0:
         raise ValueError('Refusing to publish a zero-step policy as a trained champion')
-    label = str(source.get('run_name') or ('Selected EMU champion' if trained else 'Zero-action test fixture'))[:100]
+    label = str(source.get('run_name') or 'Selected EMU champion')[:100]
     if source_commit and not re.fullmatch(r'[0-9a-f]{40}', source_commit):
         raise ValueError('source_commit must be a complete lowercase Git commit SHA')
     manifest = {
@@ -77,19 +72,17 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--policy', type=Path, default=None, help='Optional exported policy (otherwise showcase/champion.emupolicy or zero fixture)')
+    parser.add_argument('--policy', type=Path, default=None, help='Optional trained exported policy (otherwise showcase/champion.emupolicy)')
     parser.add_argument('--source-url', default='', help='Public GitHub repository URL')
     parser.add_argument('--source-commit', default='', help='Full Git commit used to build this static frontend')
-    parser.add_argument('--require-champion', action='store_true', help='Refuse to publish the untrained fixture')
     args = parser.parse_args()
     manifest = prepare(
         output_dir=ROOT / 'emu' / 'viewer_src' / 'public',
         policy_path=args.policy,
         source_url=args.source_url,
         source_commit=args.source_commit,
-        require_champion=args.require_champion,
     )
-    print(f"Static EMU showcase ready: {manifest['label']} ({'trained policy' if manifest['trained'] else 'UNTRAINED preview'})")
+    print(f"Static EMU showcase ready: {manifest['label']} (trained policy)")
 
 
 if __name__ == '__main__':

@@ -1,14 +1,14 @@
 {
-  "actor_sha256": "6bbf8d2fe65ecb2bfabe59f8a1329531f1394b2f8f2b977f0bf4758665c26015",
-  "checkpoint_schema": 8,
-  "checkpoint_sha256": "a455bfb76e51d6dc1de5c519e266eb6b8e5e6fe92122c1ca54b3266daa8ef329",
-  "obs_dim": 232,
+  "actor_sha256": "e268dfd500a4c2a63cee1b064d44f510db7488715f3f4eff32b4ac0e985e45f9",
+  "checkpoint_schema": 9,
+  "checkpoint_sha256": "238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b",
+  "obs_dim": 360,
   "policy_file": "showcase/champion.emupolicy",
-  "policy_git_blob": "163a61fef6e75fcba91f254830f3858210b491a0",
-  "policy_sha256": "d3d319b82fbc5de331752f0f06753c57a776ac3212bcb6d386116c4f5f8a4862",
+  "policy_git_blob": "45f189367d51ad56dd57726b67e13be08b80bfae",
+  "policy_sha256": "ef929c0220c38e5519391320e5f0629a200e1ef37a5808086f6383cfb63f7ec8",
   "release_schema": 1,
-  "schema": 2,
-  "sensor_contract_sha256": "90a465a220a5310f3211bcdff5e888d705f8009e107c28a7dba355a1043cc923",
-  "step": 260112384,
-  "training_source_commit": "ff7626e959a4cf2bb91d02818203ca9a74d1c577"
+  "schema": 3,
+  "sensor_contract_sha256": "ba2a43a9954b887544b91a0dab95124144da8e8e761feb3d9c9552ce8413e5a0",
+  "step": 260046848,
+  "training_source_commit": "9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
 }

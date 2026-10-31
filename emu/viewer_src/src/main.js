@@ -3,6 +3,7 @@ import { parsePolicy } from './policy.js';
 import { VirtualStick } from './joystick.js';
 import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
+import { terrainHeightOffsetsCm } from './sensor.js';
 import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
@@ -23,7 +24,19 @@ const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
 const terrainMax = $('terrainMax');
+const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
+const surfaceSlopeSlider=$('surfaceSlope'),surfaceStepSlider=$('surfaceStep');
+const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
+const depthView=$('depthView');
+const depthCells=Array.from({length:16},()=>{
+  const cell=document.createElement('span');
+  cell.className='depth-cell invalid';cell.textContent='—';
+  $('depthGrid').appendChild(cell);return cell;
+});
 const treesToggle = $('treesToggle');
+const parkFeaturesToggle = $('parkFeaturesToggle');
+const parkChallengeLevel = $('parkChallengeLevel');
+const parkCourseList = $('parkCourseList');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
@@ -254,7 +267,15 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setTreesEnabled(treesToggle.checked);
+    sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+    sim.setParkChallengeLevel(parkChallengeLevel.value);
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    updateParkCourseInfo();
+    updateDepthSettings();
+    if(terrainMode.value==='sensor' && demoActive)stopDemo();
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -345,16 +366,204 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.textContent = cameraLabel(cameraMode);
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
+function updateParkCourseInfo() {
+  parkCourseList.replaceChildren();
+  if(terrainMode.value!=='park' || !parkFeaturesToggle.checked ||
+     !sim?.park?.features?.length){
+    const item=document.createElement('li');
+    item.textContent='Select the terrain park and enable the course.';
+    parkCourseList.appendChild(item);
+    return;
+  }
+  for(const feature of sim.park.features){
+    const item=document.createElement('li');
+    const title=document.createElement('strong');
+    title.textContent=feature.label+' — ';
+    item.appendChild(title);
+    item.appendChild(document.createTextNode(feature.challenge));
+    parkCourseList.appendChild(item);
+  }
+}
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   treesToggle.disabled = terrainMode.value!=='park';
+  parkFeaturesToggle.disabled = terrainMode.value!=='park';
+  parkChallengeLevel.disabled = terrainMode.value!=='park';
+  if(terrainMode.value==='sensor'&&demoActive)stopDemo();
+  if(terrainMode.value!=='sensor')depthCourse.value='viewer';
+  else if(depthCourse.value==='viewer'){depthCourse.value='flat';sim?.setSensorObstacle('flat');}
   if (!sim) return;
-  try { sim.setTerrainMode(terrainMode.value,Number(terrainMax.value)); if(goalDemoActive())navigator.reset(); updateStickLabels(); }
-  catch(err) { terrainMode.value='flat';sim.setTerrainMode('flat');setStatus(`Terrain unavailable: ${err.message}`,'error'); }
+  try {
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    if(goalDemoActive())navigator.reset();
+    updateStickLabels();
+    updateParkCourseInfo();
+  } catch(err) {
+    terrainMode.value='flat';
+    sim.setTerrainMode('flat');
+    updateParkCourseInfo();
+    setStatus(`Terrain unavailable: ${err.message}`,'error');
+  }
 }
+function updateDepthSettings(){
+  $('depthTiltOut').textContent=depthTilt.value+'°';
+  $('depthMountOut').textContent=depthMount.value+' mm';
+  if(sim)sim.setDepthInspector({
+    enabled:depthOn.checked,tilt:Number(depthTilt.value),
+    forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    showFootprint:depthFootprint.checked,
+    subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
+  });
+}
+function applySurfaceLab(){
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+  if(!sim)return;
+  try{
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
+    navigator.reset();
+  }catch(error){setStatus('Surface lab: '+error.message,'error');}
+}
+function changeDepthCourse(){
+  terrainMode.value=depthCourse.value==='viewer'?'park':'sensor';
+  if(demoActive)stopDemo();
+  if(!sim)return;
+  try{
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    navigator.reset();updateStickLabels();updateParkCourseInfo();
+  }catch(error){setStatus('Depth lab course: '+error.message,'error');}
+}
+for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
+  input.addEventListener('input',updateDepthSettings);
+depthCourse.addEventListener('change',changeDepthCourse);
+surfaceSlopeSlider.addEventListener('change',applySurfaceLab);
+surfaceStepSlider.addEventListener('change',applySurfaceLab);
+surfaceSlopeSlider.addEventListener('input',()=>{
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+});
+surfaceStepSlider.addEventListener('input',()=>{
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+});
+depthView.addEventListener('change',updateDepthGrid);
+$('depthCopy').addEventListener('click',async()=>{
+  const reading=sim?.depthReading;
+  if(!reading){$('depthNote').textContent='No scan to copy yet';return;}
+  const terrainHeightCm=terrainHeightOffsetsCm(reading);
+  const info={
+    sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
+    policy:bundle?.source?.run_name||'unknown',
+    terrain:terrainMode.value,
+    obstacle:terrainMode.value==='sensor'?depthCourse.value:'viewer terrain',
+    tilt_down_deg:Number(depthTilt.value),
+    mount_forward_mm:Number(depthMount.value),
+    depth_sample_rays:reading.subrays*16,
+    visual_footprint_rays:reading.footprintRays||0,
+    scan_time_ms:Number(reading.costMs.toFixed(2)),
+    displayed_as:depthView.value==='height'?'signed terrain elevation (cm)':'slant range (cm)',
+    height_reference:'horizontal world plane at z=0 (visual diagnostic, not actor input)',
+    height_colours_saturate_at_cm:15,
+    terrain_height_cm:Array.from({length:4},(_,row)=>
+      Array.from({length:4},(_,col)=>{
+        const z=terrainHeightCm[row*4+col];
+        return z===null?null:Number(z.toFixed(1));
+      })),
+    ranges_cm:Array.from({length:4},(_,row)=>
+      Array.from({length:4},(_,col)=>{
+        const i=row*4+col;
+        return reading.valid[i]?Number((100*reading.ranges[i]).toFixed(1)):null;
+      })),
+    self_occluded_zones:reading.selfOccluded.map((v,i)=>v?i:null).filter(v=>v!==null),
+    mixed_edge_zones:reading.mixed.map((v,i)=>v?i:null).filter(v=>v!==null),
+  };
+  try {
+    if(!window.navigator.clipboard?.writeText)throw new Error('Clipboard unavailable');
+    await window.navigator.clipboard.writeText(JSON.stringify(info,null,2));
+    $('depthNote').textContent='Copied sensor reading · paste it into chat';
+  }catch(error){
+    $('depthNote').textContent='Clipboard blocked · take a screenshot instead';
+  }
+});
+
+function signedHeightText(cm){
+  if(Math.abs(cm)<.05)return '0.0';
+  return (cm>0?'+':'')+cm.toFixed(1);
+}
+function heightColor(cm){
+  // Fixed +/-15cm colour scale. Actual height values remain unclipped.
+  const strength=Math.min(1,Math.abs(cm)/15);
+  if(Math.abs(cm)<.3)return 'hsl(170 32% 28%)'; // expected flat ground
+  if(cm>0)return 'hsl('+(34-20*strength).toFixed(0)+' 68% '+(30+9*strength).toFixed(0)+'%)';
+  return 'hsl('+(205+12*strength).toFixed(0)+' 65% '+(30+10*strength).toFixed(0)+'%)';
+}
+function updateDepthGrid(){
+  const data=sim?.depthReading;
+  const mode=depthView.value;
+  const heights=data?terrainHeightOffsetsCm(data):null;
+  let hits=0;
+  depthCells.forEach((cell,i)=>{
+    const valid=Boolean(data?.valid[i]);
+    const blocked=valid&&data.selfOccluded[i];
+    const height=heights?.[i]??null;
+    cell.className=valid?'depth-cell':'depth-cell invalid';
+    cell.removeAttribute('title');
+    if(blocked){
+      // Seeing the robot is not evidence of an elevated piece of terrain.
+      cell.className+=' occluded';
+      cell.textContent='SELF';
+      cell.style.background='#855524';
+      cell.title='Robot or foot occludes this zone · no terrain height';
+    }else if(valid){
+      hits++;
+      const cm=data.ranges[i]*100;
+      cell.textContent=mode==='height'
+        ?(height===null?'—':signedHeightText(height)):cm.toFixed(1);
+      cell.title=(height===null?'Terrain unknown':signedHeightText(height)+' cm above flat z=0')+
+        ' · raw '+cm.toFixed(1)+' cm';
+      if(data.mixed[i]){
+        // A yellow outline warns of a discontinuity without hiding the
+        // sign of the measured height inside the cell.
+        cell.className+=' mixed';
+        cell.title+=' · mixed edge, interpret cautiously';
+      }
+      if(mode==='height'){
+        cell.style.background=height===null?'':heightColor(height);
+      }else{
+        // Raw physical slant range remains available and unmodified.
+        const fraction=Math.max(0,Math.min(1,(cm-5)/145));
+        cell.style.background='hsl('+(174+fraction*52).toFixed(0)+' 42% '+(29+fraction*11).toFixed(0)+'%)';
+      }
+    }else{
+      cell.textContent='—';
+      cell.style.background='';
+      cell.title='No valid terrain return';
+    }
+  });
+  $('depthGrid').setAttribute('aria-label',mode==='height'
+    ? 'Live 4 by 4 signed centimetres relative to horizontal flat ground z equals zero'
+    : 'Live 4 by 4 raw line-of-sight range in centimetres');
+  $('depthNote').textContent=!depthOn.checked
+    ? 'Diagnostic off · champion unchanged'
+    : !data?'Waiting for robot · no scan yet'
+    : hits+'/16 visible terrain zones · '+(data.subrays*16)+' depth rays'+
+      (data.footprintRays?' + '+data.footprintRays+' grid':'')+' · '+data.costMs.toFixed(1)+
+      ' ms · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
+}
+
 terrainMode.addEventListener('change',updateTerrain);
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{
+  sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park course unavailable: ${err.message}`,'error');}});
+parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
+  sim.setParkChallengeLevel(parkChallengeLevel.value);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
@@ -428,6 +637,7 @@ function updateTelemetry(now, dt) {
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
   $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
+  updateDepthGrid();
 }
 
 function frame(ms) {
@@ -443,7 +653,7 @@ function frame(ms) {
     fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
   }
   if (sim) {
-    if (!demoActive && !navigationFault && handoff.shouldResume(now,
+    if (!demoActive && terrainMode.value!=='sensor' && !navigationFault && handoff.shouldResume(now,
        held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
        Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
       startDemo();

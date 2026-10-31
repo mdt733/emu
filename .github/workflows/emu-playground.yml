@@ -2,8 +2,8 @@ name: EMU Playground (GitHub Pages)
 
 # Public deployment is intentionally MANUAL. Merging experimental Python or
 # browser source to main must not silently replace the approved demo.
-# Legacy 120M is pinned to its exact historical Git blob; a v5016 release
-# must carry a reviewed release_approval.json + matching browser asset.
+# Pre-approval legacy deployments are pinned; an approved 232/360 release
+# must carry a reviewed release_approval.json + exact browser asset.
 # The release custodian explicitly runs this workflow after a browser review.
 # Release-specific publish requests are explicit opt-ins by the owner.
 # An ordinary main merge still does NOT publish the playground.
@@ -54,7 +54,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: emu/viewer_src/package-lock.json
-      - name: Require approved legacy champion OR explicitly pinned v5016
+      - name: Require approved legacy champion OR explicitly pinned 232/360 release
         if: ${{ hashFiles('showcase/release_approval.json') == '' }}
         shell: bash
         run: |
@@ -81,13 +81,13 @@ jobs:
           assert p['training']['pitch_command_max_deg'] == 15.0
           print('Approved browser-only Pitch15 120M champion verified')
           PY
-      - name: Validate exact pinned schema-8 Pinnacle release
+      - name: Validate exact approved 232/360 policy release
         if: ${{ hashFiles('showcase/release_approval.json') != '' }}
         run: python3 scripts/verify_showcase_release.py
       - name: Prepare static policy and manifest
         env:
           REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --require-champion --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
+        run: python3 scripts/prepare_showcase.py --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
       - name: Install locked viewer dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run JavaScript contract tests

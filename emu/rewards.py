@@ -7,9 +7,10 @@ Reading order:
   4. `apply_early_fall_penalty` — additional cost when an episode falls early
 
 The environment supplies **physical measurements**, including privileged
-simulator facts. These are used to TEACH and must not leak into the deployable
-actor's 220 observation inputs. Held-out exams independently judge actual
-course progress and walking, not the numerical teaching score.
+simulator facts. These are used to TEACH and must not leak into the
+**deployable actor observations**. The current terrain actor sees
+360 fields of sensor/command history, not privileged ground truth.
+Held-out exams judge physical progress, not the teaching score.
 
 IMPORTANT: servo torque, shaft power and spring energy are *not* measured
 electrical consumption. The historical eight rewards are unchanged by default.
@@ -40,7 +41,7 @@ REWARD_ONLY_METRICS = frozenset({
     'ramp_frac',
 })
 
-# Current v5015 reward doctrine; NO coefficient changes in Pass C.
+# Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
 EARLY_FALL_BASE_PENALTY = 65.0
 EARLY_FALL_TIME_PENALTY = 0.10
 STEPPING_ACTIVITY_TARGET = 0.15
@@ -51,7 +52,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -64,7 +65,8 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     is_resilience = (regime > 1.5).astype(jnp.float32)
     valid_alive = 1.0 - m['terminal']
 
-    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp)
+    command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
+        careful_step=careful_step, temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, attitude_profile, jnp)
@@ -88,19 +90,34 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
     # Zero cost weight exactly reproduces pre-v5016 scalar economics.
     motor_kwargs = {}
-    if motor_guidance_weight > 0.0:
+    if motor_guidance_weight > 0.0 or motor_guidance_per_world is not None:
         overload = jnp.clip(m['servo_over_rated_frac'], 0.0, 1.0)
         shaft_motion = jnp.clip(m['servo_shaft_abs_power_w'] / 20.0, 0.0, 1.0)
         motor_load_proxy = 0.65 * overload + 0.35 * shaft_motion
-        motor_kwargs = {'motor_cost': motor_guidance_weight * motor_load_proxy}
+        # Per-world emphasis is an *additive, bounded lesson*, not a
+        # replacement for locomotion or a special policy. All worlds still
+        # receive the ordinary smoothness/stance-slip rewards.
+        weight = (motor_guidance_weight if motor_guidance_per_world is None
+                  else motor_guidance_per_world + motor_guidance_weight)
+        motor_kwargs = {'motor_cost': weight * motor_load_proxy}
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
         anti_slip=stance_anti_slip, clearance=swing_clearance,
         smoothness=servo_smoothness, joint_safety=joint_safety,
         stepping_gate=stepping_gate, **motor_kwargs)
-    # Always expose the new diagnostic to rollout CSV, even for controls;
-    # the old eight-payment reducer remains mathematically identical.
+    # Control emphasis: an *extra* smooth-gait lesson, but only while
+    # genuinely walking and following a command. Static balancing has no
+    # free energy/jerk reward. All historical eight payments are unchanged.
+    control_smoothness=jnp.zeros_like(valid_alive)
+    if motor_guidance_per_world is not None:
+        control_world=(motor_guidance_per_world>.04).astype(jnp.float32)
+        walking=jnp.clip(jnp.abs(m['vx'])/.08,0.,1.)
+        control_smoothness=(.075*control_world*walking*locomotion_maturity*
+                             command_tracking*servo_smoothness*
+                             feet_only_contact*valid_alive)
+        reward=reward+control_smoothness
+        payments['control_smoothness']=control_smoothness
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
     return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
                     'weighted_motor_cost': motor_payment}
@@ -135,7 +152,7 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
     return reward, terms
 
 
-def _command_tracking(m, is_transition, is_resilience, jnp):
+def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None, temporal_vx=None):
     """Follow velocity, yaw and chassis pitch requests without launch hacks."""
     vx_err = m['vx'] - m['cmd_vx']; vy_err = m['vy'] - m['cmd_vy']; yaw_err = m['yaw_rate'] - m['cmd_yaw']
     pitch_err = m['body_pitch'] - m['cmd_pitch']
@@ -148,9 +165,42 @@ def _command_tracking(m, is_transition, is_resilience, jnp):
     ramping = (m['ramp_frac'] < 1.0).astype(jnp.float32)
     tracking_gain = 1.0 + is_transition * ramping * (TRANSITION_TRACKING_BOOST - 1.0)
     tracking_gain = tracking_gain * jnp.where(is_resilience > 0.5, RESILIENCE_TRACKING_RELIEF, 1.0)
+    # Keep the original arithmetic EXACT when no careful step is active;
+    # this is a controlled STEP-only intervention, not a reward rewrite.
     command_tracking = jnp.exp(-tracking_gain * (62.0 * vx_err * vx_err + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
                                                   + 18.0 * pitch_err * pitch_err
                                                   + 120.0 * overspeed * overspeed + 40.0 * underspeed * underspeed))
+    if careful_step is not None:
+        # Relieve 90% of UNDERspeed cost for at most 120 near-lip frames.
+        # Keep overspeed, lateral, yaw, posture and all physical costs intact.
+        discounted = jnp.exp(-tracking_gain * (
+            0.10 * (62.0 * vx_err * vx_err + 40.0 * underspeed * underspeed)
+            + 14.0 * vy_err * vy_err + 4.5 * yaw_err * yaw_err
+            + 18.0 * pitch_err * pitch_err
+            + 120.0 * overspeed * overspeed))
+        command_tracking = jnp.where(
+            (careful_step > 0) & (vx_err < 0.0), discounted, command_tracking)
+    if temporal_vx is not None:
+        # Smooth only forward tracking. Preserve every instantaneous
+        # overspeed cost, and the original lateral/yaw/pitch penalties.
+        # A change in requested speed flushes history in the environment;
+        # no stale previous command can subsidise a new fast request.
+        mean_vx,mean_cmd,share=temporal_vx
+        mean_err=mean_vx-mean_cmd
+        mean_under=jnp.maximum(0.0,-mean_err-speed_tol)
+        smooth_cost=(62.0*mean_err*mean_err+40.0*mean_under*mean_under+
+                     120.0*overspeed*overspeed+
+                     14.0*vy_err*vy_err+4.5*yaw_err*yaw_err+
+                     18.0*pitch_err*pitch_err)
+        if careful_step is not None:
+            smooth_discounted=(
+                .10*(62.0*mean_err*mean_err+40.0*mean_under*mean_under)+
+                120.0*overspeed*overspeed+14.0*vy_err*vy_err+
+                4.5*yaw_err*yaw_err+18.0*pitch_err*pitch_err)
+            smooth_cost=jnp.where((careful_step>0)&(vx_err<0.0),
+                                  smooth_discounted,smooth_cost)
+        smooth_score=jnp.exp(-tracking_gain*smooth_cost)
+        command_tracking=(1.-share)*command_tracking+share*smooth_score
     # Early frames score neutral tracking while initial pose noise settles;
     # a genuine fall still terminates and incurs its penalty.
     settled = (m['age_s'] > SETTLE_STEPS * CONTROL_DT).astype(jnp.float32)
@@ -193,6 +243,94 @@ def _gait_maturity(m, jnp):
     stepping_gate = jnp.where(m['age_s'] > STEPPING_GATE_GRACE_S, 0.30 + 0.70 * stepping_factor, 1.0)
     return locomotion_maturity, stepping_gate
 
+
+
+# --- Pure diagnostic helpers (verified support credit is opt-in v5031) ---
+# These can score real recorded trajectories without changing the current
+# actor, checkpoint, reward arithmetic or source-pinned campaign.
+def trailing_mean_trace(values, frames: int = 25, *, xp):
+    """Causal trailing mean over episode-local frames (axis 0).
+
+    Caller must split traces at resets; averaging across a terminal state
+    or a new velocity command would fabricate tracking competence.
+    """
+    if not isinstance(frames, int) or frames < 1:
+        raise ValueError("trailing frames must be a positive integer")
+    a = xp.asarray(values)
+    if a.ndim not in (1, 2) or a.shape[0] < 1:
+        raise ValueError("expected nonempty [time] or [time, worlds] trace")
+    total = xp.concatenate((xp.zeros_like(a[:1]), xp.cumsum(a, axis=0)), axis=0)
+    stop = xp.arange(a.shape[0]) + 1
+    start = xp.maximum(0, stop - frames)
+    shape = (a.shape[0],) + (1,) * (a.ndim - 1)
+    return (total[stop] - total[start]) / (stop - start).reshape(shape)
+
+
+def counterfactual_forward_tracking(
+    actual_vx, requested_vx, *, xp, frames: int = 25, history_share: float = .5
+):
+    """Forward part of main's reward, with optional 0.5s history blend.
+
+    This is a diagnostic (NOT the full multi-axis locomotion payment).
+    Both velocities are averaged over the SAME causal window.
+    The caller must split at reset and at operator-command discontinuities;
+    otherwise a transition across commands can look like tracking success.
+    share=0 reproduces original instantaneous forward reward exactly.
+    """
+    if not 0.0 <= history_share <= 1.0:
+        raise ValueError("history_share must be in 0..1")
+    actual, requested = xp.asarray(actual_vx), xp.asarray(requested_vx)
+    if actual.shape != requested.shape:
+        raise ValueError("actual/requested trace shape mismatch")
+
+    def score(a, c):
+        err = a - c
+        over = xp.maximum(0., err - SPEED_TOLERANCE)
+        under = xp.maximum(0., -err - SPEED_TOLERANCE)
+        return xp.exp(-(62. * err * err + 120. * over * over
+                        + 40. * under * under))
+
+    instant = score(actual, requested)
+    if history_share == 0.0:
+        return instant
+    history = score(trailing_mean_trace(actual, frames, xp=xp),
+                    trailing_mean_trace(requested, frames, xp=xp))
+    return (1.0 - history_share) * instant + history_share * history
+
+
+def verified_support_elevation_credit(
+    support_surface_delta_m, cog_delta_m, contact_on_target_surface,
+    stable_support, previous_verified_peak_m, *, direction: int,
+    xp, max_rise_m: float = .04, total_credit: float = 4.0,
+    normalize_by_actual_height: bool = False
+):
+    """Bounded incremental *verified* vertical transfer (one-time per lip).
+
+    v5031 uses this pure component only when an explicit reward budget
+    is reallocated from existing uphill guidance. Other callers remain
+    offline diagnostics; no privileged observations reach the actor.
+    A squat or jump alone has zero credit: the matching real target surface
+    must have changed, a foot must contact it, the CoG must move in the
+    matching signed direction and stable support must be maintained.
+    The caller owns a per-episode/obstacle high-water mark, never recycled
+    when the robot oscillates at a lip. This is not a fall reward.
+    """
+    if direction not in (-1, 1):
+        raise ValueError("direction must be +1 ascent or -1 descent")
+    if max_rise_m <= 0. or total_credit < 0.:
+        raise ValueError("height cap must be positive and reward nonnegative")
+    changed = xp.clip(direction * xp.asarray(support_surface_delta_m), 0., max_rise_m)
+    moved = xp.clip(direction * xp.asarray(cog_delta_m), 0., max_rise_m)
+    verified = xp.asarray(contact_on_target_surface) & xp.asarray(stable_support)
+    eligible = xp.where(verified, xp.minimum(changed, moved), 0.)
+    previous = xp.clip(xp.asarray(previous_verified_peak_m), 0., max_rise_m)
+    peak = xp.maximum(previous, eligible)
+    # In the v5031 experiment, a real 2cm supported ascent can earn its
+    # whole allocated budget; an impossible 4cm reference height must not
+    # silently halve the payment. Zero-height worlds earn nothing.
+    denom = (xp.maximum(.003, changed) if normalize_by_actual_height
+             else max_rise_m)
+    return total_credit * (peak - previous) / denom, peak
 
 def apply_early_fall_penalty(reward, terminal_fail, episode_age_steps,
                              max_episode_steps, *, xp):

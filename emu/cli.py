@@ -5,15 +5,10 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 from .contracts import VERSION, ROBOT_XML, seed_root
 from .checkpoint_io import find_evaluation
-
-
-def _run(module: str, *args: str) -> int:
-    return subprocess.call([sys.executable, '-m', f'emu.{module}', *args])
 
 
 def doctor(args) -> int:
@@ -170,7 +165,7 @@ def doctor(args) -> int:
 def main(argv=None) -> int:
     p=argparse.ArgumentParser(
         prog='emu', description=f'EMU {VERSION} — dynamically unstable biped RL',
-        epilog='One continuous run: emu train --help. Matched studies: emu ladder --stage plan.')
+        epilog='One source-pinned lineage: emu train --help. Unified GPU training remains launch-guarded.')
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
@@ -178,21 +173,37 @@ def main(argv=None) -> int:
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model'); q.add_argument('--v5015-smoke',action='store_true',help='compile/step experimental pitch tasks and 11-field PPO evaluation (no training)'); q.add_argument('--v5016-smoke',action='store_true',help='compile the opt-in 232-input sensor MJX and one PPO update (no checkpoint/training)')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    for ladder_command in ('ladder', 'lab5015'):
-        q=sub.add_parser(ladder_command,help=('current experiment ladder — inspect with --stage plan'
-                                             if ladder_command=='ladder'
-                                             else argparse.SUPPRESS))
-        q.add_argument('--stage',choices=['plan','foundation','round1','round2','round3','score','auto'],default='plan')
-        q.add_argument('--round',choices=['round1','round2','round3'],default='round1')
-        q.add_argument('--stop-after',choices=['round1','round2','round3'],default='round3',help='for --stage auto, stop after scoring this round')
-        q.add_argument('--root',default='')
-        q.add_argument('--seed',type=int,default=733)
-        q.add_argument('--envs',type=int,default=2048)
-        q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-        q.add_argument('--screen-envs',type=int,default=256)
-        q.add_argument('--screen-horizon',type=int,default=350)
-        q.add_argument('--arm',action='append',default=[])
-        q.add_argument('--select',nargs='+',default=[])
+    q=sub.add_parser('terrain-exam',help='frozen-policy continuous MJX terrain course: flat vs step up/down')
+    q.add_argument('--policy',required=True,help='verified 220/232-input .emupolicy (diagnostic, read only)')
+    q.add_argument('--output',required=True,help='new/empty directory OUTSIDE checkout')
+    q.add_argument('--worlds',type=int,default=4,help='even worlds, paired up/down, max 32')
+    q.add_argument('--horizon',type=int,default=260,help='control frames, 80..700')
+    q.add_argument('--speed',type=float,default=.15,help='requested forward speed, m/s')
+    q.add_argument('--heights-cm',type=float,nargs='+',default=[0.,2.,4.],
+                   help='matched real collision heights in cm (default 0 2 4)')
+    q.add_argument('--seed',type=int,default=1701)
+    q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
+    q=sub.add_parser('capability-exam',help='frozen 360-input unified physics: command, slope, step, recovery and control')
+    q.add_argument('--policy',required=True,help='verified array-only 360 .emupolicy')
+    q.add_argument('--output',required=True,help='new/empty directory separate from actor')
+    q.add_argument('--worlds',type=int,default=4,help='even 2..32 paired physical worlds')
+    q.add_argument('--horizon',type=int,default=300)
+    q.add_argument('--speed',type=float,default=.10)
+    q.add_argument('--seed',type=int,default=1701)
+    q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
+    q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
+    q.add_argument('--legacy-main-baseline',action='store_true',
+                   help='explicit read-only sim2real_232 showcase on the SAME 360 two-slab physics')
+    q.add_argument('--speed-ladder',action='store_true',
+                   help='read-only flat 0.1..1.0m/s measured speed ladder')
+    q.add_argument('--ladder-speeds',type=float,nargs='+',default=None,
+                   help='optional requested forward speeds in m/s; requires --speed-ladder')
+    q.add_argument('--terrain-matrix',action='store_true',
+                   help='matched 1/2/3/5 degree four-direction slope and step matrix')
+    q.add_argument('--matrix-grades-deg',type=float,nargs='+',default=None,
+                   help='optional four-direction physical matrix, e.g. 5 8 10 12 15; require --terrain-matrix')
+    q.add_argument('--matrix-heights-cm',type=float,nargs='+',default=None,
+                   help='optional paired UP/DOWN physical steps in cm, e.g. 2 2.5 3 3.5 (max 4)')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
@@ -220,37 +231,10 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=0.75)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q=sub.add_parser('directional-batch',
-        help='plan or run bounded v5016 GPU exams and compile a shareable ZIP')
-    source=q.add_mutually_exclusive_group(required=True)
-    source.add_argument('--root',help='original read-only four-way run root')
-    source.add_argument('--policy',help='frozen exported actor, requires physical profile')
-    q.add_argument('--output',required=True,help='new separate exam root')
-    q.add_argument('--profile',choices=['smoke','pilot','sensor','stretch','physical'],
-                   default='smoke')
-    q.add_argument('--worlds',type=int)
-    q.add_argument('--seed',type=int,default=1701)
-    q.add_argument('--heading-kp',type=float,default=.75)
-    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--run',action='store_true',help='execute rather than plan only')
-    q=sub.add_parser('campaign5016',help='12h staged 232-input pinnacle; plan by default, --run to execute')
-    q.add_argument('--root',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_pinnacle'))
-    q.add_argument('--foundation',default=str(Path.home()/'robot_lab'/'emu_runs'/'v5016_sensor_foundation_20m'))
-    q.add_argument('--hours',type=float,default=12.)
-    q.add_argument('--envs',type=int,default=2048)
-    q.add_argument('--screen-envs',type=int,default=128)
-    q.add_argument('--screen-horizon',type=int,default=300)
-    q.add_argument('--seed',type=int,default=733)
-    q.add_argument('--device',choices=['cuda','cpu','auto','gpu'],default='cuda')
-    q.add_argument('--plan',action='store_true')
-    q.add_argument('--status',action='store_true')
-    q.add_argument('--run',action='store_true',help='run the GPU campaign (default only plans)')
-    q.add_argument('--resume-after-screen-fix',action='store_true',
-                   help='audit original training revision and resume failed Round-1 screen')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
-    q=sub.add_parser('train',help='train one protected experiment (no ladder)')
+    q=sub.add_parser('train',help='one source-pinned training lineage (foundation or unified research)')
     q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
     q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
     q.add_argument('--envs',type=int,default=2048)
@@ -266,7 +250,44 @@ def main(argv=None) -> int:
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
     q.add_argument('--sensor-actor',action='store_true',
                    help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
-    q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an explicit compatible parent .pkl')
+    q.add_argument('--terrain-actor',action='store_true',
+                   help='train NEW 360-input 4x4 actual-depth ToF policy, not the 232 champion')
+    q.add_argument('--terrain-step-max-m',type=float,default=0.,
+                   help='fixed physical finite-step topology, 0.01..0.08m for terrain actor')
+    q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
+    q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
+                   help='cold foundation length: experiment at 10M or reference 20M')
+    q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
+                   help='source-pinned frozen exam interval (overnight comparison: 10M)')
+    q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early','steering'),
+                   default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
+    q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
+                   help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
+    q.add_argument('--growth-recipe',choices=('legacy','main-mature'),default='legacy',
+                   help='experiment: old 360 recipe or restore main mature commands/phase/rehearsal')
+    q.add_argument('--athletic-rehearsal-share',type=float,default=None,
+                   help='v5029: 0..0.5 of unified growth births keep full-speed flat steady gait; default inherits profile')
+    q.add_argument('--temporal-vx-reward-share',type=float,default=0.,
+                   help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
+    q.add_argument('--verified-ascent-reallocation',type=float,default=0.,
+                   help='v5031 C: shift 0..4 existing uphill shaping points to verified upper-support transfer')
+    q.add_argument('--retention-share',type=float,default=0.0,
+                   help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
+    q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',
+                   help='mixed, coherent, coherent-direct, or bounded considered-step ascent')
+    q.add_argument('--force-program',choices=('gentle','aggressive'),default='aggressive',
+                   help='gentle 0.7N research push ceiling or aggressive 4N push frontier')
+    q.add_argument('--velocity-i-ramp-s',type=float,default=0.4,
+                   help='experimental vx/vy integral ramp seconds (0.1..5)')
+    q.add_argument('--velocity-i-multiplier',type=float,default=1.0,
+                   help='experimental command trim ceiling: 1=OFF, 1.5/2=trial')
+    q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
+    q.add_argument('--research-parent-source',default='',
+                   help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
+    q.add_argument('--research-parent-sha256',default='',
+                   help='explicit cross-source fork only: SHA256 of immutable parent final.pkl')
+    q.add_argument('--check-resume-only',action='store_true',
+                   help='validate source/parent/checkpoint now, exit before any PPO training')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
@@ -290,14 +311,30 @@ def main(argv=None) -> int:
     if args.cmd=='posture-report':
         from .results import posture_report
         return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd in ('ladder','lab5015'):
-        av=['--stage',args.stage,'--round',args.round,'--stop-after',args.stop_after,'--seed',str(args.seed),
-            '--envs',str(args.envs),'--device',args.device,
-            '--screen-envs',str(args.screen_envs),'--screen-horizon',str(args.screen_horizon)]
-        if args.root: av += ['--root',args.root]
-        for arm in args.arm: av += ['--arm',arm]
-        if args.select: av += ['--select',*args.select]
-        return _run('branch_lab',*av)
+    if args.cmd=='terrain-exam':
+        from .evaluation import evaluate_terrain_course
+        paths=evaluate_terrain_course(
+            policy=Path(args.policy),output=Path(args.output),
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            heights_cm=tuple(args.heights_cm),seed=args.seed,device=args.device)
+        for path in paths:
+            print(path)
+        return 0
+    if args.cmd=='capability-exam':
+        from .evaluation import evaluate_unified_capabilities
+        paths=evaluate_unified_capabilities(
+            policy=Path(args.policy),output=Path(args.output),
+            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
+            seed=args.seed,device=args.device,quick=args.quick,
+            terrain_matrix=args.terrain_matrix,
+            matrix_grades_deg=args.matrix_grades_deg,
+            matrix_heights_cm=args.matrix_heights_cm,
+            speed_ladder=args.speed_ladder,
+            ladder_speeds=args.ladder_speeds,
+            legacy_main_baseline=args.legacy_main_baseline)
+        for path in paths:
+            print(path)
+        return 0
     if args.cmd=='directional-exam':
         # Parse ONCE and call the examiner directly. Previously this rebuilt
         # strings for a second parser: a fragile seam that caused real WSL
@@ -324,33 +361,13 @@ def main(argv=None) -> int:
         for path in paths:
             print(path)
         return 0
-    if args.cmd=='directional-batch':
-        from .evaluation import plan,execute
-        from .evaluation import source_commit
-        jobs=plan(args.profile,args.root,args.output,worlds=args.worlds,
-                  seed=args.seed,kp=args.heading_kp,device=args.device,
-                  policy_file=args.policy)
-        execute(jobs,source_commit(),actually_run=args.run)
-        return 0
-    if args.cmd=='campaign5016':
-        from .campaign5016 import main as pinnacle
-        argv=['--root',args.root,'--foundation',args.foundation,
-              '--hours',str(args.hours),'--envs',str(args.envs),
-              '--screen-envs',str(args.screen_envs),
-              '--screen-horizon',str(args.screen_horizon),
-              '--seed',str(args.seed),'--device',args.device]
-        if args.plan: argv.append('--plan')
-        if args.status: argv.append('--status')
-        if args.run: argv.append('--run')
-        if args.resume_after_screen_fix: argv.append('--resume-after-screen-fix')
-        return pinnacle(argv)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
             print(output)
         return 0
     if args.cmd=='train':
-        from .branch_lab import train_one
+        from .run import train_one
         return train_one(args)
     if args.cmd=='export-policy':
         from .viewer_server import build_bundle, write_bundle
