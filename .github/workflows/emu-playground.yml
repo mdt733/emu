@@ -37,16 +37,32 @@ jobs:
           from pathlib import Path
           r = json.loads(Path("showcase/deployment_request.json").read_text())
           assert r["schema"] == 1
-          assert r["release"] == "v5017-pose-lattice"
-          assert r["policy_git_blob"] == "163a61fef6e75fcba91f254830f3858210b491a0"
-          # The request binds an exact reviewed viewer Git blob, not an
-          # unverified branch name. Works for clean squash PR merges too.
-          actual = subprocess.check_output(
+          # Exact, individually reviewed release gates; no generic
+          # "deploy whatever happens to be on main" escape hatch.
+          pinned = {
+              "v5017-pose-lattice": (
+                  "163a61fef6e75fcba91f254830f3858210b491a0",
+                  "1c3ce6a89870e93a4431de5adf3af5ae9627cb6d"),
+              "v5032-pinnacle-260M": (
+                  "45f189367d51ad56dd57726b67e13be08b80bfae",
+                  "145475fa287b03ed6a60fd74cd8c6ef59c487d13"),
+          }
+          assert r["release"] in pinned, "Unknown owner-approved release"
+          policy_blob,viewer_blob = pinned[r["release"]]
+          assert r["policy_git_blob"] == policy_blob
+          assert r["viewer_git_blob"] == viewer_blob
+          # Bind the request to actual reviewed files in THIS checkout.
+          actual_policy = subprocess.check_output(
+              ["git", "hash-object", "showcase/champion.emupolicy"],
+              text=True).strip()
+          actual_viewer = subprocess.check_output(
               ["git", "hash-object", "emu/viewer_src/src/main.js"],
               text=True).strip()
-          assert actual == r["viewer_git_blob"], (
-              f"Viewer differs from the approved release: {actual}")
-          print("Release-specific GitHub Pages publication approved")
+          assert actual_policy == policy_blob, (
+              f"Policy differs from approved release: {actual_policy}")
+          assert actual_viewer == viewer_blob, (
+              f"Viewer differs from approved release: {actual_viewer}")
+          print("Exact owner-approved GitHub Pages release validated")
           PY
       - name: Install Node.js
         uses: actions/setup-node@v4
