@@ -30,7 +30,7 @@ Pinnacle **only after objective graduation**.
 
 **Only active launcher:** `scripts/train_pinnacle.py`.
 **Case:** `pinnacle_cold260`, seed761, 2048 GPU worlds, 260M cumulative.
-**Root:** `~/robot_lab/emu_runs/v5032_pinnacle_s761/`.
+**Root:** `~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/`.
 
 Pinned recipe: 20M foundation / main mix / balanced / main-mature,
 coherent-careful real steps, gentle pushes, 25% athletic flat
@@ -62,6 +62,23 @@ and incomplete CUDA acceptance.
 Run output includes checkpoint/optimizer evidence, frozen exams,
 report ZIP and `pinnacle_candidate_260M.emupolicy`. No weights are
 auto-committed to Git or published.
+
+## Source-gate fix after first attempted launch
+
+The first v5032 260M cold-start attempt stopped **before any PPO
+training**: the launcher passed the CPU and full 2048 CUDA smoke
+but set `EMU_UNIFIED_CONTINUATION` instead of the trainer's required
+`EMU_UNIFIED_CONTINUOUS=cold-growth-approved`.
+
+The launcher is now aligned with `emu/training.py`, with a
+CPU-only regression test in `tests/test_pinnacle_launch.py`.
+Because the first attempt wrote a manifest/preflight stamp pinned
+to its older source SHA, the repaired campaign uses the **new
+`v5032_pinnacle_s761_v2` directory**. Do not delete or silently
+rewrite the old run metadata; do not resume training from an
+unvalidated partial state. Use `git pull --ff-only` only in the
+stopped v5032 checkout, then verify the new exact SHA before
+launching a new run.
 
 ## What we learned before the cold flagship
 
@@ -161,6 +178,7 @@ Read [graduation gates](docs/RELEASE_READINESS.md) and
 [Fresh-machine install](docs/INSTALL.md) ·
 [Physical release evidence](docs/RELEASE_READINESS.md) ·
 [Viewer graded park](docs/VIEWER_GRADUATED_PARK.md) ·
+[Code map](docs/ARCHITECTURE.md) ·
 [Learning architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Complete v5031 handover preserved](docs/history/HANDOVER_V5031_COMPLETE.md) ·
 [Historical experiments](docs/history/README.md).
