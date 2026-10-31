@@ -134,7 +134,7 @@ function navigationUpdate(dt) {
   }
   const state=navigator.status(pose);
   sim.setNavigationOverlay(state.goal,state.route);
-  sim.setNavigationPrediction(state.controllerMode==='predictive'
+  sim.setNavigationPrediction(state.goal&&state.controllerMode==='predictive'
     ?state.prediction:[]);
   $('demoKind').textContent=state.reason;
   if(!state.goal){
@@ -760,7 +760,7 @@ $('navBenchmark').addEventListener('click',()=>{
   if(!sim)return;
   if(!demoActive)startDemo();
   // Identical physical reset and goal sequence for Classic and Predictive.
-  sim.reset();
+  sim.resetForNavigationBenchmark();
   lastResetGeneration=sim.resetGeneration;
   navigator.startBenchmark();
   navigator.terrain=sim.navigationTerrain();
