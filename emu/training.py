@@ -99,6 +99,7 @@ def env_kwargs_from_args(args) -> dict:
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         verified_ascent_reallocation=args.verified_ascent_reallocation,
+        science_arm=args.science_arm,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -284,7 +285,8 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
                               frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
-                              unified_capability_focus=args.unified_capability_focus)
+                              unified_capability_focus=args.unified_capability_focus,
+                              science_arm=args.science_arm)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -342,6 +344,14 @@ def train(args: TrainingConfig) -> int:
             weights=list(attention_weights(
                 schedule=args.teaching_schedule,step=step,
                 foundation_steps=args.foundation_steps))
+            if args.science_arm in (19,21) and step>args.foundation_steps:
+                # Exactly 10% of all specialist worlds move out of the
+                # COMMAND cohort into TRANSITION (19) or RESILIENCE (21).
+                donor=FOCUS_NAMES.index('command')
+                recipient=FOCUS_NAMES.index(
+                    'transition' if args.science_arm==19 else 'resilience')
+                weights[donor]-=.10
+                weights[recipient]+=.10
             # Reserve a deterministic share of all focused births for
             # useful moving, low-disturbance retention (CONTROL role).
             # The ordinary control role remains unchanged in baseline arms.
