@@ -229,9 +229,12 @@ def build_report(exams: list[dict]) -> dict:
                 family, direction, level, unit = axis(case, world, proto)
                 # Speed must match for terrain/recovery comparisons;
                 # longitudinal speed itself IS the tested severity.
-                requested_speed = (float(proto["speed"]) if family in
+                requested_speed = (float(case.get("vx",proto["speed"])) if family in
                                    ("slope", "step", "recovery", "mixed_terrain")
                                    else None)
+                if requested_speed is not None and (
+                    not math.isfinite(requested_speed) or abs(requested_speed)>1.8):
+                    raise ValueError("invalid requested speed in frozen physical case")
                 key = (family, direction, level, unit, *fixture, requested_speed)
                 # Duplicate physical case with another *name* but the
                 # same seed/condition/world is not a fresh independent sample.
@@ -288,7 +291,9 @@ def build_report(exams: list[dict]) -> dict:
             curve = (family, direction, unit, fixture, horizon, backend, speed)
             curves[curve].append((level, passed / n))
     cases.sort(key=lambda r: (r["family"], r["direction"], r["horizon_frames"],
-                              -1 if r["severity"] is None else r["severity"]))
+                              -1 if r["severity"] is None else r["severity"],
+                              -1 if r["requested_terrain_speed_mps"] is None
+                              else r["requested_terrain_speed_mps"]))
     envelopes = []
     for key, points in sorted(curves.items(), key=lambda p: str(p[0])):
         family, direction, unit, fixture, horizon, backend, speed = key
@@ -296,6 +301,23 @@ def build_report(exams: list[dict]) -> dict:
                               fixture=fixture, horizon_frames=horizon, backend=backend,
                               requested_terrain_speed_mps=speed,
                               **curve_area(points)))
+    # Compare multiple requested speeds on an IDENTICAL physical grade
+    # and horizon. This is a second, independent axis of a capability
+    # surface; unlike old 1-D slope AUC it cannot pool speed regimes.
+    downhill_speed_curves = defaultdict(list)
+    for row in cases:
+        if (row["family"]=="slope" and row["direction"]=="downhill"
+            and row["requested_terrain_speed_mps"] is not None):
+            key=(row["severity"],row["fixture"],row["horizon_frames"],
+                 row["backend"])
+            downhill_speed_curves[key].append((
+                row["requested_terrain_speed_mps"],row["mission_rate"]))
+    downhill_speed_envelopes=[]
+    for key,points in sorted(downhill_speed_curves.items()):
+        grade,fixture,horizon,backend=key
+        downhill_speed_envelopes.append(dict(
+            grade_deg=grade,fixture=fixture,horizon_frames=horizon,
+            backend=backend,unit="m/s",**curve_area(points)))
     # Coverage means BOTH signs of motion and all four slope bearings,
     # not "some slope" or "some yaw". Never hide weakest directions.
     present = {row["family"] + "/" + row["direction"] for row in cases}
@@ -320,7 +342,9 @@ def build_report(exams: list[dict]) -> dict:
                 actor_sha256=ident[0], observation_schema=ident[1],
                 source_training_step=ident[2],
                 seeds=sorted({seed for rows in pools.values() for seed, _ in rows}),
-                cases=cases, tested_envelopes=envelopes, coverage=coverage,
+                cases=cases, tested_envelopes=envelopes,
+                downhill_speed_envelopes=downhill_speed_envelopes,
+                coverage=coverage,
                 global_score=None,
                 cautions=[
                     "No global scalar; absent dimensions are unknown, never zero.",
@@ -387,6 +411,35 @@ def markdown(report: dict) -> str:
                      f"{physical(c['world_path_rms_m'],' m')} | "
                      f"{physical(c['world_path_endpoint_m'],' m')} | "
                      f"{physical(c['directed_progress_m'],' m')} |")
+    downhill=[c for c in report["cases"]
+              if c["family"]=="slope" and c["direction"]=="downhill"]
+    if downhill:
+        lines += ["", "## Downhill: commanded speed versus actual physical grade", "",
+                  "Each row is a matched-speed, real-inclined-collider exam. "
+                  "These are command-obedience tests, NOT route-planning tests.",
+                  "", "| Grade | Requested | Achieved vx | Survival | Movement | Heading | Mission | Signed yaw bias | Endpoint route error |",
+                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        for c in sorted(downhill,key=lambda x:(x["severity"],x["requested_terrain_speed_mps"] or 0.)):
+            lines.append(
+                f"| {c['severity']:g}° | "
+                f"{physical(c['requested_terrain_speed_mps'],' m/s')} | "
+                f"{physical(c['measured_vx_mps'],' m/s')} | "
+                f"{c['survived']}/{c['attempts']} | "
+                f"{c['movement_pass']}/{c['attempts']} | "
+                f"{c['heading_pass']}/{c['attempts']} | "
+                f"{c['missions']}/{c['attempts']} | "
+                f"{physical(c['signed_yaw_bias_rad_s'],' rad/s')} | "
+                f"{physical(c['world_path_endpoint_m'],' m')} |")
+        lines += ["","### Downhill speed range (within the same physical grade)", "",
+                  "| Grade | Tested speeds | Speed points | Mission-speed AUC |",
+                  "|---|---|---:|---:|"]
+        for curve in report.get("downhill_speed_envelopes", []):
+            fraction=curve["tested_range_fraction"]
+            auc=f"{fraction:.3f}" if fraction is not None else "insufficient speeds"
+            lines.append(
+                f"| {curve['grade_deg']:g}° | "
+                f"{curve['minimum']:g}–{curve['maximum']:g} m/s | "
+                f"{curve['tested_levels']} | {auc} |")
     lines += ["", "## Tested-range capability curves", "",
               "| Signed capability | Range | Samples | Tested-range AUC |",
               "|---|---|---:|---:|"]
