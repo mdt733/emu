@@ -35,9 +35,14 @@ do not confuse these distinct scores.
 At 12° the walker averages **0.159 m/s** on a 0.15 request;
 mean signed yaw-rate bias is **−0.099 rad/s**. It is **not**
 falling off hills or failing to move; this is chiefly downhill
-directional control. At 14.9° mean forward is ~0.180 m/s and
-yaw jitter increases as well. Rhythmic leg-driven yaw oscillation
-is not the same as sustained unwanted turning.
+directional control. **All 12 failed 12° missions are yaw-bias
+failures, not yaw-jitter failures.** At 14.9° mean forward is
+~0.180 m/s: 7/16 exceed yaw-bias tolerance, 10/16 exceed
+yaw-jitter tolerance (3 exceed both), and one also misses
+movement tracking. Rhythmic leg-driven yaw oscillation
+may be acceptable; independent world-frame course drift
+must be reported to distinguish it from true loss of steering.
+The 14.9° *mission* score therefore needs careful interpretation.
 
 Therefore before any training:
 - Add a **read-only downhill speed × grade sweep** using the same
