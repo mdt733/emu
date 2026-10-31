@@ -245,3 +245,20 @@ def test_physical_step_failures_remain_distinct_from_heading_failures():
     assert up["nonexclusive_failure_reasons"]["supported_crossing_failed"]==1
     assert up["nonexclusive_failure_reasons"]["heading_failed"]==0
     assert up["nonexclusive_failure_reasons"]["not_mission_qualified"]==1
+
+
+def test_efficiency_is_observed_for_useful_motion_even_if_legacy_yaw_gate_failed():
+    exam=_exam()
+    fast=next(c for c in exam["results"] if c["case"].get("vx")==.8)
+    # The trace-scoring owner has ALREADY verified contact, directed
+    # progress and velocity. That diagnostic must not be erased by
+    # unrelated high-frequency yaw qualification.
+    fast["worlds"][1]["mechanical_j_per_useful_m"]=89.5
+    fast["worlds"][1]["mission_pass"]=False
+    fast["worlds"][1]["heading_control_pass"]=False
+    report=build_report([exam])
+    fast_report=next(c for c in report["cases"] if
+                     c["family"]=="longitudinal" and c["severity"]==.8)
+    assert fast_report["missions"]==1
+    assert fast_report["useful_work_j_per_m"]==89.5
+    assert fast_report["useful_work_samples"]==1
