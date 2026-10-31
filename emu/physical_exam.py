@@ -903,6 +903,13 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
     bad=np.asarray(frames['terrain_bad_contact'],dtype=float)
     power=np.asarray(frames['servo_shaft_drive_power_w'],dtype=float)
     pushes=np.asarray(frames['applied_push_force_n'],dtype=float)
+    # Arm 23 diagnosis only: measured spring state and real torso height.
+    # These are observations of physics, NEVER added to pass criteria or
+    # fed to the actor/controller as privileged teacher information.
+    height_trace=(np.asarray(frames['terrain_height'],dtype=float)
+                  if 'terrain_height' in frames else None)
+    spring_trace=(np.asarray(frames['spring_potential_energy_j'],dtype=float)
+                  if 'spring_potential_energy_j' in frames else None)
     actions=(np.asarray(frames['actor_action'],dtype=float)
              if 'actor_action' in frames else None)
     slip=(np.asarray(frames['stance_slip_proxy'],dtype=float)
@@ -1072,6 +1079,23 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
         work_per_m=work/achieved if achieved>.01 else None
         action_delta=(float(np.mean(np.abs(np.diff(actions[:stop,world],axis=0))))
                       if actions is not None and stop>1 else None)
+        # A spring peak and later unload is necessary but NOT sufficient
+        # evidence for useful step ascent; crossing is scored independently.
+        height_min=height_dip=height_rebound=None
+        spring_peak_delta=spring_release=None
+        if height_trace is not None and stop>2:
+            hh=height_trace[:stop,world]
+            if np.isfinite(hh).all():
+                low=int(np.argmin(hh))
+                height_min=float(np.min(hh))
+                height_dip=max(0.,float(hh[0]-hh[low]))
+                height_rebound=max(0.,float(np.max(hh[low:])-hh[low]))
+        if spring_trace is not None and stop>2:
+            ss=spring_trace[:stop,world]
+            if np.isfinite(ss).all():
+                peak=int(np.argmax(ss))
+                spring_peak_delta=max(0.,float(ss[peak]-ss[0]))
+                spring_release=max(0.,float(ss[peak]-np.min(ss[peak:])))
         slip_mean=(float(np.mean(slip[:stop,world]))
                    if slip is not None else None)
         results.append(dict(
@@ -1109,6 +1133,15 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             mechanical_j_per_travel_m=round(work_per_m,2) if work_per_m is not None else None,
             mean_abs_actor_action_delta=round(action_delta,5) if action_delta is not None else None,
             mean_stance_slip_proxy=round(slip_mean,5) if slip_mean is not None else None,
+            torso_min_height_m=round(height_min,4) if height_min is not None else None,
+            torso_height_dip_from_start_m=(round(height_dip,4)
+                                          if height_dip is not None else None),
+            torso_rebound_after_dip_m=(round(height_rebound,4)
+                                      if height_rebound is not None else None),
+            spring_peak_storage_above_initial_j=(round(spring_peak_delta,5)
+                                                 if spring_peak_delta is not None else None),
+            spring_release_after_peak_j=(round(spring_release,5)
+                                         if spring_release is not None else None),
             delivered_push_peak_n=round(float(np.max(pushes[:stop,world])),3),
             case_pass=bool(passed),
             mission_pass=bool(mission_pass),
