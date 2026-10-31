@@ -1,13 +1,14 @@
 # EMU — fresh install and recovery (Windows 11 / WSL2 Ubuntu / NVIDIA)
 
 **Reviewed: 31 October 2026.** This is the maintained rebuild procedure.
-The protected public `main` actor (232 inputs) and the next **360-input**
-Pinnacle candidate are different policies. The maintained new-machine
-training path is `release/v5032-pinnacle-candidate` with one 260M
-**cold start** and no dependence on older checkpoint files.
-See [the candidate runbook](PINNACLE_CANDIDATE.md).
+The new **`main`** baseline is the completed 360-input,
+260,046,848-step Pinnacle. The previous 232-input actor is
+preserved at commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
+For the current policy and held-out results, see
+[the release card](V5032_PINNACLE_RELEASE.md). The old
+[cold-start runbook](PINNACLE_CANDIDATE.md) is now history.
 
-No step below launches training or replaces the published policy.
+No step below launches training or replaces the released policy.
 Never install into, change, pull, or overwrite an **active** training
 checkout or virtual environment. Fresh machine setup uses a NEW directory,
 a NEW local `.venv` and results stored OUTSIDE Git.
@@ -80,13 +81,13 @@ there is no need to install Node manually here.
 
 ## 3. Clone the source, install CUDA JAX and all test tools
 
-This *example* checks out the current experimental research code. For a
-future study, replace only the branch with the then-current handover's
-approved research branch. For the public viewer alone, use the
-`main` branch or the [CPU-only viewer instructions](PLAYGROUND.md).
+This example checks out the **current released `main` source**.
+For a future source-pinned training study, use the approved
+branch and exact SHA in the [handover](../HANDOVER.md).
+For the public viewer alone, see [CPU-only setup](PLAYGROUND.md).
 
 ```bash
-git clone --single-branch --branch release/v5032-pinnacle-candidate \
+git clone --single-branch --branch main \
   https://github.com/mdt733/emu.git "$HOME/emu-research"
 cd "$HOME/emu-research"
 git branch --show-current
@@ -101,7 +102,7 @@ python --version
 python -m pytest --version
 ```
 
-**Important:** The candidate launcher's CPU preflight uses `pytest`.
+**Important:** The historical 260M launcher's CPU preflight uses `pytest`.
 `setup_wsl.sh --cuda13` installs `.[dev]` on this source branch even
 without `--check`; `--check` additionally runs the Python and browser
 suites. Always use a **new environment** for a new source-pinned training
@@ -177,11 +178,12 @@ python scripts/smoke_unified_focus.py \
 
 This proves the source can execute on the machine; it does **not**
 prove that a new random policy can walk or that the trained checkpoint
-is valid. The [single Pinnacle launcher](PINNACLE_CANDIDATE.md) repeats
-the actual CPU and 2048-world CUDA preflights under its exact
-source SHA before it permits GPU training.
+is valid. The [completed Pinnacle campaign](PINNACLE_CANDIDATE.md) required
+separate CPU and 2048-world CUDA preflights under its exact source
+SHA before it permitted training. A *future* campaign must do
+the same using its own validated source and resolved configuration.
 
-## 5. Set up results, preserve versions, and start a *new* run
+## 5. Examine the released baseline (training is not the setup default)
 
 ```bash
 mkdir -p "$HOME/robot_lab/emu_runs"
@@ -190,16 +192,21 @@ git status --short
 git rev-parse HEAD
 python -m pip freeze > "$HOME/robot_lab/emu-python-packages.txt"
 python -m emu.cli train --help
-python scripts/train_pinnacle.py
+python scripts/verify_showcase_release.py
+python -m emu.cli capability-exam \
+  --policy showcase/champion.emupolicy \
+  --output "$HOME/robot_lab/emu_exams/pinnacle_260m" \
+  --device cpu --quick
 ```
 
-The last line is **plan-only**, making no files or GPU work.
-The replacement path is a true **cold start**, not a v5031 continuation:
-`python -u scripts/train_pinnacle.py --run` validates the exact SHA,
-CPU and full 2048 CUDA PPO gate, then trains one shared six-servo policy
-to 260M cumulative world steps. For an interrupted SAME-SHA run, use
-`--run --skip-preflight` only with its matching preflight stamp.
-Do **not** run two training campaigns on the 8 GB GPU simultaneously.
+This reads the checked-in **trained 360-input policy**. It
+does not use your GPU to train anything or assume the full
+optimizer checkpoint is present. To reproduce the original
+260M policy's *training*, consult the exact source SHA and
+[historical runbook](PINNACLE_CANDIDATE.md) and use
+an independent run root. **Never run the old cold-start
+launcher casually from a later `main` checkout.**
+Do not run competing 2048-world GPU campaigns on 8GB VRAM.
 
 All live checkpoints and exam results belong under
 `~/robot_lab/emu_runs/`, **outside** the Git checkout. Keep:
