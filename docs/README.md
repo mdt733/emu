@@ -16,6 +16,7 @@ The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility histor
 | [HANDOVER](../HANDOVER.md) | Current source/policy identity, honest v5032 physical baseline and immediate follow-up |
 | [RELEASE READINESS](RELEASE_READINESS.md) | Owner-approval checkpoints and physical graduation criteria |
 | [**PHYSICAL QUALITY**](PHYSICAL_QUALITY.md) | What genuinely defines a good robot; signed capability envelopes, path accuracy and no fake scalar |
+| [**260M PHYSICAL BASELINE**](PHYSICAL_BASELINE_260M.md) | Real original exam evidence: verified step crossing versus full controlled mission, per-direction/speed curves |
 | [UNIFIED CAPABILITY GROWTH](UNIFIED_CAPABILITY_GROWTH.md) | Six focus curricula, one actor and physically earned frontiers |
 | [CAPABILITY DIMENSIONS](CAPABILITY_DIMENSIONS.md) | Detailed motion, resilience, terrain and J/m metrics |
 | [VIEWER GRADUATED PARK](VIEWER_GRADUATED_PARK.md) | Eight real-collision viewer challenges and three difficulty levels |
