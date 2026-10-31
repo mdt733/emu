@@ -231,12 +231,12 @@ def test_report_energy_respects_settle_window_and_progress_direction():
     assert opposite['positive_shaft_work_per_progress_m_j_m'] is None
 
 
-def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path):
+def test_protected_export_reader_refuses_contract_and_actor_tampering(tmp_path, archived_232_policy):
     """A public browser export is a valid exam source, never a rewindable .pkl."""
     import json
     from pathlib import Path
     from emu.viewer_server import load_exported_actor_for_exam
-    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    champion=archived_232_policy
     layers,norm,details=load_exported_actor_for_exam(champion)
     assert details['source']['step']==260112384
     assert details['source']['checkpoint_schema']==8
