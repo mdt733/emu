@@ -4,6 +4,8 @@
 // not proof of optimality or a learned capability/safety guarantee.
 import { makeRng } from './rng.js';
 import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
+import { PredictivePathController } from './predictive-navigation.js';
+import { terrainRiskAt, sweptTerrainCost } from './navigation-terrain.js';
 export const ARENA_RADIUS_M = 4;
 export const GOAL_POSITION_TOLERANCE_M = .19;
 export const GOAL_HEADING_TOLERANCE_RAD = .28;
@@ -18,15 +20,16 @@ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 function treeCollision(x,y,trees=[]) {
   return trees.some(t=>Math.hypot(t.x-x,t.y-y)<TREE_CLEARANCE_M);
 }
-function inArena(p,trees,limit=BOUND){
-  return Math.hypot(p.x,p.y)<limit && !treeCollision(p.x,p.y,trees);
+function inArena(p,trees,limit=BOUND,terrain=null){
+  return Math.hypot(p.x,p.y)<limit && !treeCollision(p.x,p.y,trees) &&
+    Number.isFinite(terrainRiskAt(terrain,p.x,p.y));
 }
-export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_RADIUS_M){
+export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_RADIUS_M,terrain=null){
   for(let i=0;i<180;i++){
     // Uniform area, not uniform radius.
     const r=Math.sqrt(rng())*radius,a=tau*rng();
     const point={x:r*Math.cos(a),y:r*Math.sin(a),heading:wrapAngle(tau*rng()-Math.PI)};
-    if(distance(point,from)>.95 && !treeCollision(point.x,point.y,trees))
+    if(distance(point,from)>.95 && inArena(point,trees,BOUND,terrain))
       return point;
   }
   // Deterministic fallback if obstacles fill the centre.
@@ -85,10 +88,10 @@ export function integratePose(p,cmd,dt){
   return {x:p.x+ct*forward-st*lateral,
           y:p.y+st*forward+ct*lateral,heading:wrapAngle(p.heading+a)};
 }
-function segmentSafe(p,cmd,dt,trees){
+function segmentSafe(p,cmd,dt,trees,terrain=null){
   const count=Math.max(3,Math.ceil(dt/.20));
   for(let i=1;i<=count;i++){
-    if(!inArena(integratePose(p,cmd,dt*i/count),trees))return false;
+    if(!inArena(integratePose(p,cmd,dt*i/count),trees,BOUND,terrain))return false;
   }
   return true;
 }
@@ -101,26 +104,27 @@ function segmentSafe(p,cmd,dt,trees){
  */
 const motionKind=cmd=>Math.abs(cmd?.vx||0)>.045?(cmd.vx>0?'forward':'reverse'):
   Math.abs(cmd?.vy||0)>.035?'lateral':Math.abs(cmd?.yaw||0)>.035?'pivot':'terminal';
-const chordSafe=(a,b,trees,extra=0)=>{
+const chordSafe=(a,b,trees,extra=0,terrain=null)=>{
   const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
   const n=Math.max(1,Math.ceil(Math.sqrt(d2)/.07));
   for(let j=0;j<=n;j++){
     const t=j/n,x=a.x+t*dx,y=a.y+t*dy;
     if(Math.hypot(x,y)>=BOUND-.03||
+       !Number.isFinite(terrainRiskAt(terrain,x,y))||
        trees.some(tree=>Math.hypot(tree.x-x,tree.y-y)<TREE_CLEARANCE_M+extra))
       return false;
   }
   return true;
 };
-const safePolyline=(start,steps,trees)=>{
+const safePolyline=(start,steps,trees,terrain=null)=>{
   let prev=start;
   for(const p of steps){
-    if(!chordSafe(prev,p,trees))return false;
+    if(!chordSafe(prev,p,trees,0,terrain))return false;
     prev=p;
   }
   return true;
 };
-export function refineRouteSteps(start,rawSteps,limits,trees=[]){
+export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null){
   const terminal=rawSteps.at(-1)?.final?rawSteps.at(-1):null;
   const source=terminal?rawSteps.slice(0,-1):rawSteps;
   if(!source.length)return [...rawSteps];
@@ -157,7 +161,7 @@ export function refineRouteSteps(start,rawSteps,limits,trees=[]){
       const dx=x-original[i].x,dy=y-original[i].y;
       const size=Math.hypot(dx,dy),ratio=size>.10?.10/size:1;
       const q={x:original[i].x+dx*ratio,y:original[i].y+dy*ratio};
-      if(chordSafe(prev,q,trees,.045)&&chordSafe(q,next,trees,.045)){
+      if(chordSafe(prev,q,trees,.045,terrain)&&chordSafe(q,next,trees,.045,terrain)){
         p.x=q.x;p.y=q.y;
       }
     }
@@ -222,8 +226,8 @@ export function refineRouteSteps(start,rawSteps,limits,trees=[]){
   }
   // Never publish a modified route that is less safe than the raw plan.
   // Even an original curved primitive is rechecked by dense chords.
-  if(!safePolyline(start,dense,trees)||
-     (terminal&&!chordSafe(dense.at(-1),terminal,trees)))return rawSteps;
+  if(!safePolyline(start,dense,trees,terrain)||
+     (terminal&&!chordSafe(dense.at(-1),terminal,trees,0,terrain)))return rawSteps;
   return terminal?[...dense,terminal]:dense;
 }
 class Heap {
@@ -266,7 +270,8 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   if(![start.x,start.y,start.heading,goal.x,goal.y,goal.heading].every(Number.isFinite))
     throw new Error('Nonfinite navigation start/goal');
   const moves=primitives(limits),speed=commandSpeeds(limits);
-  if(!inArena(goal,trees))return null;
+  const terrain=options.terrain||null;
+  if(!inArena(goal,trees,BOUND,terrain))return null;
   const maxNodes=clamp(Number(options.maxNodes)||6500,100,20000);
   const root={...start,g:0,f:heuristic(start,goal,speed)*1.20,
               parent:null,cmd:null,dt:0};
@@ -280,13 +285,15 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     const h=heuristic(p,goal,speed);
     if(h<bestH){bestH=h;closest=p;}
     if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40
-       &&chordSafe(p,goal,trees)){
+       &&chordSafe(p,goal,trees,0,terrain)){
       winner=p;break;
     }
     for(const cmd of moves){
-      if(!segmentSafe(p,cmd,cmd.dt,trees))continue;
+      if(!segmentSafe(p,cmd,cmd.dt,trees,terrain))continue;
       const q=integratePose(p,cmd,cmd.dt),id=key(q);
-      const g=p.g+cmd.cost;
+      const slopeCost=sweptTerrainCost(terrain,p,q);
+      if(!Number.isFinite(slopeCost))continue;
+      const g=p.g+cmd.cost*slopeCost;
       if(g>=(best.get(id)??Infinity)-1e-7)continue;
       best.set(id,g);
       heap.push({...q,g,f:g+1.20*heuristic(q,goal,speed),
@@ -307,13 +314,14 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  const refined=refineRouteSteps(start,steps,limits,trees);
+  const refined=refineRouteSteps(start,steps,limits,trees,terrain);
   // Commanded-time estimate is only a planning hint, not measured gait
   // duration. Reflect extra braking instead of advertising raw A* time.
   const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
   return {start:{...start},steps:refined,
     estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
     solved,expanded,
+    planner:terrain?'terrain-aware pose lattice':'pose lattice',
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
@@ -335,6 +343,9 @@ export class GoalNavigator {
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.requestPlan=null;this.pendingRequest=null;
     this.generation=0;this.plannerError=null;
+    this.controllerMode='predictive';
+    this.predictor=new PredictivePathController();
+    this.prediction=[];this.predictionScore=null;this.terrain=null;this.latestPose=null;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -378,7 +389,9 @@ export class GoalNavigator {
     this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
-    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
+    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+    this.prediction=[];this.predictionScore=null;this.latestPose=null;
+    this.predictor.reset();}
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
@@ -403,7 +416,7 @@ export class GoalNavigator {
     this.reason=route.solved?'Following route':'Partial route · replanning';
   }
   setGoal(pose,goal,limits,trees=[]){
-    const route=planPoseRoute(pose,goal,limits,trees);
+    const route=planPoseRoute(pose,goal,limits,trees,{terrain:this.terrain});
     if(!route)return false;
     this.acceptRoute(pose,goal,route,{newMission:true});
     return true;
@@ -413,7 +426,7 @@ export class GoalNavigator {
       this.reason='Planning next target in background…';
       return this.queuePlan({
         kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-        limits,trees
+        limits,trees,terrain:this.terrain
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
@@ -426,7 +439,7 @@ export class GoalNavigator {
       });
     }
     for(let i=0;i<5;i++){
-      const goal=sampleGoal(this.rng,trees,pose);
+      const goal=sampleGoal(this.rng,trees,pose,ARENA_RADIUS_M,this.terrain);
       const planned=this.setGoal(pose,goal,limits,trees);
       if(planned&&this.route.solved)return true;
     }
@@ -438,6 +451,8 @@ export class GoalNavigator {
     if(!this.active)return;
     if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
     const delta=clamp(dt,0,.1);
+    this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
+    this.predictor.observe(pose,delta);
     // Standing while waiting avoids making an asynchronous plan stale.
     if(!this.goal){
       if(this.pendingRequest){
@@ -504,9 +519,19 @@ export class GoalNavigator {
     const finalApproach=finished||blending;
     const cruise=result?.command||{vx:0,vy:0,yaw:0,pitch:0};
     const park=finished||blending?parkAtGoal(pose,this.goal,limits):null;
-    const command=finished?park:!blending?cruise:
+    let command=finished?park:!blending?cruise:
       Object.fromEntries(['vx','vy','yaw','pitch'].map(key=>[
         key,(1-blend)*(cruise[key]||0)+blend*(park[key]||0)]));
+    this.prediction=[];this.predictionScore=null;
+    if(this.controllerMode==='predictive'&&!finished&&!blending&&
+       result?.mode!=='pivot'){
+      const predicted=this.predictor.command(pose,path,this.runIndex,
+        this.runProgress,limits,trees,this.terrain,command);
+      command=predicted.command;
+      this.prediction=predicted.prediction;
+      this.predictionScore=predicted.cost;
+    }
+    this.predictor.issue(command);
     apply(command);
     this.reason=finalApproach?'Final pose correction'
       :result?.mode==='pivot'?'Following planned pivot'
@@ -541,15 +566,19 @@ export class GoalNavigator {
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees
+          goal:expectedGoal,limits,trees,terrain:this.terrain
         },answer=>{
-          if(answer?.route?.solved&&this.goal===expectedGoal){
+          // Reject stale background routes after significant motion.
+          const fresh=this.latestPose&&distance(this.latestPose,pose)<.38&&
+            Math.abs(angleError(this.latestPose.heading,pose.heading))<.45;
+          if(answer?.route?.solved&&this.goal===expectedGoal&&fresh){
             this.acceptRoute(pose,expectedGoal,answer.route);
             this.replans++;
           }
         });
       }else{
-        const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
+        const route=planPoseRoute(pose,this.goal,limits,trees,
+          {maxNodes:7500,terrain:this.terrain});
         if(route?.solved){
           this.acceptRoute(pose,this.goal,route);
           this.replans++;
@@ -571,6 +600,9 @@ export class GoalNavigator {
       plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
-      index:this.index,reason:this.reason};
+      index:this.index,reason:this.reason,
+      controllerMode:this.controllerMode,prediction:this.prediction,
+      predictionScore:this.predictionScore,
+      responseModel:this.predictor.model.report()};
   }
 }
