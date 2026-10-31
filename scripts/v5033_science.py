@@ -224,26 +224,31 @@ def preflight(arm: int, root: Path, sha: str, env: dict[str,str]) -> None:
 
 
 def exam_commands(policy: Path, location: Path, *, final: bool) -> list[list[str]]:
-    # Stage A inexpensive but discriminative. Stage B/confirm uses full
-    # physical matrix and speed ladder with the 16-world matched protocol.
-    common=[sys.executable,"-m","emu.cli","capability-exam",
-            "--policy",str(policy),"--device","cpu","--seed","1701"]
+    # Stage A gets one seed / 8 worlds. Confirmed B gets TWO
+    # independent 16-world seeds for all three read-only exam families.
     grades=["5","8","12","14.9"] if final else ["8","12"]
     heights=["1","2","2.5","3","3.5"] if final else ["2.5","3"]
     speeds=[".1",".2",".3",".4",".5",".6",".8","1.0"] if final else [".3",".6",".8","1.0"]
     size="16" if final else "8"
-    exams=[
-        [*common,"--output",str(location/"terrain_matrix"),"--worlds",size,
-         "--horizon","350","--speed",".15","--terrain-matrix",
-         "--matrix-grades-deg",*grades,"--matrix-heights-cm",*heights],
-        [*common,"--output",str(location/"speed_ladder"),"--worlds",size,
-         "--horizon","700","--speed",".15","--speed-ladder",
-         "--ladder-speeds",*speeds],
-    ]
-    if final:
-        exams.append([*common,"--output",str(location/"downhill_sweep"),
-                      "--worlds",size,"--horizon","350","--speed",".15",
-                      "--downhill-sweep"])
+    exams=[]
+    for seed in (1701,1702) if final else (1701,):
+        common=[sys.executable,"-m","emu.cli","capability-exam",
+                "--policy",str(policy),"--device","cpu","--seed",str(seed)]
+        suffix=f"_seed{seed}" if final else ""
+        exams.extend((
+          [*common,"--output",str(location/("terrain_matrix"+suffix)),
+           "--worlds",size,"--horizon","350","--speed",".15",
+           "--terrain-matrix","--matrix-grades-deg",*grades,
+           "--matrix-heights-cm",*heights],
+          [*common,"--output",str(location/("speed_ladder"+suffix)),
+           "--worlds",size,"--horizon","700","--speed",".15",
+           "--speed-ladder","--ladder-speeds",*speeds]
+        ))
+        if final:
+            exams.append([*common,
+                "--output",str(location/("downhill_sweep"+suffix)),
+                "--worlds",size,"--horizon","350","--speed",".15",
+                "--downhill-sweep"])
     return exams
 
 
@@ -317,13 +322,25 @@ def summarize(root: Path, stage: str) -> Path:
     rows=[]
     for arm in range(ARM_COUNT):
         name=arm_name(arm)
+        # Match identical physical cases across independent exam seeds;
+        # never overwrite a seed's results with the next seed's cases.
         cases={}
+        seeds=(1701,1702) if stage=="b" else (1701,)
         for exam in ("speed_ladder","terrain_matrix","downhill_sweep"):
-            f=root/"exams"/stage/name/exam/"unified_exam.json"
-            if f.is_file():
+            for seed in seeds:
+                suffix=f"_seed{seed}" if stage=="b" else ""
+                f=root/"exams"/stage/name/(exam+suffix)/"unified_exam.json"
+                if not f.is_file():
+                    continue
                 j=json.loads(f.read_text())
+                if j["protocol"]["seed"]!=seed:
+                    raise RuntimeError("Incorrect diagnostic seed: "+str(f))
                 for c in j["results"]:
-                    cases[c["case"]["name"]]=c
+                    entry=cases.setdefault(c["case"]["name"],
+                        {"mission_passed":0,"survived":0,"worlds":[]})
+                    entry["mission_passed"]+=c["mission_passed"]
+                    entry["survived"]+=c["survived"]
+                    entry["worlds"].extend(c["worlds"])
         if not cases:
             continue
         def case(key):
@@ -339,6 +356,10 @@ def summarize(root: Path, stage: str) -> Path:
                                      for w in ws if w["tracking_signed_bias_yaw_rad_s"] is not None)/len(ws),
                         mean_vx=sum(w["achieved_mean_vx_mps"] or 0 for w in ws)/len(ws))
         row={"arm":f"{arm:02d}","name":name,"comparator":("05" if arm==7 else "00"),
+             "exam_seeds":",".join(str(seed) for seed in seeds
+                 if (root/"exams"/stage/name/
+                     ("terrain_matrix"+(f"_seed{seed}" if stage=="b" else ""))/
+                     "unified_exam.json").is_file()),
              "downhill12_mission":case("downhill_12deg").get("mission",""),
              "downhill12_bias":round(case("downhill_12deg").get("yaw_bias",0),4),
              "up2p5":case("paired_steps_2p5cm").get("up",""),
