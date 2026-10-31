@@ -1165,6 +1165,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   matrix_heights_cm=None,
                                   speed_ladder: bool = False,
                                   ladder_speeds=None,
+                                  downhill_sweep: bool = False,
+                                  downhill_sweep_speeds=None,
+                                  downhill_sweep_grades=None,
                                   legacy_main_baseline: bool = False) -> tuple[Path,Path]:
     """One frozen policy per exam, matched MJX physics and seeds per case.
 
@@ -1247,10 +1250,12 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         dict(name='push_1N',kind='recovery',push_n=1.0),
         dict(name='tilt_10deg',kind='recovery',tilt_deg=10.),
     ]
-    if sum(bool(x) for x in (quick,terrain_matrix,speed_ladder))>1:
-        raise ValueError('quick, terrain_matrix and speed_ladder are mutually exclusive')
+    if sum(bool(x) for x in (quick,terrain_matrix,speed_ladder,downhill_sweep))>1:
+        raise ValueError('quick, terrain_matrix, speed_ladder and downhill_sweep are mutually exclusive')
     if ladder_speeds is not None and not speed_ladder:
         raise ValueError('--ladder-speeds requires --speed-ladder')
+    if (downhill_sweep_speeds is not None or downhill_sweep_grades is not None) and not downhill_sweep:
+        raise ValueError('downhill sweep speeds/grades require --downhill-sweep')
     if speed_ladder:
         speeds=tuple(ladder_speeds or (.10,.20,.30,.40,.50,.60,.80,1.0))
         if (not speeds or len(speeds)>16 or
@@ -1285,6 +1290,19 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                dict(name='lateral_right',kind='command',vx=0.,vy=-.05),
                dict(name='yaw_left',kind='command',vx=0.,yaw=.20),
                dict(name='yaw_right',kind='command',vx=0.,yaw=-.20)]
+    if downhill_sweep:
+        downhill_speeds=tuple(downhill_sweep_speeds or (.05,.10,.15,.20,.30))
+        downhill_grades=tuple(downhill_sweep_grades or (5.,8.,12.,14.9))
+        if (not downhill_speeds or not downhill_grades
+                or len(downhill_speeds)>12 or len(downhill_grades)>12
+                or len(set(downhill_speeds))!=len(downhill_speeds)
+                or len(set(downhill_grades))!=len(downhill_grades)
+                or any(not math.isfinite(v) or not .04<=v<=.30 for v in downhill_speeds)
+                or any(not math.isfinite(d) or not 0.<d<=15. for d in downhill_grades)):
+            raise ValueError('downhill sweep requires unique speeds .04..30m/s and grades 0..15deg')
+        cases=[dict(name=(f'downhill_{d:g}deg_vx_{v:.2f}').replace('.','p'),
+                    kind='slope',slope_deg=float(d),direction='downhill',vx=float(v))
+               for d in downhill_grades for v in downhill_speeds]
     if quick:
         cases=[c for c in cases if c['name'] in (
             'flat','control_easy_0p08','uphill_2deg','downhill_2deg','paired_steps_0p8cm',
@@ -1377,6 +1395,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                       terrain_matrix=bool(terrain_matrix),
                       speed_ladder=bool(speed_ladder),
                       ladder_speeds=(list(speeds) if speed_ladder else None),
+                      downhill_sweep=bool(downhill_sweep),
+                      downhill_sweep_speeds=(list(downhill_speeds) if downhill_sweep else None),
+                      downhill_sweep_grades=(list(downhill_grades) if downhill_sweep else None),
                       matrix_grades_deg=(list(degrees) if terrain_matrix else None),
                       matrix_heights_cm=(list(heights) if terrain_matrix else None),
                       model='actual paired inclined MJX collision slabs',
