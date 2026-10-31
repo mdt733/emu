@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "release": "v5017-pose-lattice",
-  "approved_feature_commit": "b9a5a859d7d0fc4b31ce32a9fdba58f2f4df12ee",
-  "policy_git_blob": "163a61fef6e75fcba91f254830f3858210b491a0",
-  "note": "Owner-approved 2026-10-19 showcase publication of v5017 refined pose-lattice line tracking and speed profiling, using the unchanged approved 260M Pinnacle policy.",
-  "viewer_git_blob": "1c3ce6a89870e93a4431de5adf3af5ae9627cb6d"
+  "release": "v5032-pinnacle-260M",
+  "approved_feature_commit": "f36a09c2ca1d22a11ac95f5002b5d20c7f85f056",
+  "policy_git_blob": "45f189367d51ad56dd57726b67e13be08b80bfae",
+  "viewer_git_blob": "145475fa287b03ed6a60fd74cd8c6ef59c487d13",
+  "note": "Owner-approved 2026-10-31 publication of 260,046,848-step 360-input Pinnacle with measured known limitations and immutable v5016 232-input rollback at 2ec9e9db0a816c658131311129ef89ec7a595a12. Release approval pins policy, sensor, training-source and reported checkpoint identities. Research backlog: issue #17."
 }
