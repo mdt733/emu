@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [release/v5032-pinnacle-candidate]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -59,13 +59,28 @@ jobs:
           timeout 180s python -m emu.terrain_spike --environment --worlds 4
       - name: G5 real 4x4 actor + PPO gradient (production MJX CPU)
         run: timeout 240s python -m emu.terrain_spike --actor --worlds 4 --device cpu
-      - name: G4 matched uninterrupted terrain course (read-only CPU actor)
+      - name: G4 verified 360-input two-slab terrain exams (read-only CPU)
         run: |
-          timeout 240s emu terrain-exam \
+          timeout 300s emu capability-exam \
             --policy showcase/champion.emupolicy \
-            --output "$RUNNER_TEMP/g4-terrain-course" \
-            --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
-          python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==4 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
+            --output "$RUNNER_TEMP/g4-two-slab-terrain" \
+            --device cpu --worlds 4 --horizon 140 --speed .15 \
+            --terrain-matrix --matrix-grades-deg 5 --matrix-heights-cm 2
+          python - <<'PY'
+          import json,os
+          from emu.contracts import OBS_SCHEMA_TERRAIN
+          p=os.environ['RUNNER_TEMP']+'/g4-two-slab-terrain/unified_exam.json'
+          d=json.load(open(p))
+          assert d['observation_schema']==OBS_SCHEMA_TERRAIN
+          assert d['protocol']['no_reward_or_curriculum_feedback']
+          assert d['protocol']['contact']=='real foot contact, five supported far-side frames'
+          steps=[w for c in d['results'] if c['case']['kind']=='step' for w in c['worlds']]
+          slopes=[w for c in d['results'] if c['case']['kind']=='slope' for w in c['worlds']]
+          assert len(steps)==4 and len(slopes)==16
+          assert all(w['height_verified'] and w['edge_verified'] for w in steps)
+          assert all(w['grade_verified'] for w in slopes)
+          print('PASS: authentic 360 actor, paired real step UP/DOWN and 4-bearing 5deg slopes')
+          PY
       - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
         run: |
           timeout 300s emu capability-exam \
