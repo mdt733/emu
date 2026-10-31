@@ -138,7 +138,8 @@ def test_per_direction_steps_do_not_steal_each_others_success():
     assert up["supported_crossing"]==1
     assert s["global_score"] is None
     assert s["coverage"]["resilience"]["complete"] is False
-    assert s["coverage"]["terrain"]["complete"] is True
+    assert s["coverage"]["terrain"]["complete"] is False
+    assert "slope/downhill" in s["coverage"]["terrain"]["missing"]
     curves={(x["family"],x["direction"]):x for x in s["tested_envelopes"]}
     assert curves[("slope","uphill")]["tested_range_fraction"]==.75
     assert curves[("step","step-up")]["tested_range_fraction"] is None
@@ -161,8 +162,11 @@ def test_multiple_actors_cannot_be_blended_into_fake_quality():
 
 def test_partial_quality_does_not_report_unobserved_dimensions_as_zero():
     r=build_report([_exam(include_more=True)])
-    assert r["coverage"]["control"]["complete"]
-    assert r["coverage"]["resilience"]["complete"]
+    assert not r["coverage"]["control"]["complete"]
+    assert "yaw/right" in r["coverage"]["control"]["missing"]
+    assert "transition/brake_stop" in r["coverage"]["control"]["missing"]
+    assert not r["coverage"]["resilience"]["complete"]
+    assert "recovery/tilt" in r["coverage"]["resilience"]["missing"]
     assert r["coverage"]["grace"]["complete"] is False
     assert all(x["useful_work_j_per_m"] is None or
                x["useful_work_samples"]>0 for x in r["cases"])
