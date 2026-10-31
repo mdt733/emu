@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/v5030_compare_main.py
+          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/compare_policies.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
@@ -83,6 +83,7 @@ jobs:
           emu train --help > /dev/null
           python scripts/smoke_training_lifecycle.py --help > /dev/null
           python scripts/train_pinnacle.py > /dev/null
+          python scripts/compare_policies.py --help > /dev/null
           # Real CLI, exact flagship flags, read-only checkpoint gate.
           # This must PASS without a GPU and before any CPU/CUDA PPO training.
           # It would have caught the first v5032 launch failure.
