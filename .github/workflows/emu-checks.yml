@@ -116,45 +116,6 @@ jobs:
                     "directed m",w["directed_progress_m"])
           print("PASS: read-only physical scorecard, real signed support, no fake global score")
           PY
-      - name: Real MJX downhill grade x speed acceptance (released 260M actor)
-        run: |
-          timeout 300s emu capability-exam \
-            --policy showcase/champion.emupolicy \
-            --output "$RUNNER_TEMP/downhill-sweep-smoke" \
-            --device cpu --worlds 2 --horizon 120 --speed .15 \
-            --downhill-sweep --downhill-grades-deg 8 12 \
-            --downhill-speeds-mps .10 .20
-          emu physical-quality \
-            --exam "$RUNNER_TEMP/downhill-sweep-smoke" \
-            --output "$RUNNER_TEMP/downhill-sweep-profile"
-          python - <<'PY'
-          import json,math,os
-          from pathlib import Path
-          root=Path(os.environ["RUNNER_TEMP"])
-          exam=json.loads((root/"downhill-sweep-smoke/unified_exam.json").read_text())
-          report=json.loads((root/"downhill-sweep-profile/physical_quality.json").read_text())
-          assert exam["protocol"]["downhill_sweep"]
-          assert exam["protocol"]["downhill_grades_deg"]==[8,12]
-          assert exam["protocol"]["downhill_speeds_mps"]==[.1,.2]
-          assert len(exam["results"])==4
-          assert all(c["case"]["direction"]=="downhill" for c in exam["results"])
-          assert all(w["grade_verified"] for c in exam["results"] for w in c["worlds"])
-          bins=[c for c in report["cases"]
-                if c["family"]=="slope" and c["direction"]=="downhill"]
-          assert len(bins)==4, "grade/speed grouping merged distinct physical commands"
-          assert {(b["severity"],b["requested_terrain_speed_mps"])
-                   for b in bins}=={(8.,.1),(8.,.2),(12.,.1),(12.,.2)}
-          assert all(b["world_path_endpoint_m"] is not None for b in bins)
-          assert all(math.isfinite(b["world_path_endpoint_m"]) for b in bins)
-          assert len(report["downhill_speed_envelopes"])==2
-          for b in bins:
-              print("REAL DOWNHILL grade",b["severity"],"vx_cmd",
-                    b["requested_terrain_speed_mps"],"actual",
-                    b["measured_vx_mps"],"mission",b["missions"],
-                    "heading",b["heading_pass"],"route_end_m",
-                    b["world_path_endpoint_m"])
-          print("PASS: real 360 actor, independent speed/grade and inertial route")
-          PY
       - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
         run: |
           timeout 300s emu capability-exam \
@@ -206,6 +167,59 @@ jobs:
           from emu.evaluation import atlas_main, directional_main
           from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
           print('All public entrypoint owners import cleanly')
+          PY
+
+  # Keep this real MJX exam independent of the 20-minute full-Python job:
+  # the existing G3/G4/G5 acceptance work already nearly fills that budget.
+  downhill-exam-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install CPU examiner dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Real MJX downhill grade x speed acceptance (released 260M actor)
+        run: |
+          timeout 300s emu capability-exam \
+            --policy showcase/champion.emupolicy \
+            --output "$RUNNER_TEMP/downhill-sweep-smoke" \
+            --device cpu --worlds 2 --horizon 120 --speed .15 \
+            --downhill-sweep --downhill-grades-deg 8 12 \
+            --downhill-speeds-mps .10 .20
+          emu physical-quality \
+            --exam "$RUNNER_TEMP/downhill-sweep-smoke" \
+            --output "$RUNNER_TEMP/downhill-sweep-profile"
+          python - <<'PY'
+          import json,math,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          exam=json.loads((root/"downhill-sweep-smoke/unified_exam.json").read_text())
+          report=json.loads((root/"downhill-sweep-profile/physical_quality.json").read_text())
+          assert exam["protocol"]["downhill_sweep"]
+          assert exam["protocol"]["downhill_grades_deg"]==[8,12]
+          assert exam["protocol"]["downhill_speeds_mps"]==[.1,.2]
+          assert len(exam["results"])==4
+          assert all(c["case"]["direction"]=="downhill" for c in exam["results"])
+          assert all(w["grade_verified"] for c in exam["results"] for w in c["worlds"])
+          bins=[c for c in report["cases"]
+                if c["family"]=="slope" and c["direction"]=="downhill"]
+          assert len(bins)==4, "grade/speed grouping merged distinct physical commands"
+          assert {(b["severity"],b["requested_terrain_speed_mps"])
+                   for b in bins}=={(8.,.1),(8.,.2),(12.,.1),(12.,.2)}
+          assert all(b["world_path_endpoint_m"] is not None for b in bins)
+          assert all(math.isfinite(b["world_path_endpoint_m"]) for b in bins)
+          assert len(report["downhill_speed_envelopes"])==2
+          for b in bins:
+              print("REAL DOWNHILL grade",b["severity"],"vx_cmd",
+                    b["requested_terrain_speed_mps"],"actual",
+                    b["measured_vx_mps"],"mission",b["missions"],
+                    "heading",b["heading_pass"],"route_end_m",
+                    b["world_path_endpoint_m"])
+          print("PASS: real 360 actor, independent speed/grade and inertial route")
           PY
 
   # One unified shared-policy, six-cohort physical PPO smoke on CPU.
