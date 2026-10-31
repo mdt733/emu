@@ -129,7 +129,7 @@ def axis(case: dict, world: dict, protocol: dict) -> tuple:
         if d not in ("uphill", "downhill", "cross_left", "cross_right"):
             raise ValueError("invalid real slope direction")
         return "slope", d, float(case["slope_deg"]), "deg"
-    if kind in ("flat", "command"):
+    if kind in ("flat", "command", "control"):
         vx = float(case.get("vx", protocol["speed"]))
         vy, yaw = float(case.get("vy", 0.)), float(case.get("yaw", 0.))
         if sum(abs(x) > 1e-4 for x in (vx, vy, yaw)) > 1:
