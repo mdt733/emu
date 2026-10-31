@@ -83,6 +83,18 @@ jobs:
           emu train --help > /dev/null
           python scripts/smoke_training_lifecycle.py --help > /dev/null
           python scripts/train_pinnacle.py > /dev/null
+          # Real CLI, exact flagship flags, read-only checkpoint gate.
+          # This must PASS without a GPU and before any CPU/CUDA PPO training.
+          # It would have caught the first v5032 launch failure.
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from train_pinnacle import command, training_environment
+          root=Path(os.environ['RUNNER_TEMP'])/'pinnacle-real-gate'
+          subprocess.run(command(root)+['--check-resume-only'],
+                         check=True,env=training_environment())
+          PY
           emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 60000000 --envs 2048 --seed 733 --device cuda --profile sim2real --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities --foundation-steps 10000000 --foundation-mix command-heavy --teaching-schedule steering --plan > /dev/null
           emu evaluate --help > /dev/null
           emu export-policy --help > /dev/null
