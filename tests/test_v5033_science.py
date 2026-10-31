@@ -41,7 +41,7 @@ def test_registry_is_one_to_one_and_names_and_comparators_are_stable():
     assert len(set(ARM_NAMES))==24
     assert arm_name(0)=="00_control"
     assert arm_name(5)=="05_ascent_contact_3"
-    assert arm_name(23)=="23_walking_action_smoothing"
+    assert arm_name(23)=="23_step_up_crouch_allowance"
     for invalid in (-2,-1,24,100):
         with pytest.raises(ValueError):
             arm_name(invalid)
