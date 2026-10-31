@@ -47,6 +47,75 @@ def curve_area(points: list[tuple[float, float]]) -> dict:
                                        if area is not None else None))
 
 
+def commanded_world_path(xy, heading, command, *, dt=.02,
+                         settle_frames=25) -> dict:
+    """Measure route against *requested* heading/velocity, not actual yaw.
+
+    Anchor commanded path at the measured pose after settling, then
+    integrate requested local vx/vy/yaw in an independent reference frame.
+    An unintended turn can no longer be disguised by good body-frame vx.
+    Returned fields are additive diagnostic evidence, NOT a new pass gate.
+    """
+    import numpy as np
+
+    xy=np.asarray(xy,dtype=float)
+    heading=np.asarray(heading,dtype=float)
+    command=np.asarray(command,dtype=float)
+    null=dict(world_path_rms_error_m=None,
+              world_path_endpoint_error_m=None,
+              world_cross_track_rms_m=None,
+              world_heading_error_end_rad=None,
+              commanded_world_displacement_m=None,
+              directed_progress_m=None,
+              useful_progress_ratio=None)
+    if (xy.ndim!=2 or xy.shape[1]!=2 or
+        heading.shape!=(len(xy),) or command.shape!=(len(xy),3)):
+        raise ValueError("World path requires aligned T×2 XY, T headings, T×3 commands")
+    if not (np.isfinite(xy).all() and np.isfinite(heading).all()
+            and np.isfinite(command).all() and math.isfinite(dt) and dt>0):
+        raise ValueError("World path contains invalid physical data")
+    if settle_frames<0:
+        raise ValueError("Settling frames cannot be negative")
+    if len(xy)<=settle_frames+2:
+        return null
+    start=settle_frames
+    actual=xy[start:]
+    yaw=np.unwrap(heading[start:])
+    cmd=command[start:-1]
+    # Commands govern each interval following the sampled settled pose.
+    desired_heading=yaw[0]+np.concatenate((
+        [0.],np.cumsum(cmd[:,2]*dt)))
+    bearing=desired_heading[:-1]
+    velocity_world=np.stack((
+        np.cos(bearing)*cmd[:,0]-np.sin(bearing)*cmd[:,1],
+        np.sin(bearing)*cmd[:,0]+np.cos(bearing)*cmd[:,1]),axis=1)
+    planned_displacement=np.concatenate((
+        np.zeros((1,2)),np.cumsum(velocity_world*dt,axis=0)),axis=0)
+    relative_actual=actual-actual[0]
+    error=relative_actual-planned_displacement
+    # Lateral error relative to the requested (NOT actual) heading.
+    lateral=-np.sin(desired_heading)*error[:,0]+np.cos(desired_heading)*error[:,1]
+    planned_net=planned_displacement[-1]
+    expected=float(np.linalg.norm(planned_net))
+    if expected>1e-5:
+        directed=float(np.dot(relative_actual[-1],planned_net)/expected)
+        ratio=directed/expected
+    else:
+        directed=ratio=None
+    # Preserve unwrapped turn error for genuine turning tasks. Do not
+    # classify natural stride-frequency yaw wiggle as permanent drift.
+    heading_end=float(yaw[-1]-desired_heading[-1])
+    return dict(
+        world_path_rms_error_m=round(float(np.sqrt(np.mean(
+            np.sum(error*error,axis=1)))),5),
+        world_path_endpoint_error_m=round(float(np.linalg.norm(error[-1])),5),
+        world_cross_track_rms_m=round(float(np.sqrt(np.mean(lateral*lateral))),5),
+        world_heading_error_end_rad=round(heading_end,5),
+        commanded_world_displacement_m=round(expected,5),
+        directed_progress_m=(round(directed,5) if directed is not None else None),
+        useful_progress_ratio=(round(ratio,5) if ratio is not None else None))
+
+
 def axis(case: dict, world: dict, protocol: dict) -> tuple:
     """Exactly one real-unit severity per signed direction; mixed stays unranked."""
     kind = case["kind"]
