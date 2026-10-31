@@ -110,3 +110,51 @@ def test_crouch_allowance_changes_height_reward_only_when_supplied():
     assert float(benefit[0][0]) > float(baseline[0][0])
     for a, b in zip(benefit[1:], baseline[1:]):
         np.testing.assert_array_equal(a, b)
+
+
+
+def test_explicit_260m_parent_validation_uses_saved_terrain_sensor_contract(tmp_path, monkeypatch):
+    """Regression: load_checkpoint defaults to legacy Pitch15 unless told the 360 contract."""
+    from dataclasses import replace
+    import emu.checkpoint_io as checkpoint_io
+    from emu.contracts import OBS_SCHEMA_TERRAIN
+    from emu.training_config import training_sensor_contract
+
+    source = runpy.run_path(str(Path(__file__).resolve().parents[1] /
+                                 "scripts/run_plateau_science.py"))
+    check_parent = source["read_parent"]
+    parent = tmp_path / "pinnacle_cold260" / "checkpoints" / "final.pkl"
+    parent.parent.mkdir(parents=True)
+    parent.write_bytes(b"synthetic test fixture, not a trained policy")
+    cfg = replace(
+        TrainingConfig(), observation_schema=OBS_SCHEMA_TERRAIN,
+        unified_capability_focus=True, foundation_steps=20_000_000,
+        growth_recipe="main-mature", terrain_lesson="coherent-careful",
+        force_program="gentle", terrain_step_max_m=.08,
+        athletic_rehearsal_frac=.25, temporal_vx_reward_share=.50,
+        verified_ascent_reallocation=0., teaching_schedule="balanced",
+        motor_guidance_weight=0., envs=2048, seed=761, open_frontier=True)
+    cfg.save(parent.parent.parent / "training_config.json")
+    expected_contract = training_sensor_contract(cfg)
+    checked = []
+
+    def fake_checkpoint(path, *, validate, expected_observation_schema,
+                        expected_sensor_contract):
+        assert path == parent
+        assert validate is True
+        assert expected_observation_schema == OBS_SCHEMA_TERRAIN
+        assert expected_sensor_contract == expected_contract
+        checked.append(True)
+        return {"meta": {
+            "source_provenance": {"git_commit": source["PARENT_SOURCE"]},
+            "step": source["PARENT_STEP"]}}
+
+    monkeypatch.setattr(checkpoint_io, "load_checkpoint", fake_checkpoint)
+    # An on-disk synthetic test cannot hash to the immutable real checkpoint.
+    # Mock *only* the file hash; keep config, contract and metadata checks live.
+    monkeypatch.setitem(check_parent.__globals__, "sha256_file",
+                        lambda path: source["EXPECTED_PARENT_SHA256"])
+    accepted, digest = check_parent(parent)
+    assert accepted == cfg
+    assert digest == source["EXPECTED_PARENT_SHA256"]
+    assert checked == [True]
