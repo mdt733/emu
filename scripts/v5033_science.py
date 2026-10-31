@@ -20,9 +20,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from emu.science import ARM_COUNT, ARM_NAMES, arm_name, expected_fields
-
 REPO=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(REPO))
+from emu.science import ARM_COUNT, ARM_NAMES, arm_name, expected_fields
 BRANCH="research/v5033-24-arm-science"
 PARENT_SOURCE="9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
 PARENT_SHA256="238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b"
@@ -206,7 +206,9 @@ def preflight(arm: int, root: Path, sha: str, env: dict[str,str]) -> None:
         return
     base=[sys.executable,"scripts/smoke_unified_focus.py",
           "--science-arm",str(arm),"--growth-recipe","main-mature",
-          "--terrain-lesson","coherent-careful","--terrain-max-m",".08"]
+          "--terrain-lesson","coherent-careful","--terrain-max-m",".08",
+          "--force-program","gentle","--fast-rehearsal-share",".25",
+          "--temporal-vx-reward-share",".5"]
     for device,envs,flag in [("cpu","24",[]),("cuda","2048",["--full-update"])]:
         run_with_log(base+["--device",device,"--envs",envs,*flag],
                      root/"logs"/f"preflight_{name}_{device}.log",env)
