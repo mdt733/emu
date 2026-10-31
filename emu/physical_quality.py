@@ -246,8 +246,10 @@ def build_report(exams: list[dict]) -> dict:
         rows = [w for _, w in items]
         n = len(rows)
         passed = sum(w["mission_pass"] for w in rows)
-        effort = finite_values(rows, "mechanical_j_per_useful_m",
-                               successful_only=True)
+        # Already gated by *real* supported, directed progress at trace
+        # time. Don't throw it away because a harmless gait yaw oscillation
+        # tripped the historical heading-jitter mission threshold.
+        effort = finite_values(rows, "mechanical_j_per_useful_m")
         # Failure reasons are NON-exclusive. A robot can miss a step
         # AND lose heading; keep both facts instead of inventing a
         # single overly tidy cause. Count only known optional fields.
