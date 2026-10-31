@@ -262,3 +262,78 @@ def test_efficiency_is_observed_for_useful_motion_even_if_legacy_yaw_gate_failed
     assert fast_report["missions"]==1
     assert fast_report["useful_work_j_per_m"]==89.5
     assert fast_report["useful_work_samples"]==1
+
+
+def test_downhill_grade_speed_grid_uses_actual_case_command_speed():
+    """Different speed requests at the same grade are NOT duplicated worlds."""
+    from emu.physical_exam import downhill_speed_grade_cases
+    cases=downhill_speed_grade_cases(grades_deg=(8.,12.),speeds_mps=(.10,.20))
+    assert len(cases)==4
+    assert len({c["name"] for c in cases})==4
+    assert all(c["kind"]=="slope" and c["direction"]=="downhill" for c in cases)
+    assert {(c["slope_deg"],c["vx"]) for c in cases}=={
+        (8.,.10),(8.,.20),(12.,.10),(12.,.20)}
+    exam=_exam()
+    # Replace with precisely matched, independent cases at two speeds.
+    exam["results"]=[]
+    for c in cases:
+        worlds=[_row(0, c["vx"]==.10), _row(1, c["slope_deg"]==8.)]
+        exam["results"].append(_case(c,worlds))
+    report=build_report([exam])
+    downhill=[x for x in report["cases"]
+              if x["family"]=="slope" and x["direction"]=="downhill"]
+    assert len(downhill)==4
+    assert {x["requested_terrain_speed_mps"] for x in downhill}=={.10,.20}
+    assert all(x["attempts"]==2 for x in downhill)
+    assert len(report["downhill_speed_envelopes"])==2
+    eight=next(x for x in report["downhill_speed_envelopes"]
+               if x["grade_deg"]==8.)
+    assert eight["minimum"]==.10 and eight["maximum"]==.20
+    assert eight["tested_range_fraction"]==.75
+    twelve=next(x for x in report["downhill_speed_envelopes"]
+                if x["grade_deg"]==12.)
+    assert twelve["tested_range_fraction"]==.5
+    from emu.physical_quality import markdown
+    md=markdown(report)
+    assert "Downhill: commanded speed versus actual physical grade" in md
+    assert "0.100 m/s" in md
+    assert "0.200 m/s" in md
+
+
+def test_downhill_sweep_rejects_unsafe_or_duplicate_fixtures():
+    from emu.physical_exam import downhill_speed_grade_cases
+    for kwargs in (
+        dict(grades_deg=(0.,),speeds_mps=(.15,)),
+        dict(grades_deg=(15.01,),speeds_mps=(.15,)),
+        dict(grades_deg=(12.,12.),speeds_mps=(.15,)),
+        dict(grades_deg=(12.,),speeds_mps=(.02,)),
+        dict(grades_deg=(12.,),speeds_mps=(.31,)),
+        dict(grades_deg=(12.,),speeds_mps=(.15,.15)),
+        dict(grades_deg=(12.,),speeds_mps=(.201,.202)),  # same rounded case name
+        dict(grades_deg=(),speeds_mps=(.15,)),
+        dict(grades_deg=(12.,),speeds_mps=()),
+    ):
+        with pytest.raises(ValueError,match="downhill"):
+            downhill_speed_grade_cases(**kwargs)
+
+
+def test_downhill_sweep_option_is_real_cli_protocol(capsys):
+    from emu.cli import main
+    with pytest.raises(SystemExit) as exc:
+        main(["capability-exam","--help"])
+    assert exc.value.code==0
+    out=capsys.readouterr().out
+    assert "--downhill-sweep" in out
+    assert "--downhill-speeds-mps" in out
+    assert "--downhill-grades-deg" in out
+
+
+def test_repeated_same_speed_condition_does_not_inflate_sample_count():
+    exam=_exam()
+    c=dict(name="downhill_12deg_vx_0p15",kind="slope",
+           direction="downhill",slope_deg=12.,vx=.15)
+    exam["results"]=[_case(c,[_row(0,True),_row(1,True)])]
+    other=dict(c,name="another_name_for_same_physical_test")
+    exam["results"].append(_case(other,[_row(0,True),_row(1,True)]))
+    with pytest.raises(ValueError,match="repeated"):
+        build_report([exam])
