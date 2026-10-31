@@ -45,23 +45,24 @@ Open `http://127.0.0.1:8767/`. The installer now checks out `main` by default. S
 For live training inspection, `emu viewer --live --root RUN_DIR --no-open`
 continues serving validated checkpoints independently of the public demo.
 
-### Research park obstacle course (separate viewer branch)
+### 360-input research obstacle park
 
-On `feature/viewer-graduated-park` the 360-input research viewer
-adds **eight real-collision** low-height challenges, numbered 1–8 in
-the world, with Settings → Challenge difficulty:
+On the **`release/v5032-pinnacle-candidate`** branch the browser
+has eight real-collision challenges, numbered 1–8 in the world,
+with Settings → Challenge difficulty:
 **Gentle**, **Balanced** (default, mostly 1–2.5 cm), and **Stretch**
 (up to 5 cm). The upgraded park retains the optical-flow fix on
 heightfields and the fully supported crest top. Read the
 [graded course guide](VIEWER_GRADUATED_PARK.md) for exact obstacles,
 training-versus-browser limitations and Tailscale launch commands.
 
-The published `main` playground remains unchanged. Do not merge this
-viewer branch into a source-pinned active training checkout.
+The public `main` playground remains unchanged. This research
+viewer is included with the upcoming candidate source; don't copy
+viewer files into an already running source-pinned checkout.
 
 ## Planned 360-input replacement
 
-The release validator on the polish branch can now independently accept a
+The release validator in this candidate tree can independently accept a
 schema-9 360-input, array-only 4×4 terrain-aware actor *if* an explicit
 release approval exactly matches its sensor contract, checkpoint/source
 provenance and policy Git blob. The currently approved 232-input policy is
