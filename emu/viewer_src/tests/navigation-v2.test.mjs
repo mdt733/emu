@@ -6,7 +6,7 @@ import {buildNavigationTerrain,terrainRiskAt,sweptTerrainCost} from '../src/navi
 import {OnlineGaitResponse,PredictivePathController,vectorFieldGuidance,
   clampNavigationCommand} from '../src/predictive-navigation.js';
 import {buildRoutePath,trackRoutePath} from '../src/path-follower.js';
-import {planPoseRoute,integratePose} from '../src/goal-navigation.js';
+import {planPoseRoute,integratePose,GoalNavigator,NAV_BENCHMARK_TARGETS} from '../src/goal-navigation.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5};
 const pose={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
@@ -101,4 +101,34 @@ test('global planner and predictive module stay above the neural actuator contra
   assert.match(nav,/PredictivePathController/);
   assert.match(main,/sim\.setNavigationPrediction/);
   assert.doesNotMatch(text('../src/predictive-navigation.js'),/data\.ctrl|policy\.infer|mj_step/);
+});
+
+
+test('five-goal physical benchmark has repeatable poses and finite summaries',()=>{
+  assert.equal(NAV_BENCHMARK_TARGETS.length,5);
+  assert.ok(NAV_BENCHMARK_TARGETS.every(g=>
+    Math.hypot(g.x,g.y)<1.9&&Number.isFinite(g.heading)));
+  const nav=new GoalNavigator(733);
+  nav.active=true;
+  nav.startBenchmark();
+  assert.equal(nav.benchmark.index,0);
+  assert.equal(nav.benchmark.controller,'predictive');
+  for(let i=0;i<5;i++){
+    nav.elapsed=i+1;
+    nav.trackingTime=1;
+    nav.trackErrorIntegral=.12*i;
+    nav.finishBenchmarkLeg(i<4);
+    assert.equal(nav.benchmark.results.at(-1).goal,i+1);
+  }
+  assert.equal(nav.benchmark.index,5);
+  assert.equal(nav.benchmark.complete,true);
+  assert.equal(nav.benchmark.results.filter(r=>r.success).length,4);
+  let command;
+  nav.tick(.1,pose,limits,[],c=>command=c);
+  assert.deepEqual(command,{vx:0,vy:0,yaw:0,pitch:0});
+  const ui=text('../src/main.js');
+  assert.match(ui,/resetForNavigationBenchmark/);
+  assert.match(ui,/navBenchmarkCopy/);
+  assert.match(text('../src/goal-worker.js'),/kind==='target'/);
+  assert.match(text('../src/sim.js'),/benchmark\?\(\)=>\.5:Math\.random/);
 });
