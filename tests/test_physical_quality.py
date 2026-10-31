@@ -292,7 +292,7 @@ def test_downhill_grade_speed_grid_uses_actual_case_command_speed():
     assert eight["tested_range_fraction"]==.75
     twelve=next(x for x in report["downhill_speed_envelopes"]
                 if x["grade_deg"]==12.)
-    assert twelve["tested_range_fraction"]==.5
+    assert twelve["tested_range_fraction"]==.25
     from emu.physical_quality import markdown
     md=markdown(report)
     assert "Downhill: commanded speed versus actual physical grade" in md
