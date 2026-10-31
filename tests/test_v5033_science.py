@@ -65,7 +65,7 @@ def test_actual_cli_training_configs_resolve_every_intervention():
         # The ONLY config changes relative to the control are the arm ID
         # and that arm's explicitly registered ordinary training knobs.
         diffs={k for k in actual if actual[k]!=baseline[k]}
-        assert diffs==({k for k in exp if exp[k]!=baseline[k]} or {"science_arm"}),(arm,diffs)
+        assert diffs=={k for k in exp if exp[k]!=baseline[k]},(arm,diffs)
         for key in ("observation_schema","envs","seed","foundation_steps",
                     "terrain_step_max_m","unified_capability_focus"):
             assert actual[key]==baseline[key]
