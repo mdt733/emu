@@ -540,7 +540,17 @@ export class EmuBrowserSim {
     this.scene.add(group);
   }
 
-  reset() {
+  resetForNavigationBenchmark() {
+    // Identical neutral birth and cadence for each A/B controller trial.
+    // Never load a new policy or alter training-side curriculum state.
+    this.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
+    this.command.vx=0;this.command.vy=0;
+    this.command.yaw=0;this.command.pitch=0;
+    this.requestedYaw=0;
+    this.reset({benchmark:true});
+  }
+
+  reset({benchmark=false}={}) {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
@@ -556,7 +566,8 @@ export class EmuBrowserSim {
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
-    this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
+    this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control,
+      benchmark?()=>.5:Math.random);
     this.phase = 0;
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
