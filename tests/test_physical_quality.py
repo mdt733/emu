@@ -337,3 +337,18 @@ def test_repeated_same_speed_condition_does_not_inflate_sample_count():
     exam["results"].append(_case(other,[_row(0,True),_row(1,True)]))
     with pytest.raises(ValueError,match="repeated"):
         build_report([exam])
+
+
+def test_opposing_heading_errors_do_not_cancel_in_quality_report():
+    exam=_exam()
+    uphill=next(x for x in exam["results"] if x["case"]["name"]=="uphill_5deg")
+    uphill["worlds"][0]["world_heading_error_end_rad"]=+.40
+    uphill["worlds"][1]["world_heading_error_end_rad"]=-.60
+    uphill["worlds"][0]["useful_progress_ratio"]=.90
+    uphill["worlds"][1]["useful_progress_ratio"]=.70
+    report=build_report([exam])
+    result=next(x for x in report["cases"]
+                if x["family"]=="slope" and x["direction"]=="uphill"
+                and x["severity"]==5.)
+    assert result["mean_abs_heading_error_end_deg"]==pytest.approx(28.648,abs=.002)
+    assert result["directed_progress_ratio"]==pytest.approx(.80)
