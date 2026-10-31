@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [release/v5032-pinnacle-candidate]
+    branches: [release/v5032-pinnacle-candidate, research/v5033-24-arm-science]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
       - name: Compile and validate setup syntax
         run: |
           python -m compileall -q emu tests scripts
-          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/compare_policies.py
+          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/compare_policies.py scripts/v5033_science.py emu/science.py
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
@@ -84,6 +84,7 @@ jobs:
           python scripts/smoke_training_lifecycle.py --help > /dev/null
           python scripts/train_pinnacle.py > /dev/null
           python scripts/compare_policies.py --help > /dev/null
+          python scripts/v5033_science.py --help > /dev/null
           # Real CLI, exact flagship flags, read-only checkpoint gate.
           # This must PASS without a GPU and before any CPU/CUDA PPO training.
           # It would have caught the first v5032 launch failure.
@@ -125,6 +126,26 @@ jobs:
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --temporal-vx-reward-share .5
       - name: Verified physical support-transfer PPO gradient (CPU)
         run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --temporal-vx-reward-share .5 --verified-ascent-reallocation 3
+
+  science-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install CPU science dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Verify 24 resolved source-pinned experiment identities
+        run: python -m pytest -q tests/test_v5033_science.py
+      - name: Compile verified upper-contact persistence arm 07
+        run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 7 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
+      - name: Compile downhill signed mean-yaw correction arm 10
+        run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 10 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
+      - name: Compile walking-only action smoothing arm 23
+        run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 23 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
 
   browser:
     runs-on: ubuntu-latest
