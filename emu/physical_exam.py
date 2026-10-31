@@ -1078,9 +1078,17 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             xyz[:stop,world],heading[:stop,world],command[:stop,world],
             dt=CONTROL_DT,settle_frames=settle_frames)
         projected=world_path['directed_progress_m']
+        # Efficiency is an *observable physical diagnostic*, not another
+        # copy of the old yaw-jitter mission gate: correctly supported,
+        # moving and crossing robots may have useful shaft efficiency
+        # even when historical heading MAE rejects their natural gait.
+        physical_useful=(
+            movement_ok and
+            (not is_step or crossing is True) and
+            (case.get('kind')!='slope' or slope_stability_pass))
         world_path['mechanical_j_per_useful_m']=(
             round(work/projected,2)
-            if mission_pass and projected is not None and
+            if physical_useful and projected is not None and
                projected>max(.02,.30*(world_path['commanded_world_displacement_m'] or 0.))
             else None)
         work_per_m=work/achieved if achieved>.01 else None
