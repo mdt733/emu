@@ -291,6 +291,9 @@ class EnvState(NamedTuple):
     vx_reward_history: Any = None
     cmd_vx_reward_history: Any = None
     vx_reward_count: Any = None
+    # v5033 reward-only histories; not actor observations, reset on births.
+    yaw_reward_history: Any = None
+    terrain_verified_contact_streak: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1307,12 +1310,16 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  physical_exam_legacy_actor: bool = False,
                  temporal_vx_reward_share: float = 0.0,
-                 verified_ascent_reallocation: float = 0.0):
+                 verified_ascent_reallocation: float = 0.0,
+                 science_arm: int = -1):
         import jax
         import jax.numpy as jnp
         import mujoco
         from mujoco import mjx
 
+        self.science_arm=int(science_arm)
+        if self.science_arm not in (-1,*range(24)):
+            raise ValueError('unknown v5033 science arm')
         self.jax = jax
         self.jnp = jnp
         self.mujoco = mujoco
@@ -1794,6 +1801,11 @@ class EmuMJXEnv(TaskSampler):
                   hist_c.sum(axis=1)/jnp.maximum(1,hist_n),
                   self.temporal_vx_reward_share*(
                       hist_n.astype(jnp.float32)/25.))
+        hist_y=state.yaw_reward_history
+        if self.science_arm==10:
+            hist_y=jnp.where(history_ready[:,None],hist_y,0.)
+            hist_y=hist_y.at[idx,slot].set(jnp.where(
+                history_ready,metrics['yaw_rate']-metrics['cmd_yaw'],0.))
         # Only real upward STEP specialist approaches receive a short
         # self-paced reward allowance; general walking keeps its economics.
         care_window = (self._considered_step_window(state, data)
@@ -1820,6 +1832,36 @@ class EmuMJXEnv(TaskSampler):
         reward, fall_payment = apply_early_fall_penalty(
             reward, terminal_fail, episode_age_steps, self.max_episode_steps, xp=jnp)
 
+        # v5033 interventions: only teacher-side payments, never
+        # observations. Real collision floor decides downhill; natural
+        # alternating stride yaw is averaged before penalising arm 10.
+        if self.science_arm in (10,11,23):
+            floor_id=int(self.ids['floor_geom'])
+            floor_n=data.geom_xmat[:,floor_id,:].reshape(
+                (self.num_envs,3,3))[:,:,2]
+            grade_x=-floor_n[:,0]/jnp.maximum(.01,floor_n[:,2])
+            downhill=((grade_x<-.0875) &
+                      (state.task[:,T.vx]>.04) &
+                      (metrics['support']>.5) &
+                      (metrics['terminal']<.5))
+            moving=(jnp.clip(jnp.abs(metrics['vx'])/.08,0.,1.) *
+                    jnp.clip(metrics['support'],0.,1.) *
+                    (1.-metrics['terminal']))
+            if self.science_arm==10:
+                mean_bias=hist_y.sum(axis=1)/jnp.maximum(1,hist_n)
+                # Reward signed-mean accuracy, NOT per-stride jitter.
+                science_payment=-.50*jnp.clip(mean_bias,-.5,.5)**2 * (
+                    downhill & (hist_n>=12)).astype(jnp.float32)
+            elif self.science_arm==11:
+                overspeed=jnp.clip(
+                    metrics['vx']-metrics['cmd_vx']-.015,0.,.5)
+                science_payment=-2.50*overspeed**2 * downhill
+            else:
+                # Only a walker earns extra actuator-delta economy;
+                # a stationary policy is not paid for stillness.
+                science_payment=-.03*jnp.clip(
+                    metrics['action_delta_norm'],0.,3.)*moving
+            reward=reward+science_payment
         ep_return = state.ep_return + reward
         ep_len = state.ep_len + 1.0
         ep_vx_sum = state.ep_vx_sum + metrics['vx']
@@ -1868,6 +1910,7 @@ class EmuMJXEnv(TaskSampler):
         root_peak = state.terrain_ascent_root_peak
         foot_peak = state.terrain_ascent_foot_peak
         verified_peak = state.terrain_verified_height_peak
+        contact_streak=state.terrain_verified_contact_streak
         if self.observation_schema == OBS_SCHEMA_TERRAIN:
             # A single bounded foothold/progress lesson for ASCENT, before
             # the very sparse far-side completion. Both high-water marks are
@@ -1904,6 +1947,14 @@ class EmuMJXEnv(TaskSampler):
                          (metrics['support']>=.5) &
                          (metrics['bad_contact']<.5) &
                          (metrics['terminal']<.5) & ~physics_diverged)
+                if self.science_arm==7:
+                    # 3 consecutive frames of actual upper-foot contact;
+                    # the same existing one-time upper-support credit
+                    # is delayed, never paid again for foot tapping.
+                    contact_streak=jnp.where(valid,
+                        jnp.minimum(state.terrain_verified_contact_streak+1,3),
+                        jnp.zeros_like(contact_streak))
+                    valid=valid & (contact_streak>=3)
                 verified_transfer_payment,verified_peak = verified_support_elevation_credit(
                     physical_height,cog_delta,upper_contact,valid,
                     state.terrain_verified_height_peak,direction=1,xp=jnp,
@@ -1957,7 +2008,7 @@ class EmuMJXEnv(TaskSampler):
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors,
                            integral_next,raw_next,care_frames,
-                           hist_v,hist_c,hist_n)
+                           hist_v,hist_c,hist_n,hist_y,contact_streak)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2609,6 +2660,13 @@ class EmuMJXEnv(TaskSampler):
         # sideways camber. Explicit pitch/roll overrides serve the
         # reproducible CPU/held-out examiner and do not alter actor inputs.
         azimuth=2.*jnp.pi*u[:,3]
+        if self.science_arm==9:
+            # In SLOPE-focused births, allocate ~50% to downhill
+            # longitudinal grades (azimuth around pi), leaving other
+            # bearings and NON-slope specialists sampled as before.
+            downhill_focus=focused & (focus==SLOPE) & (u[:,3]<.50)
+            azimuth=jnp.where(downhill_focus,
+                jnp.pi+(u[:,4]-.5)*jnp.deg2rad(45.),azimuth)
         fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
             params[P.terrain_roll_deg])
         gx=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_pitch_deg])),
@@ -2772,6 +2830,17 @@ class EmuMJXEnv(TaskSampler):
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
         data = self.forward_batched(self.mjx_model, data)
+        if self.science_arm==8:
+            # A deliberate *teacher* command on physically downhill
+            # specialist worlds, never clandestine actor underspeed.
+            f=int(self.ids['floor_geom'])
+            norm=data.geom_xmat[:,f,:].reshape(
+                (self.num_envs,3,3))[:,:,2]
+            grade_x=-norm[:,0]/jnp.maximum(.01,norm[:,2])
+            cautious=(specialist_active & (focus_id==SLOPE) &
+                      (grade_x<-.0875) & (task[:,T.vx]>.10))
+            task=task.at[:,T.vx].set(jnp.where(
+                cautious,.10,task[:,T.vx]))
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
@@ -2791,6 +2860,7 @@ class EmuMJXEnv(TaskSampler):
                          jnp.zeros((self.num_envs,2),dtype=jnp.float32),
                          task[:,[T.vx,T.vy]],izeros,
                          jnp.zeros((self.num_envs,25),dtype=jnp.float32),
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros,
                          jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros)
 
     def _rotation_body_to_world(self, data):
