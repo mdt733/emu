@@ -162,3 +162,35 @@ def test_research_mode_does_not_change_360_actor_contract():
         assert cfg.observation_schema=="terrain_360"
         assert cfg.unified_capability_focus
         assert cfg.terrain_step_max_m==.08
+
+def test_v5015_height_relief_is_optional_and_never_pays_for_extension():
+    """v5033 arm 23 changes only a near-lip crouch penalty, not fall physics."""
+    import numpy as np
+    from emu.rewards import v5015_height_shortfall
+    height_err=np.array([-.050,-.030,0.,+.030],np.float32)
+    pitch=np.zeros_like(height_err)
+    original=v5015_height_shortfall(height_err,pitch,np)
+    np.testing.assert_allclose(original,[.038,.018,0.,0.],atol=1e-6)
+    np.testing.assert_array_equal(
+        v5015_height_shortfall(height_err,pitch,np,
+            height_relief_m=np.zeros_like(height_err)),original)
+    near_lip=np.array([.04,.04,.04,.04],np.float32)
+    relaxed=v5015_height_shortfall(height_err,pitch,np,
+        height_relief_m=near_lip)
+    np.testing.assert_allclose(relaxed,[0.,0.,0.,0.],atol=1e-6)
+    # A 7cm crouch is STILL penalised beyond the time-limited 4cm budget.
+    deep=v5015_height_shortfall(np.array([-.070],np.float32),
+        np.zeros((1,),np.float32),np,height_relief_m=.04)
+    np.testing.assert_allclose(deep,[.018],atol=1e-6)
+    # The robot isn't paid for extending above normal height.
+    extended=v5015_height_shortfall(np.array([+.035],np.float32),
+        np.zeros((1,),np.float32),np,height_relief_m=.04)
+    np.testing.assert_array_equal(extended,[0.])
+
+
+def test_crouch_relief_is_only_wired_for_science_arm_23():
+    from pathlib import Path
+    source=(Path(__file__).resolve().parents[1]/"emu/environment.py").read_text()
+    assert "if self.science_arm==23 else None" in source
+    assert "height_relief_m=(jnp.where(care_active,.040,0.)" in source
+    assert "fall_height = height < 0.145" in source
