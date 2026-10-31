@@ -2661,12 +2661,13 @@ class EmuMJXEnv(TaskSampler):
         # reproducible CPU/held-out examiner and do not alter actor inputs.
         azimuth=2.*jnp.pi*u[:,3]
         if self.science_arm==9:
-            # In SLOPE-focused births, allocate ~50% to downhill
-            # longitudinal grades (azimuth around pi), leaving other
-            # bearings and NON-slope specialists sampled as before.
-            downhill_focus=focused & (focus==SLOPE) & (u[:,3]<.50)
+            # Original longitudinal downhill quarter-circle probability
+            # is 25%. Put 1/3 of SLOPE births in that bearing and keep
+            # 2/3 fully uniform: 1/3 + 2/3*1/4 = exactly 1/2.
+            # u[:,4] chooses the cohort; independent u[:,3] chooses azimuth.
+            downhill_focus=focused & (focus==SLOPE) & (u[:,4]<1./3.)
             azimuth=jnp.where(downhill_focus,
-                jnp.pi+(u[:,4]-.5)*jnp.deg2rad(45.),azimuth)
+                jnp.pi+(u[:,3]-.5)*jnp.deg2rad(90.),azimuth)
         fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
             params[P.terrain_roll_deg])
         gx=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_pitch_deg])),
@@ -2839,8 +2840,17 @@ class EmuMJXEnv(TaskSampler):
             grade_x=-norm[:,0]/jnp.maximum(.01,norm[:,2])
             cautious=(specialist_active & (focus_id==SLOPE) &
                       (grade_x<-.0875) & (task[:,T.vx]>.10))
-            task=task.at[:,T.vx].set(jnp.where(
-                cautious,.10,task[:,T.vx]))
+            old_speed=jnp.sqrt(task[:,T.vx]**2+task[:,T.vy]**2)
+            base_rate=jnp.clip(task[:,T.phase_rate]-
+                self.phase_speed_gain*jnp.clip(
+                    old_speed/jnp.maximum(.05,self.vx_hi_max),0.,1.5),
+                .85,1.20)
+            vx=jnp.where(cautious,.10,task[:,T.vx])
+            new_rate=command_phase_rate(vx,task[:,T.vy],
+                self.vx_hi_max,self.phase_speed_gain,base_rate)
+            task=task.at[:,T.vx].set(vx)
+            task=task.at[:,T.phase_rate].set(jnp.where(
+                cautious,new_rate,task[:,T.phase_rate]))
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
