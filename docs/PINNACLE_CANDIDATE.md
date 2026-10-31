@@ -59,7 +59,7 @@ a matched independent physical exam.
 
 Source branch: `release/v5032-pinnacle-candidate`. Freeze the exact
 40-character commit at launch; do not pull/edit it afterward.
-Use `~/robot_lab/emu_runs/v5032_pinnacle_s761/` as the output directory,
+Use `~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/` as the output directory,
 **outside the Git clone**, with candidate checkpoint under
 `pinnacle_cold260/checkpoints/final.pkl`. Do not copy an old trained
 checkpoint into the run directory: this campaign MUST be a cold start.
@@ -113,6 +113,28 @@ match the prior CPU/CUDA preflight stamp. Never delete stale
 manifests to force incompatible resumes. Observe progress directly
 in the foreground console; no tmux is required.
 
+## Recovery after the first stopped v5032 preflight
+
+The first launch under source `3f0703f2c4c43644924f5cb30d1c60308d4c87fd`
+passed the CUDA smoke but did not begin training. The actual
+error was an incorrectly named environment variable in the
+flagship launcher, not an observed policy failure:
+
+```text
+launcher: EMU_UNIFIED_CONTINUATION=pinnacle-coldstart-approved
+trainer:  EMU_UNIFIED_CONTINUOUS=cold-growth-approved   (required)
+```
+
+The launcher now uses the trainer's real gate; the
+`tests/test_pinnacle_launch.py` check runs the actual
+`unified_launch_mode` decision without a GPU.
+**Never reuse the old manifest at the new source SHA.** The
+repaired source's default results directory is
+`~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/`. The earlier
+`v5032_pinnacle_s761/` folder is retained as preflight
+history. The new candidate remains a **true cold start**:
+no old checkpoints are transplanted.
+
 ## Milestones and independent quality gates
 
 The run has **260M cumulative environment steps**, with fixed-eval
@@ -159,11 +181,11 @@ cd "$HOME/emu-pinnacle"
 source .venv/bin/activate
 python -m emu.cli viewer-build
 python -m emu.cli viewer \
-  "$HOME/robot_lab/emu_runs/v5032_pinnacle_s761/pinnacle_candidate_260M.emupolicy" \
+  "$HOME/robot_lab/emu_runs/v5032_pinnacle_s761_v2/pinnacle_candidate_260M.emupolicy" \
   --no-open --port 8769
 ```
 
-Or use `--live --root ~/robot_lab/emu_runs/v5032_pinnacle_s761`
+Or use `--live --root ~/robot_lab/emu_runs/v5032_pinnacle_s761_v2`
 to watch checkpoints during training. A second SSH/Tailscale
 terminal can forward `8769` to localhost without exposing weights.
 
