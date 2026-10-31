@@ -3,10 +3,11 @@
 **[Open the EMU Playground](https://mdt733.github.io/emu/)**
 
 EMU's public MuJoCo/WASM viewer runs the real six-servo policy locally
-in the browser. The approved `showcase/champion.emupolicy` is the
-**260,112,384-step v5016 Pinnacle actor** (232 observations; six actions),
-pinned by `showcase/release_approval.json`. The site can serve a previous
-build until the approved Pages workflow has completed.
+in the browser. The approved `showcase/champion.emupolicy` is now the
+**260,046,848-step v5032 Pinnacle actor** (360 observation inputs;
+six actions), pinned by `showcase/release_approval.json`.
+The actual public URL may still serve the previous build until the
+manually approved GitHub Pages workflow finishes deployment.
 
 ## What the demo does
 
@@ -45,9 +46,9 @@ Open `http://127.0.0.1:8767/`. The installer now checks out `main` by default. S
 For live training inspection, `emu viewer --live --root RUN_DIR --no-open`
 continues serving validated checkpoints independently of the public demo.
 
-### 360-input research obstacle park
+### Graduated obstacle park
 
-On the **`release/v5032-pinnacle-candidate`** branch the browser
+On the **`main`** branch the browser
 has eight real-collision challenges, numbered 1–8 in the world,
 with Settings → Challenge difficulty:
 **Gentle**, **Balanced** (default, mostly 1–2.5 cm), and **Stretch**
@@ -56,28 +57,22 @@ heightfields and the fully supported crest top. Read the
 [graded course guide](VIEWER_GRADUATED_PARK.md) for exact obstacles,
 training-versus-browser limitations and Tailscale launch commands.
 
-The public `main` playground remains unchanged. This research
-viewer is included with the upcoming candidate source; don't copy
-viewer files into an already running source-pinned checkout.
+The optical-flow/crest repairs and graduated park are now part
+of the released baseline. They do not alter the immutable 260M
+actor weights or count as proof of an independent MJX exam.
 
-## Planned 360-input replacement
+## The current 360-input release
 
-The release validator in this candidate tree can independently accept a
-schema-9 360-input, array-only 4×4 terrain-aware actor *if* an explicit
-release approval exactly matches its sensor contract, checkpoint/source
-provenance and policy Git blob. The currently approved 232-input policy is
-unchanged; merely validating a future format never publishes it.
-The old zero-action fallback is no longer used by the public builder.
+The portable v5032 schema-3 actor and its exact sensor contract,
+trained-source SHA, actor hash and checkpoint hash are approved by
+`showcase/release_approval.json`. The previous 232-input actor remains
+recoverable from Git commit
+`2ec9e9db0a816c658131311129ef89ec7a595a12`.
 
-
-The published 232-input Pinnacle is a **protected historical benchmark**,
-not a permanently required second architecture. Once the 360-input unified
-learner wins replicated frozen physical evaluations, is verified end-to-end
-in the browser and the owner approves, the public release can replace its
-policy. Only after that migration should the old 220/232 runtime paths and
-their tests be removed from the primary codebase. Git history / a tagged
-release should preserve the old policy for rollback and research.
-See [release readiness](RELEASE_READINESS.md).
+The 360-input release is a measured baseline, not a perfect robot:
+read [real supported terrain and heading results](V5032_PINNACLE_RELEASE.md)
+and [deferred research](https://github.com/mdt733/emu/issues/17).
+The old zero-action fallback is not used by the public builder.
 
 ## Publishing safeguards
 
