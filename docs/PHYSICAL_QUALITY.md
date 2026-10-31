@@ -93,9 +93,12 @@ Each frozen case reports:
   and the raw integrated area. Do **not** extrapolate above/below
   the sampled range. A single point has **no AUC**, not zero AUC.
 - Achieved physical speeds (not mere requested envelopes), real
-  supported crossing height/direction, actuator J/m and losses on
-  useful missions. Missing observations are **null / not measured**,
-  never invented as a passing or failing zero.
+  supported crossing height/direction, and mechanical J/m for
+  **physically supported useful directed motion**. This efficiency
+  diagnostic does not vanish just because the old yaw-jitter threshold
+  rejected an otherwise supported walk; its heading failure remains
+  visible in a separate column. Missing observations are
+  **null / not measured**, never invented as a passing or failing zero.
 - Separate per-seed outcomes and the complete underlying world rows.
 
 There is **no intrinsic cap at 1m/s, 15° or 4cm**. Those are current
