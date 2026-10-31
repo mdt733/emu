@@ -194,8 +194,9 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # Schema/physical sensor meaning is part of the learning state; never
-    # confuse the legacy Pitch15 actor with a 232-channel learner.
+    # Schema/physical sensor meaning is part of the learning state:
+    # legacy 220, sim2real 232 and terrain 360 policies cannot share
+    # an observation normalizer or checkpoint merely by array reshaping.
     sensor_contract = training_sensor_contract(args)
     obs_dim = (TERRAIN_OBS_DIM if args.observation_schema == OBS_SCHEMA_TERRAIN else
                SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
