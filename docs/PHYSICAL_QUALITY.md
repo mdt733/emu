@@ -177,5 +177,67 @@ and the historical mission scores. Cases that the panel does
 not cover (notably recovery and transitions) remain explicitly
 `not tested` in the quality report.
 
+## Next measurement: downhill speed × real grade (read-only)
+
+The original 260M 12° downhill exam commanded **0.15m/s** for 7s:
+16/16 survived and moved, but only 4/16 passed historical
+heading control. That is a **one-speed observation**. It does
+not establish that the policy should sprint or slow down.
+
+The new downhill sweep fixes this omission. It requests:
+
+| Actual signed downhill grade | Requested body-forward speeds |
+|---|---|
+| 5°, 8°, 12°, 14.9° | 0.05, 0.10, 0.15, 0.20, 0.30m/s |
+
+All 20 combinations run with **real two-slab collision normals**
+and independent 360-input actor inference. The robot has no
+new teacher, controller, reward or PPO gradient. Per-world data
+include survival, supported movement, achieved speed, heading
+qualification, signed yaw bias, stride jitter, **world-frame route
+error** and directed useful progress. Results are grouped by
+*actual per-case speed*, not by the one exam-wide default.
+
+Execute from the new examiner source checkout, ideally twice
+for independent seeds with unused output directories:
+
+```bash
+# The tests are read-only; do not run concurrently with GPU training.
+for seed in 1701 1702; do
+  emu capability-exam \
+    --policy showcase/champion.emupolicy \
+    --output "$HOME/robot_lab/emu_exams/downhill_grid_s$seed" \
+    --device cpu --seed "$seed" --worlds 16 --horizon 350 \
+    --downhill-sweep \
+    --downhill-grades-deg 5 8 12 14.9 \
+    --downhill-speeds-mps .05 .10 .15 .20 .30
+done
+
+emu physical-quality \
+  --exam "$HOME/robot_lab/emu_exams/downhill_grid_s1701" \
+  --exam "$HOME/robot_lab/emu_exams/downhill_grid_s1702" \
+  --output "$HOME/robot_lab/emu_exams/downhill_quality_260M"
+```
+
+No arbitrary aggregate "winner" is output. The report shows
+a **grade × speed table**, grade-wise *tested-speed* AUC,
+and **speed-wise tested-grade** AUC. They are two complementary
+sections—not a fictitious combined scalar. A 16/16 survival
+with 0/16 heading passes remains transparently visible.
+
+**Important:** don't combine this sweep with another same-seed,
+same-horizon 0.15m/s slope-matrix exam in a single pooled
+report: those are duplicate physical cases, not independent
+evidence. Use a different seed or separate reports. Full
+16-world × 20-case × 2-seed CPU evaluation can take significant
+time; the tiny 2-world smoke in CI only verifies plumbing and
+does NOT establish actual downhill capability.
+
+**Next decision after measurements:** determine whether heading
+error is steady drift (potentially correctable), stride jitter
+with little net path error, braking/overspeed, or outright loss
+of support. Only then consider training interventions or a
+goal-directed safe-speed planner.
+
 See [issue #17](https://github.com/mdt733/emu/issues/17) for proposed
 diagnostics and the [released 260M profile](V5032_PINNACLE_RELEASE.md).
