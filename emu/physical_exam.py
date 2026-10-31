@@ -1188,6 +1188,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   matrix_heights_cm=None,
                                   speed_ladder: bool = False,
                                   ladder_speeds=None,
+                                  downhill_sweep: bool = False,
+                                  downhill_grades_deg=None,
+                                  downhill_speeds_mps=None,
                                   legacy_main_baseline: bool = False) -> tuple[Path,Path]:
     """One frozen policy per exam, matched MJX physics and seeds per case.
 
@@ -1270,8 +1273,10 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         dict(name='push_1N',kind='recovery',push_n=1.0),
         dict(name='tilt_10deg',kind='recovery',tilt_deg=10.),
     ]
-    if sum(bool(x) for x in (quick,terrain_matrix,speed_ladder))>1:
-        raise ValueError('quick, terrain_matrix and speed_ladder are mutually exclusive')
+    if sum(bool(x) for x in (quick,terrain_matrix,speed_ladder,downhill_sweep))>1:
+        raise ValueError('quick, terrain_matrix, speed_ladder and downhill_sweep are mutually exclusive')
+    if (downhill_grades_deg is not None or downhill_speeds_mps is not None) and not downhill_sweep:
+        raise ValueError('custom downhill grades/speeds require --downhill-sweep')
     if ladder_speeds is not None and not speed_ladder:
         raise ValueError('--ladder-speeds requires --speed-ladder')
     if speed_ladder:
@@ -1284,6 +1289,26 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
         # achieved mean velocity and tracking error, not just survival.
         cases=[dict(name=f'flat_vx_{v:.2f}'.replace('.','p'),
                     kind='flat',vx=float(v)) for v in speeds]
+    if downhill_sweep:
+        # A *real collision* speed x signed-grade panel, not gravity-only
+        # incline or curriculum evidence. This is a low-level commanded
+        # velocity test: deliberately going slower is a tracking failure.
+        downhill_grades=tuple(downhill_grades_deg if downhill_grades_deg is not None
+                              else (5.,8.,12.,14.9))
+        downhill_speeds=tuple(downhill_speeds_mps if downhill_speeds_mps is not None
+                              else (.05,.10,.15,.20,.30))
+        if (not downhill_grades or len(downhill_grades)>12
+            or len(set(downhill_grades))!=len(downhill_grades)
+            or any(not math.isfinite(d) or d<=0. or d>15. for d in downhill_grades)
+            or not downhill_speeds or len(downhill_speeds)>12
+            or len(set(downhill_speeds))!=len(downhill_speeds)
+            or any(not math.isfinite(v) or v<.04 or v>.30 for v in downhill_speeds)):
+            raise ValueError('downhill sweep requires unique 0<grade<=15deg and .04<=speed<=.30m/s')
+        cases=[
+            dict(name=(f'downhill_{d:g}deg_vx_{v:.2f}').replace('.','p'),
+                 kind='slope',direction='downhill',slope_deg=float(d),
+                 vx=float(v))
+            for d in downhill_grades for v in downhill_speeds]
     if (matrix_grades_deg is not None or matrix_heights_cm is not None) and not terrain_matrix:
         raise ValueError('custom grade/step fixtures require --terrain-matrix')
     if terrain_matrix:
@@ -1369,12 +1394,20 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                   if step>0 else
                   f", stable {summary['stable']}/{worlds}"
                   if case['kind']=='slope' else '')
-        if speed_ladder:
+        if speed_ladder or downhill_sweep:
             actuals=[r['achieved_mean_vx_mps'] for r in rows
                      if r['achieved_mean_vx_mps'] is not None]
             avg=sum(actuals)/len(actuals) if actuals else float('nan')
             print(f"  commanded {case['vx']:.2f}m/s; achieved "
                   f"{avg:.3f}m/s (mean of measured worlds)",flush=True)
+            if downhill_sweep:
+                bias=[r['tracking_signed_bias_yaw_rad_s'] for r in rows
+                      if r['tracking_signed_bias_yaw_rad_s'] is not None]
+                route=[r['world_path_endpoint_error_m'] for r in rows
+                       if r['world_path_endpoint_error_m'] is not None]
+                print(f"  signed yaw bias {sum(bias)/len(bias) if bias else float('nan'):+.3f}rad/s"
+                      f"; world path endpoint {sum(route)/len(route) if route else float('nan'):.3f}m",
+                      flush=True)
         print(f"{case['name']}: mission {summary['mission_passed']}/{worlds}, "
               f"strict all-axis {summary['passed']}/{worlds}{physical}, "
               f"survived {summary['survived']}/{worlds}",flush=True)
@@ -1400,6 +1433,9 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                       terrain_matrix=bool(terrain_matrix),
                       speed_ladder=bool(speed_ladder),
                       ladder_speeds=(list(speeds) if speed_ladder else None),
+                      downhill_sweep=bool(downhill_sweep),
+                      downhill_grades_deg=(list(downhill_grades) if downhill_sweep else None),
+                      downhill_speeds_mps=(list(downhill_speeds) if downhill_sweep else None),
                       matrix_grades_deg=(list(degrees) if terrain_matrix else None),
                       matrix_heights_cm=(list(heights) if terrain_matrix else None),
                       model='actual paired inclined MJX collision slabs',
