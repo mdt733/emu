@@ -72,9 +72,10 @@ but those privileged facts are **not actor inputs**.
 | Reproducibility | Export identity, sensor schema and checkpoint hash in `showcase/release_approval.json` |
 | Previous public champion | 232-input policy at Git commit `2ec9e9db0a816c658131311129ef89ec7a595a12` |
 
-It walks supported 2 cm upsteps reliably (8/8), is partially
-successful at 2.5 cm (4/8), and does **not yet** reliably
-climb 3 cm (0/8). It survives 12° downhill in all 16 frozen
+It **physically crosses** 2 cm upsteps in 8/8 worlds, but
+only 3/8 pass the **full movement-and-heading mission**.
+At 2.5 cm the supported crossing rate is 4/8 (mission 3/8);
+at 3 cm, supported ascent is still 0/8. It survives 12° downhill in all 16 frozen
 worlds but passes the full *heading-controlled mission* in
 only 4/16. At a requested 0.8 m/s, 12/16 survive 14 seconds,
 but none pass the strict full heading/path mission.
@@ -84,6 +85,7 @@ that the research is finished or that the new model surpasses
 the old one on **every** test.
 
 [**Full measured release card, known limitations and rollback**](docs/V5032_PINNACLE_RELEASE.md) ·
+[**Actual crossing vs controlled mission baseline**](docs/PHYSICAL_BASELINE_260M.md) ·
 [**Prioritised future investigations**](https://github.com/mdt733/emu/issues/17)
 
 ## Where to find the code
