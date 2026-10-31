@@ -215,12 +215,16 @@ def build_report(exams: list[dict]) -> dict:
             case, rows = result["case"], result["worlds"]
             if len(rows) != proto["worlds"] or not rows:
                 raise ValueError("case count differs from attempted worlds")
+            if {w.get("world") for w in rows} != set(range(proto["worlds"])):
+                raise ValueError("physical world indices missing or duplicated")
             for required in ("mission_pass", "survived", "case_pass"):
                 if any(type(w.get(required)) is not bool for w in rows):
                     raise ValueError("missing boolean physical evidence: " + required)
             if (sum(w["mission_pass"] for w in rows) != result["mission_passed"]
                 or sum(w["survived"] for w in rows) != result["survived"]):
                 raise ValueError("unverifiable examiner totals")
+            if any(w["mission_pass"] and not w["survived"] for w in rows):
+                raise ValueError("a mission cannot pass after a recorded fall/reset")
             for world in rows:
                 family, direction, level, unit = axis(case, world, proto)
                 # Speed must match for terrain/recovery comparisons;
@@ -229,7 +233,9 @@ def build_report(exams: list[dict]) -> dict:
                                    ("slope", "step", "recovery", "mixed_terrain")
                                    else None)
                 key = (family, direction, level, unit, *fixture, requested_speed)
-                unique = (proto["seed"], case["name"], key, world["world"])
+                # Duplicate physical case with another *name* but the
+                # same seed/condition/world is not a fresh independent sample.
+                unique = (proto["seed"], key, world["world"])
                 if unique in seen:
                     raise ValueError("repeated case/seed/world would inflate the denominator")
                 seen.add(unique)
