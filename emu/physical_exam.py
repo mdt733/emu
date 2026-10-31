@@ -1179,6 +1179,29 @@ def unified_terrain_matrix_cases(*, grades_deg=None, heights_cm=None):
     return cases
 
 
+def downhill_speed_grade_cases(*, grades_deg=(5.,8.,12.,14.9),
+                               speeds_mps=(.05,.10,.15,.20,.30)):
+    """Deterministic, validated 2-D *physical* downhill exam registry.
+
+    This selects only real signed incline collisions and requested forward
+    speeds; never alters the actor or training curriculum. Kept pure so
+    protocol validation can be unit-tested without compiling JAX/MJX.
+    """
+    degrees=tuple(float(d) for d in grades_deg)
+    speeds=tuple(float(v) for v in speeds_mps)
+    if (not degrees or len(degrees)>12 or len(set(degrees))!=len(degrees)
+        or any(not math.isfinite(d) or d<=0. or d>15. for d in degrees)
+        or not speeds or len(speeds)>12 or len(set(speeds))!=len(speeds)
+        or any(not math.isfinite(v) or v<.04 or v>.30 for v in speeds)):
+        raise ValueError('downhill sweep requires unique 0<grade<=15deg and .04<=speed<=.30m/s')
+    cases=[dict(name=(f'downhill_{d:g}deg_vx_{v:.2f}').replace('.','p'),
+                kind='slope',direction='downhill',slope_deg=d,vx=v)
+           for d in degrees for v in speeds]
+    if len({case['name'] for case in cases})!=len(cases):
+        raise ValueError('downhill case names collide at 0.01m/s display resolution')
+    return cases
+
+
 def evaluate_unified_capabilities(*, policy: Path, output: Path,
                                   worlds: int = 4, horizon: int = 300,
                                   speed: float = .10, seed: int = 1701,
@@ -1291,24 +1314,14 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
                     kind='flat',vx=float(v)) for v in speeds]
     if downhill_sweep:
         # A *real collision* speed x signed-grade panel, not gravity-only
-        # incline or curriculum evidence. This is a low-level commanded
-        # velocity test: deliberately going slower is a tracking failure.
+        # incline or curriculum evidence. Slowing down on a commanded
+        # speed task is NOT autonomous careful descending.
         downhill_grades=tuple(downhill_grades_deg if downhill_grades_deg is not None
                               else (5.,8.,12.,14.9))
         downhill_speeds=tuple(downhill_speeds_mps if downhill_speeds_mps is not None
                               else (.05,.10,.15,.20,.30))
-        if (not downhill_grades or len(downhill_grades)>12
-            or len(set(downhill_grades))!=len(downhill_grades)
-            or any(not math.isfinite(d) or d<=0. or d>15. for d in downhill_grades)
-            or not downhill_speeds or len(downhill_speeds)>12
-            or len(set(downhill_speeds))!=len(downhill_speeds)
-            or any(not math.isfinite(v) or v<.04 or v>.30 for v in downhill_speeds)):
-            raise ValueError('downhill sweep requires unique 0<grade<=15deg and .04<=speed<=.30m/s')
-        cases=[
-            dict(name=(f'downhill_{d:g}deg_vx_{v:.2f}').replace('.','p'),
-                 kind='slope',direction='downhill',slope_deg=float(d),
-                 vx=float(v))
-            for d in downhill_grades for v in downhill_speeds]
+        cases=downhill_speed_grade_cases(
+            grades_deg=downhill_grades,speeds_mps=downhill_speeds)
     if (matrix_grades_deg is not None or matrix_heights_cm is not None) and not terrain_matrix:
         raise ValueError('custom grade/step fixtures require --terrain-matrix')
     if terrain_matrix:
