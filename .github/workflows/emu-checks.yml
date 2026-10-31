@@ -144,7 +144,7 @@ jobs:
         run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 7 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
       - name: Compile downhill signed mean-yaw correction arm 10
         run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 10 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
-      - name: Compile walking-only action smoothing arm 23
+      - name: Compile step-up crouch allowance arm 23
         run: timeout 420s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --science-arm 23 --fast-rehearsal-share .25 --temporal-vx-reward-share .5
 
   browser:
