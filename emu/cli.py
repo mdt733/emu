@@ -204,6 +204,12 @@ def main(argv=None) -> int:
                    help='optional four-direction physical matrix, e.g. 5 8 10 12 15; require --terrain-matrix')
     q.add_argument('--matrix-heights-cm',type=float,nargs='+',default=None,
                    help='optional paired UP/DOWN physical steps in cm, e.g. 2 2.5 3 3.5 (max 4)')
+    q.add_argument('--downhill-sweep',action='store_true',
+                   help='read-only downhill 4 physical grades x 5 commanded speeds, with world-frame route metrics')
+    q.add_argument('--downhill-grades-deg',type=float,nargs='+',default=None,
+                   help='downhill sweep real grades, default 5 8 12 14.9; requires --downhill-sweep')
+    q.add_argument('--downhill-speeds-mps',type=float,nargs='+',default=None,
+                   help='downhill sweep commanded speeds, default .05 .10 .15 .20 .30; requires --downhill-sweep')
     q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
     source=q.add_mutually_exclusive_group(required=True)
     source.add_argument('--run-dir',help='read-only schema-7 training run')
@@ -336,6 +342,9 @@ def main(argv=None) -> int:
             matrix_heights_cm=args.matrix_heights_cm,
             speed_ladder=args.speed_ladder,
             ladder_speeds=args.ladder_speeds,
+            downhill_sweep=args.downhill_sweep,
+            downhill_grades_deg=args.downhill_grades_deg,
+            downhill_speeds_mps=args.downhill_speeds_mps,
             legacy_main_baseline=args.legacy_main_baseline)
         for path in paths:
             print(path)
