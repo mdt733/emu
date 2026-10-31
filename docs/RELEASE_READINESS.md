@@ -1,12 +1,14 @@
-# EMU successor — measurable graduation and clean-release gates
+# EMU — measured release gates for future successors
 
-**Candidate status (31 October 2026): source prepared, not trained,
-not approved.** The protected `main` still hosts the 232-input v5016
-Pinnacle browser policy. The only active candidate is
-`release/v5032-pinnacle-candidate`, a pinned 260M 360-input cold start.
-See [the complete current runbook](PINNACLE_CANDIDATE.md).
-**Do not** replace `showcase/champion.emupolicy` or alter the
-manual GitHub Pages release workflow until explicit approval.
+**Baseline status (31 October 2026): owner-approved v5032 260M,
+360-input Pinnacle is the new `main` actor.** It has known limitations
+explicitly recorded in the [release card](V5032_PINNACLE_RELEASE.md).
+The previous v5016 232-input champion is retained at
+`2ec9e9db0a816c658131311129ef89ec7a595a12`.
+
+This checklist defines the bar for **future** successor policies;
+release of v5032 as a reference milestone is not a claim that all
+future capability targets have already been met.
 
 The target is not just higher rewards, harder curriculum targets, or
 a new neural input shape. It is a **genuinely better six-servo robot**:
@@ -32,10 +34,10 @@ resilience and efficient control.
 
 ## 2. Independent physical competence
 
-Use **common physical tasks** to compare 232-input `main` and the
-360-input challenger; each actor keeps its own legitimate sensor
-configuration, but has the same body, ground, disturbances, command
-requests, horizon and comparable scoring.
+Use **common physical tasks** to compare today's 360-input `main`
+with any future challenger. For historical 232-input comparisons,
+retain each actor's original sensor contract and use identical
+body, ground, disturbances, command schedule, horizons and scoring.
 
 - [ ] Signed forward tracking at 0.15, 0.3, 0.6, ~1.0 m/s; record
   actual mean velocity, steady-state error, falls and recovery. A
@@ -75,22 +77,23 @@ requests, horizon and comparable scoring.
 - [ ] Share comprehensible README, install and safety docs, concise
   handover and historical links; avoid active v5024/v5025/26/27
   launcher clutter
-- [ ] Leave the approved `showcase/champion.emupolicy` unchanged
-  until a candidate passes the independent common exam
+- [ ] Leave the current approved 360-input `showcase/champion.emupolicy`
+  unchanged until a *future* candidate has owner-reviewed evidence
 - [ ] Explicit owner approval for the new champion and for merging to
   `main`; this checklist does not authorize either
 - [ ] Record release source and checkpoint fingerprints, deterministic
-  export, viewer smoke, and a clear rollback path to v5016 Pinnacle
+  export, viewer smoke, and rollback to the prior 260M baseline
 - [ ] Update the public Pages deployment only with a reviewed,
   independently tested actor + frontend combination
 
 ## Current candidate, release workflow and retained historical reference
 
-The [new Pinnacle candidate runbook](PINNACLE_CANDIDATE.md) is the
-single source of truth for the current 260M cold-start recipe and
-its protected, SHA-pinned run and physical exams. The completed
-[v5031 physical reward study](V5031_VERIFIED_ASCENT.md) is evidence
-for the teaching recipe, **not** an approved release.
+The completed [v5032 runbook](PINNACLE_CANDIDATE.md) is historical
+source-pinned reproducibility documentation. The [v5032 release card](V5032_PINNACLE_RELEASE.md)
+is the current physical baseline, and
+[issue #17](https://github.com/mdt733/emu/issues/17) holds proposed
+future diagnostics. The v5031 study remains historical evidence,
+not a second active training system.
 
 Before publication, the owner must review the exact exported
 actor and checkpoint SHA256, 360-input sensor contract, measured
