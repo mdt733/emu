@@ -142,7 +142,10 @@ function commands(guide,legacy,previous,limits){
 
 function scoreStep(before,after,cmd,previous,run,progress,trees,terrain){
   const obstacle=collisionCost(after,trees,terrain);
-  if(!Number.isFinite(obstacle))return Infinity;
+  if(!Number.isFinite(obstacle))return {cost:Infinity};
+  const midpoint=collisionCost({x:(before.x+after.x)*.5,
+    y:(before.y+after.y)*.5},trees,terrain);
+  if(!Number.isFinite(midpoint))return {cost:Infinity};
   const proj=projectOnRun(after,run,progress);
   const s=Math.max(progress,proj.s);
   const heading=referenceAt(run,s+.14).pose?.heading??run.end.heading;
@@ -154,7 +157,7 @@ function scoreStep(before,after,cmd,previous,run,progress,trees,terrain){
   // Path error, future sideways momentum, and progress are more important
   // than exact actuator speed. The NN itself retains balance authority.
   const cost=DT*(6*proj.crossTrack**2+1.1*headingError**2+
-    .45*speedError**2+obstacle+.18*jerk+
+    .45*speedError**2+.6*obstacle+.4*midpoint+.18*jerk+
     .06*(cmd.vx**2+cmd.vy**2+.4*cmd.yaw**2));
   return {cost:cost-1.45*Math.max(0,s-progress),
     progress:s,near:proj};
@@ -170,7 +173,7 @@ export class PredictivePathController {
     if(!run||run.mode==='pivot'||run.length<.001)
       return {command:legacy||zero(),prediction:[],cost:null};
     if(![pose.x,pose.y,pose.heading,pose.vx,pose.vy,pose.yawRate].every(Number.isFinite))
-      return {command:legacy||zero(),prediction:[],cost:null};
+      return {command:zero(),prediction:[],cost:null,fallback:true};
     const base=legacy||zero();
     const init={...pose};
     let beam=[{pose:init,previous:this.previousCommand,
@@ -197,7 +200,9 @@ export class PredictivePathController {
     this.fallback=!winner;
     this.prediction=winner?.points||[];
     this.cost=winner?.score??null;
-    return {command:winner?.first||base,prediction:this.prediction,
+    // If every predicted branch violates clearance/terrain constraints,
+    // command a neutral stop and let the normal replan watchdog take over.
+    return {command:winner?.first||zero(),prediction:this.prediction,
       cost:this.cost,model:this.model.report(),fallback:this.fallback};
   }
 }
