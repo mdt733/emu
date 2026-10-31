@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO))
 BRANCH = "feature/v5033-260m-plateau-science"
 PARENT_SOURCE = "9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
 PARENT_STEP = 260_046_848
+EXPECTED_PARENT_SHA256 = "238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b"
 TARGET_STEPS = 280_000_000
 DEFAULT_ROOT = Path.home() / "robot_lab/emu_runs/v5033_plateau_260_to_280"
 FACTOR_NAMES = (
@@ -170,7 +171,12 @@ def read_parent(path: Path):
              if getattr(parent_cfg, k) != v}
     if wrong:
         raise RuntimeError(f"Parent training_config.json does not match actual Pinnacle launch: {wrong}")
-    return parent_cfg, sha256_file(path)
+    actual_sha256 = sha256_file(path)
+    if actual_sha256 != EXPECTED_PARENT_SHA256:
+        raise RuntimeError(
+            f"Parent final.pkl bytes are NOT the approved Pinnacle checkpoint: "
+            f"expected {EXPECTED_PARENT_SHA256}, got {actual_sha256}")
+    return parent_cfg, actual_sha256
 
 
 def arm_config(parent_cfg, arm: Arm, root: Path, target: int):
