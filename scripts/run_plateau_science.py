@@ -117,6 +117,10 @@ def discover_parent() -> Path:
     root = Path.home() / "robot_lab/emu_runs"
     if not root.is_dir():
         raise RuntimeError(f"No {root}; specify --parent /absolute/path/checkpoints/final.pkl")
+    # The original source-pinned 260M launcher's canonical completed run.
+    preferred = root / "v5032_pinnacle_s761_v2/pinnacle_cold260/checkpoints/final.pkl"
+    if preferred.is_file():
+        return preferred.resolve()
     matches = []
     for file in root.rglob("checkpoints/final.pkl"):
         try:
