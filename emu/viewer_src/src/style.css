@@ -376,12 +376,14 @@ button:disabled { opacity: .4; cursor: default; }
 
 
 /* v5022 viewer-only depth diagnostic; no extra page or viewer subsystem. */
-.depth-panel {
-  position:absolute; right:12px; bottom:174px; z-index:24;
-  width:235px; max-height:calc(100vh - 255px); overflow-y:auto;
-  padding:10px 12px; border-radius:14px; font-size:11px;
-  pointer-events:auto;
+.settings-drawer .depth-panel {
+  position:static; width:100%; max-height:none; overflow:visible;
+  padding:12px 0; border:0; border-radius:0; box-shadow:none;
+  background:none; backdrop-filter:none; font-size:11px;
 }
+.drawer-group {margin:12px 0; border-top:1px solid rgba(255,255,255,.12); padding-top:12px;}
+.drawer-group summary {cursor:pointer; color:#9ce4d7; font-size:12px; font-weight:650; padding:6px 0; letter-spacing:.02em;}
+.drawer-group summary:focus-visible {outline:2px solid #8cc4f7; outline-offset:3px;}
 .depth-head {display:flex;align-items:center;justify-content:space-between;gap:8px}
 .depth-head b {color:#9ce4d7;font-size:11px;letter-spacing:.09em}
 .depth-head label,.depth-visual {display:flex;align-items:center;gap:5px;white-space:nowrap}
@@ -398,14 +400,6 @@ button:disabled { opacity: .4; cursor: default; }
 .depth-cell.occluded {font-size:9px;letter-spacing:.03em}
 .depth-far {font-size:10px;color:#96a6b8;margin-top:5px}
 .depth-foot {font-size:10px;color:#a2b5c8;margin-top:7px;line-height:1.4}
-@media(max-width:720px){
-  .depth-panel {width:190px;right:9px;bottom:147px;padding:8px;max-height:calc(100vh - 225px)}
-  .depth-cell {height:27px;font-size:10px}
-}
-@media(max-width:430px){
-  .depth-panel {width:162px;right:7px;bottom:140px;max-height:calc(100vh - 206px)}
-  .depth-cell {height:25px}
-  .depth-sub {font-size:9px}
-}
+@media(max-width:430px){ .settings-drawer .depth-cell {height:27px;font-size:10px;} }
 
 .depth-legend{font-size:9px;color:#93b8aa;line-height:1.3;margin-top:5px}
