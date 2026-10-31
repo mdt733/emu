@@ -90,7 +90,9 @@
         </label>
         <div class="live-foot">Dashed orange = forecast motion · teal = planned route. Both controllers drive the same trained neural gait.</div>
         <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
-          <span>Pose lattice · position + facing</span></div>
+          <button type="button" id="navBenchmark" disabled>Run 5-goal benchmark</button>
+          <button type="button" id="navBenchmarkCopy">Copy benchmark results</button>
+          <span>Pose lattice · position + facing · real MuJoCo physics</span></div>
         <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
         <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
       </section>
