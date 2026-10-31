@@ -1,5 +1,44 @@
 # EMU — active engineering handover
 
+## New research question (31 October 2026): v5033 twenty-four-arm science
+
+The completed v5032 260M policy is a **valid exported research candidate**,
+NOT an approved main replacement. Its 360-input actor and final full
+training checkpoint are preserved. Source SHA
+`9b11bbe596aea7201d29a6beb2d192922f8e2e9a`,
+final checkpoint SHA256 recorded as
+`238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b`.
+The v5032 resolved training config used
+`verified_ascent_reallocation=0.0` because `emu/run.py` did not
+forward the desired 3.0 flag. Do not repeat this integration bug.
+
+**New plan:** [24-arm source-pinned branching science](docs/V5033_BRANCHING_SCIENCE.md)
+on a **single temporary research branch**.
+No science arm implementations or GPU training have been launched.
+Each arm must fork the immutable 260M `final.pkl`, preserve the
+360 actor/sensor geometry, change ONE teaching/control idea and
+have verified actual resolved config + real physics. 24×8M initial
+continuations, shortlisted six ×16M more, matching independent
+physics/heading/step/speed tests, then a new 260M+ cold-start
+Pinnacle using only replicably successful ideas. Do not merge
+the old 260M optimizer into the new Pinnacle.
+
+**Downhill reclassification:** original 0.15m/s / 7s / 16-world
+steep downhill matrix was NOT full sprint: 12° 16/16 survived,
+16/16 physical-movement passed, 4/16 heading missions,
+with all 12 failures attributable to mean signed yaw bias,
+not jitter. At 14.9° jitter threshold is also involved;
+a route/path-based metric must distinguish natural gait yaw
+from actual steering loss. We will test 0.05–0.30m/s commands
+and physics separately before implementing a slowdown governor.
+
+**Protected:** published main, `showcase/champion.emupolicy`,
+finished v5032 training logs/checkpoint and source, and existing
+PR #16 remain unchanged. This branch currently contains only
+experiment design documentation.
+
+---
+
 **Updated: 31 October 2026.**
 **Active candidate source:** `release/v5032-pinnacle-candidate`.
 **Public incumbent:** `main` + `showcase/champion.emupolicy`, frozen,
