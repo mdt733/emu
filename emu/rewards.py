@@ -52,7 +52,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None, height_relief_m=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -69,7 +69,7 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
         careful_step=careful_step, temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, attitude_profile, jnp)
+        m, attitude_profile, jnp, height_relief_m=height_relief_m)
     locomotion_maturity, stepping_gate = _gait_maturity(m, jnp)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
@@ -83,8 +83,8 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # Locomotion depends on real movement, body support and maturity.
     locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * (0.30 + 0.70 * m['foot_mid_cone'])
     if attitude_profile == 'v5015':
-        remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
-                                0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
+        remaining = v5015_height_shortfall(m['height_error'],m['cmd_pitch'],
+                                          jnp,height_relief_m=height_relief_m)
         locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
     # Simulated actuator output is not verified motor current or electrical
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
@@ -208,15 +208,31 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None
     return command_tracking
 
 
-def _physical_qualities(m, attitude_profile, jnp):
+def v5015_height_shortfall(height_error, cmd_pitch, jnp, *, height_relief_m=None):
+    """Original asymmetric posture shortfall; optional near-lip crouch budget.
+
+    The source and actor input contract stay fixed. A science relief budget
+    only forgives *negative* torso-height error, never rewards crouching,
+    spring-energy cycling, stillness or an unsupported leap. The physical
+    fall-height floor remains unchanged in environment.py.
+    """
+    shortfall=jnp.maximum(0.0, -height_error - 0.012 -
+                         0.018*jnp.clip(jnp.abs(cmd_pitch)/0.7853982,0.0,1.0))
+    if height_relief_m is not None:
+        shortfall=jnp.maximum(0.0,shortfall-height_relief_m)
+    return shortfall
+
+
+def _physical_qualities(m, attitude_profile, jnp, *, height_relief_m=None):
     """Measure posture, supported feet, slip, movement shape and joint safety."""
     upright = jnp.clip((m['gravity_z'] - 0.35) / 0.65, 0.0, 1.0)
     height = jnp.exp(-80.0 * (m['height'] - m['target_height']) ** 2)
     # Body-to-feet angle is dynamic catch-up shaping, not static standing.
     if attitude_profile == 'v5015':
         # Require requested chassis pitch AND healthy gait height.
-        pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
-        height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
+        height_shortfall = v5015_height_shortfall(
+            m['height_error'],m['cmd_pitch'],jnp,
+            height_relief_m=height_relief_m)
         height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
         upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
     else:
