@@ -329,6 +329,24 @@ def markdown(report: dict) -> str:
                      f"{c['survived']}/{c['attempts']} | "
                      f"{c['movement_pass']}/{c['attempts']} | "
                      f"{c['heading_pass']}/{c['attempts']} | {energy} |")
+    lines += ["", "## Actual route integrity (world-frame diagnostics)", "",
+              "Requested trajectory is integrated independently from command vx/vy/yaw.",
+              "Null means this frozen exam predates route instrumentation; do not invent zero error.",
+              "",
+              "| Dimension / direction | Severity | Achieved vx | Signed yaw bias | Gait yaw jitter | Route RMS | Endpoint error | Directed progress |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    def physical(value, suffix, digits=3):
+        return f"{value:.{digits}f}{suffix}" if value is not None else "not measured"
+    for c in report["cases"]:
+        severity = (f"{c['severity']:g} {c['unit']}"
+                    if c["severity"] is not None else "one scenario")
+        lines.append(f"| {c['family']}/{c['direction']} | {severity} | "
+                     f"{physical(c['measured_vx_mps'],' m/s')} | "
+                     f"{physical(c['signed_yaw_bias_rad_s'],' rad/s')} | "
+                     f"{physical(c['gait_yaw_jitter_rad_s'],' rad/s')} | "
+                     f"{physical(c['world_path_rms_m'],' m')} | "
+                     f"{physical(c['world_path_endpoint_m'],' m')} | "
+                     f"{physical(c['directed_progress_m'],' m')} |")
     lines += ["", "## Tested-range capability curves", "",
               "| Signed capability | Range | Samples | Tested-range AUC |",
               "|---|---|---:|---:|"]
