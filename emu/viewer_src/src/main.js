@@ -110,7 +110,7 @@ function navigationUpdate(dt) {
     // not permission to silently start a new five-goal comparison.
     const prior=navigator.benchmark;
     if(prior&&!prior.complete&&navigator.goal)
-      navigator.finishBenchmarkLeg(false);
+      navigator.finishBenchmarkLeg(false,true);
     const preserved=navigator.benchmark;
     navigator.reset();
     if(preserved){
@@ -154,7 +154,7 @@ function navigationUpdate(dt) {
     ?`BENCHMARK ${state.benchmark.index+1}/${state.benchmark.goals} · ${state.reason}`
     :`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
-  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
+  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (RMS ${state.rmsTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
   if(state.controllerMode==='predictive'){
     const model=state.responseModel;
