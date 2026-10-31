@@ -1,106 +1,84 @@
-# EMU engineering rules — keep one understandable system
+# EMU engineering rules — one understandable system
 
-This is how to change EMU **without recreating hundreds of
-experiment branches and incompatible launch procedures**.
+**Current baseline:** v5032 Pinnacle 260M, 360-input actor,
+training-source commit `9b11bbe596aea7201d29a6beb2d192922f8e2e9a`.
+The previous 232-input public policy remains recoverable at
+`2ec9e9db0a816c658131311129ef89ec7a595a12`.
+Future work is prioritised in [issue #17](https://github.com/mdt733/emu/issues/17);
+the 24-arm v5033 branch is **paused**.
 
-## The boundaries
+## One owner per concept
 
-- **Physics and sensors:** `emu/robot.xml`, `emu/environment.py`,
-  `emu/contracts.py`. Real support geometry, simulated sensor packets,
-  contact and disturbance evidence.
-- **Teaching:** `emu/rewards.py` chooses PPO payment;
-  `emu/curriculum.py` and `emu/capability_focus.py` choose *which
-  worlds and difficulty to practise*. One shared actor, not
-  specialist sub-policies.
-- **Learning:** `emu/ppo.py` updates policy and value network;
-  `emu/training.py` runs the lifecycle.
-- **Memory and recovery:** `emu/checkpoint_io.py`, `emu/run.py`
-  validate source, config, complete learner state and exact resume.
-- **Independent evidence:** `emu/evaluation.py`,
-  `emu/physical_exam.py` and `emu/capability_cloud.py`.
-  Their test results never adjust teacher decisions.
-- **Viewing and publishing:** `emu/viewer_server.py` and
-  `emu/viewer_src/` run a *separate* browser simulation.
-  `scripts/verify_showcase_release.py` and the protected Pages
-  workflow control publication.
-
-The full newcomer explanation is [ARCHITECTURE](ARCHITECTURE.md).
-
-## One maintained campaign
-
-`scripts/train_pinnacle.py` is the **only current flagship
-training launcher**. It defines the 260M cold-start recipe,
-CPU and 2048-world CUDA preflight, independent exams and
-candidate export. `scripts/campaign_support.py` supplies generic
-logging/ETA and does not invent another curriculum.
-
-Historical launchers are preserved by their **Git commits**
-in the [research archive](history/README.md), not carried
-alongside the active launcher. The old v5030-only comparison
-script is now `scripts/compare_policies.py`: read-only physical
-main-versus-candidate evaluation with no obsolete branch lock. `main` continues to host the
-protected public 232-input champion. The 360-input successor
-is not published merely because a training command finishes.
-
-## Rules before changing functionality
-
-1. **Choose the owner, not a wrapper.** If the change is a
-   lesson, edit curriculum; if an input or contact changes,
-   edit physics/contracts; if a payment changes, edit rewards.
-   Do not add a second parallel training engine.
-2. **State the data boundary.** Which values are actor inputs,
-   teacher-only truth, PPO reward, host-side competence evidence,
-   independent tests or browser-only navigation?
-3. **Avoid changing learning semantics during cleanup.**
-   Rename docs and fix actual bugs on a separate source-pinned
-   revision. Any reward, sensor or physics change needs its
-   own new cold-start lineage or explicitly verified research fork.
-4. **Test what matters.** Reward math, real MJX contacts,
-   360-input schema, live-checkpoint parsing, same-SHA resume,
-   actual CPU/GPU PPO update, browser viewing and independent
-   physical exams. Don't keep tests solely for an obsolete
-   launcher name, but don't discard meaningful contracts.
-5. **Protect the proof.** A clean SHA, manifest, venv/JAX
-   versions, checkpoint hashes, full learner state, source
-   and report must accompany any trained result. Git alone
-   does **not** back up policy weights.
-6. **Require physical graduation.** Measured forward and
-   lateral/yaw tracking, slope/step-UP and DOWN, recovery,
-   J/m and survival on matched tasks. A target severity or
-   a high reward is not a passed physical mission.
-7. **Keep the public champion recoverable.** No automatic
-   `main` replacement, showcase asset overwrite, approval
-   file update or Pages deployment without an explicit review
-   and a tested rollback path.
-
-## Documentation discipline
-
-| Change | Update |
+| Responsibility | Code |
 |---|---|
-| Operator command, branch, new candidate | [HANDOVER](../HANDOVER.md), [runbook](PINNACLE_CANDIDATE.md) |
-| Software prerequisites/installer | [INSTALL](INSTALL.md) |
-| Module ownership, actor/teacher boundary | [ARCHITECTURE](ARCHITECTURE.md) |
-| Public behavior or project goal | [README](../README.md) |
-| Graduation/asset validation | [RELEASE READINESS](RELEASE_READINESS.md) |
-| Completed experiment, old launch command | [history](history/README.md) |
+| Body, six servos and passive springs | `emu/robot.xml` |
+| Actor 360-input contract and sensor schema | `emu/contracts.py` |
+| Real MJX physics, contacts, sensors and resets | `emu/environment.py` |
+| Teaching reward | `emu/rewards.py` |
+| Teacher difficulty and six focus groups | `emu/curriculum.py`, `emu/capability_focus.py` |
+| One neural actor/critic and PPO updates | `emu/ppo.py`, `emu/training.py` |
+| Source-verified checkpoints and resume | `emu/run.py`, `emu/checkpoint_io.py` |
+| Held-out, read-only physical capability | `emu/physical_exam.py`, `emu/evaluation.py` |
+| Browser emulator and approved public export | `emu/viewer_server.py`, `emu/viewer_src/`, `scripts/verify_showcase_release.py` |
 
-Don't make a new permanent Markdown file for every tweak; put
-completed studies in `docs/history/` or keep the original
-SHA-linked record. Keep the README short enough for a newcomer
-to understand the project before learning the engineering
-history. The [doc index](README.md) is the single navigation map.
+[Full architecture and data flow](ARCHITECTURE.md).
 
-## Current source migration after the stopped v5032 launch
+The actor gets only sensor/command observations; the teacher
+can use privileged physical contacts for reward and curriculum.
+Independent exam results NEVER feed back into its teaching.
 
-The first v5032 launch was rejected **before PPO training**:
-the flagship launcher set `EMU_UNIFIED_CONTINUATION`,
-but the trainer required
-`EMU_UNIFIED_CONTINUOUS=cold-growth-approved`.
-The repaired launcher has a direct regression test.
-The old SHA's manifest and preflight logs remain historical;
-use the new `v5032_pinnacle_s761_v2` results root for the
-new source SHA, never patch old provenance by hand.
+## Code and experiment hygiene
 
-This migration is intentionally a **launcher fix and documentation
-cleanup**. No reward weights, observation channels, physics, or
-public policy are changed.
+1. **One owner, not another wrapper.** Change curriculum when
+   selecting lessons; rewards when paying for performance;
+   environment/contracts when physical or sensory semantics change.
+2. **Source-pinned research.** A trained model's original Git
+   SHA, saved learner/config and checkpoint hashes are immutable.
+   Updating today's `main` does not retroactively update its
+   released weights.
+3. **Do not duplicate experiments.** The finished 260M
+   `scripts/train_pinnacle.py` is historical/reproducibility
+   infrastructure, not an instruction to run another flagship.
+   The large old A/B launchers are retained at their Git commits.
+4. **Fix the real bug first.** The released 260M policy was
+   trained with `verified_ascent_reallocation=0.0` despite
+   its manifest requesting 3.0. Future commands must prove
+   that **resolved TrainingConfig and actual environment**
+   match the requested treatment, not just a CLI echo.
+5. **Real physical evidence.** Report actual supported upper
+   contact, distance past a lip, speed vs requested motion,
+   steering bias vs gait jitter, survival and mechanical J/m.
+   Harder curriculum numbers alone are not ability.
+6. **Back up full learner state.** Git stores source, exported
+   browser weights and report identities, not a full `.pkl`
+   optimizer. The complete `final.pkl` lives outside Git.
+7. **Release deliberately.** An actor update requires a
+   provenance-matching `showcase/release_approval.json`,
+   validated browser build, explicit owner decision, and a
+   tested old-actor rollback source. GitHub Pages deployment
+   is intentionally separate from a `main` merge.
+
+## Documentation ownership
+
+The [README](../README.md) welcomes new contributors;
+[ARCHITECTURE](ARCHITECTURE.md) maps code;
+[HANDOVER](../HANDOVER.md) reports the current baseline;
+[release measurements](V5032_PINNACLE_RELEASE.md) record
+the exact policy, physical limitations and SHA;
+[INSTALL](INSTALL.md) explains setup;
+[issue #17](https://github.com/mdt733/emu/issues/17)
+holds future experiments. Completed old research belongs in
+[history](history/README.md) or an immutable Git commit.
+
+Avoid new permanent docs for every small experiment. A
+stranger should have ONE clear answer to *what is current*
+and *which file owns it*.
+
+## Preserved historical incident
+
+The first v5032 run stopped before PPO training because
+the launcher set `EMU_UNIFIED_CONTINUATION` instead of the
+required `EMU_UNIFIED_CONTINUOUS`. The repaired second
+cold-start run completed at 260,046,848 world steps.
+The old run logs, source hash and handover are archived at
+[docs/history/HANDOVER_V5032_PRE_RELEASE.md](history/HANDOVER_V5032_PRE_RELEASE.md).
