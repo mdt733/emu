@@ -248,12 +248,25 @@ def build_report(exams: list[dict]) -> dict:
         passed = sum(w["mission_pass"] for w in rows)
         effort = finite_values(rows, "mechanical_j_per_useful_m",
                                successful_only=True)
+        # Failure reasons are NON-exclusive. A robot can miss a step
+        # AND lose heading; keep both facts instead of inventing a
+        # single overly tidy cause. Count only known optional fields.
+        reasons = dict(
+            terminated_early=sum(not w["survived"] for w in rows),
+            movement_failed=sum(w.get("movement_tracking_pass") is False for w in rows),
+            heading_failed=sum(w.get("heading_control_pass") is False for w in rows),
+            supported_crossing_failed=(sum(w.get("crossing_pass") is False for w in rows)
+                                       if family == "step" else None),
+            slope_stability_failed=(sum(w.get("slope_stability_pass") is False for w in rows)
+                                    if family == "slope" else None),
+            not_mission_qualified=n - passed)
         row = dict(family=family, direction=direction, severity=level, unit=unit,
                    fixture=fixture, horizon_frames=horizon, backend=backend,
                    requested_terrain_speed_mps=speed,
                    seeds=sorted({seed for seed, _ in items}),
                    attempts=n, missions=passed, mission_rate=round(passed / n, 6),
                    wilson_95=wilson(passed, n),
+                   nonexclusive_failure_reasons=reasons,
                    survived=sum(w["survived"] for w in rows),
                    strict_pass=sum(w["case_pass"] for w in rows),
                    movement_pass=sum(w.get("movement_tracking_pass") is True for w in rows),
@@ -335,6 +348,25 @@ def markdown(report: dict) -> str:
                      f"{c['survived']}/{c['attempts']} | "
                      f"{c['movement_pass']}/{c['attempts']} | "
                      f"{c['heading_pass']}/{c['attempts']} | {energy} |")
+    lines += ["", "## Why missions missed qualification", "",
+              "Failure counts overlap: e.g. a robot may both miss a foothold "
+              "and drift off-heading. Missing categories are not invented.",
+              "",
+              "| Challenge | Missions failed | Early termination | Movement | Heading | No supported crossing | No slope stability |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+    for c in report["cases"]:
+        r=c["nonexclusive_failure_reasons"]
+        if not r["not_mission_qualified"]:
+            continue
+        def fmt(v):
+            return str(v) if v is not None else "—"
+        challenge=(f"{c['family']}/{c['direction']} "
+                   + (f"{c['severity']:g} {c['unit']}" if c["severity"] is not None else ""))
+        lines.append(f"| {challenge} | {r['not_mission_qualified']} | "
+                     f"{r['terminated_early']} | {r['movement_failed']} | "
+                     f"{r['heading_failed']} | "
+                     f"{fmt(r['supported_crossing_failed'])} | "
+                     f"{fmt(r['slope_stability_failed'])} |")
     lines += ["", "## Actual route integrity (world-frame diagnostics)", "",
               "Requested trajectory is integrated independently from command vx/vy/yaw.",
               "Null means this frozen exam predates route instrumentation; do not invent zero error.",
