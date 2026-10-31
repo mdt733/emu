@@ -279,6 +279,7 @@ def build_report(exams: list[dict]) -> dict:
                    supported_crossing=(sum(w.get("crossing_pass") is True for w in rows)
                                        if family == "step" else None),
                    measured_vx_mps=mean_or_null(rows, "achieved_mean_vx_mps"),
+                   forward_mae_mps=mean_or_null(rows, "tracking_mae_vx_mps"),
                    signed_yaw_bias_rad_s=mean_or_null(rows, "tracking_signed_bias_yaw_rad_s"),
                    gait_yaw_jitter_rad_s=mean_or_null(rows, "tracking_jitter_yaw_rad_s"),
                    world_path_rms_m=mean_or_null(rows, "world_path_rms_error_m"),
@@ -418,13 +419,14 @@ def markdown(report: dict) -> str:
         lines += ["", "## Downhill: commanded speed versus actual physical grade", "",
                   "Each row is a matched-speed, real-inclined-collider exam. "
                   "These are command-obedience tests, NOT route-planning tests.",
-                  "", "| Grade | Requested | Achieved vx | Survival | Movement | Heading | Mission | Signed yaw bias | Endpoint route error |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+                  "", "| Grade | Requested | Achieved vx | Forward MAE | Survival | Movement | Heading | Mission | Signed yaw bias | Endpoint route error |",
+                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for c in sorted(downhill,key=lambda x:(x["severity"],x["requested_terrain_speed_mps"] or 0.)):
             lines.append(
                 f"| {c['severity']:g}° | "
                 f"{physical(c['requested_terrain_speed_mps'],' m/s')} | "
                 f"{physical(c['measured_vx_mps'],' m/s')} | "
+                f"{physical(c['forward_mae_mps'],' m/s')} | "
                 f"{c['survived']}/{c['attempts']} | "
                 f"{c['movement_pass']}/{c['attempts']} | "
                 f"{c['heading_pass']}/{c['attempts']} | "
