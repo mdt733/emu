@@ -212,3 +212,36 @@ def test_cli_exposes_read_only_quality_command(capsys):
     assert ex.value.code==0
     out=capsys.readouterr().out
     assert "--exam" in out and "--output" in out
+
+
+def test_failure_decomposition_is_explicit_and_nonexclusive():
+    exam=_exam()
+    # The fast flat case has one qualified and one unqualified world.
+    # The unqualified world still survives and moves correctly; it fails
+    # only steering, just like a downhill heading-control failure.
+    r=build_report([exam])
+    row=next(c for c in r["cases"]
+             if c["family"]=="longitudinal" and c["severity"]==.8)
+    causes=row["nonexclusive_failure_reasons"]
+    assert causes["not_mission_qualified"]==1
+    assert causes["terminated_early"]==0
+    assert causes["movement_failed"]==0
+    assert causes["heading_failed"]==1
+    assert causes["supported_crossing_failed"] is None
+    assert causes["slope_stability_failed"] is None
+
+
+def test_physical_step_failures_remain_distinct_from_heading_failures():
+    exam=_exam()
+    step=next(c for c in exam["results"] if c["case"]["kind"]=="step")
+    # An otherwise upright, heading-correct robot may fail the true lip.
+    step["worlds"][0]["crossing_pass"]=False
+    step["worlds"][0]["mission_pass"]=False
+    step["mission_passed"]=1
+    profile=build_report([exam])
+    up=next(c for c in profile["cases"] if c["family"]=="step"
+            and c["direction"]=="step-up")
+    assert up["supported_crossing"]==0
+    assert up["nonexclusive_failure_reasons"]["supported_crossing_failed"]==1
+    assert up["nonexclusive_failure_reasons"]["heading_failed"]==0
+    assert up["nonexclusive_failure_reasons"]["not_mission_qualified"]==1
