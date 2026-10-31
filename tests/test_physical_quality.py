@@ -186,3 +186,29 @@ def test_reporting_command_only_writes_to_new_destination(tmp_path):
         report_main(["--exam",str(src),"--output",str(out)])
     with pytest.raises(ValueError,match="separate"):
         report_main(["--exam",str(src),"--output",str(src/"inside")])
+
+
+def test_default_control_case_is_a_legitimate_forward_command():
+    p=_exam()["protocol"]
+    label=axis(dict(name="control_easy_0p08",kind="control",vx=.08),
+               _row(0,True),p)
+    assert label==("longitudinal","forward",.08,"m/s")
+
+
+def test_mixed_incline_step_retains_true_up_and_down_evidence():
+    p=_exam()["protocol"]
+    case=dict(name="mixed_incline_step",kind="mixed",step_m=.008,
+              slope_deg=2.,edge_deg=17.)
+    up=axis(case,_row(0,True,direction="step-up"),p)
+    down=axis(case,_row(1,True,direction="step-down"),p)
+    assert up[1]!=down[1]
+    assert up[0]==down[0]=="mixed_terrain"
+
+
+def test_cli_exposes_read_only_quality_command(capsys):
+    from emu.cli import main
+    with pytest.raises(SystemExit) as ex:
+        main(["physical-quality","--help"])
+    assert ex.value.code==0
+    out=capsys.readouterr().out
+    assert "--exam" in out and "--output" in out
