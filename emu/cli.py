@@ -200,6 +200,12 @@ def main(argv=None) -> int:
                    help='optional requested forward speeds in m/s; requires --speed-ladder')
     q.add_argument('--terrain-matrix',action='store_true',
                    help='matched 1/2/3/5 degree four-direction slope and step matrix')
+    q.add_argument('--downhill-sweep',action='store_true',
+                   help='read-only matched downhill speed x grade matrix, no curriculum updates')
+    q.add_argument('--downhill-sweep-speeds',type=float,nargs='+',default=None,
+                   help='downhill sweep requested speeds, default .05 .10 .15 .20 .30')
+    q.add_argument('--downhill-sweep-grades',type=float,nargs='+',default=None,
+                   help='downhill sweep real grades in degrees, default 5 8 12 14.9')
     q.add_argument('--matrix-grades-deg',type=float,nargs='+',default=None,
                    help='optional four-direction physical matrix, e.g. 5 8 10 12 15; require --terrain-matrix')
     q.add_argument('--matrix-heights-cm',type=float,nargs='+',default=None,
@@ -333,6 +339,9 @@ def main(argv=None) -> int:
             matrix_heights_cm=args.matrix_heights_cm,
             speed_ladder=args.speed_ladder,
             ladder_speeds=args.ladder_speeds,
+            downhill_sweep=args.downhill_sweep,
+            downhill_sweep_speeds=args.downhill_sweep_speeds,
+            downhill_sweep_grades=args.downhill_sweep_grades,
             legacy_main_baseline=args.legacy_main_baseline)
         for path in paths:
             print(path)
