@@ -1,4 +1,4 @@
-"""v5016 directional-control oracle and optional *outer* heading controller.
+"""Sensor-independent directional exams and optional *outer* heading controller.
 
 Pure CPU geometry: no MuJoCo, PPO or checkpoint dependence. The world-frame
 examiner does not grant course credit by following the robot's current heading.
