@@ -94,6 +94,7 @@ function syncGoalMode() {
   }
   navHud.hidden=!sim;
   $('navNext').disabled=!sim;
+  $('navBenchmark').disabled=!sim;
 }
 // One proven command delivery path for every autonomous input source.
 function applyAutonomousCommand(command) {
@@ -105,7 +106,19 @@ function navigationUpdate(dt) {
   const pose=sim.navigationPose();
   if(sim.resetGeneration!==lastResetGeneration) {
     lastResetGeneration=sim.resetGeneration;
+    // In the physical benchmark, an automatic reset is evidence of failure,
+    // not permission to silently start a new five-goal comparison.
+    const prior=navigator.benchmark;
+    if(prior&&!prior.complete&&navigator.goal)
+      navigator.finishBenchmarkLeg(false);
+    const preserved=navigator.benchmark;
     navigator.reset();
+    if(preserved){
+      navigator.benchmark=preserved;
+      if(preserved.complete)
+        navigator.reason='Benchmark complete · '+preserved.results.filter(r=>r.success).length+
+          '/'+preserved.results.length+' reached';
+    }
   }
   // Plan and deliver at one explicit 10 Hz cadence. The previous version
   // ran the follower every browser frame but applied only every ~100 ms.
@@ -126,14 +139,20 @@ function navigationUpdate(dt) {
   $('demoKind').textContent=state.reason;
   if(!state.goal){
     $('navHudTitle').textContent=state.reason;
-    $('navHudInfo').textContent='Planning a route…';
+    const bench=state.benchmark;
+    $('navHudInfo').textContent=bench?.complete
+      ? `${bench.results.filter(r=>r.success).length}/${bench.goals} goals reached · ${bench.controller} · copy results in Settings`
+      :bench?`Planning benchmark goal ${bench.index+1}/${bench.goals}…`
+        :'Planning a route…';
     $('navEstimate').textContent=state.plannerError
       ? 'Planner error: '+state.plannerError
       : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
-  $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
+  $('navHudTitle').textContent=state.benchmark
+    ?`BENCHMARK ${state.benchmark.index+1}/${state.benchmark.goals} · ${state.reason}`
+    :`TARGET ${state.arrivals+1} · ${state.reason}`;
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
@@ -731,9 +750,41 @@ $('liveDemo').addEventListener('change',()=>{
 $('navNext').addEventListener('click',()=>{
   if(!sim)return;
   if(!demoActive)startDemo();
+  navigator.reset();
+  navigator.terrain=sim.navigationTerrain();
   navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
   const state=navigator.status(sim.navigationPose());
   sim.setNavigationOverlay(state.goal,state.route);
+});
+$('navBenchmark').addEventListener('click',()=>{
+  if(!sim)return;
+  if(!demoActive)startDemo();
+  // Identical physical reset and goal sequence for Classic and Predictive.
+  sim.reset();
+  lastResetGeneration=sim.resetGeneration;
+  navigator.startBenchmark();
+  navigator.terrain=sim.navigationTerrain();
+  sim.setNavigationOverlay(null,null);
+  sim.setNavigationPrediction([]);
+});
+$('navBenchmarkCopy').addEventListener('click',async()=>{
+  const bench=navigator.benchmark;
+  if(!bench){setStatus('Run the five-goal benchmark first','warn');return;}
+  const report={schema:'emu-viewer-nav-benchmark-v1',
+    actorStep:bundle?.source?.step??null,
+    actorSha256:bundle?.source?.actor_sha256??null,
+    terrain:terrainMode.value,challenge:parkChallengeLevel.value,
+    controller:bench.controller,complete:bench.complete,results:bench.results};
+  const body=JSON.stringify(report,null,2);
+  try{await window.navigator.clipboard.writeText(body);
+    setStatus('Benchmark JSON copied','ok');}
+  catch{
+    const blob=new Blob([body],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='emu-navigation-benchmark.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    setStatus('Benchmark JSON saved','ok');
+  }
 });
 async function pollLive() {
   if (livePolling) return;
