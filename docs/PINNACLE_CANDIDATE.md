@@ -1,10 +1,20 @@
-# EMU — next Pinnacle candidate: cold start, release and rollback
+# EMU — v5032 cold-start campaign (completed; historical runbook)
 
-**Status (31 October 2026): source preparation, NOT trained and NOT approved.**
-**Branch:** `release/v5032-pinnacle-candidate`.
-**Published public champion:** preserved on `main` with its existing
-`showcase/champion.emupolicy` and GitHub Pages release checks. Do not
-overwrite either while conducting candidate experiments.
+**Status: COMPLETED 31 October 2026 — 260,046,848 world steps.**
+The exact training source was `9b11bbe596aea7201d29a6beb2d192922f8e2e9a`.
+The owner chose this 360-input exported actor as the new maintained `main`
+baseline. The original 232-input champion remains at
+`2ec9e9db0a816c658131311129ef89ec7a595a12`.
+
+**THIS IS ARCHIVED LAUNCH DOCUMENTATION, NOT A RECOMMENDATION TO TRAIN AGAIN.**
+Read the [released 260M physical baseline](V5032_PINNACLE_RELEASE.md),
+[active handover](../HANDOVER.md) and
+[future research backlog](https://github.com/mdt733/emu/issues/17).
+
+The campaign *intended* verified-ascent reward 3.0 but the actually
+resolved training setting was **0.0** because of an original
+CLI-to-config forwarding omission. Do not treat the training-plan
+text below as a description of the learned reward configuration.
 
 ## What is actually supported by experiment results
 
