@@ -86,6 +86,36 @@ jobs:
           assert all(w['grade_verified'] for w in slopes)
           print('PASS: authentic 360 actor, paired real step UP/DOWN and 4-bearing 5deg slopes')
           PY
+      - name: Verify real world-frame route and physical quality on 260M actor
+        run: |
+          emu physical-quality \
+            --exam "$RUNNER_TEMP/g4-two-slab-terrain" \
+            --output "$RUNNER_TEMP/g4-physical-quality"
+          python - <<'PY'
+          import json,math,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          exam=json.loads((root/"g4-two-slab-terrain/unified_exam.json").read_text())
+          report=json.loads((root/"g4-physical-quality/physical_quality.json").read_text())
+          assert report["actor_sha256"]==exam["actor_artifact_sha256"]
+          assert report["source_training_step"]==260046848
+          assert report["global_score"] is None
+          assert report["schema"]=="emu_physical_quality_v1"
+          assert any(x["family"]=="step" and x["direction"]=="step-up" for x in report["cases"])
+          assert any(x["family"]=="step" and x["direction"]=="step-down" for x in report["cases"])
+          flat=next(x for x in exam["results"] if x["case"]["name"]=="flat")
+          valid=[w for w in flat["worlds"] if w["world_path_endpoint_error_m"] is not None]
+          assert valid, "real physics did not supply world-frame path diagnostics"
+          assert all(math.isfinite(w["world_path_rms_error_m"]) and
+                     math.isfinite(w["world_path_endpoint_error_m"])
+                     for w in valid)
+          print("REAL PHYSICS ROUTE METRICS, 2.8-second 4-world smoke only:")
+          for w in valid:
+              print("  world",w["world"],"path RMS",w["world_path_rms_error_m"],
+                    "endpoint",w["world_path_endpoint_error_m"],
+                    "directed m",w["directed_progress_m"])
+          print("PASS: read-only physical scorecard, real signed support, no fake global score")
+          PY
       - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
         run: |
           timeout 300s emu capability-exam \

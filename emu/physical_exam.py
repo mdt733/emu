@@ -885,6 +885,7 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
     """
     import numpy as np
     from .contracts import CONTROL_DT
+    from .physical_quality import commanded_world_path
     from .environment import UNIFIED_SLAB_HALF_LENGTH_M, UNIFIED_SLAB_HALF_DEPTH_M
 
     xyz=np.asarray(frames['position_xy'],dtype=float)
@@ -1069,6 +1070,27 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             mission_pass=bool(passed)
         else:
             mission_pass=mission_tracking
+        # The actor can track body-forward speed while drifting in world
+        # coordinates. Integrate the *requested* command from the initial
+        # settled pose; this is additive evidence, not a retroactive
+        # modification of existing strict/mission gates.
+        world_path=commanded_world_path(
+            xyz[:stop,world],heading[:stop,world],command[:stop,world],
+            dt=CONTROL_DT,settle_frames=settle_frames)
+        projected=world_path['directed_progress_m']
+        # Efficiency is an *observable physical diagnostic*, not another
+        # copy of the old yaw-jitter mission gate: correctly supported,
+        # moving and crossing robots may have useful shaft efficiency
+        # even when historical heading MAE rejects their natural gait.
+        physical_useful=(
+            movement_ok and
+            (not is_step or crossing is True) and
+            (case.get('kind')!='slope' or slope_stability_pass))
+        world_path['mechanical_j_per_useful_m']=(
+            round(work/projected,2)
+            if physical_useful and projected is not None and
+               projected>max(.02,.30*(world_path['commanded_world_displacement_m'] or 0.))
+            else None)
         work_per_m=work/achieved if achieved>.01 else None
         action_delta=(float(np.mean(np.abs(np.diff(actions[:stop,world],axis=0))))
                       if actions is not None and stop>1 else None)
@@ -1113,7 +1135,8 @@ def score_unified_capability_trace(frames: dict, *, case: dict,
             case_pass=bool(passed),
             mission_pass=bool(mission_pass),
             movement_tracking_pass=bool(movement_ok),
-            heading_control_pass=bool(heading_ok)))
+            heading_control_pass=bool(heading_ok),
+            **world_path))
     return results
 
 

@@ -231,6 +231,11 @@ def main(argv=None) -> int:
     q.add_argument('--heading-kp',type=float,default=0.75)
     q.add_argument('--seed',type=int,default=1701)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
+    q=sub.add_parser('physical-quality',help='summarise independent frozen physical exams without GPU or policy changes')
+    q.add_argument('--exam',type=Path,action='append',required=True,
+                   help='unified_exam.json or its directory; repeat for independent seeds/test panels')
+    q.add_argument('--output',type=Path,required=True,
+                   help='new output directory for physical_quality.json and .md')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -361,6 +366,12 @@ def main(argv=None) -> int:
         for path in paths:
             print(path)
         return 0
+    if args.cmd=='physical-quality':
+        from .physical_quality import report_main
+        av=[]
+        for path in args.exam: av += ['--exam',str(path)]
+        av += ['--output',str(args.output)]
+        return report_main(av)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
