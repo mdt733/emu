@@ -36,12 +36,12 @@ silently grants curriculum promotions or rewrites trained policy.
 No separate policy per skill, no privileged ground truth in the actor
 observation, no new timer every time someone thinks of another terrain.
 
-> **Current implementation (31 October 2026):** The
-> [v5032 Pinnacle candidate](PINNACLE_CANDIDATE.md) is one
-> 360-input, 260M-step cold-start run with a 20M foundation.
-> The old 220/232-input actor contracts remain for the protected
-> public baseline and independent comparisons until explicitly
-> approved for retirement.
+> **Current baseline (31 October 2026):** The completed
+> [v5032 Pinnacle 260M](V5032_PINNACLE_RELEASE.md) is the new
+> **360-input `main` actor**, trained from scratch with a 20M
+> foundation. The historical 220/232 contracts remain
+> available for independent comparisons and rollback at
+> `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 
 ## The autonomous target rule
 
