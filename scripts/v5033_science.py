@@ -260,13 +260,17 @@ def preserve_stage_a_full_checkpoint(arm: int, root: Path) -> None:
     stamp=dest.with_suffix(".sha256")
     if not original.is_file():
         raise RuntimeError("Cannot preserve missing Stage A final: "+name)
-    digest=sha256(original)
     if dest.exists() or stamp.exists():
-        if not dest.is_file() or not stamp.is_file() or stamp.read_text().strip()!=digest:
-            raise RuntimeError("Prior Stage A backup/source hash mismatch: "+name)
-        if sha256(dest)!=digest:
+        if not dest.is_file() or not stamp.is_file():
+            raise RuntimeError("Incomplete Stage A backup: "+name)
+        if sha256(dest)!=stamp.read_text().strip():
             raise RuntimeError("Preserved Stage A checkpoint bytes changed: "+name)
+        # Current final.pkl may now be a legitimate completed Stage B.
         return
+    cfg_file=root/"arms"/name/"training_config.json"
+    if not cfg_file.is_file() or json.loads(cfg_file.read_text()).get("steps")!=TARGET_A:
+        raise RuntimeError("Cannot first preserve Stage A after its target was extended")
+    digest=sha256(original)
     dest.parent.mkdir(parents=True,exist_ok=True)
     temp=dest.with_suffix(".tmp")
     if temp.exists():
