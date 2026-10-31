@@ -136,5 +136,43 @@ aggregate—not one that can erase a catastrophic weakness.
   downhill and step trials. Those are *new* independently
   versioned physics tests, not retrospectively changed scores.
 
+## First actual baseline measurement (read-only, on CPU)
+
+From a clean checkout of this feature branch with EMU installed,
+use **new output paths** and keep `main` policy bytes unchanged:
+
+```bash
+# Signed real 5/8/12/14.9° grades and 1–3.5cm supported step pairs
+emu capability-exam \
+  --policy showcase/champion.emupolicy \
+  --output ~/robot_lab/emu_exams/quality_terrain_s1701 \
+  --device cpu --seed 1701 --worlds 16 --horizon 350 --speed .15 \
+  --terrain-matrix --matrix-grades-deg 5 8 12 14.9 \
+  --matrix-heights-cm 1 2 2.5 3 3.5
+
+# Long sustained forward-speed ladder; same frozen actor and source
+emu capability-exam \
+  --policy showcase/champion.emupolicy \
+  --output ~/robot_lab/emu_exams/quality_speed_s1701 \
+  --device cpu --seed 1701 --worlds 16 --horizon 700 \
+  --speed-ladder --ladder-speeds .1 .2 .3 .4 .5 .6 .8 1.0
+
+# No simulation or GPU required to summarise existing JSON files
+emu physical-quality \
+  --exam ~/robot_lab/emu_exams/quality_terrain_s1701 \
+  --exam ~/robot_lab/emu_exams/quality_speed_s1701 \
+  --output ~/robot_lab/emu_exams/quality_pinnacle_260m
+```
+
+Every physical exam is independent and creates its own immutable
+results directory; the reporting command refuses to overwrite it.
+Repeat with **seed 1702** and fresh directories before claiming
+confidence in any frontier. These tests take CPU simulation time,
+but never modify the model, reward, curriculum or optimizer.
+Use the original signed units and report both new route metrics
+and the historical mission scores. Cases that the panel does
+not cover (notably recovery and transitions) remain explicitly
+`not tested` in the quality report.
+
 See [issue #17](https://github.com/mdt733/emu/issues/17) for proposed
 diagnostics and the [released 260M profile](V5032_PINNACLE_RELEASE.md).
