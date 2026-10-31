@@ -271,6 +271,8 @@ def main(argv=None) -> int:
                    help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
     q.add_argument('--verified-ascent-reallocation',type=float,default=0.,
                    help='v5031 C: shift 0..4 existing uphill shaping points to verified upper-support transfer')
+    q.add_argument('--science-arm',type=int,default=-1,
+                   help='v5033 matched research continuation: one registered arm 00..23; -1 historical')
     q.add_argument('--retention-share',type=float,default=0.0,
                    help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
     q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',
