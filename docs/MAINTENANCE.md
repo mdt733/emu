@@ -36,7 +36,9 @@ logging/ETA and does not invent another curriculum.
 
 Historical launchers are preserved by their **Git commits**
 in the [research archive](history/README.md), not carried
-alongside the active launcher. `main` continues to host the
+alongside the active launcher. The old v5030-only comparison
+script is now `scripts/compare_policies.py`: read-only physical
+main-versus-candidate evaluation with no obsolete branch lock. `main` continues to host the
 protected public 232-input champion. The 360-input successor
 is not published merely because a training command finishes.
 
