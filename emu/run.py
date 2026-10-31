@@ -119,7 +119,7 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('per-world real contact terrain requires --profile sim2real')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
-    return replace(cfg, steps=args.steps, attitude_profile='v5015',
+    result = replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
@@ -130,6 +130,7 @@ def one_run_config(args) -> TrainingConfig:
                    growth_recipe=growth_recipe, retention_share=retention_share,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
+                   verified_ascent_reallocation=float(getattr(args,'verified_ascent_reallocation',0.)),
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
@@ -170,6 +171,15 @@ def one_run_config(args) -> TrainingConfig:
                    contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
                    domain_terrain_radius=terrain_radius,
                    domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
+    arm=int(getattr(args,'science_arm',-1))
+    if arm >= 0:
+        from .science import configure_arm
+        return configure_arm(result,arm)
+    if arm != -1:
+        raise ValueError('--science-arm must be -1 (historical) or 0..23')
+    if not 0.0<=result.verified_ascent_reallocation<=4.0:
+        raise ValueError('--verified-ascent-reallocation must be 0..4')
+    return result
 
 
 def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig,
