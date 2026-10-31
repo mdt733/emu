@@ -33,7 +33,7 @@ ARM_NAMES = (
     "aggressive_pushes",
     "resilience_focus_30pct",
     "motor_cost_0p03",
-    "walking_action_smoothing",
+    "step_up_crouch_allowance",
 )
 ARM_COUNT = len(ARM_NAMES)
 
