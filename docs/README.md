@@ -11,6 +11,7 @@ preparing the next Pinnacle training run.
 |---|---|
 | [**PINNACLE CANDIDATE**](PINNACLE_CANDIDATE.md) | **Only current flagship cold-start trainer**, exact recipe, exam gates, viewer preview and release plan |
 | [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |
+| [**ARCHITECTURE**](ARCHITECTURE.md) | One-page system diagram, actor/teacher/exam separation and exact file ownership |
 | [HANDOVER](../HANDOVER.md) | Source freeze, proven v5031 findings, future TODO and rollback |
 | [RELEASE READINESS](RELEASE_READINESS.md) | Owner-approval checkpoints and physical graduation criteria |
 | [UNIFIED CAPABILITY GROWTH](UNIFIED_CAPABILITY_GROWTH.md) | Six focus curricula, one actor and physically earned frontiers |
