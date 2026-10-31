@@ -253,6 +253,9 @@ def build_report(exams: list[dict]) -> dict:
         # time. Don't throw it away because a harmless gait yaw oscillation
         # tripped the historical heading-jitter mission threshold.
         effort = finite_values(rows, "mechanical_j_per_useful_m")
+        heading_ends=finite_values(rows, "world_heading_error_end_rad")
+        mean_abs_end_heading_deg=(round(math.degrees(mean(
+            abs(x) for x in heading_ends)), 3) if heading_ends else None)
         # Failure reasons are NON-exclusive. A robot can miss a step
         # AND lose heading; keep both facts instead of inventing a
         # single overly tidy cause. Count only known optional fields.
@@ -285,6 +288,8 @@ def build_report(exams: list[dict]) -> dict:
                    world_path_rms_m=mean_or_null(rows, "world_path_rms_error_m"),
                    world_path_endpoint_m=mean_or_null(rows, "world_path_endpoint_error_m"),
                    directed_progress_m=mean_or_null(rows, "directed_progress_m"),
+                   directed_progress_ratio=mean_or_null(rows, "useful_progress_ratio"),
+                   mean_abs_heading_error_end_deg=mean_abs_end_heading_deg,
                    useful_work_j_per_m=(round(median(effort), 3) if effort else None),
                    useful_work_samples=len(effort))
         cases.append(row)
@@ -419,8 +424,8 @@ def markdown(report: dict) -> str:
         lines += ["", "## Downhill: commanded speed versus actual physical grade", "",
                   "Each row is a matched-speed, real-inclined-collider exam. "
                   "These are command-obedience tests, NOT route-planning tests.",
-                  "", "| Grade | Requested | Achieved vx | Forward MAE | Survival | Movement | Heading | Mission | Signed yaw bias | Endpoint route error |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+                  "", "| Grade | Requested | Achieved vx | Forward MAE | Survival | Movement | Heading | Mission | Signed yaw bias | End heading abs | Endpoint route error |",
+                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for c in sorted(downhill,key=lambda x:(x["severity"],x["requested_terrain_speed_mps"] or 0.)):
             lines.append(
                 f"| {c['severity']:g}° | "
@@ -432,6 +437,7 @@ def markdown(report: dict) -> str:
                 f"{c['heading_pass']}/{c['attempts']} | "
                 f"{c['missions']}/{c['attempts']} | "
                 f"{physical(c['signed_yaw_bias_rad_s'],' rad/s')} | "
+                f"{physical(c['mean_abs_heading_error_end_deg'],'°')} | "
                 f"{physical(c['world_path_endpoint_m'],' m')} |")
         lines += ["","### Downhill speed range (within the same physical grade)", "",
                   "| Grade | Tested speeds | Speed points | Mission-speed AUC |",
