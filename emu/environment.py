@@ -1307,7 +1307,8 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  physical_exam_legacy_actor: bool = False,
                  temporal_vx_reward_share: float = 0.0,
-                 verified_ascent_reallocation: float = 0.0):
+                 verified_ascent_reallocation: float = 0.0,
+                 science_step_crouch_tolerance_m: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1507,6 +1508,12 @@ class EmuMJXEnv(TaskSampler):
                  (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
             raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
         self.verified_ascent_reallocation=float(verified_ascent_reallocation)
+        if (not np.isfinite(science_step_crouch_tolerance_m) or
+                not 0. <= science_step_crouch_tolerance_m <= .04 or
+                (science_step_crouch_tolerance_m>0. and
+                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
+            raise ValueError('step crouch science requires coherent-careful terrain; 0..4cm')
+        self.science_step_crouch_tolerance_m=float(science_step_crouch_tolerance_m)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1805,6 +1812,12 @@ class EmuMJXEnv(TaskSampler):
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
             careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
+            science_crouch_tolerance_m=self.science_step_crouch_tolerance_m,
+            careful_crouch=(
+                care_active & (metrics['support']>=.5) &
+                (metrics['bad_contact']<.5) & (metrics['terminal']<.5) &
+                ~physics_diverged
+                if self.science_step_crouch_tolerance_m>0. else None),
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
