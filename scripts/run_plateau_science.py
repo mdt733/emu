@@ -273,7 +273,15 @@ def run_one(arm: Arm, conf, parent: Path, hash_: str, root: Path) -> None:
         subprocess.run([sys.executable, "-m", "emu.cli",
                         "export-policy", str(final), str(policy)],
                        cwd=REPO, check=True)
-    print("EXPORTED", policy, flush=True)
+    from emu.viewer_server import validate_browser_bundle
+    export_identity = validate_browser_bundle(json.loads(policy.read_text(encoding="utf-8")))
+    if (export_identity["schema"] != 3 or
+            export_identity["obs_dim"] != 360 or
+            export_identity["checkpoint_schema"] != 9 or
+            export_identity["step"] < conf.steps or
+            export_identity["training_source_commit"] != provenance["commit"]):
+        raise RuntimeError(f"Invalid exported research actor for {arm.directory}: {export_identity}")
+    print("VALIDATED RESEARCH EXPORT (not approved):", policy, flush=True)
 
 
 def write_summary(root: Path, sha: str, target: int) -> None:
