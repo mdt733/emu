@@ -66,6 +66,7 @@ to judge them. The **actor** gets only deployable observations.
 | Where are measurable results written? | `emu/results.py` and `scripts/campaign_support.py` | CSV/JSON/console, campaign summaries, exportable *reports* |
 | How is a robot played in the browser? | `emu/viewer_server.py` and `emu/viewer_src/` | Portable actor export, live checkpoint watching, MuJoCo/WASM, controls and terrain |
 | Where does the training campaign start? | `scripts/train_pinnacle.py` | One pinned cold-start recipe; preflights, train, export, exams; **not** auto-release |
+| How are main and the candidate compared? | `scripts/compare_policies.py` | Common real physical commands/contacts; authentic 232/360 sensor contracts |
 | How is the published demo protected? | `scripts/verify_showcase_release.py`, `scripts/prepare_showcase.py`, `.github/workflows/emu-playground.yml` | Approved policy identity and explicitly controlled GitHub Pages deployment |
 
 Useful secondary files: `emu/directional.py` evaluates heading,
