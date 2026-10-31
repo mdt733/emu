@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, source-matched comparison: main champion vs 360-input candidate.
+"""Read-only, source-matched comparison: archived 232 actor vs new 360 Pinnacle.
 
 Both actors run the SAME real long two-slab collision world, commands,
 time horizons, seeds and scoring. Main uses its genuine 232-input
@@ -20,7 +20,7 @@ import zipfile
 from campaign_support import execute
 
 REPO=Path(__file__).resolve().parents[1]
-DEFAULT_CANDIDATE=Path.home()/"robot_lab/emu_runs/v5032_pinnacle_s761_v2/pinnacle_candidate_260M.emupolicy"
+DEFAULT_CANDIDATE=REPO/"showcase/champion.emupolicy"
 DEFAULT_OUT=Path.home()/"robot_lab/emu_runs/v5032_main_physical_comparison"
 CASES={
     "speed_ladder": [
@@ -74,12 +74,12 @@ def main():
     ap.add_argument("--run",action="store_true",help="execute read-only matched exams")
     ap.add_argument("--candidate",type=Path,default=DEFAULT_CANDIDATE,
                     help="exported 360-input actor; defaults to v5032 candidate")
-    ap.add_argument("--baseline",type=Path,default=REPO/"showcase/champion.emupolicy",
-                    help="approved published main 232-input actor (read-only)")
+    ap.add_argument("--baseline",type=Path,required=True,
+                    help="old 232-input actor exported from rollback SHA 2ec9e9d (required); new main is 360")
     ap.add_argument("--output-root",type=Path,default=DEFAULT_OUT)
     args=ap.parse_args()
-    if git("branch","--show-current")!="release/v5032-pinnacle-candidate" or git("status","--porcelain"):
-        raise RuntimeError("Run from the clean v5032 candidate source checkout only")
+    if git("branch","--show-current") not in ("main","release/v5032-pinnacle-candidate") or git("status","--porcelain"):
+        raise RuntimeError("Run from clean main or the exact v5032 release checkout only")
     source=git("rev-parse","HEAD")
     root=args.output_root.expanduser().resolve()
     candidates={"main_232":args.baseline.expanduser().resolve(),
@@ -110,8 +110,8 @@ def main():
               "actors":actors,"cases":CASES,
               "note":"same real collision, actual commands/seeds/scoring; unequal authentic sensors by design"}
     print("PINNACLE COMPARISON / SHA:",source,flush=True)
-    print("MAIN 232:",actors["main_232"],flush=True)
-    print("CANDIDATE 360:",actors["candidate_360"],flush=True)
+    print("ARCHIVED 232:",actors["main_232"],flush=True)
+    print("CURRENT 360:",actors["candidate_360"],flush=True)
     print("EXAMS: 16 worlds, 700-frame speed ladder; 350-frame slope + paired step matrix")
     if not args.run:
         print("PLAN ONLY: append --run; no files written")
@@ -161,7 +161,7 @@ def main():
     md=["# Pinnacle physical comparison: same challenges, authentic actor sensors",
         "",f"Examiner SHA: `{source}`","",
         "Both policies ran the SAME real dual-slab contact fixtures and seeds.",
-        "Main remains 232-input tripod/IMU/flow; candidate remains 360-input 4x4.",
+        "Archived actor is 232-input tripod/IMU/flow; released Pinnacle is 360-input 4x4.",
         "A physical challenge baseline is valid, but different actual sensory",
         "visibility is part of the capabilities being compared, not a bug.","",
         "| Exam | Condition | Policy | Achieved vx | Survived | Mission | Step UP | Step DOWN |",
@@ -171,7 +171,7 @@ def main():
                   f"{x['mean_achieved_vx_mps']} | {x['alive']}/{x['worlds']} | "
                   f"{x['mission']}/{x['worlds']} | {x['supported_step_up']} | {x['supported_step_down']} |")
     (root/"physical_comparison.md").write_text("\n".join(md)+"\n")
-    zip_path=root/"main_vs_candidate_physical_comparison.zip"
+    zip_path=root/"archived232_vs_pinnacle360_physical_comparison.zip"
     with zipfile.ZipFile(zip_path,"w",compression=zipfile.ZIP_DEFLATED) as z:
         for file in [mpath,root/"physical_comparison.csv",root/"physical_comparison.md"]:
             z.write(file,arcname=file.name)
