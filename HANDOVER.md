@@ -1,187 +1,127 @@
 # EMU — active engineering handover
 
-**Updated: 31 October 2026.**
-**Active candidate source:** `release/v5032-pinnacle-candidate`.
-**Public incumbent:** `main` + `showcase/champion.emupolicy`, frozen,
-232-input v5016 Pinnacle (~260M checkpoint). This is still the
-published baseline. No replacement or Pages publication has occurred.
+**31 October 2026 · New baseline: v5032 Pinnacle 260M**
 
-## Current mission
+The owner elected to promote the completed v5032 360-input
+Pinnacle as the new `main` model, **with its known weaknesses
+documented** rather than starting another experimental branch.
+The 24-arm v5033 science work is **paused** and not released.
 
-Stop the long chain of experiments and produce ONE clean, reproducible,
-source-pinned **360-input** flagship model that can become the next
-Pinnacle **only after objective graduation**.
+## What is the robot?
 
-- Six-servo dynamically unstable gait, not a static-standing cheat.
-- 20M main-style cold nursery; unified six-specialist growth to 260M.
-- True 360-input ToF/optical-flow/IMU sensor model, real
-  colliding slopes and sharp step-up/down slabs.
-- Fast measured forward walking, lateral/yaw authority and
-  controllable signed heading bias. Normal rhythmic yaw oscillation
-  during fast strides is not automatically bad.
-- Retain moderate slopes, step down, actual upstep support,
-  resilience, efficiency and low falls as speed grows.
-- Do not cap capability growth for visual neatness.
-- Organic terrain/extra specialised step-up intervention is
-  **DEFERRED** until this flagship candidate has completed and
-  been measured.
+One six-servo dynamically unstable MJX biped, 360-input
+4×4 forward ToF + IMU/optical-flow / proprioception observations,
+one shared PPO actor. No programmed walk cycles. Real signed
+slope and sharp step contacts, six independently growing
+teacher focus groups. The actor does not receive privileged
+teacher terrain truth. See [ARCHITECTURE](docs/ARCHITECTURE.md).
 
-## Training branch and the one launch command
+## The frozen trained baseline
 
-**Only active launcher:** `scripts/train_pinnacle.py`.
-**Case:** `pinnacle_cold260`, seed761, 2048 GPU worlds, 260M cumulative.
-**Root:** `~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/`.
+| Fact | Value |
+|---|---|
+| Completed world steps | **260,046,848** |
+| Training source SHA | `9b11bbe596aea7201d29a6beb2d192922f8e2e9a` |
+| Source branch at training | `release/v5032-pinnacle-candidate` |
+| Environments and seed | 2048, 761 |
+| Observation / action | 360 / 6 |
+| Policy artifact SHA-256 | `ef929c0220c38e5519391320e5f0629a200e1ef37a5808086f6383cfb63f7ec8` |
+| Checkpoint SHA-256 | `238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b` (report; full file is on WSL) |
+| Local run directory | `~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/` |
+| Published policy location | `showcase/champion.emupolicy` |
 
-Pinned recipe: 20M foundation / main mix / balanced / main-mature,
-coherent-careful real steps, gentle pushes, 25% athletic flat
-rehearsal, 25-frame forward reward blend 0.5, verified upper-support
-reward reallocation 3.0. 360-input policy; 8-cm geometry ceiling
-(not a training target). Every 20M steps is fixed evaluated.
-New source branch SHA must be frozen and printed in terminal
-**immediately before starting**; it must not be updated mid-run.
+`main` may have later documentation/release commits; the
+actor's **training source stays frozen at its original SHA**.
+Do not relabel those weights as a different training recipe.
+Keep the whole `final.pkl` separately backed up outside Git.
 
-```bash
-# On the dedicated, clean source checkout
-cd "$HOME/emu-pinnacle"
-source .venv/bin/activate
-git branch --show-current
-git rev-parse HEAD
-git status --short
-python scripts/train_pinnacle.py                 # PLAN only
-python -u scripts/train_pinnacle.py --run        # CPU+2048 CUDA gate; train
-# If interrupted, only after verifying SAME SHA/manifest/preflight:
-python -u scripts/train_pinnacle.py --run --skip-preflight
-```
+**Important recipe discrepancy:** the launch manifest requested
+verified-ascent reward reallocation 3.0, but the actual saved
+`TrainingConfig` had **0.0** because the trainer's CLI
+forwarding was missing. The released actor did not learn that
+treatment. Recheck **resolved training config**, not CLI printouts,
+before any future PPO campaign.
 
-A brand-new PC must first follow [INSTALL](docs/INSTALL.md).
-Run in foreground, no tmux; GNU Screen for remote disconnects if
-desired. No other GPU campaigns at the same time. The launcher
-refuses dirty source, foreign checkpoint lineage, changed manifest
-and incomplete CUDA acceptance.
+## What does the measured robot do?
 
-Run output includes checkpoint/optimizer evidence, frozen exams,
-report ZIP and `pinnacle_candidate_260M.emupolicy`. No weights are
-auto-committed to Git or published.
+Independent 16-world CPU MJX physical exams on real collision
+surfaces (seed1701, 7s terrain, 14s speed):
 
-## Source-gate fix after first attempted launch
+- **Step-up:** 1–2cm 8/8; 2.5cm 4/8; 3cm 0/8.
+- **Step-down:** 3cm 8/8; 3.5cm 1/8.
+- **Slopes:** uphill12° 15/16, both cross-slopes12° 16/16;
+  downhill12° survival 16/16 but heading-controlled 4/16.
+- **Speed:** at requested 0.6m/s, 16/16 survived but 0/16
+  passed full heading-controlled mission; at 0.8m/s survival
+  was 12/16 and strict mission 0/16.
+- **Frozen overall score:** 0.8296 at 260M.
 
-The first v5032 260M cold-start attempt stopped **before any PPO
-training**: the launcher passed the CPU and full 2048 CUDA smoke
-but set `EMU_UNIFIED_CONTINUATION` instead of the trainer's required
-`EMU_UNIFIED_CONTINUOUS=cold-growth-approved`.
+Do not turn these into a claim of 1.0 m/s or 3cm mastery.
+In particular, downhill 12° at 0.15m/s was NOT a sprint or
+balance failure: mean signed yaw drift disqualified the
+heading-control mission.
 
-The launcher is now aligned with `emu/training.py`, with a
-CPU-only regression test in `tests/test_pinnacle_launch.py`.
-Because the first attempt wrote a manifest/preflight stamp pinned
-to its older source SHA, the repaired campaign uses the **new
-`v5032_pinnacle_s761_v2` directory**. Do not delete or silently
-rewrite the old run metadata; do not resume training from an
-unvalidated partial state. Use `git pull --ff-only` only in the
-stopped v5032 checkout, then verify the new exact SHA before
-launching a new run.
+See [full release measurements](docs/V5032_PINNACLE_RELEASE.md)
+and the [research backlog](https://github.com/mdt733/emu/issues/17).
 
-## What we learned before the cold flagship
+## Publication and rollback
 
-**v5030:** A 25-frame/half-second forward reward blended into the
-normal command reward improved held-out broad-score performance.
+The intended release changes the *code branch and the portable
+policy together*, using the exact policy SHA and approved
+`showcase/release_approval.json`. The frontend is validated
+by `scripts/verify_showcase_release.py` and GitHub Actions.
+The GitHub Pages workflow uses explicit manual release
+dispatch; merging source alone does not deploy it.
 
-**v5031:** Both A/B arms resumed from the identical v5030 B80
-checkpoint at original SHA
-`a7be11b587f0912e642e100b22ec6d617f548f5b`.
-Their source was
-`2ffa1abce1b171dc38f8d864c8f43cbf3ea4b773`,
-and both completed 100,007,936 steps (seed747).
-Only the verified-ascent reward reallocation changed.
+**Previous main rollback:** `2ec9e9db0a816c658131311129ef89ec7a595a12`
+(the old 232-input champion, approval file, viewer and code).
+Retain this immutable Git SHA, not a casually renamed ZIP.
 
-| Frozen physical challenge | B control | C verified-support |
-|---|---:|---:|
-| 2 cm supported UP | 7/8 | **8/8** |
-| 2.5 cm supported UP | 2/8 | **4/8** |
-| 3 cm supported UP | 0/8 | 0/8 |
-| 3.5 cm DOWN | 1/8 | **7/8** |
-| 12° downhill mission | 1/16 | **13/16** |
-| 0.8 m/s 700-frame survival | 9/16 | **12/16** |
-| 1.0 m/s 700-frame survival | 0/16 | 0/16 |
+The original long handover was preserved as
+[Handover v5032 before release](docs/history/HANDOVER_V5032_PRE_RELEASE.md).
+The new README and [architecture map](docs/ARCHITECTURE.md)
+are the entry points for somebody new to the project.
 
-Their fixed broad scores were nearly identical (B=0.77593,
-C=0.77503), and C had worse training falls and shaft-work
-proxy. A single seed is not release-ready. C is the chosen
-flagship **experiment recipe**, not a proven new champion.
-Measured 3-cm UP crossing is STILL unresolved; 0.8m/s survival
-is not 1m/s mastery.
+## What to work on next (not yet)
 
-The two existing attached v5031 ZIP reports and historical
-frozen Git SHAs are the evidence. Do not modify completed
-runs or checkpoints.
+**Read-only diagnostics first.** In order:
 
-## Showcase status and safe publication
+1. Separate downhill signed yaw-rate bias, alternating gait
+   jitter and **world-frame heading/path drift**; use a 5-speed
+   × 4-grade frozen test before changing rewards.
+2. Trace real supported 2.5–3cm step-up crossings: knee/hip
+   extension, upper-contact duration, lower-foot stance,
+   torso dip/rebound and spring energy *release*.
+3. Investigate the persistent height reward after foundation.
+   A 5cm pre-step crouch is heavily discouraged even though
+   springs can physically load; test a temporary near-lip
+   allowance only in a future **single controlled experiment**.
+4. Study 1mm step-frontier adjustment versus historical
+   +18%/-18% jumps, with more completed evidence per direction.
+5. Diagnose high-speed heading/turn authority, damping and
+   meaningful shaft J/m without rewarding stationary behaviour.
+6. Only afterwards revisit organic hills, traversability
+   refusal and a future from-scratch Pinnacle.
 
-Current research viewer has the park's optical-flow heightfield
-fix, continuous crest support and eight graduated real-contact
-challenges (Gentle/Balanced/Stretch). This is an interactive
-diagnostic; it is **not** an independent MJX physical exam.
+The complete categorised backlog is
+[GitHub issue #17](https://github.com/mdt733/emu/issues/17).
+It includes negative tests and acceptance criteria. No new
+PPO science arms have been launched in this promotion.
 
-After 260M completion, compare the trained exported candidate to
-both v5031 C100 and **protected main** on common physical
-commands/ground/support protocols. Grade actual sustained forward
-speed including 0.6/0.8/1.0, yaw/path bias, lateral/backward,
-supported step-UP and DOWN 2/2.5/3/3.5 cm, four-bearing
-slopes, resilience, falls, and J/m. Repeat key claims across
-seeds/worlds. Never certify curriculum labels as physical success.
+## Guardrails
 
-Only after explicit review/owner approval do we update
-`showcase/champion.emupolicy`, generate/validate
-`showcase/release_approval.json`, commit the release and
-publish via the existing protected GitHub Pages workflow.
-Preserve old main SHA + policy bytes for instant rollback.
-No automatic `main` merge or deployment from candidate training.
+- `main` is the new **reference**, not a scratchpad for training
+  variations. Work on one explicitly justified change at a time.
+- The abandoned `research/v5033-24-arm-science` branch
+  contains **unvalidated experimental code**. Do not execute
+  its 24-arm launcher or mistake its changes for released EMU.
+- Keep the old 232 policy recoverable from rollback SHA.
+- Published actor `.emupolicy` is inference-only; full
+  checkpoint `final.pkl` has optimizer/teacher/normaliser state.
+- Use common independent exams with actual supported step
+  crossing and achieved velocity, not curriculum headlines.
 
-Read [graduation gates](docs/RELEASE_READINESS.md) and
-[the exact candidate runbook](docs/PINNACLE_CANDIDATE.md).
-
-## Housekeeping performed in this candidate source tree
-
-- The README, installation procedure, maintenance/runbook,
-  release checklist and handover now point to the flagship.
-- One active source-pinned launcher replaces four historical
-  A/B and recovery launchers. Original Git branches and
-  commits preserve their source code and all old experiments.
-- Source-level tests, real physics exams and release validators
-  are retained. No history rewritten, local checkpoints deleted,
-  or champion replaced.
-- Canonical viewer uses the fixed park optical flow and
-  corrected crest seam, with graded obstacles.
-- The existing `scripts/campaign_support.py` still supplies
-  streaming foreground logs, ETA, and source-pinned bundle
-  generation.
-
-## NEXT when the trained candidate returns
-
-1. Verify `candidate_provenance.json` hash, checkpoint step,
-   360-input actor contract and frozen-exam protocol.
-2. Compare against v5031 C100 and main with **the same
-   actual contact geometry and request schedules**.
-3. Assess speed vs supported terrain vs efficiency and falls.
-   If the candidate fails, preserve it; repair under a NEW
-   source-pinned experiment rather than manipulating `main`.
-4. If it graduates, prepare the reviewed 360-input
-   `showcase/champion.emupolicy` plus approval and rollback.
-5. Only AFTER flagship release consider follow-up lessons:
-   (a) real supported 3-cm step-UP instead of lip-stalling,
-   (b) organic terrain transitions/curvature, (c) sensor-aware
-   traversability and safe refusal, (d) multi-seed/real-hardware
-   calibration and physical efficiency.
-
-## Read these, not archived launch instructions
-
-[Current runbook](docs/PINNACLE_CANDIDATE.md) ·
-[Fresh-machine install](docs/INSTALL.md) ·
-[Physical release evidence](docs/RELEASE_READINESS.md) ·
-[Viewer graded park](docs/VIEWER_GRADUATED_PARK.md) ·
-[Code map](docs/ARCHITECTURE.md) ·
-[Learning architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
-[Complete v5031 handover preserved](docs/history/HANDOVER_V5031_COMPLETE.md) ·
-[Historical experiments](docs/history/README.md).
-
-**Guardrail:** freeze `main` until the independent evidence and
-explicit publication approval both exist.
+[README](README.md) ·
+[Release measurements](docs/V5032_PINNACLE_RELEASE.md) ·
+[Architecture](docs/ARCHITECTURE.md) ·
+[Documentation index](docs/README.md).
