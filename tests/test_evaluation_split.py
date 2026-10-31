@@ -129,7 +129,7 @@ def test_v5030_main_physical_baseline_cli_contract(capsys):
     assert '--legacy-main-baseline' in capsys.readouterr().out
 
 
-def test_v5030_physical_232_sensor_contract_and_two_slabs_on_real_cpu():
+def test_v5030_physical_232_sensor_contract_and_two_slabs_on_real_cpu(archived_232_policy):
     import pytest
     pytest.importorskip('mujoco')
     pytest.importorskip('jax')
@@ -139,7 +139,7 @@ def test_v5030_physical_232_sensor_contract_and_two_slabs_on_real_cpu():
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN,SENSOR_OBS_DIM,TERRAIN_OBS_DIM
     from emu.viewer_server import load_exported_actor_for_exam
     from pathlib import Path
-    policy=Path(__file__).resolve().parents[1]/'showcase/champion.emupolicy'
+    policy=archived_232_policy
     _,_,main=load_exported_actor_for_exam(policy)
     assert main['observation_schema']==OBS_SCHEMA_SENSOR
     settings=main['sensor_settings']
