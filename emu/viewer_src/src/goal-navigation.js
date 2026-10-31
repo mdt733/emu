@@ -11,6 +11,15 @@ export const GOAL_POSITION_TOLERANCE_M = .19;
 export const GOAL_HEADING_TOLERANCE_RAD = .28;
 // Extra tracking room beyond the tree's physical trunk footprint.
 export const TREE_CLEARANCE_M = .62;
+// Repeatable real-MuJoCo 5-pose course inside the park's gentler centre.
+// This uses the CURRENT actor; no synthetic kinematics are scored as results.
+export const NAV_BENCHMARK_TARGETS = Object.freeze([
+  {x:1.25,y:.10,heading:0},
+  {x:1.30,y:1.20,heading:Math.PI/2},
+  {x:-.75,y:1.30,heading:Math.PI},
+  {x:-1.20,y:-1.10,heading:-Math.PI/2},
+  {x:.95,y:-1.20,heading:0},
+]);
 const GRID = .22, HEADINGS = 16, BOUND = 5.6;
 const tau = 2*Math.PI;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -346,6 +355,7 @@ export class GoalNavigator {
     this.controllerMode='predictive';
     this.predictor=new PredictivePathController();
     this.prediction=[];this.predictionScore=null;this.terrain=null;this.latestPose=null;
+    this.benchmark=null;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -391,7 +401,32 @@ export class GoalNavigator {
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.prediction=[];this.predictionScore=null;this.latestPose=null;
-    this.predictor.reset();}
+    this.predictor.reset();this.benchmark=null;}
+  startBenchmark(){
+    const keepActive=this.active;
+    this.reset();
+    this.active=keepActive;
+    this.benchmark={targets:NAV_BENCHMARK_TARGETS.map(g=>({...g})),
+      index:0,results:[],complete:false,controller:this.controllerMode};
+    this.reason='Benchmark · route 1 / '+NAV_BENCHMARK_TARGETS.length;
+  }
+  finishBenchmarkLeg(success){
+    if(!this.benchmark||this.benchmark.complete)return;
+    this.benchmark.results.push({
+      goal:this.benchmark.index+1,success,
+      elapsedSeconds:Number(this.elapsed.toFixed(2)),
+      meanTrackErrorM:Number((this.trackingTime?
+        this.trackErrorIntegral/this.trackingTime:0).toFixed(3)),
+      meanHeadingErrorDeg:Number((this.trackingTime?
+        this.headingErrorIntegral/this.trackingTime*180/Math.PI:0).toFixed(1)),
+      crossings:this.crossings});
+    this.benchmark.index++;
+    if(this.benchmark.index>=this.benchmark.targets.length){
+      this.benchmark.complete=true;
+      this.reason='Benchmark finished · '+this.benchmark.results.filter(r=>r.success).length+
+        '/'+this.benchmark.results.length+' successful';
+    }
+  }
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
@@ -422,6 +457,30 @@ export class GoalNavigator {
     return true;
   }
   nextGoal(pose,limits,trees=[]){
+    if(this.benchmark){
+      if(this.benchmark.complete)return false;
+      const goal=this.benchmark.targets[this.benchmark.index];
+      if(this.requestPlan){
+        this.reason='Benchmark · planning goal '+(this.benchmark.index+1);
+        return this.queuePlan({
+          kind:'target',pose:{x:pose.x,y:pose.y,heading:pose.heading},
+          goal,limits,trees,terrain:this.terrain
+        },answer=>{
+          const fresh=this.latestPose&&distance(this.latestPose,pose)<.30;
+          if(answer?.route?.solved&&fresh){
+            this.acceptRoute(pose,goal,answer.route,{newMission:true});
+          }else{
+            this.finishBenchmarkLeg(false);
+            this.goal=null;this.route=null;this.path=null;
+            this.searchCooldown=.5;
+          }
+        });
+      }
+      if(this.setGoal(pose,goal,limits,trees))return true;
+      this.finishBenchmarkLeg(false);
+      this.searchCooldown=.5;
+      return false;
+    }
     if(this.requestPlan){
       this.reason='Planning next target in background…';
       return this.queuePlan({
@@ -454,6 +513,9 @@ export class GoalNavigator {
     this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
     this.predictor.observe(pose,delta);
     // Standing while waiting avoids making an asynchronous plan stale.
+    if(this.benchmark?.complete){
+      apply({vx:0,vy:0,yaw:0,pitch:0});return;
+    }
     if(!this.goal){
       if(this.pendingRequest){
         this.reason='Background route search';
@@ -471,8 +533,9 @@ export class GoalNavigator {
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
     if(this.elapsed>deadline){
       this.failures++;
+      this.finishBenchmarkLeg(false);
       this.goal=null;this.route=null;this.path=null;
-      this.reason='Mission timed out · new goal';
+      this.reason=this.benchmark?.complete?this.reason:'Mission timed out · new goal';
       apply({vx:0,vy:0,yaw:0,pitch:0});
       this.nextGoal(pose,limits,trees);
       return;
@@ -487,8 +550,10 @@ export class GoalNavigator {
       if(this.arrivalHold>=.55){
         // Retire this mission before asking the Worker for a new one.
         this.arrivals++;
+        this.finishBenchmarkLeg(true);
         this.goal=null;this.route=null;this.path=null;
-        this.reason='Goal reached · choosing next target';
+        this.reason=this.benchmark?.complete?this.reason:
+          'Goal reached · choosing next target';
         this.nextGoal(pose,limits,trees);
       }else this.reason='Verifying arrival';
       return;
@@ -603,6 +668,11 @@ export class GoalNavigator {
       index:this.index,reason:this.reason,
       controllerMode:this.controllerMode,prediction:this.prediction,
       predictionScore:this.predictionScore,
-      responseModel:this.predictor.model.report()};
+      responseModel:this.predictor.model.report(),
+      benchmark:this.benchmark?{
+        controller:this.benchmark.controller,index:this.benchmark.index,
+        goals:this.benchmark.targets.length,
+        complete:this.benchmark.complete,
+        results:[...this.benchmark.results]}:null};
   }
 }
