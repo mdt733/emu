@@ -39,6 +39,20 @@ jobs:
           bash -n scripts/setup_wsl.sh
           bash scripts/setup_wsl.sh --help > /dev/null
       # One G3 physical acceptance probe; no PPO training or new test framework.
+      - name: Verify exact approved 260M 360-input public actor
+        run: python scripts/verify_showcase_release.py
+      - name: Verify source and artifact are still the published v5032 model
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("showcase/champion.emupolicy").read_text())
+          a=json.loads(Path("showcase/release_approval.json").read_text())
+          assert p["schema"]==3 and p["policy"]["obs_dim"]==360
+          assert p["source"]["step"]==260046848
+          assert a["training_source_commit"]=="9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
+          assert a["checkpoint_sha256"]=="238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b"
+          PY
       - name: G3 finite-step MJX contact and episode reset smoke (CPU)
         run: |
           timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
@@ -52,24 +66,24 @@ jobs:
             --output "$RUNNER_TEMP/g4-terrain-course" \
             --device cpu --worlds 4 --horizon 260 --heights-cm 0 2 4
           python -c "import json,os; p=os.environ['RUNNER_TEMP']+'/g4-terrain-course/terrain_exam.json'; d=json.load(open(p)); assert len(d['cases'])==4 and all(c['crossing_pass'] is None for c in d['cases'][:2]) and d['flat_topology_comparison'] is not None and d['cases'][0]['survived']==d['cases'][1]['survived'] and abs(d['cases'][0]['mean_progress_m']-d['cases'][1]['mean_progress_m'])<0.08, 'inactive terrain changed baseline walking physics'"
-      - name: v5030 real 232-input main on v5029's SAME physical slabs
+      - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
         run: |
           timeout 300s emu capability-exam \
             --policy showcase/champion.emupolicy \
-            --output "$RUNNER_TEMP/v5030-main-match" \
+            --output "$RUNNER_TEMP/pinnacle-main-360" \
             --device cpu --worlds 2 --horizon 100 \
-            --speed .15 --speed-ladder --ladder-speeds .15 \
-            --legacy-main-baseline
+            --speed .15 --speed-ladder --ladder-speeds .15
           python - <<'PY'
           import json,os
-          from emu.contracts import OBS_SCHEMA_SENSOR
-          d=json.load(open(os.environ['RUNNER_TEMP']+'/v5030-main-match/unified_exam.json'))
-          assert d['observation_schema']==OBS_SCHEMA_SENSOR
-          assert d['legacy_main_baseline'] is True
+          from emu.contracts import OBS_SCHEMA_TERRAIN
+          d=json.load(open(os.environ['RUNNER_TEMP']+'/pinnacle-main-360/unified_exam.json'))
+          assert d['observation_schema']==OBS_SCHEMA_TERRAIN
+          assert d['legacy_main_baseline'] is False
           assert len(d['results'])==1
           assert len(d['results'][0]['worlds'])==2
-          assert d['protocol']['legacy_232_actor_sensors_preserved']
-          print('Main legacy 232 actor completed real matching two-slab physical exam')
+          assert d['protocol']['legacy_232_actor_sensors_preserved'] is False
+          assert d['source_training_step']==260046848
+          print('Main 360 actor completed real matching two-slab physical exam')
           PY
       - name: Run full Python checks (do not hide pre-existing failures)
         run: python -m pytest -q tests
