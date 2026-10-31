@@ -114,6 +114,7 @@ def sha256_file(path: Path) -> str:
 
 def discover_parent() -> Path:
     from emu.checkpoint_io import load_checkpoint
+    from emu.training_config import TrainingConfig, training_sensor_contract
     root = Path.home() / "robot_lab/emu_runs"
     if not root.is_dir():
         raise RuntimeError(f"No {root}; specify --parent /absolute/path/checkpoints/final.pkl")
@@ -124,7 +125,11 @@ def discover_parent() -> Path:
     matches = []
     for file in root.rglob("checkpoints/final.pkl"):
         try:
-            payload = load_checkpoint(file, validate=True)
+            candidate_cfg = TrainingConfig.load(file.parent.parent / "training_config.json")
+            payload = load_checkpoint(
+                file, validate=True,
+                expected_observation_schema=candidate_cfg.observation_schema,
+                expected_sensor_contract=training_sensor_contract(candidate_cfg))
             meta = payload["meta"]
             source = (meta.get("source_provenance") or {}).get("git_commit")
             if source == PARENT_SOURCE and int(meta["step"]) == PARENT_STEP:
@@ -139,7 +144,7 @@ def discover_parent() -> Path:
 
 def read_parent(path: Path):
     from emu.checkpoint_io import load_checkpoint
-    from emu.training_config import TrainingConfig
+    from emu.training_config import TrainingConfig, training_sensor_contract
     from emu.contracts import OBS_SCHEMA_TERRAIN
     if path.name != "final.pkl" or path.parent.name != "checkpoints":
         raise RuntimeError("Parent MUST be an immutable checkpoints/final.pkl, not .emupolicy or best.pkl")
@@ -147,7 +152,13 @@ def read_parent(path: Path):
     if not config_path.is_file():
         raise RuntimeError(f"Missing original run config: {config_path}")
     parent_cfg = TrainingConfig.load(config_path)
-    payload = load_checkpoint(path, validate=True)
+    # load_checkpoint() defaults to the legacy 232-input actor. This is the
+    # released terrain_360 parent: validate against its actual saved sensor
+    # package, exactly as emu.run.inspect_run() does for a research fork.
+    payload = load_checkpoint(
+        path, validate=True,
+        expected_observation_schema=parent_cfg.observation_schema,
+        expected_sensor_contract=training_sensor_contract(parent_cfg))
     meta = payload["meta"]
     original_sha = (meta.get("source_provenance") or {}).get("git_commit")
     if original_sha != PARENT_SOURCE or int(meta["step"]) != PARENT_STEP:
