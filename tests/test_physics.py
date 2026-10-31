@@ -70,7 +70,7 @@ def test_browser_grass_terrain_compiles_in_real_mujoco():
     assert np.all(np.isfinite(data.qpos))
 
 
-def test_real_mjx_evaluator_trace_shapes_cpu():
+def test_real_mjx_evaluator_trace_shapes_cpu(archived_232_policy):
     """Small real stepping smoke; exercises contact.geom1/geom2/dist plumbing."""
     pytest.importorskip('mujoco')
     pytest.importorskip('optax')
@@ -214,13 +214,13 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
     assert all('mean_abs_controller_correction_rad_s' in w
                for w in measured if w['frames_recorded']>2)
 
-    # Evaluate the CURRENT approved 232-input v5016 actor, not a former
-    # 220-input policy that no longer lives at the public champion path.
-    # The legacy 220-input trainer above remains independently exercised.
+    # Evaluate the ARCHIVED v5016 232-input actor from the immutable
+    # rollback source, not the NEW public 360-input champion. The
+    # legacy 220-input trainer above remains independently exercised.
     from emu.viewer_server import load_exported_actor_for_exam
     from emu.contracts import ROBOT_XML, OBS_SCHEMA_SENSOR, SENSOR_OBS_DIM
     from pathlib import Path
-    hero = Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    hero = archived_232_policy
     actor, exported_norm, export = load_exported_actor_for_exam(hero)
     assert export['source']['step'] == 260112384
     assert export['source']['checkpoint_schema'] == 8
@@ -279,7 +279,7 @@ def test_real_mjx_evaluator_trace_shapes_cpu():
                                off['root_qvel'][0,:,5]-.2,rtol=0,atol=2e-6)
 
 
-def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
+def test_protected_pitch15_full_directional_exam_cpu(tmp_path, archived_232_policy):
     """Real end-to-end 120M export -> actor inference -> MJX -> report.
 
     Bounded CPU CI checks software truth; it is not GPU or hardware proof.
@@ -290,7 +290,7 @@ def test_protected_pitch15_full_directional_exam_cpu(tmp_path):
     import json
     from pathlib import Path
     from emu import cli
-    champion=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    champion=archived_232_policy
     out=tmp_path/'pitch15_physical_exam'
     # Execute the PUBLIC entrypoint that users actually invoke. This catches
     # mismatched argument signatures before a WSL/GPU exam wastes a run.
@@ -390,12 +390,12 @@ def test_real_contact_plane_normal_and_gravity_through_cpu_mjx():
         contact_plane_quaternion(2.,(0.,0.))
 
 
-def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
+def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path, archived_232_policy):
     """Guard the full exported-actor route on a real incline (not tilted gravity)."""
     from pathlib import Path
     from emu.evaluation import evaluate_directional_run
     import json
-    hero=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    hero=archived_232_policy
     report_path,_=evaluate_directional_run(
         policy_file=hero, output=tmp_path/'physical_incline',
         angle_deg=2.,direction='uphill',worlds=2,horizon=35,
@@ -410,7 +410,7 @@ def test_real_contact_slope_protected_pitch15_mjx_exam(tmp_path):
     assert all('course_pass' in row for row in report['worlds'])
 
 
-def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch):
+def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch,archived_232_policy):
     """End to end through the exact --compare-heading command used in WSL.
 
     A steady course has NO maneuver transition event. Both reported
@@ -422,7 +422,7 @@ def test_public_frozen_pitch15_paired_exam_and_recovery_cpu(tmp_path,monkeypatch
     import json
     from pathlib import Path
     from emu import cli, evaluation
-    policy=Path(__file__).resolve().parents[1]/'showcase'/'champion.emupolicy'
+    policy=archived_232_policy
     out=tmp_path/'flat_pair'
     argv=['directional-exam','--policy',str(policy),'--output',str(out),
           '--worlds','2','--horizon','38','--settle-frames','0',
