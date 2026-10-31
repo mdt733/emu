@@ -64,6 +64,13 @@ navigator.useBackgroundPlanner(request=>{
   return navWorker.request(request);
 });
 const navHud = $('navHud');
+const navControllerMode = $('navControllerMode');
+navigator.controllerMode=navControllerMode.value;
+navControllerMode.addEventListener('change',()=>{
+  navigator.controllerMode=navControllerMode.value;
+  navigator.predictor.reset();
+  sim?.setNavigationPrediction([]);
+});
 let lastResetGeneration = -1;
 let navCommandClock = Infinity;
 let navCommandUpdates = 0;
@@ -76,6 +83,7 @@ function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
   navigator.reset();
+  if(sim)sim.setHeadingHold(enabled?false:headingHoldToggle.checked);
   navCommandClock=Infinity;
   navCommandUpdates=0;
   navLastCommand={vx:0,vy:0,yaw:0};
@@ -99,23 +107,22 @@ function navigationUpdate(dt) {
     lastResetGeneration=sim.resetGeneration;
     navigator.reset();
   }
-  let plannedCommand=null;
-  navigator.tick(dt,pose,bundle.control.command_limits,
-    sim.navigationTrees(),command=>{plannedCommand=command;});
-  // Both modes still use the same tested setDemoCommands() pipeline.
-  // Higher cruising speed needs tighter steering corrections than the
-  // initial 650ms zero-order hold (which travelled ~0.6m at full speed).
-  // Route feedback up to 10 Hz through the same command path.
-  // Neural actor inference remains at its normal 50 Hz.
-  const commandPeriod=.10;
-  navCommandClock+=Math.min(Math.max(dt,0),.1);
-  if(plannedCommand && navCommandClock>=commandPeriod){
-    applyAutonomousCommand(plannedCommand);
+  // Plan and deliver at one explicit 10 Hz cadence. The previous version
+  // ran the follower every browser frame but applied only every ~100 ms.
+  navCommandClock=Number.isFinite(navCommandClock)
+    ?navCommandClock+Math.min(Math.max(dt,0),.1):.10;
+  if(navCommandClock>=.10){
+    let plannedCommand=null;
+    navigator.terrain=sim.navigationTerrain();
+    navigator.tick(Math.min(navCommandClock,.1),pose,bundle.control.command_limits,
+      sim.navigationTrees(),command=>{plannedCommand=command;});
     navCommandClock=0;
-    navCommandUpdates++;
+    if(plannedCommand){applyAutonomousCommand(plannedCommand);navCommandUpdates++;}
   }
   const state=navigator.status(pose);
   sim.setNavigationOverlay(state.goal,state.route);
+  sim.setNavigationPrediction(state.controllerMode==='predictive'
+    ?state.prediction:[]);
   $('demoKind').textContent=state.reason;
   if(!state.goal){
     $('navHudTitle').textContent=state.reason;
@@ -130,10 +137,14 @@ function navigationUpdate(dt) {
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
+  if(state.controllerMode==='predictive'){
+    const model=state.responseModel;
+    $('navHudInfo').textContent+=` · forecast ${state.prediction?.length||0} points · ${model.samples} observations`;
+  }
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
+      ? `${state.controllerMode} · ${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
       : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
@@ -564,7 +575,9 @@ parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
   if(goalDemoActive())navigator.reset();
   updateParkCourseInfo();
 }catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
-headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
+headingHoldToggle.addEventListener('change',()=>{
+  if(!demoActive)sim?.setHeadingHold(headingHoldToggle.checked);
+});
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
@@ -707,7 +720,8 @@ function startDemo(){
   $('liveDemo').checked=true;
   left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
-  sim.setHeadingHold(headingHoldToggle.checked);
+  // Autonomy issues direct yaw rates; heading-hold is for human input.
+  sim.setHeadingHold(false);
   $('demoKind').textContent='Finding next destination…';
   updateStickLabels();
 }
