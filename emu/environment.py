@@ -2661,8 +2661,10 @@ class EmuMJXEnv(TaskSampler):
             # Original longitudinal downhill quarter-circle probability
             # is 25%. Put 1/3 of SLOPE births in that bearing and keep
             # 2/3 fully uniform: 1/3 + 2/3*1/4 = exactly 1/2.
-            # u[:,4] chooses the cohort; independent u[:,3] chooses azimuth.
-            downhill_focus=focused & (focus==SLOPE) & (u[:,4]<1./3.)
+            # The new RNG stream must NOT bias existing edge-angle u[:,4].
+            coin=jax.vmap(lambda key:jax.random.uniform(
+                jax.random.fold_in(key,50339),()))(keys)
+            downhill_focus=focused & (focus==SLOPE) & (coin<1./3.)
             azimuth=jnp.where(downhill_focus,
                 jnp.pi+(u[:,3]-.5)*jnp.deg2rad(90.),azimuth)
         fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
