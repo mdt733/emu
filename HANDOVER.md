@@ -7,6 +7,34 @@ Pinnacle as the new `main` model, **with its known weaknesses
 documented** rather than starting another experimental branch.
 The 24-arm v5033 science work is **paused** and not released.
 
+## Current engineering follow-up (1 November 2026)
+
+The first evidence-first physical-quality examiner has **already merged**
+to `main` via PR #18 and passed its GitHub engineering checks.
+The measured baseline is in
+[docs/PHYSICAL_BASELINE_260M.md](docs/PHYSICAL_BASELINE_260M.md).
+Important distinction: 2cm step-UP was **8/8 true supported
+crossings** but **3/8 heading-controlled missions**. At 3cm UP,
+0/8 crossed and mean actual forward speed fell to ~0.022m/s.
+
+**Active, read-only next improvement:** PR #19,
+`feature/downhill-physical-sweep`. This adds
+`emu capability-exam --downhill-sweep`: 5/8/12/14.9deg real
+downhill grades × five **commanded** speeds 0.05–0.30m/s.
+It also improves the quality scorecard to keep independent
+grade/speed groups and show achieved velocity, forward MAE,
+signed yaw bias, gait jitter, inertial route drift and useful
+mechanical J/m. See [exam philosophy and CLI](docs/PHYSICAL_QUALITY.md).
+
+**No new policy trained.** The 260M `main` actor, previous 232
+rollback, PPO rewards, curriculum and public Pages are untouched.
+A tiny real 2-world CI smoke only proves the measurements run,
+not the robot's scientific speed/grade capability. The full
+16-world × 2-seed matrix is a **future read-only measurement**,
+not yet collected on this feature.
+
+---
+
 ## What is the robot?
 
 One six-servo dynamically unstable MJX biped, 360-input
