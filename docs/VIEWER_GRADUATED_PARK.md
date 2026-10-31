@@ -1,9 +1,10 @@
 # Viewer playground — graduated real-contact obstacle park
 
-**Research viewer update · 31 October 2026.**
-Branch: `feature/viewer-graduated-park` (built on park optical-flow and crest-seam repairs).
-The published `main` showcase and the source-pinned v5031 PPO training
-branches are deliberately unchanged.
+**Research viewer included in the v5032 candidate tree · 31 October 2026.**
+The park optical-flow and crest-support fixes and eight graduated
+obstacles are integrated in `release/v5032-pinnacle-candidate`.
+The published `main` champion and historical v5031 policy/checkpoint
+files remain unchanged.
 
 ## Why we changed the course
 
@@ -51,18 +52,22 @@ The `v5031_verified_ascent_physical_comparison` bundle supplies the
 
 ## How to watch via remote GPU / Tailscale
 
-Clone the viewer branch to a *new* checkout; leave the training checkout
-and results alone.
+Use an installed **v5032 source checkout**. Watching saved policies
+does not change their training weights, and the browser runs its own
+independent MuJoCo simulation.
 
 ```bash
-git clone --single-branch --branch feature/viewer-graduated-park \
-  https://github.com/mdt733/emu.git "$HOME/emu-viewer-graduated"
-cd "$HOME/emu-viewer-graduated"
-source "$HOME/emu-graduation/.venv/bin/activate"
+cd "$HOME/emu-pinnacle"
+source .venv/bin/activate
 python -m emu.cli viewer --live \
-  --root "$HOME/robot_lab/emu_runs/v5031_verified_ascent_fork_v2_s747" \
+  --root "$HOME/robot_lab/emu_runs/v5032_pinnacle_s761_v2" \
   --port 8768 --no-open
 ```
+
+To inspect the previous 100M policy while v5032 has no checkpoints,
+supply `--root ~/robot_lab/emu_runs/v5031_verified_ascent_fork_v2_s747`
+instead. Keep viewer/live monitoring in a separate terminal from
+foreground training.
 
 Open a second terminal on the remote/desktop client and tunnel:
 
