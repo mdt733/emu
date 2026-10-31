@@ -165,10 +165,19 @@ After successful 260M completion the launcher:
 - A repeat or independent seed for the final large capability claim;
   a single seeded 260M result is *a candidate*, not conclusive proof.
 
-The frozen main-vs-research physical comparison already exists via
-the historical `scripts/v5030_compare_main.py`. Keep cross-actor
-sensor contracts intact and use precisely matched ground/commands,
-not fake 232↔360 input conversions.
+Compare the completed candidate against the existing champion
+with the **maintained read-only command**:
+
+```bash
+python scripts/compare_policies.py            # plan only; requires exported candidate
+python scripts/compare_policies.py --run      # common frozen physical fixtures, reports
+```
+
+The command validates the genuine 232-input `main` and 360-input
+candidate actor contracts, uses identical ground and request schedules,
+and never changes either policy. For historical C100 comparisons pass
+`--candidate PATH/TO/C100.emupolicy --output-root PATH/TO/new_exam`.
+Do not invent 232↔360 observation conversions.
 
 ## Showcase preview and future release
 
