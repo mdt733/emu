@@ -113,7 +113,7 @@ checks before 2,048-world CUDA.
 | **20** | Resilience | `--force-program aggressive`, versus gentle 0.7 N cap | Can harder pushes preserve walking or do they damage gait? | native |
 | **21** | Resilience | Recovery focus **20→30%**, reallocating from command worlds | Does more recovery practice improve robustness without speed loss? | new, teacher |
 | **22** | Efficiency | Enable small bounded motor-cost reward **0.03**, measuring shaft J/m (NOT battery energy) | Can power-efficiency improve without slow/stalled cheating? | native, verify knob |
-| **23** | Gait smoothness | Increase action-delta penalty **slightly** in control-focused worlds only, gated on actual walking | Can we reduce unhelpful servo thrashing without sacrificing steps? | new, reward |
+| **23** | Step mechanics | Allow **4cm extra torso crouch** in the real step-UP near-lip window (max 120 frames), with unchanged fall/contact gates and no bonus for spring motion | Is our height penalty blocking a spring-loading crouch-and-release manoeuvre? | new, reward |
 
 **Note:** 07 deliberately nests one incremental change on 05; its
 proper direct comparator is 05 rather than 00. All others compare
@@ -162,6 +162,10 @@ saved JSON/CSV and actor/source SHA hashes.
   strict yaw, signed yaw bias and jitter separately.
 - 2.0, 2.5, 3.0, 3.5cm up/down at 0.10–0.15, recording
   5-frame far-side support streak and remaining movement.
+- For arm 23 vs 00, compare time series of torso-height dip,
+  upper-foot contact, successful height recovery, real spring
+  potential change and full far-side crossing. Spring energy is
+  *diagnostic only*; no credit for crouching/oscillating in place.
 - Flat 0.3/0.6/0.8/1.0m/s *actual*, 700-frame sustained
   survival, signed heading and commanded-vs-achieved velocity.
 - Up/down/cross slopes, recoveries by azimuth and cost J/m.
