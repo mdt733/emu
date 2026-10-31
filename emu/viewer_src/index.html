@@ -47,8 +47,49 @@
 
 
 
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
+      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World, navigation &amp; sensors</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
+      <section class="controls-panel">
+      <div class="control-row">
+        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
+        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
+        <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
+        <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
+        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
+        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
+        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="sensor">Surface lab · slope / steps</option></select></label>
+        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
+        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
+        <label><input id="parkFeaturesToggle" type="checkbox" checked /> Park challenge course (real collisions)</label>
+        <label>Challenge difficulty <select id="parkChallengeLevel">
+          <option value="gentle">Gentle · 0.7–1.5 cm</option>
+          <option value="balanced" selected>Balanced · mostly 1–2.5 cm</option>
+          <option value="stretch">Stretch · up to 5 cm</option>
+        </select></label>
+        <div class="park-course-info">
+          <b>Course guide · numbered signs</b>
+          <ol id="parkCourseList"></ol>
+          <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
+        </div>
+        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
+        <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
+      </div>
+      </section>
+      <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
+        <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
+        <div class="live-progress">Validated step <b id="liveStep">—</b></div>
+        <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
+        <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
+        <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
+        <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
+          <span>Pose lattice · position + facing</span></div>
+        <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
+        <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
+      </section>
+      <details class="drawer-group" id="depthDetails"><summary>Front depth · 4×4 sensor laboratory</summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
-      <div class="depth-head"><b>FRONT DEPTH · 4×4</b><label><input id="depthOn" type="checkbox" checked /> On</label></div>
+      <div class="depth-head"><b>FRONT DEPTH · 4×4</b><label><input id="depthOn" type="checkbox" /> On</label></div>
       <div class="depth-sub">VL53L8CX · 65° diagonal · observer only</div>
       <label class="depth-row">Ground <select id="depthCourse">
         <option value="viewer" selected>Current viewer terrain</option>
@@ -99,46 +140,7 @@
       <button id="depthCopy" class="depth-copy" type="button">Copy raw range + height + settings</button>
     </aside>
 
-    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
-    <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
-      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World &amp; steering</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
-      <section class="controls-panel">
-      <div class="control-row">
-        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
-        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
-        <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
-        <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
-        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
-        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="sensor">Surface lab · slope / steps</option></select></label>
-        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
-        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
-        <label><input id="parkFeaturesToggle" type="checkbox" checked /> Park challenge course (real collisions)</label>
-        <label>Challenge difficulty <select id="parkChallengeLevel">
-          <option value="gentle">Gentle · 0.7–1.5 cm</option>
-          <option value="balanced" selected>Balanced · mostly 1–2.5 cm</option>
-          <option value="stretch">Stretch · up to 5 cm</option>
-        </select></label>
-        <div class="park-course-info">
-          <b>Course guide · numbered signs</b>
-          <ol id="parkCourseList"></ol>
-          <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
-        </div>
-        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
-        <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
-      </div>
-      </section>
-      <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
-        <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
-        <div class="live-progress">Validated step <b id="liveStep">—</b></div>
-        <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
-        <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
-        <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
-        <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
-          <span>Pose lattice · position + facing</span></div>
-        <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
-        <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
-      </section>
+      </details>
       <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
       <div class="result-head"><b>EVALUATION</b><span id="resultRole">—</span></div>
       <div class="result-grid">
