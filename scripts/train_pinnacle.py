@@ -33,7 +33,7 @@ FOUNDATION = 20_000_000
 REHEARSAL = .25
 TEMPORAL_REWARD = .5
 ASCENT_REALLOCATION = 3.
-DEFAULT_ROOT = Path.home()/"robot_lab/emu_runs/v5032_pinnacle_s761"
+DEFAULT_ROOT = Path.home()/"robot_lab/emu_runs/v5032_pinnacle_s761_v2"
 CASE = {"name":"pinnacle_cold260","recipe":"main",
         "schedule":"balanced","steps":TARGET_STEPS,"from_steps":0}
 EXAMS = {
@@ -129,6 +129,20 @@ def assert_import_from_checkout(env: dict) -> None:
     subprocess.run([sys.executable,"-c",code,str(REPO)],cwd=REPO,env=env,check=True)
 
 
+def training_environment() -> dict[str, str]:
+    """Authorize only the CLI's documented continuous cold-start gate.
+
+    This is distinct from EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle,
+    which is set by the standalone bounded CUDA smoke. The v5032 launch
+    must never pass preflight and then fail because it set another key.
+    """
+    existing=os.environ.get("PYTHONPATH","")
+    return {**os.environ,
+            "PYTHONPATH":str(REPO)+(os.pathsep+existing if existing else ""),
+            "XLA_PYTHON_CLIENT_PREALLOCATE":"false",
+            "EMU_UNIFIED_CONTINUOUS":"cold-growth-approved"}
+
+
 def generate_candidate(root: Path, sha: str, env: dict) -> None:
     run=root/CASE["name"]
     final=run/"checkpoints"/"final.pkl"
@@ -208,11 +222,7 @@ def main() -> int:
         raise RuntimeError("Non-empty result root has no Pinnacle manifest")
     else:
         mf.write_text(json.dumps(manifest_value,indent=2,sort_keys=True)+"\n")
-    old_pythonpath=os.environ.get("PYTHONPATH","")
-    env={**os.environ,
-         "PYTHONPATH":str(REPO)+(os.pathsep+old_pythonpath if old_pythonpath else ""),
-         "XLA_PYTHON_CLIENT_PREALLOCATE":"false",
-         "EMU_UNIFIED_CONTINUATION":"pinnacle-coldstart-approved"}
+    env=training_environment()
     assert_import_from_checkout(env)
     run=root/CASE["name"]
     resume=support.has_checkpoint(run)
