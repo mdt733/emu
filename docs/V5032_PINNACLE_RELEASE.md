@@ -63,6 +63,14 @@ baseline measurements, **not deployment guarantees**.
 | 0.8 m/s | 12/16 | 0/16 |
 | 1.0 m/s | 9/16 | 0/16 |
 
+**Important reading of these results:** the step figures above report
+**verified physical supported crossings**, NOT automatic full
+heading-controlled missions. At 2 cm UP, crossing was 8/8 but full
+mission only **3/8**. At 2.5 cm UP, crossing was 4/8 and mission 3/8.
+At 3 cm DOWN, crossing was 8/8 but mission only 4/8.
+See [the exact frozen physical capability analysis](PHYSICAL_BASELINE_260M.md)
+for separated support, movement, heading, survival and tested-range AUC.
+
 The frozen training evaluation reached **0.8296** at 260M
 (best sampled ~0.8352 at 180M); these aggregate scores do not
 replace detailed physical tests.
