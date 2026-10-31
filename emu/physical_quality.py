@@ -397,14 +397,15 @@ def markdown(report: dict) -> str:
               "Requested trajectory is integrated independently from command vx/vy/yaw.",
               "Null means this frozen exam predates route instrumentation; do not invent zero error.",
               "",
-              "| Dimension / direction | Severity | Achieved vx | Signed yaw bias | Gait yaw jitter | Route RMS | Endpoint error | Directed progress |",
-              "|---|---:|---:|---:|---:|---:|---:|---:|"]
+              "| Dimension / direction | Severity | Requested terrain vx | Achieved vx | Signed yaw bias | Gait yaw jitter | Route RMS | Endpoint error | Directed progress |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     def physical(value, suffix, digits=3):
         return f"{value:.{digits}f}{suffix}" if value is not None else "not measured"
     for c in report["cases"]:
         severity = (f"{c['severity']:g} {c['unit']}"
                     if c["severity"] is not None else "one scenario")
         lines.append(f"| {c['family']}/{c['direction']} | {severity} | "
+                     f"{physical(c['requested_terrain_speed_mps'],' m/s')} | "
                      f"{physical(c['measured_vx_mps'],' m/s')} | "
                      f"{physical(c['signed_yaw_bias_rad_s'],' rad/s')} | "
                      f"{physical(c['gait_yaw_jitter_rad_s'],' rad/s')} | "
@@ -441,12 +442,15 @@ def markdown(report: dict) -> str:
                 f"{curve['minimum']:g}–{curve['maximum']:g} m/s | "
                 f"{curve['tested_levels']} | {auc} |")
     lines += ["", "## Tested-range capability curves", "",
-              "| Signed capability | Range | Samples | Tested-range AUC |",
-              "|---|---|---:|---:|"]
+              "| Signed capability | Held terrain vx | Range | Samples | Tested-range AUC |",
+              "|---|---:|---|---:|---:|"]
     for x in report["tested_envelopes"]:
         a = x["tested_range_fraction"]
         score = f"{a:.3f}" if a is not None else "insufficient levels"
+        speed=x.get("requested_terrain_speed_mps")
+        speed_label=f"{speed:.2f} m/s" if speed is not None else "—"
         lines.append(f"| {x['family']}/{x['direction']} | "
+                     f"{speed_label} | "
                      f"{x['minimum']:g}–{x['maximum']:g} {x['unit']} | "
                      f"{x['tested_levels']} | {score} |")
     lines += ["", "## Coverage", ""]
