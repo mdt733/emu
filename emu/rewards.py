@@ -7,9 +7,10 @@ Reading order:
   4. `apply_early_fall_penalty` — additional cost when an episode falls early
 
 The environment supplies **physical measurements**, including privileged
-simulator facts. These are used to TEACH and must not leak into the deployable
-actor's 220 observation inputs. Held-out exams independently judge actual
-course progress and walking, not the numerical teaching score.
+simulator facts. These are used to TEACH and must not leak into the
+**deployable actor observations**. The current terrain actor sees
+360 fields of sensor/command history, not privileged ground truth.
+Held-out exams judge physical progress, not the teaching score.
 
 IMPORTANT: servo torque, shaft power and spring energy are *not* measured
 electrical consumption. The historical eight rewards are unchanged by default.
@@ -40,7 +41,7 @@ REWARD_ONLY_METRICS = frozenset({
     'ramp_frac',
 })
 
-# Current v5015 reward doctrine; NO coefficient changes in Pass C.
+# Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
 EARLY_FALL_BASE_PENALTY = 65.0
 EARLY_FALL_TIME_PENALTY = 0.10
 STEPPING_ACTIVITY_TARGET = 0.15
