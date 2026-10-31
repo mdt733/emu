@@ -225,7 +225,7 @@ def exam_commands(policy: Path, location: Path, *, final: bool) -> list[list[str
     heights=["1","2","2.5","3","3.5"] if final else ["2.5","3"]
     speeds=[".1",".2",".3",".4",".5",".6",".8","1.0"] if final else [".3",".6",".8","1.0"]
     size="16" if final else "8"
-    return [
+    exams=[
         [*common,"--output",str(location/"terrain_matrix"),"--worlds",size,
          "--horizon","350","--speed",".15","--terrain-matrix",
          "--matrix-grades-deg",*grades,"--matrix-heights-cm",*heights],
@@ -233,6 +233,11 @@ def exam_commands(policy: Path, location: Path, *, final: bool) -> list[list[str
          "--horizon","700","--speed",".15","--speed-ladder",
          "--ladder-speeds",*speeds],
     ]
+    if final:
+        exams.append([*common,"--output",str(location/"downhill_sweep"),
+                      "--worlds",size,"--horizon","350","--speed",".15",
+                      "--downhill-sweep"])
+    return exams
 
 
 def export_and_examine(arm: int, stage: str, root: Path, env: dict[str,str],
@@ -271,7 +276,7 @@ def summarize(root: Path, stage: str) -> Path:
     for arm in range(ARM_COUNT):
         name=arm_name(arm)
         cases={}
-        for exam in ("speed_ladder","terrain_matrix"):
+        for exam in ("speed_ladder","terrain_matrix","downhill_sweep"):
             f=root/"exams"/stage/name/exam/"unified_exam.json"
             if f.is_file():
                 j=json.loads(f.read_text())
