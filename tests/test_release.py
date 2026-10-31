@@ -68,9 +68,12 @@ def test_existing_pinnacle_release_still_matches_exact_approval():
         ROOT / 'showcase/champion.emupolicy',
         ROOT / 'showcase/release_approval.json',
     )
-    assert approved['schema'] == 2
-    assert approved['obs_dim'] == 232
-    assert approved['checkpoint_schema'] == 8
+    assert approved['schema'] == 3
+    assert approved['obs_dim'] == 360
+    assert approved['checkpoint_schema'] == 9
+    assert approved['step'] == 260046848
+    assert approved['training_source_commit'] == '9b11bbe596aea7201d29a6beb2d192922f8e2e9a'
+    assert approved['checkpoint_sha256'] == '238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b'
 
 
 def test_array_only_360_actor_can_be_reviewed_without_publishing(tmp_path):
