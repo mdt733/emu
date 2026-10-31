@@ -102,7 +102,7 @@ be normal; sustained heading/command bias is what matters.
 ## Files produced, and why they are different
 
 ```text
- ~/robot_lab/emu_runs/v5032_pinnacle_s761/
+ ~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/
    campaign_manifest.json      exact recipe, seed and source SHA
    preflight_pass.json          source-matched CPU and CUDA acceptance
    logs/                        readable raw training and exam output
