@@ -341,6 +341,8 @@ export class GoalNavigator {
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
     this.headingErrorIntegral=0;this.speedErrorIntegral=0;
     this.referenceSpeed=0;this.observedSpeed=0;
     this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -392,6 +394,8 @@ export class GoalNavigator {
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
     this.headingErrorIntegral=0;this.speedErrorIntegral=0;
     this.referenceSpeed=0;this.observedSpeed=0;
     this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -410,13 +414,17 @@ export class GoalNavigator {
       index:0,results:[],complete:false,controller:this.controllerMode};
     this.reason='Benchmark · route 1 / '+NAV_BENCHMARK_TARGETS.length;
   }
-  finishBenchmarkLeg(success){
+  finishBenchmarkLeg(success,fallen=false){
     if(!this.benchmark||this.benchmark.complete)return;
     this.benchmark.results.push({
       goal:this.benchmark.index+1,success,
       elapsedSeconds:Number(this.elapsed.toFixed(2)),
       meanTrackErrorM:Number((this.trackingTime?
         this.trackErrorIntegral/this.trackingTime:0).toFixed(3)),
+      rmsTrackErrorM:Number((this.trackingTime?Math.sqrt(
+        this.trackErrorSquaredIntegral/this.trackingTime):0).toFixed(3)),
+      distanceTravelledM:Number(this.distanceTravelled.toFixed(3)),
+      fell:Boolean(fallen),
       meanHeadingErrorDeg:Number((this.trackingTime?
         this.headingErrorIntegral/this.trackingTime*180/Math.PI:0).toFixed(1)),
       crossings:this.crossings});
@@ -443,6 +451,8 @@ export class GoalNavigator {
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
       this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
       this.headingErrorIntegral=0;this.speedErrorIntegral=0;
       this.referenceSpeed=0;this.observedSpeed=0;
       this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -511,6 +521,9 @@ export class GoalNavigator {
     if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
     const delta=clamp(dt,0,.1);
     this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
+    if(this.goal&&this.previousTravelPose)
+      this.distanceTravelled+=distance(pose,this.previousTravelPose);
+    this.previousTravelPose={x:pose.x,y:pose.y};
     this.predictor.observe(pose,delta);
     // Standing while waiting avoids making an asynchronous plan stale.
     if(this.benchmark?.complete){
@@ -614,6 +627,7 @@ export class GoalNavigator {
     this.modeSeconds[currentMode]=(this.modeSeconds[currentMode]||0)+delta;
     this.trackingTime+=delta;
     this.trackErrorIntegral+=Math.abs(signedCross)*delta;
+    this.trackErrorSquaredIntegral+=signedCross*signedCross*delta;
     this.headingErrorIntegral+=Math.abs(result?.headingError||0)*delta;
     this.speedErrorIntegral+=Math.abs(result?.speedError||0)*delta;
     this.referenceSpeed=result?.referenceSpeed||0;
@@ -658,6 +672,9 @@ export class GoalNavigator {
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
       crossTrack:this.crossTrack,crossings:this.crossings,
       meanTrackError:this.trackingTime?this.trackErrorIntegral/this.trackingTime:0,
+      rmsTrackError:this.trackingTime?
+        Math.sqrt(this.trackErrorSquaredIntegral/this.trackingTime):0,
+      distanceTravelled:this.distanceTravelled,
       meanHeadingError:this.trackingTime?this.headingErrorIntegral/this.trackingTime:0,
       meanSpeedError:this.trackingTime?this.speedErrorIntegral/this.trackingTime:0,
       referenceSpeed:this.referenceSpeed,observedSpeed:this.observedSpeed,
