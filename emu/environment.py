@@ -1819,6 +1819,8 @@ class EmuMJXEnv(TaskSampler):
             careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
+            height_relief_m=(jnp.where(care_active,.040,0.)
+                             if self.science_arm==23 else None),
             motor_guidance_per_world=(control_effort_weights(jnp,
                     jnp.where(state.specialist_active,state.focus_id,-1))
                 if self.unified_capability_focus else None))
@@ -1835,7 +1837,7 @@ class EmuMJXEnv(TaskSampler):
         # v5033 interventions: only teacher-side payments, never
         # observations. Real collision floor decides downhill; natural
         # alternating stride yaw is averaged before penalising arm 10.
-        if self.science_arm in (10,11,23):
+        if self.science_arm in (10,11):
             floor_id=int(self.ids['floor_geom'])
             floor_n=data.geom_xmat[:,floor_id,:].reshape(
                 (self.num_envs,3,3))[:,:,2]
@@ -1852,15 +1854,10 @@ class EmuMJXEnv(TaskSampler):
                 # Reward signed-mean accuracy, NOT per-stride jitter.
                 science_payment=-.50*jnp.clip(mean_bias,-.5,.5)**2 * (
                     downhill & (hist_n>=12)).astype(jnp.float32)
-            elif self.science_arm==11:
+            else:
                 overspeed=jnp.clip(
                     metrics['vx']-metrics['cmd_vx']-.015,0.,.5)
                 science_payment=-2.50*overspeed**2 * downhill
-            else:
-                # Only a walker earns extra actuator-delta economy;
-                # a stationary policy is not paid for stillness.
-                science_payment=-.03*jnp.clip(
-                    metrics['action_delta_norm'],0.,3.)*moving
             reward=reward+science_payment
         ep_return = state.ep_return + reward
         ep_len = state.ep_len + 1.0
