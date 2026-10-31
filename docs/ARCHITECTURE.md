@@ -13,7 +13,7 @@ neural networks.
 
 ```text
  operator / experiment plan
-   scripts/train_pinnacle.py        one 260M cold-start campaign, source guard
+   scripts/train_pinnacle.py        historical completed 260M campaign, source guard
            |
            v
    emu/cli.py -> emu/run.py         validated train CLI, config + checkpoint guard
@@ -65,7 +65,7 @@ to judge them. The **actor** gets only deployable observations.
 | How do we judge the bird independently? | `emu/evaluation.py`, `emu/physical_exam.py` and `emu/capability_cloud.py` | Fixed tests, real supported steps, requested-vs-achieved speed, held-out recovery |
 | Where are measurable results written? | `emu/results.py` and `scripts/campaign_support.py` | CSV/JSON/console, campaign summaries, exportable *reports* |
 | How is a robot played in the browser? | `emu/viewer_server.py` and `emu/viewer_src/` | Portable actor export, live checkpoint watching, MuJoCo/WASM, controls and terrain |
-| Where does the training campaign start? | `scripts/train_pinnacle.py` | One pinned cold-start recipe; preflights, train, export, exams; **not** auto-release |
+| Where did the completed 260M campaign start? | `scripts/train_pinnacle.py` | Historical pinned cold-start recipe and preflights; future studies need their own approved source |
 | How are main and the candidate compared? | `scripts/compare_policies.py` | Common real physical commands/contacts; authentic 232/360 sensor contracts |
 | How is the published demo protected? | `scripts/verify_showcase_release.py`, `scripts/prepare_showcase.py`, `.github/workflows/emu-playground.yml` | Approved policy identity and explicitly controlled GitHub Pages deployment |
 
