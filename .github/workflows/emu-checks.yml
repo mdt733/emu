@@ -22,7 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Legacy 232-input physics tests load the EXACT archived main policy
+      # by immutable pre-promotion Git commit. A shallow checkout cannot
+      # prove or load those historic source bytes.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
