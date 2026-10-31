@@ -36,11 +36,12 @@ silently grants curriculum promotions or rewrites trained policy.
 No separate policy per skill, no privileged ground truth in the actor
 observation, no new timer every time someone thinks of another terrain.
 
-> **Release-candidate note (27 October 2026):** This contract describes
-> the 360-input system being evaluated in the v5024 three-arm study.
-> Legacy 220/232-input Pinnacle compatibility is temporary, to be retired
-> after a measured and owner-approved 360-input replacement.
-> See [release readiness](RELEASE_READINESS.md).
+> **Current implementation (31 October 2026):** The
+> [v5032 Pinnacle candidate](PINNACLE_CANDIDATE.md) is one
+> 360-input, 260M-step cold-start run with a 20M foundation.
+> The old 220/232-input actor contracts remain for the protected
+> public baseline and independent comparisons until explicitly
+> approved for retirement.
 
 ## The autonomous target rule
 
@@ -101,9 +102,9 @@ original main-style simple gait learning and its proven physical rewards.
 During the configured **10M or 20M foundation world steps**, specialist
 emphases are inactive. During the **following 10M**, focused lessons linearly
 blend from 0 to **full activation inside their allocated birth cohorts**.
-The v5024 study deliberately uses 10M; the ordinary CLI default is 20M. Thus a 20% command
-allocation eventually means about 20% active command-specialist worlds, not
-7%. Every active world still practises non-focus challenges at about half
+Historical studies tried both 10M and 20M. The **current Pinnacle
+candidate uses 20M**. Thus a 20% command allocation eventually
+means about 20% active command-specialist worlds, not 7%. Every active world still practises non-focus challenges at about half
 their current target severity (control/grace at about one-quarter).
 This is teaching emphasis, **not** a declaration of capability.
 
@@ -196,7 +197,7 @@ CPU CI alone does not certify GPU performance or actual learned walking.
 
 The preferred production path is **one clean, source-pinned cold run**
 with `EMU_UNIFIED_CONTINUOUS=cold-growth-approved`. Choose a cumulative
-target (e.g., 120M), train through the gradual specialist blend, and use
+target (currently 260M), train through the gradual specialist blend, and use
 `--resume auto` under the exact same source/physical config after
 interruption. A completed run can extend its *total step target* from
 its validated final checkpoint on the same source, not start a new
