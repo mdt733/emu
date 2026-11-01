@@ -1335,7 +1335,9 @@ class EmuMJXEnv(TaskSampler):
                  academy_step_exposure: float = 0.0,
                  academy_edge_yaw_max_deg: float = -1.0,
                  academy_step_height_cap_m: float = 0.0,
-                 academy_step_speed_span: float = 0.0):
+                 academy_step_speed_span: float = 0.0,
+                 academy_course_lips: int = 0,
+                 academy_height_cap_m: float = 0.020):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1414,9 +1416,17 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
         self.terrain_step_max_m = float(terrain_step_max_m)
         self.paired_terrain_heights = bool(paired_terrain_heights)
+        if academy_course_lips not in (0,ACADEMY_LIPS) or (
+                academy_course_lips and not unified_capability_focus):
+            raise ValueError('four-lip Academy requires unified terrain_360')
+        if not .003 <= academy_height_cap_m <= .04:
+            raise ValueError('Academy lip height cap must be 3-40mm')
+        self.academy_course_lips=int(academy_course_lips)
+        self.academy_height_cap_m=float(academy_height_cap_m)
         self.terrain_pair_seed = int(seed)
         self.mj_model = (
-            mujoco.MjModel.from_xml_string(add_unified_terrain(self.robot_xml))
+            mujoco.MjModel.from_xml_string(
+                add_unified_terrain(self.robot_xml,self.academy_course_lips))
             if self.unified_capability_focus else
             mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
             if self.terrain_step_max_m > 0 else
@@ -1434,6 +1444,8 @@ class EmuMJXEnv(TaskSampler):
                 raise RuntimeError('unified ground must have a real movable mocap body')
         self.terrain_step_mocap_id = -1
         self.terrain_step_geom_id = -1
+        self.academy_mid_mocap_ids=()
+        self.academy_mid_geom_ids=()
         if self.terrain_step_max_m:
             platform_body = mujoco.mj_name2id(
                 self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
@@ -1442,6 +1454,17 @@ class EmuMJXEnv(TaskSampler):
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
             if self.terrain_step_mocap_id < 0:
                 raise RuntimeError('physical episode terrain requires a mocap body')
+        if self.academy_course_lips:
+            self.academy_mid_mocap_ids=tuple(int(
+                self.mj_model.body_mocapid[mujoco.mj_name2id(
+                    self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
+                for n in ACADEMY_MIDDLE_NAMES)
+            self.academy_mid_geom_ids=tuple(int(mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
+                for n in ACADEMY_MIDDLE_GEOMS)
+            if (any(x<0 for x in self.academy_mid_mocap_ids)
+                or any(x<0 for x in self.academy_mid_geom_ids)):
+                raise RuntimeError('Missing real Academy platform body or geom')
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
@@ -1550,6 +1573,9 @@ class EmuMJXEnv(TaskSampler):
         self.academy_edge_yaw_max_deg=float(academy_edge_yaw_max_deg)
         self.academy_step_height_cap_m=float(academy_step_height_cap_m)
         self.academy_step_speed_span=float(academy_step_speed_span)
+        self.academy_geom_ids=(int(self.ids['floor_geom']),
+                              *self.academy_mid_geom_ids,
+                              int(self.terrain_step_geom_id)) if self.academy_course_lips else ()
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1720,6 +1746,9 @@ class EmuMJXEnv(TaskSampler):
                 if (not np.isfinite(slope[14]) or
                     slope[14]<0. or slope[14]>1.):
                     raise ValueError('steering attention must be within [0,1]')
+                if (not np.isfinite(slope[15]) or
+                    slope[15]<0. or slope[15]>1.):
+                    raise ValueError('academy birth probability must be within [0,1]')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
