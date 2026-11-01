@@ -47,7 +47,8 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
-from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
+from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
+                               academy_birth_allocation, academy_focus_mix)
 from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
@@ -104,6 +105,8 @@ def env_kwargs_from_args(args) -> dict:
         academy_edge_yaw_max_deg=args.academy_edge_yaw_max_deg,
         academy_step_height_cap_m=args.academy_step_height_cap_m,
         academy_step_speed_span=args.academy_step_speed_span,
+        academy_course_lips=args.academy_course_lips,
+        academy_height_cap_m=args.academy_height_cap_m,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -380,6 +383,20 @@ def train(args: TrainingConfig) -> int:
                 scale=(1.-share)/max(1e-9,1.-old)
                 weights=[share if i==step_role else weight*scale
                          for i,weight in enumerate(weights)]
+            # Academy is an additional episode birth role, not a separate
+            # optimizer or policy. Its share is relative to ALL worlds.
+            # Original role fractions survive inside non-Academy births.
+            academy_probability=0.0
+            if args.academy_course_lips and profile.adaptive_specialists:
+                academy_share=academy_birth_allocation(
+                    step=step,intro_steps=args.academy_intro_steps,
+                    start_steps=args.academy_start_steps,
+                    ramp_steps=args.academy_ramp_steps,
+                    intro_share=args.academy_intro_share,
+                    max_share=args.academy_max_share)
+                weights,academy_probability=academy_focus_mix(
+                    weights,academy_share)
+            d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
