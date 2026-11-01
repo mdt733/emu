@@ -107,6 +107,7 @@ def env_kwargs_from_args(args) -> dict:
         academy_step_speed_span=args.academy_step_speed_span,
         academy_course_lips=args.academy_course_lips,
         academy_height_cap_m=args.academy_height_cap_m,
+        academy_course_episode_frames=args.academy_course_episode_frames,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
