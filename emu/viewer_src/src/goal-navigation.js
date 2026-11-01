@@ -26,6 +26,8 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 export const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 export const angleError=(desired,current)=>wrapAngle(desired-current);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const samePose=(a,b)=>Boolean(a&&b)&&distance(a,b)<1e-5&&
+  Math.abs(angleError(a.heading,b.heading))<1e-5;
 function treeCollision(x,y,trees=[]) {
   return trees.some(t=>Math.hypot(t.x-x,t.y-y)<TREE_CLEARANCE_M);
 }
@@ -589,7 +591,7 @@ export class GoalNavigator {
     this.prefetchPending=request;
     request.then(result=>{
       if(!this.active||generation!==this.generation||
-         this.goal!==expectedGoal)return;
+         !samePose(this.goal,expectedGoal))return;
       if(result?.following?.route?.solved&&result.following.route.flythrough){
         this.following=result.following;
         this.prefetchError=null;
@@ -598,7 +600,7 @@ export class GoalNavigator {
         this.prefetchError='No continuous next route available';
       }
     }).catch(error=>{
-      if(generation!==this.generation||this.goal!==expectedGoal)return;
+      if(generation!==this.generation||!samePose(this.goal,expectedGoal))return;
       this.prefetchError=String(error?.message||error);
       this.prefetchRetry=1.5;
     }).finally(()=>{
@@ -699,7 +701,8 @@ export class GoalNavigator {
     // Ease into final pose correction rather than switching controllers
     // abruptly at a fixed distance. Preserve pivots and reverse cusps.
     const finished=this.runIndex>lastRun||lastRun<0;
-    const blending=!finished&&this.runIndex===lastRun&&
+    const blending=!(this.route?.flythrough&&this.following)&&
+      !finished&&this.runIndex===lastRun&&
       result?.mode!=='pivot'&&dist<.60&&result.remaining<.60;
     const blend=blending?clamp((.60-dist)/.40,0,1)*
       clamp((.60-result.remaining)/.42,0,1):0;
