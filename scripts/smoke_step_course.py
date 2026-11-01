@@ -20,6 +20,8 @@ def main():
                         help="also run one real 360-input PPO gradient, never save weights")
     parser.add_argument("--events",action="store_true",
                         help="prove each of four real supported contacts is scored once")
+    parser.add_argument("--sensor-foresight",action="store_true",
+                        help="verify forward 4x4 ToF rays see successive real platform faces")
     parser.add_argument("--full-update",action="store_true",
                         help="production 2048x32 PPO gradient and memory preflight; no training saved")
     args=parser.parse_args()
@@ -137,6 +139,63 @@ def main():
         raise RuntimeError("Ray-visible Academy middle platform cannot support a real MJX foot")
     print("Academy intermediate-platform FOOT CONTACT:",
           int(np.sum(contacted&active)),"/",int(active.sum()),flush=True)
+    if args.sensor_foresight:
+        # A vertical diagnostic ray alone proves a box exists, NOT that the
+        # robot's real forward-facing 4x4 has useful anticipatory data. Move
+        # the actual torso to an approach pose before each distinct lip and
+        # prove at least one of its sixteen slant rays returns the NEXT box.
+        from emu.contracts import (TERRAIN_TOF_PITCH_DEG,TERRAIN_TOF_YAW_DEG,
+                                   TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M)
+        import math
+        beam=jnp.asarray([
+            [math.cos(math.radians(p))*math.cos(math.radians(y)),
+             math.cos(math.radians(p))*math.sin(math.radians(y)),
+             -math.sin(math.radians(p))]
+            for p in TERRAIN_TOF_PITCH_DEG for y in TERRAIN_TOF_YAW_DEG],
+            dtype=jnp.float32)
+        beam_hits=[]
+        for lip_i in range(ACADEMY_LIPS):
+            R_floor=jnp.asarray(
+                state.data.geom_xmat[:,int(ids[0]),:]).reshape(args.worlds,3,3)
+            forward=R_floor[:,:,0]
+            lip_x=ACADEMY_EDGE_X_M+lip_i*ACADEMY_INTERVAL_M
+            xyz=state.data.qpos[:,:3]
+            previous_top=state.data.geom_xpos[:,int(ids[lip_i]),2]+float(
+                m.geom_size[int(ids[lip_i]),2])
+            # Probe multiple legitimate approach distances. It is enough
+            # that the next physical lip is visible BEFORE root crossing.
+            found=np.zeros((args.worlds,),dtype=bool)
+            for standoff in (.08,.13,.19):
+                xyz_new=(xyz.at[:,:2].set(
+                    forward[:,:2]*(lip_x-standoff))
+                    .at[:,2].set(previous_top+NEUTRAL_ROOT_Z))
+                physical=env.forward_batched(env.mjx_model,
+                    state.data.replace(qpos=state.data.qpos.at[:,:3].set(
+                        xyz_new)))
+                torso=physical.xpos[:,env.torso_id,:]
+                ray=jnp.einsum('eij,kj->eki',
+                    env._rotation_body_to_world(physical),beam)
+                actual,valid=env._terrain_4x4_ranges(physical)
+                closest=jnp.min(jnp.stack([
+                    env._ray_box_distance(physical,int(g),torso,ray)
+                    for g in ids],axis=1),axis=1)
+                target=env._ray_box_distance(
+                    physical,int(ids[lip_i+1]),torso,ray)
+                front=(jnp.abs(target-closest)<1e-5) & (
+                    target>=TERRAIN_TOF_MIN_M) & (
+                    target<=TERRAIN_TOF_MAX_M) & valid
+                # Actual no-noise sensor packet must match target face range
+                # for at least one unoccluded forward ray per world.
+                front=front & (jnp.abs(actual-target)<1e-4)
+                found|=np.asarray(jax.device_get(jnp.any(front,axis=1)))
+            print(f"ToF lip {lip_i+1} forward visibility",
+                  int(found.sum()),"/",args.worlds,flush=True)
+            if not found.all():
+                raise RuntimeError(f"Forward 4x4 blind to physical lip {lip_i+1} "
+                                   f"in worlds {np.flatnonzero(~found).tolist()}")
+            beam_hits.append(int(found.sum()))
+        print("Academy 4x4 SENSOR FORESIGHT PASS: all four consecutive lips "
+              "visible BEFORE robot reaches them",flush=True)
     # The test also steps real MJX and verifies the actor packet stays finite.
     for i in range(args.frames):
         result=env.step(state,jnp.zeros((args.worlds,6),dtype=jnp.float32),packet)
