@@ -1,941 +1,915 @@
-// Browser-only pose navigation: time-weighted SE(2) lattice and closed-loop
-// continuous line tracking. This plans *commands*, never neural weights. It is
-// an estimated fastest route under a conservative velocity envelope,
-// not proof of optimality or a learned capability/safety guarantee.
-import { makeRng } from './rng.js';
-import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
-import { PredictivePathController } from './predictive-navigation.js';
-import { terrainRiskAt, sweptTerrainCost } from './navigation-terrain.js';
-export const ARENA_RADIUS_M = 4;
-export const GOAL_POSITION_TOLERANCE_M = .19;
-export const GOAL_HEADING_TOLERANCE_RAD = .28;
-// Extra tracking room beyond the tree's physical trunk footprint.
-export const TREE_CLEARANCE_M = .62;
-// Repeatable real-MuJoCo 5-pose course inside the park's gentler centre.
-// This uses the CURRENT actor; no synthetic kinematics are scored as results.
-export const NAV_BENCHMARK_TARGETS = Object.freeze([
-  {x:1.25,y:.10,heading:0},
-  {x:1.30,y:1.20,heading:Math.PI/2},
-  {x:-.75,y:1.30,heading:Math.PI},
-  {x:-1.20,y:-1.10,heading:-Math.PI/2},
-  {x:.95,y:-1.20,heading:0},
-]);
-const GRID = .22, HEADINGS = 16, BOUND = 5.6;
-const tau = 2*Math.PI;
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-export const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
-export const angleError=(desired,current)=>wrapAngle(desired-current);
-const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-const samePose=(a,b)=>Boolean(a&&b)&&distance(a,b)<1e-5&&
-  Math.abs(angleError(a.heading,b.heading))<1e-5;
-function treeCollision(x,y,trees=[]) {
-  return trees.some(t=>Math.hypot(t.x-x,t.y-y)<TREE_CLEARANCE_M);
-}
-function inArena(p,trees,limit=BOUND,terrain=null){
-  return Math.hypot(p.x,p.y)<limit && !treeCollision(p.x,p.y,trees) &&
-    Number.isFinite(terrainRiskAt(terrain,p.x,p.y));
-}
-export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_RADIUS_M,terrain=null){
-  for(let i=0;i<180;i++){
-    // Uniform area, not uniform radius.
-    const r=Math.sqrt(rng())*radius,a=tau*rng();
-    const point={x:r*Math.cos(a),y:r*Math.sin(a),heading:wrapAngle(tau*rng()-Math.PI)};
-    if(distance(point,from)>.95 && inArena(point,trees,BOUND,terrain))
-      return point;
-  }
-  // Deterministic fallback if obstacles fill the centre.
-  return {x:0,y:0,heading:wrapAngle(tau*rng()-Math.PI)};
-}
-function commandSpeeds(limits){
-  // Use the REAL checkpoint's published speed frontier, not the
-  // arbitrary 0.48 m/s cap that made high-speed forward routes expensive.
-  const f=clamp(Number(limits.vx_max)*.84,0,.95);
-  const b=clamp(-Number(limits.vx_min)*.75,0,.45);
-  const s=clamp(Number(limits.vy_abs)*.75,0,.24);
-  const w=clamp(Number(limits.yaw_abs)*.70,0,.95);
-  if(!(f>.03&&w>.10))throw new Error('Policy command envelope is too small for navigation');
-  return {f,b,s,w,fastest:Math.max(f,b,s)};
-}
-function primitives(limits){
-  const {f,b,s,w}=commandSpeeds(limits),out=[];
-  const add=(name,vx,vy,yaw,dt)=>{
-    if(!Number.isFinite(dt)||dt<=0||dt>3||(!vx&&!vy&&!yaw))return;
-    // Penalise simultaneous high effort slightly; always charge real
-    // estimated elapsed time first.
-    out.push({name,vx,vy,yaw,dt,cost:dt*(1+0.05*Math.abs(yaw)/w+
-      0.035*Math.abs(vy)/(s||1))});
-  };
-  add('forward',f,0,0,.40/f);
-  add('forward-left',f*.83,0,w*.72,clamp(.40/(w*.72),.35,1.1));
-  add('forward-right',f*.83,0,-w*.72,clamp(.40/(w*.72),.35,1.1));
-  if(b>.06){
-    add('reverse',-b,0,0,.25/b);
-    add('reverse-left',-b*.82,0,w*.72,clamp(.40/(w*.72),.35,1.1));
-    add('reverse-right',-b*.82,0,-w*.72,clamp(.40/(w*.72),.35,1.1));
-  }
-  if(s>.07){
-    add('strafe-left',0,s,0,.25/s);
-    add('strafe-right',0,-s,0,.25/s);
-    add('diagonal-left',f*.80,s*.50,0,.40/Math.hypot(f*.80,s*.50));
-    add('diagonal-right',f*.80,-s*.50,0,.40/Math.hypot(f*.80,s*.50));
-    add('side-arc-left',0,s*.85,w*.67,clamp(.39/(w*.67),.4,1.1));
-    add('side-arc-right',0,-s*.85,-w*.67,clamp(.39/(w*.67),.4,1.1));
-  }
-  // The current Pinnacle actor can pivot. Honour that capability.
-  add('pivot-left',0,0,w*.85,clamp(.40/(w*.85),.3,1.0));
-  add('pivot-right',0,0,-w*.85,clamp(.40/(w*.85),.3,1.0));
-  return out;
-}
-export function integratePose(p,cmd,dt){
-  const a=cmd.yaw*dt;
-  // Analytic planar rigid-body twist. Correct for turning while moving,
-  // including sideways movement; midpoint Euler would bias tight loops.
-  const sn=Math.sin(a),cs=Math.cos(a);
-  const forward=Math.abs(cmd.yaw)<1e-6?cmd.vx*dt:
-    (cmd.vx*sn+cmd.vy*(cs-1))/cmd.yaw;
-  const lateral=Math.abs(cmd.yaw)<1e-6?cmd.vy*dt:
-    (cmd.vx*(1-cs)+cmd.vy*sn)/cmd.yaw;
-  const ct=Math.cos(p.heading),st=Math.sin(p.heading);
-  return {x:p.x+ct*forward-st*lateral,
-          y:p.y+st*forward+ct*lateral,heading:wrapAngle(p.heading+a)};
-}
-function segmentSafe(p,cmd,dt,trees,terrain=null){
-  const count=Math.max(3,Math.ceil(dt/.20));
-  for(let i=1;i<=count;i++){
-    if(!inArena(integratePose(p,cmd,dt*i/count),trees,BOUND,terrain))return false;
-  }
-  return true;
-}
+import './style.css';
+import { parsePolicy } from './policy.js';
+import { VirtualStick } from './joystick.js';
+import { joystickToCommands } from './controls.js';
+import { EmuBrowserSim } from './sim.js';
+import { terrainHeightOffsetsCm } from './sensor.js';
+import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
+import { GoalNavigator } from './goal-navigation.js';
+import { GoalPlannerWorker } from './goal-planner-client.js';
+import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
-/**
- * Refine exact-twist A* primitives into a usable continuous reference.
- * Do not smooth THROUGH reverse/pivot/lateral transitions or endpoints.
- * Every modified chord is checked against tree clearance and the arena.
- * This is intentionally a small bounded post-pass, NOT another planner.
- */
-const motionKind=cmd=>Math.abs(cmd?.vx||0)>.045?(cmd.vx>0?'forward':'reverse'):
-  Math.abs(cmd?.vy||0)>.035?'lateral':Math.abs(cmd?.yaw||0)>.035?'pivot':'terminal';
-const chordSafe=(a,b,trees,extra=0,terrain=null)=>{
-  const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
-  const n=Math.max(1,Math.ceil(Math.sqrt(d2)/.07));
-  for(let j=0;j<=n;j++){
-    const t=j/n,x=a.x+t*dx,y=a.y+t*dy;
-    if(Math.hypot(x,y)>=BOUND-.03||
-       !Number.isFinite(terrainRiskAt(terrain,x,y))||
-       trees.some(tree=>Math.hypot(tree.x-x,tree.y-y)<TREE_CLEARANCE_M+extra))
-      return false;
+const $ = id => document.getElementById(id);
+const canvas = $('view');
+const statusEl = $('status');
+const policyFile = $('policyFile');
+const policySelect = $('policySelect');
+const pauseBtn = $('pauseBtn');
+const resetBtn = $('resetBtn');
+const followToggle = $('followToggle');
+const autoResetToggle = $('autoResetToggle');
+const noiseToggle = $('noiseToggle');
+const gridToggle = $('gridToggle');
+const trailToggle = $('trailToggle');
+const shadowToggle = $('shadowToggle');
+const terrainMode = $('terrainMode');
+const terrainMax = $('terrainMax');
+const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
+const surfaceSlopeSlider=$('surfaceSlope'),surfaceStepSlider=$('surfaceStep');
+const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
+const depthView=$('depthView');
+const depthCells=Array.from({length:16},()=>{
+  const cell=document.createElement('span');
+  cell.className='depth-cell invalid';cell.textContent='—';
+  $('depthGrid').appendChild(cell);return cell;
+});
+const treesToggle = $('treesToggle');
+const parkFeaturesToggle = $('parkFeaturesToggle');
+const parkChallengeLevel = $('parkChallengeLevel');
+const parkCourseList = $('parkCourseList');
+const headingHoldToggle = $('headingHoldToggle');
+const headingGain = $('headingGain');
+const cameraBtn = $('cameraBtn');
+const cameraModes = ['orbit', 'chase', 'raw', 'level'];
+let cameraMode = 'orbit';
+function cameraLabel(mode) {
+  return {orbit:'View: orbit', chase:'View: chase',
+          raw:'View: POV', level:'View: level POV'}[mode];
+}
+function cameraDescription(mode) {
+  return {orbit:'orbit camera', chase:'third-person chase camera behind and above robot',
+          raw:'raw chassis POV', level:'visually levelled POV'}[mode];
+}
+const dropOverlay = $('dropOverlay');
+const leftValues = $('leftValues');
+const rightValues = $('rightValues');
+const livePanel = $('livePanel');
+const navigator = new GoalNavigator();
+let navWorker;
+let workerUnavailable=null;
+try{navWorker=new GoalPlannerWorker();}
+catch(error){workerUnavailable=String(error?.message||error);console.error('Goal worker:',error);}
+navigator.useBackgroundPlanner(request=>{
+  if(!navWorker)throw new Error(workerUnavailable||'Background navigation unavailable');
+  return navWorker.request(request);
+});
+const navHud = $('navHud');
+const navControllerMode = $('navControllerMode');
+navigator.controllerMode=navControllerMode.value;
+navControllerMode.addEventListener('change',()=>{
+  navigator.controllerMode=navControllerMode.value;
+  navigator.predictor.reset();
+  sim?.setNavigationPrediction([]);
+});
+let lastResetGeneration = -1;
+let navCommandClock = Infinity;
+let navCommandUpdates = 0;
+let navLastCommand = {vx:0,vy:0,yaw:0};
+let demoActive = true;
+let navigationFault = false;
+const handoff = new DemoHandoff();
+const goalDemoActive = () => demoActive;
+function syncGoalMode() {
+  const enabled=Boolean(sim && goalDemoActive());
+  navigator.active=enabled;
+  navigator.reset();
+  if(sim)sim.setHeadingHold(enabled?false:headingHoldToggle.checked);
+  navCommandClock=Infinity;
+  navCommandUpdates=0;
+  navLastCommand={vx:0,vy:0,yaw:0};
+  if(sim) {
+    // Autonomy and manual use the same policy command/observation path.
+    sim.setNavigationPresentation(enabled);
+    sim.autoReset=autoResetToggle.checked||demoActive;
   }
-  return true;
-};
-const safePolyline=(start,steps,trees,terrain=null)=>{
-  let prev=start;
-  for(const p of steps){
-    if(!chordSafe(prev,p,trees,0,terrain))return false;
-    prev=p;
-  }
-  return true;
-};
-export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null,through=false){
-  const terminal=rawSteps.at(-1)?.final?rawSteps.at(-1):null;
-  const source=terminal?rawSteps.slice(0,-1):rawSteps;
-  if(!source.length)return [...rawSteps];
-  const dense=[];
-  let from=start;
-  for(const step of source){
-    const angular=Math.abs(angleError(step.heading,from.heading));
-    const length=distance(from,step);
-    const slices=clamp(Math.max(1,Math.ceil(length/.12),
-      Math.ceil(angular/.17)),1,18);
-    for(let j=1;j<=slices;j++){
-      const p=j===slices?{x:step.x,y:step.y,heading:step.heading}:
-        integratePose(from,step.cmd,step.dt*j/slices);
-      dense.push({...p,cmd:{...step.cmd},
-        maneuver:step.maneuver,dt:step.dt/slices,refined:true});
-    }
-    from=step;
-  }
-
-  // Small elastic-band adjustment. Keep the original route as an anchor so
-  // curvature can't be smoothed into a physically unachievable shortcut.
-  const original=dense.map(p=>({...p}));
-  const pointBefore=i=>i===0?start:dense[i-1];
-  for(let pass=0;pass<12;pass++){
-    for(let i=0;i<dense.length-1;i++){
-      const kind=motionKind(dense[i].cmd);
-      if(kind==='pivot'||kind==='terminal')continue;
-      if(i===0||motionKind(dense[i-1].cmd)!==kind||
-         motionKind(dense[i+1].cmd)!==kind)continue;
-      const prev=pointBefore(i),next=dense[i+1],p=dense[i];
-      const x=p.x+.26*(prev.x+next.x-2*p.x)+.08*(original[i].x-p.x);
-      const y=p.y+.26*(prev.y+next.y-2*p.y)+.08*(original[i].y-p.y);
-      // Prevent large changes to the original swept collision-free route.
-      const dx=x-original[i].x,dy=y-original[i].y;
-      const size=Math.hypot(dx,dy),ratio=size>.10?.10/size:1;
-      const q={x:original[i].x+dx*ratio,y:original[i].y+dy*ratio};
-      if(chordSafe(prev,q,trees,.045,terrain)&&chordSafe(q,next,trees,.045,terrain)){
-        p.x=q.x;p.y=q.y;
-      }
+  navHud.hidden=!sim;
+  $('navNext').disabled=!sim;
+  $('navBenchmark').disabled=!sim;
+}
+// One proven command delivery path for every autonomous input source.
+function applyAutonomousCommand(command) {
+  sim.setDemoCommands(command);
+  navLastCommand={...command};
+  updateStickLabels();
+}
+function navigationUpdate(dt) {
+  const pose=sim.navigationPose();
+  if(sim.resetGeneration!==lastResetGeneration) {
+    lastResetGeneration=sim.resetGeneration;
+    // In the physical benchmark, an automatic reset is evidence of failure,
+    // not permission to silently start a new five-goal comparison.
+    const prior=navigator.benchmark;
+    if(prior&&!prior.complete&&navigator.goal)
+      navigator.finishBenchmarkLeg(false,true);
+    const preserved=navigator.benchmark;
+    navigator.reset();
+    if(preserved){
+      navigator.benchmark=preserved;
+      if(preserved.complete)
+        navigator.reason='Benchmark complete · '+preserved.results.filter(r=>r.success).length+
+          '/'+preserved.results.length+' reached';
     }
   }
-  // Source headings remain close to what the actor can actually execute;
-  // adjust only short-interior tangents with bounded heading corrections.
-  for(let i=1;i<dense.length-1;i++){
-    const kind=motionKind(dense[i].cmd);
-    if(kind!=='forward'&&kind!=='reverse')continue;
-    if(motionKind(dense[i-1].cmd)!==kind||
-       motionKind(dense[i+1].cmd)!==kind)continue;
-    const prev=dense[i-1],next=dense[i+1];
-    const bearing=Math.atan2(next.y-prev.y,next.x-prev.x);
-    const wanted=wrapAngle(bearing+(kind==='reverse'?Math.PI:0));
-    const correction=clamp(angleError(wanted,original[i].heading),-.28,.28);
-    dense[i].heading=wrapAngle(original[i].heading+.55*correction);
+  // Plan and deliver at one explicit 10 Hz cadence. The previous version
+  // ran the follower every browser frame but applied only every ~100 ms.
+  navCommandClock=Number.isFinite(navCommandClock)
+    ?navCommandClock+Math.min(Math.max(dt,0),.1):.10;
+  if(navCommandClock>=.10){
+    let plannedCommand=null;
+    navigator.terrain=sim.navigationTerrain();
+    navigator.tick(Math.min(navCommandClock,.1),pose,bundle.control.command_limits,
+      sim.navigationTrees(),command=>{plannedCommand=command;});
+    navCommandClock=0;
+    if(plannedCommand){applyAutonomousCommand(plannedCommand);navCommandUpdates++;}
   }
+  const state=navigator.status(pose);
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
+  sim.setNavigationPrediction(state.goal&&state.controllerMode==='predictive'
+    ?state.prediction:[]);
+  $('demoKind').textContent=state.reason;
+  if(!state.goal){
+    $('navHudTitle').textContent=state.reason;
+    const bench=state.benchmark;
+    $('navHudInfo').textContent=bench?.complete
+      ? `${bench.results.filter(r=>r.success).length}/${bench.goals} goals reached · ${bench.controller} · copy results in Settings`
+      :bench?`Planning benchmark goal ${bench.index+1}/${bench.goals}…`
+        :'Planning a route…';
+    $('navEstimate').textContent=state.plannerError
+      ? 'Planner error: '+state.plannerError
+      : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
+    return;
+  }
+  const degrees=n=>Math.round(n*180/Math.PI);
+  $('navHudTitle').textContent=state.benchmark
+    ?`BENCHMARK ${state.benchmark.index+1}/${state.benchmark.goals} · ${state.reason}`
+    :`TARGET ${state.arrivals+1} · ${state.reason}`;
+  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} ${state.benchmark?'parked':'crossed'}${state.failures?' · '+state.failures+' timed out':''}`;
+  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (RMS ${state.rmsTrackError.toFixed(2)}) · crosses ${state.crossings}`;
+  $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
+  if(state.motionStall>1.4||state.predictionFallback)
+    $('navHudInfo').textContent+=` · ${state.predictionFallback?'rollout blocked · ':''}motion stall ${state.motionStall.toFixed(1)}s`;
+  if(!state.benchmark&&state.goalNoProgress>1.5)
+    $('navHudInfo').textContent+=` · goal progress stall ${state.goalNoProgress.toFixed(1)}s · recoveries ${state.goalRecoveryAttempts}`;
+  $('navHudInfo').textContent+=` · replans ${state.replans}`;
+  if(!state.benchmark)
+    $('navHudInfo').textContent+=state.following
+      ?' · next leg ready':state.prefetching?' · planning next leg…':' · next leg pending';
+  if(state.controllerMode==='predictive'){
+    const model=state.responseModel;
+    $('navHudInfo').textContent+=` · forecast ${state.prediction?.length||0} points · ${model.samples} observations`;
+  }
+  $('navEstimate').textContent=state.plannerError
+    ? 'Background planner error: '+state.plannerError
+    : state.route?.solved
+      ? `${state.controllerMode} · ${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
+      : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
+}
+let liveRevision = null;
+let livePolling = false;
+let showcaseManifest = null;
 
-  // Cheap acceleration/braking profile (m/s^2): forward/backward passes
-  // within each movement run. Stops at cusps and pivots, no calibration
-  // step required when the user loads a different trained brain.
-  const accelerate=.85,brake=1.0,yawMax=Math.max(.1,Number(limits.yaw_abs)||1);
-  let begin=0;
-  while(begin<dense.length){
-    const kind=motionKind(dense[begin].cmd);
-    let end=begin;
-    while(end+1<dense.length&&motionKind(dense[end+1].cmd)===kind)end++;
-    if(kind==='forward'||kind==='reverse'||kind==='lateral'){
-      const speeds=[],spans=[];
-      for(let i=begin;i<=end;i++){
-        const previous=i===0?start:dense[i-1];
-        const span=distance(previous,dense[i]);
-        const base=Math.abs(kind==='lateral'?dense[i].cmd.vy:dense[i].cmd.vx);
-        const radians=Math.abs(angleError(dense[i].heading,previous.heading));
-        const curvature=radians/Math.max(.035,span);
-        const cornerCap=curvature>.001?yawMax*.72/curvature:Infinity;
-        spans.push(span);
-        speeds.push(Math.max(.07,Math.min(base,cornerCap)));
-      }
-      // Keep a small but nonzero command; the actor retains dynamic gait.
-      for(let i=0;i<speeds.length;i++){
-        const before=i===0?(through?Math.min(.38,speeds[i]):.12):speeds[i-1];
-        speeds[i]=Math.max(.07,Math.min(speeds[i],
-          Math.sqrt(before*before+2*accelerate*spans[i])));
-      }
-      for(let i=speeds.length-1;i>=0;i--){
-        const after=i===speeds.length-1?(through?Math.min(.40,speeds[i]):.12):speeds[i+1];
-        speeds[i]=Math.max(.07,Math.min(speeds[i],
-          Math.sqrt(after*after+2*brake*spans[i])));
-      }
-      for(let j=0;j<speeds.length;j++){
-        const p=dense[begin+j];
-        const cmd=p.cmd;
-        const old=Math.abs(kind==='lateral'?cmd.vy:cmd.vx);
-        const factor=old>1e-7?speeds[j]/old:1;
-        p.cmd={...cmd,vx:cmd.vx*factor,vy:cmd.vy*factor,
-          yaw:clamp(cmd.yaw*factor,-yawMax,yawMax),profiled:true};
-        if(spans[j]>.0001)p.dt=spans[j]/Math.max(.07,speeds[j]);
-      }
-    }
-    begin=end+1;
-  }
-  // Never publish a modified route that is less safe than the raw plan.
-  // Even an original curved primitive is rechecked by dense chords.
-  if(!safePolyline(start,dense,trees,terrain)||
-     (terminal&&!chordSafe(dense.at(-1),terminal,trees,0,terrain)))return rawSteps;
-  return terminal?[...dense,terminal]:dense;
+const settingsDrawer = $('settingsDrawer');
+const drawerBackdrop = $('drawerBackdrop');
+const settingsOpen = $('settingsOpen');
+const settingsClose = $('settingsClose');
+function setSettingsOpen(open) {
+  settingsDrawer.hidden = !open;
+  drawerBackdrop.hidden = !open;
+  settingsDrawer.setAttribute('aria-hidden', String(!open));
+  settingsOpen.setAttribute('aria-expanded', String(open));
+  if (open) settingsClose.focus();
+  else settingsOpen.focus();
 }
-class Heap {
-  constructor(){this.a=[]}
-  push(node){
-    const a=this.a;let i=a.length;a.push(node);
-    while(i>0){let p=(i-1)>>1;if(a[p].f<=node.f)break;a[i]=a[p];i=p;}
-    a[i]=node;
-  }
-  pop(){
-    const a=this.a,root=a[0],last=a.pop();
-    if(a.length){
-      let i=0;
-      while(i*2+1<a.length){
-        let ch=i*2+1,r=ch+1;
-        if(r<a.length&&a[r].f<a[ch].f)ch=r;
-        if(last.f<=a[ch].f)break;
-        a[i]=a[ch];i=ch;
-      }
-      a[i]=last;
-    }
-    return root;
-  }
-  get length(){return this.a.length;}
-}
-function key(p){
-  // Heading is periodic; ±pi must use the same bin.
-  const ix=Math.round(p.x/GRID),iy=Math.round(p.y/GRID);
-  const ih=((Math.round((wrapAngle(p.heading)+Math.PI)*HEADINGS/tau)
-               %HEADINGS)+HEADINGS)%HEADINGS;
-  return ix+','+iy+','+ih;
-}
-function heuristic(p,goal,speeds){
-  const d=distance(p,goal);
-  const da=Math.abs(angleError(goal.heading,p.heading));
-  // Max rather than sum: walking and turning can happen together.
-  return Math.max(d/Math.max(.05,speeds.fastest),da/Math.max(.1,speeds.w));
-}
-// The lattice ends in a tolerance disk, not at the target. For transit goals,
-// append an actual SE(2) command connecting its terminal pose to the marker.
-// This is NOT the old zero-command "final parking correction" masquerading
-// as a drivable line. The exact-twist primitive is collision-checked.
-export function flythroughConnector(from,goal,limits,trees=[],terrain=null){
-  const dx=goal.x-from.x,dy=goal.y-from.y;
-  const distanceToGoal=Math.hypot(dx,dy);
-  if(distanceToGoal<.025)return null;
-  const c=Math.cos(from.heading),s=Math.sin(from.heading);
-  const localX=c*dx+s*dy,localY=-s*dx+c*dy;
-  const angle=angleError(goal.heading,from.heading);
-  const sinc=Math.abs(angle)<1e-6?1:Math.sin(angle)/angle;
-  const vers=Math.abs(angle)<1e-6?0:(1-Math.cos(angle))/angle;
-  const denom=sinc*sinc+vers*vers;
-  if(denom<.15)return null;
-  // Inverse of the exact integrated body twist: required displacement at
-  // unit time, including simultaneous yaw and strafe.
-  const requiredX=(sinc*localX+vers*localY)/denom;
-  const requiredY=(-vers*localX+sinc*localY)/denom;
-  // Do not nominate a reverse-into-the-marker manoeuvre as fly-through.
-  if(requiredX<-.025)return null;
-  const f=Math.max(.01,Number(limits.vx_max)||0)*.66;
-  const b=Math.max(.01,-Number(limits.vx_min)||0)*.65;
-  const y=Math.max(.01,Number(limits.vy_abs)||0)*.75;
-  const yaw=Math.max(.01,Number(limits.yaw_abs)||0)*.72;
-  const dt=Math.max(.28,distanceToGoal/.43,
-    requiredX>=0?requiredX/f:-requiredX/b,
-    Math.abs(requiredY)/y,Math.abs(angle)/yaw);
-  // Avoid claiming a long, implausibly slow terminal shuffle is a smooth
-  // fly-through. Ordinary exact-pose parking remains the safe fallback.
-  if(dt>1.9)return null;
-  const command={vx:requiredX/dt,vy:requiredY/dt,yaw:angle/dt,pitch:0};
-  if(!segmentSafe(from,command,dt,trees,terrain))return null;
-  const predicted=integratePose(from,command,dt);
-  if(distance(predicted,goal)>.005 ||
-     Math.abs(angleError(goal.heading,predicted.heading))>.005)return null;
-  return {x:goal.x,y:goal.y,heading:goal.heading,cmd:command,
-    dt,maneuver:'flythrough',flythrough:true};
+settingsOpen.addEventListener('click', () => setSettingsOpen(true));
+settingsClose.addEventListener('click', () => setSettingsOpen(false));
+drawerBackdrop.addEventListener('click', () => setSettingsOpen(false));
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !settingsDrawer.hidden) { setSettingsOpen(false); e.preventDefault(); }
+});
+
+let sim = null;
+let bundle = null;
+let policyLibrary = [];
+let activePolicyIndex = -1;
+let left = {x: 0, y: 0};
+let right = {x: 0, y: 0};
+let lastFrame = performance.now() / 1000;
+let fpsEma = 0;
+let lastTelemetry = 0;
+let loading = false;
+
+function setStatus(text, kind='idle') {
+  statusEl.textContent = text;
+  statusEl.dataset.kind = kind;
 }
 
-export function planPoseRoute(start,goal,limits,trees=[],options={}){
-  if(![start.x,start.y,start.heading,goal.x,goal.y,goal.heading].every(Number.isFinite))
-    throw new Error('Nonfinite navigation start/goal');
-  const moves=primitives(limits),speed=commandSpeeds(limits);
-  const terrain=options.terrain||null;
-  if(!inArena(goal,trees,BOUND,terrain))return null;
-  const maxNodes=clamp(Number(options.maxNodes)||6500,100,20000);
-  const root={...start,g:0,f:heuristic(start,goal,speed)*1.20,
-              parent:null,cmd:null,dt:0};
-  const heap=new Heap(),best=new Map();
-  heap.push(root);best.set(key(root),0);
-  let expanded=0,winner=null,closest=root,bestH=heuristic(start,goal,speed);
-  while(heap.length&&expanded<maxNodes){
-    const p=heap.pop();
-    if(p.g>(best.get(key(p))??Infinity)+1e-7)continue;
-    expanded++;
-    const h=heuristic(p,goal,speed);
-    if(h<bestH){bestH=h;closest=p;}
-    if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40
-       &&chordSafe(p,goal,trees,0,terrain)){
-      // Don't stop A* at the first point inside its 31 cm tolerance disk
-      // if no safe FORWARD motion actually connects it to the marker.
-      // Otherwise "solved" can still mean "reverse into it and park".
-      const exact=distance(p,goal)<.025&&
-        Math.abs(angleError(goal.heading,p.heading))<.09;
-      if(!options.passThrough||exact||
-         flythroughConnector(p,goal,limits,trees,terrain)){
-        winner=p;break;
-      }
-    }
-    for(const cmd of moves){
-      if(!segmentSafe(p,cmd,cmd.dt,trees,terrain))continue;
-      const q=integratePose(p,cmd,cmd.dt),id=key(q);
-      const slopeCost=sweptTerrainCost(terrain,p,q);
-      if(!Number.isFinite(slopeCost))continue;
-      // Reverse may be necessary elsewhere, but near the target an ordinary
-      // wandering route must approach forwards, without a final pivot.
-      if(options.passThrough&&distance(q,goal)<.55&&
-         (cmd.vx<-.035||
-          (Math.abs(cmd.vx)<.035&&Math.abs(cmd.vy)<.035&&
-           Math.abs(cmd.yaw)>.05)))continue;
-      const transitPenalty=options.passThrough
-        ?cmd.vx<-.035?2.5:Math.abs(cmd.vx)<.035?1.35:1:1;
-      const g=p.g+cmd.cost*slopeCost*transitPenalty;
-      if(g>=(best.get(id)??Infinity)-1e-7)continue;
-      best.set(id,g);
-      heap.push({...q,g,f:g+1.20*heuristic(q,goal,speed),
-                 parent:p,cmd:{vx:cmd.vx,vy:cmd.vy,yaw:cmd.yaw,pitch:0},
-                 maneuver:cmd.name,dt:cmd.dt});
-    }
-  }
-  const last=winner||closest;
-  if(last===root)return null;
-  const steps=[];for(let p=last;p.parent;p=p.parent)
-    steps.push({x:p.x,y:p.y,heading:p.heading,cmd:p.cmd,
-                maneuver:p.maneuver,dt:p.dt});
-  steps.reverse();
-  // A* searches quantized poses, so the final fine correction is closed
-  // loop. Do not present an incomplete search as a solved fastest route.
-  const solved=Boolean(winner);
-  if(!solved&&!options.allowPartial)return null;
-  const flythrough=solved&&options.passThrough
-    ?flythroughConnector(last,goal,limits,trees,terrain):null;
-  // If A* landed right on the destination, the existing last primitive
-  // already crosses the marker. Don't add a bogus zero-length stop.
-  const exactPass=Boolean(solved&&options.passThrough&&
-    distance(last,goal)<.025&&
-    Math.abs(angleError(goal.heading,last.heading))<.09);
-  if(flythrough)steps.push(flythrough);
-  else if(!exactPass)steps.push({x:goal.x,y:goal.y,heading:goal.heading,
-              cmd:{vx:0,vy:0,yaw:0,pitch:0},
-              maneuver:'final parking correction',dt:0,final:true});
-  const refined=refineRouteSteps(start,steps,limits,trees,terrain,
-    Boolean(flythrough||exactPass));
-  // Commanded-time estimate is only a planning hint, not measured gait
-  // duration. Reflect extra braking instead of advertising raw A* time.
-  const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
-  return {start:{...start},steps:refined,
-    estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
-    solved,expanded,flythrough:Boolean(flythrough||exactPass),
-    planner:terrain?'terrain-aware pose lattice':'pose lattice',
-    refined:refined!==steps,
-    modes:[...new Set(steps.map(x=>x.maneuver))]};
+function deg(rad) { return rad * 180 / Math.PI; }
+function fmtSigned(x, n=2) { return `${x >= 0 ? '+' : ''}${x.toFixed(n)}`; }
+
+function limits() {
+  return bundle?.control?.command_limits ||
+    {vx_min:-.2,vx_max:.6,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
 }
-// Roaming waypoints are location gates, not precision-parking tasks.
-// A crossing is accepted in a measured corridor around the marker even if
-// the robot's chassis heading/stride speed temporarily differs from plan.
-// Only the held-out benchmark requires accurate heading and a full stop.
-export function reachedRoamingWaypoint(pose,goal,route){
-  if(!goal||!route)return false;
-  const d=distance(pose,goal);
-  if(d<=.205)return true;
-  if(d>.32||!route.flythrough)return false;
-  // A fast walker may step from one side of the circle to the other
-  // between 10 Hz navigator updates. Detect having crossed the final
-  // segment's plane, but never accept a wide lateral miss.
-  const steps=(route.steps||[]).filter(step=>!step.final);
-  if(!steps.length)return false;
-  const last=steps.at(-1);
-  const prior=steps.at(-2)||route.start;
-  if(!prior)return false;
-  const dx=last.x-prior.x,dy=last.y-prior.y;
-  const length=Math.hypot(dx,dy);
-  if(length<.035)return false;
-  const tx=dx/length,ty=dy/length;
-  const ex=pose.x-goal.x,ey=pose.y-goal.y;
-  const passed=tx*ex+ty*ey;
-  const lateral=Math.abs(tx*ey-ty*ex);
-  return passed>=-.015&&passed<.30&&lateral<.18;
+function applyHeadingGain() {
+  const kp=Number(headingGain.value);
+  $('headingGainOut').textContent=kp.toFixed(1);
+  sim?.setHeadingGain(kp);
 }
 
-// Finish an exhibition route by intercepting the marker in front of the
-// chassis. Unlike precise parking, this never requests reversing into a
-// waypoint, and it leaves actuator/gait stabilisation to the learned policy.
-export function forwardWaypointApproach(pose,goal,limits){
-  const dx=goal.x-pose.x,dy=goal.y-pose.y;
-  const d=Math.hypot(dx,dy);
-  const bearing=Math.atan2(dy,dx);
-  const err=angleError(bearing,pose.heading);
-  const yaw=clamp(1.25*err-.25*(pose.yawRate||0),
-    -Math.max(.1,limits.yaw_abs||0)*.68,
-    Math.max(.1,limits.yaw_abs||0)*.68);
-  const speed=clamp(.80*d,.12,Math.min(.34,limits.vx_max*.60));
-  const vx=clamp(speed*Math.max(0,Math.cos(err)),0,limits.vx_max*.60);
-  const vy=clamp(speed*Math.sin(err)*.55,
-    -(limits.vy_abs||0)*.65,(limits.vy_abs||0)*.65);
-  return {vx,vy,yaw,pitch:0};
+function updateStickLabels() {
+  if(demoActive){
+    const sticks=commandStickPositions(navLastCommand,limits());
+    leftStick.setDisplay(sticks.left.x,sticks.left.y);
+    rightStick.setDisplay(sticks.right.x,sticks.right.y);
+    leftValues.textContent=`vx ${fmtSigned(navLastCommand.vx)} · vy ${fmtSigned(navLastCommand.vy)}`;
+    rightValues.textContent=`yaw ${fmtSigned(navLastCommand.yaw)} · pitch ${fmtSigned(deg(navLastCommand.pitch||0),1)}°`;
+    return;
+  }
+  const {vx,vy,yaw,pitch}=joystickToCommands(left.x,left.y,right.x,right.y,limits());
+  leftValues.textContent=`vx ${fmtSigned(vx)} · vy ${fmtSigned(vy)}`;
+  rightValues.textContent=`yaw ${fmtSigned(yaw)} · pitch ${fmtSigned(deg(pitch),1)}°`;
+  sim?.setJoystickTargets(left.x,left.y,right.x,right.y);
+}
+function humanStickChange(side,x,y) {
+  if(demoActive && (Math.abs(x)>.06||Math.abs(y)>.06))stopDemo();
+  if(!demoActive){
+    handoff.takeControl(performance.now()/1000);
+    if(side==='left')left={x,y};else right={x,y};
+    updateStickLabels();
+  }
+}
+const leftStick=new VirtualStick($('leftStick'),(x,y)=>humanStickChange('left',x,y));
+const rightStick=new VirtualStick($('rightStick'),(x,y)=>humanStickChange('right',x,y));
+
+function metricText(x) {
+  const n = Number(x);
+  return Number.isFinite(n) && n >= 0 ? n.toFixed(3) : '—';
 }
 
-export class GoalNavigator {
-  constructor(seed=5017){
-    this.rng=makeRng(seed);this.active=false;
-    this.goal=null;this.route=null;this.path=null;this.index=0;
-    this.runIndex=0;this.runProgress=0;
-    this.crossTrack=0;this.crossings=0;this.crossSide=0;
-    this.trackingTime=0;this.trackErrorIntegral=0;
-    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
-    this.previousTravelPose=null;
-    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
-    this.referenceSpeed=0;this.observedSpeed=0;
-    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-    this.currentMode='parking';
-    this.elapsed=0;this.arrivalHold=0;this.arrivals=0;
-    this.replans=0;this.reason='Not started';this.replanDelay=0;
-    this.searchCooldown=0;this.failures=0;
-    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
-    this.requestPlan=null;this.pendingRequest=null;
-    this.generation=0;this.plannerError=null;
-    this.controllerMode='predictive';
-    this.predictor=new PredictivePathController();
-    this.prediction=[];this.predictionScore=null;this.terrain=null;this.latestPose=null;
-    this.benchmark=null;
-    this.following=null;this.hint=null;
-    this.prefetchPending=null;this.prefetchRetry=0;this.prefetchError=null;
-    this.lastMovementPose=null;this.motionStall=0;
-    this.closestGoalDistance=Infinity;this.goalNoProgress=0;
-    this.goalRecoveryAttempts=0;
-  }
-  // Tests can still exercise the pure synchronous planner. Browser MUST
-  // install the real Worker transport, never a Promise around sync A*.
-  useBackgroundPlanner(requestPlan){
-    if(typeof requestPlan!=='function')throw new Error('Background planner required');
-    this.requestPlan=requestPlan;
-  }
-  queuePlan(payload,consume) {
-    if(this.pendingRequest)return false;
-    const generation=this.generation;
-    let promise;
-    try {promise=Promise.resolve(this.requestPlan(payload));}
-    catch(error){this.plannerError=String(error?.message||error);return false;}
-    this.pendingRequest=promise;
-    promise.then(result=>{
-      if(generation!==this.generation||!this.active)return;
-      consume(result);
-    }).catch(error=>{
-      if(generation===this.generation){
-        this.plannerError=String(error?.message||error);
-        this.reason='Planner error · walking safely';
-        this.searchCooldown=2.0;
-        if(payload.kind==='next'){this.goal=null;this.route=null;this.path=null;}
-      }
-    }).finally(()=>{
-      if(generation===this.generation&&this.pendingRequest===promise)
-        this.pendingRequest=null;
-    });
+function updateResultCard() {
+  const card = $('resultCard');
+  const ev = bundle?.evaluation;
+  if (!ev) { card.hidden = true; return; }
+  card.hidden = false;
+  $('resultRole').textContent = ev.role || ev.summary_name || bundle?.source?.run_name || 'held-out';
+  $('resultBroad').textContent = metricText(ev.broad);
+  $('resultHard').textContent = metricText(ev.screen_hard_recovery);
+  $('resultGrowth').textContent = metricText(ev.screen_growth_headroom);
+  $('resultRecovery').textContent = metricText(ev.recovery);
+  $('resultWorst').textContent = metricText(ev.worst_direction);
+  $('resultCal').textContent = metricText(ev.calibration_mae);
+}
+
+function refreshPolicySelect() {
+  policySelect.innerHTML = '';
+  policyLibrary.forEach((entry, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    const src = entry.bundle.source || {};
+    const seed = entry.bundle.evaluation?.seed;
+    opt.textContent = `${seed != null ? `s${seed} · ` : ''}${src.run_name || entry.fileName}`;
+    policySelect.appendChild(opt);
+  });
+  policySelect.hidden = policyLibrary.length < 2;
+  if (activePolicyIndex >= 0) policySelect.value = String(activePolicyIndex);
+}
+
+async function activatePolicy(index) {
+  const entry = policyLibrary[index];
+  if (!entry || loading) return;
+  loading = true;
+  activePolicyIndex = index;
+  setStatus(`Loading ${entry.fileName}…`, 'warn');
+  pauseBtn.disabled = true;
+  resetBtn.disabled = true;
+  try {
+    const hotSwap = sim && sim.canSwapPolicy(entry.bundle);
+    if (hotSwap) sim.replacePolicy(entry.bundle);
+    else {
+      const nextSim = await EmuBrowserSim.create(canvas, entry.bundle);
+      if (sim) sim.dispose();
+      sim = nextSim;
+    }
+    bundle = entry.bundle;
+    sim.setCameraMode(cameraMode);
+    sim.setHeadingHold(headingHoldToggle.checked);
+    applyHeadingGain();
+    sim.setTreesEnabled(treesToggle.checked);
+    sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+    sim.setParkChallengeLevel(parkChallengeLevel.value);
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    updateParkCourseInfo();
+    updateDepthSettings();
+    if(terrainMode.value==='sensor' && demoActive)stopDemo();
+    sim.follow = followToggle.checked;
+    sim.autoReset = autoResetToggle.checked || demoActive;
+    sim.sensorNoise = noiseToggle.checked;
+    sim.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
+    updateStickLabels();
+
+    const src = bundle.source || {};
+    $('policyName').textContent = src.run_name || entry.fileName;
+    $('policyStep').textContent = Number(src.step || 0).toLocaleString();
+    if (showcaseManifest) {
+      $('showcaseTitle').textContent = entry.isShowcase
+        ? (showcaseManifest.trained ? 'CHAMPION POLICY' : 'UNTRAINED PREVIEW')
+        : 'LOCAL POLICY';
+      $('showcaseSubtitle').textContent = entry.isShowcase
+        ? (showcaseManifest.trained ? 'Browser-local physics and inference · no account needed' : 'Viewer preview only. This is not a trained walking policy.')
+        : 'Your own dropped policy — not the published model';
+    }
+    updateResultCard();
+    refreshPolicySelect();
+    pauseBtn.disabled = false;
+    resetBtn.disabled = false;
+    pauseBtn.textContent = 'Pause';
+    setStatus(`Local MuJoCo/WASM · actor ${String(src.actor_sha256 || '').slice(0,10) || 'loaded'}`, 'ok');
+    dragDepth = 0;
+    dropOverlay.hidden = true;
+    sim.resize();
+    // An explicitly opened local .emupolicy also needs demo controls:
+    // /api/initial-policy is not a live watcher or static Pages manifest.
+    if (livePanel.hidden && !showcaseManifest) {
+      livePanel.hidden = false;
+      $('demoPanelTitle').textContent = 'DEMO CONTROLS';
+      $('liveUpdate').closest('label').hidden = true;
+      $('livePhase').textContent = 'Local policy';
+      $('liveStep').textContent = Number(src.step || 0).toLocaleString();
+      $('liveNote').textContent = 'Runs entirely in your browser';
+      demoActive = $('liveDemo').checked;
+    }
+    lastResetGeneration=-1;
+    navigationFault=false;
+    syncGoalMode();
     return true;
-  }
-  reset(){
-    this.generation++;this.pendingRequest=null;this.plannerError=null;
-    this.goal=null;this.route=null;this.path=null;this.index=0;
-    this.runIndex=0;this.runProgress=0;
-    this.crossTrack=0;this.crossings=0;this.crossSide=0;
-    this.trackingTime=0;this.trackErrorIntegral=0;
-    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
-    this.previousTravelPose=null;
-    this.headingErrorIntegral=0;this.speedErrorIntegral=0;
-    this.referenceSpeed=0;this.observedSpeed=0;
-    this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-    this.currentMode='parking';
-    this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
-    this.replanDelay=0;this.replans=0;this.searchCooldown=0;
-    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
-    this.prediction=[];this.predictionScore=null;this.latestPose=null;
-    this.predictor.reset();this.benchmark=null;
-    this.following=null;this.hint=null;this.prefetchPending=null;
-    this.prefetchRetry=0;this.prefetchError=null;
-    this.lastMovementPose=null;this.motionStall=0;
-    this.closestGoalDistance=Infinity;this.goalNoProgress=0;
-    this.goalRecoveryAttempts=0;}
-  startBenchmark(){
-    const keepActive=this.active;
-    this.reset();
-    this.active=keepActive;
-    this.benchmark={targets:NAV_BENCHMARK_TARGETS.map(g=>({...g})),
-      index:0,results:[],complete:false,controller:this.controllerMode};
-    this.reason='Benchmark · route 1 / '+NAV_BENCHMARK_TARGETS.length;
-  }
-  finishBenchmarkLeg(success,fallen=false){
-    if(!this.benchmark||this.benchmark.complete)return;
-    this.benchmark.results.push({
-      goal:this.benchmark.index+1,success,
-      elapsedSeconds:Number(this.elapsed.toFixed(2)),
-      meanTrackErrorM:Number((this.trackingTime?
-        this.trackErrorIntegral/this.trackingTime:0).toFixed(3)),
-      rmsTrackErrorM:Number((this.trackingTime?Math.sqrt(
-        this.trackErrorSquaredIntegral/this.trackingTime):0).toFixed(3)),
-      distanceTravelledM:Number(this.distanceTravelled.toFixed(3)),
-      fell:Boolean(fallen),
-      meanHeadingErrorDeg:Number((this.trackingTime?
-        this.headingErrorIntegral/this.trackingTime*180/Math.PI:0).toFixed(1)),
-      crossings:this.crossings});
-    this.benchmark.index++;
-    if(this.benchmark.index>=this.benchmark.targets.length){
-      this.benchmark.complete=true;
-      this.reason='Benchmark finished · '+this.benchmark.results.filter(r=>r.success).length+
-        '/'+this.benchmark.results.length+' successful';
-    }
-  }
-  acceptRoute(pose,goal,route,{newMission=false,following=null}={}){
-    this.goal={...goal};this.route=route;
-    this.path=buildRoutePath(route,route.start||pose);
-    this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-    for(const step of route.steps){
-      const kind=motionKind(step.cmd);
-      if(Object.hasOwn(this.plannedModeSeconds,kind))
-        this.plannedModeSeconds[kind]+=Math.max(0,Number(step.dt)||0);
-    }
-    this.runIndex=0;this.runProgress=0;this.index=0;
-    this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
-    this.replanDelay=0;
-    if(newMission){
-      this.following=following;
-      this.hint=following?.hint||null;
-      this.lastMovementPose=null;this.motionStall=0;
-      this.closestGoalDistance=Infinity;this.goalNoProgress=0;
-      this.goalRecoveryAttempts=0;
-      this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
-      this.crossTrack=0;this.crossings=0;this.crossSide=0;
-      this.trackingTime=0;this.trackErrorIntegral=0;
-    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
-    this.previousTravelPose=null;
-      this.headingErrorIntegral=0;this.speedErrorIntegral=0;
-      this.referenceSpeed=0;this.observedSpeed=0;
-      this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
-      this.currentMode='parking';
-    }
-    this.reason=route.solved?'Following route':'Partial route · replanning';
-  }
-  setGoal(pose,goal,limits,trees=[]){
-    const route=planPoseRoute(pose,goal,limits,trees,{terrain:this.terrain});
-    if(!route)return false;
-    this.acceptRoute(pose,goal,route,{newMission:true});
-    return true;
-  }
-  nextGoal(pose,limits,trees=[]){
-    if(this.benchmark){
-      if(this.benchmark.complete)return false;
-      const goal=this.benchmark.targets[this.benchmark.index];
-      if(this.requestPlan){
-        this.reason='Benchmark · planning goal '+(this.benchmark.index+1);
-        return this.queuePlan({
-          kind:'target',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal,limits,trees,terrain:this.terrain
-        },answer=>{
-          const fresh=this.latestPose&&distance(this.latestPose,pose)<.30;
-          if(answer?.route?.solved&&fresh){
-            this.acceptRoute(pose,goal,answer.route,{newMission:true});
-          }else{
-            this.finishBenchmarkLeg(false);
-            this.goal=null;this.route=null;this.path=null;
-            this.searchCooldown=.5;
-          }
-        });
-      }
-      if(this.setGoal(pose,goal,limits,trees))return true;
-      this.finishBenchmarkLeg(false);
-      this.searchCooldown=.5;
-      return false;
-    }
-    if(this.requestPlan){
-      this.reason='Planning next target in background…';
-      return this.queuePlan({
-        kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-        limits,trees,terrain:this.terrain
-      },result=>{
-        if(result?.goal&&result?.route?.solved){
-          // Route already calculated off-thread; do not run A* again.
-          this.acceptRoute(pose,result.goal,result.route,{
-            newMission:true,following:result.following||null});
-        }else{
-          this.goal=null;this.route=null;this.path=null;
-          this.searchCooldown=1.5;
-          this.reason='No viable route yet · trying again soon';
-        }
-      });
-    }
-    for(let i=0;i<5;i++){
-      const goal=sampleGoal(this.rng,trees,pose,ARENA_RADIUS_M,this.terrain);
-      const planned=this.setGoal(pose,goal,limits,trees);
-      if(planned&&this.route.solved)return true;
-    }
-    this.reason='No feasible full route; sampling again soon';
-    this.goal=null;this.route=null;this.path=null;this.searchCooldown=1.5;
+  } catch (err) {
+    console.error(err);
+    setStatus(err?.message || String(err), 'error');
     return false;
+  } finally {
+    loading = false;
   }
-  // Prefetch from the PLANNED terminal pose while the actor is still
-  // walking to it. No zero-command wait for the browser Worker at the marker.
-  // This request is independent of replanning the live route.
-  prefetchUpcoming(limits,trees=[]){
-    if(!this.requestPlan||this.benchmark||!this.goal||
-       this.following||this.prefetchPending||this.prefetchRetry>0)return false;
-    const expectedGoal=this.goal,generation=this.generation;
-    let request;
-    try{
-      request=Promise.resolve(this.requestPlan({
-        kind:'prefetch',
-        pose:{x:expectedGoal.x,y:expectedGoal.y,heading:expectedGoal.heading},
-        hint:this.hint,limits,trees,terrain:this.terrain
-      }));
-    }catch(error){
-      this.prefetchError=String(error?.message||error);
-      this.prefetchRetry=1.5;
-      return false;
+}
+
+async function addPolicyFiles(files) {
+  const incoming = [...files];
+  if (!incoming.length) return;
+  setStatus(`Reading ${incoming.length} polic${incoming.length === 1 ? 'y' : 'ies'}…`, 'warn');
+  let firstNew = -1;
+  for (const file of incoming) {
+    try {
+      const parsed = parsePolicy(await file.text());
+      const actor = String(parsed.source?.actor_sha256 || '');
+      const duplicate = actor && policyLibrary.some(x => String(x.bundle.source?.actor_sha256 || '') === actor);
+      if (duplicate) continue;
+      if (firstNew < 0) firstNew = policyLibrary.length;
+      policyLibrary.push({ fileName: file.name, bundle: parsed });
+    } catch (err) {
+      console.error(err);
+      setStatus(`${file.name}: ${err?.message || String(err)}`, 'error');
     }
-    this.prefetchPending=request;
-    request.then(result=>{
-      if(!this.active||generation!==this.generation||
-         !samePose(this.goal,expectedGoal))return;
-      if(result?.following?.route?.solved&&result.following.route.flythrough){
-        this.following=result.following;
-        this.prefetchError=null;
-      }else{
-        this.prefetchRetry=1.5;
-        this.prefetchError='No continuous next route available';
-      }
-    }).catch(error=>{
-      if(generation!==this.generation||!samePose(this.goal,expectedGoal))return;
-      this.prefetchError=String(error?.message||error);
-      this.prefetchRetry=1.5;
-    }).finally(()=>{
-      if(this.prefetchPending===request)this.prefetchPending=null;
-    });
-    return true;
   }
-  tick(dt,pose,limits,trees=[],apply=()=>{}){
-    if(!this.active)return;
-    if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
-    const delta=clamp(dt,0,.1);
-    this.prefetchRetry=Math.max(0,this.prefetchRetry-delta);
-    this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
-    if(this.goal&&this.previousTravelPose)
-      this.distanceTravelled+=distance(pose,this.previousTravelPose);
-    this.previousTravelPose={x:pose.x,y:pose.y};
-    this.predictor.observe(pose,delta);
-    // Standing while waiting avoids making an asynchronous plan stale.
-    if(this.benchmark?.complete){
-      apply({vx:0,vy:0,yaw:0,pitch:0});return;
-    }
-    if(!this.goal){
-      if(this.pendingRequest){
-        this.reason='Background route search';
-        apply({vx:0,vy:0,yaw:0,pitch:0});return;
+  refreshPolicySelect();
+  policyFile.value = '';
+  if (firstNew >= 0) await activatePolicy(firstNew);
+}
+
+policyFile.addEventListener('change', () => {
+  if (policyFile.files?.length) addPolicyFiles(policyFile.files);
+});
+policySelect.addEventListener('change', () => activatePolicy(Number(policySelect.value)));
+
+pauseBtn.addEventListener('click', () => {
+  if (!sim) return;
+  sim.paused = !sim.paused;
+  pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause';
+});
+resetBtn.addEventListener('click', () => sim?.reset());
+cameraBtn.addEventListener('click', () => {
+  cameraMode = cameraModes[(cameraModes.indexOf(cameraMode) + 1) % cameraModes.length];
+  sim?.setCameraMode(cameraMode);
+  cameraBtn.textContent = cameraLabel(cameraMode);
+  cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
+});
+function updateParkCourseInfo() {
+  parkCourseList.replaceChildren();
+  if(terrainMode.value!=='park' || !parkFeaturesToggle.checked ||
+     !sim?.park?.features?.length){
+    const item=document.createElement('li');
+    item.textContent='Select the terrain park and enable the course.';
+    parkCourseList.appendChild(item);
+    return;
+  }
+  for(const feature of sim.park.features){
+    const item=document.createElement('li');
+    const title=document.createElement('strong');
+    title.textContent=feature.label+' — ';
+    item.appendChild(title);
+    item.appendChild(document.createTextNode(feature.challenge));
+    parkCourseList.appendChild(item);
+  }
+}
+function updateTerrain() {
+  $('terrainMaxOut').textContent = `${terrainMax.value}°`;
+  treesToggle.disabled = terrainMode.value!=='park';
+  parkFeaturesToggle.disabled = terrainMode.value!=='park';
+  parkChallengeLevel.disabled = terrainMode.value!=='park';
+  if(terrainMode.value==='sensor'&&demoActive)stopDemo();
+  if(terrainMode.value!=='sensor')depthCourse.value='viewer';
+  else if(depthCourse.value==='viewer'){depthCourse.value='flat';sim?.setSensorObstacle('flat');}
+  if (!sim) return;
+  try {
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    if(goalDemoActive())navigator.reset();
+    updateStickLabels();
+    updateParkCourseInfo();
+  } catch(err) {
+    terrainMode.value='flat';
+    sim.setTerrainMode('flat');
+    updateParkCourseInfo();
+    setStatus(`Terrain unavailable: ${err.message}`,'error');
+  }
+}
+function updateDepthSettings(){
+  $('depthTiltOut').textContent=depthTilt.value+'°';
+  $('depthMountOut').textContent=depthMount.value+' mm';
+  if(sim)sim.setDepthInspector({
+    enabled:depthOn.checked,tilt:Number(depthTilt.value),
+    forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    showFootprint:depthFootprint.checked,
+    subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
+  });
+}
+function applySurfaceLab(){
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+  if(!sim)return;
+  try{
+    sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
+                       stepHeightCm:Number(surfaceStepSlider.value)});
+    navigator.reset();
+  }catch(error){setStatus('Surface lab: '+error.message,'error');}
+}
+function changeDepthCourse(){
+  terrainMode.value=depthCourse.value==='viewer'?'park':'sensor';
+  if(demoActive)stopDemo();
+  if(!sim)return;
+  try{
+    if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
+    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
+    navigator.reset();updateStickLabels();updateParkCourseInfo();
+  }catch(error){setStatus('Depth lab course: '+error.message,'error');}
+}
+for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
+  input.addEventListener('input',updateDepthSettings);
+depthCourse.addEventListener('change',changeDepthCourse);
+surfaceSlopeSlider.addEventListener('change',applySurfaceLab);
+surfaceStepSlider.addEventListener('change',applySurfaceLab);
+surfaceSlopeSlider.addEventListener('input',()=>{
+  $('surfaceSlopeOut').textContent=Number(surfaceSlopeSlider.value).toFixed(1)+'°';
+});
+surfaceStepSlider.addEventListener('input',()=>{
+  $('surfaceStepOut').textContent=Number(surfaceStepSlider.value).toFixed(1)+' cm';
+});
+depthView.addEventListener('change',updateDepthGrid);
+$('depthCopy').addEventListener('click',async()=>{
+  const reading=sim?.depthReading;
+  if(!reading){$('depthNote').textContent='No scan to copy yet';return;}
+  const terrainHeightCm=terrainHeightOffsetsCm(reading);
+  const info={
+    sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
+    policy:bundle?.source?.run_name||'unknown',
+    terrain:terrainMode.value,
+    obstacle:terrainMode.value==='sensor'?depthCourse.value:'viewer terrain',
+    tilt_down_deg:Number(depthTilt.value),
+    mount_forward_mm:Number(depthMount.value),
+    depth_sample_rays:reading.subrays*16,
+    visual_footprint_rays:reading.footprintRays||0,
+    scan_time_ms:Number(reading.costMs.toFixed(2)),
+    displayed_as:depthView.value==='height'?'signed terrain elevation (cm)':'slant range (cm)',
+    height_reference:'horizontal world plane at z=0 (visual diagnostic, not actor input)',
+    height_colours_saturate_at_cm:15,
+    terrain_height_cm:Array.from({length:4},(_,row)=>
+      Array.from({length:4},(_,col)=>{
+        const z=terrainHeightCm[row*4+col];
+        return z===null?null:Number(z.toFixed(1));
+      })),
+    ranges_cm:Array.from({length:4},(_,row)=>
+      Array.from({length:4},(_,col)=>{
+        const i=row*4+col;
+        return reading.valid[i]?Number((100*reading.ranges[i]).toFixed(1)):null;
+      })),
+    self_occluded_zones:reading.selfOccluded.map((v,i)=>v?i:null).filter(v=>v!==null),
+    mixed_edge_zones:reading.mixed.map((v,i)=>v?i:null).filter(v=>v!==null),
+  };
+  try {
+    if(!window.navigator.clipboard?.writeText)throw new Error('Clipboard unavailable');
+    await window.navigator.clipboard.writeText(JSON.stringify(info,null,2));
+    $('depthNote').textContent='Copied sensor reading · paste it into chat';
+  }catch(error){
+    $('depthNote').textContent='Clipboard blocked · take a screenshot instead';
+  }
+});
+
+function signedHeightText(cm){
+  if(Math.abs(cm)<.05)return '0.0';
+  return (cm>0?'+':'')+cm.toFixed(1);
+}
+function heightColor(cm){
+  // Fixed +/-15cm colour scale. Actual height values remain unclipped.
+  const strength=Math.min(1,Math.abs(cm)/15);
+  if(Math.abs(cm)<.3)return 'hsl(170 32% 28%)'; // expected flat ground
+  if(cm>0)return 'hsl('+(34-20*strength).toFixed(0)+' 68% '+(30+9*strength).toFixed(0)+'%)';
+  return 'hsl('+(205+12*strength).toFixed(0)+' 65% '+(30+10*strength).toFixed(0)+'%)';
+}
+function updateDepthGrid(){
+  const data=sim?.depthReading;
+  const mode=depthView.value;
+  const heights=data?terrainHeightOffsetsCm(data):null;
+  let hits=0;
+  depthCells.forEach((cell,i)=>{
+    const valid=Boolean(data?.valid[i]);
+    const blocked=valid&&data.selfOccluded[i];
+    const height=heights?.[i]??null;
+    cell.className=valid?'depth-cell':'depth-cell invalid';
+    cell.removeAttribute('title');
+    if(blocked){
+      // Seeing the robot is not evidence of an elevated piece of terrain.
+      cell.className+=' occluded';
+      cell.textContent='SELF';
+      cell.style.background='#855524';
+      cell.title='Robot or foot occludes this zone · no terrain height';
+    }else if(valid){
+      hits++;
+      const cm=data.ranges[i]*100;
+      cell.textContent=mode==='height'
+        ?(height===null?'—':signedHeightText(height)):cm.toFixed(1);
+      cell.title=(height===null?'Terrain unknown':signedHeightText(height)+' cm above flat z=0')+
+        ' · raw '+cm.toFixed(1)+' cm';
+      if(data.mixed[i]){
+        // A yellow outline warns of a discontinuity without hiding the
+        // sign of the measured height inside the cell.
+        cell.className+=' mixed';
+        cell.title+=' · mixed edge, interpret cautiously';
       }
-      if(this.searchCooldown>0){
-        this.searchCooldown=Math.max(0,this.searchCooldown-delta);
-        apply({vx:0,vy:0,yaw:0,pitch:0});return;
-      }
-      if(!this.nextGoal(pose,limits,trees)||!this.goal){
-        apply({vx:0,vy:0,yaw:0,pitch:0});return;
-      }
-    }
-    if(!this.benchmark&&!this.following&&
-       distance(pose,this.goal)>.30)
-      this.prefetchUpcoming(limits,trees);
-    this.elapsed+=delta;
-    const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
-    if(this.elapsed>deadline){
-      this.failures++;
-      this.finishBenchmarkLeg(false);
-      this.goal=null;this.route=null;this.path=null;
-      this.reason=this.benchmark?.complete?this.reason:'Mission timed out · new goal';
-      apply({vx:0,vy:0,yaw:0,pitch:0});
-      this.nextGoal(pose,limits,trees);
-      return;
-    }
-    let dist=distance(pose,this.goal);
-    let aerr=Math.abs(angleError(this.goal.heading,pose.heading));
-    const speed=Math.hypot(pose.vx||0,pose.vy||0);
-    // Roaming target = actual position gate, never speed/yaw/parking gates.
-    // Reuse the next route if preplanned; otherwise immediately request a
-    // fresh target without pivoting or reversing into the old marker.
-    if(!this.benchmark&&reachedRoamingWaypoint(pose,this.goal,this.route)){
-      this.arrivals++;
-      if(this.following?.route?.solved){
-        const next=this.following;
-        this.acceptRoute(pose,next.goal,next.route,{newMission:true});
-        this.hint=next.hint||null;
-        this.prefetchUpcoming(limits,trees);
-        dist=distance(pose,this.goal);
-        aerr=Math.abs(angleError(this.goal.heading,pose.heading));
+      if(mode==='height'){
+        cell.style.background=height===null?'':heightColor(height);
       }else{
-        this.goal=null;this.route=null;this.path=null;
-        this.following=null;this.hint=null;
-        this.reason='Waypoint crossed · selecting next route';
-        this.predictor.issue({vx:0,vy:0,yaw:0,pitch:0});
-        apply({vx:0,vy:0,yaw:0,pitch:0});
-        this.nextGoal(pose,limits,trees);
+        // Raw physical slant range remains available and unmodified.
+        const fraction=Math.max(0,Math.min(1,(cm-5)/145));
+        cell.style.background='hsl('+(174+fraction*52).toFixed(0)+' 42% '+(29+fraction*11).toFixed(0)+'%)';
+      }
+    }else{
+      cell.textContent='—';
+      cell.style.background='';
+      cell.title='No valid terrain return';
+    }
+  });
+  $('depthGrid').setAttribute('aria-label',mode==='height'
+    ? 'Live 4 by 4 signed centimetres relative to horizontal flat ground z equals zero'
+    : 'Live 4 by 4 raw line-of-sight range in centimetres');
+  $('depthNote').textContent=!depthOn.checked
+    ? 'Diagnostic off · champion unchanged'
+    : !data?'Waiting for robot · no scan yet'
+    : hits+'/16 visible terrain zones · '+(data.subrays*16)+' depth rays'+
+      (data.footprintRays?' + '+data.footprintRays+' grid':'')+' · '+data.costMs.toFixed(1)+
+      ' ms · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
+}
+
+terrainMode.addEventListener('change',updateTerrain);
+terrainMax.addEventListener('change',updateTerrain);
+treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
+parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{
+  sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park course unavailable: ${err.message}`,'error');}});
+parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
+  sim.setParkChallengeLevel(parkChallengeLevel.value);
+  if(goalDemoActive())navigator.reset();
+  updateParkCourseInfo();
+}catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
+headingHoldToggle.addEventListener('change',()=>{
+  if(!demoActive)sim?.setHeadingHold(headingHoldToggle.checked);
+});
+headingGain.addEventListener('input',applyHeadingGain);
+followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
+autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
+noiseToggle.addEventListener('change', () => { if (sim) sim.sensorNoise = noiseToggle.checked; });
+const applyAppearance = () => {
+  sim?.setAppearance({grid: gridToggle.checked, trail: trailToggle.checked, shadows: shadowToggle.checked});
+};
+for (const control of [gridToggle, trailToggle, shadowToggle]) control.addEventListener('change', applyAppearance);
+
+
+window.addEventListener('resize', () => sim?.resize());
+window.addEventListener('beforeunload', () => {navWorker?.dispose();sim?.dispose();});
+
+let dragDepth = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dropOverlay.hidden = false; });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('dragleave', e => { e.preventDefault(); dragDepth = Math.max(0, dragDepth-1); if (!dragDepth) dropOverlay.hidden = true; });
+window.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; dropOverlay.hidden = true;
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length) addPolicyFiles(files);
+});
+
+// Desktop fallback: WASD = vx/vy, Q/E = yaw, R/F = pitch.
+const held = new Set();
+function updateKeyboard() {
+  if(demoActive)return; // Never let idle key-up repaint autonomous sticks.
+  let lx = 0, ly = 0, rx = 0, ry = 0;
+  if (held.has('KeyA')) lx -= 1;
+  if (held.has('KeyD')) lx += 1;
+  if (held.has('KeyW')) ly += 1;
+  if (held.has('KeyS')) ly -= 1;
+  if (held.has('KeyQ')) rx -= 1;
+  if (held.has('KeyE')) rx += 1;
+  if (held.has('KeyR')) ry += 1;
+  if (held.has('KeyF')) ry -= 1;
+  if (lx || ly) leftStick.set(lx, ly);
+  else if (leftStick.pointerId === null && [...held].some(k => ['KeyA','KeyD','KeyW','KeyS'].includes(k)) === false) leftStick.set(0,0);
+  if (rx || ry) rightStick.set(rx, ry);
+  else if (rightStick.pointerId === null && [...held].some(k => ['KeyQ','KeyE','KeyR','KeyF'].includes(k)) === false) rightStick.set(0,0);
+}
+window.addEventListener('keydown', e => {
+  if (!settingsDrawer.hidden || ['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
+  if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyF'].includes(e.code)) {
+    if (demoActive) stopDemo();
+    held.add(e.code); updateKeyboard(); e.preventDefault();
+  } else if (e.code === 'Space' && sim) {
+    sim.paused = !sim.paused; pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause'; e.preventDefault();
+  } else if (e.code === 'Backspace' && sim) { sim.reset(); e.preventDefault(); }
+});
+window.addEventListener('keyup', e => { held.delete(e.code); updateKeyboard(); });
+
+function updateTelemetry(now, dt) {
+  if (!sim || now - lastTelemetry < 0.10) return;
+  lastTelemetry = now;
+  const t = sim.telemetry();
+  $('fps').textContent = fpsEma ? fpsEma.toFixed(0) : '—';
+  $('height').textContent = `${(t.height*1000).toFixed(0)} mm${t.fallen ? ' · FALL' : ''}`;
+  $('vxRead').textContent = `${fmtSigned(t.vx)} / ${fmtSigned(t.cmd.vx)}`;
+  $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
+  $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
+  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· auto' : '· manual'}`;
+  $('headingRead').textContent=t.headingHold
+    ? `${fmtSigned(deg(t.headingTarget),0)}° / ${fmtSigned(deg(t.headingActual),0)}°`
+    : 'direct yaw-rate';
+  const s = t.slope;
+  $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
+    : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
+  $('slopeArrow').hidden = !s.supported || s.flat;
+  $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
+  $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
+  $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
+  updateDepthGrid();
+}
+
+function frame(ms) {
+  // Schedule the NEXT browser frame before doing anything that can throw.
+  // An exception in the experimental navigator may never freeze the actor.
+  requestAnimationFrame(frame);
+  try{
+  const now = ms / 1000;
+  const dt = Math.max(0, Math.min(0.1, now - lastFrame));
+  lastFrame = now;
+  if (dt > 0) {
+    const fps = 1/dt;
+    fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
+  }
+  if (sim) {
+    if (!demoActive && terrainMode.value!=='sensor' && !navigationFault && handoff.shouldResume(now,
+       held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
+       Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
+      startDemo();
+    }
+    if (demoActive && !sim.paused) {
+      try{navigationUpdate(dt);}
+      catch(error){
+        console.error('Goal navigation:',error);
+        navigationFault=true;
+        stopDemo();
+        sim.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
+        setStatus('Navigation error: '+String(error?.message||error), 'error');
+      }
+    }else if(!demoActive) {
+      const leftTime=Math.max(0,30-(now-handoff.lastHumanInput));
+      $('navHudTitle').textContent='MANUAL CONTROL';
+      $('navHudInfo').textContent=navigationFault?'Navigation requires a restart':
+        `Autonomous navigation resumes in ${Math.ceil(leftTime)}s`;
+      $('navEstimate').textContent='Move either joystick or use WASD · Q/E to steer';
+    }
+    sim.advance(dt);
+    sim.render(dt);
+    updateTelemetry(now, dt);
+  }
+  }catch(error){
+    console.error('Viewer frame error:',error);
+    // Keep the next browser animation frame alive for recovery.
+    navigationFault=true;
+    if(goalDemoActive())stopDemo();
+    setStatus('Viewer frame error: '+String(error?.message||error),'error');
+  }
+}
+
+function stopDemo(){
+  demoActive=false;
+  handoff.takeControl(performance.now()/1000);
+  $('liveDemo').checked=false;
+  syncGoalMode();
+  // Reset the heading setpoint to the ACTUAL chassis heading. Otherwise the
+  // P controller can keep completing the discarded autonomous turn.
+  sim?.setHeadingHold(headingHoldToggle.checked);
+  $('demoKind').textContent='Manual control';
+  leftStick.setDisplay(left.x,left.y);
+  rightStick.setDisplay(right.x,right.y);
+  updateStickLabels();
+}
+function startDemo(){
+  if(!sim||navigationFault)return;
+  demoActive=true;
+  handoff.resume();
+  $('liveDemo').checked=true;
+  left={x:0,y:0};right={x:0,y:0};
+  syncGoalMode();
+  // Autonomy issues direct yaw rates; heading-hold is for human input.
+  sim.setHeadingHold(false);
+  $('demoKind').textContent='Finding next destination…';
+  updateStickLabels();
+}
+$('liveDemo').addEventListener('change',()=>{
+  if($('liveDemo').checked)startDemo();else stopDemo();
+});
+$('navNext').addEventListener('click',()=>{
+  if(!sim)return;
+  if(!demoActive)startDemo();
+  navigator.reset();
+  navigator.terrain=sim.navigationTerrain();
+  navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
+  const state=navigator.status(sim.navigationPose());
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
+});
+$('navBenchmark').addEventListener('click',()=>{
+  if(!sim)return;
+  if(!demoActive)startDemo();
+  // Identical physical reset and goal sequence for Classic and Predictive.
+  sim.resetForNavigationBenchmark();
+  lastResetGeneration=sim.resetGeneration;
+  navigator.startBenchmark();
+  navigator.terrain=sim.navigationTerrain();
+  sim.setNavigationOverlay(null,null);
+  sim.setNavigationPrediction([]);
+});
+$('navBenchmarkCopy').addEventListener('click',async()=>{
+  const bench=navigator.benchmark;
+  if(!bench){setStatus('Run the five-goal benchmark first','warn');return;}
+  const report={schema:'emu-viewer-nav-benchmark-v1',
+    actorStep:bundle?.source?.step??null,
+    actorSha256:bundle?.source?.actor_sha256??null,
+    terrain:terrainMode.value,challenge:parkChallengeLevel.value,
+    controller:bench.controller,complete:bench.complete,results:bench.results};
+  const body=JSON.stringify(report,null,2);
+  try{await window.navigator.clipboard.writeText(body);
+    setStatus('Benchmark JSON copied','ok');}
+  catch{
+    const blob=new Blob([body],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='emu-navigation-benchmark.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    setStatus('Benchmark JSON saved','ok');
+  }
+});
+async function pollLive() {
+  if (livePolling) return;
+  livePolling = true;
+  try {
+    const response = await fetch('/api/live/status', {cache:'no-store'});
+    if (!response.ok) throw new Error(`Status HTTP ${response.status}`);
+    const state = await response.json();
+    $('livePhase').textContent = state.phase || 'Awaiting checkpoint';
+    $('liveStep').textContent = state.step == null ? '—' : Number(state.step).toLocaleString();
+    $('liveNote').textContent = state.note || (state.available ? 'Latest validated checkpoint ready' : 'Waiting for first checkpoint');
+    if (!state.available || !state.revision || state.revision === liveRevision ||
+        !$('liveUpdate').checked || loading) return;
+    const policyResponse = await fetch('/api/live/policy', {cache:'no-store'});
+    if (!policyResponse.ok) throw new Error(`Policy HTTP ${policyResponse.status}`);
+    const parsed = parsePolicy(await policyResponse.text());
+    const actualRevision = `${parsed.source.step}:${parsed.source.actor_sha256}`;
+    // A policy may advance between the two requests; only accept its own id.
+    const idx = policyLibrary.findIndex(e => e.isLive);
+    const entry = {fileName:'LIVE · latest checkpoint', bundle:parsed, isLive:true};
+    let target = idx;
+    if (idx < 0) { target = policyLibrary.length; policyLibrary.push(entry); }
+    else policyLibrary[idx] = entry;
+    const ok = await activatePolicy(target);
+    if (ok) liveRevision = actualRevision;
+  } catch (err) {
+    $('liveNote').textContent = `Live feed: ${err?.message || String(err)}`;
+    console.error(err);
+  } finally {
+    livePolling = false;
+  }
+}
+
+async function startShowcaseFeed() {
+  // Relative URLs intentionally support GitHub Pages project subpaths.
+  const manifestResponse = await fetch(new URL('./showcase.json', document.baseURI), {cache:'no-store'});
+  const manifest = await readShowcaseManifest(manifestResponse);
+  showcaseManifest = manifest;
+  $('modeLabel').textContent = 'public playground';
+  $('showcaseBanner').hidden = false;
+  $('showcaseTitle').textContent = manifest.trained ? 'CHAMPION POLICY' : 'UNTRAINED PREVIEW';
+  $('showcaseSubtitle').textContent = manifest.trained
+    ? 'Browser-local physics and inference · no account needed'
+    : 'Viewer preview only. This is not a trained walking policy.';
+  $('showcaseNote').hidden = false;
+  const buildLabel = manifest.source_commit ? ` · Viewer build ${manifest.source_commit.slice(0, 8)}` : '';
+  $('showcaseNote').textContent = (manifest.trained
+    ? 'Autonomous commands are demonstrations, not held-out evaluation.'
+    : 'Preview weights are untrained. A trained champion has not been published yet.') + buildLabel;
+  if (manifest.source_url) {
+    $('sourceLink').href = manifest.source_url;
+    $('sourceLink').hidden = false;
+  }
+  setStatus('Fetching bundled policy…', 'warn');
+  const file = await fetch(showcasePolicyUrl(manifest, document.baseURI), {cache:'no-store'});
+  assertShowcasePolicyResponse(file);
+  const parsed = parsePolicy(await file.text());
+  policyLibrary.push({fileName:manifest.label, bundle:parsed, isShowcase:true});
+  const ok = await activatePolicy(policyLibrary.length - 1);
+  if (!ok) throw new Error('Showcase policy could not be started');
+  demoActive = manifest.trained;
+  handoff.resume();
+  $('liveDemo').checked = demoActive;
+  // The public playground gets the same demo controls as the live watcher.
+  livePanel.hidden = false;
+  $('demoPanelTitle').textContent = 'DEMO CONTROLS';
+  $('liveUpdate').closest('label').hidden = true;
+  $('livePhase').textContent = manifest.trained ? 'Published champion' : 'Untrained fixture';
+  $('liveStep').textContent = Number(parsed.source?.step || 0).toLocaleString();
+  $('liveNote').textContent = manifest.trained
+    ? 'Static, published policy — no training server required'
+    : 'Demo fixture: explore the controls, not the walking performance';
+  $('demoKind').textContent = demoActive ? 'Finding next destination…' : 'Manual control';
+  sim.autoReset = autoResetToggle.checked || demoActive;
+  syncGoalMode();
+  return true;
+}
+
+async function startViewerFeed() {
+  try {
+    // Local Python server takes precedence, including when a previously built
+    // static showcase manifest happens to be present in webviewer_dist.
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+    if (loopback) {
+      const response = await fetch('/api/viewer-config', {cache:'no-store'});
+      // The Vite preview SPA fallback responds with index.html and HTTP 200
+      // for /api/viewer-config. Only actual JSON can identify our Python API.
+      if (isJsonResponse(response)) {
+        const config = await response.json();
+        if (!isViewerConfig(config)) {
+          throw new Error('Invalid EMU local viewer API configuration');
+        }
+        if (config.initial_policy && !config.live) {
+          const file = await fetch('/api/initial-policy', {cache:'no-store'});
+          if (file.ok) {
+            const parsed = parsePolicy(await file.text());
+            policyLibrary.push({fileName:'Preloaded policy',bundle:parsed});
+            await activatePolicy(policyLibrary.length-1);
+          }
+        }
+        if (config.live) {
+          livePanel.hidden = false;
+          demoActive = $('liveDemo').checked;
+          syncGoalMode();
+          await pollLive();
+          setInterval(pollLive, 12000);
+        }
         return;
       }
     }
-    // Strict stops are ONLY for the fixed physical benchmark.
-    if(this.benchmark&&
-       dist<GOAL_POSITION_TOLERANCE_M&&
-       aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
-      this.arrivalHold+=delta;
-      apply({vx:0,vy:0,yaw:0,pitch:0});
-      if(this.arrivalHold>=.55){
-        // Retire this mission before asking the Worker for a new one.
-        this.arrivals++;
-        this.finishBenchmarkLeg(true);
-        this.goal=null;this.route=null;this.path=null;
-        this.reason=this.benchmark?.complete?this.reason:
-          'Goal reached · choosing next target';
-        this.nextGoal(pose,limits,trees);
-      }else this.reason='Verifying arrival';
-      return;
-    }
-    this.arrivalHold=0;
-    const path=this.path;
-    const lastRun=path?.runs.length-1??-1;
-    let result=null;
-    if(this.runIndex<=lastRun){
-      result=trackRoutePath(pose,path,this.runIndex,this.runProgress,limits);
-      this.runProgress=Math.max(this.runProgress,result.progress);
-      // Respect reverse/pivot boundaries; do not jump across a cusp.
-      if(result.ready&&this.runIndex<lastRun){
-        this.runIndex++;
-        this.runProgress=0;
-        result=trackRoutePath(pose,path,this.runIndex,0,limits);
-      }else if(result.ready&&this.runIndex===lastRun){
-        this.runIndex=lastRun+1;
-      }
-    }
-    // Ease into final pose correction rather than switching controllers
-    // abruptly at a fixed distance. Preserve pivots and reverse cusps.
-    const finished=this.runIndex>lastRun||lastRun<0;
-    const blending=Boolean(this.benchmark)&&
-      !finished&&this.runIndex===lastRun&&
-      result?.mode!=='pivot'&&dist<.60&&result.remaining<.60;
-    const blend=blending?clamp((.60-dist)/.40,0,1)*
-      clamp((.60-result.remaining)/.42,0,1):0;
-    const finalApproach=finished||blending;
-    const cruise=result?.command||{vx:0,vy:0,yaw:0,pitch:0};
-    const park=finished||blending
-      ?this.benchmark?parkAtGoal(pose,this.goal,limits)
-        :forwardWaypointApproach(pose,this.goal,limits):null;
-    let command=finished?park:!blending?cruise:
-      Object.fromEntries(['vx','vy','yaw','pitch'].map(key=>[
-        key,(1-blend)*(cruise[key]||0)+blend*(park[key]||0)]));
-    this.prediction=[];this.predictionScore=null;
-    if(this.controllerMode==='predictive'&&!finished&&!blending&&
-       result?.mode!=='pivot'){
-      const predicted=this.predictor.command(pose,path,this.runIndex,
-        this.runProgress,limits,trees,this.terrain,command);
-      command=predicted.command;
-      this.prediction=predicted.prediction;
-      this.predictionScore=predicted.cost;
-    }
-    this.predictor.issue(command);
-    apply(command);
-    this.reason=finalApproach
-      ?this.benchmark?'Final pose correction':'Forward waypoint interception'
-      :result?.mode==='pivot'?'Following planned pivot'
-      :dist>1.1?'Following path':'Approaching goal';
-    // Independent arrival-progress watchdog. The former watchdog ignored
-    // final approach, pivots, and any drift greater than 9 cm, even if the
-    // distance to the goal never improved.
-    if(dist<this.closestGoalDistance-.035){
-      this.closestGoalDistance=dist;
-      this.goalNoProgress=0;
-      this.goalRecoveryAttempts=0;
-    }else if(!this.benchmark&&dist<.85&&dist>.27){
-      this.goalNoProgress+=delta;
-    }else if(dist>=.85){
-      this.goalNoProgress=0;
-    }
-    const progress=this.runIndex*10000+this.runProgress;
-    if(!this.lastMovementPose||
-       distance(pose,this.lastMovementPose)>.09){
-      this.lastMovementPose={x:pose.x,y:pose.y};this.motionStall=0;
-    }else if(dist>.31&&result?.mode!=='pivot'&&
-        Math.hypot(command.vx||0,command.vy||0)>.18)
-      this.motionStall+=delta;
-    else this.motionStall=Math.max(0,this.motionStall-.12);
-    if(progress>this.bestProgress+.045){
-      this.bestProgress=progress;this.stagnant=0;
-    }else if(!finalApproach&&result?.mode!=='pivot')this.stagnant+=delta;
-    this.index=this.runIndex;
-    this.replanDelay+=delta;
-    const signedCross=result?.mode==='pivot'?0:(result?.crossTrack||0);
-    this.crossTrack=signedCross;
-    const currentMode=finished?'parking':result?.mode||'parking';
-    this.currentMode=currentMode;
-    this.modeSeconds[currentMode]=(this.modeSeconds[currentMode]||0)+delta;
-    this.trackingTime+=delta;
-    this.trackErrorIntegral+=Math.abs(signedCross)*delta;
-    this.trackErrorSquaredIntegral+=signedCross*signedCross*delta;
-    this.headingErrorIntegral+=Math.abs(result?.headingError||0)*delta;
-    this.speedErrorIntegral+=Math.abs(result?.speedError||0)*delta;
-    this.referenceSpeed=result?.referenceSpeed||0;
-    this.observedSpeed=result?.observedSpeed||0;
-    // Hysteresis avoids treating each gait-induced wiggle as a crossing.
-    const side=Math.abs(signedCross)>.045?Math.sign(signedCross):0;
-    if(side&&this.crossSide&&side!==this.crossSide)this.crossings++;
-    if(side)this.crossSide=side;
-    const offRoute=Math.abs(signedCross);
-    // Compare with the line, NOT distance to a far-ahead lookahead target.
-    if(!this.benchmark&&this.goalNoProgress>8&&
-       this.goalRecoveryAttempts>=2){
-      // A target that repeatedly defeats physically observed progress is a
-      // missed waypoint, never permission to hang indefinitely or claim
-      // arrival. Move on to another feasible target.
-      this.failures++;
-      this.goal=null;this.route=null;this.path=null;this.following=null;
-      this.reason='Waypoint missed after repeated recovery · moving on';
-      this.predictor.issue({vx:0,vy:0,yaw:0,pitch:0});
-      apply({vx:0,vy:0,yaw:0,pitch:0});
-      this.nextGoal(pose,limits,trees);
-      return;
-    }
-    if(this.replanDelay>2.5&&!this.pendingRequest&&
-       (offRoute>.67||!this.route.solved||
-        (!finalApproach&&this.stagnant>3.2)||
-        (dist>.34&&this.motionStall>2.4)||
-        (!this.benchmark&&dist>.27&&this.goalNoProgress>2.4))){
-      this.replanDelay=0;
-      if(!this.benchmark&&dist<.85&&this.goalNoProgress>2.4)
-        this.goalRecoveryAttempts++;
-      if(this.requestPlan){
-        const expectedGoal=this.goal;
-        this.queuePlan({
-          kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees,terrain:this.terrain,
-          passThrough:!this.benchmark&&Boolean(this.route?.flythrough)
-        },answer=>{
-          // Reject stale background routes after significant motion.
-          const fresh=this.latestPose&&distance(this.latestPose,pose)<.38&&
-            Math.abs(angleError(this.latestPose.heading,pose.heading))<.45;
-          if(answer?.route?.solved&&this.goal===expectedGoal&&fresh){
-            this.acceptRoute(pose,expectedGoal,answer.route);
-            this.replans++;
-          }
-        });
-      }else{
-        const route=planPoseRoute(pose,this.goal,limits,trees,
-          {maxNodes:7500,terrain:this.terrain,
-            passThrough:!this.benchmark&&Boolean(this.route?.flythrough)});
-        if(route?.solved){
-          this.acceptRoute(pose,this.goal,route);
-          this.replans++;
-        }
-      }
-    }
-  }
-  status(pose){
-    return {goal:this.goal,route:this.route,
-      distance:this.goal?distance(pose,this.goal):0,
-      headingError:this.goal?Math.abs(angleError(this.goal.heading,pose.heading)):0,
-      elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
-      crossTrack:this.crossTrack,crossings:this.crossings,
-      meanTrackError:this.trackingTime?this.trackErrorIntegral/this.trackingTime:0,
-      rmsTrackError:this.trackingTime?
-        Math.sqrt(this.trackErrorSquaredIntegral/this.trackingTime):0,
-      distanceTravelled:this.distanceTravelled,
-      meanHeadingError:this.trackingTime?this.headingErrorIntegral/this.trackingTime:0,
-      meanSpeedError:this.trackingTime?this.speedErrorIntegral/this.trackingTime:0,
-      referenceSpeed:this.referenceSpeed,observedSpeed:this.observedSpeed,
-      modeSeconds:{...this.modeSeconds},
-      plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
-      failures:this.failures,planning:Boolean(this.pendingRequest),
-      plannerError:this.plannerError,
-      index:this.index,reason:this.reason,
-      controllerMode:this.controllerMode,prediction:this.prediction,
-      predictionScore:this.predictionScore,
-      responseModel:this.predictor.model.report(),
-      following:this.following||null,
-      prefetching:Boolean(this.prefetchPending),
-      prefetchError:this.prefetchError,
-      motionStall:this.motionStall,
-      goalNoProgress:this.goalNoProgress,
-      goalRecoveryAttempts:this.goalRecoveryAttempts,
-      predictionFallback:Boolean(this.predictor.fallback),
-      flythrough:Boolean(this.route?.flythrough),
-      benchmark:this.benchmark?{
-        controller:this.benchmark.controller,index:this.benchmark.index,
-        goals:this.benchmark.targets.length,
-        complete:this.benchmark.complete,
-        results:[...this.benchmark.results]}:null};
+    await startShowcaseFeed();
+  } catch (err) {
+    console.error('Viewer startup:', err);
+    setStatus(`Startup: ${err?.message || String(err)}`, 'error');
   }
 }
+
+applyHeadingGain();
+startViewerFeed();
+requestAnimationFrame(frame);
