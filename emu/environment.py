@@ -2184,6 +2184,10 @@ class EmuMJXEnv(TaskSampler):
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
+            'academy_course_new':(
+                academy['completed'] &
+                (state.academy_lip_index<ACADEMY_LIPS)
+            ).astype(jnp.float32),
             'academy_cross_up':academy['up_new'].astype(jnp.float32),
             'academy_cross_down':academy['down_new'].astype(jnp.float32),
             'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
