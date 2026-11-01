@@ -63,7 +63,7 @@ def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
           probe_cmd_vx=speed,probe_cmd_vy=0.,probe_cmd_yaw=0.,
           probe_tilt_rad=0.,probe_push_n=0.,
           terrain_edge_angle_deg=float("nan"),
-          terrain_fixed_height_m=float("nan"))
+          terrain_fixed_height_m=h/100)
         print(f"Independent 4-lip exam cap {h:g}cm, {worlds} worlds",flush=True)
         trace=trainer["evaluate_trace"](
             params,env.params_array(packet),
