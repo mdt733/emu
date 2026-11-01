@@ -210,6 +210,15 @@ class TrainingConfig:
     academy_step_height_cap_m: float = 0.0  # 0=original frontier, otherwise cap STEP lip
     academy_episode_frames: int = 0  # 0=700 frames, otherwise 200..700 per episode
     academy_step_speed_span: float = 0.0  # 0=0.10..0.22, otherwise ±m/s variation
+    # Native multi-lip teaching from scratch. Four-lip topology is fixed
+    # at model construction; the share ramps via ordinary birth packets.
+    academy_course_lips: int = 0  # opt-in: 0=original two slabs, 4=real consecutive lips
+    academy_intro_steps: int = 60_000_000
+    academy_intro_share: float = 0.10
+    academy_start_steps: int = 80_000_000
+    academy_ramp_steps: int = 20_000_000
+    academy_max_share: float = 0.50
+    academy_height_cap_m: float = 0.020
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -275,7 +284,11 @@ class TrainingConfig:
                       'science_reset_step_evidence_on_fork',
                       'academy_step_focus_share','academy_step_exposure',
                       'academy_edge_yaw_max_deg','academy_step_height_cap_m',
-                      'academy_episode_frames','academy_step_speed_span'}
+                      'academy_episode_frames','academy_step_speed_span',
+                      'academy_course_lips','academy_intro_steps',
+                      'academy_intro_share','academy_start_steps',
+                      'academy_ramp_steps','academy_max_share',
+                      'academy_height_cap_m'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
