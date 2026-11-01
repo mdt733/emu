@@ -820,6 +820,7 @@ export class GoalNavigator {
       prefetching:Boolean(this.prefetchPending),
       prefetchError:this.prefetchError,
       motionStall:this.motionStall,
+      predictionFallback:Boolean(this.predictor.fallback),
       flythrough:Boolean(this.route?.flythrough),
       benchmark:this.benchmark?{
         controller:this.benchmark.controller,index:this.benchmark.index,
