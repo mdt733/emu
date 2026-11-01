@@ -140,7 +140,9 @@ now includes an exact swept, collision-tested motion to each waypoint when
 feasible; the worker chooses the following destination in advance and aligns
 the intermediate bearing, and a prefetch thread keeps the next leg ready.
 A measured-progress watchdog also replans sooner when the actor drifts rather
-than making useful progress. A target without a feasible continuation still
+than making useful progress. Yellow marks the current target, teal the current
+route, translucent blue the next planned route and marker, and dashed orange
+the predicted path. A target without a feasible continuation still
 falls back to controlled approach/parking; no false straight-line
 traversability claim is made. The five-goal benchmark remains strict
 **stop and face**, intentionally testing a different capability.
