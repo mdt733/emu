@@ -26,7 +26,10 @@ def course_heights(xp, index, samples, difficulty_m):
     DOWN-DOWN-UP-UP. No clipping of cumulative heights (which could
     silently erase a required step). All plateau heights >= 0.
     """
-    h= xp.maximum(0.003, difficulty_m) * (.55 + .45*samples)
+    # Never silently ignore a legitimate nursery retreat below 3mm.
+    # Each real collision lip stays >=1.5mm so the signed crossing/contact
+    # threshold can still distinguish it from numerical zero-height noise.
+    h=xp.maximum(.0015, difficulty_m * (.55 + .45*samples))
     a,b,c,d=[h[:,i] for i in range(4)]
     z=xp.zeros_like(a)
     # Each transition is nonzero. Cumulative rise is limited to 2*difficulty.
@@ -46,7 +49,7 @@ def expected_lip_directions(heights):
 
 
 def course_edge_positions(xp, yaw, length=ACADEMY_INTERVAL_M):
-    """Four world-space edge locations at +0.25,+0.75,+1.25,+1.75m."""
+    """Four world-space sharp edge points at configured 0.35m spacing."""
     xs=ACADEMY_EDGE_X_M+xp.arange(ACADEMY_LIPS)*length
     return xp.stack((xp.cos(yaw)[:,None]*xs[None,:],
                      xp.sin(yaw)[:,None]*xs[None,:]),axis=-1)
