@@ -702,7 +702,8 @@ export class GoalNavigator {
         apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
     }
-    if(!this.benchmark&&!this.following)
+    if(!this.benchmark&&!this.following&&
+       distance(pose,this.goal)>.30)
       this.prefetchUpcoming(limits,trees);
     this.elapsed+=delta;
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
