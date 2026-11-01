@@ -362,17 +362,23 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   if(!solved&&!options.allowPartial)return null;
   const flythrough=solved&&options.passThrough
     ?flythroughConnector(last,goal,limits,trees,terrain):null;
+  // If A* landed right on the destination, the existing last primitive
+  // already crosses the marker. Don't add a bogus zero-length stop.
+  const exactPass=Boolean(solved&&options.passThrough&&
+    distance(last,goal)<.025&&
+    Math.abs(angleError(goal.heading,last.heading))<.09);
   if(flythrough)steps.push(flythrough);
-  else steps.push({x:goal.x,y:goal.y,heading:goal.heading,
+  else if(!exactPass)steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  const refined=refineRouteSteps(start,steps,limits,trees,terrain,Boolean(flythrough));
+  const refined=refineRouteSteps(start,steps,limits,trees,terrain,
+    Boolean(flythrough||exactPass));
   // Commanded-time estimate is only a planning hint, not measured gait
   // duration. Reflect extra braking instead of advertising raw A* time.
   const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
   return {start:{...start},steps:refined,
     estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
-    solved,expanded,flythrough:Boolean(flythrough),
+    solved,expanded,flythrough:Boolean(flythrough||exactPass),
     planner:terrain?'terrain-aware pose lattice':'pose lattice',
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
