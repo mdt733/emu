@@ -816,7 +816,7 @@ export class GoalNavigator {
       controllerMode:this.controllerMode,prediction:this.prediction,
       predictionScore:this.predictionScore,
       responseModel:this.predictor.model.report(),
-      following:this.following?.goal||null,
+      following:this.following||null,
       prefetching:Boolean(this.prefetchPending),
       prefetchError:this.prefetchError,
       motionStall:this.motionStall,
