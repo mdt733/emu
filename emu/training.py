@@ -642,7 +642,8 @@ def train(args: TrainingConfig) -> int:
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
             foundation_steps=args.foundation_steps,
-            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+            academy_max_height_m=(args.academy_height_cap_m if args.academy_course_lips else 0.))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -927,7 +928,8 @@ def train(args: TrainingConfig) -> int:
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
         foundation_steps=args.foundation_steps,
-        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+        academy_max_height_m=(args.academy_height_cap_m if args.academy_course_lips else 0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
