@@ -113,6 +113,48 @@ def growth_mix(*, step: int, foundation_steps: int,
         steady_difficulty=steady_difficulty).specialist_fraction
 
 
+def academy_birth_allocation(*, step: int, intro_steps: int,
+                             start_steps: int, ramp_steps: int,
+                             intro_share: float, max_share: float) -> float:
+    """Fraction of ALL episode births assigned four real consecutive lips.
+
+    This is one existing PPO/sampler, not a separate optimizer or fixed
+    environment mask. Age controls *exposure*; step height still depends on
+    independently earned supported crossings. Optional nursery comes first.
+    """
+    import math
+    if (step < 0 or intro_steps < 0 or start_steps < intro_steps
+        or ramp_steps <= 0 or not (0 <= intro_share <= max_share <= .85)
+        or not math.isfinite(float(intro_share))
+        or not math.isfinite(float(max_share))):
+        raise ValueError('invalid Step Academy birth schedule')
+    if step < intro_steps:
+        return 0.0
+    if step < start_steps:
+        return intro_share * min(1.,(step-intro_steps)/max(1,start_steps-intro_steps))
+    return intro_share+(max_share-intro_share)*min(
+        1.,(step-start_steps)/ramp_steps)
+
+
+def academy_focus_mix(weights, academy_share: float):
+    """Return birth-role probabilities and conditional STEP->Academy probability.
+
+    Keeps the original relative role allocation inside the non-Academy
+    population, including some ordinary single-lip STEP practise.
+    """
+    import math
+    if (len(weights)!=6 or any(not math.isfinite(float(x)) or x<0 for x in weights)
+        or not math.isclose(sum(weights),1.,abs_tol=1e-4)
+        or not 0<=academy_share<=.85):
+        raise ValueError('invalid Academy focus weights/share')
+    # Additional Academy births replace an equal fraction of the original
+    # episode roles, rather than consuming all ordinary STEP practice.
+    new=[x*(1.-academy_share) for x in weights]
+    new[STEP]+=academy_share
+    chance=(academy_share/new[STEP] if new[STEP]>0 else 0.0)
+    return tuple(new),chance
+
+
 def focus_indices(num_envs: int):
     """Historical fixed-world focus map for zero-weight exam fixtures.
 
