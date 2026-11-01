@@ -219,7 +219,7 @@ class TrainingConfig:
     academy_ramp_steps: int = 20_000_000
     academy_max_share: float = 0.50
     academy_height_cap_m: float = 0.040
-    academy_course_episode_frames: int = 1000  # Academy only; other skills remain 700
+    academy_course_episode_frames: int = 1200  # 24s four-lip lessons; other skills remain 14s
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
