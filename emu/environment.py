@@ -1349,7 +1349,8 @@ class EmuMJXEnv(TaskSampler):
                  academy_step_height_cap_m: float = 0.0,
                  academy_step_speed_span: float = 0.0,
                  academy_course_lips: int = 0,
-                 academy_height_cap_m: float = 0.040):
+                 academy_height_cap_m: float = 0.040,
+                 academy_course_episode_frames: int = 1000):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1435,6 +1436,10 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('Academy lip height cap must be 3-40mm')
         self.academy_course_lips=int(academy_course_lips)
         self.academy_height_cap_m=float(academy_height_cap_m)
+        if (type(academy_course_episode_frames) is not int or
+            not 700<=academy_course_episode_frames<=1500):
+            raise ValueError('Academy course episode time must be 700..1500 frames')
+        self.academy_course_episode_frames=int(academy_course_episode_frames)
         self.terrain_pair_seed = int(seed)
         self.mj_model = (
             mujoco.MjModel.from_xml_string(
@@ -1903,15 +1908,24 @@ class EmuMJXEnv(TaskSampler):
             motor_guidance_per_world=(control_effort_weights(jnp,
                     jnp.where(state.specialist_active,state.focus_id,-1))
                 if self.unified_capability_focus else None))
-        timeout = step_i >= self.max_episode_steps
-        # Even after rollback, a diverged world must terminate and respawn.
-        terminal_fail = jnp.logical_or(metrics['terminal'] > 0.5, physics_diverged)
-        done = jnp.logical_or(terminal_fail, timeout)
-        # Penalise premature falls, not successful timeouts. Use true age
-        # (ep_len), never the intentionally staggered timeout clock (step_i).
-        episode_age_steps = state.ep_len + 1.0
-        reward, fall_payment = apply_early_fall_penalty(
-            reward, terminal_fail, episode_age_steps, self.max_episode_steps, xp=jnp)
+        # Academy gets up to 20s at the slow nursery pace, while other
+        # roles keep their original 700-frame staggered episode clock.
+        timeout=jnp.where(state.academy_active,
+            state.ep_len+1>=self.academy_course_episode_frames,
+            step_i>=self.max_episode_steps)
+        terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
+        terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
+        academy=self._academy_events(state,data,metrics,terminal_or_timeout)
+        # Fourth verified lip concludes the course immediately. No idle
+        # waiting on a second clock after genuine physical completion.
+        course_done=academy['completed'] & (
+            state.academy_lip_index<ACADEMY_LIPS)
+        done=terminal_or_timeout|course_done
+        episode_age_steps=state.ep_len+1.
+        episode_budget=jnp.where(state.academy_active,
+            self.academy_course_episode_frames,self.max_episode_steps)
+        reward,fall_payment=apply_early_fall_penalty(
+            reward,terminal_fail,episode_age_steps,episode_budget,xp=jnp)
 
         ep_return = state.ep_return + reward
         ep_len = state.ep_len + 1.0
@@ -1934,7 +1948,6 @@ class EmuMJXEnv(TaskSampler):
         # height or approach position is ever passed to the actor.
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
-        academy=self._academy_events(state,data,metrics,done)
         # A separate physical Academy ceiling has its OWN verified frontier.
         # A failed approach and the matched success are both scored at the
         # physical height of this lip, NEVER by an arbitrary old STEP world.
