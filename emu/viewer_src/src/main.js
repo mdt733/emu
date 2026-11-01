@@ -156,6 +156,9 @@ function navigationUpdate(dt) {
   $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} ${state.benchmark?'parked':'crossed'}${state.failures?' · '+state.failures+' timed out':''}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (RMS ${state.rmsTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
+  if(state.motionStall>1.4||state.predictionFallback)
+    $('navHudInfo').textContent+=` · ${state.predictionFallback?'rollout blocked · ':''}progress stall ${state.motionStall.toFixed(1)}s`;
+  $('navHudInfo').textContent+=` · replans ${state.replans}`;
   if(!state.benchmark)
     $('navHudInfo').textContent+=state.following
       ?' · next leg ready':state.prefetching?' · planning next leg…':' · next leg pending';
