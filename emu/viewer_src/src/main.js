@@ -64,6 +64,13 @@ navigator.useBackgroundPlanner(request=>{
   return navWorker.request(request);
 });
 const navHud = $('navHud');
+const navControllerMode = $('navControllerMode');
+navigator.controllerMode=navControllerMode.value;
+navControllerMode.addEventListener('change',()=>{
+  navigator.controllerMode=navControllerMode.value;
+  navigator.predictor.reset();
+  sim?.setNavigationPrediction([]);
+});
 let lastResetGeneration = -1;
 let navCommandClock = Infinity;
 let navCommandUpdates = 0;
@@ -76,6 +83,7 @@ function syncGoalMode() {
   const enabled=Boolean(sim && goalDemoActive());
   navigator.active=enabled;
   navigator.reset();
+  if(sim)sim.setHeadingHold(enabled?false:headingHoldToggle.checked);
   navCommandClock=Infinity;
   navCommandUpdates=0;
   navLastCommand={vx:0,vy:0,yaw:0};
@@ -86,6 +94,7 @@ function syncGoalMode() {
   }
   navHud.hidden=!sim;
   $('navNext').disabled=!sim;
+  $('navBenchmark').disabled=!sim;
 }
 // One proven command delivery path for every autonomous input source.
 function applyAutonomousCommand(command) {
@@ -97,43 +106,70 @@ function navigationUpdate(dt) {
   const pose=sim.navigationPose();
   if(sim.resetGeneration!==lastResetGeneration) {
     lastResetGeneration=sim.resetGeneration;
+    // In the physical benchmark, an automatic reset is evidence of failure,
+    // not permission to silently start a new five-goal comparison.
+    const prior=navigator.benchmark;
+    if(prior&&!prior.complete&&navigator.goal)
+      navigator.finishBenchmarkLeg(false,true);
+    const preserved=navigator.benchmark;
     navigator.reset();
+    if(preserved){
+      navigator.benchmark=preserved;
+      if(preserved.complete)
+        navigator.reason='Benchmark complete · '+preserved.results.filter(r=>r.success).length+
+          '/'+preserved.results.length+' reached';
+    }
   }
-  let plannedCommand=null;
-  navigator.tick(dt,pose,bundle.control.command_limits,
-    sim.navigationTrees(),command=>{plannedCommand=command;});
-  // Both modes still use the same tested setDemoCommands() pipeline.
-  // Higher cruising speed needs tighter steering corrections than the
-  // initial 650ms zero-order hold (which travelled ~0.6m at full speed).
-  // Route feedback up to 10 Hz through the same command path.
-  // Neural actor inference remains at its normal 50 Hz.
-  const commandPeriod=.10;
-  navCommandClock+=Math.min(Math.max(dt,0),.1);
-  if(plannedCommand && navCommandClock>=commandPeriod){
-    applyAutonomousCommand(plannedCommand);
+  // Plan and deliver at one explicit 10 Hz cadence. The previous version
+  // ran the follower every browser frame but applied only every ~100 ms.
+  navCommandClock=Number.isFinite(navCommandClock)
+    ?navCommandClock+Math.min(Math.max(dt,0),.1):.10;
+  if(navCommandClock>=.10){
+    let plannedCommand=null;
+    navigator.terrain=sim.navigationTerrain();
+    navigator.tick(Math.min(navCommandClock,.1),pose,bundle.control.command_limits,
+      sim.navigationTrees(),command=>{plannedCommand=command;});
     navCommandClock=0;
-    navCommandUpdates++;
+    if(plannedCommand){applyAutonomousCommand(plannedCommand);navCommandUpdates++;}
   }
   const state=navigator.status(pose);
-  sim.setNavigationOverlay(state.goal,state.route);
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
+  sim.setNavigationPrediction(state.goal&&state.controllerMode==='predictive'
+    ?state.prediction:[]);
   $('demoKind').textContent=state.reason;
   if(!state.goal){
     $('navHudTitle').textContent=state.reason;
-    $('navHudInfo').textContent='Planning a route…';
+    const bench=state.benchmark;
+    $('navHudInfo').textContent=bench?.complete
+      ? `${bench.results.filter(r=>r.success).length}/${bench.goals} goals reached · ${bench.controller} · copy results in Settings`
+      :bench?`Planning benchmark goal ${bench.index+1}/${bench.goals}…`
+        :'Planning a route…';
     $('navEstimate').textContent=state.plannerError
       ? 'Planner error: '+state.plannerError
       : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
     return;
   }
   const degrees=n=>Math.round(n*180/Math.PI);
-  $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
-  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
-  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
+  $('navHudTitle').textContent=state.benchmark
+    ?`BENCHMARK ${state.benchmark.index+1}/${state.benchmark.goals} · ${state.reason}`
+    :`TARGET ${state.arrivals+1} · ${state.reason}`;
+  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} ${state.benchmark?'parked':'crossed'}${state.failures?' · '+state.failures+' timed out':''}`;
+  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (RMS ${state.rmsTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
+  if(state.motionStall>1.4||state.predictionFallback)
+    $('navHudInfo').textContent+=` · ${state.predictionFallback?'rollout blocked · ':''}progress stall ${state.motionStall.toFixed(1)}s`;
+  $('navHudInfo').textContent+=` · replans ${state.replans}`;
+  if(!state.benchmark)
+    $('navHudInfo').textContent+=state.following
+      ?' · next leg ready':state.prefetching?' · planning next leg…':' · next leg pending';
+  if(state.controllerMode==='predictive'){
+    const model=state.responseModel;
+    $('navHudInfo').textContent+=` · forecast ${state.prediction?.length||0} points · ${model.samples} observations`;
+  }
   $('navEstimate').textContent=state.plannerError
     ? 'Background planner error: '+state.plannerError
     : state.route?.solved
-      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
+      ? `${state.controllerMode} · ${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
       : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
 }
 let liveRevision = null;
@@ -564,7 +600,9 @@ parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
   if(goalDemoActive())navigator.reset();
   updateParkCourseInfo();
 }catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
-headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
+headingHoldToggle.addEventListener('change',()=>{
+  if(!demoActive)sim?.setHeadingHold(headingHoldToggle.checked);
+});
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
 autoResetToggle.addEventListener('change', () => { if (sim) sim.autoReset = autoResetToggle.checked || demoActive; });
@@ -707,7 +745,8 @@ function startDemo(){
   $('liveDemo').checked=true;
   left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
-  sim.setHeadingHold(headingHoldToggle.checked);
+  // Autonomy issues direct yaw rates; heading-hold is for human input.
+  sim.setHeadingHold(false);
   $('demoKind').textContent='Finding next destination…';
   updateStickLabels();
 }
@@ -717,9 +756,41 @@ $('liveDemo').addEventListener('change',()=>{
 $('navNext').addEventListener('click',()=>{
   if(!sim)return;
   if(!demoActive)startDemo();
+  navigator.reset();
+  navigator.terrain=sim.navigationTerrain();
   navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
   const state=navigator.status(sim.navigationPose());
-  sim.setNavigationOverlay(state.goal,state.route);
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
+});
+$('navBenchmark').addEventListener('click',()=>{
+  if(!sim)return;
+  if(!demoActive)startDemo();
+  // Identical physical reset and goal sequence for Classic and Predictive.
+  sim.resetForNavigationBenchmark();
+  lastResetGeneration=sim.resetGeneration;
+  navigator.startBenchmark();
+  navigator.terrain=sim.navigationTerrain();
+  sim.setNavigationOverlay(null,null);
+  sim.setNavigationPrediction([]);
+});
+$('navBenchmarkCopy').addEventListener('click',async()=>{
+  const bench=navigator.benchmark;
+  if(!bench){setStatus('Run the five-goal benchmark first','warn');return;}
+  const report={schema:'emu-viewer-nav-benchmark-v1',
+    actorStep:bundle?.source?.step??null,
+    actorSha256:bundle?.source?.actor_sha256??null,
+    terrain:terrainMode.value,challenge:parkChallengeLevel.value,
+    controller:bench.controller,complete:bench.complete,results:bench.results};
+  const body=JSON.stringify(report,null,2);
+  try{await window.navigator.clipboard.writeText(body);
+    setStatus('Benchmark JSON copied','ok');}
+  catch{
+    const blob=new Blob([body],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='emu-navigation-benchmark.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    setStatus('Benchmark JSON saved','ok');
+  }
 });
 async function pollLive() {
   if (livePolling) return;

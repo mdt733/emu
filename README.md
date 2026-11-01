@@ -134,6 +134,30 @@ The viewer offers live-checkpoint following and eight graduated,
 real-collision park obstacles. The park is an interactive
 diagnostic, **not** a held-out MJX physical certification.
 
+The experimental v5035 viewer follow-up makes **ordinary autonomous wandering**
+a sequence of **moving waypoints**, not repeated precision parking. The A* route
+now includes an exact swept, collision-tested motion to each waypoint when
+feasible; the worker chooses the following destination in advance and aligns
+the intermediate bearing, and a prefetch thread keeps the next leg ready.
+A measured-progress watchdog also replans sooner when the actor drifts rather
+than making useful progress. Yellow marks the current target, teal the current
+route, translucent blue the next planned route and marker, and dashed orange
+the predicted path. A target without a feasible continuation still
+falls back to controlled approach/parking; no false straight-line
+traversability claim is made. The five-goal benchmark remains strict
+**stop and face**, intentionally testing a different capability.
+
+The experimental v5034 viewer branch adds **Predictive** navigation (a 1-second
+receding-horizon forecast using measured command response) alongside **Classic**
+tracking. Both use the same physical MuJoCo robot and 360-input policy. In
+**Settings → Demonstration controls**, choose a controller and run the fixed
+five-goal benchmark. Repeat from a neutral reset using the other controller;
+**Copy benchmark results** saves successes, path RMS, distance, falls and time
+per goal for comparison. Teal is the global route, dashed orange is predicted
+motion. The 4×4 front-depth laboratory also lives inside collapsible Settings
+and is off by default. This is a viewer/controller experiment, not training
+evidence or proof that the new controller improves physical performance.
+
 ### Want to train a new robot?
 
 The completed v5032 cold-start launcher is preserved as

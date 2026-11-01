@@ -155,8 +155,16 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
   const measuredYaw=Number.isFinite(pose.yawRate)?pose.yawRate:plannedYaw;
   const yaw=clamp(plannedYaw+1.65*angle-.50*(measuredYaw-plannedYaw),
     -maxYaw*.86,maxYaw*.86);
+  // Preserve coupled forward+sideways planner commands. The previous
+  // implementation silently discarded vy whenever vx was nonzero.
+  const ratio=desiredSpeed>.01?targetSpeed/desiredSpeed:0;
+  const plannedSide=run.mode==='lateral'?direction*targetSpeed:(motion.vy||0)*ratio;
+  const sideCorrection=run.mode==='lateral'?0:
+    clamp(-.30*near.crossTrack,-.065,.065)*Math.cos(angle);
   const cmd={vx:run.mode==='lateral'?0:direction*targetSpeed,
-    vy:run.mode==='lateral'?direction*targetSpeed:0,yaw,pitch:0};
+    vy:clamp(plannedSide+sideCorrection,
+      -Math.max(0,limits.vy_abs||0),Math.max(0,limits.vy_abs||0)),
+    yaw,pitch:0};
   if(run.mode==='lateral')
     cmd.yaw=clamp(plannedYaw+1.5*heading-.45*(measuredYaw-plannedYaw),
       -maxYaw*.80,maxYaw*.80);
