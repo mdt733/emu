@@ -861,7 +861,7 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'academy_episodes': float(np.asarray(
             metrics.get('academy_episode_attempt',0.)).sum()),
         'academy_courses_complete': float(np.asarray(
-            metrics.get('academy_episode_complete',0.)).sum()),
+            metrics.get('academy_course_new',0.)).sum()),
         'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'terrain_verified_transfer_reward_sum': float(
