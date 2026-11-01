@@ -160,6 +160,8 @@ function navigationUpdate(dt) {
     $('navHudInfo').textContent+=` · ${state.predictionFallback?'rollout blocked · ':''}motion stall ${state.motionStall.toFixed(1)}s`;
   if(!state.benchmark&&state.goalNoProgress>1.5)
     $('navHudInfo').textContent+=` · goal progress stall ${state.goalNoProgress.toFixed(1)}s · recoveries ${state.goalRecoveryAttempts}`;
+  if(state.pivotNoProgress>1.2)
+    $('navHudInfo').textContent+=` · pivot stall ${state.pivotNoProgress.toFixed(1)}s · replans ${state.pivotRecoveryAttempts}`;
   $('navHudInfo').textContent+=` · replans ${state.replans}`;
   if(!state.benchmark)
     $('navHudInfo').textContent+=state.following
