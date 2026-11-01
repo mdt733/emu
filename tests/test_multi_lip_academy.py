@@ -190,3 +190,57 @@ def test_a_sphere_grazing_a_vertical_step_wall_is_not_a_supported_foothold():
         np,geom1,geom2,dist,frame,11,(22,23),
         np.asarray([.25]),np.asarray([[.25,.25]]))
     assert reversed_pair.tolist()==[[True,True]]
+
+
+def test_public_cold_0m_cli_plan_forwards_every_academy_setting(tmp_path):
+    """A CLI option printed in a recipe but dropped before PPO is a costly bug."""
+    import subprocess,sys,json
+    cmd=[sys.executable,"-m","emu.cli","train",
+         "--run-dir",str(tmp_path/"fresh-cold-100m"),
+         "--steps","100000000","--envs","2048","--seed","733",
+         "--device","cuda","--profile","sim2real",
+         "--terrain-actor","--terrain-step-max-m",".08",
+         "--unified-capabilities","--foundation-mix","main",
+         "--growth-recipe","main-mature",
+         "--academy-course-lips","4",
+         "--academy-intro-steps","60000000",
+         "--academy-start-steps","80000000",
+         "--academy-ramp-steps","20000000",
+         "--academy-intro-share",".10",
+         "--academy-max-share",".50",
+         "--academy-height-cap-m",".04",
+         "--academy-course-episode-frames","1200",
+         "--athletic-rehearsal-share",".25",
+         "--plan"]
+    root=Path(__file__).resolve().parents[1]
+    r=subprocess.run(cmd,cwd=root,capture_output=True,text=True)
+    assert r.returncode==0,(r.stdout,r.stderr)
+    printed=r.stdout
+    cfg=json.loads(printed[printed.index('{'):printed.rindex('}')+1])
+    assert cfg['academy_course_lips']==4
+    assert cfg['academy_intro_steps']==60_000_000
+    assert cfg['academy_start_steps']==80_000_000
+    assert cfg['academy_ramp_steps']==20_000_000
+    assert cfg['academy_intro_share']==pytest.approx(.10)
+    assert cfg['academy_max_share']==pytest.approx(.50)
+    assert cfg['academy_height_cap_m']==pytest.approx(.04)
+    assert cfg['academy_course_episode_frames']==1200
+    assert cfg['athletic_rehearsal_frac']==pytest.approx(.25)
+    assert cfg['foundation_steps']==20_000_000
+    from emu.training import env_kwargs_from_args
+    assert env_kwargs_from_args(type('Config',(),cfg))['academy_course_episode_frames']==1200
+    assert env_kwargs_from_args(type('Config',(),cfg))['academy_course_lips']==4
+
+
+def test_multilip_cli_refuses_the_old_global_300_frame_stage_a_setting(tmp_path):
+    import subprocess,sys
+    cmd=[sys.executable,"-m","emu.cli","train",
+         "--run-dir",str(tmp_path/"invalid-course"),"--steps","100000000",
+         "--profile","sim2real","--terrain-actor",
+         "--terrain-step-max-m",".08","--unified-capabilities",
+         "--academy-course-lips","4",
+         "--academy-episode-frames","300","--plan"]
+    r=subprocess.run(cmd,cwd=Path(__file__).resolve().parents[1],
+                     capture_output=True,text=True)
+    assert r.returncode!=0
+    assert "multi-lip cold curriculum cannot be stacked" in (r.stderr+r.stdout)
