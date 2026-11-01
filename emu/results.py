@@ -295,6 +295,13 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                f"{int(row.get('command_probe_attempts_vx_lo',0))} "
                f"slope={int(slope_near)} step={int(step_near)} "
                f"ctl_Jm={row.get('control_shaft_j_per_m',-1.):.1f}")
+        if row.get('academy_active_fraction',0.)>0.:
+            line6+=(f" academy={int(row.get('academy_up_crossings',0))}"
+                    f"↑/{int(row.get('academy_down_crossings',0))}↓"
+                    f" course={int(row.get('academy_courses_complete',0))}"
+                    f"/{int(row.get('academy_episodes',0))}"
+                    f" foothold={int(row.get('academy_footholds',0))}"
+                    f" transfer={int(row.get('academy_transfers',0))}")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
@@ -835,6 +842,27 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             if 'terrain_episode_success' in metrics else 0.0,
         'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
             if 'terrain_cross_new' in metrics else 0.0,
+        # A course contains FOUR separate physical encounters. Unlike the
+        # historical one-lip episode flag, count actual supported crossings
+        # and directions every time a new lip is earned.
+        'academy_active_fraction': mean_metric(metrics,'academy_active'),
+        'academy_crossings': float(np.asarray(
+            metrics.get('academy_cross_new',0.)).sum()),
+        'academy_up_crossings': float(np.asarray(
+            metrics.get('academy_cross_up',0.)).sum()),
+        'academy_down_crossings': float(np.asarray(
+            metrics.get('academy_cross_down',0.)).sum()),
+        'academy_footholds': float(np.asarray(
+            metrics.get('academy_foothold_new',0.)).sum()),
+        'academy_transfers': float(np.asarray(
+            metrics.get('academy_transfer_new',0.)).sum()),
+        'academy_clearances': float(np.asarray(
+            metrics.get('academy_clearance_new',0.)).sum()),
+        'academy_episodes': float(np.asarray(
+            metrics.get('academy_episode_attempt',0.)).sum()),
+        'academy_courses_complete': float(np.asarray(
+            metrics.get('academy_episode_complete',0.)).sum()),
+        'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'terrain_verified_transfer_reward_sum': float(
             np.asarray(metrics.get('terrain_verified_transfer_credit',0.)).sum()),
