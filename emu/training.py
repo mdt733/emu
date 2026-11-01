@@ -48,7 +48,8 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .curriculum import TrainingHealth
 from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
-                               academy_birth_allocation, academy_focus_mix)
+                               academy_birth_allocation, academy_focus_mix,
+                               academy_conditional_birth_share)
 from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
 from .results import summarize_rollout, augment_rollout_row
 from .ppo import PerfBook, configure_jax, require_backend
@@ -395,8 +396,13 @@ def train(args: TrainingConfig) -> int:
                     ramp_steps=args.academy_ramp_steps,
                     intro_share=args.academy_intro_share,
                     max_share=args.academy_max_share)
+                # Fast rehearsal was reserved BEFORE focus assignment.
+                # Honour 50% of ALL births rather than accidentally 50% of
+                # the remaining 75% when 25% of worlds rehearse fast gait.
+                conditional,actual_share=academy_conditional_birth_share(
+                    academy_share,float(d['athletic_rehearsal_frac']))
                 weights,academy_probability=academy_focus_mix(
-                    weights,academy_share)
+                    weights,conditional)
             d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
