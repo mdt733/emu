@@ -13,7 +13,8 @@ and historic physical exams are unchanged.
 - Four balanced course patterns: up-up-down-down, up-down-up-down,
   down-up-down-up, down-down-up-up. Independent per-world lip heights,
   bounded cumulative elevation, a default 4cm difficulty ceiling
-  (terrain frontier still starts small), and symmetric ±3-degree edge yaw, preserving
+  (Academy's OWN height frontier starts at 3mm and retreats as low as 1.5mm
+  on failed easy supported lips), and symmetric ±3-degree edge yaw, preserving
   physically continuous platform seams.
 - Correct contact filtering: intermediate platforms touch the six-servo
   robot but do NOT generate platform-vs-platform self-contacts. Ordinary
@@ -26,9 +27,26 @@ and historic physical exams are unchanged.
 - At each STEP-Academy birth, per-world lip index and anti-repeat flags
   begin at zero. Per-lip real foot contact, clearance, upper foothold and
   supported body weight transfer are rewarded once each. A lip is credited
-  only after five consecutive frames of verified far-side support. Separate
-  uphill/downhill crossing counts and complete four-lip course events are
-  reported in metrics.csv and terminal logs.
+  only after five consecutive frames of verified far-side support. A contact
+  against a vertical side wall does NOT count as an upper foothold: true
+  support checks contact normal AND the sphere's foot-bottom proximity
+  to the upper collision face. Separate uphill/downhill crossings and
+  complete course events appear in metrics.csv and terminal logs.
+- Four-lip course difficulty uses a checkpointed, distinct near/easy
+  approached-lip evidence window. At least 12 genuine attempted lips
+  PER signed direction, >=55% supported crossing success near the
+  independent Academy frontier, and healthy PPO are needed for +0.5mm.
+  Repeated failures even at easy heights retreat -0.5mm, floor 1.5mm.
+  Up-only progress cannot graduate both directions. Old single-lip STEP
+  evidence cannot counterfeit Academy difficulty success.
+- Stage A's global 300-frame shortened episodes are explicitly forbidden
+  in the integrated multi-lip mode. The ordinary generalists keep their
+  proven 700-frame/14s timeout, whereas Academy worlds receive a
+  configurable 1200-frame/24s budget and end immediately on the fourth
+  real supported crossing. The longer time never amplifies the old
+  early-fall penalty. Coherent-careful training gets at most 120 frames
+  of crouch/velocity allowance PER genuine uphill lip, not per
+  entire course or for downhill/flat worlds.
 - Full normal PPO/curriculum pipeline. The original foundation, commands,
   slopes, turning, resilience, transition, control and fast gait all retain
   representation. Academy role share ramps on world-step age, not on a
@@ -36,18 +54,32 @@ and historic physical exams are unchanged.
   - 0–60M: Academy dormant, original 20M gait foundation untouched
   - 60–80M: easy nursery exposure rising to 10% of births
   - 80–100M: smooth ramp from 10% to 50% Academy births
-  - 100M+: 50% Academy, 10% ordinary STEP and 40% other generalist roles
-    (for the balanced original focus mix). Configurable experiment settings.
+  - 100M+: configurable maximum 50% of ALL new births assigned to Academy;
+    the remainder retains ordinary single-lip STEP, command, slope,
+    resilience, control, transition and fast rehearsal. Fast rehearsal's
+    explicitly reserved fraction is accounted for BEFORE sampling STEP
+    worlds, and >=15% of births is reserved for other nonfast roles.
+    This is a target of BIRTHS: longer Academy episodes make the observed
+    proportion of PPO frames larger. Both the birth target and ACTUAL
+    frame occupancy are reported; tune the birth quota by measured
+    retention, not by guessing '1024 of 2048' from the label.
   - The entire source can train fresh from 0M with --academy-course-lips 4;
     there is no dependency on the completed v5033 checkpoint.
 
 ## Actual proof and gates
 
-- The dedicated academy-cpu GitHub job instantiates four real MJX worlds,
-  checks the 4 physically abutting contact-box seams, verifies mixed
-  up/down heights and source sensor width, checks a real ray intersection
-  to each type of physical platform, advances physics, and optionally
-  evaluates one PPO gradient. See live Actions run and smoke script.
+- The academy-cpu GitHub job instantiates real MJX worlds, verifies all
+  four physically abutting platforms and alternating signed heights,
+  a genuine robot-foot upper contact, anticipatory visibility of all
+  FOUR lips by the ACTUAL forward 4x4 ToF sensor before root crossing,
+  correct five-frame support events and no double payment, and a finite
+  shared PPO update. This is physical simulation acceptance, NOT learning.
+- The separate academy-exam-cpu job runs the original immutable 260M
+  champion through the independent four-lip course and writes its honest
+  signed support evidence. The first 4-world, 200-frame/1cm-cap baseline
+  measured 1/8 supported uphill and 2/8 downhill opportunities, with
+  ZERO full four-lip courses and zero falls. Larger fixed-seed exams
+  are needed before interpreting those counts as performance.
 - Never claim actual *learned* climbing, 2048-env viability or real-hardware
   motor sufficiency based on a successful CPU smoke.
 - Before a long training run, use a dedicated new worktree and the user's
@@ -69,13 +101,15 @@ git worktree add -b feature/v5040-multi-lip-academy-world ~/emu-multilip origin/
 cd ~/emu-multilip
 source ~/emu-plateau/.venv/bin/activate
 git status --short
-PYTHONPATH="$PWD" python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3 --ppo
+PYTHONPATH="$PWD" python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3 --ppo --events --sensor-foresight
 PYTHONPATH="$PWD" python scripts/smoke_step_course.py --device cuda --worlds 128 --frames 3 --ppo
 PYTHONPATH="$PWD" python scripts/smoke_step_course.py --device cuda --worlds 2048 --frames 3 --ppo --full-update
 ~~~
 
 The last command can OOM on 8GB: it is the explicit *gate*, not
-permission to start training. If it fails, reduce contact pair topology
+permission to start training. Academy 2048-world CUDA performance,
+long-course learnability, and actual hardware motor capability have
+NOT been established yet. If it fails, reduce contact pair topology
 or adjust the fixed geometry implementation; do not silently reduce the
 production batch or substitute fake contacts.
 
