@@ -133,7 +133,7 @@ const safePolyline=(start,steps,trees,terrain=null)=>{
   }
   return true;
 };
-export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null){
+export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null,through=false){
   const terminal=rawSteps.at(-1)?.final?rawSteps.at(-1):null;
   const source=terminal?rawSteps.slice(0,-1):rawSteps;
   if(!source.length)return [...rawSteps];
@@ -212,12 +212,12 @@ export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null){
       }
       // Keep a small but nonzero command; the actor retains dynamic gait.
       for(let i=0;i<speeds.length;i++){
-        const before=i===0?.12:speeds[i-1];
+        const before=i===0?(through?Math.min(.38,speeds[i]):.12):speeds[i-1];
         speeds[i]=Math.max(.07,Math.min(speeds[i],
           Math.sqrt(before*before+2*accelerate*spans[i])));
       }
       for(let i=speeds.length-1;i>=0;i--){
-        const after=i===speeds.length-1?.12:speeds[i+1];
+        const after=i===speeds.length-1?(through?Math.min(.40,speeds[i]):.12):speeds[i+1];
         speeds[i]=Math.max(.07,Math.min(speeds[i],
           Math.sqrt(after*after+2*brake*spans[i])));
       }
@@ -364,7 +364,7 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   else steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  const refined=refineRouteSteps(start,steps,limits,trees,terrain);
+  const refined=refineRouteSteps(start,steps,limits,trees,terrain,Boolean(flythrough));
   // Commanded-time estimate is only a planning hint, not measured gait
   // duration. Reflect extra braking instead of advertising raw A* time.
   const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
