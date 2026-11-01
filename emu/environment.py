@@ -3071,6 +3071,9 @@ class EmuMJXEnv(TaskSampler):
             depth_upper=self._ray_box_distance(
                 data,int(self.terrain_step_geom_id),torso,down_ray)[:,0]
             true_depth=jnp.minimum(depth_floor,depth_upper)
+            for geom_id in self.academy_mid_geom_ids:
+                true_depth=jnp.minimum(true_depth,self._ray_box_distance(
+                    data,geom_id,torso,down_ray)[:,0])
             true_depth=jnp.where(jnp.isfinite(true_depth)&
                                   (true_depth>0.)&(true_depth<.60),true_depth,0.)
         else:
@@ -3154,6 +3157,11 @@ class EmuMJXEnv(TaskSampler):
             box_t=self._ray_box_distance(
                 data,int(self.terrain_step_geom_id),origin,ray)
             terrain_t=jnp.minimum(floor_t,box_t)
+            # EXACT same collidable middle boxes as MJX foot contact.
+            # No privileged height-field shortcut or imaginary ground rays.
+            for geom_id in self.academy_mid_geom_ids:
+                terrain_t=jnp.minimum(terrain_t,self._ray_box_distance(
+                    data,geom_id,origin,ray))
         else:
             floor = int(self.ids['floor_geom'])
             normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
@@ -3239,6 +3247,9 @@ class EmuMJXEnv(TaskSampler):
         upper_depth=self._ray_box_distance(
             data,int(self.terrain_step_geom_id),torso,down)[:,0]
         depth=jnp.minimum(floor_depth,upper_depth)
+        for geom_id in self.academy_mid_geom_ids:
+            depth=jnp.minimum(depth,self._ray_box_distance(
+                data,geom_id,torso,down)[:,0])
         depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
                         depth,0.)
         _,vbody,_=self._body_packets(data)
@@ -3462,8 +3473,20 @@ class EmuMJXEnv(TaskSampler):
             inside=(jnp.abs(local[:,:,0])<=half[0]) & (
                     jnp.abs(local[:,:,1])<=half[1])
             active=self._unified_platform_active(data)
-            return jnp.where(inside & active[:,None],
+            height=jnp.where(inside & active[:,None],
                              local[:,:,2]-half[2],flat)
+            for geom_id in self.academy_mid_geom_ids:
+                mid_R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
+                mid_delta=positions-data.geom_xpos[:,geom_id,None,:]
+                mid_local=jnp.einsum('epi,eij->epj',mid_delta,mid_R)
+                mid_half=self.mj_model.geom_size[geom_id,:3]
+                mid_inside=((jnp.abs(mid_local[:,:,0])<=mid_half[0]) &
+                            (jnp.abs(mid_local[:,:,1])<=mid_half[1]))
+                mid_live=data.mocap_pos[:,self.academy_mid_mocap_ids[
+                    self.academy_mid_geom_ids.index(geom_id)],2]>-1.
+                height=jnp.where(mid_inside & mid_live[:,None],
+                                 mid_local[:,:,2]-mid_half[2],height)
+            return height
         if self.terrain_step_mocap_id < 0:
             return flat
         jnp = self.jnp
