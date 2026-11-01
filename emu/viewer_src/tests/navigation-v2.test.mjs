@@ -6,7 +6,7 @@ import {buildNavigationTerrain,terrainRiskAt,sweptTerrainCost} from '../src/navi
 import {OnlineGaitResponse,PredictivePathController,vectorFieldGuidance,
   clampNavigationCommand} from '../src/predictive-navigation.js';
 import {buildRoutePath,trackRoutePath} from '../src/path-follower.js';
-import {planPoseRoute,integratePose,GoalNavigator,NAV_BENCHMARK_TARGETS} from '../src/goal-navigation.js';
+import {planPoseRoute,integratePose,flythroughConnector,GoalNavigator,NAV_BENCHMARK_TARGETS} from '../src/goal-navigation.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5};
 const pose={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
@@ -131,4 +131,63 @@ test('five-goal physical benchmark has repeatable poses and finite summaries',()
   assert.match(ui,/navBenchmarkCopy/);
   assert.match(text('../src/goal-worker.js'),/kind==='target'/);
   assert.match(text('../src/sim.js'),/benchmark\?\(\)=>\.5:Math\.random/);
+});
+
+
+test('fly-through connector reaches the exact marker via bounded real commands',()=>{
+  const from={x:0,y:0,heading:0};
+  const goal={x:.22,y:.055,heading:.13};
+  const seg=flythroughConnector(from,goal,limits);
+  assert.ok(seg,'normal near-goal pose has an exact nonzero motion connector');
+  const arrival=integratePose(from,seg.cmd,seg.dt);
+  assert.ok(Math.hypot(arrival.x-goal.x,arrival.y-goal.y)<.002);
+  assert.ok(Math.abs(arrival.heading-goal.heading)<.002);
+  assert.ok(seg.cmd.vx>0);
+  assert.ok(Math.abs(seg.cmd.vy)<=limits.vy_abs);
+  assert.ok(Math.abs(seg.cmd.yaw)<=limits.yaw_abs);
+  const entire=planPoseRoute(from,{x:1.20,y:0,heading:0},limits,[],
+    {passThrough:true});
+  assert.ok(entire?.solved&&entire.flythrough);
+  const last=entire.steps.at(-1);
+  assert.ok(Math.abs(last.x-1.20)<.001);
+  assert.ok(last.cmd.vx>0,'route ends at the marker with a walk command, not a zero-speed drawing');
+  const checkpoint=planPoseRoute(from,{x:1.20,y:0,heading:0},limits);
+  assert.ok(checkpoint?.solved);
+  assert.equal(checkpoint.steps.at(-1).cmd.vx,0,
+    'benchmark/default route keeps precise final parking');
+});
+
+test('an already-planned following waypoint advances without stopping or resampling',()=>{
+  const start={x:0,y:0,heading:0,vx:.3,vy:0,yawRate:0};
+  const first={x:1,y:0,heading:0};
+  const second={x:2,y:0,heading:0};
+  const leg=(from,to)=>({
+    start:from,steps:[{...to,cmd:{vx:.5,vy:0,yaw:0,pitch:0,profiled:true},
+      dt:2,maneuver:'forward',flythrough:true}],
+    estimatedSeconds:2,solved:true,flythrough:true
+  });
+  const nav=new GoalNavigator(733);
+  nav.active=true;
+  const future=leg(first,second);
+  nav.acceptRoute(start,first,leg(start,first),
+    {newMission:true,following:{goal:second,route:future}});
+  let applied;
+  nav.tick(.1,{...start,x:.85},limits,[],command=>{applied=command});
+  assert.equal(nav.arrivals,1,'first waypoint crossed at normal walking speed');
+  assert.equal(nav.goal.x,second.x,'second waypoint activates in same control tick');
+  assert.ok(applied.vx>.05,'no zero-command arrival hold or precision parking');
+  assert.equal(nav.arrivalHold,0);
+});
+
+test('a stalled physical route triggers recovery without waiting for extreme cross-track error',()=>{
+  const nav=new GoalNavigator(733),start={...pose};
+  nav.active=true;
+  const goal={x:1.2,y:0,heading:0};
+  const route=planPoseRoute(start,goal,limits);
+  assert.ok(route?.solved);
+  nav.acceptRoute(start,goal,route,{newMission:true});
+  for(let i=0;i<75;i++)
+    nav.tick(.1,{...start},limits,[],()=>{});
+  assert.ok(nav.motionStall>0||nav.replans>0||nav.stagnant>0);
+  assert.ok(nav.replans>0,'stall watchdog should replan from the actual pose');
 });
