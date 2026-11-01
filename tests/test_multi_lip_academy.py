@@ -78,6 +78,13 @@ def test_teacher_only_packet_extends_indexes_without_moving_old_fields():
     assert UNIFIED_TERRAIN_FIELDS[-2]==("academy_episode_probability",0.)
     assert UNIFIED_TERRAIN_FIELDS[-1]==("academy_height_m",0.003)
 
+def test_independent_episode_budgets_are_native_to_the_one_mjx_environment():
+    import inspect
+    from emu.environment import EmuMJXEnv
+    sig=inspect.signature(EmuMJXEnv)
+    assert sig.parameters['max_episode_steps'].default==700
+    assert sig.parameters['academy_course_episode_frames'].default==1000
+
 
 def test_academy_promotes_only_at_signed_approached_near_height():
     from emu.curriculum import RegimeGovernor
