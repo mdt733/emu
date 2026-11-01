@@ -675,6 +675,79 @@ class RegimeGovernor:
             return 'expand_real_slope_angle'
         return 'hold_probe_learning'
 
+    def advance_academy(self, row: dict[str,float], *, max_height_m:float,
+                        enabled:bool, kl_ok:bool=True) -> str:
+        """Independently grow FOUR-LIP difficulty from genuine physical events.
+
+        A lip is one matched encounter verdict: a supported crossing or an
+        approached lip on which the episode ended. Up AND down must each
+        succeed at the current near-height frontier. Merely standing in a
+        STEP world, a foothold without transfer, or clearing a smaller lip
+        cannot certify a harder stair. Closed, checkpointed evidence windows
+        prevent regression and restart artefacts.
+        """
+        if not enabled:
+            return 'academy_disabled'
+        if not (math.isfinite(max_height_m) and
+                self.ACADEMY_SEED_LIP_M<=max_height_m<=.04):
+            raise ValueError('invalid Academy height ceiling')
+        if float(row.get('academy_active_fraction',0.))<=0.:
+            return 'academy_await_born_worlds'
+        evidence=self.academy_evidence
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    key=f'academy_{band}_{kind}_{direction}'
+                    n=float(row.get(key,0.))
+                    if not math.isfinite(n) or n<0.:
+                        raise ValueError(f'invalid Academy physical evidence {key}')
+                    evidence[f'{direction}_{band}_{kind}']+=n
+                if (evidence[f'{direction}_{band}_successes'] >
+                        evidence[f'{direction}_{band}_attempts']+1e-6):
+                    raise ValueError('Academy crossing successes exceed encounters')
+        evidence['updates']+=1.
+        nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
+        easy_bad=any(
+            evidence[f'{direction}_easy_attempts']>=nmin and
+            evidence[f'{direction}_easy_successes']/
+                evidence[f'{direction}_easy_attempts']<.25
+            for direction in ('up','down'))
+        if easy_bad:
+            self.params.academy_height_m=max(
+                self.ACADEMY_MIN_LIP_M,
+                self.params.academy_height_m-.0005)
+            self.academy_evidence=self._empty_academy_evidence()
+            return 'academy_retreat_failed_easy_support'
+        # Easy evidence is a RETREAT signal, never a promotion shortcut.
+        # Drop good closed easy cohorts while still collecting near fronts.
+        for direction in ('up','down'):
+            if evidence[f'{direction}_easy_attempts']>=nmin:
+                evidence[f'{direction}_easy_attempts']=0.
+                evidence[f'{direction}_easy_successes']=0.
+        near_ready=all(
+            evidence[f'{direction}_near_attempts']>=nmin
+            for direction in ('up','down'))
+        if near_ready:
+            good=all(
+                evidence[f'{direction}_near_successes']/
+                evidence[f'{direction}_near_attempts']>=.55
+                for direction in ('up','down'))
+            self.academy_evidence=self._empty_academy_evidence()
+            if not kl_ok:
+                return 'academy_hold_ppo_health'
+            if good:
+                previous=self.params.academy_height_m
+                self.params.academy_height_m=min(
+                    max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M)
+                return ('academy_height_expand_real_four_lips'
+                        if self.params.academy_height_m>previous
+                        else 'academy_height_ceiling')
+            return 'academy_hold_near_support_learning'
+        if evidence['updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
+            self.academy_evidence=self._empty_academy_evidence()
+            return 'academy_window_insufficient_approaches'
+        return 'academy_collect_real_lips'
+
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,
                         unified: bool = False, kl_ok: bool = True) -> str:
@@ -933,7 +1006,8 @@ class RegimeGovernor:
 
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
-                           kl_ok_to_expand: bool = True) -> dict[str, float | str]:
+                           kl_ok_to_expand: bool = True,
+                           academy_max_height_m: float = 0.0) -> dict[str, float | str]:
         """One path for the ordinary and final rollout's curriculum decisions.
 
         Reuse the original regime logic and existing per-skill closed evidence.
@@ -954,6 +1028,14 @@ class RegimeGovernor:
                 unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
             if growth_enabled or not self.unified_capability_focus
             else 'foundation_flat')
+        report['academy_event']=self.advance_academy(
+            row,max_height_m=academy_max_height_m,
+            enabled=(self.unified_capability_focus and
+                     academy_max_height_m>0. and growth_enabled),
+            kl_ok=kl_ok_to_expand)
+        report['academy_height_m']=self.params.academy_height_m
+        report.update({f'academy_window_{key}':value
+                       for key,value in self.academy_evidence.items()})
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
