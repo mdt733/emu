@@ -3535,6 +3535,7 @@ class EmuMJXEnv(TaskSampler):
         forward = jnp.sum(delta * axis, axis=1)
         lateral = jnp.sum(delta * across, axis=1)
         return (state.specialist_active & (state.focus_id == STEP)
+                & ~state.academy_active
                 & ((self.env_index % 2) == 0)
                 & self._unified_platform_active(data) & (real_rise > .001)
                 & (state.task[:, T.vx] > .02)
