@@ -337,7 +337,15 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     if(h<bestH){bestH=h;closest=p;}
     if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40
        &&chordSafe(p,goal,trees,0,terrain)){
-      winner=p;break;
+      // Don't stop A* at the first point inside its 31 cm tolerance disk
+      // if no safe FORWARD motion actually connects it to the marker.
+      // Otherwise "solved" can still mean "reverse into it and park".
+      const exact=distance(p,goal)<.025&&
+        Math.abs(angleError(goal.heading,p.heading))<.09;
+      if(!options.passThrough||exact||
+         flythroughConnector(p,goal,limits,trees,terrain)){
+        winner=p;break;
+      }
     }
     for(const cmd of moves){
       if(!segmentSafe(p,cmd,cmd.dt,trees,terrain))continue;
@@ -400,8 +408,8 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
 export function reachedRoamingWaypoint(pose,goal,route){
   if(!goal||!route)return false;
   const d=distance(pose,goal);
-  if(d<=.25)return true;
-  if(d>.37||!route.flythrough)return false;
+  if(d<=.205)return true;
+  if(d>.32||!route.flythrough)return false;
   // A fast walker may step from one side of the circle to the other
   // between 10 Hz navigator updates. Detect having crossed the final
   // segment's plane, but never accept a wide lateral miss.
@@ -417,7 +425,7 @@ export function reachedRoamingWaypoint(pose,goal,route){
   const ex=pose.x-goal.x,ey=pose.y-goal.y;
   const passed=tx*ex+ty*ey;
   const lateral=Math.abs(tx*ey-ty*ex);
-  return passed>=-.015&&passed<.35&&lateral<.22;
+  return passed>=-.015&&passed<.30&&lateral<.18;
 }
 
 // Finish an exhibition route by intercepting the marker in front of the
