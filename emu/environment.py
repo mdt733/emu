@@ -1929,7 +1929,10 @@ class EmuMJXEnv(TaskSampler):
         # height or approach position is ever passed to the actor.
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
-        terrain_cross_new = terrain_crossed & ~state.terrain_crossed
+        academy=self._academy_events(state,data,metrics)
+        # Academy final-slab contact is not an extra old one-lip completion.
+        terrain_active=terrain_active & ~state.academy_active
+        terrain_cross_new=terrain_crossed & ~state.terrain_crossed & terrain_active
         terrain_up = terrain_active & ((self.env_index % 2) == 0)
         terrain_down = terrain_active & ((self.env_index % 2) == 1)
         # Physical step severity: displacement between the two actual
@@ -2004,6 +2007,8 @@ class EmuMJXEnv(TaskSampler):
             # Completion still requires real, sustained far-side MJX support.
             reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
             ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
+        reward=reward+academy['reward']
+        ep_return=ep_return+academy['reward']
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -2045,7 +2050,12 @@ class EmuMJXEnv(TaskSampler):
                            lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
                            physics.push_force, physics.push_steps_left, sensors,
                            integral_next,raw_next,care_frames,
-                           hist_v,hist_c,hist_n)
+                           hist_v,hist_c,hist_n,
+                           state.academy_active,
+                           academy['lip_index'],academy['streak'],
+                           academy['crossings'],academy['up_count'],
+                           academy['down_count'],academy['clearance_seen'],
+                           academy['foothold_seen'],academy['transfer_seen'])
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2170,6 +2180,25 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            'academy_active':state.academy_active.astype(jnp.float32),
+            'academy_lip_index':academy['lip_index'].astype(jnp.float32),
+            'academy_lip_height_m':academy['height_m'],
+            'academy_cross_new':academy['cross_new'].astype(jnp.float32),
+            'academy_cross_up':academy['up_new'].astype(jnp.float32),
+            'academy_cross_down':academy['down_new'].astype(jnp.float32),
+            'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
+            'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
+            'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
+            'academy_reward':academy['reward'],
+            'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
+            'academy_episode_complete':(done & academy['completed'] &
+                                         ~terminal_fail).astype(jnp.float32),
+            'academy_episode_crossings':jnp.where(done,
+                 academy['crossings'].astype(jnp.float32),0.),
+            'academy_episode_up_crossings':jnp.where(done,
+                 academy['up_count'].astype(jnp.float32),0.),
+            'academy_episode_down_crossings':jnp.where(done,
+                 academy['down_count'].astype(jnp.float32),0.),
             'physical_step_height_m': physical_height,
             **{f'terrain_episode_{band}_{outcome}_{direction}':
                 (mask & cohort & condition).astype(jnp.float32)
