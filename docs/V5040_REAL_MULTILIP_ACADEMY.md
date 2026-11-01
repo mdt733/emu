@@ -7,12 +7,13 @@ and historic physical exams are unchanged.
 
 ## What has been implemented
 
-- The two original long slabs plus three REAL intermediate 0.5m-wide
-  MuJoCo collision-box platforms; four contiguous sharp lips at 0.25, 0.75,
-  1.25 and 1.75m of course travel, with genuine signed up/down profiles.
+- The two original long slabs plus three REAL intermediate 0.35m-wide
+  MuJoCo collision-box platforms; four contiguous sharp lips at 0.25, 0.60,
+  0.95 and 1.30m of course travel, with genuine signed up/down profiles.
 - Four balanced course patterns: up-up-down-down, up-down-up-down,
   down-up-down-up, down-down-up-up. Independent per-world lip heights,
-  bounded cumulative elevation and symmetric ±3-degree edge yaw, preserving
+  bounded cumulative elevation, a default 4cm difficulty ceiling
+  (terrain frontier still starts small), and symmetric ±3-degree edge yaw, preserving
   physically continuous platform seams.
 - Correct contact filtering: intermediate platforms touch the six-servo
   robot but do NOT generate platform-vs-platform self-contacts. Ordinary
