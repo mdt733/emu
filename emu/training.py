@@ -100,6 +100,10 @@ def env_kwargs_from_args(args) -> dict:
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         verified_ascent_reallocation=args.verified_ascent_reallocation,
         science_step_crouch_tolerance_m=args.science_step_crouch_tolerance_m,
+        academy_step_exposure=args.academy_step_exposure,
+        academy_edge_yaw_max_deg=args.academy_edge_yaw_max_deg,
+        academy_step_height_cap_m=args.academy_step_height_cap_m,
+        academy_step_speed_span=args.academy_step_speed_span,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -224,7 +228,8 @@ def train(args: TrainingConfig) -> int:
     perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
-                    max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
+                    max_episode_steps=(args.academy_episode_frames or MAX_EPISODE_STEPS),
+                    **env_kwargs_from_args(args))
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
     if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
@@ -365,6 +370,16 @@ def train(args: TrainingConfig) -> int:
                 target_control=max(base_control,args.retention_share)
                 weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
                 weights.append(target_control)
+            if args.academy_step_focus_share>0 and step>args.foundation_steps:
+                # Stage A single-lip exposure. Other five roles split the
+                # reserved retention budget proportionally; never create
+                # another actor, and preserve the exact baseline if disabled.
+                step_role=FOCUS_NAMES.index('step')
+                share=args.academy_step_focus_share
+                old=weights[step_role]
+                scale=(1.-share)/max(1e-9,1.-old)
+                weights=[share if i==step_role else weight*scale
+                         for i,weight in enumerate(weights)]
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
