@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import runpy
+import subprocess
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -108,3 +110,30 @@ def test_stage_a_uses_immutable_same_parent_with_unique_run_dirs(tmp_path):
     assert all(x.unified_capability_focus for x in children)
     assert all(x.terrain_lesson=="coherent-careful" for x in children)
     assert all(x.science_reset_step_evidence_on_fork for x in children)
+
+
+def test_launcher_forces_its_own_emu_package_outside_git_checkout(tmp_path):
+    """Worktree runs share a venv: the old editable installation must not win."""
+    code = (
+        "import runpy,sys,pathlib;"
+        "entry=pathlib.Path(sys.argv[1]).resolve();"
+        "runpy.run_path(str(entry),run_name='academy_package_test');"
+        "from emu import contracts;"
+        "actual=pathlib.Path(contracts.__file__).resolve().parents[1];"
+        "assert actual == entry.parents[1], (actual,entry.parents[1]);"
+        "print(actual)"
+    )
+    # -I excludes the *test* runner's PYTHONPATH and current checkout,
+    # recreating the real 'python scripts/foo.py' sys.path situation.
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", code, str(SCRIPT)],
+        cwd=tmp_path, text=True, capture_output=True, check=True)
+    assert str(ROOT) in result.stdout
+
+
+def test_launcher_refuses_other_current_working_directory_for_training(tmp_path):
+    """The forked PPO subprocess runs 'python -c' and must see this source."""
+    # Must reject even if a script is invoked by absolute path from outside
+    # the checkout. This protects Python -c import resolution in run_training.
+    m = stage()
+    assert m["REPO"] == ROOT
