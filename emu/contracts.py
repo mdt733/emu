@@ -257,6 +257,9 @@ UNIFIED_TERRAIN_FIELDS = (
     ('steering_attention',0.0),
     # Teacher-only course assignment. Added AFTER historical G4 indices.
     ('academy_episode_probability',0.0),
+    # Separate persistent demonstrated stair lip frontier: old single-lip
+    # and new Academy courses must NEVER counterfeit one another's growth.
+    ('academy_height_m',0.003),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -278,6 +281,7 @@ P = SimpleNamespace(
            ('command','resilience','slope','step','transition','control'))},
     steering_attention=TERRAIN_TASK_PARAM_DIM+14,
     academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
+    academy_height_m=TERRAIN_TASK_PARAM_DIM+16,
 )
 
 
