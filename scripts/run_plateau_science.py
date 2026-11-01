@@ -225,6 +225,10 @@ def manifest(sha: str, parent: Path, parent_hash: str, cfg, root: Path, target: 
 
 
 def ensure_manifest(root: Path, wanted: dict) -> None:
+    # JSON stores the Arm.factors tuple as an array. Normalise the expected
+    # shape before comparison or a perfectly identical campaign is always
+    # rejected on restart (tuple != list).
+    wanted = json.loads(json.dumps(wanted, sort_keys=True))
     filename = root / "campaign_manifest.json"
     if filename.exists():
         if json.loads(filename.read_text(encoding="utf-8")) != wanted:
