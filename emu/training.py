@@ -667,6 +667,10 @@ def train(args: TrainingConfig) -> int:
                 key='regime_frac_'+name
                 report[key]=float(params[key])
             report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['academy_expected_birth_fraction']=float(
+                (1.-params['athletic_rehearsal_frac'])*
+                params['specialist_mix']*params['focus_weight_step']*
+                params['academy_episode_probability'])
             for name in FOCUS_NAMES:
                 report['focus_alloc_'+name]=float(params['focus_weight_'+name])
             report['teaching_profile']=teaching_profile(
@@ -945,6 +949,10 @@ def train(args: TrainingConfig) -> int:
             key='regime_frac_'+name
             report[key]=float(params[key])
         report['foundation_control_mix']=float(params['foundation_control_mix'])
+        report['academy_expected_birth_fraction']=float(
+            (1.-params['athletic_rehearsal_frac'])*
+            params['specialist_mix']*params['focus_weight_step']*
+            params['academy_episode_probability'])
         for name in FOCUS_NAMES:
             report['focus_alloc_'+name]=float(params['focus_weight_'+name])
         report['teaching_profile']=teaching_profile(
