@@ -3613,26 +3613,34 @@ class EmuMJXEnv(TaskSampler):
                 foothold_new=zbool,transfer_new=zbool,
                 reward=zeros,height_m=zeros,completed=zbool,
                 approach_seen=zbool,attempt_new=zbool)
-        from .directional import contact_pair_mask
+        from .directional import supported_top_foot_contacts
         active=state.academy_active
         idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
         before=state.academy_lip_index<ACADEMY_LIPS
         live=active & before
         contact=getattr(data,'_impl',data).contact
         foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
-        all_pairs=jnp.stack(tuple(
-            contact_pair_mask(jnp,contact.geom1,contact.geom2,
-                              contact.dist,g,foot_geoms)
+        tops=jnp.stack(tuple(
+            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
             for g in self.academy_geom_ids),axis=1)
+        feet=jnp.asarray(foot_geoms,dtype=jnp.int32)
+        foot_bottom=data.geom_xpos[:,feet,2]-jnp.asarray(
+            self.mj_model.geom_size[list(foot_geoms),0])[None,:]
+        # Side-wall contact pairs are NOT upper footholds. Require
+        # actual near-vertical normal and the physical sphere's low point
+        # within 1cm of the platform's true upper face as well as contact.
+        all_pairs=jnp.stack(tuple(
+            supported_top_foot_contacts(
+                jnp,contact.geom1,contact.geom2,contact.dist,
+                contact.frame,g,foot_geoms,tops[:,i],foot_bottom,
+                data.geom_xmat[:,g,:].reshape((self.num_envs,3,3))[:,:,2])
+            for i,g in enumerate(self.academy_geom_ids)),axis=1)
         # [world,plateau,2 feet] -> current lower and target support.
         sidx=jnp.broadcast_to(idx[:,None,None],(self.num_envs,1,2))
         previous=jnp.take_along_axis(all_pairs,sidx,axis=1)[:,0,:]
         target=jnp.take_along_axis(all_pairs,sidx+1,axis=1)[:,0,:]
         target_supported=jnp.any(target,axis=1)
         stance_supported=jnp.any(previous,axis=1)
-        tops=jnp.stack(tuple(
-            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
-            for g in self.academy_geom_ids),axis=1)
         prev_top=jnp.take_along_axis(tops,idx[:,None],axis=1)[:,0]
         next_top=jnp.take_along_axis(tops,(idx+1)[:,None],axis=1)[:,0]
         rise=next_top-prev_top
