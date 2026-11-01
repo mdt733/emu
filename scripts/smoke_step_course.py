@@ -42,7 +42,7 @@ def main():
     import mujoco
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
-    from emu.step_academy_world import (ACADEMY_INTERVAL_M,ACADEMY_EDGE_X_M,
+    from emu.step_academy_world import (ACADEMY_LIPS,ACADEMY_INTERVAL_M,ACADEMY_EDGE_X_M,
                                         expected_lip_directions)
     print("JAX",jax.__version__,"backend",jax.default_backend(),"devices",jax.devices(),flush=True)
     if args.device in ("gpu","cuda") and jax.default_backend() not in ("gpu","cuda"):
