@@ -93,7 +93,11 @@ export function trackRoutePath(pose,path,runIndex,progress,limits){
     const distance=dist(pose,run.end);
     return {command:{...zero(),yaw:clamp(1.9*error,-maxYaw*.85,maxYaw*.85)},
       crossTrack:distance,progress:0,mode:'pivot',
-      headingError:error,ready:Math.abs(error)<.16&&distance<.23};
+      headingError:error,
+      // A real biped drifts during a pivot. Small positional offsets should
+      // be recovered by the next line follower rather than deadlocking on an
+      // exact 23 cm pivot anchor. Larger offsets trigger replanning.
+      ready:Math.abs(error)<.16&&distance<.39};
   }
   const near=projectOnRun(pose,run,progress);
   const s=Math.max(progress,near.s),remaining=Math.max(0,run.length-s);
