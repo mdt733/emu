@@ -60,6 +60,10 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('academy_active_fraction','Academy occupancy fraction (frames)'),
         ('academy_up_crossings','Academy supported uphill lips'),
         ('academy_down_crossings','Academy supported downhill lips'),
+        ('academy_near_attempts_up','Academy near-height uphill encounters'),
+        ('academy_near_successes_up','Academy near-height supported up'),
+        ('academy_near_attempts_down','Academy near-height downhill encounters'),
+        ('academy_near_successes_down','Academy near-height supported down'),
         ('academy_footholds','Academy upper footholds'),
         ('academy_transfers','Academy supported weight transfers'),
         ('academy_courses_complete','Academy four-lip courses completed'),
@@ -858,6 +862,15 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'academy_active_fraction': mean_metric(metrics,'academy_active'),
         'academy_crossings': float(np.asarray(
             metrics.get('academy_cross_new',0.)).sum()),
+        'academy_encounter_verdicts': float(np.asarray(
+            metrics.get('academy_lip_attempt_new',0.)).sum()),
+        # Matched per-lip approach verdicts, not frame-level near masks:
+        # even a 14-second linger at the lip is ONE failed encounter.
+        **{f'academy_{band}_{outcome}_{direction}':float(np.asarray(
+            metrics.get(f'academy_{band}_{outcome}_{direction}',0.)).sum())
+           for band in ('near','easy')
+           for outcome in ('attempts','successes')
+           for direction in ('up','down')},
         'academy_up_crossings': float(np.asarray(
             metrics.get('academy_cross_up',0.)).sum()),
         'academy_down_crossings': float(np.asarray(
