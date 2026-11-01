@@ -18,9 +18,16 @@ def main():
     parser.add_argument("--device",choices=("cpu","gpu","cuda"),default="cpu")
     parser.add_argument("--ppo",action="store_true",
                         help="also run one real 360-input PPO gradient, never save weights")
+    parser.add_argument("--full-update",action="store_true",
+                        help="production 2048x32 PPO gradient and memory preflight; no training saved")
     args=parser.parse_args()
     if args.worlds<4 or args.worlds%4 or args.frames<1 or args.frames>20:
         parser.error("worlds must be divisible by 4 and >=4; frames 1..20")
+    if args.full_update and (args.worlds!=2048 or not args.ppo or
+                             args.device not in ("gpu","cuda")):
+        parser.error("--full-update requires GPU, --worlds 2048 and --ppo")
+    import os
+    os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if args.device=="gpu" else args.device)
     import jax
@@ -109,8 +116,10 @@ def main():
         print("MJX frame",i+1,"reward",float(jnp.mean(result.reward)),flush=True)
     if args.ppo:
         from emu.ppo import make_trainer
-        trainer=make_trainer(env,seed=5040,lr=2e-4,rollout=2,
-                             epochs=1,minibatches=1)
+        trainer=make_trainer(env,seed=5040,lr=2e-4,
+                             rollout=32 if args.full_update else 2,
+                             epochs=4 if args.full_update else 1,
+                             minibatches=8 if args.full_update else 1)
         before=trainer["make_initial_state"](params)
         after,metrics,diag,_,_=trainer["train_update"](
             before,packet,jnp.zeros((360,),jnp.float32),
@@ -126,9 +135,18 @@ def main():
                   "academy_active_fraction","academy_crossings",
                   "academy_up_crossings","academy_down_crossings")},
               flush=True)
+        if args.full_update:
+            try:
+                mem=jax.devices("gpu")[0].memory_stats()
+                print("ACADEMY GPU memory:",
+                      {k:v for k,v in (mem or {}).items()
+                       if "peak" in k or "limit" in k},flush=True)
+            except (AttributeError,RuntimeError,ValueError):
+                print("GPU memory stats not exposed by this JAX backend",flush=True)
     print(json.dumps(dict(status="PASS",academy_worlds=int(active.sum()),
                           lips=4,obs_dim=360,physics_frames=args.frames,
                           ppo_gradient=bool(args.ppo),
+                          production_batch=bool(args.full_update),
                           source="real MJX collision and actual ray-OBB surfaces")),flush=True)
     return 0
 
