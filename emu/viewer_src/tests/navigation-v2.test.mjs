@@ -6,7 +6,8 @@ import {buildNavigationTerrain,terrainRiskAt,sweptTerrainCost} from '../src/navi
 import {OnlineGaitResponse,PredictivePathController,vectorFieldGuidance,
   clampNavigationCommand} from '../src/predictive-navigation.js';
 import {buildRoutePath,trackRoutePath} from '../src/path-follower.js';
-import {planPoseRoute,integratePose,flythroughConnector,GoalNavigator,NAV_BENCHMARK_TARGETS} from '../src/goal-navigation.js';
+import {planPoseRoute,integratePose,flythroughConnector,reachedRoamingWaypoint,
+  forwardWaypointApproach,GoalNavigator,NAV_BENCHMARK_TARGETS} from '../src/goal-navigation.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5};
 const pose={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
@@ -190,4 +191,88 @@ test('a stalled physical route triggers recovery without waiting for extreme cro
     nav.tick(.1,{...start},limits,[],()=>{});
   assert.ok(nav.motionStall>0||nav.replans>0||nav.stagnant>0);
   assert.ok(nav.replans>0,'stall watchdog should replan from the actual pose');
+});
+
+
+test('a roaming waypoint is position-based even if the biped is moving and facing away',()=>{
+  const goal={x:1,y:0,heading:0};
+  const route={solved:true,flythrough:true,start:{x:0,y:0,heading:0},
+    steps:[{x:1,y:0,heading:0,cmd:{vx:.5,vy:0,yaw:0}}]};
+  assert.equal(reachedRoamingWaypoint(
+    {x:.83,y:0,heading:Math.PI,vx:-.40,vy:0},goal,route),true);
+  assert.equal(reachedRoamingWaypoint(
+    {x:.40,y:.40,heading:0},goal,route),false);
+  assert.equal(reachedRoamingWaypoint(
+    {x:1.10,y:.12,heading:Math.PI},goal,route),true,
+    'a fast walker may cross the target plane between control frames');
+  assert.equal(reachedRoamingWaypoint(
+    {x:1.06,y:.31,heading:0},goal,route),false,
+    'do not silently claim a wide lateral miss');
+});
+
+test('a through-waypoint connector cannot reverse into the marker',()=>{
+  const reverse=flythroughConnector(
+    {x:0,y:0,heading:Math.PI},
+    {x:.22,y:0,heading:Math.PI},limits);
+  assert.equal(reverse,null);
+  const direction=forwardWaypointApproach(
+    {x:0,y:0,heading:Math.PI,vx:0,vy:0,yawRate:0},
+    {x:.38,y:0,heading:0},limits);
+  assert.ok(direction.vx>=0,'ordinary roaming never commands a reverse park');
+  assert.ok(Math.abs(direction.yaw)>.1);
+});
+
+test('near-goal roaming arrival immediately continues even if the following leg is missing',()=>{
+  const goal={x:1,y:0,heading:0};
+  const nav=new GoalNavigator(734);
+  nav.active=true;
+  let requested=0;
+  nav.useBackgroundPlanner(()=>{requested++;return new Promise(()=>{});});
+  const pose={x:.81,y:0,heading:2.7,vx:.45,vy:0,yawRate:0};
+  const route={
+    start:{x:0,y:0,heading:0},solved:true,flythrough:true,
+    estimatedSeconds:2,steps:[
+      {x:1,y:0,heading:0,dt:1.5,
+       cmd:{vx:.50,vy:0,yaw:0,pitch:0,profiled:true}}
+    ]
+  };
+  nav.acceptRoute(pose,goal,route,{newMission:true});
+  let command;
+  nav.tick(.1,pose,limits,[],c=>command=c);
+  assert.equal(nav.arrivals,1);
+  assert.equal(nav.goal,null,'finished waypoint does not remain stuck in approaching goal');
+  assert.equal(requested,1,'one background request for a new waypoint');
+  assert.deepEqual(command,{vx:0,vy:0,yaw:0,pitch:0});
+  for(let i=0;i<20;i++)nav.tick(.1,pose,limits,[],()=>{});
+  assert.equal(nav.arrivals,1,'do not double count while planning');
+});
+
+test('the precise-pose benchmark retains its speed and heading hold',()=>{
+  const nav=new GoalNavigator(733);
+  nav.active=true;
+  nav.startBenchmark();
+  const start={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
+  const goal={x:1,y:0,heading:0};
+  const route=planPoseRoute(start,goal,limits);
+  assert.ok(route?.solved);
+  nav.acceptRoute(start,goal,route,{newMission:true});
+  nav.tick(.1,{...start,x:.90,heading:Math.PI,vx:.5},limits,[],()=>{});
+  assert.equal(nav.arrivals,0,'strict orientation and speed remain enforced in benchmark');
+});
+
+test('a stalled near-goal approach does not wait for the full mission timeout',()=>{
+  const nav=new GoalNavigator(734);
+  nav.active=true;
+  const start={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
+  const goal={x:.65,y:0,heading:0};
+  const route=planPoseRoute(start,goal,limits);
+  assert.ok(route?.solved);
+  nav.acceptRoute(start,goal,route,{newMission:true});
+  // Simulate an actor that turned to face away from the marker but cannot
+  // translate. A pivot/terminal controller must not wait ~30-105 seconds.
+  const stuck={x:.08,y:0,heading:Math.PI,vx:0,vy:0,yawRate:0};
+  for(let i=0;i<105&&!nav.failures;i++)
+    nav.tick(.1,stuck,limits,[],()=>{});
+  assert.ok(nav.failures>=1,'after bounded recovery attempts, abandon missed target');
+  assert.ok(nav.elapsed<30,'recovery precedes normal mission timeout');
 });
