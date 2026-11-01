@@ -218,7 +218,7 @@ class TrainingConfig:
     academy_start_steps: int = 80_000_000
     academy_ramp_steps: int = 20_000_000
     academy_max_share: float = 0.50
-    academy_height_cap_m: float = 0.020
+    academy_height_cap_m: float = 0.040
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
