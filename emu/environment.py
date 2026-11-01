@@ -36,6 +36,11 @@ from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
+from .step_academy_world import (
+    ACADEMY_LIPS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
+    ACADEMY_MIDDLE_HALF_LENGTH_M, ACADEMY_MIDDLE_HALF_WIDTH_M,
+    ACADEMY_MIDDLE_HALF_DEPTH_M, ACADEMY_MIDDLE_NAMES,
+    ACADEMY_MIDDLE_GEOMS, course_heights)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -182,7 +187,7 @@ UNIFIED_SLAB_HALF_WIDTH_M = 16.0
 UNIFIED_SLAB_HALF_DEPTH_M = .25
 
 
-def add_unified_terrain(robot_xml: str) -> str:
+def add_unified_terrain(robot_xml: str, academy_lips: int = 0) -> str:
     """Replace the infinite floor with movable lower + higher solid slabs.
 
     The old XML/main is NEVER modified. Floor and platform are two mocap
@@ -191,6 +196,8 @@ def add_unified_terrain(robot_xml: str) -> str:
     Their poses are sampled per episode through mjx.Data, with NO per-episode
     model rebuild and no privileged actor-input channels.
     """
+    if academy_lips not in (0, ACADEMY_LIPS):
+        raise ValueError('Step Academy requires exactly four lips or none')
     root=ET.parse(robot_xml).getroot()
     world=root.find('worldbody')
     if world is None:
@@ -207,7 +214,7 @@ def add_unified_terrain(robot_xml: str) -> str:
         if geom is None:
             raise ValueError(f'missing contact geometry {geom_name}')
         geom.set('contype','3')
-        geom.set('conaffinity','3')
+        geom.set('conaffinity','7' if academy_lips else '3')
     size=(f'{UNIFIED_SLAB_HALF_LENGTH_M} {UNIFIED_SLAB_HALF_WIDTH_M} '
           f'{UNIFIED_SLAB_HALF_DEPTH_M}')
     ground=ET.SubElement(world,'body',dict(name='unified_ground',mocap='true',
@@ -221,6 +228,22 @@ def add_unified_terrain(robot_xml: str) -> str:
                                       type='box',size=size,
                                       contype='2',conaffinity='2',
                                       friction=friction,rgba='0.65 0.50 0.24 1'))
+    if academy_lips:
+        # The initial floor and final elevated slab are the two existing
+        # boxes. Three short *real* middle platforms provide four lips.
+        # Bit 4 touches robot conaffinity=7 but not the other floor boxes
+        # or other platforms; no self-collisions between abutting slabs.
+        size_mid=(f'{ACADEMY_MIDDLE_HALF_LENGTH_M} '
+                  f'{ACADEMY_MIDDLE_HALF_WIDTH_M} '
+                  f'{ACADEMY_MIDDLE_HALF_DEPTH_M}')
+        for i,(body_name,geom_name) in enumerate(
+                zip(ACADEMY_MIDDLE_NAMES,ACADEMY_MIDDLE_GEOMS)):
+            body=ET.SubElement(world,'body',dict(
+                name=body_name,mocap='true',pos=f'0 0 {-2.0-i*.3}'))
+            ET.SubElement(body,'geom',dict(
+                name=geom_name,type='box',size=size_mid,
+                contype='4',conaffinity='0',friction=friction,
+                rgba='0.42 0.65 0.54 1'))
     return ET.tostring(root,encoding='unicode')
 
 
