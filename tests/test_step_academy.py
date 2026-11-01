@@ -132,8 +132,13 @@ def test_launcher_forces_its_own_emu_package_outside_git_checkout(tmp_path):
 
 
 def test_launcher_refuses_other_current_working_directory_for_training(tmp_path):
-    """The forked PPO subprocess runs 'python -c' and must see this source."""
-    # Must reject even if a script is invoked by absolute path from outside
-    # the checkout. This protects Python -c import resolution in run_training.
-    m = stage()
-    assert m["REPO"] == ROOT
+    """PPO starts a fresh python -c process: never import a foreign checkout."""
+    code = (
+        "import runpy,sys;"
+        "mod=runpy.run_path(sys.argv[1],run_name='academy_cwd_test');"
+        "mod['source_guard']()"
+    )
+    proc = subprocess.run([sys.executable, "-I", "-c", code, str(SCRIPT)],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "Run Academy from its source checkout" in proc.stderr
