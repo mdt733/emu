@@ -136,11 +136,36 @@ def academy_birth_allocation(*, step: int, intro_steps: int,
         1.,(step-start_steps)/ramp_steps)
 
 
-def academy_focus_mix(weights, academy_share: float):
-    """Return birth-role probabilities and conditional STEP->Academy probability.
+def academy_conditional_birth_share(requested_share:float,
+                                  athletic_share:float,
+                                  nonfast_generalist_floor:float=.15):
+    """Convert requested ALL-world Academy fraction to nonfast birth quota.
 
-    Keeps the original relative role allocation inside the non-Academy
-    population, including some ordinary single-lip STEP practise.
+    Rehearsal worlds are already held aside before _specialist_task decides
+    roles. Without accounting for them, a requested 50% Academy silently
+    becomes 37.5% when a quarter of PPO worlds preserve fast walking.
+    Keep at least 15% of ALL births for other non-fast capabilities.
+    Returns (conditional_academy_share, actual_absolute_target).
+    """
+    import math
+    if any(not math.isfinite(float(x)) for x in (
+            requested_share,athletic_share,nonfast_generalist_floor)):
+        raise ValueError('nonfinite Academy scheduling fraction')
+    if not (0.<=requested_share<=.85 and
+            0.<=athletic_share<=.75 and
+            0.<=nonfast_generalist_floor<.5):
+        raise ValueError('invalid Academy/fast/retention allocation')
+    eligible=1.-athletic_share
+    actual=min(requested_share,max(0.,eligible-nonfast_generalist_floor))
+    return actual/eligible,actual
+
+
+def academy_focus_mix(weights, academy_share: float):
+    """Return role probabilities and STEP->Academy probability *among nonfast births*.
+
+    Call academy_conditional_birth_share first to account for reserved
+    athletic/fast rehearsal. The other specialists keep their original
+    relative mixture and ordinary STEP continues alongside Academy.
     """
     import math
     if (len(weights)!=6 or any(not math.isfinite(float(x)) or x<0 for x in weights)
