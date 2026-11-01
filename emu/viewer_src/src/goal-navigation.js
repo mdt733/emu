@@ -475,6 +475,8 @@ export class GoalNavigator {
     this.lastMovementPose=null;this.motionStall=0;
     this.closestGoalDistance=Infinity;this.goalNoProgress=0;
     this.goalRecoveryAttempts=0;
+    this.pivotRunIndex=-1;this.pivotBestError=Infinity;
+    this.pivotNoProgress=0;this.pivotRecoveryAttempts=0;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -527,7 +529,9 @@ export class GoalNavigator {
     this.prefetchRetry=0;this.prefetchError=null;
     this.lastMovementPose=null;this.motionStall=0;
     this.closestGoalDistance=Infinity;this.goalNoProgress=0;
-    this.goalRecoveryAttempts=0;}
+    this.goalRecoveryAttempts=0;
+    this.pivotRunIndex=-1;this.pivotBestError=Infinity;
+    this.pivotNoProgress=0;this.pivotRecoveryAttempts=0;}
   startBenchmark(){
     const keepActive=this.active;
     this.reset();
@@ -569,12 +573,15 @@ export class GoalNavigator {
     this.runIndex=0;this.runProgress=0;this.index=0;
     this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
     this.replanDelay=0;
+    this.pivotRunIndex=-1;this.pivotBestError=Infinity;
+    this.pivotNoProgress=0;
     if(newMission){
       this.following=following;
       this.hint=following?.hint||null;
       this.lastMovementPose=null;this.motionStall=0;
       this.closestGoalDistance=Infinity;this.goalNoProgress=0;
       this.goalRecoveryAttempts=0;
+      this.pivotRecoveryAttempts=0;
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
       this.trackingTime=0;this.trackErrorIntegral=0;
@@ -825,6 +832,22 @@ export class GoalNavigator {
     }else if(dist>=.85){
       this.goalNoProgress=0;
     }
+    // An in-place turn only changes heading. If the actor finishes turning
+    // but is offset from the pivot anchor, avoid holding zero yaw forever.
+    if(result?.mode==='pivot'&&!result.ready){
+      if(this.pivotRunIndex!==this.runIndex){
+        this.pivotRunIndex=this.runIndex;
+        this.pivotBestError=Infinity;
+        this.pivotNoProgress=0;
+      }
+      const error=Math.abs(result.headingError);
+      if(error<this.pivotBestError-.065){
+        this.pivotBestError=error;this.pivotNoProgress=0;
+      }else this.pivotNoProgress+=delta;
+    }else{
+      this.pivotRunIndex=-1;this.pivotBestError=Infinity;
+      this.pivotNoProgress=0;
+    }
     const progress=this.runIndex*10000+this.runProgress;
     if(!this.lastMovementPose||
        distance(pose,this.lastMovementPose)>.09){
@@ -856,8 +879,9 @@ export class GoalNavigator {
     if(side)this.crossSide=side;
     const offRoute=Math.abs(signedCross);
     // Compare with the line, NOT distance to a far-ahead lookahead target.
-    if(!this.benchmark&&this.goalNoProgress>8&&
-       this.goalRecoveryAttempts>=2){
+    if(!this.benchmark&&
+       ((this.goalNoProgress>8&&this.goalRecoveryAttempts>=2)||
+        (this.pivotNoProgress>7&&this.pivotRecoveryAttempts>=2))){
       // A target that repeatedly defeats physically observed progress is a
       // missed waypoint, never permission to hang indefinitely or claim
       // arrival. Move on to another feasible target.
@@ -873,10 +897,13 @@ export class GoalNavigator {
        (offRoute>.67||!this.route.solved||
         (!finalApproach&&this.stagnant>3.2)||
         (dist>.34&&this.motionStall>2.4)||
-        (!this.benchmark&&dist>.27&&this.goalNoProgress>2.4))){
+        (!this.benchmark&&dist>.27&&this.goalNoProgress>2.4)||
+        (result?.mode==='pivot'&&this.pivotNoProgress>2.0))){
       this.replanDelay=0;
       if(!this.benchmark&&dist<.85&&this.goalNoProgress>2.4)
         this.goalRecoveryAttempts++;
+      if(!this.benchmark&&result?.mode==='pivot'&&this.pivotNoProgress>2.0)
+        this.pivotRecoveryAttempts++;
       if(this.requestPlan){
         const expectedGoal=this.goal;
         this.queuePlan({
@@ -930,6 +957,8 @@ export class GoalNavigator {
       motionStall:this.motionStall,
       goalNoProgress:this.goalNoProgress,
       goalRecoveryAttempts:this.goalRecoveryAttempts,
+      pivotNoProgress:this.pivotNoProgress,
+      pivotRecoveryAttempts:this.pivotRecoveryAttempts,
       predictionFallback:Boolean(this.predictor.fallback),
       flythrough:Boolean(this.route?.flythrough),
       benchmark:this.benchmark?{
