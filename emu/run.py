@@ -125,7 +125,7 @@ def one_run_config(args) -> TrainingConfig:
     ramp=int(getattr(args,'academy_ramp_steps',20_000_000))
     intro_share=float(getattr(args,'academy_intro_share',.10))
     academy_share=float(getattr(args,'academy_max_share',.50))
-    height_cap=float(getattr(args,'academy_height_cap_m',.020))
+    height_cap=float(getattr(args,'academy_height_cap_m',.040))
     if (course_lips not in (0,4) or
         (course_lips and not (unified and terrain_actor)) or
         intro<0 or start<intro or ramp<=0 or
