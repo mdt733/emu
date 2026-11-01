@@ -297,7 +297,7 @@ export class EmuBrowserSim {
     this.depthReading=null;
     this.depthLastMs=0;
     // Terrain geometry moved; rebuild guide heights on the next nav tick.
-    this.navGoalSeen=null;this.navRouteSeen=null;
+    this.navGoalSeen=null;this.navRouteSeen=null;this.navFollowingSeen=null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -320,6 +320,10 @@ export class EmuBrowserSim {
     this.depthMountMarker.material.dispose();
     this.routeLine.geometry.dispose();
     this.routeLine.material.dispose();
+    this.followingLine.geometry.dispose();
+    this.followingLine.material.dispose();
+    this.followingRing.geometry.dispose();
+    this.followingRing.material.dispose();
     this.predictionLine.geometry.dispose();
     this.predictionLine.material.dispose();
     this.targetRing.geometry.dispose();
@@ -696,6 +700,18 @@ export class EmuBrowserSim {
                                    depthWrite:false,transparent:true,opacity:.95}));
     this.routeLine.renderOrder=8;
     this.scene.add(this.routeLine);
+    this.followingLine=new THREE.Line(new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({color:0x78d1fa,dashSize:.10,gapSize:.095,
+        transparent:true,opacity:.55,depthTest:true,depthWrite:false}));
+    this.followingLine.renderOrder=7;
+    this.followingLine.visible=false;
+    this.scene.add(this.followingLine);
+    this.followingRing=new THREE.Mesh(new THREE.RingGeometry(.115,.155,40),
+      new THREE.MeshBasicMaterial({color:0x78d1fa,
+        side:THREE.DoubleSide,transparent:true,opacity:.55,depthWrite:false}));
+    this.followingRing.renderOrder=8;
+    this.followingRing.visible=false;
+    this.scene.add(this.followingRing);
     // Separate orange 1 s predicted trajectory, redrawn at navigation rate.
     this.predictionLine=new THREE.Line(new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({color:0xffbb77,dashSize:.12,gapSize:.075,
@@ -708,7 +724,7 @@ export class EmuBrowserSim {
                                    opacity:.46,depthWrite:false}));
     this.arenaCircle.renderOrder=7;
     this.scene.add(this.arenaCircle);
-    this.navGoalSeen=null;this.navRouteSeen=null;
+    this.navGoalSeen=null;this.navRouteSeen=null;this.navFollowingSeen=null;
     this.clearNavigationOverlay();
   }
 
@@ -716,9 +732,11 @@ export class EmuBrowserSim {
     this.targetRing.visible=false;
     this.targetArrow.visible=false;
     this.routeLine.visible=false;
+    this.followingLine.visible=false;
+    this.followingRing.visible=false;
     this.predictionLine.visible=false;
     this.arenaCircle.visible=false;
-    this.navGoalSeen=null;this.navRouteSeen=null;
+    this.navGoalSeen=null;this.navRouteSeen=null;this.navFollowingSeen=null;
   }
 
   setNavigationPrediction(predicted) {
@@ -733,9 +751,10 @@ export class EmuBrowserSim {
     this.predictionLine.visible=true;
   }
 
-  setNavigationOverlay(goal,route) {
+  setNavigationOverlay(goal,route,following=null) {
     if(!goal||!route){this.clearNavigationOverlay();return;}
-    if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
+    if(this.navGoalSeen===goal && this.navRouteSeen===route &&
+       this.navFollowingSeen===following)return;
     const z=this.terrainHeightAt(goal.x,goal.y);
     this.targetRing.position.set(goal.x,goal.y,z+.030);
     this.targetArrow.position.set(goal.x,goal.y,z+.045);
@@ -748,6 +767,21 @@ export class EmuBrowserSim {
       ...route.steps.map(p=>new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.038))];
     this.routeLine.geometry.dispose();
     this.routeLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
+    if(following?.goal&&following?.route?.steps?.length){
+      const next=following.goal;
+      const zNext=this.terrainHeightAt(next.x,next.y);
+      this.followingRing.position.set(next.x,next.y,zNext+.04);
+      const futurePoints=[goal,...following.route.steps].map(p=>
+        new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.044));
+      this.followingLine.geometry.dispose();
+      this.followingLine.geometry=new THREE.BufferGeometry().setFromPoints(futurePoints);
+      this.followingLine.computeLineDistances();
+      this.followingLine.visible=true;
+      this.followingRing.visible=true;
+    }else{
+      this.followingLine.visible=false;
+      this.followingRing.visible=false;
+    }
     const circle=[];
     for(let i=0;i<128;i++){
       const a=2*Math.PI*i/128,x=4*Math.cos(a),y=4*Math.sin(a);
@@ -758,6 +792,7 @@ export class EmuBrowserSim {
     for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
       mesh.visible=true;
     this.navGoalSeen=goal;this.navRouteSeen=route;
+    this.navFollowingSeen=following;
   }
 
   canSwapPolicy(next) {
