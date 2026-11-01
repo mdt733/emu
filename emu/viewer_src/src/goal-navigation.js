@@ -399,6 +399,9 @@ export class GoalNavigator {
     this.predictor=new PredictivePathController();
     this.prediction=[];this.predictionScore=null;this.terrain=null;this.latestPose=null;
     this.benchmark=null;
+    this.following=null;this.hint=null;
+    this.prefetchPending=null;this.prefetchRetry=0;this.prefetchError=null;
+    this.lastMovementPose=null;this.motionStall=0;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -446,7 +449,10 @@ export class GoalNavigator {
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.prediction=[];this.predictionScore=null;this.latestPose=null;
-    this.predictor.reset();this.benchmark=null;}
+    this.predictor.reset();this.benchmark=null;
+    this.following=null;this.hint=null;this.prefetchPending=null;
+    this.prefetchRetry=0;this.prefetchError=null;
+    this.lastMovementPose=null;this.motionStall=0;}
   startBenchmark(){
     const keepActive=this.active;
     this.reset();
@@ -476,7 +482,7 @@ export class GoalNavigator {
         '/'+this.benchmark.results.length+' successful';
     }
   }
-  acceptRoute(pose,goal,route,{newMission=false}={}){
+  acceptRoute(pose,goal,route,{newMission=false,following=null}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
     this.plannedModeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -489,6 +495,9 @@ export class GoalNavigator {
     this.stagnant=0;this.bestProgress=-Infinity;this.lastIndex=-1;
     this.replanDelay=0;
     if(newMission){
+      this.following=following;
+      this.hint=following?.hint||null;
+      this.lastMovementPose=null;this.motionStall=0;
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
       this.trackingTime=0;this.trackErrorIntegral=0;
@@ -540,7 +549,8 @@ export class GoalNavigator {
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
-          this.acceptRoute(pose,result.goal,result.route,{newMission:true});
+          this.acceptRoute(pose,result.goal,result.route,{
+            newMission:true,following:result.following||null});
         }else{
           this.goal=null;this.route=null;this.path=null;
           this.searchCooldown=1.5;
@@ -557,10 +567,50 @@ export class GoalNavigator {
     this.goal=null;this.route=null;this.path=null;this.searchCooldown=1.5;
     return false;
   }
+  // Prefetch from the PLANNED terminal pose while the actor is still
+  // walking to it. No zero-command wait for the browser Worker at the marker.
+  // This request is independent of replanning the live route.
+  prefetchUpcoming(limits,trees=[]){
+    if(!this.requestPlan||this.benchmark||!this.goal||
+       this.following||this.prefetchPending||this.prefetchRetry>0)return false;
+    const expectedGoal=this.goal,generation=this.generation;
+    let request;
+    try{
+      request=Promise.resolve(this.requestPlan({
+        kind:'prefetch',
+        pose:{x:expectedGoal.x,y:expectedGoal.y,heading:expectedGoal.heading},
+        hint:this.hint,limits,trees,terrain:this.terrain
+      }));
+    }catch(error){
+      this.prefetchError=String(error?.message||error);
+      this.prefetchRetry=1.5;
+      return false;
+    }
+    this.prefetchPending=request;
+    request.then(result=>{
+      if(!this.active||generation!==this.generation||
+         this.goal!==expectedGoal)return;
+      if(result?.following?.route?.solved&&result.following.route.flythrough){
+        this.following=result.following;
+        this.prefetchError=null;
+      }else{
+        this.prefetchRetry=1.5;
+        this.prefetchError='No continuous next route available';
+      }
+    }).catch(error=>{
+      if(generation!==this.generation||this.goal!==expectedGoal)return;
+      this.prefetchError=String(error?.message||error);
+      this.prefetchRetry=1.5;
+    }).finally(()=>{
+      if(this.prefetchPending===request)this.prefetchPending=null;
+    });
+    return true;
+  }
   tick(dt,pose,limits,trees=[],apply=()=>{}){
     if(!this.active)return;
     if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
     const delta=clamp(dt,0,.1);
+    this.prefetchRetry=Math.max(0,this.prefetchRetry-delta);
     this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
     if(this.goal&&this.previousTravelPose)
       this.distanceTravelled+=distance(pose,this.previousTravelPose);
@@ -583,6 +633,8 @@ export class GoalNavigator {
         apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
     }
+    if(!this.benchmark&&!this.following&&this.route?.flythrough)
+      this.prefetchUpcoming(limits,trees);
     this.elapsed+=delta;
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
     if(this.elapsed>deadline){
@@ -594,10 +646,26 @@ export class GoalNavigator {
       this.nextGoal(pose,limits,trees);
       return;
     }
-    const dist=distance(pose,this.goal);
-    const aerr=Math.abs(angleError(this.goal.heading,pose.heading));
+    let dist=distance(pose,this.goal);
+    let aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
-    if(dist<GOAL_POSITION_TOLERANCE_M&&
+    // A normal destination is a checkpoint on a continuous walk, not a
+    // compulsory full stop. Exact-stop-and-face stays in benchmark mode.
+    if(!this.benchmark&&this.route.flythrough&&this.following&&
+       dist<.25&&aerr<.70){
+      const next=this.following;
+      this.arrivals++;
+      this.acceptRoute(pose,next.goal,next.route,{newMission:true});
+      // The new goal's route was prepared before the previous crossing.
+      // Keep the gait's actual velocity and let the follower run this tick.
+      this.hint=next.hint||null;
+      this.prefetchUpcoming(limits,trees);
+      dist=distance(pose,this.goal);
+      aerr=Math.abs(angleError(this.goal.heading,pose.heading));
+      this.reason='Flowing through waypoint · next target underway';
+    }
+    if((this.benchmark||!this.following||!this.route.flythrough)&&
+       dist<GOAL_POSITION_TOLERANCE_M&&
        aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
       this.arrivalHold+=delta;
       apply({vx:0,vy:0,yaw:0,pitch:0});
@@ -656,9 +724,16 @@ export class GoalNavigator {
       :result?.mode==='pivot'?'Following planned pivot'
       :dist>1.1?'Following path':'Approaching goal';
     const progress=this.runIndex*10000+this.runProgress;
+    if(!this.lastMovementPose||
+       distance(pose,this.lastMovementPose)>.09){
+      this.lastMovementPose={x:pose.x,y:pose.y};this.motionStall=0;
+    }else if(dist>.31&&result?.mode!=='pivot'&&
+        Math.hypot(command.vx||0,command.vy||0)>.18)
+      this.motionStall+=delta;
+    else this.motionStall=Math.max(0,this.motionStall-.12);
     if(progress>this.bestProgress+.045){
       this.bestProgress=progress;this.stagnant=0;
-    }else if(!finalApproach)this.stagnant+=delta;
+    }else if(!finalApproach&&result?.mode!=='pivot')this.stagnant+=delta;
     this.index=this.runIndex;
     this.replanDelay+=delta;
     const signedCross=result?.mode==='pivot'?0:(result?.crossTrack||0);
@@ -679,14 +754,18 @@ export class GoalNavigator {
     if(side)this.crossSide=side;
     const offRoute=Math.abs(signedCross);
     // Compare with the line, NOT distance to a far-ahead lookahead target.
-    if(this.replanDelay>3.2&&!this.pendingRequest&&
-       (offRoute>.80||!this.route.solved||(!finalApproach&&this.stagnant>6))){
+    if(this.replanDelay>2.5&&!this.pendingRequest&&
+       (offRoute>.67||!this.route.solved||
+        (!finalApproach&&this.stagnant>3.2)||
+        (dist>.34&&this.motionStall>2.4)||
+        (finalApproach&&dist>.33&&this.stagnant>4.5))){
       this.replanDelay=0;
       if(this.requestPlan){
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees,terrain:this.terrain
+          goal:expectedGoal,limits,trees,terrain:this.terrain,
+          passThrough:!this.benchmark&&Boolean(this.route?.flythrough)
         },answer=>{
           // Reject stale background routes after significant motion.
           const fresh=this.latestPose&&distance(this.latestPose,pose)<.38&&
@@ -698,7 +777,8 @@ export class GoalNavigator {
         });
       }else{
         const route=planPoseRoute(pose,this.goal,limits,trees,
-          {maxNodes:7500,terrain:this.terrain});
+          {maxNodes:7500,terrain:this.terrain,
+            passThrough:!this.benchmark&&Boolean(this.route?.flythrough)});
         if(route?.solved){
           this.acceptRoute(pose,this.goal,route);
           this.replans++;
@@ -727,6 +807,11 @@ export class GoalNavigator {
       controllerMode:this.controllerMode,prediction:this.prediction,
       predictionScore:this.predictionScore,
       responseModel:this.predictor.model.report(),
+      following:this.following?.goal||null,
+      prefetching:Boolean(this.prefetchPending),
+      prefetchError:this.prefetchError,
+      motionStall:this.motionStall,
+      flythrough:Boolean(this.route?.flythrough),
       benchmark:this.benchmark?{
         controller:this.benchmark.controller,index:this.benchmark.index,
         goals:this.benchmark.targets.length,
