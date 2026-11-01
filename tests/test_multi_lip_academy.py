@@ -203,6 +203,7 @@ def test_public_cold_0m_cli_plan_forwards_every_academy_setting(tmp_path):
          "--terrain-actor","--terrain-step-max-m",".08",
          "--unified-capabilities","--foundation-mix","main",
          "--growth-recipe","main-mature",
+         "--terrain-lesson","coherent-careful",
          "--academy-course-lips","4",
          "--academy-intro-steps","60000000",
          "--academy-start-steps","80000000",
@@ -239,9 +240,23 @@ def test_multilip_cli_refuses_the_old_global_300_frame_stage_a_setting(tmp_path)
          "--run-dir",str(tmp_path/"invalid-course"),"--steps","100000000",
          "--profile","sim2real","--terrain-actor",
          "--terrain-step-max-m",".08","--unified-capabilities",
+         "--terrain-lesson","coherent-careful",
          "--academy-course-lips","4",
          "--academy-episode-frames","300","--plan"]
     r=subprocess.run(cmd,cwd=Path(__file__).resolve().parents[1],
                      capture_output=True,text=True)
     assert r.returncode!=0
     assert "multi-lip cold curriculum cannot be stacked" in (r.stderr+r.stdout)
+
+
+def test_multilip_cli_rejects_mixed_turning_lessons_that_hide_step_learning(tmp_path):
+    import subprocess,sys
+    root=Path(__file__).resolve().parents[1]
+    cmd=[sys.executable,"-m","emu.cli","train",
+         "--run-dir",str(tmp_path/"no-straight-academy"),"--steps","100000000",
+         "--profile","sim2real","--terrain-actor",
+         "--terrain-step-max-m",".08","--unified-capabilities",
+         "--academy-course-lips","4","--plan"]
+    r=subprocess.run(cmd,cwd=root,capture_output=True,text=True)
+    assert r.returncode!=0
+    assert 'coherent straight-ahead STEP lesson' in (r.stderr+r.stdout)
