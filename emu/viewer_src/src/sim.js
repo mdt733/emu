@@ -9,6 +9,7 @@ import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
+import { buildNavigationTerrain } from './navigation-terrain.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -319,6 +320,8 @@ export class EmuBrowserSim {
     this.depthMountMarker.material.dispose();
     this.routeLine.geometry.dispose();
     this.routeLine.material.dispose();
+    this.predictionLine.geometry.dispose();
+    this.predictionLine.material.dispose();
     this.targetRing.geometry.dispose();
     this.targetRing.material.dispose();
     for(const mesh of [this.targetArrow.line,this.targetArrow.cone]){
@@ -537,7 +540,17 @@ export class EmuBrowserSim {
     this.scene.add(group);
   }
 
-  reset() {
+  resetForNavigationBenchmark() {
+    // Identical neutral birth and cadence for each A/B controller trial.
+    // Never load a new policy or alter training-side curriculum state.
+    this.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
+    this.command.vx=0;this.command.vy=0;
+    this.command.yaw=0;this.command.pitch=0;
+    this.requestedYaw=0;
+    this.reset({benchmark:true});
+  }
+
+  reset({benchmark=false}={}) {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
@@ -553,7 +566,8 @@ export class EmuBrowserSim {
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
-    this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
+    this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control,
+      benchmark?()=>.5:Math.random);
     this.phase = 0;
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
@@ -607,6 +621,17 @@ export class EmuBrowserSim {
     return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
       heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,yawRate,
       fallen:this.isFallen()};
+  }
+
+  navigationTerrain() {
+    if(this.terrainMode!=='park'||!this.park)return null;
+    if(this.navTerrainCache?.park===this.park)return this.navTerrainCache.terrain;
+    // Generated once per terrain rebuild, never inside the 10 Hz planner tick.
+    // Grade thresholds are conservative viewer heuristics, NOT an RL exam.
+    const terrain=buildNavigationTerrain(this.park.sampleHeight,{
+      cautionDegrees:5,avoidDegrees:12});
+    this.navTerrainCache={park:this.park,terrain};
+    return terrain;
   }
 
   navigationTrees() {
@@ -671,6 +696,13 @@ export class EmuBrowserSim {
                                    depthWrite:false,transparent:true,opacity:.95}));
     this.routeLine.renderOrder=8;
     this.scene.add(this.routeLine);
+    // Separate orange 1 s predicted trajectory, redrawn at navigation rate.
+    this.predictionLine=new THREE.Line(new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({color:0xffbb77,dashSize:.12,gapSize:.075,
+        depthTest:true,depthWrite:false,transparent:true,opacity:.96}));
+    this.predictionLine.renderOrder=9;
+    this.predictionLine.visible=false;
+    this.scene.add(this.predictionLine);
     this.arenaCircle=new THREE.LineLoop(new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({color:0x7eb8ff,transparent:true,
                                    opacity:.46,depthWrite:false}));
@@ -684,8 +716,21 @@ export class EmuBrowserSim {
     this.targetRing.visible=false;
     this.targetArrow.visible=false;
     this.routeLine.visible=false;
+    this.predictionLine.visible=false;
     this.arenaCircle.visible=false;
     this.navGoalSeen=null;this.navRouteSeen=null;
+  }
+
+  setNavigationPrediction(predicted) {
+    if(!this.predictionLine)return;
+    if(!predicted?.length){this.predictionLine.visible=false;return;}
+    const pose=this.navigationPose();
+    const points=[{x:pose.x,y:pose.y},...predicted].map(p=>
+      new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.065));
+    this.predictionLine.geometry.dispose();
+    this.predictionLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
+    this.predictionLine.computeLineDistances();
+    this.predictionLine.visible=true;
   }
 
   setNavigationOverlay(goal,route) {

@@ -4,11 +4,22 @@
 // not proof of optimality or a learned capability/safety guarantee.
 import { makeRng } from './rng.js';
 import { buildRoutePath, trackRoutePath, parkAtGoal } from './path-follower.js';
+import { PredictivePathController } from './predictive-navigation.js';
+import { terrainRiskAt, sweptTerrainCost } from './navigation-terrain.js';
 export const ARENA_RADIUS_M = 4;
 export const GOAL_POSITION_TOLERANCE_M = .19;
 export const GOAL_HEADING_TOLERANCE_RAD = .28;
 // Extra tracking room beyond the tree's physical trunk footprint.
 export const TREE_CLEARANCE_M = .62;
+// Repeatable real-MuJoCo 5-pose course inside the park's gentler centre.
+// This uses the CURRENT actor; no synthetic kinematics are scored as results.
+export const NAV_BENCHMARK_TARGETS = Object.freeze([
+  {x:1.25,y:.10,heading:0},
+  {x:1.30,y:1.20,heading:Math.PI/2},
+  {x:-.75,y:1.30,heading:Math.PI},
+  {x:-1.20,y:-1.10,heading:-Math.PI/2},
+  {x:.95,y:-1.20,heading:0},
+]);
 const GRID = .22, HEADINGS = 16, BOUND = 5.6;
 const tau = 2*Math.PI;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -18,15 +29,16 @@ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 function treeCollision(x,y,trees=[]) {
   return trees.some(t=>Math.hypot(t.x-x,t.y-y)<TREE_CLEARANCE_M);
 }
-function inArena(p,trees,limit=BOUND){
-  return Math.hypot(p.x,p.y)<limit && !treeCollision(p.x,p.y,trees);
+function inArena(p,trees,limit=BOUND,terrain=null){
+  return Math.hypot(p.x,p.y)<limit && !treeCollision(p.x,p.y,trees) &&
+    Number.isFinite(terrainRiskAt(terrain,p.x,p.y));
 }
-export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_RADIUS_M){
+export function sampleGoal(rng=Math.random,trees=[],from={x:0,y:0},radius=ARENA_RADIUS_M,terrain=null){
   for(let i=0;i<180;i++){
     // Uniform area, not uniform radius.
     const r=Math.sqrt(rng())*radius,a=tau*rng();
     const point={x:r*Math.cos(a),y:r*Math.sin(a),heading:wrapAngle(tau*rng()-Math.PI)};
-    if(distance(point,from)>.95 && !treeCollision(point.x,point.y,trees))
+    if(distance(point,from)>.95 && inArena(point,trees,BOUND,terrain))
       return point;
   }
   // Deterministic fallback if obstacles fill the centre.
@@ -85,10 +97,10 @@ export function integratePose(p,cmd,dt){
   return {x:p.x+ct*forward-st*lateral,
           y:p.y+st*forward+ct*lateral,heading:wrapAngle(p.heading+a)};
 }
-function segmentSafe(p,cmd,dt,trees){
+function segmentSafe(p,cmd,dt,trees,terrain=null){
   const count=Math.max(3,Math.ceil(dt/.20));
   for(let i=1;i<=count;i++){
-    if(!inArena(integratePose(p,cmd,dt*i/count),trees))return false;
+    if(!inArena(integratePose(p,cmd,dt*i/count),trees,BOUND,terrain))return false;
   }
   return true;
 }
@@ -101,26 +113,27 @@ function segmentSafe(p,cmd,dt,trees){
  */
 const motionKind=cmd=>Math.abs(cmd?.vx||0)>.045?(cmd.vx>0?'forward':'reverse'):
   Math.abs(cmd?.vy||0)>.035?'lateral':Math.abs(cmd?.yaw||0)>.035?'pivot':'terminal';
-const chordSafe=(a,b,trees,extra=0)=>{
+const chordSafe=(a,b,trees,extra=0,terrain=null)=>{
   const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
   const n=Math.max(1,Math.ceil(Math.sqrt(d2)/.07));
   for(let j=0;j<=n;j++){
     const t=j/n,x=a.x+t*dx,y=a.y+t*dy;
     if(Math.hypot(x,y)>=BOUND-.03||
+       !Number.isFinite(terrainRiskAt(terrain,x,y))||
        trees.some(tree=>Math.hypot(tree.x-x,tree.y-y)<TREE_CLEARANCE_M+extra))
       return false;
   }
   return true;
 };
-const safePolyline=(start,steps,trees)=>{
+const safePolyline=(start,steps,trees,terrain=null)=>{
   let prev=start;
   for(const p of steps){
-    if(!chordSafe(prev,p,trees))return false;
+    if(!chordSafe(prev,p,trees,0,terrain))return false;
     prev=p;
   }
   return true;
 };
-export function refineRouteSteps(start,rawSteps,limits,trees=[]){
+export function refineRouteSteps(start,rawSteps,limits,trees=[],terrain=null){
   const terminal=rawSteps.at(-1)?.final?rawSteps.at(-1):null;
   const source=terminal?rawSteps.slice(0,-1):rawSteps;
   if(!source.length)return [...rawSteps];
@@ -157,7 +170,7 @@ export function refineRouteSteps(start,rawSteps,limits,trees=[]){
       const dx=x-original[i].x,dy=y-original[i].y;
       const size=Math.hypot(dx,dy),ratio=size>.10?.10/size:1;
       const q={x:original[i].x+dx*ratio,y:original[i].y+dy*ratio};
-      if(chordSafe(prev,q,trees,.045)&&chordSafe(q,next,trees,.045)){
+      if(chordSafe(prev,q,trees,.045,terrain)&&chordSafe(q,next,trees,.045,terrain)){
         p.x=q.x;p.y=q.y;
       }
     }
@@ -222,8 +235,8 @@ export function refineRouteSteps(start,rawSteps,limits,trees=[]){
   }
   // Never publish a modified route that is less safe than the raw plan.
   // Even an original curved primitive is rechecked by dense chords.
-  if(!safePolyline(start,dense,trees)||
-     (terminal&&!chordSafe(dense.at(-1),terminal,trees)))return rawSteps;
+  if(!safePolyline(start,dense,trees,terrain)||
+     (terminal&&!chordSafe(dense.at(-1),terminal,trees,0,terrain)))return rawSteps;
   return terminal?[...dense,terminal]:dense;
 }
 class Heap {
@@ -266,7 +279,8 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   if(![start.x,start.y,start.heading,goal.x,goal.y,goal.heading].every(Number.isFinite))
     throw new Error('Nonfinite navigation start/goal');
   const moves=primitives(limits),speed=commandSpeeds(limits);
-  if(!inArena(goal,trees))return null;
+  const terrain=options.terrain||null;
+  if(!inArena(goal,trees,BOUND,terrain))return null;
   const maxNodes=clamp(Number(options.maxNodes)||6500,100,20000);
   const root={...start,g:0,f:heuristic(start,goal,speed)*1.20,
               parent:null,cmd:null,dt:0};
@@ -280,13 +294,15 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     const h=heuristic(p,goal,speed);
     if(h<bestH){bestH=h;closest=p;}
     if(distance(p,goal)<.31&&Math.abs(angleError(goal.heading,p.heading))<.40
-       &&chordSafe(p,goal,trees)){
+       &&chordSafe(p,goal,trees,0,terrain)){
       winner=p;break;
     }
     for(const cmd of moves){
-      if(!segmentSafe(p,cmd,cmd.dt,trees))continue;
+      if(!segmentSafe(p,cmd,cmd.dt,trees,terrain))continue;
       const q=integratePose(p,cmd,cmd.dt),id=key(q);
-      const g=p.g+cmd.cost;
+      const slopeCost=sweptTerrainCost(terrain,p,q);
+      if(!Number.isFinite(slopeCost))continue;
+      const g=p.g+cmd.cost*slopeCost;
       if(g>=(best.get(id)??Infinity)-1e-7)continue;
       best.set(id,g);
       heap.push({...q,g,f:g+1.20*heuristic(q,goal,speed),
@@ -307,13 +323,14 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
-  const refined=refineRouteSteps(start,steps,limits,trees);
+  const refined=refineRouteSteps(start,steps,limits,trees,terrain);
   // Commanded-time estimate is only a planning hint, not measured gait
   // duration. Reflect extra braking instead of advertising raw A* time.
   const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
   return {start:{...start},steps:refined,
     estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
     solved,expanded,
+    planner:terrain?'terrain-aware pose lattice':'pose lattice',
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
@@ -324,6 +341,8 @@ export class GoalNavigator {
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
     this.headingErrorIntegral=0;this.speedErrorIntegral=0;
     this.referenceSpeed=0;this.observedSpeed=0;
     this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -335,6 +354,10 @@ export class GoalNavigator {
     this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
     this.requestPlan=null;this.pendingRequest=null;
     this.generation=0;this.plannerError=null;
+    this.controllerMode='predictive';
+    this.predictor=new PredictivePathController();
+    this.prediction=[];this.predictionScore=null;this.terrain=null;this.latestPose=null;
+    this.benchmark=null;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -371,6 +394,8 @@ export class GoalNavigator {
     this.runIndex=0;this.runProgress=0;
     this.crossTrack=0;this.crossings=0;this.crossSide=0;
     this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
     this.headingErrorIntegral=0;this.speedErrorIntegral=0;
     this.referenceSpeed=0;this.observedSpeed=0;
     this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -378,7 +403,38 @@ export class GoalNavigator {
     this.currentMode='parking';
     this.elapsed=0;this.arrivalHold=0;this.reason='Ready for a target';
     this.replanDelay=0;this.replans=0;this.searchCooldown=0;
-    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;}
+    this.stagnant=0;this.bestProgress=Infinity;this.lastIndex=-1;
+    this.prediction=[];this.predictionScore=null;this.latestPose=null;
+    this.predictor.reset();this.benchmark=null;}
+  startBenchmark(){
+    const keepActive=this.active;
+    this.reset();
+    this.active=keepActive;
+    this.benchmark={targets:NAV_BENCHMARK_TARGETS.map(g=>({...g})),
+      index:0,results:[],complete:false,controller:this.controllerMode};
+    this.reason='Benchmark · route 1 / '+NAV_BENCHMARK_TARGETS.length;
+  }
+  finishBenchmarkLeg(success,fallen=false){
+    if(!this.benchmark||this.benchmark.complete)return;
+    this.benchmark.results.push({
+      goal:this.benchmark.index+1,success,
+      elapsedSeconds:Number(this.elapsed.toFixed(2)),
+      meanTrackErrorM:Number((this.trackingTime?
+        this.trackErrorIntegral/this.trackingTime:0).toFixed(3)),
+      rmsTrackErrorM:Number((this.trackingTime?Math.sqrt(
+        this.trackErrorSquaredIntegral/this.trackingTime):0).toFixed(3)),
+      distanceTravelledM:Number(this.distanceTravelled.toFixed(3)),
+      fell:Boolean(fallen),
+      meanHeadingErrorDeg:Number((this.trackingTime?
+        this.headingErrorIntegral/this.trackingTime*180/Math.PI:0).toFixed(1)),
+      crossings:this.crossings});
+    this.benchmark.index++;
+    if(this.benchmark.index>=this.benchmark.targets.length){
+      this.benchmark.complete=true;
+      this.reason='Benchmark finished · '+this.benchmark.results.filter(r=>r.success).length+
+        '/'+this.benchmark.results.length+' successful';
+    }
+  }
   acceptRoute(pose,goal,route,{newMission=false}={}){
     this.goal={...goal};this.route=route;
     this.path=buildRoutePath(route,route.start||pose);
@@ -395,6 +451,8 @@ export class GoalNavigator {
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
       this.trackingTime=0;this.trackErrorIntegral=0;
+    this.trackErrorSquaredIntegral=0;this.distanceTravelled=0;
+    this.previousTravelPose=null;
       this.headingErrorIntegral=0;this.speedErrorIntegral=0;
       this.referenceSpeed=0;this.observedSpeed=0;
       this.modeSeconds={forward:0,reverse:0,lateral:0,pivot:0,parking:0};
@@ -403,17 +461,41 @@ export class GoalNavigator {
     this.reason=route.solved?'Following route':'Partial route · replanning';
   }
   setGoal(pose,goal,limits,trees=[]){
-    const route=planPoseRoute(pose,goal,limits,trees);
+    const route=planPoseRoute(pose,goal,limits,trees,{terrain:this.terrain});
     if(!route)return false;
     this.acceptRoute(pose,goal,route,{newMission:true});
     return true;
   }
   nextGoal(pose,limits,trees=[]){
+    if(this.benchmark){
+      if(this.benchmark.complete)return false;
+      const goal=this.benchmark.targets[this.benchmark.index];
+      if(this.requestPlan){
+        this.reason='Benchmark · planning goal '+(this.benchmark.index+1);
+        return this.queuePlan({
+          kind:'target',pose:{x:pose.x,y:pose.y,heading:pose.heading},
+          goal,limits,trees,terrain:this.terrain
+        },answer=>{
+          const fresh=this.latestPose&&distance(this.latestPose,pose)<.30;
+          if(answer?.route?.solved&&fresh){
+            this.acceptRoute(pose,goal,answer.route,{newMission:true});
+          }else{
+            this.finishBenchmarkLeg(false);
+            this.goal=null;this.route=null;this.path=null;
+            this.searchCooldown=.5;
+          }
+        });
+      }
+      if(this.setGoal(pose,goal,limits,trees))return true;
+      this.finishBenchmarkLeg(false);
+      this.searchCooldown=.5;
+      return false;
+    }
     if(this.requestPlan){
       this.reason='Planning next target in background…';
       return this.queuePlan({
         kind:'next',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-        limits,trees
+        limits,trees,terrain:this.terrain
       },result=>{
         if(result?.goal&&result?.route?.solved){
           // Route already calculated off-thread; do not run A* again.
@@ -426,7 +508,7 @@ export class GoalNavigator {
       });
     }
     for(let i=0;i<5;i++){
-      const goal=sampleGoal(this.rng,trees,pose);
+      const goal=sampleGoal(this.rng,trees,pose,ARENA_RADIUS_M,this.terrain);
       const planned=this.setGoal(pose,goal,limits,trees);
       if(planned&&this.route.solved)return true;
     }
@@ -438,7 +520,15 @@ export class GoalNavigator {
     if(!this.active)return;
     if(![pose.x,pose.y,pose.heading].every(Number.isFinite))return;
     const delta=clamp(dt,0,.1);
+    this.latestPose={x:pose.x,y:pose.y,heading:pose.heading};
+    if(this.goal&&this.previousTravelPose)
+      this.distanceTravelled+=distance(pose,this.previousTravelPose);
+    this.previousTravelPose={x:pose.x,y:pose.y};
+    this.predictor.observe(pose,delta);
     // Standing while waiting avoids making an asynchronous plan stale.
+    if(this.benchmark?.complete){
+      apply({vx:0,vy:0,yaw:0,pitch:0});return;
+    }
     if(!this.goal){
       if(this.pendingRequest){
         this.reason='Background route search';
@@ -456,8 +546,9 @@ export class GoalNavigator {
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
     if(this.elapsed>deadline){
       this.failures++;
+      this.finishBenchmarkLeg(false);
       this.goal=null;this.route=null;this.path=null;
-      this.reason='Mission timed out · new goal';
+      this.reason=this.benchmark?.complete?this.reason:'Mission timed out · new goal';
       apply({vx:0,vy:0,yaw:0,pitch:0});
       this.nextGoal(pose,limits,trees);
       return;
@@ -472,8 +563,10 @@ export class GoalNavigator {
       if(this.arrivalHold>=.55){
         // Retire this mission before asking the Worker for a new one.
         this.arrivals++;
+        this.finishBenchmarkLeg(true);
         this.goal=null;this.route=null;this.path=null;
-        this.reason='Goal reached · choosing next target';
+        this.reason=this.benchmark?.complete?this.reason:
+          'Goal reached · choosing next target';
         this.nextGoal(pose,limits,trees);
       }else this.reason='Verifying arrival';
       return;
@@ -504,9 +597,19 @@ export class GoalNavigator {
     const finalApproach=finished||blending;
     const cruise=result?.command||{vx:0,vy:0,yaw:0,pitch:0};
     const park=finished||blending?parkAtGoal(pose,this.goal,limits):null;
-    const command=finished?park:!blending?cruise:
+    let command=finished?park:!blending?cruise:
       Object.fromEntries(['vx','vy','yaw','pitch'].map(key=>[
         key,(1-blend)*(cruise[key]||0)+blend*(park[key]||0)]));
+    this.prediction=[];this.predictionScore=null;
+    if(this.controllerMode==='predictive'&&!finished&&!blending&&
+       result?.mode!=='pivot'){
+      const predicted=this.predictor.command(pose,path,this.runIndex,
+        this.runProgress,limits,trees,this.terrain,command);
+      command=predicted.command;
+      this.prediction=predicted.prediction;
+      this.predictionScore=predicted.cost;
+    }
+    this.predictor.issue(command);
     apply(command);
     this.reason=finalApproach?'Final pose correction'
       :result?.mode==='pivot'?'Following planned pivot'
@@ -524,6 +627,7 @@ export class GoalNavigator {
     this.modeSeconds[currentMode]=(this.modeSeconds[currentMode]||0)+delta;
     this.trackingTime+=delta;
     this.trackErrorIntegral+=Math.abs(signedCross)*delta;
+    this.trackErrorSquaredIntegral+=signedCross*signedCross*delta;
     this.headingErrorIntegral+=Math.abs(result?.headingError||0)*delta;
     this.speedErrorIntegral+=Math.abs(result?.speedError||0)*delta;
     this.referenceSpeed=result?.referenceSpeed||0;
@@ -541,15 +645,19 @@ export class GoalNavigator {
         const expectedGoal=this.goal;
         this.queuePlan({
           kind:'replan',pose:{x:pose.x,y:pose.y,heading:pose.heading},
-          goal:expectedGoal,limits,trees
+          goal:expectedGoal,limits,trees,terrain:this.terrain
         },answer=>{
-          if(answer?.route?.solved&&this.goal===expectedGoal){
+          // Reject stale background routes after significant motion.
+          const fresh=this.latestPose&&distance(this.latestPose,pose)<.38&&
+            Math.abs(angleError(this.latestPose.heading,pose.heading))<.45;
+          if(answer?.route?.solved&&this.goal===expectedGoal&&fresh){
             this.acceptRoute(pose,expectedGoal,answer.route);
             this.replans++;
           }
         });
       }else{
-        const route=planPoseRoute(pose,this.goal,limits,trees,{maxNodes:7500});
+        const route=planPoseRoute(pose,this.goal,limits,trees,
+          {maxNodes:7500,terrain:this.terrain});
         if(route?.solved){
           this.acceptRoute(pose,this.goal,route);
           this.replans++;
@@ -564,6 +672,9 @@ export class GoalNavigator {
       elapsed:this.elapsed,arrivals:this.arrivals,replans:this.replans,
       crossTrack:this.crossTrack,crossings:this.crossings,
       meanTrackError:this.trackingTime?this.trackErrorIntegral/this.trackingTime:0,
+      rmsTrackError:this.trackingTime?
+        Math.sqrt(this.trackErrorSquaredIntegral/this.trackingTime):0,
+      distanceTravelled:this.distanceTravelled,
       meanHeadingError:this.trackingTime?this.headingErrorIntegral/this.trackingTime:0,
       meanSpeedError:this.trackingTime?this.speedErrorIntegral/this.trackingTime:0,
       referenceSpeed:this.referenceSpeed,observedSpeed:this.observedSpeed,
@@ -571,6 +682,14 @@ export class GoalNavigator {
       plannedModeSeconds:{...this.plannedModeSeconds},currentMode:this.currentMode,
       failures:this.failures,planning:Boolean(this.pendingRequest),
       plannerError:this.plannerError,
-      index:this.index,reason:this.reason};
+      index:this.index,reason:this.reason,
+      controllerMode:this.controllerMode,prediction:this.prediction,
+      predictionScore:this.predictionScore,
+      responseModel:this.predictor.model.report(),
+      benchmark:this.benchmark?{
+        controller:this.benchmark.controller,index:this.benchmark.index,
+        goals:this.benchmark.targets.length,
+        complete:this.benchmark.complete,
+        results:[...this.benchmark.results]}:null};
   }
 }
