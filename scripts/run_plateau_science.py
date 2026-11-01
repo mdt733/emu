@@ -259,6 +259,35 @@ def existing_state(directory: Path) -> bool:
     return False
 
 
+def validate_research_export(policy: Path) -> dict:
+    """Physically validate actual exported bytes; browser parity is separate.
+
+    load_exported_actor_for_exam checks actor SHA, finite weight/normalizer
+    tensors, exact 360-input sensor contract, joint delivery, and robot XML.
+    Browser publication validation additionally forbids velocity-I >1 because
+    the browser has no matching I controller. Such actors are valid research
+    exports, but MUST NOT be advertised as browser-replay compatible.
+    """
+    from emu.viewer_server import load_exported_actor_for_exam
+    _, _, exam = load_exported_actor_for_exam(policy)
+    bundle = json.loads(policy.read_text(encoding="utf-8"))
+    source = exam["source"]
+    multiplier = float((exam["control"].get("velocity_i") or {}).get("multiplier", 1.))
+    if multiplier == 1.:
+        from verify_showcase_release import validate_browser_bundle
+        return validate_browser_bundle(bundle)
+    print(f"RESEARCH-ONLY EXPORT: velocity-I {multiplier:g}x has no browser parity; "
+          "physical examiner accepts the validated actor, but do not replay in browser.",
+          flush=True)
+    return {
+        "schema": bundle.get("schema"),
+        "obs_dim": exam["obs_dim"],
+        "checkpoint_schema": source.get("checkpoint_schema"),
+        "step": source.get("step"),
+        "training_source_commit": source.get("git_commit"),
+    }
+
+
 def run_one(arm: Arm, conf, parent: Path, hash_: str, root: Path) -> None:
     from emu.checkpoint_io import run_training, resolve_target_checkpoint
     from emu.training_config import training_sensor_contract
@@ -280,23 +309,31 @@ def run_one(arm: Arm, conf, parent: Path, hash_: str, root: Path) -> None:
     if final is None:
         raise RuntimeError(f"Run incomplete or invalid: {arm.directory}")
     print(f"VALIDATED FINAL {arm.index:02d}: {final}", flush=True)
-    # A policy export is evaluation-only; full optimizer/teacher rewind stays
-    # in the actual run checkpoints. Do not overwrite any earlier export.
+    # The final full-state checkpoint is the scientific result. An export
+    # failure must not erase that result or cancel 23 independent GPU runs.
+    # Record the failure prominently for post-run repair, never mark it valid.
     policy = root / "exports" / f"{arm.directory}.emupolicy"
-    if not policy.exists():
-        policy.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run([sys.executable, "-m", "emu.cli",
-                        "export-policy", str(final), str(policy)],
-                       cwd=REPO, check=True)
-    from emu.viewer_server import validate_browser_bundle
-    export_identity = validate_browser_bundle(json.loads(policy.read_text(encoding="utf-8")))
-    if (export_identity["schema"] != 3 or
-            export_identity["obs_dim"] != 360 or
-            export_identity["checkpoint_schema"] != 9 or
-            export_identity["step"] < conf.steps or
-            export_identity["training_source_commit"] != provenance["commit"]):
-        raise RuntimeError(f"Invalid exported research actor for {arm.directory}: {export_identity}")
-    print("VALIDATED RESEARCH EXPORT (not approved):", policy, flush=True)
+    try:
+        if not policy.exists():
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run([sys.executable, "-m", "emu.cli",
+                            "export-policy", str(final), str(policy)],
+                           cwd=REPO, check=True)
+        export_identity = validate_research_export(policy)
+        if (export_identity["schema"] != 3 or
+                export_identity["obs_dim"] != 360 or
+                export_identity["checkpoint_schema"] != 9 or
+                export_identity["step"] < conf.steps or
+                export_identity["training_source_commit"] != provenance["commit"]):
+            raise RuntimeError(f"Invalid exported research actor for {arm.directory}: {export_identity}")
+    except (OSError, ValueError, KeyError, RuntimeError,
+            subprocess.CalledProcessError) as exc:
+        print(f"WARNING: full training checkpoint for {arm.directory} is VALID, "
+              f"but research export FAILED validation: {exc}; "
+              "continuing remaining arms; repair exports after GPU campaign.",
+              flush=True)
+    else:
+        print("VALIDATED RESEARCH EXPORT (not approved):", policy, flush=True)
 
 
 def write_summary(root: Path, sha: str, target: int) -> None:
