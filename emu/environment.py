@@ -1307,7 +1307,12 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  physical_exam_legacy_actor: bool = False,
                  temporal_vx_reward_share: float = 0.0,
-                 verified_ascent_reallocation: float = 0.0):
+                 verified_ascent_reallocation: float = 0.0,
+                 science_step_crouch_tolerance_m: float = 0.0,
+                 academy_step_exposure: float = 0.0,
+                 academy_edge_yaw_max_deg: float = -1.0,
+                 academy_step_height_cap_m: float = 0.0,
+                 academy_step_speed_span: float = 0.0):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1507,6 +1512,21 @@ class EmuMJXEnv(TaskSampler):
                  (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
             raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
         self.verified_ascent_reallocation=float(verified_ascent_reallocation)
+        if (not np.isfinite(science_step_crouch_tolerance_m) or
+                not 0. <= science_step_crouch_tolerance_m <= .04 or
+                (science_step_crouch_tolerance_m>0. and
+                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
+            raise ValueError('step crouch science requires coherent-careful terrain; 0..4cm')
+        self.science_step_crouch_tolerance_m=float(science_step_crouch_tolerance_m)
+        if (not 0.0<=academy_step_exposure<=1.0 or
+            not -1.0<=academy_edge_yaw_max_deg<=5.0 or
+            not 0.0<=academy_step_height_cap_m<=.04 or
+            not 0.0<=academy_step_speed_span<=.15):
+            raise ValueError('invalid Step Academy exposure/edge/height/speed settings')
+        self.academy_step_exposure=float(academy_step_exposure)
+        self.academy_edge_yaw_max_deg=float(academy_edge_yaw_max_deg)
+        self.academy_step_height_cap_m=float(academy_step_height_cap_m)
+        self.academy_step_speed_span=float(academy_step_speed_span)
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1805,6 +1825,12 @@ class EmuMJXEnv(TaskSampler):
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
             careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
+            science_crouch_tolerance_m=self.science_step_crouch_tolerance_m,
+            careful_crouch=(
+                care_active & (metrics['support']>=.5) &
+                (metrics['bad_contact']<.5) & (metrics['terminal']<.5) &
+                ~physics_diverged
+                if self.science_step_crouch_tolerance_m>0. else None),
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(control_effort_weights(jnp,
@@ -2469,6 +2495,10 @@ class EmuMJXEnv(TaskSampler):
             kc=jax.vmap(lambda k:jax.random.fold_in(k,50321))(keys)
             v=jax.vmap(lambda k:jax.random.uniform(k,()))(kc)
             straight_vx=.10+.12*v
+            if self.academy_step_speed_span>0.0:
+                straight_vx=jnp.where(is_step,
+                    .16+self.academy_step_speed_span*(2.0*v-1.0),
+                    straight_vx)
             straight=jnp.stack((straight_vx,
                 jnp.zeros_like(straight_vx),jnp.zeros_like(straight_vx)),axis=-1)
             desired=jnp.where(is_coherent_terrain[:,None],straight,desired)
@@ -2585,6 +2615,11 @@ class EmuMJXEnv(TaskSampler):
         # instantly get 15% obstacle births before gait has transitioned.
         mix=jnp.clip(params[P.specialist_mix],0.,1.)
         step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose*mix)
+        if self.academy_step_exposure>0.0:
+            # All STEP-cohort worlds encounter a true lip with the requested
+            # frequency. All other roles retain their original physics.
+            step_p=jnp.where(focused & (focus==STEP),
+                             self.academy_step_exposure,step_p)
         slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose*mix)
         if athletic_rehearsal is not None:
             # This cohort gets an uninterrupted flat running lane.
@@ -2624,6 +2659,15 @@ class EmuMJXEnv(TaskSampler):
         edge_yaw=jnp.where(jnp.isfinite(params[P.terrain_edge_angle_deg]),
                            jnp.deg2rad(params[P.terrain_edge_angle_deg]),
                            (u[:,4]-.5)*.70)
+        if self.academy_edge_yaw_max_deg>=0.0:
+            # Curriculum obliqueness: symmetric ±3-4 degrees, not the
+            # historical ±20deg spread. Exact examiner overrides win.
+            academy_edge=(u[:,4]*2.0-1.0)*jnp.deg2rad(
+                self.academy_edge_yaw_max_deg)
+            edge_yaw=jnp.where(
+                focused & (focus==STEP) &
+                ~jnp.isfinite(params[P.terrain_edge_angle_deg]),
+                academy_edge,edge_yaw)
         qy=jnp.stack((jnp.cos(edge_yaw/2),jnp.zeros_like(gx),
                       jnp.zeros_like(gx),jnp.sin(edge_yaw/2)),axis=1)
         q=self._quat_mul(qt,qy)
@@ -2651,6 +2695,10 @@ class EmuMJXEnv(TaskSampler):
         height=jnp.where(has_fixed_height,
                          params[P.terrain_fixed_height_m],
                          ceiling*(.30+.70*u[:,5])*step_strength)
+        if self.academy_step_height_cap_m>0.0:
+            height=jnp.where(focused & (focus==STEP) & ~has_fixed_height,
+                             jnp.minimum(height,self.academy_step_height_cap_m),
+                             height)
         upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
         buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
         upper_pos=jnp.where(step_active[:,None],upper_pos,buried)

@@ -130,9 +130,22 @@ class RegimeGovernor:
                  frontier_vx_lo_safety: float = 0.45, frontier_vy_safety: float = 0.45,
                  frontier_yaw_safety: float = 3.0, frontier_combo_safety: float = 1.60,
                  frontier_push_safety_n: float = 3.0,
-                 unified_capability_focus: bool = False):
+                 unified_capability_focus: bool = False,
+                 science_step_promotion_mm: float = 0.0,
+                 science_step_retreat_mm: float = 0.0,
+                 science_step_min_attempts: int = 4):
         self.params = RegimeParams()
         self.unified_capability_focus = bool(unified_capability_focus)
+        if (not math.isfinite(science_step_promotion_mm) or
+                not 0. <= science_step_promotion_mm <= 10. or
+                not math.isfinite(science_step_retreat_mm) or
+                not 0. <= science_step_retreat_mm <= 10. or
+                type(science_step_min_attempts) is not int or
+                not 4 <= science_step_min_attempts <= 32):
+            raise ValueError('invalid step science: millimetres 0..10; attempts 4..32')
+        self.science_step_promotion_mm = float(science_step_promotion_mm)
+        self.science_step_retreat_mm = float(science_step_retreat_mm)
+        self.science_step_min_attempts = science_step_min_attempts
         self.command_evidence = {k:self._empty_command_window()
                                  for k in self.COMMAND_SECTORS}
         self.slope_evidence = {k:self._empty_slope_window()
@@ -673,13 +686,17 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                         raise ValueError(f'step successes exceed attempts {direction}/{band}')
             evidence['updates']+=1.
-            min_attempts=4
+            min_attempts=self.science_step_min_attempts
             easy_bad=any(
                 evidence[f'{d}_easy_attempts']>=min_attempts and
                 evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
                 for d in ('up','down'))
             if easy_bad:
-                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.82)
+                p.terrain_height_m=max(
+                    min(.0015,max_height_m),
+                    (p.terrain_height_m-self.science_step_retreat_mm*.001
+                     if self.science_step_retreat_mm>0.
+                     else p.terrain_height_m*.82))
                 self.terrain_evidence=self._empty_terrain_evidence()
                 return 'terrain_retreat_easy_failure'
             for direction in ('up','down'):
@@ -700,7 +717,10 @@ class RegimeGovernor:
                 if not kl_ok:
                     return 'terrain_hold_ppo_health'
                 if good:
-                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+max(.0010,.18*p.terrain_height_m))
+                    increment = (self.science_step_promotion_mm*.001
+                                 if self.science_step_promotion_mm>0.
+                                 else max(.0010,.18*p.terrain_height_m))
+                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+increment)
                     self.terrain_evidence=self._empty_terrain_evidence()
                     return 'terrain_height_expand_real_cross'
                 return 'terrain_hold_probe_learning'
