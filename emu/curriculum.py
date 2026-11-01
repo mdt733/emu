@@ -52,6 +52,8 @@ class RegimeParams:
     # Saved with ordinary governor rollback/resume state.
     terrain_exposure: float = 0.0
     terrain_height_m: float = 0.0
+    # Independently earned consecutive-lip frontier in the SAME governor.
+    academy_height_m: float = 0.003
     # True inclined collision slabs; independent of discontinuous steps.
     slope_exposure: float = 0.0
     slope_max_deg: float = 0.0
@@ -76,6 +78,11 @@ class RegimeGovernor:
     # episodes for reliable up/down decisions. Keep a short saved window.
     TERRAIN_MIN_ATTEMPTS_PER_DIRECTION = 20
     TERRAIN_MAX_WINDOW_UPDATES = 40
+    ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
+    ACADEMY_MAX_WINDOW_UPDATES = 50
+    ACADEMY_SEED_LIP_M = 0.003
+    ACADEMY_MIN_LIP_M = 0.0015
+    ACADEMY_HEIGHT_GROWTH_M = 0.0005
     TERRAIN_ASCENT_PRACTICE_MIN = 0.10
     TERRAIN_DESCENT_PRACTICE_MIN = 0.50
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
@@ -183,6 +190,7 @@ class RegimeGovernor:
         self._episodes_ema = {k: 0.0 for k in self.fall_ema}
         self._updates_done_total = 0
         self.terrain_evidence = self._empty_terrain_evidence()
+        self.academy_evidence = self._empty_academy_evidence()
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -220,6 +228,14 @@ class RegimeGovernor:
                        for band in ('near','easy')
                        for outcome in ('attempts','successes')})
 
+    @staticmethod
+    def _empty_academy_evidence() -> dict[str,float]:
+        return dict(updates=0.,**{
+            f'{direction}_{band}_{kind}':0.
+            for direction in ('up','down')
+            for band in ('near','easy')
+            for kind in ('attempts','successes')})
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -232,6 +248,7 @@ class RegimeGovernor:
             '_falls_ema': dict(self._falls_ema), '_episodes_ema': dict(self._episodes_ema),
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
+            'academy_evidence': dict(self.academy_evidence),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -248,23 +265,36 @@ class RegimeGovernor:
         }
         legacy = set(expected)
         expected.add('terrain_evidence')
+        expected_without_academy=set(expected)
+        expected.add('academy_evidence')
         if self.unified_capability_focus:
             expected.update(('command_evidence','slope_evidence'))
         # Preserve exactly-known older flat governor state (empty new
         # window), without bypassing external checkpoint source provenance.
-        if not isinstance(d, dict) or set(d) not in (legacy, expected):
+        if self.unified_capability_focus:
+            expected_without_academy.update(('command_evidence','slope_evidence'))
+        if not isinstance(d, dict) or set(d) not in (
+                legacy,expected_without_academy,expected):
             raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
         old_names = param_names - {
-            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg'}
-        previous_names = param_names - {'slope_exposure','slope_max_deg'}
+            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg',
+            'academy_height_m'}
+        previous_names = param_names - {
+            'slope_exposure','slope_max_deg','academy_height_m'}
+        prior_unified_names = param_names - {'academy_height_m'}
         if set(d['params']) == old_names:
             saved_params = dict(d['params'],terrain_exposure=0.0,
-                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0)
+                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0,
+                academy_height_m=self.ACADEMY_SEED_LIP_M)
         elif set(d['params']) == previous_names:
-            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0)
+            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0,
+                                academy_height_m=self.ACADEMY_SEED_LIP_M)
+        elif set(d['params']) == prior_unified_names:
+            saved_params = dict(d['params'],
+                                academy_height_m=self.ACADEMY_SEED_LIP_M)
         elif set(d['params']) == param_names:
             saved_params = d['params']
         else:
@@ -301,6 +331,21 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                     raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
+        school=d.get('academy_evidence',self._empty_academy_evidence())
+        if (not isinstance(school,dict) or
+            set(school)!=set(self._empty_academy_evidence()) or
+            any(not math.isfinite(float(v)) or float(v)<0.
+                for v in school.values())):
+            raise ValueError('Academy evidence checkpoint mismatch')
+        if (int(school['updates'])!=school['updates'] or
+                school['updates']>self.ACADEMY_MAX_WINDOW_UPDATES):
+            raise ValueError('Academy evidence window age invalid')
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                if (school[f'{direction}_{band}_successes'] >
+                    school[f'{direction}_{band}_attempts']):
+                    raise ValueError('Academy proof exceeds physical encounter count')
+        self.academy_evidence={k:float(v) for k,v in school.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
             if (not isinstance(entries,dict) or
