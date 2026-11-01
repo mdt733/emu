@@ -1347,7 +1347,7 @@ class EmuMJXEnv(TaskSampler):
                  academy_step_height_cap_m: float = 0.0,
                  academy_step_speed_span: float = 0.0,
                  academy_course_lips: int = 0,
-                 academy_height_cap_m: float = 0.020):
+                 academy_height_cap_m: float = 0.040):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -2836,9 +2836,15 @@ class EmuMJXEnv(TaskSampler):
         ca,sa=jnp.cos(yaw),jnp.sin(yaw)
         q=jnp.stack((jnp.cos(yaw/2),jnp.zeros_like(yaw),
                      jnp.zeros_like(yaw),jnp.sin(yaw/2)),axis=1)
-        severity=jnp.minimum(self.academy_height_cap_m,
-                             jnp.maximum(.003,params[P.terrain_height_m]))
-        h=course_heights(jnp,self.env_index,u[:,1:5],severity)
+        fixed_height=params[P.terrain_fixed_height_m]
+        has_fixed=jnp.isfinite(fixed_height)
+        severity=jnp.where(has_fixed,fixed_height,
+            jnp.minimum(self.academy_height_cap_m,
+                        jnp.maximum(.003,params[P.terrain_height_m])))
+        # Frozen physical exams specify exact signed lip heights; training
+        # always randomises each independent physical ledge.
+        sampled=jnp.where(has_fixed,jnp.ones_like(u[:,1:5]),u[:,1:5])
+        h=course_heights(jnp,self.env_index,sampled,severity)
         L=UNIFIED_SLAB_HALF_LENGTH_M
         xs=(ACADEMY_EDGE_X_M-L,
             *(ACADEMY_EDGE_X_M+(i+.5)*ACADEMY_INTERVAL_M
