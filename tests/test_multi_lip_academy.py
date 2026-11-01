@@ -71,6 +71,18 @@ def test_scheduler_cold_start_growth_and_retention():
     assert mixed[3]*prob==pytest.approx(.50)
     assert mixed[3]*(1-prob)==pytest.approx(.10)
 
+    from emu.capability_focus import academy_conditional_birth_share
+    conditional,actual=academy_conditional_birth_share(.50,.25)
+    assert actual==pytest.approx(.50)
+    mix,selected=academy_focus_mix(base,conditional)
+    # 25% preserve fast command/speed; 50% of ALL births get stairs;
+    # remaining 25% remain ordinary slopes/control/yaw/recovery/steps.
+    assert .75*mix[3]*selected==pytest.approx(.50)
+    assert .25+.75*(1.-conditional)==pytest.approx(.50)
+    conditional,actual=academy_conditional_birth_share(.50,.50)
+    assert actual==pytest.approx(.35)
+    assert .50*(1.-conditional)==pytest.approx(.15)
+
 def test_teacher_only_packet_extends_indexes_without_moving_old_fields():
     assert P.steering_attention==TERRAIN_TASK_PARAM_DIM+14
     assert P.academy_episode_probability==TERRAIN_TASK_PARAM_DIM+15
