@@ -33,9 +33,9 @@ export class GoalPlannerWorker {
     this.worker?.terminate();
     this.open();
   }
-  request({kind,pose,limits,trees,goal,terrain}){
+  request({kind,pose,limits,trees,goal,terrain,hint,passThrough}){
     if(this.disposed)return Promise.reject(new Error('Goal planner disposed'));
-    if(!['next','replan','target'].includes(kind))
+    if(!['next','replan','target','prefetch'].includes(kind))
       return Promise.reject(new Error('Unknown route request'));
     const id=++this.nextId;
     return new Promise((resolve,reject)=>{
@@ -44,7 +44,7 @@ export class GoalPlannerWorker {
         this.restart(new Error('Goal planning exceeded '+this.timeoutMs+' ms'));
       },this.timeoutMs);
       this.pending.set(id,{resolve,reject,timer});
-      try{this.worker.postMessage({id,kind,pose,limits,trees,goal,terrain});}
+      try{this.worker.postMessage({id,kind,pose,limits,trees,goal,terrain,hint,passThrough});}
       catch(error){this.restart(error);}
     });
   }
