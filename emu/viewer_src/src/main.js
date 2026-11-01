@@ -133,7 +133,7 @@ function navigationUpdate(dt) {
     if(plannedCommand){applyAutonomousCommand(plannedCommand);navCommandUpdates++;}
   }
   const state=navigator.status(pose);
-  sim.setNavigationOverlay(state.goal,state.route);
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
   sim.setNavigationPrediction(state.goal&&state.controllerMode==='predictive'
     ?state.prediction:[]);
   $('demoKind').textContent=state.reason;
@@ -153,9 +153,12 @@ function navigationUpdate(dt) {
   $('navHudTitle').textContent=state.benchmark
     ?`BENCHMARK ${state.benchmark.index+1}/${state.benchmark.goals} · ${state.reason}`
     :`TARGET ${state.arrivals+1} · ${state.reason}`;
-  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
+  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} ${state.benchmark?'parked':'crossed'}${state.failures?' · '+state.failures+' timed out':''}`;
   $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (RMS ${state.rmsTrackError.toFixed(2)}) · crosses ${state.crossings}`;
   $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
+  if(!state.benchmark)
+    $('navHudInfo').textContent+=state.following
+      ?' · next leg ready':state.prefetching?' · planning next leg…':' · next leg pending';
   if(state.controllerMode==='predictive'){
     const model=state.responseModel;
     $('navHudInfo').textContent+=` · forecast ${state.prediction?.length||0} points · ${model.samples} observations`;
@@ -754,7 +757,7 @@ $('navNext').addEventListener('click',()=>{
   navigator.terrain=sim.navigationTerrain();
   navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
   const state=navigator.status(sim.navigationPose());
-  sim.setNavigationOverlay(state.goal,state.route);
+  sim.setNavigationOverlay(state.goal,state.route,state.following);
 });
 $('navBenchmark').addEventListener('click',()=>{
   if(!sim)return;
