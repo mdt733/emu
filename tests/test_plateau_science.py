@@ -189,3 +189,29 @@ def test_research_export_uses_real_actor_validator_and_marks_velocity_i_unplayab
     assert special["training_source_commit"] == released["source"]["git_commit"]
     assert "RESEARCH-ONLY EXPORT" in capsys.readouterr().out
     assert json.loads(baseline_path.read_text()) == released
+
+
+def test_campaign_manifest_json_roundtrip_does_not_block_resume(tmp_path):
+    """Same lineage, factors and resolved config must survive tuple -> JSON list."""
+    import json
+    source = runpy.run_path(str(Path(__file__).resolve().parents[1] /
+                                 "scripts/run_plateau_science.py"))
+    write = source["ensure_manifest"]
+    root = tmp_path / "campaign"
+    original = {
+        "source_sha": "a" * 40,
+        "parent_sha256": "b" * 64,
+        "arms": [
+            {"id": 0, "factors": (), "overrides": {}},
+            {"id": 1, "factors": ("step_promotion_1mm",), "overrides": {"mm": 1.0}},
+        ],
+    }
+    write(root, original)
+    data = json.loads((root / "campaign_manifest.json").read_text())
+    assert data["arms"][0]["factors"] == []
+    assert data["arms"][1]["factors"] == ["step_promotion_1mm"]
+    assert (root / "campaign_manifest.json").is_file()
+    write(root, original)  # resume must pass, without rewriting files
+    altered = {**original, "parent_sha256": "c" * 64}
+    with pytest.raises(RuntimeError, match="lineage differs"):
+        write(root, altered)
