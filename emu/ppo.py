@@ -815,6 +815,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Actual disturbance delivered in the previous MJX step;
                 # recorded only for frozen recovery assessment.
                 applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
+            if env.academy_course_lips:
+                # Read-only per-lip physical measurements from the same
+                # step function as training; never the policy reward alone.
+                sample.update({
+                    "academy_active":out.metrics['academy_active'],
+                    "academy_lip_index":out.metrics['academy_lip_index'],
+                    "academy_cross_new":out.metrics['academy_cross_new'],
+                    "academy_course_new":out.metrics['academy_course_new'],
+                    "academy_cross_up":out.metrics['academy_cross_up'],
+                    "academy_cross_down":out.metrics['academy_cross_down'],
+                    "academy_clearance_new":out.metrics['academy_clearance_new'],
+                    "academy_foothold_new":out.metrics['academy_foothold_new'],
+                    "academy_transfer_new":out.metrics['academy_transfer_new'],
+                    "academy_lip_height_m":out.metrics['academy_lip_height_m'],
+                })
             if env.terrain_step_mocap_id >= 0:
                 # Same collision pairs as the training environment; the
                 # frozen examiner never infers support from root altitude.
@@ -837,6 +852,13 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # heightfield or training-only success labels in the examiner.
                 return dict(
                     **frames,
+                    **({"academy_initial_platform_positions":jnp.stack(tuple(
+                           initial.data.geom_xpos[:,g,:]
+                           for g in env.academy_geom_ids),axis=1),
+                        "academy_initial_platform_xmat":initial.data.geom_xmat[
+                            :,int(env.ids['floor_geom']),:].reshape(
+                                (env.num_envs,3,3))}
+                       if env.academy_course_lips else {}),
                     initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
                     initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
                     initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
