@@ -286,6 +286,21 @@ def main(argv=None) -> int:
                    help='experimental vx/vy integral ramp seconds (0.1..5)')
     q.add_argument('--velocity-i-multiplier',type=float,default=1.0,
                    help='experimental command trim ceiling: 1=OFF, 1.5/2=trial')
+    # First-class from-scratch Academy, same actor/optimizer/world batch.
+    q.add_argument('--academy-course-lips',type=int,choices=(0,4),default=0,
+                   help='0=historical single lip, 4=real consecutive-step MJX world')
+    q.add_argument('--academy-intro-steps',type=int,default=60000000,
+                   help='birth age for initial easy multi-lip nursery')
+    q.add_argument('--academy-intro-share',type=float,default=.10,
+                   help='Academy share at start of the main age ramp')
+    q.add_argument('--academy-start-steps',type=int,default=80000000,
+                   help='start increasing Academy allocation toward maximum')
+    q.add_argument('--academy-ramp-steps',type=int,default=20000000,
+                   help='world-step duration for smooth Academy ramp')
+    q.add_argument('--academy-max-share',type=float,default=.50,
+                   help='fraction of ALL new episode births (not PPO steps) at full ramp')
+    q.add_argument('--academy-height-cap-m',type=float,default=.020,
+                   help='maximum individual lip height in multi-step courses')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--research-parent-source',default='',
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
