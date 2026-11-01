@@ -276,3 +276,38 @@ test('a stalled near-goal approach does not wait for the full mission timeout',(
   assert.ok(nav.failures>=1,'after bounded recovery attempts, abandon missed target');
   assert.ok(nav.elapsed<30,'recovery precedes normal mission timeout');
 });
+
+
+test('a pivot reached at a realistic 30 cm drift can continue; a stuck pivot replans',()=>{
+  const start={x:0,y:0,heading:0,vx:0,vy:0,yawRate:0};
+  const goal={x:1.50,y:0,heading:0};
+  const route={
+    start,solved:true,estimatedSeconds:5,flythrough:false,
+    steps:[
+      {x:0,y:0,heading:Math.PI/2,dt:1.5,
+        cmd:{vx:0,vy:0,yaw:.8,pitch:0},maneuver:'pivot-left'},
+      {x:1.5,y:0,heading:0,dt:2.5,
+        cmd:{vx:.5,vy:0,yaw:0,pitch:0},maneuver:'forward'}
+    ]
+  };
+  const path=buildRoutePath(route);
+  const close=trackRoutePath({...start,x:.30,heading:Math.PI/2},
+    path,0,0,limits);
+  assert.equal(close.ready,true,'the follower can absorb modest drift after a turn');
+  const far=trackRoutePath({...start,x:.52,heading:Math.PI/2},
+    path,0,0,limits);
+  assert.equal(far.ready,false,'a large offset still needs recovery');
+  const nav=new GoalNavigator(5036);
+  nav.active=true;
+  const requests=[];
+  nav.useBackgroundPlanner(request=>{
+    requests.push(request);return new Promise(()=>{});
+  });
+  nav.acceptRoute(start,goal,route,{newMission:true});
+  const stopped={...start,x:.52,heading:Math.PI/2};
+  for(let i=0;i<45;i++)
+    nav.tick(.1,stopped,limits,[],()=>{});
+  assert.ok(requests.some(req=>req.kind==='replan'),
+    'finished-but-offset pivot must trigger async replanning');
+  assert.ok(nav.pivotNoProgress>2);
+});
