@@ -57,6 +57,7 @@ def main():
         "specialist_mix":1.0,
         "terrain_exposure":1.0,
         "terrain_height_m":.020,
+        "academy_height_m":.020,
         "focus_weight_step":1.0,
         "academy_episode_probability":1.0,
         "terrain_edge_angle_deg":3.0,
