@@ -16,9 +16,13 @@ def main():
     parser.add_argument("--worlds",type=int,default=4)
     parser.add_argument("--frames",type=int,default=3)
     parser.add_argument("--device",choices=("cpu","gpu","cuda"),default="cpu")
+    parser.add_argument("--ppo",action="store_true",
+                        help="also run one real 360-input PPO gradient, never save weights")
     args=parser.parse_args()
     if args.worlds<4 or args.worlds%4 or args.frames<1 or args.frames>20:
         parser.error("worlds must be divisible by 4 and >=4; frames 1..20")
+    from emu.ppo import configure_jax
+    configure_jax("cuda" if args.device=="gpu" else args.device)
     import jax
     import jax.numpy as jnp
     import numpy as np
@@ -103,8 +107,28 @@ def main():
         if not np.isfinite(np.asarray(jax.device_get(result.obs))).all():
             raise RuntimeError("nonfinite observation during Academy real physics")
         print("MJX frame",i+1,"reward",float(jnp.mean(result.reward)),flush=True)
+    if args.ppo:
+        from emu.ppo import make_trainer
+        trainer=make_trainer(env,seed=5040,lr=2e-4,rollout=2,
+                             epochs=1,minibatches=1)
+        before=trainer["make_initial_state"](params)
+        after,metrics,diag,_,_=trainer["train_update"](
+            before,packet,jnp.zeros((360,),jnp.float32),
+            jnp.ones((360,),jnp.float32),jnp.asarray(.25,jnp.float32))
+        if not all(bool(jax.device_get(jnp.all(jnp.isfinite(p))))
+                   for p in jax.tree_util.tree_leaves(after.params)):
+            raise RuntimeError("Academy PPO produced nonfinite weights")
+        assert bool(jax.device_get(jnp.isfinite(diag["rollout_reward_mean"])))
+        from emu.results import summarize_rollout
+        summary=summarize_rollout(metrics,frontier_params=params)
+        print("Academy PPO PASS: rollout events",
+              {k:summary[k] for k in (
+                  "academy_active_fraction","academy_crossings",
+                  "academy_up_crossings","academy_down_crossings")},
+              flush=True)
     print(json.dumps(dict(status="PASS",academy_worlds=int(active.sum()),
                           lips=4,obs_dim=360,physics_frames=args.frames,
+                          ppo_gradient=bool(args.ppo),
                           source="real MJX collision and actual ray-OBB surfaces")),flush=True)
     return 0
 
