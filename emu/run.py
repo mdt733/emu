@@ -127,6 +127,11 @@ def one_run_config(args) -> TrainingConfig:
     academy_share=float(getattr(args,'academy_max_share',.50))
     height_cap=float(getattr(args,'academy_height_cap_m',.040))
     course_frames=int(getattr(args,'academy_course_episode_frames',1200))
+    if course_lips and terrain_lesson not in (
+            'coherent','coherent-direct','coherent-careful'):
+        raise ValueError(
+            'multi-lip Academy requires a coherent straight-ahead STEP lesson; '
+            'set --terrain-lesson coherent-careful (recommended)')
     if course_lips and (
             int(getattr(args,'academy_episode_frames',0)) not in (0,700) or
             float(getattr(args,'academy_step_focus_share',0.))>0.):
