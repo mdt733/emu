@@ -57,6 +57,13 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('terrain_successes_up','Supported step-up successes'),
         ('terrain_attempts_down','Step-down attempts'),
         ('terrain_successes_down','Supported step-down successes'),
+        ('academy_active_fraction','Academy occupancy fraction (frames)'),
+        ('academy_up_crossings','Academy supported uphill lips'),
+        ('academy_down_crossings','Academy supported downhill lips'),
+        ('academy_footholds','Academy upper footholds'),
+        ('academy_transfers','Academy supported weight transfers'),
+        ('academy_courses_complete','Academy four-lip courses completed'),
+        ('academy_episodes','Academy episodes completed'),
         ('physical_slope_deg_max','Sampled real slope max (deg)'),
     )
     values={label:row.get(key,'') for key,label in keys if row.get(key,'') not in ('',None)}
@@ -72,6 +79,9 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         '| Measurement | Value |','| --- | ---: |',
         *[f'| {label} | {value} |' for label,value in values.items()],
         '','These are training-rollout observations, not held-out walking scores.',
+        'Academy crossings are distinct verified per-lip events, whereas Academy',
+        'episodes count completed course attempts. The newest metrics row is',
+        'not a cumulative sum across the full training run.',
         'A requested velocity is not an achieved velocity. Mechanical J/m is',
         'not verified battery consumption. Successful steps require actual',
         'foot-supported upper-platform contact; compare direction-matched exams.',
