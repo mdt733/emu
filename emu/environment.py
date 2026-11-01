@@ -2494,8 +2494,11 @@ class EmuMJXEnv(TaskSampler):
         if coherent:
             kc=jax.vmap(lambda k:jax.random.fold_in(k,50321))(keys)
             v=jax.vmap(lambda k:jax.random.uniform(k,()))(kc)
-            straight_vx=(.10+.12*v if self.academy_step_speed_span==0.0
-                else .16+self.academy_step_speed_span*(2.0*v-1.0))
+            straight_vx=.10+.12*v
+            if self.academy_step_speed_span>0.0:
+                straight_vx=jnp.where(is_step,
+                    .16+self.academy_step_speed_span*(2.0*v-1.0),
+                    straight_vx)
             straight=jnp.stack((straight_vx,
                 jnp.zeros_like(straight_vx),jnp.zeros_like(straight_vx)),axis=-1)
             desired=jnp.where(is_coherent_terrain[:,None],straight,desired)
