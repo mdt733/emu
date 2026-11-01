@@ -38,7 +38,7 @@ git show origin/feature/v5038-step-academy-report-and-exams:scripts/report_step_
 The tool exports each complete full-state checkpoint to a frozen evaluation
 actor, then executes read-only matched CPU MuJoCo exams with identical:
 - seeds 1701 and 1702 (matched across every arm)
-- 8 worlds and 350 control frames per case
+- 16 worlds and 350 control frames per case
 - sharp step heights 1.0, 2.0, 2.5, 3.0, 3.5 and 4.0 cm
 - supported up/down crossings and supplementary 3-degree graded floor,
   flat / lateral / yaw skill-retention cases.
