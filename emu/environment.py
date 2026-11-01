@@ -2885,7 +2885,7 @@ class EmuMJXEnv(TaskSampler):
         has_fixed=jnp.isfinite(fixed_height)
         severity=jnp.where(has_fixed,fixed_height,
             jnp.minimum(self.academy_height_cap_m,
-                        jnp.maximum(.003,params[P.academy_height_m])))
+                        jnp.maximum(.0015,params[P.academy_height_m])))
         # Frozen physical exams specify exact signed lip heights; training
         # always randomises each independent physical ledge.
         sampled=jnp.where(has_fixed,jnp.ones_like(u[:,1:5]),u[:,1:5])
