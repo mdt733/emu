@@ -31,7 +31,10 @@ export function vectorFieldGuidance(pose,run,progress,limits){
   const profileSpeed=Math.hypot(cmd.vx||0,cmd.vy||0);
   const remain=Math.max(0,run.length-s);
   const forwardScale=clamp((remain+.12)/.42,.25,1);
-  const motionSpeed=profileSpeed*forwardScale;
+  // A moving waypoint needs forward progress until the actual crossing.
+  // The former taper often reduced commands almost to zero near the end
+  // of a short lattice segment and stranded the beam-search controller.
+  const motionSpeed=Math.max(.14,profileSpeed*forwardScale);
   const nX=-ty,nY=tx;
   const cross=here.crossTrack;
   const sideRate=Math.cos(here.tangent)*(
@@ -156,9 +159,16 @@ function scoreStep(before,after,cmd,previous,run,progress,trees,terrain){
   for(const key of KEYS)jerk+=(cmd[key]-previous[key])**2;
   // Path error, future sideways momentum, and progress are more important
   // than exact actuator speed. The NN itself retains balance authority.
-  const cost=DT*(6*proj.crossTrack**2+1.1*headingError**2+
+  let cost=DT*(6*proj.crossTrack**2+1.1*headingError**2+
     .45*speedError**2+.6*obstacle+.4*midpoint+.18*jerk+
     .06*(cmd.vx**2+cmd.vy**2+.4*cmd.yaw**2));
+  // Arc-length progress saturates at each run's endpoint. Without a
+  // terminal-position objective, a stationary rollout can cheaply win once
+  // s==run.length, even if the physical bird hasn't reached the marker.
+  if(s>run.length-.48){
+    const beforeD=distance(before,run.end),afterD=distance(after,run.end);
+    cost+=DT*2.4*afterD*afterD-1.25*(beforeD-afterD);
+  }
   return {cost:cost-1.45*Math.max(0,s-progress),
     progress:s,near:proj};
 }
