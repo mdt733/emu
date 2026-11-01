@@ -107,6 +107,31 @@ def main():
         state.data,int(ids[1]),origin,ray)))[:,0]
     if not np.all(np.isfinite(mid_ranges[active])):
         raise RuntimeError("Academy first platform is not visible to physical ray-OBB test")
+    # Prove a robot FOOT can physically contact the middle platform, not
+    # merely that the platform is ray-visible. Test several feasible body
+    # heights, using actual MJX contact pairs and the real six-servo robot.
+    from emu.directional import contact_pair_mask
+    from emu.environment import NEUTRAL_ROOT_Z
+    mid=int(ids[1])
+    centre=jnp.asarray(geom[:,1,:])
+    top=centre[:,2]+float(m.geom_size[mid,2])
+    all_contacts=[]
+    for offset in (-.005,-.018,-.030):
+        qpos=(state.data.qpos.at[:,0:2].set(centre[:,:2])
+              .at[:,2].set(top+NEUTRAL_ROOT_Z+offset))
+        placed=env.forward_batched(env.mjx_model,
+                                   state.data.replace(qpos=qpos))
+        contact=getattr(placed,'_impl',placed).contact
+        foot_pair=contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                                    contact.dist,mid,
+                                    tuple(int(v) for v in env.ids['foot_geoms']))
+        all_contacts.append(np.asarray(jax.device_get(jnp.any(
+            foot_pair,axis=1))))
+    contacted=np.any(np.stack(all_contacts,axis=0),axis=0)
+    if not np.any(contacted & active):
+        raise RuntimeError("Ray-visible Academy middle platform cannot support a real MJX foot")
+    print("Academy intermediate-platform FOOT CONTACT:",
+          int(np.sum(contacted&active)),"/",int(active.sum()),flush=True)
     # The test also steps real MJX and verifies the actor packet stays finite.
     for i in range(args.frames):
         result=env.step(state,jnp.zeros((args.worlds,6),dtype=jnp.float32),packet)
