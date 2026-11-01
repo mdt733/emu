@@ -1922,10 +1922,12 @@ class EmuMJXEnv(TaskSampler):
             state.academy_lip_index<ACADEMY_LIPS)
         done=terminal_or_timeout|course_done
         episode_age_steps=state.ep_len+1.
-        episode_budget=jnp.where(state.academy_active,
-            self.academy_course_episode_frames,self.max_episode_steps)
+        # Extending course TIME must not silently add +30 early-fall
+        # penalty points and drown out novice ascent/foothold discovery.
+        # Preserve the proven 700-frame gait penalty economics; ages beyond
+        # 700 naturally receive the original flat base penalty only.
         reward,fall_payment=apply_early_fall_penalty(
-            reward,terminal_fail,episode_age_steps,episode_budget,xp=jnp)
+            reward,terminal_fail,episode_age_steps,self.max_episode_steps,xp=jnp)
 
         ep_return = state.ep_return + reward
         ep_len = state.ep_len + 1.0
