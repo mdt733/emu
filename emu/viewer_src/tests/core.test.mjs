@@ -490,8 +490,11 @@ test('navigator reaches goals and does not double-count pending arrivals',()=>{
   held.useBackgroundPlanner(()=>{requested++;return new Promise(()=>{});});
   held.goal={x:0,y:0,heading:0};
   held.route={solved:true,steps:[],estimatedSeconds:1};
+  // A roaming waypoint must be accepted immediately by position, without
+  // the old 550 ms low-speed/heading parking hold. One async next-goal
+  // request stays pending, so it cannot count the same arrival again.
   for(let i=0;i<20;i++)held.tick(.02,origin,limits,[],()=>{});
-  assert.equal(held.arrivals,0);
+  assert.equal(held.arrivals,1);
   for(let i=0;i<100;i++)held.tick(.02,origin,limits,[],()=>{});
   assert.equal(held.arrivals,1);
   assert.equal(requested,1);
