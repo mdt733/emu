@@ -1,6 +1,7 @@
 """Step Academy geometric/curriculum invariants; no GPU needed."""
 from __future__ import annotations
 
+from pathlib import Path
 import numpy as np
 import pytest
 
