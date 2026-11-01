@@ -1888,7 +1888,8 @@ class EmuMJXEnv(TaskSampler):
                       hist_n.astype(jnp.float32)/25.))
         # Only real upward STEP specialist approaches receive a short
         # self-paced reward allowance; general walking keeps its economics.
-        care_window = (self._considered_step_window(state, data)
+        care_window = ((self._considered_step_window(state, data) |
+                        self._academy_care_window(state, data))
                        if self.terrain_lesson == 'coherent-careful'
                        else jnp.zeros((self.num_envs,), dtype=jnp.bool_))
         care_active = care_window & (state.terrain_care_frames < 120)
@@ -1920,6 +1921,12 @@ class EmuMJXEnv(TaskSampler):
         # waiting on a second clock after genuine physical completion.
         course_done=academy['completed'] & (
             state.academy_lip_index<ACADEMY_LIPS)
+        # Unlike the one-lip course, every new ascent deserves its OWN
+        # bounded 120-frame careful approach budget. Do not allow infinite
+        # standing/near-edge relief on the same lip.
+        care_frames=jnp.where(
+            state.academy_active & academy['cross_new'],
+            jnp.zeros_like(care_frames),care_frames)
         done=terminal_or_timeout|course_done
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
@@ -3559,6 +3566,36 @@ class EmuMJXEnv(TaskSampler):
         top = center[:, 2] + TERRAIN_PLATFORM_HALF_DEPTH_M
         elevated = inside & (top[:, None] > 0.001)
         return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
+
+    def _academy_care_window(self, state, data):
+        """Per-LIP supported uphill approach may briefly slow to place a foot.
+
+        Keeps the existing careful velocity/crouch reward exception, but uses
+        the NEXT actual Academy lip instead of the stale single-lip slab.
+        Descents and generalist worlds never receive this relief. No
+        privileged geometry is added to the 360-input actor.
+        """
+        jnp=self.jnp
+        if not self.academy_course_lips:
+            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
+        tops=jnp.stack(tuple(
+            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
+            for g in self.academy_geom_ids),axis=1)
+        base=jnp.take_along_axis(tops,idx[:,None],axis=1)[:,0]
+        nxt=jnp.take_along_axis(tops,(idx+1)[:,None],axis=1)[:,0]
+        R=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+            (self.num_envs,3,3))
+        axis,across=R[:,:,0],R[:,:,1]
+        edge=axis*(ACADEMY_EDGE_X_M+
+                   idx*ACADEMY_INTERVAL_M)[:,None]
+        displacement=data.qpos[:,:3]-edge
+        forward=jnp.sum(displacement*axis,axis=1)
+        lateral=jnp.sum(displacement*across,axis=1)
+        return (state.academy_active &
+                (state.academy_lip_index<ACADEMY_LIPS) &
+                (nxt-base>.001) & (forward>-.16) & (forward<.12) &
+                (jnp.abs(lateral)<.22) & (state.task[:,T.vx]>.02))
 
     def _considered_step_window(self, state, data):
         """Teacher-only 120-frame maximum STEP-UP negotiation window.
