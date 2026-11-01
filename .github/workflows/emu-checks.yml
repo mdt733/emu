@@ -202,7 +202,7 @@ jobs:
       - name: Install real MJX simulation dependencies
         run: python -m pip install -e ".[dev]"
       - name: Four genuine physical lips, 360 sensor rays and sequential PPO state smoke
-        run: timeout 420s python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3
+        run: timeout 420s python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3 --ppo
 
   browser:
     runs-on: ubuntu-latest
