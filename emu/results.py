@@ -58,6 +58,7 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('terrain_attempts_down','Step-down attempts'),
         ('terrain_successes_down','Supported step-down successes'),
         ('academy_active_fraction','Academy occupancy fraction (frames)'),
+        ('academy_expected_birth_fraction','Academy target among ALL world births'),
         ('academy_up_crossings','Academy supported uphill lips'),
         ('academy_down_crossings','Academy supported downhill lips'),
         ('academy_near_attempts_up','Academy near-height uphill encounters'),
@@ -315,7 +316,9 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                     f" course={int(row.get('academy_courses_complete',0))}"
                     f"/{int(row.get('academy_episodes',0))}"
                     f" foothold={int(row.get('academy_footholds',0))}"
-                    f" transfer={int(row.get('academy_transfers',0))}")
+                    f" transfer={int(row.get('academy_transfers',0))}"
+                    f" actual/asked={100*row.get('academy_active_fraction',0):.0f}%/"
+                    f"{100*row.get('academy_expected_birth_fraction',0):.0f}%")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
