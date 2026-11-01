@@ -324,6 +324,8 @@ class EnvState(NamedTuple):
     academy_clearance_seen: Any = None
     academy_foothold_seen: Any = None
     academy_transfer_seen: Any = None
+    # One physical attempt verdict per lip. No repeated near-edge farming.
+    academy_approach_seen: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1759,6 +1761,9 @@ class EmuMJXEnv(TaskSampler):
                 if (not np.isfinite(slope[15]) or
                     slope[15]<0. or slope[15]>1.):
                     raise ValueError('academy birth probability must be within [0,1]')
+                if (not np.isfinite(slope[16]) or
+                    slope[16]<.001 or slope[16]>.04):
+                    raise ValueError('academy physical lip height must be 1–40mm')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -1929,7 +1934,7 @@ class EmuMJXEnv(TaskSampler):
         # height or approach position is ever passed to the actor.
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
-        academy=self._academy_events(state,data,metrics)
+        academy=self._academy_events(state,data,metrics,done)
         # Academy final-slab contact is not an extra old one-lip completion.
         terrain_active=terrain_active & ~state.academy_active
         terrain_cross_new=terrain_crossed & ~state.terrain_crossed & terrain_active
@@ -2055,7 +2060,8 @@ class EmuMJXEnv(TaskSampler):
                            academy['lip_index'],academy['streak'],
                            academy['crossings'],academy['up_count'],
                            academy['down_count'],academy['clearance_seen'],
-                           academy['foothold_seen'],academy['transfer_seen'])
+                           academy['foothold_seen'],academy['transfer_seen'],
+                           academy['approach_seen'])
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2827,7 +2833,7 @@ class EmuMJXEnv(TaskSampler):
         active=(specialist_active & (focus_id==STEP) &
                 (athletic_rehearsal<.5) &
                 (u[:,0]<params[P.academy_episode_probability]) &
-                (params[P.terrain_height_m]>.0001))
+                (params[P.academy_height_m]>.0001))
         max_angle=(self.academy_edge_yaw_max_deg if
                    self.academy_edge_yaw_max_deg>=0. else 3.)
         yaw=(u[:,5]*2.-1.)*jnp.deg2rad(max_angle)
@@ -2840,7 +2846,7 @@ class EmuMJXEnv(TaskSampler):
         has_fixed=jnp.isfinite(fixed_height)
         severity=jnp.where(has_fixed,fixed_height,
             jnp.minimum(self.academy_height_cap_m,
-                        jnp.maximum(.003,params[P.terrain_height_m])))
+                        jnp.maximum(.003,params[P.academy_height_m])))
         # Frozen physical exams specify exact signed lip heights; training
         # always randomises each independent physical ledge.
         sampled=jnp.where(has_fixed,jnp.ones_like(u[:,1:5]),u[:,1:5])
@@ -3010,6 +3016,7 @@ class EmuMJXEnv(TaskSampler):
                          jnp.zeros((self.num_envs,25),dtype=jnp.float32),
                          jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros,
                          academy_active,izeros,izeros,izeros,izeros,izeros,
+                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_))
@@ -3543,7 +3550,7 @@ class EmuMJXEnv(TaskSampler):
                 & (forward > -.16) & (forward < .12)
                 & (jnp.abs(lateral) < .22))
 
-    def _academy_events(self, state, data, metrics):
+    def _academy_events(self, state, data, metrics, done=None):
         """Genuine sequential foothold/transfer/crossing evidence for FOUR lips.
 
         No synthetic height oracle in the actor. Each stage reads post-step
@@ -3556,6 +3563,8 @@ class EmuMJXEnv(TaskSampler):
         zeros=jnp.zeros((self.num_envs,),dtype=jnp.float32)
         zbool=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         izero=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        if done is None:
+            done=zbool
         if not self.academy_course_lips:
             return dict(lip_index=izero,streak=izero,
                 crossings=izero,up_count=izero,down_count=izero,
@@ -3563,7 +3572,8 @@ class EmuMJXEnv(TaskSampler):
                 transfer_seen=zbool,cross_new=zbool,up_new=zbool,
                 down_new=zbool,clearance_new=zbool,
                 foothold_new=zbool,transfer_new=zbool,
-                reward=zeros,height_m=zeros,completed=zbool)
+                reward=zeros,height_m=zeros,completed=zbool,
+                approach_seen=zbool,attempt_new=zbool)
         from .directional import contact_pair_mask
         active=state.academy_active
         idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
@@ -3618,6 +3628,12 @@ class EmuMJXEnv(TaskSampler):
         new_transfer=(healthy & uphill & target_supported &
                       (forward>-.02) & (torso_height>target_lift) &
                       ~state.academy_transfer_seen)
+        # An encounter is counted ONCE when crossing is completed, or
+        # when this episode ends after actually approaching that lip.
+        # No reward or governor 'attempt' for just existing in a STEP world.
+        approached=(live & (forward>-.22) & (forward<.14) &
+                    (jnp.abs(lateral)<.24) & (metrics['terminal']<.5))
+        seen=state.academy_approach_seen | approached
         real_cross=(healthy & (forward>.09) &
                     target_supported & (metrics['support']>=.5))
         streak=jnp.where(real_cross,state.academy_streak+1,0)
@@ -3627,6 +3643,8 @@ class EmuMJXEnv(TaskSampler):
                              state.academy_lip_index)
         up_new=new_cross & uphill
         down_new=new_cross & downhill
+        failed_attempt=done & live & seen & ~new_cross
+        attempt_new=new_cross | failed_attempt
         # The original 9-point shaping is redistributed here per ascent:
         # bounded 2/3/4 milestone points plus 10 for final supported
         # crossing. Descents receive the same +10 crossing, no fake lift.
@@ -3637,6 +3655,8 @@ class EmuMJXEnv(TaskSampler):
                 10.*new_cross.astype(jnp.float32))
         return dict(
             lip_index=next_index,
+            approach_seen=jnp.where(new_cross,False,seen),
+            attempt_new=attempt_new,
             streak=jnp.where(new_cross,0,streak),
             crossings=state.academy_crossings+new_cross.astype(jnp.int32),
             up_count=state.academy_up_crossings+up_new.astype(jnp.int32),
