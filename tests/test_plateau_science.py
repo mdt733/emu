@@ -158,3 +158,34 @@ def test_explicit_260m_parent_validation_uses_saved_terrain_sensor_contract(tmp_
     assert accepted == cfg
     assert digest == source["EXPECTED_PARENT_SHA256"]
     assert checked == [True]
+
+
+def test_research_export_uses_real_actor_validator_and_marks_velocity_i_unplayable(tmp_path, capsys, monkeypatch):
+    import json
+    import sys
+    from copy import deepcopy
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    source = runpy.run_path(str(Path(__file__).resolve().parents[1] /
+                                 "scripts/run_plateau_science.py"))
+    validate = source["validate_research_export"]
+    released = json.loads((Path(__file__).resolve().parents[1] /
+                           "showcase/champion.emupolicy").read_text(encoding="utf-8"))
+    baseline_path = tmp_path / "unchanged.emupolicy"
+    baseline_path.write_text(json.dumps(released), encoding="utf-8")
+    identity = validate(baseline_path)
+    assert identity["schema"] == 3
+    assert identity["obs_dim"] == 360
+    assert identity["checkpoint_schema"] == 9
+    assert identity["step"] == 260_046_848
+
+    # Source is read-only: the 260M champion remains unchanged. The velocity-I
+    # research export must validate weights/contract but not claim browser parity.
+    research = deepcopy(released)
+    research["control"]["velocity_i"]["multiplier"] = 1.5
+    research_path = tmp_path / "velocity-i.emupolicy"
+    research_path.write_text(json.dumps(research), encoding="utf-8")
+    special = validate(research_path)
+    assert special["obs_dim"] == 360
+    assert special["training_source_commit"] == released["source"]["git_commit"]
+    assert "RESEARCH-ONLY EXPORT" in capsys.readouterr().out
+    assert json.loads(baseline_path.read_text()) == released
