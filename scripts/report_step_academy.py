@@ -302,13 +302,16 @@ def main(argv=None):
                    help="run all requested frozen CPU physical matrices, then write report")
     p.add_argument("--exam-arms",type=int,nargs="+",default=list(range(8)))
     p.add_argument("--seeds",type=int,nargs="+",default=[1701,1702])
-    p.add_argument("--worlds",type=int,default=8)
+    p.add_argument("--worlds",type=int,default=16)
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--speed",type=float,default=.15)
     p.add_argument("--device",choices=("cpu","cuda","gpu","auto"),default="cpu")
     args=p.parse_args(argv)
     root=args.root.expanduser().resolve()
     manifest,runs=gather(root)
+    # Always deliver the existing training/frozen report immediately. An
+    # interrupted or failed expensive physical exam cannot erase that work.
+    render(root,manifest,runs)
     if args.exams:
         if len(set(args.exam_arms))!=len(args.exam_arms) or any(x not in range(8) for x in args.exam_arms):
             p.error("--exam-arms must be unique integers 0..7")
@@ -319,7 +322,7 @@ def main(argv=None):
         physical_exams(root,manifest,args.exam_arms,args.seeds,
                        args.worlds,args.horizon,args.speed,args.device)
         manifest,runs=gather(root)
-    render(root,manifest,runs)
+        render(root,manifest,runs)
     return 0
 
 if __name__=="__main__":
