@@ -126,7 +126,13 @@ def one_run_config(args) -> TrainingConfig:
     intro_share=float(getattr(args,'academy_intro_share',.10))
     academy_share=float(getattr(args,'academy_max_share',.50))
     height_cap=float(getattr(args,'academy_height_cap_m',.040))
-    course_frames=int(getattr(args,'academy_course_episode_frames',1000))
+    course_frames=int(getattr(args,'academy_course_episode_frames',1200))
+    if course_lips and (
+            int(getattr(args,'academy_episode_frames',0)) not in (0,700) or
+            float(getattr(args,'academy_step_focus_share',0.))>0.):
+        raise ValueError(
+            'multi-lip cold curriculum cannot be stacked with Stage A global '
+            'short episodes or single-lip specialist share')
     if (course_lips not in (0,4) or
         (course_lips and not (unified and terrain_actor)) or
         intro<0 or start<intro or ramp<=0 or
