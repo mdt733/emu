@@ -3480,6 +3480,116 @@ class EmuMJXEnv(TaskSampler):
                 & (forward > -.16) & (forward < .12)
                 & (jnp.abs(lateral) < .22))
 
+    def _academy_events(self, state, data, metrics):
+        """Genuine sequential foothold/transfer/crossing evidence for FOUR lips.
+
+        No synthetic height oracle in the actor. Each stage reads post-step
+        physical MuJoCo foot contact pairs and visible body poses. Advance
+        only after five consecutive far-side supported frames. Crossing or
+        milestone payment can occur once per lip; a return/backstep cannot
+        regenerate the old lip or earn extra reward.
+        """
+        jnp=self.jnp
+        zeros=jnp.zeros((self.num_envs,),dtype=jnp.float32)
+        zbool=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        izero=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        if not self.academy_course_lips:
+            return dict(lip_index=izero,streak=izero,
+                crossings=izero,up_count=izero,down_count=izero,
+                clearance_seen=zbool,foothold_seen=zbool,
+                transfer_seen=zbool,cross_new=zbool,up_new=zbool,
+                down_new=zbool,clearance_new=zbool,
+                foothold_new=zbool,transfer_new=zbool,
+                reward=zeros,height_m=zeros,completed=zbool)
+        from .directional import contact_pair_mask
+        active=state.academy_active
+        idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
+        before=state.academy_lip_index<ACADEMY_LIPS
+        live=active & before
+        contact=getattr(data,'_impl',data).contact
+        foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
+        all_pairs=jnp.stack(tuple(
+            contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                              contact.dist,g,foot_geoms)
+            for g in self.academy_geom_ids),axis=1)
+        # [world,plateau,2 feet] -> current lower and target support.
+        sidx=jnp.broadcast_to(idx[:,None,None],(self.num_envs,1,2))
+        previous=jnp.take_along_axis(all_pairs,sidx,axis=1)[:,0,:]
+        target=jnp.take_along_axis(all_pairs,sidx+1,axis=1)[:,0,:]
+        target_supported=jnp.any(target,axis=1)
+        stance_supported=jnp.any(previous,axis=1)
+        tops=jnp.stack(tuple(
+            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
+            for g in self.academy_geom_ids),axis=1)
+        prev_top=jnp.take_along_axis(tops,idx[:,None],axis=1)[:,0]
+        next_top=jnp.take_along_axis(tops,(idx+1)[:,None],axis=1)[:,0]
+        rise=next_top-prev_top
+        uphill=rise>.001
+        downhill=rise<-.001
+        # Every platform shares this course's real small edge yaw.
+        R=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+            (self.num_envs,3,3))
+        axis,across=R[:,:,0],R[:,:,1]
+        edge_distance=ACADEMY_EDGE_X_M+idx*ACADEMY_INTERVAL_M
+        edge=axis*edge_distance[:,None]
+        relative=data.qpos[:,:3]-edge
+        forward=jnp.sum(relative*axis,axis=1)
+        lateral=jnp.sum(relative*across,axis=1)
+        healthy=(live & (jnp.abs(lateral)<.24) &
+                 (metrics['bad_contact']<.5) &
+                 (metrics['terminal']<.5))
+        foot_xyz=data.xpos[:,self.foot_bodies,:]
+        foot_forward=jnp.sum((foot_xyz-edge[:,None,:])*axis[:,None,:],axis=2)
+        foot_clear=(foot_xyz[:,:,2]-.018 > next_top[:,None]+.004)
+        new_clear=(healthy & uphill & (forward>-.14) &
+                   (forward<.11) & stance_supported &
+                   jnp.any(foot_clear &
+                           (foot_forward>-.07) &
+                           (foot_forward<.13),axis=1) &
+                   ~state.academy_clearance_seen)
+        new_foothold=(healthy & uphill & target_supported &
+                      (forward>-.06) & ~state.academy_foothold_seen)
+        torso_height=data.xpos[:,self.torso_id,2]
+        target_lift=(NEUTRAL_ROOT_Z+state.task[:,T.height] +
+                     prev_top+.40*jnp.maximum(rise,0.))
+        new_transfer=(healthy & uphill & target_supported &
+                      (forward>-.02) & (torso_height>target_lift) &
+                      ~state.academy_transfer_seen)
+        real_cross=(healthy & (forward>.09) &
+                    target_supported & (metrics['support']>=.5))
+        streak=jnp.where(real_cross,state.academy_streak+1,0)
+        new_cross=real_cross & (streak>=5)
+        next_index=jnp.where(new_cross,
+                             state.academy_lip_index+1,
+                             state.academy_lip_index)
+        up_new=new_cross & uphill
+        down_new=new_cross & downhill
+        # The original 9-point shaping is redistributed here per ascent:
+        # bounded 2/3/4 milestone points plus 10 for final supported
+        # crossing. Descents receive the same +10 crossing, no fake lift.
+        # Per-episode return grows with number of REAL learned obstacles.
+        reward=(2.*new_clear.astype(jnp.float32)+
+                3.*new_foothold.astype(jnp.float32)+
+                4.*new_transfer.astype(jnp.float32)+
+                10.*new_cross.astype(jnp.float32))
+        return dict(
+            lip_index=next_index,
+            streak=jnp.where(new_cross,0,streak),
+            crossings=state.academy_crossings+new_cross.astype(jnp.int32),
+            up_count=state.academy_up_crossings+up_new.astype(jnp.int32),
+            down_count=state.academy_down_crossings+down_new.astype(jnp.int32),
+            clearance_seen=jnp.where(new_cross,False,
+                state.academy_clearance_seen|new_clear),
+            foothold_seen=jnp.where(new_cross,False,
+                state.academy_foothold_seen|new_foothold),
+            transfer_seen=jnp.where(new_cross,False,
+                state.academy_transfer_seen|new_transfer),
+            cross_new=new_cross,up_new=up_new,down_new=down_new,
+            clearance_new=new_clear,foothold_new=new_foothold,
+            transfer_new=new_transfer,reward=reward,
+            height_m=jnp.where(live,rise,0.),
+            completed=active & (next_index==ACADEMY_LIPS))
+
     # ---- Teacher/evaluator-only supported crossing evidence ----
     def _terrain_crossing(self, state, data, metrics):
         """Sustained physical far-side crossing, teacher telemetry only.
