@@ -301,6 +301,8 @@ def main(argv=None) -> int:
                    help='fraction of ALL new episode births (not PPO steps) at full ramp')
     q.add_argument('--academy-height-cap-m',type=float,default=.040,
                    help='maximum individual lip height in multi-step courses')
+    q.add_argument('--academy-course-episode-frames',type=int,default=1000,
+                   help='max Academy course time; ordinary births retain 700 frames')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--research-parent-source',default='',
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
