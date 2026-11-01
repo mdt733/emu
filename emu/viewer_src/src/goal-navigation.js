@@ -296,6 +296,8 @@ export function flythroughConnector(from,goal,limits,trees=[],terrain=null){
   // unit time, including simultaneous yaw and strafe.
   const requiredX=(sinc*localX+vers*localY)/denom;
   const requiredY=(-vers*localX+sinc*localY)/denom;
+  // Do not nominate a reverse-into-the-marker manoeuvre as fly-through.
+  if(requiredX<-.025)return null;
   const f=Math.max(.01,Number(limits.vx_max)||0)*.66;
   const b=Math.max(.01,-Number(limits.vx_min)||0)*.65;
   const y=Math.max(.01,Number(limits.vy_abs)||0)*.75;
@@ -342,7 +344,15 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
       const q=integratePose(p,cmd,cmd.dt),id=key(q);
       const slopeCost=sweptTerrainCost(terrain,p,q);
       if(!Number.isFinite(slopeCost))continue;
-      const g=p.g+cmd.cost*slopeCost;
+      // Reverse may be necessary elsewhere, but near the target an ordinary
+      // wandering route must approach forwards, without a final pivot.
+      if(options.passThrough&&distance(q,goal)<.55&&
+         (cmd.vx<-.035||
+          (Math.abs(cmd.vx)<.035&&Math.abs(cmd.vy)<.035&&
+           Math.abs(cmd.yaw)>.05)))continue;
+      const transitPenalty=options.passThrough
+        ?cmd.vx<-.035?2.5:Math.abs(cmd.vx)<.035?1.35:1:1;
+      const g=p.g+cmd.cost*slopeCost*transitPenalty;
       if(g>=(best.get(id)??Infinity)-1e-7)continue;
       best.set(id,g);
       heap.push({...q,g,f:g+1.20*heuristic(q,goal,speed),
@@ -410,6 +420,8 @@ export class GoalNavigator {
     this.following=null;this.hint=null;
     this.prefetchPending=null;this.prefetchRetry=0;this.prefetchError=null;
     this.lastMovementPose=null;this.motionStall=0;
+    this.closestGoalDistance=Infinity;this.goalNoProgress=0;
+    this.goalRecoveryAttempts=0;
   }
   // Tests can still exercise the pure synchronous planner. Browser MUST
   // install the real Worker transport, never a Promise around sync A*.
@@ -460,7 +472,9 @@ export class GoalNavigator {
     this.predictor.reset();this.benchmark=null;
     this.following=null;this.hint=null;this.prefetchPending=null;
     this.prefetchRetry=0;this.prefetchError=null;
-    this.lastMovementPose=null;this.motionStall=0;}
+    this.lastMovementPose=null;this.motionStall=0;
+    this.closestGoalDistance=Infinity;this.goalNoProgress=0;
+    this.goalRecoveryAttempts=0;}
   startBenchmark(){
     const keepActive=this.active;
     this.reset();
@@ -506,6 +520,8 @@ export class GoalNavigator {
       this.following=following;
       this.hint=following?.hint||null;
       this.lastMovementPose=null;this.motionStall=0;
+      this.closestGoalDistance=Infinity;this.goalNoProgress=0;
+      this.goalRecoveryAttempts=0;
       this.elapsed=0;this.arrivalHold=0;this.searchCooldown=0;
       this.crossTrack=0;this.crossings=0;this.crossSide=0;
       this.trackingTime=0;this.trackErrorIntegral=0;
