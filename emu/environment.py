@@ -314,6 +314,16 @@ class EnvState(NamedTuple):
     vx_reward_history: Any = None
     cmd_vx_reward_history: Any = None
     vx_reward_count: Any = None
+    # Teacher-only sequential four-lip progress, never actor observations.
+    academy_active: Any = None
+    academy_lip_index: Any = None
+    academy_streak: Any = None
+    academy_crossings: Any = None
+    academy_up_crossings: Any = None
+    academy_down_crossings: Any = None
+    academy_clearance_seen: Any = None
+    academy_foothold_seen: Any = None
+    academy_transfer_seen: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -2959,7 +2969,11 @@ class EmuMJXEnv(TaskSampler):
                          jnp.zeros((self.num_envs,2),dtype=jnp.float32),
                          task[:,[T.vx,T.vy]],izeros,
                          jnp.zeros((self.num_envs,25),dtype=jnp.float32),
-                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros)
+                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros,
+                         academy_active,izeros,izeros,izeros,izeros,izeros,
+                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         jnp.zeros((self.num_envs,),dtype=jnp.bool_))
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
