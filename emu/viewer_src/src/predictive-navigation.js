@@ -172,6 +172,11 @@ export class PredictivePathController {
     const run=path?.runs?.[runIndex];
     if(!run||run.mode==='pivot'||run.length<.001)
       return {command:legacy||zero(),prediction:[],cost:null};
+    // Historic navigator callers and kinematic unit tests only supply
+    // x/y/heading/vx/vy. They must retain the classic controller, not
+    // silently receive a permanent STOP because yawRate is absent.
+    if(pose.yawRate==null)
+      return {command:legacy||zero(),prediction:[],cost:null,fallback:true};
     if(![pose.x,pose.y,pose.heading,pose.vx,pose.vy,pose.yawRate].every(Number.isFinite))
       return {command:zero(),prediction:[],cost:null,fallback:true};
     const base=legacy||zero();
