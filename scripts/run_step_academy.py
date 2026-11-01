@@ -19,6 +19,11 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+# Invoking "python scripts/run_step_academy.py" sets sys.path[0] to scripts/,
+# not the checkout root. A shared venv can have an editable "emu" package
+# pointing at another Git worktree. Use this checkout's code explicitly.
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 BRANCH = "feature/v5037-step-academy-stage-a"
 PARENT = (Path.home() / "robot_lab/emu_runs/v5033_plateau_260_to_280/"
           "arm_00_control_seed761/checkpoints/final.pkl")
@@ -77,7 +82,13 @@ def git(*args: str) -> str:
 
 
 def source_guard() -> dict:
+    from emu import contracts
     from emu.checkpoint_io import git_provenance
+    loaded = Path(contracts.__file__).resolve().parents[1]
+    if loaded != REPO or contracts.source_repo_root() != REPO:
+        raise RuntimeError(
+            f"Wrong emu package: loaded {loaded}, expected Academy checkout {REPO}; "
+            "refusing research training with a mismatched Python import")
     branch = git("branch", "--show-current")
     sha = git("rev-parse", "HEAD")
     dirty = git("status", "--porcelain")
@@ -86,8 +97,13 @@ def source_guard() -> dict:
     if sha == PARENT_SOURCE:
         raise RuntimeError("Study must not overwrite its immutable training ancestor")
     evidence = git_provenance()
-    if evidence.get("dirty") or evidence.get("commit") != sha:
-        raise RuntimeError("Inconsistent source provenance")
+    if (not evidence.get("available") or evidence.get("dirty") or
+        evidence.get("commit") != sha or evidence.get("branch") != branch):
+        raise RuntimeError(
+            f"Git provenance mismatch: checkout {branch}@{sha[:12]}, "
+            f"loaded emu {evidence.get('branch')}@"
+            f"{str(evidence.get('commit',''))[:12]} "
+            f"available={evidence.get('available')} dirty={evidence.get('dirty')}")
     return evidence
 
 
