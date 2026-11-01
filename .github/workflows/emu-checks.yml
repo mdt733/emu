@@ -204,6 +204,42 @@ jobs:
       - name: Four genuine physical lips, 360 sensor rays and sequential PPO state smoke
         run: timeout 420s python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3 --ppo --events --sensor-foresight
 
+  # A successful training smoke does NOT prove the independent frozen
+  # course examiner can trace a real actor and produce honest evidence.
+  academy-exam-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install independent MJX examiner dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Trace immutable public actor across real four-lip platform matrix
+        run: |
+          timeout 680s python scripts/exam_step_course.py \
+            --policy showcase/champion.emupolicy \
+            --output "$RUNNER_TEMP/academy-frozen-exam" \
+            --worlds 4 --horizon 200 --speed .16 --seed 1701 \
+            --device cpu --heights-cm 1.0
+      - name: Verify per-world signed physical exam artifact
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=Path(os.environ['RUNNER_TEMP'])/'academy-frozen-exam'
+          p=json.loads((d/'academy_exam.json').read_text())
+          assert p['schema']=='emu_step_academy_frozen_physical_v1'
+          assert p['protocol']['no_training'] and p['protocol']['actual_collision']
+          assert len(p['results'])==1
+          assert len(p['results'][0]['worlds'])==4
+          assert all(len(w['signed_lip_heights_cm'])==4 for w in p['results'][0]['worlds'])
+          assert (d/'academy_exam.md').is_file()
+          print("Independent 4-lip physical exam artifact PASS")
+          PY
+
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
