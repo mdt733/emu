@@ -1350,7 +1350,7 @@ class EmuMJXEnv(TaskSampler):
                  academy_step_speed_span: float = 0.0,
                  academy_course_lips: int = 0,
                  academy_height_cap_m: float = 0.040,
-                 academy_course_episode_frames: int = 1000):
+                 academy_course_episode_frames: int = 1200):
         import jax
         import jax.numpy as jnp
         import mujoco
