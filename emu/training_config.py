@@ -196,6 +196,20 @@ class TrainingConfig:
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
     verified_ascent_reallocation: float = 0.0  # v5031 C: transfer 0..4 from existing ascent shaping
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
+    # Post-Pinnacle science switches: default values reproduce the released 260M source.
+    science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
+    science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
+    science_step_min_attempts: int = 4     # per direction / near or easy
+    science_step_crouch_tolerance_m: float = 0.0  # gated reward, no physics changes
+    science_reset_step_evidence_on_fork: bool = False
+    # Step Academy stage A: single-lip, fixed-topology specialist exposure.
+    # Zero values preserve the source-pinned v5033 learning distribution.
+    academy_step_focus_share: float = 0.0  # 0=unchanged; >0 portion of focused births
+    academy_step_exposure: float = 0.0  # 0=original exposure, >0 probability for STEP cohorts
+    academy_edge_yaw_max_deg: float = -1.0  # -1=original ~20deg, 0..5=small obliqueness
+    academy_step_height_cap_m: float = 0.0  # 0=original frontier, otherwise cap STEP lip
+    academy_episode_frames: int = 0  # 0=700 frames, otherwise 200..700 per episode
+    academy_step_speed_span: float = 0.0  # 0=0.10..0.22, otherwise ±m/s variation
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -255,7 +269,13 @@ class TrainingConfig:
                     'velocity_i_ramp_s', 'velocity_i_multiplier',
                     'growth_recipe', 'retention_share', 'terrain_lesson',
                     'force_program', 'temporal_vx_reward_share',
-                     'verified_ascent_reallocation'}
+                     'verified_ascent_reallocation',
+                      'science_step_promotion_mm','science_step_retreat_mm',
+                      'science_step_min_attempts','science_step_crouch_tolerance_m',
+                      'science_reset_step_evidence_on_fork',
+                      'academy_step_focus_share','academy_step_exposure',
+                      'academy_edge_yaw_max_deg','academy_step_height_cap_m',
+                      'academy_episode_frames','academy_step_speed_span'}
         missing, extra = expected - set(data), set(data) - expected
         if extra or (missing - optional):
             raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")

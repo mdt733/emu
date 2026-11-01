@@ -52,7 +52,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None):
+def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0, motor_guidance_per_world=None, careful_step=None, temporal_vx=None, science_crouch_tolerance_m=0.0, careful_crouch=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -64,12 +64,17 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     is_transition = jnp.logical_and(regime > 0.5, regime < 1.5).astype(jnp.float32)
     is_resilience = (regime > 1.5).astype(jnp.float32)
     valid_alive = 1.0 - m['terminal']
+    # Reward only. Physical fall/contact gates never change. The caller
+    # gates this to a real, supported uphill lip for <=120 control frames.
+    crouch_allowance = (science_crouch_tolerance_m *
+                         jnp.asarray(careful_crouch, dtype=jnp.float32)
+                         if careful_crouch is not None else 0.0)
 
     command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
         careful_step=careful_step, temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, attitude_profile, jnp)
+        m, attitude_profile, jnp, crouch_allowance=crouch_allowance)
     locomotion_maturity, stepping_gate = _gait_maturity(m, jnp)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
@@ -83,7 +88,7 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     # Locomotion depends on real movement, body support and maturity.
     locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * (0.30 + 0.70 * m['foot_mid_cone'])
     if attitude_profile == 'v5015':
-        remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
+        remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 - crouch_allowance -
                                 0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
         locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
     # Simulated actuator output is not verified motor current or electrical
@@ -208,7 +213,7 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, careful_step=None
     return command_tracking
 
 
-def _physical_qualities(m, attitude_profile, jnp):
+def _physical_qualities(m, attitude_profile, jnp, *, crouch_allowance=0.0):
     """Measure posture, supported feet, slip, movement shape and joint safety."""
     upright = jnp.clip((m['gravity_z'] - 0.35) / 0.65, 0.0, 1.0)
     height = jnp.exp(-80.0 * (m['height'] - m['target_height']) ** 2)
@@ -216,7 +221,7 @@ def _physical_qualities(m, attitude_profile, jnp):
     if attitude_profile == 'v5015':
         # Require requested chassis pitch AND healthy gait height.
         pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
-        height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
+        height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance - crouch_allowance)
         height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
         upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
     else:
