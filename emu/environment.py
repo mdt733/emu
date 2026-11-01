@@ -2763,6 +2763,70 @@ class EmuMJXEnv(TaskSampler):
                 jnp.where(step_active & down,height*normal[:,2],0.))
         )
 
+    def _academy_course(self, data, keys, params, focus_id,
+                        specialist_active, athletic_rehearsal, birth_root_z):
+        """Install four REAL signed step lips at episode birth, no model rebuild.
+
+        The first/final slabs are the existing unified floor/upper colliders;
+        three additional 0.5m platforms connect them into four consecutive
+        lips. The per-world course is sampled only for selected STEP births.
+        Other worlds retain *exactly* their existing two-slab collision
+        poses and actual 16-ray terrain measurements.
+        """
+        jnp,jax=self.jnp,self.jax
+        zeros=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        if not self.academy_course_lips:
+            return data,zeros
+        def sample(key):
+            return jax.random.uniform(
+                jax.random.fold_in(key,5040),(6,),dtype=jnp.float32)
+        u=jax.vmap(sample)(keys)
+        active=(specialist_active & (focus_id==STEP) &
+                (athletic_rehearsal<.5) &
+                (u[:,0]<params[P.academy_episode_probability]) &
+                (params[P.terrain_height_m]>.0001))
+        max_angle=(self.academy_edge_yaw_max_deg if
+                   self.academy_edge_yaw_max_deg>=0. else 3.)
+        yaw=(u[:,5]*2.-1.)*jnp.deg2rad(max_angle)
+        fixed=params[P.terrain_edge_angle_deg]
+        yaw=jnp.where(jnp.isfinite(fixed),jnp.deg2rad(fixed),yaw)
+        ca,sa=jnp.cos(yaw),jnp.sin(yaw)
+        q=jnp.stack((jnp.cos(yaw/2),jnp.zeros_like(yaw),
+                     jnp.zeros_like(yaw),jnp.sin(yaw/2)),axis=1)
+        severity=jnp.minimum(self.academy_height_cap_m,
+                             jnp.maximum(.003,params[P.terrain_height_m]))
+        h=course_heights(jnp,self.env_index,u[:,1:5],severity)
+        L=UNIFIED_SLAB_HALF_LENGTH_M
+        xs=(ACADEMY_EDGE_X_M-L,
+            *(ACADEMY_EDGE_X_M+(i+.5)*ACADEMY_INTERVAL_M
+              for i in range(ACADEMY_LIPS-1)),
+            ACADEMY_EDGE_X_M+(ACADEMY_LIPS-1)*ACADEMY_INTERVAL_M+L)
+        mocaps=(self.unified_ground_mocap_id,
+                *self.academy_mid_mocap_ids,self.terrain_step_mocap_id)
+        pos=data.mocap_pos
+        quat=data.mocap_quat
+        for i,(x,mocap_id) in enumerate(zip(xs,mocaps)):
+            centre=jnp.stack((x*ca,x*sa,
+                              h[:,i]-UNIFIED_SLAB_HALF_DEPTH_M),axis=1)
+            if i in (0,ACADEMY_LIPS):
+                centre=jnp.where(active[:,None],centre,pos[:,mocap_id,:])
+                new_q=jnp.where(active[:,None],q,quat[:,mocap_id,:])
+            else:
+                # No phantom steps/rays/contact on generalist worlds.
+                buried=jnp.asarray((0.,0.,-2.-i*.3),dtype=jnp.float32)
+                centre=jnp.where(active[:,None],centre,buried)
+                identity=jnp.asarray((1.,0.,0.,0.),dtype=jnp.float32)
+                new_q=jnp.where(active[:,None],q,identity)
+            pos=pos.at[:,mocap_id,:].set(centre)
+            quat=quat.at[:,mocap_id,:].set(new_q)
+        # The old two-slab reset may have raised alternate down-world roots.
+        # Re-base selected Academy births to the actual FIRST platform
+        # rather than accumulating that unrelated one-lip displacement.
+        root_z=jnp.where(active,birth_root_z+h[:,0],data.qpos[:,2])
+        data=data.replace(mocap_pos=pos,mocap_quat=quat,
+                          qpos=data.qpos.at[:,2].set(root_z))
+        return data,active
+
     def _episode_terrain(self, data, keys, params,
                          focus_id=None, specialist_active=None,
                          athletic_rehearsal=None):
@@ -2864,10 +2928,14 @@ class EmuMJXEnv(TaskSampler):
         )
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
+        birth_root_z=data.qpos[:,2]
         data = self._episode_terrain(
             data, keys, params, focus_id, specialist_active,
             task[:,T.athletic_rehearsal] if self.unified_capability_focus
             else None)
+        data,academy_active=self._academy_course(
+            data,keys,params,focus_id,specialist_active,
+            task[:,T.athletic_rehearsal],birth_root_z)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
