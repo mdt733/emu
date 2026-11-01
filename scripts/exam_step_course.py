@@ -13,8 +13,8 @@ def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
             device="cpu",heights_cm=(1.,2.,3.)):
     if (worlds<4 or worlds>32 or worlds%4 or horizon<200 or horizon>700 or
         speed<.04 or speed>.30 or not heights_cm or
-        any(h<=0 or h>4 for h in heights_cm)):
-        raise ValueError("Need 4..32 worlds in groups of 4, 200..700 frames, 0.04..0.30m/s, 0..4cm")
+        any(h<.2 or h>4 for h in heights_cm)):
+        raise ValueError("Need 4..32 worlds in groups of 4, 200..700 frames, 0.04..0.30m/s, 0.2..4cm")
     policy=Path(policy).expanduser().resolve()
     output=Path(output).expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
