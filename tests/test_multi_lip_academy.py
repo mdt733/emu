@@ -163,3 +163,30 @@ def test_academy_governor_rollback_exact_and_off_means_no_effect():
     legacy=RegimeGovernor(unified_capability_focus=True)
     legacy.load_state_dict(old)
     assert legacy.params.academy_height_m==pytest.approx(.003)
+
+
+def test_a_sphere_grazing_a_vertical_step_wall_is_not_a_supported_foothold():
+    from emu.directional import supported_top_foot_contacts
+    geom1=np.asarray([[11,11]])
+    geom2=np.asarray([[22,23]])
+    dist=np.asarray([[0.,0.]])
+    frame=np.zeros((1,2,3,3),dtype=float)
+    frame[0,0,0,:]=[0.,0.,1.]  # real top contact, upward normal
+    frame[0,1,0,:]=[1.,0.,0.]  # vertical side grazing, NO upper support
+    pairs=supported_top_foot_contacts(
+        np,geom1,geom2,dist,frame,11,(22,23),
+        np.asarray([.25]),np.asarray([[.25,.25]]))
+    assert pairs.tolist()==[[True,False]]
+    # A foot alongside the wall, even with an upward normal, cannot be
+    # counted unless its sphere actually rests at the upper surface.
+    frame[0,1,0,:]=[0.,0.,-1.]
+    low=supported_top_foot_contacts(
+        np,geom1,geom2,dist,frame,11,(22,23),
+        np.asarray([.25]),np.asarray([[.25,.22]]))
+    assert low.tolist()==[[True,False]]
+    # MuJoCo swaps contact normal sign if geom pair ordering reverses.
+    frame[0,0,0,:]=[0.,0.,-1.]
+    reversed_pair=supported_top_foot_contacts(
+        np,geom1,geom2,dist,frame,11,(22,23),
+        np.asarray([.25]),np.asarray([[.25,.25]]))
+    assert reversed_pair.tolist()==[[True,True]]
