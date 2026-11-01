@@ -74,4 +74,73 @@ def test_scheduler_cold_start_growth_and_retention():
 def test_teacher_only_packet_extends_indexes_without_moving_old_fields():
     assert P.steering_attention==TERRAIN_TASK_PARAM_DIM+14
     assert P.academy_episode_probability==TERRAIN_TASK_PARAM_DIM+15
-    assert UNIFIED_TERRAIN_FIELDS[-1]==("academy_episode_probability",0.)
+    assert P.academy_height_m==TERRAIN_TASK_PARAM_DIM+16
+    assert UNIFIED_TERRAIN_FIELDS[-2]==("academy_episode_probability",0.)
+    assert UNIFIED_TERRAIN_FIELDS[-1]==("academy_height_m",0.003)
+
+
+def test_academy_promotes_only_at_signed_approached_near_height():
+    from emu.curriculum import RegimeGovernor
+    g=RegimeGovernor(unified_capability_focus=True)
+    initial=g.params.terrain_height_m
+    good={'academy_active_fraction':0.5,
+          'academy_near_attempts_up':16.,'academy_near_successes_up':12.}
+    # A brilliant uphill staircase alone is no reason to increase downhill.
+    assert g.advance_academy(good,max_height_m=.04,enabled=True) == (
+        'academy_collect_real_lips')
+    assert g.params.academy_height_m==pytest.approx(.003)
+    down={'academy_active_fraction':0.5,
+          'academy_near_attempts_down':16.,'academy_near_successes_down':10.}
+    assert g.advance_academy(down,max_height_m=.04,enabled=True) == (
+        'academy_height_expand_real_four_lips')
+    assert g.params.academy_height_m==pytest.approx(.0035)
+    assert g.params.terrain_height_m==initial, 'Old single-lip frontier must remain independent'
+    # No stale evidence from the lower 3mm stair can promote the new 3.5mm one.
+    assert all(v==0 for v in g.academy_evidence.values())
+
+
+def test_academy_retreat_on_failed_easy_but_not_hard_frontier():
+    from emu.curriculum import RegimeGovernor
+    g=RegimeGovernor(unified_capability_focus=True)
+    g.params.academy_height_m=.012
+    hard={'academy_active_fraction':.5,
+          'academy_near_attempts_up':12.,'academy_near_successes_up':1.,
+          'academy_near_attempts_down':12.,'academy_near_successes_down':8.}
+    assert g.advance_academy(hard,max_height_m=.04,enabled=True)==(
+        'academy_hold_near_support_learning')
+    assert g.params.academy_height_m==pytest.approx(.012)
+    easy={'academy_active_fraction':.5,
+          'academy_easy_attempts_up':12.,'academy_easy_successes_up':1.}
+    assert g.advance_academy(easy,max_height_m=.04,enabled=True)==(
+        'academy_retreat_failed_easy_support')
+    assert g.params.academy_height_m==pytest.approx(.0115)
+    assert all(v==0 for v in g.academy_evidence.values())
+
+
+def test_academy_governor_rollback_exact_and_off_means_no_effect():
+    from emu.curriculum import RegimeGovernor
+    g=RegimeGovernor(unified_capability_focus=True)
+    partial={'academy_active_fraction':.3,
+             'academy_near_attempts_up':4.,
+             'academy_near_successes_up':2.}
+    assert g.advance_academy(partial,max_height_m=.04,enabled=True)==(
+        'academy_collect_real_lips')
+    saved=g.state_dict()
+    restored=RegimeGovernor(unified_capability_focus=True)
+    restored.load_state_dict(saved)
+    assert restored.state_dict()==saved
+    assert restored.advance_academy(
+        {'academy_active_fraction':.5,
+         'academy_near_attempts_up':50.,
+         'academy_near_successes_up':50.},
+        max_height_m=.04,enabled=False)=='academy_disabled'
+    assert restored.state_dict()==saved
+    # Old saved unified checkpoints did not have the new school counters,
+    # and still deserve a validated backward-compatible explicit fork.
+    old=dict(saved)
+    old.pop('academy_evidence')
+    old['params']=dict(old['params'])
+    old['params'].pop('academy_height_m')
+    legacy=RegimeGovernor(unified_capability_focus=True)
+    legacy.load_state_dict(old)
+    assert legacy.params.academy_height_m==pytest.approx(.003)
