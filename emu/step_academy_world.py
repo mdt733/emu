@@ -8,7 +8,7 @@ three short intermediate platforms complete four successive sharp lips.
 from __future__ import annotations
 
 ACADEMY_LIPS = 4
-ACADEMY_INTERVAL_M = 0.50
+ACADEMY_INTERVAL_M = 0.35  # ~1.30 m final lip; traversable in standard 14 s bouts
 ACADEMY_EDGE_X_M = 0.25
 ACADEMY_MIDDLE_HALF_LENGTH_M = ACADEMY_INTERVAL_M / 2
 ACADEMY_MIDDLE_HALF_WIDTH_M = 16.0
