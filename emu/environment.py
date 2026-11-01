@@ -1935,6 +1935,18 @@ class EmuMJXEnv(TaskSampler):
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
         academy=self._academy_events(state,data,metrics,done)
+        # A separate physical Academy ceiling has its OWN verified frontier.
+        # A failed approach and the matched success are both scored at the
+        # physical height of this lip, NEVER by an arbitrary old STEP world.
+        academy_ref=jnp.where(
+            jnp.isfinite(params[P.terrain_fixed_height_m]),
+            params[P.terrain_fixed_height_m],params[P.academy_height_m])
+        academy_relative_height=(jnp.abs(academy['height_m']) /
+                                 jnp.maximum(academy_ref,.001))
+        academy_near=((academy_relative_height>=.78) &
+                      (academy_relative_height<=1.05))
+        academy_easy=((academy_relative_height>=.36) &
+                      (academy_relative_height<.68))
         # Academy final-slab contact is not an extra old one-lip completion.
         terrain_active=terrain_active & ~state.academy_active
         terrain_cross_new=terrain_crossed & ~state.terrain_crossed & terrain_active
@@ -2195,6 +2207,18 @@ class EmuMJXEnv(TaskSampler):
                 (state.academy_lip_index<ACADEMY_LIPS)
             ).astype(jnp.float32),
             'academy_cross_up':academy['up_new'].astype(jnp.float32),
+            'academy_lip_attempt_new':academy['attempt_new'].astype(jnp.float32),
+            **{f'academy_{band}_{outcome}_{direction}':
+                (band_mask & verdict &
+                 direction_mask).astype(jnp.float32)
+                for band,band_mask in (('near',academy_near),
+                                       ('easy',academy_easy))
+                for outcome,verdict in (
+                    ('attempts',academy['attempt_new']),
+                    ('successes',academy['cross_new']))
+                for direction,direction_mask in (
+                    ('up',academy['height_m']>.001),
+                    ('down',academy['height_m']<-.001))},
             'academy_cross_down':academy['down_new'].astype(jnp.float32),
             'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
