@@ -393,6 +393,51 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
 }
+// Roaming waypoints are location gates, not precision-parking tasks.
+// A crossing is accepted in a measured corridor around the marker even if
+// the robot's chassis heading/stride speed temporarily differs from plan.
+// Only the held-out benchmark requires accurate heading and a full stop.
+export function reachedRoamingWaypoint(pose,goal,route){
+  if(!goal||!route)return false;
+  const d=distance(pose,goal);
+  if(d<=.25)return true;
+  if(d>.37||!route.flythrough)return false;
+  // A fast walker may step from one side of the circle to the other
+  // between 10 Hz navigator updates. Detect having crossed the final
+  // segment's plane, but never accept a wide lateral miss.
+  const steps=(route.steps||[]).filter(step=>!step.final);
+  if(!steps.length)return false;
+  const last=steps.at(-1);
+  const prior=steps.at(-2)||route.start;
+  if(!prior)return false;
+  const dx=last.x-prior.x,dy=last.y-prior.y;
+  const length=Math.hypot(dx,dy);
+  if(length<.035)return false;
+  const tx=dx/length,ty=dy/length;
+  const ex=pose.x-goal.x,ey=pose.y-goal.y;
+  const passed=tx*ex+ty*ey;
+  const lateral=Math.abs(tx*ey-ty*ex);
+  return passed>=-.015&&passed<.35&&lateral<.22;
+}
+
+// Finish an exhibition route by intercepting the marker in front of the
+// chassis. Unlike precise parking, this never requests reversing into a
+// waypoint, and it leaves actuator/gait stabilisation to the learned policy.
+export function forwardWaypointApproach(pose,goal,limits){
+  const dx=goal.x-pose.x,dy=goal.y-pose.y;
+  const d=Math.hypot(dx,dy);
+  const bearing=Math.atan2(dy,dx);
+  const err=angleError(bearing,pose.heading);
+  const yaw=clamp(1.25*err-.25*(pose.yawRate||0),
+    -Math.max(.1,limits.yaw_abs||0)*.68,
+    Math.max(.1,limits.yaw_abs||0)*.68);
+  const speed=clamp(.80*d,.12,Math.min(.34,limits.vx_max*.60));
+  const vx=clamp(speed*Math.max(0,Math.cos(err)),0,limits.vx_max*.60);
+  const vy=clamp(speed*Math.sin(err)*.55,
+    -(limits.vy_abs||0)*.65,(limits.vy_abs||0)*.65);
+  return {vx,vy,yaw,pitch:0};
+}
+
 export class GoalNavigator {
   constructor(seed=5017){
     this.rng=makeRng(seed);this.active=false;
@@ -657,7 +702,7 @@ export class GoalNavigator {
         apply({vx:0,vy:0,yaw:0,pitch:0});return;
       }
     }
-    if(!this.benchmark&&!this.following&&this.route?.flythrough)
+    if(!this.benchmark&&!this.following)
       this.prefetchUpcoming(limits,trees);
     this.elapsed+=delta;
     const deadline=clamp(this.route.estimatedSeconds*4.5+16,30,105);
@@ -673,22 +718,30 @@ export class GoalNavigator {
     let dist=distance(pose,this.goal);
     let aerr=Math.abs(angleError(this.goal.heading,pose.heading));
     const speed=Math.hypot(pose.vx||0,pose.vy||0);
-    // A normal destination is a checkpoint on a continuous walk, not a
-    // compulsory full stop. Exact-stop-and-face stays in benchmark mode.
-    if(!this.benchmark&&this.route.flythrough&&this.following&&
-       dist<.25&&aerr<.70){
-      const next=this.following;
+    // Roaming target = actual position gate, never speed/yaw/parking gates.
+    // Reuse the next route if preplanned; otherwise immediately request a
+    // fresh target without pivoting or reversing into the old marker.
+    if(!this.benchmark&&reachedRoamingWaypoint(pose,this.goal,this.route)){
       this.arrivals++;
-      this.acceptRoute(pose,next.goal,next.route,{newMission:true});
-      // The new goal's route was prepared before the previous crossing.
-      // Keep the gait's actual velocity and let the follower run this tick.
-      this.hint=next.hint||null;
-      this.prefetchUpcoming(limits,trees);
-      dist=distance(pose,this.goal);
-      aerr=Math.abs(angleError(this.goal.heading,pose.heading));
-      this.reason='Flowing through waypoint · next target underway';
+      if(this.following?.route?.solved){
+        const next=this.following;
+        this.acceptRoute(pose,next.goal,next.route,{newMission:true});
+        this.hint=next.hint||null;
+        this.prefetchUpcoming(limits,trees);
+        dist=distance(pose,this.goal);
+        aerr=Math.abs(angleError(this.goal.heading,pose.heading));
+      }else{
+        this.goal=null;this.route=null;this.path=null;
+        this.following=null;this.hint=null;
+        this.reason='Waypoint crossed · selecting next route';
+        this.predictor.issue({vx:0,vy:0,yaw:0,pitch:0});
+        apply({vx:0,vy:0,yaw:0,pitch:0});
+        this.nextGoal(pose,limits,trees);
+        return;
+      }
     }
-    if((this.benchmark||!this.following||!this.route.flythrough)&&
+    // Strict stops are ONLY for the fixed physical benchmark.
+    if(this.benchmark&&
        dist<GOAL_POSITION_TOLERANCE_M&&
        aerr<GOAL_HEADING_TOLERANCE_RAD&&speed<.23){
       this.arrivalHold+=delta;
@@ -723,14 +776,16 @@ export class GoalNavigator {
     // Ease into final pose correction rather than switching controllers
     // abruptly at a fixed distance. Preserve pivots and reverse cusps.
     const finished=this.runIndex>lastRun||lastRun<0;
-    const blending=!(this.route?.flythrough&&this.following)&&
+    const blending=Boolean(this.benchmark)&&
       !finished&&this.runIndex===lastRun&&
       result?.mode!=='pivot'&&dist<.60&&result.remaining<.60;
     const blend=blending?clamp((.60-dist)/.40,0,1)*
       clamp((.60-result.remaining)/.42,0,1):0;
     const finalApproach=finished||blending;
     const cruise=result?.command||{vx:0,vy:0,yaw:0,pitch:0};
-    const park=finished||blending?parkAtGoal(pose,this.goal,limits):null;
+    const park=finished||blending
+      ?this.benchmark?parkAtGoal(pose,this.goal,limits)
+        :forwardWaypointApproach(pose,this.goal,limits):null;
     let command=finished?park:!blending?cruise:
       Object.fromEntries(['vx','vy','yaw','pitch'].map(key=>[
         key,(1-blend)*(cruise[key]||0)+blend*(park[key]||0)]));
@@ -745,9 +800,22 @@ export class GoalNavigator {
     }
     this.predictor.issue(command);
     apply(command);
-    this.reason=finalApproach?'Final pose correction'
+    this.reason=finalApproach
+      ?this.benchmark?'Final pose correction':'Forward waypoint interception'
       :result?.mode==='pivot'?'Following planned pivot'
       :dist>1.1?'Following path':'Approaching goal';
+    // Independent arrival-progress watchdog. The former watchdog ignored
+    // final approach, pivots, and any drift greater than 9 cm, even if the
+    // distance to the goal never improved.
+    if(dist<this.closestGoalDistance-.035){
+      this.closestGoalDistance=dist;
+      this.goalNoProgress=0;
+      this.goalRecoveryAttempts=0;
+    }else if(dist<.85&&dist>.27){
+      this.goalNoProgress+=delta;
+    }else if(dist>=.85){
+      this.goalNoProgress=0;
+    }
     const progress=this.runIndex*10000+this.runProgress;
     if(!this.lastMovementPose||
        distance(pose,this.lastMovementPose)>.09){
@@ -779,12 +847,27 @@ export class GoalNavigator {
     if(side)this.crossSide=side;
     const offRoute=Math.abs(signedCross);
     // Compare with the line, NOT distance to a far-ahead lookahead target.
+    if(!this.benchmark&&this.goalNoProgress>8&&
+       this.goalRecoveryAttempts>=2){
+      // A target that repeatedly defeats physically observed progress is a
+      // missed waypoint, never permission to hang indefinitely or claim
+      // arrival. Move on to another feasible target.
+      this.failures++;
+      this.goal=null;this.route=null;this.path=null;this.following=null;
+      this.reason='Waypoint missed after repeated recovery · moving on';
+      this.predictor.issue({vx:0,vy:0,yaw:0,pitch:0});
+      apply({vx:0,vy:0,yaw:0,pitch:0});
+      this.nextGoal(pose,limits,trees);
+      return;
+    }
     if(this.replanDelay>2.5&&!this.pendingRequest&&
        (offRoute>.67||!this.route.solved||
         (!finalApproach&&this.stagnant>3.2)||
         (dist>.34&&this.motionStall>2.4)||
-        (finalApproach&&dist>.33&&this.stagnant>4.5))){
+        (dist>.27&&this.goalNoProgress>2.4))){
       this.replanDelay=0;
+      if(!this.benchmark&&dist<.85&&this.goalNoProgress>2.4)
+        this.goalRecoveryAttempts++;
       if(this.requestPlan){
         const expectedGoal=this.goal;
         this.queuePlan({
@@ -836,6 +919,8 @@ export class GoalNavigator {
       prefetching:Boolean(this.prefetchPending),
       prefetchError:this.prefetchError,
       motionStall:this.motionStall,
+      goalNoProgress:this.goalNoProgress,
+      goalRecoveryAttempts:this.goalRecoveryAttempts,
       predictionFallback:Boolean(this.predictor.fallback),
       flythrough:Boolean(this.route?.flythrough),
       benchmark:this.benchmark?{
