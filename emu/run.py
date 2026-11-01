@@ -126,11 +126,13 @@ def one_run_config(args) -> TrainingConfig:
     intro_share=float(getattr(args,'academy_intro_share',.10))
     academy_share=float(getattr(args,'academy_max_share',.50))
     height_cap=float(getattr(args,'academy_height_cap_m',.040))
+    course_frames=int(getattr(args,'academy_course_episode_frames',1000))
     if (course_lips not in (0,4) or
         (course_lips and not (unified and terrain_actor)) or
         intro<0 or start<intro or ramp<=0 or
         not (0.<=intro_share<=academy_share<=.85) or
-        not math.isfinite(height_cap) or not .003<=height_cap<=.04):
+        not math.isfinite(height_cap) or not .003<=height_cap<=.04 or
+        not 700<=course_frames<=1500):
         raise ValueError('four-lip Academy requires unified terrain_360 and a valid age/share/height contract')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
@@ -146,6 +148,7 @@ def one_run_config(args) -> TrainingConfig:
                    academy_ramp_steps=ramp,academy_intro_share=intro_share,
                    academy_max_share=academy_share,
                    academy_height_cap_m=height_cap,
+                   academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    fixed_eval_every_steps=fixed_eval_every_steps,
