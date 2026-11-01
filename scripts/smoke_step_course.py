@@ -204,6 +204,23 @@ def main():
             raise RuntimeError("nonfinite observation during Academy real physics")
         print("MJX frame",i+1,"reward",float(jnp.mean(result.reward)),flush=True)
     if args.events:
+        # Genuine uphill Academy lips, not unrelated downhill or generalist
+        # worlds, receive the bounded 120-frame crouch/careful approach.
+        course_axis=state.data.geom_xmat[:,int(ids[0]),:].reshape(
+            args.worlds,3,3)[:,:,0]
+        first_x=ACADEMY_EDGE_X_M-.05
+        before_q=state.data.qpos.at[:,:2].set(
+            course_axis[:,:2]*first_x)
+        before=env.forward_batched(env.mjx_model,
+                                  state.data.replace(qpos=before_q))
+        relief=np.asarray(jax.device_get(
+            env._academy_care_window(state,before)))
+        expect=np.asarray([i%4 in (0,1) for i in range(args.worlds)])
+        if not np.array_equal(relief,expect):
+            raise RuntimeError(f"Academy per-lip careful window "
+                               f"not uphill-only: {relief} vs {expect}")
+        print("Academy UPHILL CAREFUL GATE PASS: legitimate ascent "
+              "approaches only, no downhill relief",flush=True)
         # Controller-independent evidence test: position the ACTUAL robot
         # with REAL foot contact on four sequential platforms. This is not
         # a learning claim. It validates that the physical ledger advances
