@@ -299,7 +299,7 @@ def main(argv=None) -> int:
                    help='world-step duration for smooth Academy ramp')
     q.add_argument('--academy-max-share',type=float,default=.50,
                    help='fraction of ALL new episode births (not PPO steps) at full ramp')
-    q.add_argument('--academy-height-cap-m',type=float,default=.020,
+    q.add_argument('--academy-height-cap-m',type=float,default=.040,
                    help='maximum individual lip height in multi-step courses')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--research-parent-source',default='',
