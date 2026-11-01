@@ -82,6 +82,13 @@ def git(*args: str) -> str:
 
 
 def source_guard() -> dict:
+    # run_training starts "python -c ..." in the caller's working directory.
+    # Require that directory to be this checkout so the PPO subprocess uses
+    # the exact same physical simulator as source-pinned preflight.
+    if Path.cwd().resolve() != REPO:
+        raise RuntimeError(
+            f"Run Academy from its source checkout: cd {REPO}; "
+            f"current directory is {Path.cwd().resolve()}")
     from emu import contracts
     from emu.checkpoint_io import git_provenance
     loaded = Path(contracts.__file__).resolve().parents[1]
