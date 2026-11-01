@@ -18,6 +18,8 @@ def main():
     parser.add_argument("--device",choices=("cpu","gpu","cuda"),default="cpu")
     parser.add_argument("--ppo",action="store_true",
                         help="also run one real 360-input PPO gradient, never save weights")
+    parser.add_argument("--events",action="store_true",
+                        help="prove each of four real supported contacts is scored once")
     parser.add_argument("--full-update",action="store_true",
                         help="production 2048x32 PPO gradient and memory preflight; no training saved")
     args=parser.parse_args()
@@ -26,6 +28,8 @@ def main():
     if args.full_update and (args.worlds!=2048 or not args.ppo or
                              args.device not in ("gpu","cuda")):
         parser.error("--full-update requires GPU, --worlds 2048 and --ppo")
+    if args.events and args.worlds>32:
+        parser.error("--events is a small-world physical state-machine check, not a full batch")
     import os
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
@@ -139,6 +143,89 @@ def main():
         if not np.isfinite(np.asarray(jax.device_get(result.obs))).all():
             raise RuntimeError("nonfinite observation during Academy real physics")
         print("MJX frame",i+1,"reward",float(jnp.mean(result.reward)),flush=True)
+    if args.events:
+        # Controller-independent evidence test: position the ACTUAL robot
+        # with REAL foot contact on four sequential platforms. This is not
+        # a learning claim. It validates that the physical ledger advances
+        # from lip 1 through 4, signs each as up/down and cannot farm an
+        # already completed course. Nothing is written to checkpoints.
+        evidence_state=state._replace(
+            data=state.data,
+            academy_lip_index=jnp.zeros_like(state.academy_lip_index),
+            academy_streak=jnp.zeros_like(state.academy_streak),
+            academy_crossings=jnp.zeros_like(state.academy_crossings),
+            academy_up_crossings=jnp.zeros_like(state.academy_up_crossings),
+            academy_down_crossings=jnp.zeros_like(state.academy_down_crossings),
+            academy_clearance_seen=jnp.zeros_like(state.academy_clearance_seen),
+            academy_foothold_seen=jnp.zeros_like(state.academy_foothold_seen),
+            academy_transfer_seen=jnp.zeros_like(state.academy_transfer_seen))
+        foot_geoms=tuple(int(x) for x in env.ids['foot_geoms'])
+        for lip_i in range(4):
+            target_geom=int(ids[lip_i+1])
+            R=jnp.asarray(evidence_state.data.geom_xmat[:,int(ids[0]),:]).reshape(
+                args.worlds,3,3)
+            along=R[:,:,0]
+            edge=ACADEMY_EDGE_X_M+lip_i*ACADEMY_INTERVAL_M
+            xy=along[:,:2]*(edge+0.5*ACADEMY_INTERVAL_M)
+            target_top=evidence_state.data.geom_xpos[:,target_geom,2]+float(
+                m.geom_size[target_geom,2])
+            selected=None
+            for offset in (-.005,-.018,-.030,-.044):
+                qpos=(evidence_state.data.qpos.at[:,0:2].set(xy)
+                    .at[:,2].set(target_top+NEUTRAL_ROOT_Z+offset))
+                candidate=env.forward_batched(env.mjx_model,
+                    evidence_state.data.replace(qpos=qpos))
+                collision=getattr(candidate,'_impl',candidate).contact
+                pairs=contact_pair_mask(jnp,collision.geom1,collision.geom2,
+                        collision.dist,target_geom,foot_geoms)
+                contact_ok=jnp.any(pairs,axis=1)
+                if selected is None:
+                    selected=(qpos,contact_ok)
+                else:
+                    chosen,has=selected
+                    selected=(jnp.where((~has&contact_ok)[:,None],qpos,chosen),
+                              has|contact_ok)
+            chosen,has=selected
+            if not bool(jax.device_get(jnp.all(has))):
+                raise RuntimeError(f"lip {lip_i} target cannot physically support every real foot")
+            placed=env.forward_batched(env.mjx_model,
+                evidence_state.data.replace(qpos=chosen))
+            evidence_state=evidence_state._replace(data=placed)
+            zero=jnp.zeros((args.worlds,),dtype=jnp.float32)
+            physical=dict(bad_contact=zero,terminal=zero,
+                          support=jnp.ones_like(zero))
+            for frame in range(5):
+                ev=env._academy_events(evidence_state,placed,physical)
+                evidence_state=evidence_state._replace(
+                    academy_lip_index=ev['lip_index'],
+                    academy_streak=ev['streak'],
+                    academy_crossings=ev['crossings'],
+                    academy_up_crossings=ev['up_count'],
+                    academy_down_crossings=ev['down_count'],
+                    academy_clearance_seen=ev['clearance_seen'],
+                    academy_foothold_seen=ev['foothold_seen'],
+                    academy_transfer_seen=ev['transfer_seen'])
+                now=jax.device_get(ev['cross_new'])
+                if frame<4 and bool(np.any(now)):
+                    raise RuntimeError(f"lip {lip_i} scored without five physical support frames")
+            if not bool(jax.device_get(jnp.all(ev['cross_new']))):
+                raise RuntimeError(f"lip {lip_i} not credited after five supported frames")
+            if not bool(jax.device_get(jnp.all(
+                    evidence_state.academy_lip_index==lip_i+1))):
+                raise RuntimeError(f"lip {lip_i} index failed to advance")
+        if not bool(jax.device_get(jnp.all(evidence_state.academy_crossings==4))):
+            raise RuntimeError("four real lip contacts were not counted independently")
+        if not bool(jax.device_get(jnp.all(evidence_state.academy_up_crossings==2))):
+            raise RuntimeError("uphill lip direction evidence was incorrect")
+        if not bool(jax.device_get(jnp.all(evidence_state.academy_down_crossings==2))):
+            raise RuntimeError("downhill lip direction evidence was incorrect")
+        replay=env._academy_events(evidence_state,evidence_state.data,physical)
+        if bool(jax.device_get(jnp.any(replay['cross_new']))) or bool(
+                jax.device_get(jnp.any(replay['reward']>0))):
+            raise RuntimeError("finished four-lip course can farm repeated completion rewards")
+        print("Academy EVENT LEDGER PASS: 4 genuine support stages, "
+              "2 up/2 down, five-frame crossing guard, no repeat reward",
+              flush=True)
     if args.ppo:
         from emu.ppo import make_trainer
         trainer=make_trainer(env,seed=5040,lr=2e-4,
@@ -172,6 +259,7 @@ def main():
                           lips=4,obs_dim=360,physics_frames=args.frames,
                           ppo_gradient=bool(args.ppo),
                           production_batch=bool(args.full_update),
+                          per_lip_events=bool(args.events),
                           source="real MJX collision and actual ray-OBB surfaces")),flush=True)
     return 0
 
