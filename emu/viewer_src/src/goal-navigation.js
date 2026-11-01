@@ -275,6 +275,44 @@ function heuristic(p,goal,speeds){
   // Max rather than sum: walking and turning can happen together.
   return Math.max(d/Math.max(.05,speeds.fastest),da/Math.max(.1,speeds.w));
 }
+// The lattice ends in a tolerance disk, not at the target. For transit goals,
+// append an actual SE(2) command connecting its terminal pose to the marker.
+// This is NOT the old zero-command "final parking correction" masquerading
+// as a drivable line. The exact-twist primitive is collision-checked.
+export function flythroughConnector(from,goal,limits,trees=[],terrain=null){
+  const dx=goal.x-from.x,dy=goal.y-from.y;
+  const distanceToGoal=Math.hypot(dx,dy);
+  if(distanceToGoal<.025)return null;
+  const c=Math.cos(from.heading),s=Math.sin(from.heading);
+  const localX=c*dx+s*dy,localY=-s*dx+c*dy;
+  const angle=angleError(goal.heading,from.heading);
+  const sinc=Math.abs(angle)<1e-6?1:Math.sin(angle)/angle;
+  const vers=Math.abs(angle)<1e-6?0:(1-Math.cos(angle))/angle;
+  const denom=sinc*sinc+vers*vers;
+  if(denom<.15)return null;
+  // Inverse of the exact integrated body twist: required displacement at
+  // unit time, including simultaneous yaw and strafe.
+  const requiredX=(sinc*localX+vers*localY)/denom;
+  const requiredY=(-vers*localX+sinc*localY)/denom;
+  const f=Math.max(.01,Number(limits.vx_max)||0)*.66;
+  const b=Math.max(.01,-Number(limits.vx_min)||0)*.65;
+  const y=Math.max(.01,Number(limits.vy_abs)||0)*.75;
+  const yaw=Math.max(.01,Number(limits.yaw_abs)||0)*.72;
+  const dt=Math.max(.28,distanceToGoal/.43,
+    requiredX>=0?requiredX/f:-requiredX/b,
+    Math.abs(requiredY)/y,Math.abs(angle)/yaw);
+  // Avoid claiming a long, implausibly slow terminal shuffle is a smooth
+  // fly-through. Ordinary exact-pose parking remains the safe fallback.
+  if(dt>1.9)return null;
+  const command={vx:requiredX/dt,vy:requiredY/dt,yaw:angle/dt,pitch:0};
+  if(!segmentSafe(from,command,dt,trees,terrain))return null;
+  const predicted=integratePose(from,command,dt);
+  if(distance(predicted,goal)>.005 ||
+     Math.abs(angleError(goal.heading,predicted.heading))>.005)return null;
+  return {x:goal.x,y:goal.y,heading:goal.heading,cmd:command,
+    dt,maneuver:'flythrough',flythrough:true};
+}
+
 export function planPoseRoute(start,goal,limits,trees=[],options={}){
   if(![start.x,start.y,start.heading,goal.x,goal.y,goal.heading].every(Number.isFinite))
     throw new Error('Nonfinite navigation start/goal');
@@ -320,7 +358,10 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   // loop. Do not present an incomplete search as a solved fastest route.
   const solved=Boolean(winner);
   if(!solved&&!options.allowPartial)return null;
-  steps.push({x:goal.x,y:goal.y,heading:goal.heading,
+  const flythrough=solved&&options.passThrough
+    ?flythroughConnector(last,goal,limits,trees,terrain):null;
+  if(flythrough)steps.push(flythrough);
+  else steps.push({x:goal.x,y:goal.y,heading:goal.heading,
               cmd:{vx:0,vy:0,yaw:0,pitch:0},
               maneuver:'final parking correction',dt:0,final:true});
   const refined=refineRouteSteps(start,steps,limits,trees,terrain);
@@ -329,7 +370,7 @@ export function planPoseRoute(start,goal,limits,trees=[],options={}){
   const nominalTime=refined.reduce((seconds,p)=>seconds+(p.dt||0),0);
   return {start:{...start},steps:refined,
     estimatedSeconds:Math.max(last.g,nominalTime)+heuristic(last,goal,speed),
-    solved,expanded,
+    solved,expanded,flythrough:Boolean(flythrough),
     planner:terrain?'terrain-aware pose lattice':'pose lattice',
     refined:refined!==steps,
     modes:[...new Set(steps.map(x=>x.maneuver))]};
