@@ -86,7 +86,8 @@ def test_actual_viewer_live_endpoint_exposes_real_training_frontiers(tmp_path):
     root.mkdir()
     (root/"training_config.json").write_text(json.dumps({
         "seed":735, "observation_schema":"terrain_360",
-        "academy_stream":True}))
+        "terrain_carpet":True, "academy_stream":True,
+        "foundation_steps":20_000_000, "academy_intro_steps":60_000_000}))
     (root/"run_meta.json").write_text(json.dumps({
         "source_provenance":{"git_commit":"0123456789abcdef"}}))
     (root/"metrics.csv").write_text(
@@ -102,7 +103,9 @@ def test_actual_viewer_live_endpoint_exposes_real_training_frontiers(tmp_path):
     assert float(data["latest_metrics"]["slope_max_deg"])==8
     assert float(data["latest_metrics"]["academy_height_up_m"])==.022
     assert float(data["latest_metrics"]["academy_height_down_m"])==.035
-    assert "source training metrics" in data["physics_mode"]
+    assert "nine-solid-box trainer" in data["physics_mode"]
+    assert data["training_config"]["terrain_carpet"] is True
+    assert data["training_config"]["foundation_steps"]==20_000_000
 
 def test_mjx_frontier_bands_and_directional_step_limits():
     import jax.numpy as jnp
