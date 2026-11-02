@@ -363,17 +363,20 @@ def unseen_tile(xp,coords,visited):
 
 
 def note_confirmed_tile(xp,coords,visited,write,confirmed):
-    """Insert only a five-frame physically supported new tile transfer.
+    """Store each NEW five-frame supported GLOBAL tile exactly once.
 
-    This is teacher state, invisible to the actor. The ring is fixed size
-    per environment, so no recompilation or per-episode allocations.
+    Even when the caller supplies a physically confirmed *revisit*, never
+    consume a ring slot: otherwise repeated rocking displaces genuinely
+    new history and allows an older tile to be paid again prematurely.
+    Teacher-only per-world state; invisible to the actor.
     """
+    novel=confirmed & unseen_tile(xp,coords,visited)
     ix=xp.arange(coords.shape[0])
     slot=xp.mod(write,VISIT_HISTORY)
     before=visited[ix,slot,:]
     out=visited.at[ix,slot,:].set(
-        xp.where(confirmed[:,None],coords,before))
-    return out,write+confirmed.astype(xp.int32)
+        xp.where(novel[:,None],coords,before))
+    return out,write+novel.astype(xp.int32)
 
 def signed_height_over_support(xp,points,surface_heights):
     """Never let off-carpet -inf become +inf height/reward.
