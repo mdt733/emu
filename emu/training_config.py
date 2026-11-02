@@ -202,14 +202,6 @@ class TrainingConfig:
     science_step_min_attempts: int = 4     # per direction / near or easy
     science_step_crouch_tolerance_m: float = 0.0  # gated reward, no physics changes
     science_reset_step_evidence_on_fork: bool = False
-    # Step Academy stage A: single-lip, fixed-topology specialist exposure.
-    # Zero values preserve the source-pinned v5033 learning distribution.
-    academy_step_focus_share: float = 0.0  # 0=unchanged; >0 portion of focused births
-    academy_step_exposure: float = 0.0  # 0=original exposure, >0 probability for STEP cohorts
-    academy_edge_yaw_max_deg: float = -1.0  # -1=original ~20deg, 0..5=small obliqueness
-    academy_step_height_cap_m: float = 0.0  # 0=original frontier, otherwise cap STEP lip
-    academy_episode_frames: int = 0  # 0=700 frames, otherwise 200..700 per episode
-    academy_step_speed_span: float = 0.0  # 0=0.10..0.22, otherwise ±m/s variation
     # Native multi-lip teaching from scratch. Four-lip topology is fixed
     # at model construction; the share ramps via ordinary birth packets.
     academy_course_lips: int = 0  # opt-in: 0=original two slabs, 4=real consecutive lips
@@ -283,9 +275,6 @@ class TrainingConfig:
                       'science_step_promotion_mm','science_step_retreat_mm',
                       'science_step_min_attempts','science_step_crouch_tolerance_m',
                       'science_reset_step_evidence_on_fork',
-                      'academy_step_focus_share','academy_step_exposure',
-                      'academy_edge_yaw_max_deg','academy_step_height_cap_m',
-                      'academy_episode_frames','academy_step_speed_span',
                       'academy_course_lips','academy_intro_steps',
                       'academy_intro_share','academy_start_steps',
                       'academy_ramp_steps','academy_max_share',
