@@ -48,8 +48,11 @@ two possibly noncoplanar triangles, and its corners/edges can differ by
 millimetres from the analytic source. This difference, high-step
 clearances, 9-tile 3×3 recycling with actual biped feet, and the complete
 360-input sensor pipeline must pass dedicated collision and PPO tests.
-2048-world 8GB GPU memory/performance has **NOT** been verified; the
-140M run is therefore NOT authorised yet.
+The first 2048-world CUDA PPO acceptance **PASSED** on commit
+`c876240f935d1acc4346b229f84381286f314ace`, as documented below.
+Sustained training throughput and later-source GPU performance are not yet
+established; the 140M run therefore remains gated on the bounded lifecycle
+and physical exams.
 
 ## CPU source acceptance
 
@@ -96,6 +99,32 @@ If 2048 OOMs, rerun with 1024; NEVER report 1024 passing as a 2048
 pass. Do not begin a 140M run before this gate.
 Depending on CUDA kernel/XLA compilation, one first update can take
 much longer than steady-state steps.
+
+## Actual GPU acceptance result — 2 November 2026
+
+User-reported WSL CUDA test on RTX 4060 Ti 8 GB, using source SHA
+`c876240f935d1acc4346b229f84381286f314ace`:
+
+- `128` worlds, 2 physics frames + real PPO: **PASS**, 2.61 mm
+  sampled analytic/real collider surface difference.
+- `2048` worlds, 2 physics frames plus **32-frame rollout, 4 PPO
+  epochs, 8 minibatches**: **PASS**, 2.71 mm source/collider difference.
+- Nine real tilted solid boxes, 360-input finiteness and tile recycling
+  accepted; no error or OOM.
+- JAX GPU reported `peak_bytes_in_use=1075855360`,
+  `bytes_limit=6440353792`, `peak_pool_bytes=2149580800`.
+  These numbers are JAX allocator diagnostics, **not** total physical
+  system RAM use or a sustained-run measurement.
+- Optional `warp`/ `mujoco_warp` import warnings were nonfatal. A
+  CUDA timer accuracy warning did not stop PPO.
+
+**Source caveat:** this success predates subsequent guard/test improvements:
+PPO now explicitly requires a changed actor network, reports initial
+compilation-inclusive timing, and tile recycling protects spherical
+feet touching the actual tilted-box overhang. Do not describe the original
+GPU test as verification of those later changes. Rerun the 128 and 2048
+gates on the final source SHA after its CPU CI passes, then run the
+bounded checkpoint/export/resume lifecycle using that same frozen SHA.
 
 ## Then a bounded lifecycle check (new external run directory)
 
