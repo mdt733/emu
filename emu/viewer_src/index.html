@@ -16,6 +16,10 @@
       <div class="brand">
         <strong>EMU</strong><span id="modeLabel">policy playground</span>
       </div>
+      <nav class="world-switch" aria-label="Simulation world">
+        <button id="worldField" class="world-tab active" type="button" aria-pressed="true">🌿 Field</button>
+        <button id="worldCarpet" class="world-tab" type="button" aria-pressed="false">▦ Training Carpet</button>
+      </nav>
       <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
       <div class="top-actions">
         <label class="file-button">
@@ -47,9 +51,97 @@
 
 
 
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
+      <div class="drawer-heading"><div><b>EMU VIEWER</b><span>Two worlds · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
+      <section class="controls-panel">
+      <div class="control-row">
+        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
+        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
+        <label><input id="noiseToggle" type="checkbox" checked /> Sensor noise</label>
+        <label><input id="gridToggle" type="checkbox" checked /> Ground grid</label>
+        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
+        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
+        <select id="terrainMode" hidden aria-hidden="true"><option value="flat">Flat</option><option value="ramp">Ramp</option><option value="park" selected>Field</option><option value="carpet">Training Carpet</option><option value="sensor">Sensor lab</option></select>
+        <section id="fieldPanel" class="world-settings" aria-label="Natural field options">
+        <div class="world-settings-heading">🌿 Field <small>Grass, trees, rolling hills and optional real-collision course</small></div>
+        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
+        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
+        <label><input id="parkFeaturesToggle" type="checkbox" checked /> Park challenge course (real collisions)</label>
+        <label>Challenge difficulty <select id="parkChallengeLevel">
+          <option value="gentle">Gentle · 0.7–1.5 cm</option>
+          <option value="balanced" selected>Balanced · mostly 1–2.5 cm</option>
+          <option value="stretch">Stretch · up to 5 cm</option>
+        </select></label>
+        <div class="park-course-info">
+          <b>Course guide · numbered signs</b>
+          <ol id="parkCourseList"></ol>
+          <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
+        </div>
+        </section>
+        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
+          <div class="world-settings-heading">▦ Training Carpet <small>Nine recycled 50 cm solid tiles · genuine vertical step faces</small></div>
+          <small>This is one representative birth at the selected training limits—not a live replay of a particular GPU environment. Curriculum targets are not certified abilities.</small>
+          <label>Specialist <select id="carpetRole">
+            <option value="auto" selected>Auto · foundation → slopes → step Academy</option>
+            <option value="standing">Standing · flat foundation</option>
+            <option value="command">Commands · gentle terrain</option>
+            <option value="resilience">Resilience · real shove impulses</option>
+            <option value="slope">Slope · gradient transitions</option>
+            <option value="step">Steps · supported up/down lips</option>
+            <option value="transition">Transitions · changing ground</option>
+            <option value="control">Control · nearly flat</option>
+          </select></label>
+          <label class="viewer-row">Exercise <select id="carpetDrive">
+            <option value="lesson" selected>Run specialist commands</option>
+            <option value="manual">Manual joystick / WASD</option>
+          </select></label>
+          <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Match training frontiers (terrain, speeds, shoves)</label>
+          <div id="carpetChallengeCard" class="lesson-card" aria-live="polite">
+            <strong id="lessonName">Waiting for training</strong>
+            <span id="lessonDescription">Representative 3×3 specialist exercise</span>
+            <div class="lesson-metrics">
+              <span>Grade <b id="lessonSlope">—</b></span>
+              <span>Up / down <b id="lessonSteps">—</b></span>
+              <span>Forward <b id="lessonSpeed">—</b></span>
+              <span>Push limit <b id="lessonPush">—</b></span>
+            </div>
+            <div class="lesson-command">Viewer command: <b id="lessonCommand">—</b></div>
+          </div>
+          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Show and apply representative resilience shoves</label>
+          <button id="carpetTestShove" type="button">Test one shove →</button>
+          <div id="carpetShoveState" class="subtle">Shove visualisation applies real browser MuJoCo forces; timing is illustrative, not streamed from training.</div>
+          <details id="carpetManual" class="inspector-details" hidden>
+            <summary>Manual difficulty overrides</summary>
+            <label>Slope ° <input id="carpetManualSlope" type="number" min="0" max="20" step="0.5" value="5"/></label>
+            <label>Step up mm <input id="carpetManualUp" type="number" min="0" max="150" step="1" value="20"/></label>
+            <label>Step down mm <input id="carpetManualDown" type="number" min="0" max="150" step="1" value="20"/></label>
+            <label>Forward m/s <input id="carpetManualSpeed" type="number" min="0.02" max="1.5" step="0.05" value="0.2"/></label>
+            <label>Push N <input id="carpetManualPush" type="number" min="0" max="3" step="0.05" value="0.35"/></label>
+          </details>
+          <div class="carpet-values" id="carpetValues" aria-live="polite">No training metrics loaded · illustrative defaults</div>
+          <label class="carpet-file">Import metrics.csv, results_data.json or terrain snapshot
+            <input id="carpetImport" type="file" accept=".csv,.json,text/csv,application/json" />
+          </label>
+          <label><input id="carpetLive" type="checkbox" checked /> Read live curriculum metrics (every 5 s)</label>
+          <label><input id="carpetAutoApply" type="checkbox" checked /> Auto-refresh physical terrain when reported limits change (resets viewer robot only)</label>
+          <div class="carpet-actions">
+            <button id="carpetFetch" type="button">Refresh training values</button>
+            <button id="carpetApply" type="button">Apply terrain to robot viewer</button>
+          </div>
+          <small id="carpetStatus">Change a setting or import a training run. Applying difficulty reloads only the browser simulation, never training weights.</small>
+        </section>
+        <details class="inspector-details"><summary>Advanced steering &amp; presentation</summary>
+          <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
+          <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
+        </details>
+      </div>
+      </section>
+      <details id="sensorDetails" class="inspector-details sensor-details">
+        <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay &amp; laboratory</span></summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
-      <div class="depth-head"><b>FRONT DEPTH · 4×4</b><label><input id="depthOn" type="checkbox" checked /> On</label></div>
-      <div class="depth-sub">VL53L8CX · 65° diagonal · observer only</div>
+      <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
+      <div class="depth-sub">Diagnostic observer · not the neural actor's input and not another training mode</div>
       <label class="depth-row">Ground <select id="depthCourse">
         <option value="viewer" selected>Current viewer terrain</option>
         <option value="flat">Flat reference</option>
@@ -99,60 +191,8 @@
       <button id="depthCopy" class="depth-copy" type="button">Copy raw range + height + settings</button>
     </aside>
 
-    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
-    <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
-      <div class="drawer-heading"><div><b>VIEWER SETTINGS</b><span>World &amp; steering</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
-      <section class="controls-panel">
-      <div class="control-row">
-        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
-        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
-        <label><input id="noiseToggle" type="checkbox" checked /> Training-like sensor noise</label>
-        <label><input id="gridToggle" type="checkbox" checked /> 10 cm floor grid (over grass)</label>
-        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
-        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
-        <label>Terrain <select id="terrainMode"><option value="flat">Flat</option><option value="ramp">1° ramp</option><option value="park" selected>Radial terrain park</option><option value="carpet">Training Carpet · live difficulty</option><option value="sensor">Surface lab · slope / steps</option></select></label>
-        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
-        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
-        <label><input id="parkFeaturesToggle" type="checkbox" checked /> Park challenge course (real collisions)</label>
-        <label>Challenge difficulty <select id="parkChallengeLevel">
-          <option value="gentle">Gentle · 0.7–1.5 cm</option>
-          <option value="balanced" selected>Balanced · mostly 1–2.5 cm</option>
-          <option value="stretch">Stretch · up to 5 cm</option>
-        </select></label>
-        <div class="park-course-info">
-          <b>Course guide · numbered signs</b>
-          <ol id="parkCourseList"></ol>
-          <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
-        </div>
-        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
-          <b>TRAINING CARPET · CURRICULUM VIEW</b>
-          <small>Nine real 50cm tilted MuJoCo solid boxes recycle around EMU, with actual vertical step faces. Live difficulty follows the training metrics, but this is a representative world, not a replay of any particular random MJX training environment.</small>
-          <label>Specialist <select id="carpetRole">
-            <option value="auto" selected>Auto · foundation → slopes → step Academy</option>
-            <option value="standing">Standing · flat foundation</option>
-            <option value="command">Commands · gentle terrain</option>
-            <option value="resilience">Resilience · mixed terrain</option>
-            <option value="slope">Slope · gradient transitions</option>
-            <option value="step">Step Academy · lips + mild slopes</option>
-            <option value="transition">Transitions · changing ground</option>
-            <option value="control">Control · nearly flat</option>
-          </select></label>
-          <div class="carpet-values" id="carpetValues" aria-live="polite">No training metrics loaded · illustrative defaults</div>
-          <label class="carpet-file">Import metrics.csv, results_data.json or terrain snapshot
-            <input id="carpetImport" type="file" accept=".csv,.json,text/csv,application/json" />
-          </label>
-          <label><input id="carpetLive" type="checkbox" checked /> Read live difficulty from the local EMU training viewer (every 5 s)</label>
-          <label><input id="carpetAutoApply" type="checkbox" checked /> Follow training stage automatically; update the physical world when frontiers change materially (resets only browser robot)</label>
-          <div class="carpet-actions">
-            <button id="carpetFetch" type="button">Refresh training values</button>
-            <button id="carpetApply" type="button">Apply terrain to robot viewer</button>
-          </div>
-          <small id="carpetStatus">Change a setting or import a training run. Applying difficulty reloads only the browser simulation, never training weights.</small>
-        </section>
-        <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
-        <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
-      </div>
-      </section>
+
+      </details>
       <section id="livePanel" class="live-panel glass" hidden aria-label="Demonstration controls">
         <div class="live-head"><b id="demoPanelTitle">LIVE TRAINING</b><span id="livePhase">Awaiting checkpoint</span></div>
         <div class="live-progress">Validated step <b id="liveStep">—</b></div>
