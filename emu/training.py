@@ -519,7 +519,11 @@ def train(args: TrainingConfig) -> int:
     # the restored step total, and log/save cadence continues from where
     # it left off instead of immediately firing at time zero.
     total_steps = resumed_step + args.envs * ROLLOUT_STEPS
-    start = time.time()
+    # The first rollout is real training. Starting the wall timer AFTER it
+    # made one-update lifecycle smoke report impossible multi-million FPS.
+    # Include the compilation/first-update wall time conservatively; steady
+    # training throughput is separately available in perf diagnostics.
+    start = t0
     last_log = resumed_step
     last_save = resumed_step
     last_snapshot = resumed_step
@@ -738,7 +742,12 @@ def train(args: TrainingConfig) -> int:
             # time would produce nonsense fps spikes right after a resume.
             wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
             train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-            train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+            # train_update perf only measures subsequent updates, never the
+            # compile+first update. Its numerator must cover the SAME steps.
+            measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+            train_fps = (measured_train_steps / train_seconds
+                         if train_seconds > 0.0 and measured_train_steps > 0
+                         else wall_fps)
             # Surfaces optax.apply_if_finite's running counter, so a
             # skipped (non-finite) gradient update shows up in the log
             # instead of silently vanishing. Any nonzero value here means
@@ -913,8 +922,13 @@ def train(args: TrainingConfig) -> int:
         perf.add('obs_norm_and_sync', time.perf_counter() - norm_t0)
         total_steps = next_total_steps
 
-    # final write. Evaluate and report the exact policy that generated the
-    # final rollout before allowing that rollout to update governor stats.
+    # final write. The last rollout was not reduced by the while-loop; in a
+    # one-update smoke the reward history is otherwise EMPTY and prints 0.000,
+    # although PPO really saw nonzero rewards. Include the last rollout once.
+    recent_rewards.append(float(np.asarray(aux['rollout_reward_mean'])))
+    recent_rewards = recent_rewards[-64:]
+    # Evaluate and report the exact policy that generated the final rollout
+    # before allowing that rollout to update governor stats.
     maybe_fixed_eval(total_steps, force=True)
     maybe_cloud_eval(total_steps, force=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
@@ -954,11 +968,14 @@ def train(args: TrainingConfig) -> int:
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
     train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-    train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+    measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+    train_fps = (measured_train_steps / train_seconds
+                 if train_seconds > 0.0 and measured_train_steps > 0
+                 else wall_fps)
     nan_grad_skips = int(np.asarray(state.opt_state.total_notfinite))
     final_row = make_metrics_row(
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-        reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
+        reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(
