@@ -236,10 +236,18 @@ from a virtually untrained actor. The output reports nominal frontier
 vs actual supported lip heights, signed UP/DOWN attempts and crossings,
 falls, and first-life forward progress; it cannot credit resets after
 the first fall. Denominators of 0 are **inconclusive**, not successful.
-No claim of independent external contact rescoring is made: the
-crossings come from the existing physically contact-gated teacher
-events. Do not call the 140M run ready until this works on actual GPU
-and independent step/slope physical checks have been inspected.
+Two separate scorers are now reported: (1) the original
+contact-gated STEP teacher, and (2) an independent read-only NumPy
+trajectory scorer using the live 9-box poses, raw MuJoCo contact
+pairs/normals, five successive top-support frames in a newly visited
+orthogonally adjacent cell, and the physical signed rise at the
+shared box edge. Repeated visits, side contacts and post-fall resets
+do not count. Both UP/DOWN totals are preserved; any disagreement
+between teacher and independent trajectory evidence is an explicit
+physical diagnostic, not something to suppress.
+
+Do not call the 140M run ready until the exam works on actual GPU
+and its results have been inspected alongside slope and command exams.
 
 If the bounded lifecycle succeeds, and frozen physical terrain exams
 show no sensor/contact mismatch, a *new* 140M from-scratch lineage
