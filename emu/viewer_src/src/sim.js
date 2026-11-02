@@ -1,4 +1,4 @@
-import {sampleShove} from './training-shoves.js';
+import {sampleShove,expectedShoveRate} from './training-shoves.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
@@ -124,7 +124,7 @@ export class EmuBrowserSim {
     // Actual browser MuJoCo torso forces, not merely SVG decorations.
     // The real GPU trainer samples independent stochastic pushes; this
     // visibly repeatable spectator demo is NOT a replay of those RNG draws.
-    this.shovePreview={enabled:false,forceLimitN:0,intensity:0,frequencyMultiplier:8,
+    this.shovePreview={enabled:false,forceLimitN:0,intensity:0,mode:'drill',
       stepsLeft:0,last:[0,0],manualPending:false,visualLeft:0};
     this.shoveArrow=new THREE.ArrowHelper(
       new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),
@@ -418,16 +418,17 @@ export class EmuBrowserSim {
     this.carpetDifficulty=next;
     if(this.terrainMode==='carpet')this.loadModel();
   }
-  setShovePreview({enabled=false,forceLimitN=0,intensity=0,frequencyMultiplier=8}={}){
+  setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
     const on=Boolean(enabled);
     const limit=Math.max(0,Math.min(10,Number(forceLimitN)||0));
     const strength=Math.max(0,Math.min(1,Number(intensity)||0));
-    const multiplier=Math.max(1,Math.min(20,Number(frequencyMultiplier)||1));
+    if(!['training','inspection','drill'].includes(mode))
+      throw Error('Invalid shove mode');
     const v=this.shovePreview;
     if(v.enabled===on && v.forceLimitN===limit &&
-       v.intensity===strength && v.frequencyMultiplier===multiplier)return;
+       v.intensity===strength && v.mode===mode)return;
     v.enabled=on;v.forceLimitN=limit;v.intensity=strength;
-    v.frequencyMultiplier=multiplier;
+    v.mode=mode;
     v.stepsLeft=0;
     v.visualLeft=0;
     v.manualPending=false;
@@ -459,7 +460,7 @@ export class EmuBrowserSim {
     if(v.stepsLeft===0){
       const push=sampleShove({
         intensity:v.enabled?v.intensity:0,
-        multiplier:v.frequencyMultiplier,
+        mode:v.mode,
         maxForceN:v.forceLimitN,
         manual:v.manualPending
       });
@@ -497,7 +498,10 @@ export class EmuBrowserSim {
   shoveTelemetry(){
     const s=this.shovePreview;
     return {enabled:s.enabled,limit:s.forceLimitN,intensity:s.intensity,
-      multiplier:s.frequencyMultiplier,
+      mode:s.mode,
+      // Expected Bernoulli attempt frequency before on-force frames;
+      // rare training impulses are per-world, not total across GPU envs.
+      expectedHz:s.enabled?expectedShoveRate(s.intensity,s.mode):0,
       active:Boolean(this.data&&this.torsoId>=0&&
         Math.hypot(Number(this.data.xfrc_applied[6*this.torsoId]),
                    Number(this.data.xfrc_applied[6*this.torsoId+1]))>1e-7),
