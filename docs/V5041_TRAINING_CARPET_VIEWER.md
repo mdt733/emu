@@ -66,14 +66,57 @@ arrow briefly marks a *completed* shove, with no extra force applied.
 The probability of a shove is checked every control frame and
 scales with the **Disturbance intensity** slider.
 
-The default **Inspection 8×** option multiplies the stochastic
-training-style event probability to make rare recovery behaviour
-easier to watch. Switch to **Training-like event frequency** for the
-unaccelerated 0.0015-per-frame baseline × resilience intensity.
-The browser doesn't know the exact sampled per-world GPU disturbance
-state, so this is only a *representative* stochastic exercise.
-**Apply one random shove** forces an immediate random test even
-between automatic events. No viewer action reaches the live learner.
+### Important: the trainer's shoves really are rare
+
+The GPU trainer's physical code uses
+`PUSH_PROB_PER_STEP = 0.0015` at 50 control frames per second, scaled
+by the *per-episode* `task[:,T.resilience]` multiplier (not the separate
+`resilience_difficulty` used for birth-pose disturbances). Even at
+a full multiplier of 1, an individual environment gets just
+`0.0015 × 50 = 0.075` shove starts/second, or **one every ~13.3 s**
+on average. With a multiplier of 0.36, it is **one every ~37 s**.
+With the unified source's `push_max_force_n=4.0` and a frontier
+`frontier_push_n=0.65` at full specialist exposure, the relevant
+multiplier is closer to `0.65/4.0 = 0.1625`: **one every ~82 s**
+in a representative RESILIENCE episode. The actual programme
+mixes this with the 0.70N foundation scale during its 20M–30M
+specialist ramp; per-world birth and field allocations differ.
+
+The viewer's "training-like" mode now uses that **closer per-world
+push-fraction estimate** from the source frontier, physical ceiling,
+foundation cutoff and 10M specialist-ramp age. It is still a
+representative distribution, not the trainer's true per-world sampled
+task or RNG. The source also trains **recovery at episode birth**:
+physical pose tilts, angular/linear velocity kicks and joint noise,
+across **2,048 worlds**, so its recovery curriculum is broader than
+the continuous-push Bernoulli process.
+
+The viewer now offers THREE explicit schedules:
+
+- **Recovery drill (default)**: ~1–2 random shove starts per second
+  when its effective shove-intensity slider is above zero; ~2/s
+  at full intensity. This deliberately stresses one robot's ongoing
+  recovery and **does not reflect the training run**.
+- **Inspection 8×**: eight times the per-frame training-like push
+  event probability.
+- **Training-like**: the actual sparse 0.0015-per-control-frame
+  baseline, multiplied by the estimated `T.resilience` fraction.
+
+The Settings panel reports the expected per-robot shove-start
+frequency and average interval for the selected setting; individual
+intervals are random. An active shove blocks a second shove start,
+so achieved rate is slightly lower at high frequencies. These
+are all *real* MuJoCo `xfrc_applied` forces in the browser, lasting
+2–8 control frames at random compass directions and magnitudes.
+The **Apply one random shove** button still provides an immediate
+diagnostic. It never affects PPO updates or the running 140M source.
+
+A 2Hz perturbation training programme would be a separate
+scientific intervention, not a viewer setting: test 0.25Hz,
+0.5Hz, 1Hz and 2Hz against the unchanged teacher in controlled
+source-pinned continuations, while measuring falls, useful
+locomotion, push-recovery success and command tracking. Do not
+silently change the active long run's trainer source.
 
 The live inspector continues to poll every five seconds, but
 only substantial terrain changes rebuild/reset the viewer. Different
