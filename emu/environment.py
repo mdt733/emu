@@ -2885,6 +2885,9 @@ class EmuMJXEnv(TaskSampler):
         # Use the actual rotated collider AABBs as a conservative exclusion.
         from .terrain_carpet_mjx import feet_clear_of_abandoned_solids
         feet_xy=data.xpos[:,self.foot_bodies,:2]
+        foot_cell=jnp.floor(feet_xy/CARPET_TILE_M).astype(jnp.int32)
+        foot_inside_new_window=jnp.all(
+            jnp.abs(foot_cell-desired[:,None,:])<=1,axis=(1,2))
         foot_geom_ids=np.asarray(self.ids['foot_geoms'],dtype=np.int32)
         foot_radii=jnp.asarray(self.mj_model.geom_size[foot_geom_ids,0])
         solid_ids=list(self.carpet_solid_geom_ids)
@@ -2892,7 +2895,7 @@ class EmuMJXEnv(TaskSampler):
         box_rotations=data.geom_xmat[:,solid_ids,:].reshape(
             (self.num_envs,CARPET_TILE_COUNT,3,3))
         box_half_sizes=jnp.asarray(self.mj_model.geom_size[solid_ids,:3])
-        foot_safe=feet_clear_of_abandoned_solids(
+        foot_safe=foot_inside_new_window&feet_clear_of_abandoned_solids(
             jnp,state.carpet_center,desired,feet_xy,foot_radii,
             box_centres,box_rotations,box_half_sizes)
         # Jumping two full 50cm tiles within a 20ms control frame is
