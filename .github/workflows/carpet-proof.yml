@@ -15,7 +15,7 @@ on:
 jobs:
   physics-and-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 17
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +31,7 @@ jobs:
           python -m compileall -q emu scripts tests
           python -m pytest -q tests/test_terrain_carpet.py
           python scripts/probe_carpet_hfield.py
+          python scripts/smoke_gpu_carpet.py --worlds 4 --frames 2 --ppo
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

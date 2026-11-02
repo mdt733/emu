@@ -203,6 +203,7 @@ class TrainingConfig:
     science_step_crouch_tolerance_m: float = 0.0  # gated reward, no physics changes
     science_reset_step_evidence_on_fork: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
+    terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
     academy_stream: bool = False  # opt-in: three recyclable real platforms
     academy_intro_steps: int = 60_000_000
     academy_intro_share: float = 0.10
@@ -260,7 +261,7 @@ class TrainingConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'attitude_profile', 'pitch_command_max_deg',
+        optional = {'terrain_carpet', 'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',

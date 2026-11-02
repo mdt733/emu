@@ -43,6 +43,13 @@ from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
+from .terrain_carpet_mjx import (
+    add_carpet_geoms, BODY_NAMES as CARPET_BODY_NAMES,
+    GEOM_NAMES as CARPET_GEOM_NAMES, TILE_COUNT as CARPET_TILE_COUNT,
+    TILE_M as CARPET_TILE_M, PROFILE_HALF as CARPET_PROFILE_HALF,
+    role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
+    ray_surface as carpet_ray_surface)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
@@ -333,6 +340,17 @@ class EnvState(NamedTuple):
     academy_transfer_seen: Any = None
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any = None
+    # v5041 physics-only rolling tile state. All nine mutable colliders
+    # belong to this same PPO world batch, not a second simulator.
+    carpet_hfields: Any = None
+    carpet_center: Any = None
+    carpet_seed: Any = None
+    carpet_xprofile: Any = None
+    carpet_yprofile: Any = None
+    carpet_up: Any = None
+    carpet_down: Any = None
+    carpet_slope: Any = None
+    carpet_confirmed: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1079,6 +1097,7 @@ class EmuMJXEnv(TaskSampler):
                  verified_ascent_reallocation: float = 0.0,
                  science_step_crouch_tolerance_m: float = 0.0,
                  academy_stream: bool = False,
+                 terrain_carpet: bool = False,
                  academy_height_cap_m: float = 0.150,
                  academy_course_episode_frames: int = 1200):
         import jax
@@ -1164,6 +1183,10 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('streaming Academy requires unified terrain_360')
         if not .003 <= academy_height_cap_m <= .25:
             raise ValueError('Academy frontier aspiration must be 3mm-25cm')
+        if terrain_carpet and (not unified_capability_focus or
+                observation_schema!=OBS_SCHEMA_TERRAIN or terrain_step_max_m<=0):
+            raise ValueError('terrain carpet needs unified terrain_360 and physical topology')
+        self.terrain_carpet=bool(terrain_carpet)
         self.academy_stream=bool(academy_stream)
         self.academy_height_cap_m=float(academy_height_cap_m)
         if (type(academy_course_episode_frames) is not int or
@@ -1173,7 +1196,10 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_pair_seed = int(seed)
         self.mj_model = (
             mujoco.MjModel.from_xml_string(
-                add_unified_terrain(self.robot_xml,self.academy_stream))
+                (add_carpet_geoms(add_unified_terrain(
+                    self.robot_xml,self.academy_stream or self.terrain_carpet))
+                 if self.terrain_carpet else
+                 add_unified_terrain(self.robot_xml,self.academy_stream)))
             if self.unified_capability_focus else
             mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
             if self.terrain_step_max_m > 0 else
@@ -1212,6 +1238,21 @@ class EmuMJXEnv(TaskSampler):
             if (any(x<0 for x in self.academy_platform_mocap_ids)
                 or any(x<0 for x in self.academy_platform_geom_ids)):
                 raise RuntimeError('Missing real Academy platform body or geom')
+        self.carpet_mocap_ids=()
+        self.carpet_geom_ids=()
+        if self.terrain_carpet:
+            self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
+                mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
+                for n in CARPET_BODY_NAMES)
+            self.carpet_geom_ids=tuple(int(mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
+                for n in CARPET_GEOM_NAMES)
+            if (any(v<0 for v in self.carpet_mocap_ids)
+                or any(v<0 for v in self.carpet_geom_ids)):
+                raise RuntimeError('Not all nine carpet colliders were compiled')
+            assert self.mj_model.nhfield==CARPET_TILE_COUNT, self.mj_model.nhfield
+            assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
+            assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
@@ -1254,6 +1295,13 @@ class EmuMJXEnv(TaskSampler):
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
+        if self.terrain_carpet:
+            h=self.mjx_model_template.hfield_data
+            if h.shape!=(CARPET_TILE_COUNT*4,):
+                raise RuntimeError(f'2-triangle carpet hfield has wrong storage: {h.shape}')
+            self.mjx_model=self.mjx_model.tree_replace({
+                'hfield_data':jnp.broadcast_to(h,(self.num_envs,h.shape[0]))})
+            self.model_in_axes=self.model_in_axes.tree_replace({'hfield_data':0})
         gravity_unit = self.domain_info.get('gravity_unit_world')
         self.gravity_unit_world = (
             gravity_unit if gravity_unit is not None
@@ -1487,9 +1535,10 @@ class EmuMJXEnv(TaskSampler):
                 if (not np.isfinite(slope[15]) or
                     slope[15]<0. or slope[15]>1.):
                     raise ValueError('academy birth probability must be within [0,1]')
-                if (not np.isfinite(slope[16]) or
-                    slope[16]<.001 or slope[16]>.04):
-                    raise ValueError('academy physical lip height must be 1–40mm')
+                if (not np.isfinite(slope[16:18]).all() or
+                    np.any(slope[16:18]<.001) or
+                    np.any(slope[16:18]>(self.academy_height_cap_m if self.terrain_carpet else .25))):
+                    raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
                 if not np.all(np.isfinite(slope[~np.isnan(slope)])):
                     raise ValueError('invalid physical terrain override')
                 packed=np.concatenate((packed,slope))
@@ -1578,7 +1627,8 @@ class EmuMJXEnv(TaskSampler):
         # 3. Measure the physical result, then reward the PREVIOUS command.
         # The ramped command is for the next observation, never this payment.
         reward_task = source_task
-        metrics = self._metrics(data, reward_task, action, state.prev_action, phase, state.prev_foot_pos)
+        metrics = self._metrics(data, reward_task, action, state.prev_action, phase,
+                                state.prev_foot_pos,carpet_heights=state.carpet_hfields)
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
         # ramp_frac tracks command-change difficulty. Real episode age is
@@ -1674,8 +1724,16 @@ class EmuMJXEnv(TaskSampler):
         # G4 examiner/teacher: evidence comes exclusively from actual
         # root travel AND far-side MJX foot contacts. No privileged terrain
         # height or approach position is ever passed to the actor.
-        terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
-            state, data, metrics)
+        if self.terrain_carpet:
+            terrain_streak=state.terrain_cross_streak*0
+            terrain_crossed=(state.terrain_crossed |
+                academy['ordinary_step_new'])
+            terrain_active=(state.specialist_active &
+                (state.focus_id==STEP) & ~state.academy_active &
+                (jnp.abs(academy['height_m'])>.0015))
+        else:
+            terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
+                state, data, metrics)
         # Near/easy support evidence uses the actual signed step size.
         # Ascents and descents are independently measured against their OWN
         # learned frontier. Late 150%-challenge lips cannot fake promotion.
@@ -1694,12 +1752,21 @@ class EmuMJXEnv(TaskSampler):
         # Academy final-slab contact is not an extra old one-lip completion.
         terrain_active=terrain_active & ~state.academy_active
         terrain_cross_new=terrain_crossed & ~state.terrain_crossed & terrain_active
-        terrain_up = terrain_active & ((self.env_index % 2) == 0)
-        terrain_down = terrain_active & ((self.env_index % 2) == 1)
+        terrain_up=(terrain_active & (academy['height_m']>0.)
+                    if self.terrain_carpet else
+                    terrain_active & ((self.env_index%2)==0))
+        terrain_down=(terrain_active & (academy['height_m']<0.)
+                      if self.terrain_carpet else
+                      terrain_active & ((self.env_index%2)==1))
         # Physical step severity: displacement between the two actual
         # surface collider centres projected onto their shared normal.
         # Never infer it from the requested teacher height or flat fallback.
-        if self.unified_capability_focus:
+        if self.terrain_carpet:
+            physical_height=jnp.abs(academy['height_m'])
+            ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+            step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
+            step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
+        elif self.unified_capability_focus:
             base_id=int(self.ids['floor_geom'])
             upper_id=int(self.terrain_step_geom_id)
             support_n=data.geom_xmat[:,base_id,:].reshape(
@@ -1775,7 +1842,8 @@ class EmuMJXEnv(TaskSampler):
         # observation separately for PPO bootstrap.
         sensors = (self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1) if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
+            state.ep_len + 1,carpet_heights=state.carpet_hfields)
+            if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
             else None)
         integral_next = state.velocity_i_integral
         raw_next = task[:,[T.vx,T.vy]]
@@ -1798,8 +1866,13 @@ class EmuMJXEnv(TaskSampler):
         # On a verified fully-clear crossing, recycle only the trailing
         # collision slab. Never mutate the geometry used to classify this
         # frame's contacts or sensor measurements.
-        data = self._recycle_academy_platform(
-            state,data,academy,physics.next_keys,params)
+        if self.terrain_carpet:
+            data,carpet_hfields,carpet_center=self._carpet_recycle(state,data)
+        else:
+            data = self._recycle_academy_platform(
+                state,data,academy,physics.next_keys,params)
+            carpet_hfields=None
+            carpet_center=None
         # carryover_qvel is this step's own (already divergence-safe)
         # qvel -- see the docstring on _reset_with_keys.
         reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
@@ -1822,7 +1895,12 @@ class EmuMJXEnv(TaskSampler):
                            academy['crossings'],academy['up_count'],
                            academy['down_count'],academy['clearance_seen'],
                            academy['foothold_seen'],academy['transfer_seen'],
-                           academy['approach_seen'])
+                           academy['approach_seen'],
+                           carpet_hfields,carpet_center,
+                           state.carpet_seed,state.carpet_xprofile,
+                           state.carpet_yprofile,state.carpet_up,state.carpet_down,
+                           state.carpet_slope,academy['confirmed_tile']
+                           if self.terrain_carpet else None)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1843,7 +1921,20 @@ class EmuMJXEnv(TaskSampler):
         unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
         unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
         unit_radius=unit_x+unit_y+unit_z
-        if self.unified_capability_focus:
+        if self.terrain_carpet:
+            # Actual local triangle gradients, excluding step discontinuities.
+            # Both slopes and step encounters share these NINE real colliders.
+            cx=jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32)
+            cy=jnp.floor(data.qpos[:,1]/CARPET_TILE_M).astype(jnp.int32)
+            slot=jnp.mod(cx,3)+3*jnp.mod(cy,3)
+            hv=state.carpet_hfields.reshape((self.num_envs,9,4))
+            h=jnp.take_along_axis(hv,slot[:,None,None],axis=1)[:,0,:]
+            gx=.5*(h[:,1]+h[:,3]-h[:,0]-h[:,2])
+            gy=.5*(h[:,2]+h[:,3]-h[:,0]-h[:,1])
+            physical_slope=jnp.rad2deg(jnp.arctan(
+                jnp.sqrt(gx*gx+gy*gy)))
+            slope_role=state.specialist_active & (state.focus_id==SLOPE)
+        elif self.unified_capability_focus:
             # Read the ACTUAL tilted COLLISION geom, not requested lesson
             # severity, world gravity or a guessed angle. This is teacher
             # evidence and never enters the neural observation.
@@ -2098,8 +2189,11 @@ class EmuMJXEnv(TaskSampler):
         xfrc = jnp.zeros_like(data.xfrc_applied).at[:, self.torso_id, 0:3].set(push_force)
         data = data.replace(xfrc_applied=xfrc)
 
+        dynamic_model=(self.mjx_model.tree_replace(
+            {'hfield_data':state.carpet_hfields})
+            if self.terrain_carpet else self.mjx_model)
         def substep(_, d):
-            return self.step_batched(self.mjx_model, d)
+            return self.step_batched(dynamic_model, d)
         data = jax.lax.fori_loop(0, CONTROL_SUBSTEPS, substep, data)
 
         # Non-finite MJX qpos/qvel can bypass every fall comparison (NaN
@@ -2677,6 +2771,94 @@ class EmuMJXEnv(TaskSampler):
                 jnp.where(chosen[:,None],centre,pos[:,mocap,:]))
         return data.replace(mocap_pos=pos)
 
+    def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
+                      task,birth_root_z):
+        """The same nine real triangles-pair colliders for ALL six roles.
+
+        A foundation episode has zero terrain difficulty. Every specialist
+        reads the *same* generated physics, with different frontiers from
+        one existing PPO teacher. The terrain model is never rebuilt.
+        """
+        jnp,jax=self.jnp,self.jax
+        seeds=jax.vmap(lambda k:jax.random.randint(
+            jax.random.fold_in(k,5041),(),0,2**31-1,
+            dtype=jnp.int32))(keys)
+        academy=(specialist_active & (focus_id==STEP) &
+            (task[:,T.athletic_rehearsal]<.5) &
+            (jax.vmap(lambda k:jax.random.uniform(
+                jax.random.fold_in(k,5040),()))(keys) <
+             params[P.academy_episode_probability]))
+        up=xp_up=jnp.where(academy,params[P.academy_height_up_m],
+                           jnp.maximum(params[P.terrain_height_m],
+                                       params[P.academy_height_up_m]))
+        down=jnp.where(academy,params[P.academy_height_down_m],
+                           jnp.maximum(params[P.terrain_height_m],
+                                       params[P.academy_height_down_m]))
+        slope,up,down=carpet_role_envelope(
+            jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
+            params[P.slope_max_deg],up,down,academy,
+            params[P.slope_exposure],params[P.terrain_exposure])
+        xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+        centers,heights,_=carpet_generate_window(
+            jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope)
+        pos=data.mocap_pos
+        for old in (self.unified_ground_mocap_id,
+                    self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
+            pos=pos.at[:,old,:].set(
+                jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
+        for i,mocap in enumerate(self.carpet_mocap_ids):
+            pos=pos.at[:,mocap,:].set(centers[:,i,:])
+        data=data.replace(mocap_pos=pos)
+        top=carpet_sample_surface(jnp,data,self.carpet_mocap_ids,
+                  heights,data.qpos[:,:3][:,None,:])[:,0]
+        top=jnp.where(jnp.isfinite(top),top,0.)
+        data=data.replace(qpos=data.qpos.at[:,2].set(birth_root_z+top))
+        return data,dict(
+            carpet_hfields=heights,carpet_center=xy,carpet_seed=seeds,
+            carpet_xprofile=xprof,carpet_yprofile=yprof,
+            carpet_up=up,carpet_down=down,carpet_slope=slope,
+            carpet_confirmed=xy)
+
+    def _carpet_recycle(self,state,data):
+        """Recycle only tiles not touched by either foot, one world at a time.
+
+        As EMU enters a new global cell, the desired nine slots retain their
+        3x3 coordinates by a stable mod-3 mapping. Move the abandoned row,
+        column or corner ONLY if neither foot occupies any abandoned cell.
+        Both current and next support can be used during an actual transfer.
+        """
+        jnp=self.jnp
+        desired=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+        foot_cell=jnp.floor(data.xpos[:,self.foot_bodies,:2]/
+                            CARPET_TILE_M).astype(jnp.int32)
+        foot_safe=jnp.all(jnp.abs(
+            foot_cell-desired[:,None,:])<=1,axis=(1,2))
+        # Jumping two full 50cm tiles within a 20ms control frame is
+        # physically implausible. Refuse to teleport colliders in that case.
+        near=jnp.all(jnp.abs(desired-state.carpet_center)<=1,axis=1)
+        move=foot_safe&near&jnp.any(desired!=state.carpet_center,axis=1)
+        new_center=jnp.where(move[:,None],desired,state.carpet_center)
+        centers,hfields,indices=carpet_generate_window(
+            jnp,new_center[:,0],new_center[:,1],state.carpet_seed,
+            state.carpet_xprofile,state.carpet_yprofile,
+            state.carpet_up,state.carpet_down,state.carpet_slope)
+        pos=data.mocap_pos
+        # Identical slot geometry for every world; only the slots no
+        # longer in the 3x3 window are moved. No platform under a foot moves.
+        old_cx,old_cy=state.carpet_center[:,0],state.carpet_center[:,1]
+        from .terrain_carpet_mjx import slot_indices
+        old_x,old_y=slot_indices(jnp,old_cx,old_cy)
+        for i,mocap in enumerate(self.carpet_mocap_ids):
+            changed=(move & ((indices[:,i,0]!=old_x[:,i]) |
+                            (indices[:,i,1]!=old_y[:,i])))
+            pos=pos.at[:,mocap,:].set(
+                jnp.where(changed[:,None],centers[:,i,:],pos[:,mocap,:]))
+        # A full world-only heightfield replaces the old one for worlds
+        # whose window advanced; otherwise no training geometry changes.
+        hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
+        return data.replace(mocap_pos=pos),hfield,new_center
+
     def _episode_terrain(self, data, keys, params,
                          focus_id=None, specialist_active=None,
                          athletic_rehearsal=None):
@@ -2778,15 +2960,24 @@ class EmuMJXEnv(TaskSampler):
         data,academy_active=self._academy_course(
             data,keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal],birth_root_z)
+        carpet=None
+        if self.terrain_carpet:
+            data,carpet=self._carpet_birth(
+                data,keys,params,focus_id,specialist_active,task,birth_root_z)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
-        data = self.forward_batched(self.mjx_model, data)
+        dynamic_model=(self.mjx_model.tree_replace(
+            {'hfield_data':carpet['carpet_hfields']})
+            if self.terrain_carpet else self.mjx_model)
+        data = self.forward_batched(dynamic_model, data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
-        sensors = (self._initial_sensor_state(data, task, phase, noise_keys)
+        sensors = (self._initial_sensor_state(
+            data, task, phase, noise_keys,
+            carpet_heights=(carpet['carpet_hfields'] if carpet else None))
                    if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else None)
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
@@ -2806,7 +2997,11 @@ class EmuMJXEnv(TaskSampler):
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
                          jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_))
+                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+                         *(carpet[key] if carpet else None for key in (
+                          'carpet_hfields','carpet_center','carpet_seed',
+                          'carpet_xprofile','carpet_yprofile','carpet_up',
+                          'carpet_down','carpet_slope','carpet_confirmed')))
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -2936,7 +3131,7 @@ class EmuMJXEnv(TaskSampler):
         return jnp.where(far>=jnp.maximum(near,0.),
                          jnp.where(near>0.,near,far),jnp.inf)
 
-    def _terrain_4x4_ranges(self, data, errors_m=None):
+    def _terrain_4x4_ranges(self, data, errors_m=None, carpet_heights=None):
         """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
 
         No height-map truth, per-ray CPU raycasts, or actor-visible collision IDs.
@@ -2952,7 +3147,10 @@ class EmuMJXEnv(TaskSampler):
         R = self._rotation_body_to_world(data)
         origin = data.xpos[:, self.torso_id, :]
         ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
-        if self.unified_capability_focus:
+        if self.terrain_carpet:
+            terrain_t=carpet_ray_surface(
+                jnp,data,self.carpet_mocap_ids,carpet_heights,origin,ray)
+        elif self.unified_capability_focus:
             # Both measured slant ranges are to actual collidable boxes.
             # Infinite-plane fallback would create phantom upper/lower
             # support beyond the sharp step discontinuity.
@@ -3027,7 +3225,7 @@ class EmuMJXEnv(TaskSampler):
                                         TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
                 valid)
 
-    def _unified_sensor_sample(self, data, task, keys, gyro_bias):
+    def _unified_sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
         """Array-only sensor: 4x4 ranges, optical flow and gyro, NO tripod.
 
         Physics truth is used only to produce the simulated optical signal,
@@ -3042,18 +3240,23 @@ class EmuMJXEnv(TaskSampler):
         four_noise=jax.vmap(lambda k:jax.random.normal(
             jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
         four,valid=self._terrain_4x4_ranges(
-            data,errors_m=scale[:,None]*.002*four_noise)
+            data,errors_m=scale[:,None]*.002*four_noise,
+            carpet_heights=carpet_heights)
         R=self._rotation_body_to_world(data)
         torso=data.xpos[:,self.torso_id,:]
         down=(-R[:,:,2])[:,None,:]
-        floor_depth=self._ray_box_distance(
-            data,int(self.ids['floor_geom']),torso,down)[:,0]
-        upper_depth=self._ray_box_distance(
-            data,int(self.terrain_step_geom_id),torso,down)[:,0]
-        depth=jnp.minimum(floor_depth,upper_depth)
-        for geom_id in self.academy_platform_geom_ids:
-            depth=jnp.minimum(depth,self._ray_box_distance(
-                data,geom_id,torso,down)[:,0])
+        if self.terrain_carpet:
+            depth=carpet_ray_surface(
+                jnp,data,self.carpet_mocap_ids,carpet_heights,torso,down)[:,0]
+        else:
+            floor_depth=self._ray_box_distance(
+                data,int(self.ids['floor_geom']),torso,down)[:,0]
+            upper_depth=self._ray_box_distance(
+                data,int(self.terrain_step_geom_id),torso,down)[:,0]
+            depth=jnp.minimum(floor_depth,upper_depth)
+            for geom_id in self.academy_platform_geom_ids:
+                depth=jnp.minimum(depth,self._ray_box_distance(
+                    data,geom_id,torso,down)[:,0])
         depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
                         depth,0.)
         _,vbody,_=self._body_packets(data)
@@ -3069,7 +3272,7 @@ class EmuMJXEnv(TaskSampler):
             jnp.zeros((self.num_envs,),dtype=jnp.int32),
             jnp.zeros((self.num_envs,),dtype=jnp.int32))
 
-    def _sensor_sample(self, data, task, keys, gyro_bias):
+    def _sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
         """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
 
         Simulator truth is used only in forward measurement synthesis. The
@@ -3078,7 +3281,8 @@ class EmuMJXEnv(TaskSampler):
         physics/lesson RNG streams or the old 220-input behavior.
         """
         if self.unified_capability_focus and not self.physical_exam_legacy_actor:
-            return self._unified_sensor_sample(data,task,keys,gyro_bias)
+            return self._unified_sensor_sample(
+                data,task,keys,gyro_bias,carpet_heights=carpet_heights)
         jax, jnp = self.jax, self.jnp
         scale = jnp.where(task[:, T.sensor_scale] >= 0.,
                           task[:, T.sensor_scale], self.sensor_noise_scale)
@@ -3103,19 +3307,21 @@ class EmuMJXEnv(TaskSampler):
             probe['flow_rad_s'], probe['flow_return_valid'],
             probe['measured_gyro_body_rad_s'], ages, ages)
 
-    def _initial_sensor_state(self, data, task, phase, keys):
+    def _initial_sensor_state(self, data, task, phase, keys, carpet_heights=None):
         """Start an episode with a real first sample, not fabricated flat data."""
         jax, jnp = self.jax, self.jnp
         bias_noise = jax.vmap(lambda k: jax.random.normal(
             jax.random.fold_in(k, 5017), (3,), dtype=jnp.float32))(keys)
         bias = bias_noise * self.gyro_bias_std_rad_s
-        sample = self._sensor_sample(data, task, keys, bias)
+        sample = self._sensor_sample(
+            data, task, keys, bias, carpet_heights=carpet_heights)
         samples = jax.tree_util.tree_map(
             lambda a: jnp.repeat(a[:, None, ...], HISTORY_LEN, axis=1),
             sample)
         return SensorState(samples, bias, sample.gyro_body_rad_s)
 
-    def _advance_sensor_state(self, state, data, task, phase, keys, age_frames):
+    def _advance_sensor_state(self, state, data, task, phase, keys, age_frames,
+                              carpet_heights=None):
         """Acquire at separate cadences, hold between updates, and queue delay.
 
         Dropouts make the *new* sample invalid; an old value may still be
@@ -3123,7 +3329,9 @@ class EmuMJXEnv(TaskSampler):
         zero confidence. Clock is episode age, not staggered timeout step_i.
         """
         jax, jnp = self.jax, self.jnp
-        raw = self._sensor_sample(data, task, keys, state.gyro_bias_rad_s)
+        raw = self._sensor_sample(
+            data, task, keys, state.gyro_bias_rad_s,
+            carpet_heights=carpet_heights)
         old = jax.tree_util.tree_map(lambda a: a[:, -1, ...], state.samples)
         step = jnp.asarray(age_frames, dtype=jnp.int32)
         tof_due = (step % self.tof_period_frames) == 0
@@ -3263,13 +3471,17 @@ class EmuMJXEnv(TaskSampler):
             jnp.sum((centre-school_burial)**2,axis=1)<1e-6)
         return ~inactive
 
-    def _support_signed_heights(self, data, positions):
+    def _support_signed_heights(self, data, positions, carpet_heights=None):
         """Teacher-only distance above real local support (plane OR box top).
 
         This does NOT go to the 220/232 policy. The approximate top-surface
         classifier is valid away from vertical side contacts; crossing
         acceptance must still inspect real contact pairs and trajectory.
         """
+        if self.terrain_carpet:
+            top=carpet_sample_surface(
+                self.jnp,data,self.carpet_mocap_ids,carpet_heights,positions)
+            return positions[:,:,2]-top
         flat = self._floor_signed_heights(data, positions)
         if self.unified_capability_focus:
             jnp=self.jnp
@@ -3317,7 +3529,7 @@ class EmuMJXEnv(TaskSampler):
     def _academy_care_window(self, state, data):
         """Short self-paced UP approach at the next ACTUAL recycled lip."""
         jnp=self.jnp
-        if not self.academy_stream:
+        if not self.academy_stream or self.terrain_carpet:
             return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
         tops=jnp.stack(tuple(data.geom_xpos[:,g,2]+
@@ -3367,6 +3579,114 @@ class EmuMJXEnv(TaskSampler):
                 & (forward > -.16) & (forward < .12)
                 & (jnp.abs(lateral) < .22))
 
+    def _carpet_events(self,state,data,metrics,done):
+        """Genuine supported tile-to-tile crossings, separately for UP/DOWN.
+
+        Every role can cross the 3x3 world. STEP focus receives evidence
+        only when an actual lip exists; no expert privileged geometry enters
+        neural observations. Five consecutive post-lip top contacts are
+        required, not just a coordinate change or the robot being airborne.
+        """
+        jnp=self.jnp
+        from .directional import contact_pair_mask
+        zero=jnp.zeros((self.num_envs,),dtype=jnp.float32)
+        false=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        root=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+        previous=state.carpet_confirmed
+        delta=root-previous
+        moved=jnp.any(delta!=0,axis=1)
+        near=jnp.all(jnp.abs(delta)<=1,axis=1)
+        target_slot=jnp.mod(root[:,0],3)+3*jnp.mod(root[:,1],3)
+        previous_slot=jnp.mod(previous[:,0],3)+3*jnp.mod(previous[:,1],3)
+        height_map=state.carpet_hfields.reshape((self.num_envs,9,4))
+        mocaps=jnp.stack(tuple(data.mocap_pos[:,m,:]
+                                for m in self.carpet_mocap_ids),axis=1)
+        # The physical height of the shared discontinuity, not the rise
+        # of the slope over the 50cm span: compare BOTH sides at the edge.
+        before=jnp.take_along_axis(height_map,
+             previous_slot[:,None,None],axis=1)[:,0,:]
+        after=jnp.take_along_axis(height_map,
+             target_slot[:,None,None],axis=1)[:,0,:]
+        pos_before=jnp.take_along_axis(mocaps,
+             previous_slot[:,None,None],axis=1)[:,0,:]
+        pos_after=jnp.take_along_axis(mocaps,
+             target_slot[:,None,None],axis=1)[:,0,:]
+        x_cross=delta[:,0]!=0
+        x_pos=delta[:,0]>0
+        y_pos=delta[:,1]>0
+        # Sample at the middle of the crossing edge, paired with the
+        # matching neighbor edge. The two triangle surfaces meet at
+        # identical smooth vertex heights, except deliberate step offset.
+        oldedge=jnp.where(x_cross,
+            jnp.where(x_pos,.5*(before[:,1]+before[:,3]),
+                             .5*(before[:,0]+before[:,2])),
+            jnp.where(y_pos,.5*(before[:,2]+before[:,3]),
+                             .5*(before[:,0]+before[:,1])))
+        newedge=jnp.where(x_cross,
+            jnp.where(x_pos,.5*(after[:,0]+after[:,2]),
+                             .5*(after[:,1]+after[:,3])),
+            jnp.where(y_pos,.5*(after[:,0]+after[:,1]),
+                             .5*(after[:,2]+after[:,3])))
+        rise=(pos_after[:,2]-pos_before[:,2]+
+              .5*(newedge-oldedge))
+        # A real source/target foot-geom contact, not simply nearest ground.
+        contact=getattr(data,'_impl',data).contact
+        foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
+        contact_by_tile=jnp.stack(tuple(
+            jnp.any(contact_pair_mask(jnp,contact.geom1,contact.geom2,
+                  contact.dist,g,foot_geoms),axis=1)
+            for g in self.carpet_geom_ids),axis=1)
+        on_target=jnp.take_along_axis(
+            contact_by_tile,target_slot[:,None],axis=1)[:,0]
+        foot_cell=jnp.floor(data.xpos[:,self.foot_bodies,:2]/
+                            CARPET_TILE_M).astype(jnp.int32)
+        # One foot must be physically supported on the target plate.
+        # A five-frame verified transfer also demands a healthy torso.
+        on_target_foot=jnp.any(jnp.all(
+            foot_cell==root[:,None,:],axis=2),axis=1)
+        healthy=(metrics['terminal']<.5)&(metrics['bad_contact']<.5)
+        eligible=moved&near&on_target&on_target_foot&healthy
+        streak=jnp.where(eligible,state.academy_streak+1,0)
+        confirmed=eligible&(streak>=5)
+        raised=rise>.0015
+        lowered=rise<-.0015
+        lip=raised|lowered
+        step_focus=state.specialist_active & (state.focus_id==STEP)
+        academy_focus=step_focus&state.academy_active
+        approached=moved&near&lip&step_focus
+        seen=state.academy_approach_seen|approached
+        new_foothold=(approached&eligible&~state.academy_foothold_seen)
+        # No repeated foothold farm after 5-frame verification.
+        reward=(3.*new_foothold.astype(jnp.float32)+
+                10.*(confirmed&academy_focus&lip).astype(jnp.float32))
+        up_new=confirmed&academy_focus&raised
+        down_new=confirmed&academy_focus&lowered
+        return dict(
+            confirmed_tile=jnp.where(confirmed[:,None],root,previous),
+            lip_index=state.academy_lip_index+
+                (confirmed&academy_focus&lip).astype(jnp.int32),
+            streak=jnp.where(confirmed,0,streak),
+            crossings=state.academy_crossings+
+                (confirmed&academy_focus&lip).astype(jnp.int32),
+            up_count=state.academy_up_crossings+up_new.astype(jnp.int32),
+            down_count=state.academy_down_crossings+down_new.astype(jnp.int32),
+            cross_new=confirmed&academy_focus&lip,
+            # Standard STEP worlds before 60M earn normal supported-crossing
+            # credit; Academy worlds use the separate independent frontiers.
+            ordinary_step_new=confirmed&step_focus&~state.academy_active&lip,
+            up_new=up_new,down_new=down_new,
+            attempt_new=((confirmed&academy_focus&lip) |
+                (done&academy_focus&seen)),
+            approach_seen=jnp.where(confirmed,False,seen),
+            clearance_seen=jnp.where(confirmed,False,state.academy_clearance_seen),
+            foothold_seen=jnp.where(confirmed,False,
+                state.academy_foothold_seen|new_foothold),
+            transfer_seen=jnp.where(confirmed,False,state.academy_transfer_seen),
+            clearance_new=false,foothold_new=new_foothold,
+            transfer_new=false,
+            reward=reward,height_m=jnp.where(moved,rise,zero),
+            completed=false)
+
     def _academy_events(self, state, data, metrics, done=None):
         """Per-lip contact-verified milestones for an unbounded platform ring.
 
@@ -3380,6 +3700,8 @@ class EmuMJXEnv(TaskSampler):
         zi=jnp.zeros((self.num_envs,),dtype=jnp.int32)
         if done is None:
             done=zb
+        if self.terrain_carpet:
+            return self._carpet_events(state,data,metrics,done)
         if not self.academy_stream:
             return dict(lip_index=zi,streak=zi,crossings=zi,up_count=zi,
                 down_count=zi,clearance_seen=zb,foothold_seen=zb,
@@ -3562,7 +3884,7 @@ class EmuMJXEnv(TaskSampler):
         Real crossing remains scored independently in _terrain_crossing.
         """
         jnp = self.jnp
-        if self.terrain_step_mocap_id < 0:
+        if self.terrain_step_mocap_id < 0 or self.terrain_carpet:
             return (jnp.zeros_like(metrics['vx']), state.terrain_ascent_root_peak,
                     state.terrain_ascent_foot_peak)
         from .directional import contact_pair_mask
@@ -3640,7 +3962,8 @@ class EmuMJXEnv(TaskSampler):
         return 30.*root_gain + 20.*foot_gain, root_peak, foot_peak
 
     # ---- Physical facts for reward and report, not hidden actor inputs ----
-    def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos):
+    def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos,
+                 carpet_heights=None):
         """Measure physical facts (not a score or the deployable actor packet).
 
         This dictionary holds the body/foot truth needed to calculate the
@@ -3673,8 +3996,8 @@ class EmuMJXEnv(TaskSampler):
         # Height means clearance above the actual contact plane, not world Z.
         # Otherwise a robot walking uphill appears higher and its grounded
         # uphill foot can be incorrectly rewarded as a swing foot.
-        height = self._support_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:])[:,0]
-        foot_ground_distance = self._support_signed_heights(data,foot_pos)
+        height = self._support_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:],carpet_heights)[:,0]
+        foot_ground_distance = self._support_signed_heights(data,foot_pos,carpet_heights)
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -3703,7 +4026,7 @@ class EmuMJXEnv(TaskSampler):
         # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = self._support_signed_heights(data,data.xpos[:,self.bad_bodies,:])
+        bad_z = self._support_signed_heights(data,data.xpos[:,self.bad_bodies,:],carpet_heights)
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
