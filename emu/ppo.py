@@ -852,8 +852,24 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                         jnp,es.data.contact.geom1,es.data.contact.geom2,
                         es.data.contact.dist,g,foot_geoms)
                     for g in solids),axis=1)
+                c=es.data.contact
+                contact_vertical=[]
+                for g in solids:
+                    foot_vertical=[]
+                    for foot in foot_geoms:
+                        matching=((c.geom1==g)&(c.geom2==foot))|(
+                                  (c.geom1==foot)&(c.geom2==g))
+                        # A real top-support face has a near-vertical
+                        # normal; side contacts (even at a box corner)
+                        # cannot satisfy this criterion alone.
+                        vertical=jnp.max(jnp.where(
+                            matching&(c.dist<=.003),
+                            jnp.abs(c.frame[:,:,0,2]),0.),axis=1)
+                        foot_vertical.append(vertical)
+                    contact_vertical.append(jnp.stack(foot_vertical,axis=1))
                 sample.update({
                     "carpet_raw_contact_pairs":carpet_pairs,
+                    "carpet_contact_vertical":jnp.stack(contact_vertical,axis=1),
                     "carpet_root_cell":jnp.floor(
                         es.data.qpos[:,:2]/.50).astype(jnp.int32),
                     "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
