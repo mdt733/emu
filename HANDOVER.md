@@ -581,3 +581,55 @@ start a completely independent later-source cold training run.
 Do not edit in-place source or `main` to acquire new console
 messages. The full measured timings and safe handling are also
 documented in `docs/V5041_GPU_CARPET_TRAINING.md`.
+
+
+### v5041 Viewer UI consolidation and specialist lesson inspector — 3 November 2026
+
+The owner requested a substantial viewer UI cleanup during an active
+140M GPU training campaign: two obvious worlds, natural field and 3×3
+magic carpet; one coherent settings drawer; FRONT DEPTH 4×4 no longer a
+floating secondary settings panel; specialist role inspection that
+shows the actual **training attempt distribution** as closely as
+possible rather than only geometry; visible shove arrows.
+
+Feature branch code now provides:
+- **Field** and **Training Carpet** top-level world buttons. Field
+  defaults to trees, natural radial slopes, no grid/numbered challenge
+  obstacles (each can be toggled under Settings). Existing eight
+  physical park features, camera controls and navigation are retained.
+- **One Settings drawer**, with physical Field settings, focused
+  Carpet inspector, collapsible advanced steering, and a collapsed
+  off-by-default 4×4 Sensor inspector. Legacy single-surface
+  diagnostics remain nested rather than another top-level world.
+  Floating telemetry shows essential gait stats; extras in
+  `More telemetry`.
+- In Carpet, specialist `Auto / Standing / Commands / Resilience /
+  Slopes / Steps / Transitions / Control` controls a genuinely
+  moving/recycled nine-solid MuJoCo box world AND one deterministic
+  representative exercise: speed/yaw commands, slopes, signed steps,
+  or resilience perturbations. An exercise is NOT an exact GPU world
+  replay or evidence of mastery. Joystick/keyboard takes over manual
+  control; specialist preview auto-resets after falls.
+- `/api/live/terrain` now exposes saved push ceiling, alongside
+  live learning step, role frontiers, signed up/down limits, speed
+  forward/reverse/lateral/yaw, and measured push frontier. Inspector
+  selects ordinary STEP's max(terrain, Academy) heights before
+  Academy births, Academy-specific frontiers after introduction, and
+  role factors plus actual curriculum exposures. Manual override
+  section can intentionally test unearned taller steps/steeper grades.
+- Browser `MjData.xfrc_applied` on the torso makes an **actual five
+  control-frame horizontal shove**, held over real MuJoCo substeps.
+  A directional 3D amber arrow shows the applied world-frame force.
+  Resilience spectacle timing is deliberately deterministic and more
+  frequent than GPU's rare random push schedule, clearly labelled
+  `viewer demonstration`. Only applies to browser data.
+- Source-pinned trainer is UNCHANGED; this is viewer/diagnostic-only
+  code, with Node regressions for live frontiers, six specialist
+  command scenarios, two modes, 4×4 integrated inspector and force
+  bindings. Actual browser WASM interaction still needs user
+  observation on the separate viewer checkout. Do not pull/reset or
+  reinstall the running trainer's checkout or venv.
+
+See `docs/V5041_TRAINING_CARPET_VIEWER.md`. Preserve the training
+140M run source SHA and live checkpoint metadata independently of
+whatever UI branch HEAD is used to watch.
