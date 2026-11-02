@@ -3210,8 +3210,10 @@ class EmuMJXEnv(TaskSampler):
         origin = data.xpos[:, self.torso_id, :]
         ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
         if self.terrain_carpet:
-            terrain_t=carpet_ray_surface(
-                jnp,data,self.carpet_mocap_ids,carpet_heights,origin,ray)
+            terrain_t=jnp.full(ray.shape[:2],jnp.inf,dtype=jnp.float32)
+            for geom in self.carpet_solid_geom_ids:
+                terrain_t=jnp.minimum(
+                    terrain_t,self._ray_box_distance(data,geom,origin,ray))
         elif self.unified_capability_focus:
             # Both measured slant ranges are to actual collidable boxes.
             # Infinite-plane fallback would create phantom upper/lower
@@ -3308,8 +3310,10 @@ class EmuMJXEnv(TaskSampler):
         torso=data.xpos[:,self.torso_id,:]
         down=(-R[:,:,2])[:,None,:]
         if self.terrain_carpet:
-            depth=carpet_ray_surface(
-                jnp,data,self.carpet_mocap_ids,carpet_heights,torso,down)[:,0]
+            depth=jnp.full((self.num_envs,),jnp.inf,dtype=jnp.float32)
+            for geom in self.carpet_solid_geom_ids:
+                depth=jnp.minimum(
+                    depth,self._ray_box_distance(data,geom,torso,down)[:,0])
         else:
             floor_depth=self._ray_box_distance(
                 data,int(self.ids['floor_geom']),torso,down)[:,0]
@@ -3533,6 +3537,36 @@ class EmuMJXEnv(TaskSampler):
             jnp.sum((centre-school_burial)**2,axis=1)<1e-6)
         return ~inactive
 
+    def _carpet_real_top_height(self,data,positions):
+        """Teacher support from exact physical tilted box tops, not rays.
+
+        The nine real MJX box transforms determine actual top contact
+        elevations. Outside their footprint return -inf so unsupported
+        positions cannot be mistaken for solid ground.
+        """
+        jnp=self.jnp
+        best=jnp.full(positions.shape[:2],-jnp.inf,dtype=jnp.float32)
+        for geom in self.carpet_solid_geom_ids:
+            R=data.geom_xmat[:,geom,:].reshape((self.num_envs,3,3))
+            centre=data.geom_xpos[:,geom,:]
+            half=jnp.asarray(self.mj_model.geom_size[geom,:3],
+                             dtype=jnp.float32)
+            normal=R[:,:,2]
+            top=centre+normal*half[2]
+            safe_z=jnp.where(jnp.abs(normal[:,2])>1e-5,normal[:,2],1.)
+            dx=positions[:,:,0]-top[:,None,0]
+            dy=positions[:,:,1]-top[:,None,1]
+            z=top[:,None,2]-(dx*normal[:,None,0]+
+                               dy*normal[:,None,1])/safe_z[:,None]
+            delta=jnp.stack((positions[:,:,0]-centre[:,None,0],
+                             positions[:,:,1]-centre[:,None,1],
+                             z-centre[:,None,2]),axis=2)
+            local=jnp.einsum('eki,eij->ekj',delta,R)
+            inside=(jnp.abs(local[:,:,0])<=half[0]+.0001)&(
+                    jnp.abs(local[:,:,1])<=half[1]+.0001)
+            best=jnp.maximum(best,jnp.where(inside,z,-jnp.inf))
+        return best
+
     def _support_signed_heights(self, data, positions, carpet_heights=None):
         """Teacher-only distance above real local support (plane OR box top).
 
@@ -3541,8 +3575,7 @@ class EmuMJXEnv(TaskSampler):
         acceptance must still inspect real contact pairs and trajectory.
         """
         if self.terrain_carpet:
-            top=carpet_sample_surface(
-                self.jnp,data,self.carpet_mocap_ids,carpet_heights,positions)
+            top=self._carpet_real_top_height(data,positions)
             return carpet_signed_support(self.jnp,positions,top)
         flat = self._floor_signed_heights(data, positions)
         if self.unified_capability_focus:
@@ -3700,8 +3733,7 @@ class EmuMJXEnv(TaskSampler):
         foot_xyz=data.geom_xpos[:,foot_geoms,:]
         foot_bottom=(foot_xyz[:,:,2]-jnp.asarray(
             self.mj_model.geom_size[list(foot_geoms),0])[None,:])
-        physical_foot_top=carpet_sample_surface(
-            jnp,data,self.carpet_mocap_ids,state.carpet_hfields,foot_xyz)
+        physical_foot_top=self._carpet_real_top_height(data,foot_xyz)
         top_contacts_by_tile=jnp.stack(tuple(
             carpet_top_foot_pairs(
                 jnp,contact.geom1,contact.geom2,contact.dist,

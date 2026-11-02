@@ -16,8 +16,11 @@ geometry is now **NINE TILTED SOLID BOX TOPS**, not heightfield skirts:
 - A solid tile is a genuine rigid planar top and four real sides.
   Its plane is fitted to the same four corner samples (the two triangles
   are coplanar only when local curvature is zero).
-- Non-contact 2×2 hfield samples remain in the batched JAX model solely
-  for the exact curriculum, ToF and reward-side source geometry.
+- Non-contact 2×2 hfield samples remain in the batched JAX model for
+  the deterministic **source terrain coordinates**, while the **4×4 ToF,
+  optical-flow depth, support-height evidence, and STEP rewards now
+  intersect the exact physical box geoms**. The original triangle
+  source is retained for birth/generator accounting only.
 - No 12-wall workaround is needed; all 9 physical boxes recycle using
   the existing safe-foot/one-cell window rule, with constant MJX topology.
 - Exact independent UP/DOWN stepping evidence and the 64-tile
@@ -28,8 +31,8 @@ geometry is now **NINE TILTED SOLID BOX TOPS**, not heightfield skirts:
   envelopes. A tile-box's top approximates the two triangle samples,
   with an explicit <8mm collision-to-sensor discrepancy test across the
   reference difficulty.
-- Actual MJX foot-top contact must be upward-facing, near the physical
-  sampled top, and not a vertical side. No diagonal corner is paid as
+- Actual MJX foot-top contact must be upward-facing, near the **real box
+  top**, and not a vertical side. No diagonal corner is paid as
   an imaginary single-lip transition.
 
 **Reason for change:** MJX 3.17 gave a misleading upward contact

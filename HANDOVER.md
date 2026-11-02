@@ -245,3 +245,13 @@ This is a per-tile planar collision approximation, not perfect
 noncoplanar triangle collision; compare <8mm divergence and high-step
 foot contacts. Preserve v5040 and main; 2048 CUDA still untested.
 See docs/V5041_GPU_CARPET_TRAINING.md.
+
+Latest v5041 verification: 9 tilted solid-box MJX physical surfaces
+passed real CPU 4-world PPO and stricter 4/15cm top/side contacts in
+Actions run 41433542901. ToF (all 16 4x4 rays) and optical-flow depth
+were then switched to EXACT ray/OBB intersections against the active 9
+MJX box geoms, not inactive HField samples; teacher support and STEP
+footholds use the same exact boxes. The analytic triangle height contract
+is only used for initial source geometry, with bounded discrepancy.
+Run new full CI before requesting 2048 CUDA preflight; remember to
+update source SHA in acceptance commands. v5040 and main untouched.

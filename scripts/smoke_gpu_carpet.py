@@ -72,6 +72,16 @@ def main():
         raise RuntimeError("Terrain must contain genuine changing triangles")
     if not np.all(np.isfinite(np.asarray(jax.device_get(obs)))):
         raise RuntimeError("Nonfinite initial sensor observations")
+    from emu.terrain_carpet_mjx import sample_surface
+    roots=state.data.qpos[:,:3][:,None,:]
+    source=sample_surface(jnp,state.data,env.carpet_mocap_ids,
+                          state.carpet_hfields,roots)[:,0]
+    actual=env._carpet_real_top_height(state.data,roots)[:,0]
+    gap=np.asarray(jax.device_get(jnp.abs(actual-source)))
+    if not np.all(np.isfinite(gap)) or np.max(gap)>.008:
+        raise RuntimeError(f"Collision surface diverges from analytic teacher by {gap}")
+    print("surface PASS: sampled two-triangle contract agrees with real tilted "
+          f"box top to within {float(np.max(gap))*1000:.2f}mm",flush=True)
     tile_positions=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(env.carpet_mocap_ids),:]))
     if tile_positions.shape!=(a.worlds,9,3):
@@ -148,7 +158,7 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
-          physics="2-triangle-heightfield",tiles=TILE_COUNT,
+          physics="nine-solid-tilted-boxes",tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update)))
 
 
