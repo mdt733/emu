@@ -534,3 +534,50 @@ untrained actor. The true cold-start first learns flat standing around
 5M historically; stop and inspect before extending the same optimiser
 and teacher lineage to 20M and later 140M. No automatic merging to
 `main`.
+
+
+### First actual v5041 ten-million-step cold start and 7m final exam stall — 3 November 2026
+
+Owner completed fresh 2048-CUDA sim2real/unified carpet cold
+training on **source `9070238b3c81a6805296f867a7849e8799f4a2ff`**,
+seed 735, `~/robot_lab/emu_runs/v5041_carpet_s735_cold`.
+Requested 10M, actual `10,027,008` PPO boundary. The user
+uploaded `results_bundle(10).zip`, containing 16 metrics rows,
+complete fixed exam, performance summary and source-provenanced
+run config. At 5.24M stood for ~694/700 frames, with
+intermittent later setbacks; at 9.83M fell 1.1% in the completed
+rollout and reached 700 frames. Last full 10.027M training sample:
+reward +2.488, `fall_rate=0`, length 700, forward +.027 vs
+requested +.035m/s; this is **standing, not robust walking**.
+Final held-out exam core survival 1.000, dynamic80 0.109,
+resilience75 0.078, broad score -0.255. Don't compare
+advanced 80% command/disturbance panels to mature learner
+until the foundation progresses beyond 10M.
+
+**Important finalisation performance finding:** The user saw no
+console messages for ~10min after last training log (~9.83M),
+thought process hung, but it finished. `performance.json` proved
+**433.200 seconds** in 10-panel, 2-cohort, 32-world held-out
+frozen evaluation, with 4-5 first-use different MJX evaluator
+worlds costing ~64-70 seconds each. PPO updating itself took
+600.37s measured (152 postcompile updates) and final
+checkpoint saving was **0.032 seconds**. No data loss or
+checkpoint write problem.
+
+Feature branch afterwards adds progress to *every* held-out
+evaluation (not only final): target reached announcement, exam
+BEGIN, panel/cohort start + completion with wall and
+survival/MAE summaries, and a **20-second daemon reporting
+heartbeat while blocking JAX compiles**. The ten-panel/two-cohort
+scientific protocol and scores remain unchanged: don't silently
+shorten the exam by excluding difficult panels. A fake-JAX
+regression tests the unchanged metrics and a heartbeat expiry.
+
+**Critical source lock:** the saved 10M source **9070238b**
+must NOT be resumed under the newer branch HEAD (which contains
+the unique-tile anti-rocking fix plus progress). Resume it only
+from an unchanged, clean 9070238b checkout or deliberately
+start a completely independent later-source cold training run.
+Do not edit in-place source or `main` to acquire new console
+messages. The full measured timings and safe handling are also
+documented in `docs/V5041_GPU_CARPET_TRAINING.md`.
