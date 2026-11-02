@@ -1,4 +1,4 @@
-"""v5041 GPU trainer gate: nine real 2-triangle MJX surfaces, per-world
+"""v5041 GPU trainer gate: nine real tilted-box MJX surfaces, per-world
 streaming state, real 4x4 ToF and a genuine PPO gradient update.
 
 Does NOT claim learned locomotion; CPU smoke is not 2048 GPU acceptance.
@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 
 
 def main():
@@ -47,7 +48,7 @@ def main():
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
-        raise RuntimeError("Expected exactly nine collision hfield tiles")
+        raise RuntimeError("Expected exactly nine inactive source hfields")
     if len(env.carpet_solid_geom_ids)!=9 or len(env.carpet_solid_mocap_ids)!=9:
         raise RuntimeError("Expected nine real 50cm collision box tiles")
     if np.any(env.mj_model.geom_contype[np.asarray(
@@ -145,13 +146,29 @@ def main():
              epochs=4 if a.full_update else 1,
              minibatches=8 if a.full_update else 1)
         initial=trainer["make_initial_state"](params)
+        initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
+        start_update=time.perf_counter()
         updated,_,diag,_,_=trainer["train_update"](
              initial,packet,jnp.zeros((360,),dtype=jnp.float32),
              jnp.ones((360,),dtype=jnp.float32),jnp.asarray(.25,jnp.float32))
-        for leaf in jax.tree_util.tree_leaves(updated.params):
-            if not np.asarray(jax.device_get(jnp.all(jnp.isfinite(leaf)))):
-                raise RuntimeError("Non-finite PPO actor parameters")
-        print("real batched PPO training update PASS",flush=True)
+        # Device transfer synchronizes the asynchronous XLA update. Include
+        # compilation in this first-update time; it is NOT steady-state FPS.
+        updated_leaves=jax.tree_util.tree_leaves(jax.device_get(updated.params))
+        first_update_seconds=time.perf_counter()-start_update
+        if len(initial_leaves)!=len(updated_leaves):
+            raise RuntimeError("PPO parameter tree structure changed unexpectedly")
+        if not all(np.isfinite(leaf).all() for leaf in updated_leaves):
+            raise RuntimeError("Non-finite PPO actor parameters")
+        max_param_delta=max(float(np.max(np.abs(after-before))) for before,after
+                            in zip(initial_leaves,updated_leaves))
+        if not np.isfinite(max_param_delta) or max_param_delta<=1e-10:
+            raise RuntimeError("PPO update did not change any network parameters")
+        rollout_frames=32 if a.full_update else 2
+        first_update_world_steps=a.worlds*rollout_frames
+        print("real batched PPO training update PASS; "
+              f"max_parameter_delta={max_param_delta:.8g}; "
+              f"first_update_including_compile={first_update_seconds:.2f}s; "
+              f"world_steps={first_update_world_steps:,}",flush=True)
         if a.full_update:
             dev=jax.devices("gpu")[0]
             stats=dev.memory_stats() or {}
@@ -159,7 +176,11 @@ def main():
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
           physics="nine-solid-tilted-boxes",tiles=TILE_COUNT,
-          finite_actor=True,ppo=a.ppo,full_update=a.full_update)))
+          finite_actor=True,ppo=a.ppo,full_update=a.full_update,
+          **(dict(ppo_parameter_delta=max_param_delta,
+                  first_update_seconds=round(first_update_seconds,3),
+                  first_update_world_steps=first_update_world_steps)
+             if a.ppo else {}))))
 
 
 if __name__=="__main__":
