@@ -536,3 +536,16 @@ button:disabled { opacity: .4; cursor: default; }
   .lesson-metrics {gap:7px;}
   .nav-hud {top:125px;right:7px;max-width:145px;}
 }
+
+/* Hide secondary gait diagnostics until requested. Keep the HUD readable
+   while watching narrow steps and visible shove arrows. */
+.telemetry {display:flex;flex-direction:column;width:min(258px,calc(100vw - 20px));max-width:none;gap:8px;}
+.telemetry-primary,.telemetry-extra {display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;}
+.telemetry .terrain-slope {grid-column:1 / -1;}
+.telemetry .metric span {font-size:9px;}
+.telemetry .metric b {font-size:12px;}
+.telemetry-more {border-top:1px solid rgba(166,216,207,.16);padding-top:6px;}
+.telemetry-more summary {cursor:pointer;font-size:11px;color:#a2ccbc;list-style-position:inside;}
+.telemetry-extra {padding-top:9px;}
+#viewerExercise {color:#a5f1d6;}
+@media(max-width:430px){.telemetry{width:196px}.telemetry-primary{gap:6px 7px}}
