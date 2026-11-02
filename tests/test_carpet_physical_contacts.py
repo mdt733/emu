@@ -72,7 +72,7 @@ def solve_case(rise_m, *, backend='cpu'):
     # just 5mm inside the corresponding real *top* collision face.
     data.qpos[0:3]=[-.17,0,.035]
     data.qpos[7:10]=[+.17,0,rise_m+.035]
-    data.qpos[14:17]=[-.015,.09,rise_m*.5]
+    data.qpos[14:17]=[-.018,.09,rise_m*.5]
     mujoco.mj_forward(model,data)
     if backend == 'mjx':
         import jax
@@ -155,7 +155,10 @@ def test_explicit_riser_box_normal_is_horizontal_not_false_upper_support(
     assert risers,(rise_m,backend,contacts)
     normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
              else np.asarray(c[2])[:3] for c in risers]
-    assert any(abs(n[2])<.50 for n in normals),(rise_m,backend,normals)
+    assert any(abs(n[2])<.50 for n in normals),(
+        rise_m,backend,normals,
+        [(round(float(c[1]),5),np.asarray(c[3]).tolist())
+         for c in risers])
 
 
 @pytest.mark.parametrize('backend',['cpu','mjx'])
