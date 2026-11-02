@@ -83,9 +83,17 @@ python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 --frames 2 --ppo 
 ```
 
 `--full-update` executes the production 32-frame rollout, four PPO
-epochs and eight minibatches without saving a checkpoint; monitor GPU
-memory and throughput. If 2048 OOMs, rerun with 1024; NEVER report
-1024 passing as a 2048 pass. Do not begin a 140M run before this gate.
+epochs and eight minibatches without saving a checkpoint. Both GPU
+smokes explicitly reject a PPO update that leaves every policy/value
+parameter unchanged, and print the measured maximum parameter delta.
+The full gate also reports available JAX GPU peak-memory statistics.
+The JSON result includes the synchronized first-update wall time and
+world-step count. **First-update time includes XLA compilation; it is
+not steady-state throughput**. Record the complete console output for
+diagnosing OOM, compilation, or PPO failures.
+
+If 2048 OOMs, rerun with 1024; NEVER report 1024 passing as a 2048
+pass. Do not begin a 140M run before this gate.
 Depending on CUDA kernel/XLA compilation, one first update can take
 much longer than steady-state steps.
 
