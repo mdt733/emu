@@ -24,6 +24,139 @@ def first_episode_mask(done):
     return earlier==0
 
 
+def independently_score_carpet_crossings(frames):
+    """Rescore actual MJX trajectories without reading the STEP reward.
+
+    Reconstruct each live box-top plane using recorded physical geom
+    transforms. A new orthogonally adjacent global cell counts only after
+    FIVE successive first-life frames with real upward-normal foot contact,
+    ball-foot bottom near that target top, and a valid physical footprint.
+    Return visits never earn another crossing. Signed lip height is measured
+    at the two box planes' SHARED world-space edge midpoint. A smooth
+    grade-only crossing is recorded separately, never called a step.
+
+    This scorer consumes NO academy_cross/foothold/teacher success flags.
+    """
+    import numpy as np
+
+    cells=np.asarray(frames['carpet_root_cell'],dtype=np.int32)
+    centres=np.asarray(frames['carpet_solid_geom_xpos'],dtype=float)
+    rotations=np.asarray(frames['carpet_solid_geom_xmat'],dtype=float)
+    normals=np.asarray(frames['carpet_contact_vertical'],dtype=float)
+    contacts=np.asarray(frames['carpet_raw_contact_pairs'],dtype=bool)
+    feet=np.asarray(frames['foot_xyz'],dtype=float)
+    radii=np.asarray(frames['initial_foot_radii_m'],dtype=float)
+    half=np.asarray(frames['initial_carpet_solid_half_sizes'],dtype=float)
+    valid=first_episode_mask(frames['done'])
+    tcount,worlds=cells.shape[:2]
+    if (cells.shape!=(tcount,worlds,2) or
+        centres.shape!=(tcount,worlds,9,3) or
+        rotations.shape!=(tcount,worlds,9,3,3) or
+        normals.shape!=(tcount,worlds,9,2) or
+        contacts.shape!=(tcount,worlds,9,2) or
+        feet.shape!=(tcount,worlds,2,3) or
+        half.shape!=(9,3) or radii.shape!=(2,)):
+        raise ValueError('Invalid raw carpet trace shapes')
+    if (not np.isfinite(centres).all() or
+        not np.isfinite(rotations).all() or
+        not np.isfinite(feet).all()):
+        raise ValueError('Nonfinite physical carpet trajectory')
+
+    def slot(cell):
+        return int(cell[0]%3+3*(cell[1]%3))
+
+    def box_top_at(t,w,idx,xy):
+        centre=centres[t,w,idx]
+        R=rotations[t,w,idx]
+        normal=R[:,2]
+        if normal[2]<=.70:
+            raise ValueError('Invalid upward real box top normal')
+        top=centre+normal*half[idx,2]
+        z=float(top[2]-np.dot(normal[:2],xy-top[:2])/normal[2])
+        projected=np.asarray((xy[0],xy[1],z))-centre
+        local=R.T@projected
+        return z, bool(np.all(np.abs(local[:2])<=half[idx,:2]+.003))
+
+    def edge_midpoint(before,after):
+        dx=int(after[0]-before[0]);dy=int(after[1]-before[1])
+        if (abs(dx)+abs(dy))!=1:
+            raise ValueError('Only one shared physical tile edge is valid')
+        if dx:
+            x=float(max(before[0],after[0])*.50)
+            y=float((before[1]+.5)*.50)
+        else:
+            x=float((before[0]+.5)*.50)
+            y=float(max(before[1],after[1])*.50)
+        return np.asarray((x,y),dtype=float)
+
+    results=[]
+    for w in range(worlds):
+        confirmed=tuple(map(int,cells[0,w]))
+        visited={confirmed}
+        candidate=None
+        support_streak=0
+        crossings=[]
+        smooth_transitions=0
+        for t in range(tcount):
+            if not valid[t,w]:
+                break
+            new_cell=tuple(map(int,cells[t,w]))
+            dx=new_cell[0]-confirmed[0]
+            dy=new_cell[1]-confirmed[1]
+            if abs(dx)+abs(dy)!=1 or new_cell in visited:
+                support_streak=0
+                candidate=None
+                continue
+            if new_cell!=candidate:
+                candidate=new_cell
+                support_streak=0
+            target=slot(new_cell)
+            supported=False
+            for foot in range(2):
+                if not contacts[t,w,target,foot] or normals[t,w,target,foot]<.70:
+                    continue
+                foot_xyz=feet[t,w,foot]
+                z,inside=box_top_at(t,w,target,foot_xyz[:2])
+                if (inside and
+                    abs(foot_xyz[2]-radii[foot]-z)<=.009):
+                    supported=True
+                    break
+            # Out-of-contact, unhealthy or collapsed poses cannot accrue
+            # the required sustained physical target support streak.
+            if not supported or bool(np.asarray(frames['fell'])[t,w]):
+                support_streak=0
+                continue
+            support_streak+=1
+            if support_streak<5:
+                continue
+            xy=edge_midpoint(confirmed,new_cell)
+            old_z,_=box_top_at(t,w,slot(confirmed),xy)
+            new_z,_=box_top_at(t,w,slot(new_cell),xy)
+            rise=float(new_z-old_z)
+            if abs(rise)>=.0015:
+                crossings.append(dict(from_cell=list(confirmed),
+                                      to_cell=list(new_cell),
+                                      signed_height_cm=round(rise*100,3),
+                                      frame=int(t)))
+            else:
+                smooth_transitions+=1
+            confirmed=new_cell
+            visited.add(confirmed)
+            candidate=None
+            support_streak=0
+        results.append(dict(
+            world=w,
+            independent_up=sum(x['signed_height_cm']>0 for x in crossings),
+            independent_down=sum(x['signed_height_cm']<0 for x in crossings),
+            smooth_grade_transitions=smooth_transitions,
+            independently_supported_lips=crossings))
+    return dict(
+        up=sum(x['independent_up'] for x in results),
+        down=sum(x['independent_down'] for x in results),
+        total=sum(x['independent_up']+x['independent_down'] for x in results),
+        worlds=results)
+
+
 def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             device="cpu",heights_cm=(1.,2.,3.),carpet=False,slope_deg=0.):
     if (worlds<4 or worlds>32 or horizon<200 or horizon>1200 or
