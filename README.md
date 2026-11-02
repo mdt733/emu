@@ -182,3 +182,14 @@ and a comparable physical exam before another full training.
 
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md).
+
+### v5041 GPU trainer experiment (new source, not released)
+
+The opt-in `--terrain-carpet` main `emu train` path now uses nine real
+2×2 MJX heightfield tiles per world (18 collision triangles), carried
+as distinct JAX world state and safely recycled in 3×3 windows. The six
+specialists retain one PPO policy and receive different cross-specialist
+terrain severity mixes. Both 360-input ToF and support metrics read the new
+physical geometry. The CPU full-physics/PPO smoke passed on four worlds;
+**2048 GPU resource fit, accurate step contact and learned walking are NOT
+certified**. See [actual GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).

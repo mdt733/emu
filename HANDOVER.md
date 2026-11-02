@@ -185,3 +185,20 @@ the 3×3 collision ring is not yet present in GPU training. Source includes
 `emu/terrain_carpet.py` specification and a 2×2 MJX mutable-hfield CPU
 proof. Do not infer 2048-env performance or learned competence from this.
 See [v5041 actual viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md).
+
+### v5041 main GPU terrain generator — first training candidate
+
+Branch `feature/v5041-unified-terrain-carpet` extends the v5040 feature
+without touching `main`. `emu train --terrain-carpet` instantiates NINE
+real, reusable 2x2 hfield colliders (18 triangles), with per-world 36
+JAX-mutable height values and modulo-three tile coordinates. The shared
+six-role sampler drives grade/step envelopes with gentle cross-branch
+carryover. Separate ascent/descent Academy evidence is still physically
+supported. Old long slabs and Academy box supports are buried in carpet
+births. The actor retains exact terrain_360 observations. The 4x4 ToF,
+optic depth and support-height computations use the tile samples. GPU
+2048-env VRAM and exact lip-riser contacts must be validated on the RTX
+4060 Ti before a long training run; see
+`docs/V5041_GPU_CARPET_TRAINING.md`. One 4-world CPU PPO update passed
+on GitHub Actions. Continue only on feature branch. DO NOT assume the
+viewer finite heightfield is the GPU engine.

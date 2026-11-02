@@ -18,8 +18,8 @@ def main():
     p.add_argument("--full-update",action="store_true")
     a=p.parse_args()
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
-    if a.full_update and (a.worlds!=2048 or not a.ppo or a.device=="cpu"):
-        p.error("--full-update requires --worlds 2048 --device cuda --ppo")
+    if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
+        p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if a.device=="gpu" else a.device)
@@ -61,6 +61,38 @@ def main():
         raise RuntimeError("Missing independently positioned tiles")
     print("reset PASS: 9 x 2 real triangles, distinct per-world JAX model "
           "buffers, 360 sensor inputs",flush=True)
+    # One robot crossing into a neighbouring 50cm tile must recycle only
+    # abandoned slots. If a rear foot still occupies an abandoned tile,
+    # the whole window must remain unchanged.
+    old=state.carpet_center
+    desired=old+jnp.asarray([1,0],dtype=jnp.int32)[None,:]
+    root_xy=(desired.astype(jnp.float32)+.5)*.5
+    fake_q=state.data.qpos.at[:,0:2].set(root_xy)
+    foot_xpos=state.data.xpos.at[:,env.foot_bodies,0:2].set(
+        jnp.broadcast_to(root_xy[:,None,:],(a.worlds,2,2)))
+    safe_data=state.data.replace(qpos=fake_q,xpos=foot_xpos)
+    relocated,new_h,new_c=env._carpet_recycle(state,safe_data)
+    if not np.array_equal(np.asarray(jax.device_get(new_c)),
+                          np.asarray(jax.device_get(desired))):
+        raise RuntimeError("Safe 50cm passage did not advance the tile ring")
+    before=np.asarray(jax.device_get(
+        safe_data.mocap_pos[:,list(env.carpet_mocap_ids),:]))
+    after=np.asarray(jax.device_get(
+        relocated.mocap_pos[:,list(env.carpet_mocap_ids),:]))
+    if not np.any(np.abs(after-before)>.3):
+        raise RuntimeError("Abandoned physical tile colliders did not recycle")
+    trailing=((old-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
+               ).astype(jnp.float32)+.5)*.5
+    blocked_data=safe_data.replace(xpos=state.data.xpos.at[
+        :,env.foot_bodies,0:2].set(
+        jnp.broadcast_to(trailing[:,None,:],(a.worlds,2,2))))
+    blocked,blocked_h,blocked_c=env._carpet_recycle(state,blocked_data)
+    if not np.array_equal(np.asarray(jax.device_get(blocked_c)),
+                          np.asarray(jax.device_get(old))):
+        raise RuntimeError("Recycler moved a tile while a trailing foot stood on it")
+    if not np.array_equal(np.asarray(jax.device_get(blocked_h)),heights):
+        raise RuntimeError("Blocked recycling changed live collision triangles")
+    print("recycler PASS: safe turn advances 3x3 ring, trailing-foot hold blocks movement",flush=True)
     for i in range(a.frames):
         out=env.step(state,jnp.zeros((a.worlds,6),dtype=jnp.float32),packet)
         state=out.state
