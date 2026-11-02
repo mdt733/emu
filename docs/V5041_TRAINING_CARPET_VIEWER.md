@@ -107,8 +107,8 @@ doesn't place decorative trunks outside its nine-physical-box ring.
 
 ## Automatic development stages
 
-Open **Settings → Terrain → Training Carpet**, with Specialist set to
-**Auto** (the default). With a real source-tagged live run:
+Choose **Training Carpet** at the top of the viewer and keep the
+persistent **Training Role** selector on **Auto** (the default). With a real source-tagged live run:
 
 | Age / curriculum | Representative world |
 |---|---|
@@ -135,21 +135,39 @@ Rebuilding resets the **viewer robot only**, never the trainer.
 Uncheck **Follow training stage automatically** to hold a scene and
 apply updates manually.
 
-### Running on your WSL computer
+### Start the viewer while the 140M GPU trainer is running
 
-After pulling the feature branch and activating its existing
-GPU-enabled `.venv`:
+Use a **SEPARATE viewer-only checkout and CPU Python environment**.
+Do not update, install into or `git pull` the training checkout
+that owns source-pinned checkpoints. You need Python 3.13+ and Node
+(see `docs/INSTALL.md` if either is missing).
 
 ```bash
-cd ~/emu-v5041-gpu-preflight
-git pull --ff-only
-git status --short
-emu viewer-build
-emu viewer --live --root "$HOME/robot_lab/emu_runs/v5041_carpet_s735_5m" --no-open
+VIEW="$HOME/emu-v5041-viewer"
+if [ ! -d "$VIEW/.git" ]; then
+  git clone --single-branch --branch feature/v5041-unified-terrain-carpet \
+    https://github.com/mdt733/emu.git "$VIEW"
+else
+  git -C "$VIEW" status --short
+  git -C "$VIEW" pull --ff-only
+fi
+cd "$VIEW"
+
+# New viewer-only venv in THIS separate checkout (no JAX CUDA setup,
+# no 2048-world GPU update, never changes the trainer's venv).
+bash scripts/setup_wsl.sh --viewer-only --install-node
+source .venv/bin/activate
+
+emu viewer --live \
+  --root "$HOME/robot_lab/emu_runs/v5041_carpet_s735_140m_fork10m" \
+  --no-open --port 8765
 ```
 
-Open `http://127.0.0.1:8765/`. The local server automatically selects
-Training Carpet for source-tagged `terrain_carpet` training runs,
+Open `http://127.0.0.1:8765/` in the Windows browser. Select
+**Field** or **Training Carpet** using the prominent top buttons;
+the Carpet-specific **Training Role** drop-down remains visible
+next to the 3D world even when Settings is closed. The local server
+automatically selects Carpet for source-tagged `terrain_carpet` runs,
 when metrics become available. The watcher loads the latest validated
 policy snapshot; policy ages may lag the latest curriculum metrics
 between checkpoints. If no run exists yet, you can still select
