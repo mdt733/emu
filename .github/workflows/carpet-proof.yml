@@ -1,0 +1,18 @@
+name: Carpet collision proof
+on:
+  push:
+    branches: [feature/v5041-unified-terrain-carpet]
+  workflow_dispatch:
+jobs:
+  mjx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install physics and test runtime heightfield
+        run: |
+          pip install 'mujoco==3.17.0' 'mujoco-mjx==3.17.0' 'jax==0.12.0.1' 'jaxlib==0.12.0.1'
+          python scripts/probe_carpet_hfield.py
