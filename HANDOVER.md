@@ -16,6 +16,26 @@ slope and sharp step contacts, six independently growing
 teacher focus groups. The actor does not receive privileged
 teacher terrain truth. See [ARCHITECTURE](docs/ARCHITECTURE.md).
 
+## Historical cold-start learning milestones (not curriculum gates)
+
+**Preserve this baseline when interpreting short GPU smoke runs.**
+The owner reports EMU generally needs around **5,000,000 world steps
+before it starts learning to stand on simple flat ground**. In prior
+discussions the owner described roughly **20M as barely standing** and
+**40M as an infant/early gait**, not mature reliable walking. These are
+**qualitative experience across prior runs**, not newly measured
+source-pinned frozen-exam milestones; seeds and recipes vary.
+
+The code's **20M main-style foundation** is a training-mixture
+transition, **not** evidence that a 20M policy has mastered standing
+or command-following. Don't infer learned locomotion or failure from
+65,536/131,072-step PPO lifecycle smoke checkpoints. Do not claim
+independent step ability from a single early downhill crossing.
+Do not make all six specialist groups wait at an arbitrary global
+competence gate. Compare actual physical standing, command-following,
+survival and supported contacts at matched ages before judging a new
+cold start. README also summarises this early learning curve.
+
 ## The frozen trained baseline
 
 | Fact | Value |
