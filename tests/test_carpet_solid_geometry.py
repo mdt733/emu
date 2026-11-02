@@ -14,6 +14,7 @@ from emu.terrain_carpet_mjx import (
     TILE_COUNT,TILE_M,TILE_SIZE_Z_M,SOLID_HALF_Z_M,
     SOLID_GEOM_NAMES,SOLID_BODY_NAMES,
     add_carpet_geoms,make_profiles,generate_window,solid_box_poses,
+    feet_clear_of_abandoned_solids,slot_indices,
 )
 
 
@@ -100,3 +101,35 @@ def test_row_shift_keeps_same_physical_slot_ids_without_recompiling():
     assert np.array_equal(p0[0,kept],p1[0,kept])
     assert np.array_equal(q0[0,kept],q1[0,kept])
     assert (~kept).sum()==3
+
+
+def test_recycling_foot_sphere_clears_actual_abandoned_box_not_only_cell():
+    """A foot centre in the new window can still contact the OLD box."""
+    old=jnp.asarray([[0,0]],dtype=jnp.int32)
+    desired=jnp.asarray([[1,0]],dtype=jnp.int32)
+    x,y=slot_indices(jnp,old[:,0],old[:,1])
+    centres=jnp.stack(((x+.5)*TILE_M,(y+.5)*TILE_M),axis=-1)
+    rotations=jnp.broadcast_to(jnp.eye(3,dtype=jnp.float32),(1,9,3,3))
+    half=jnp.asarray([[.258,.258,.270]]*9,dtype=jnp.float32)
+    radii=jnp.asarray([.018,.018],dtype=jnp.float32)
+    def clear(first_x,matrices=rotations):
+        feet=jnp.asarray([[[first_x,.25],[.75,.25]]],dtype=jnp.float32)
+        return bool(np.asarray(feet_clear_of_abandoned_solids(
+            jnp,old,desired,feet,radii,centres,matrices,half))[0])
+    # Abandoned x=-1 box ends at x=+.008 (its half-width exceeds
+    # a 50cm tile by 8mm). The foot centre x=+.020 is in NEW cell zero,
+    # but its 18mm sphere still overlaps the box by 6mm.
+    assert not clear(.020)
+    assert clear(.040)
+    # A sloping box projects farther toward the new window at its bottom.
+    # Bounding its rotated PHYSICAL geometry is safer than just inflating
+    # the nominal 50cm grid by a constant amount.
+    theta=np.deg2rad(15.)
+    ct,st=np.cos(theta),np.sin(theta)
+    rotation=jnp.asarray([[ct,0,st],[0,1,0],[-st,0,ct]],
+                         dtype=jnp.float32)
+    tilted=rotations.at[:,0,:,:].set(rotation)
+    # Slot 0 isn't necessarily the discarded column's centre in every
+    # mapping, so tilt all abandoned solids for this synthetic check.
+    tilted=jnp.broadcast_to(rotation,(1,9,3,3))
+    assert not clear(.060,tilted)
