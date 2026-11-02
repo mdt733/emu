@@ -208,3 +208,59 @@ def test_historical_unified_lifecycle_defaults_to_old_geometry(tmp_path):
     assert first.terrain_carpet is False
     assert first.academy_stream is False
     assert first.terrain_step_max_m == .04
+
+
+
+def test_carpet_exam_first_episode_mask_never_counts_post_fall_resets():
+    import numpy as np
+    from scripts.exam_step_course import first_episode_mask
+    deaths=np.asarray([[0,0],[1,0],[0,0],[0,1],[0,0]],dtype=bool)
+    mask=first_episode_mask(deaths)
+    assert np.array_equal(mask,[[1,1],[1,1],[0,1],[0,1],[0,0]])
+    with pytest.raises(ValueError):
+        first_episode_mask(np.zeros((4,),dtype=bool))
+
+
+def test_frozen_carpet_trace_reports_actual_live_solid_tiles_not_old_slabs():
+    """Even a two-frame untrained trace must inspect true nine-box physics."""
+    import jax
+    import jax.numpy as jnp
+    import numpy as np
+    from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
+    from emu.environment import EmuMJXEnv
+    from emu.ppo import make_trainer
+    env=EmuMJXEnv(
+        str(ROBOT_XML),num_envs=4,seed=735,max_episode_steps=700,
+        terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
+        unified_capability_focus=True,academy_stream=True,
+        terrain_lesson='coherent-careful',terrain_carpet=True,
+        academy_height_cap_m=.15)
+    assert not env.academy_geom_ids
+    settings=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=0.,
+                  slope_max_deg=0.,terrain_height_m=.02,
+                  academy_height_up_m=.02,academy_height_down_m=.03,
+                  focus_weight_step=1.,academy_episode_probability=1.,
+                  athletic_rehearsal_frac=0.,
+                  regime_frac_steady=1.,regime_frac_transition=0.,
+                  regime_frac_resilience=0.,probe_cmd_vx=.10,
+                  probe_cmd_vy=0.,probe_cmd_yaw=0.)
+    trainer=make_trainer(env,seed=735,lr=2e-4,rollout=2,epochs=1,minibatches=1)
+    initial=trainer['make_initial_state'](settings)
+    schedule=jnp.asarray([[.10,0.,0.],[.10,0.,0.]],dtype=jnp.float32)
+    trace=jax.device_get(trainer['evaluate_trace'](
+        initial.params,env.params_array(settings),
+        jnp.zeros((360,),dtype=jnp.float32),
+        jnp.ones((360,),dtype=jnp.float32),
+        jax.random.PRNGKey(1701),2,0.,None,schedule))
+    assert np.asarray(trace['floor_contact']).shape==(2,4,2)
+    assert np.asarray(trace['academy_active']).shape==(2,4)
+    assert np.asarray(trace['initial_carpet_solid_geom_xpos']).shape==(4,9,3)
+    assert np.asarray(trace['initial_carpet_solid_geom_xmat']).shape==(4,9,3,3)
+    assert np.asarray(trace['initial_carpet_cells']).shape==(4,9,2)
+    assert np.asarray(trace['initial_carpet_source_hfields']).shape==(4,36)
+    assert np.all(np.isfinite(trace['initial_carpet_solid_geom_xpos']))
+    assert np.all(np.isfinite(trace['floor_normal_world']))
+    # The old slab is disabled, and its fictional support must not leak
+    # into the frozen policy examiner.
+    assert 'academy_initial_platform_positions' not in trace
+    assert 'terrain_platform_contact' not in trace
