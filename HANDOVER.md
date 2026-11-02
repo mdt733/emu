@@ -255,3 +255,33 @@ footholds use the same exact boxes. The analytic triangle height contract
 is only used for initial source geometry, with bounded discrepancy.
 Run new full CI before requesting 2048 CUDA preflight; remember to
 update source SHA in acceptance commands. v5040 and main untouched.
+
+
+### v5041 first actual 2048-world CUDA gate — 2 November 2026
+
+The user cloned source SHA `c876240f935d1acc4346b229f84381286f314ace`
+in a separate WSL checkout and exercised the RTX 4060 Ti 8 GB:
+
+- 128-world physics, finite 360 observations and real PPO: **PASS**.
+- 2048-world physics plus 32-frame PPO rollout, 4 epochs and 8 minibatches:
+  **PASS**. No GPU OOM; real 9-box recycling and top-surface checks passed.
+- Source triangle/physical box top sample mismatch: 2.61mm (128 worlds),
+  2.71mm (2048 worlds), both within the 8mm smoke threshold.
+- JAX allocator reported 1,075,855,360 bytes peak in use against
+  6,440,353,792 bytes device limit (not measured sustained-run VRAM).
+- Warnings about unavailable optional warp modules and CUDA timer accuracy
+  were nonfatal.
+
+**Important source-pinning distinction:** The passing CUDA code was
+`c876240f`, not any subsequent feature-branch commits. Later improvements
+add a positive PPO *actor* parameter-change assertion, timing diagnostics
+and real rotated-box/18mm spherical-foot recycler clearance plus tests.
+CPU CI and then both CUDA smokes need repeating on the final source SHA
+before accepting that newer variant.
+
+**Next required gate:** a separate 2-update `EMU_UNIFIED_ACCEPTANCE=
+bounded-ppo-lifecycle` CUDA `emu train` run that verifies complete optimizer
+checkpoint, resume/source provenance, exporter and 360-observation actor.
+Then independent physical commanded step/slope exams and only afterward
+a new, source-pinned cold-start 140M run. See
+`docs/V5041_GPU_CARPET_TRAINING.md`; main and v5040 stay untouched.
