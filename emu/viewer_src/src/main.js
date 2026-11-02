@@ -4,7 +4,8 @@ import { VirtualStick } from './joystick.js';
 import { joystickToCommands } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
-import { CARPET_DEFAULT, carpetRoleLimits, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
+import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
+import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
@@ -28,9 +29,11 @@ const terrainMax = $('terrainMax');
 const carpetRole=$('carpetRole'),carpetPanel=$('carpetPanel'),carpetImport=$('carpetImport');
 const carpetValues=$('carpetValues'),carpetStatus=$('carpetStatus');
 const carpetLive=$('carpetLive'),carpetFetch=$('carpetFetch'),carpetApply=$('carpetApply');
+const carpetAutoApply=$('carpetAutoApply');
 let carpetDifficulty={...CARPET_DEFAULT};
 let carpetSource='Illustrative defaults';
 let carpetFetching=false;
+let carpetLastAppliedSignature='';
 const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
 const surfaceSlopeSlider=$('surfaceSlope'),surfaceStepSlider=$('surfaceStep');
 const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
@@ -276,7 +279,8 @@ async function activatePolicy(index) {
     sim.setTreesEnabled(treesToggle.checked);
     sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
     sim.setParkChallengeLevel(parkChallengeLevel.value);
-    sim.setTrainingCarpet({role:carpetRole.value,limits:carpetDifficulty});
+    sim.setTrainingCarpet({role:carpetRepresentativeRole(carpetDifficulty,carpetRole.value),
+                           limits:carpetEffectiveLimits()});
     sim.setSurfaceLab({slopeDegrees:Number(surfaceSlopeSlider.value),
                        stepHeightCm:Number(surfaceStepSlider.value)});
     if(depthCourse.value!=='viewer')sim.setSensorObstacle(depthCourse.value);
@@ -396,7 +400,9 @@ function updateParkCourseInfo() {
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
   const isPark=terrainMode.value==='park',isCarpet=terrainMode.value==='carpet';
-  treesToggle.disabled = !(isPark||isCarpet);
+  // The physically faithful 3x3 carpet has only its nine real boxes:
+  // decorative park trunks outside the ring would be floating obstacles.
+  treesToggle.disabled = !isPark;
   parkFeaturesToggle.disabled = !isPark;
   parkChallengeLevel.disabled = !isPark;
   terrainMax.disabled=!isPark;
@@ -408,7 +414,8 @@ function updateTerrain() {
   if (!sim) return;
   try {
     if(terrainMode.value==='carpet')sim.setTrainingCarpet(
-      {role:carpetRole.value,limits:carpetDifficulty});
+      {role:carpetRepresentativeRole(carpetDifficulty,carpetRole.value),
+       limits:carpetEffectiveLimits()});
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     if(goalDemoActive())navigator.reset();
     updateStickLabels();
@@ -420,31 +427,65 @@ function updateTerrain() {
     setStatus(`Terrain unavailable: ${err.message}`,'error');
   }
 }
+function carpetEffectiveLimits(){
+  // If the actual trainer is inside its original 20M ordinary foundation,
+  // REAL terrain exposure is zero for every specialist. Preview that
+  // flatness even when a user has manually selected STEP or SLOPE.
+  return carpetLearningStage(carpetDifficulty)==='foundation'
+    ? {...carpetDifficulty,slopeDeg:0,transitionDeg:0,stepUpM:0,stepDownM:0}
+    : carpetDifficulty;
+}
+function carpetTerrainSignature(){
+  const b=carpetEffectiveLimits();
+  const r=carpetRepresentativeRole(b,carpetRole.value);
+  const p=terrainRoleEnvelope(b,r);
+  // Tiny frontier changes on every metrics row should NOT repeatedly reset
+  // an actively walking browser robot. Visible updates are quantized to
+  // 0.5 degree and 2mm, and phase/role changes are always significant.
+  return JSON.stringify([p.stage,r,p.seed,
+    Math.round(p.slopeDeg*2),
+    Math.round(p.transitionDeg*2),
+    Math.round(p.stepUpM*500),
+    Math.round(p.stepDownM*500)]);
+}
 function renderCarpetValues(){
-  const active=carpetRole.value;
-  const projected=carpetRoleLimits(carpetDifficulty,active);
+  const b=carpetEffectiveLimits();
+  const active=carpetRepresentativeRole(b,carpetRole.value);
+  const projected=terrainRoleEnvelope(b,active);
   const measured=carpetDifficulty.source==='training';
+  const stage=carpetLearningStage(carpetDifficulty);
+  const phaseLabel={
+    foundation:'FLAT FOUNDATION (all six roles have zero terrain exposure)',
+    specialists:'SIX SPECIALISTS (this viewer shows one representative role)',
+    'multi-lip':'MULTI-LIP ACADEMY (some training worlds; not the entire batch)',
+    illustrative:'ILLUSTRATIVE (no recorded training frontiers)'
+  }[stage];
   const fmt=(n,u)=>n.toFixed(u==='°'?2:1)+u;
   carpetValues.textContent=[
-    measured?'REAL CURRICULUM INPUTS (from metrics.csv)':'EXAMPLE CURRICULUM (not training telemetry)',
-    measured?`Run: ${carpetDifficulty.run} · ${Number(carpetDifficulty.step||0).toLocaleString()} steps`:`Seed: ${projected.seed}`,
-    `Slope frontier: ${fmt(carpetDifficulty.slopeDeg,'°')}`,
-    `Slope transition: ${fmt(carpetDifficulty.transitionDeg,'°')} ${carpetDifficulty.transitionMeasured?'(measured)':'(preview assumption)'}`,
-    `Step UP: ${fmt(carpetDifficulty.stepUpM*1000,'mm')} · DOWN: ${fmt(carpetDifficulty.stepDownM*1000,'mm')}`,
-    '— specialist envelope projected below —',
-    `${active.toUpperCase()}: slope ≤${projected.slopeDeg.toFixed(2)}° · angle change ≤${projected.transitionDeg.toFixed(2)}°`,
+    measured?'TRAINER CURRICULUM TARGETS (not physical skill certification)':'EXAMPLE CURRICULUM (not training telemetry)',
+    measured?`Run: ${carpetDifficulty.run} · ${Number(carpetDifficulty.step||0).toLocaleString()} steps`:
+      `Example seed: ${projected.seed}`,
+    `Phase: ${phaseLabel}`,
+    `Global slope frontier: ${fmt(carpetDifficulty.slopeDeg,'°')}`,
+    `Gradient-transition cap: ${fmt(carpetDifficulty.transitionDeg,'°')} ${carpetDifficulty.transitionMeasured?'(reported)':
+      carpetDifficulty.transitionConfigured?'(configured geometric cap)':'(illustrative estimate)'}`,
+    `Global step UP: ${fmt(carpetDifficulty.stepUpM*1000,'mm')} · DOWN: ${fmt(carpetDifficulty.stepDownM*1000,'mm')}`,
+    '— physical nine-box world below —',
+    `${active.toUpperCase()}: slope ≤${projected.slopeDeg.toFixed(2)}° · local change ≤${projected.transitionDeg.toFixed(2)}°`,
     `step UP ≤${(projected.stepUpM*1000).toFixed(1)}mm · DOWN ≤${(projected.stepDownM*1000).toFixed(1)}mm`,
-    `ledge frequency ${(projected.frequency*100).toFixed(0)}% · seed ${projected.seed}`,
-  ].join('\n');
-  if(carpetDifficulty.source==='training')carpetStatus.textContent=
-    'Live source: '+carpetSource+'. Numbers update without resetting EMU. Press Apply to change the 3D terrain. Geometry remains a projected, finite MuJoCo heightfield, not an exact rolling MJX replay.';
+    `50cm real solid boxes · modulo-three recycling · illustrative env seed ${projected.seed}`,
+  ].join('\\n');
 }
 function acceptCarpetSnapshot(data,label){
   carpetDifficulty=trainingLimits(data);
   carpetSource=label;
   renderCarpetValues();
-  if(terrainMode.value==='carpet')carpetStatus.textContent=
-    'Updated from '+label+'. Press Apply to rebuild the robot-world geometry; current walking will continue until then.';
+  if(terrainMode.value!=='carpet')return;
+  if(carpetAutoApply.checked){
+    applyCarpetTerrain(true);
+  }else{
+    carpetStatus.textContent='Updated from '+label+'. Auto-follow is disabled: press Apply to rebuild the world.';
+  }
 }
 async function refreshCarpetLive(manual=false){
   if(carpetFetching||(!manual&&(!carpetLive.checked||terrainMode.value!=='carpet')))return;
@@ -462,21 +503,31 @@ async function refreshCarpetLive(manual=false){
     if(manual)carpetStatus.textContent='No local training feed: '+err.message+' · import a CSV/JSON file instead.';
   }finally{carpetFetching=false;}
 }
-function applyCarpetTerrain(){
+function applyCarpetTerrain(automatic=false){
   renderCarpetValues();
+  const signature=carpetTerrainSignature();
+  if(automatic&&signature===carpetLastAppliedSignature)return;
   if(!sim){carpetStatus.textContent='Difficulty stored. It will apply when a policy is loaded.';return;}
   try{
-    sim.setTrainingCarpet({role:carpetRole.value,limits:carpetDifficulty});
+    sim.setTrainingCarpet({
+      role:carpetRepresentativeRole(carpetDifficulty,carpetRole.value),
+      limits:carpetEffectiveLimits()});
     if(terrainMode.value!=='carpet'){
       terrainMode.value='carpet';
       updateTerrain();
     }
     if(goalDemoActive())navigator.reset();
-    carpetStatus.textContent='Applied to real browser MuJoCo terrain; robot reset, policy weights unchanged. Step edges are heightfield approximations.';
+    carpetLastAppliedSignature=signature;
+    carpetStatus.textContent=(automatic?'Automatically followed':'Applied')+
+      ' the representative nine-solid-box world. Only the browser simulation resets; training weights and checkpoints are unchanged.';
   }catch(err){setStatus('Training terrain: '+err.message,'error');}
 }
-carpetRole.addEventListener('change',applyCarpetTerrain);
-carpetApply.addEventListener('click',applyCarpetTerrain);
+carpetRole.addEventListener('change',()=>applyCarpetTerrain(false));
+carpetAutoApply.addEventListener('change',()=>{
+  if(carpetAutoApply.checked&&terrainMode.value==='carpet')
+    applyCarpetTerrain(true);
+});
+carpetApply.addEventListener('click',()=>applyCarpetTerrain(false));
 carpetFetch.addEventListener('click',()=>refreshCarpetLive(true));
 carpetImport.addEventListener('change',async()=>{
   const file=carpetImport.files?.[0];if(!file)return;
@@ -906,6 +957,14 @@ async function startViewerFeed() {
           }
         }
         if (config.live) {
+          // Only source-tagged nine-solid training runs auto-enter Carpet.
+          // The published champion and older/legacy live runs keep the
+          // original Terrain Park until the user explicitly selects it.
+          await refreshCarpetLive(true);
+          if(carpetDifficulty.trainingCarpet){
+            terrainMode.value='carpet';
+            updateTerrain();
+          }
           livePanel.hidden = false;
           demoActive = $('liveDemo').checked;
           syncGoalMode();
