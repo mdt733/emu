@@ -3387,7 +3387,7 @@ class EmuMJXEnv(TaskSampler):
                 clearance_new=zb,foothold_new=zb,transfer_new=zb,
                 reward=z,height_m=z,completed=zb,approach_seen=zb,
                 attempt_new=zb)
-        from .directional import supported_top_foot_contacts
+        from .directional import (supported_top_foot_contacts, contact_pair_mask)
         active=state.academy_active
         slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
         target_slot=jnp.mod(slot+1,ACADEMY_PLATFORMS)
@@ -3408,6 +3408,14 @@ class EmuMJXEnv(TaskSampler):
         sidx=jnp.broadcast_to(slot[:,None,None],(self.num_envs,1,2))
         target_idx=jnp.broadcast_to(target_slot[:,None,None],(self.num_envs,1,2))
         previous=jnp.take_along_axis(contact_pairs,sidx,axis=1)[:,0,:]
+        # The recycler must reject ANY trailing-slab foot contact, including
+        # grazing its vertical face. Top support alone is not enough here.
+        all_foot_contacts=jnp.stack(tuple(
+            contact_pair_mask(jnp,contact.geom1,contact.geom2,contact.dist,
+                              g,foot_geoms)
+            for g in self.academy_geom_ids),axis=1)
+        trailing_contacts=jnp.take_along_axis(
+            all_foot_contacts,sidx,axis=1)[:,0,:]
         target=jnp.take_along_axis(contact_pairs,target_idx,axis=1)[:,0,:]
         target_supported=jnp.any(target,axis=1)
         stance_supported=jnp.any(previous,axis=1)
@@ -3450,7 +3458,7 @@ class EmuMJXEnv(TaskSampler):
         # when the recycler is allowed to move it.
         supported=(healthy & (forward>.13) & target_supported &
                    (metrics['support']>=.5) &
-                   ~jnp.any(previous,axis=1) &
+                   ~jnp.any(trailing_contacts,axis=1) &
                    jnp.all(foot_forward>.035,axis=1))
         streak=jnp.where(supported,state.academy_streak+1,0)
         new_cross=supported & (streak>=5)
