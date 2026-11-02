@@ -178,13 +178,13 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 The experimental child branch
 [`feature/v5041-unified-terrain-carpet`](https://github.com/mdt733/emu/tree/feature/v5041-unified-terrain-carpet)
-adds **Training Carpet** as a separate mode inside the existing 3D robot
-viewer, with the original Terrain Park unchanged. It reads the actual
-training curriculum frontiers from `metrics.csv` / the live watcher,
-shows projected per-specialist difficulty, and renders real browser
-MuJoCo heightfield collisions with the regular grass and trees. The
-9-tile guiding grid is a visualization, **not** a finished 2048-MJX
-streaming terrain world. [Use the real viewer](docs/V5041_TRAINING_CARPET_VIEWER.md).
+adds **Training Carpet** to the existing 3D robot viewer without replacing
+the original Terrain Park. The viewer uses its own finite browser MuJoCo
+hfield scene; the **GPU trainer has a different real collision implementation**:
+a recycled 3×3 ring of nine tilted solid-box tiles. Both show the same
+terrain concepts, but they are **not geometrically identical**.
+See [viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md) and
+[real GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
 
 
 The active research branch is
@@ -208,19 +208,22 @@ and a comparable physical exam before another full training.
 
 ### v5041 GPU trainer experiment (new source, not released)
 
-The opt-in `--terrain-carpet` main `emu train` path now uses nine real
-2×2 MJX heightfield tiles per world (18 collision triangles), carried
-as distinct JAX world state and safely recycled in 3×3 windows. The six
-specialists retain one PPO policy and receive different cross-specialist
-terrain severity mixes. Both 360-input ToF and support metrics read the new
-physical geometry. The CPU full-physics/PPO smoke passed on four worlds;
-**2048 GPU resource fit, accurate step contact and learned walking are NOT
-certified**. See [actual GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+The opt-in `emu train --terrain-carpet` path uses **nine real tilted
+solid boxes** with vertical contact sides and a safely recycled 3×3
+window in each MJX world. It retains source-sampled two-triangle tile
+heights for terrain generation, but the actual feet touch box geometry.
+All six teaching specialties share one PPO actor with 360-input
+4×4 ToF/IMU/optical-flow observations; a 64-tile teacher visit memory
+prevents repeated crossing reward from rocking backward and forward.
 
-**v5041 follow-up physics:** Four- and 15-cm vertical risers now pass both
-CPU MuJoCo and MJX **contact** tests. All six teaching roles still share
-one policy, with smoothly varying tile gradients and a configurable
-slope-transition cap. A 64-cell teacher-only visit history prevents
-repeated crossing payments for rocking across old tiles. The source
-continues to require an independent 2048-env CUDA memory/throughput gate;
-contact feasibility does not establish learned step skill.
+**GPU engineering passed on 3 November 2026:** 2,048 real CUDA worlds,
+full 32-frame / four-epoch PPO updates, sustained **16,818 world
+steps/s** (three synchronized post-compile updates), JAX peak
+allocation **1.40 GB**, and a checkpoint/resume/export lifecycle.
+A frozen first-life nine-box exam also ran on CUDA: raw-contact
+independent scorer **0 UP / 1 DOWN** and teacher **0 UP / 1 DOWN**
+on eight worlds; **all eight fell** on the untrained 131k-step actor.
+These results validate engineering and exam plumbing, **not learned
+walking or step mastery**. The historical cold-start learning curve
+is documented above; a fresh long run must demonstrate it anew.
+See [GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
