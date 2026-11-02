@@ -68,6 +68,9 @@ def solve_case(rise_m, *, backend='cpu'):
         mid=int(model.body_mocapid[b])
         data.mocap_pos[mid]=[
             WALL_THICK_M,0.,rise_m-WALL_HALF_HEIGHT_M-.001]
+    # The added wall is a distinct geometrical collider. It does not
+    # magically remove the MJX hfield-skirt contact; verify its own normal
+    # and eventually compare the combined impulse against a box-only world.
     # Original freejoint poses match XML defaults, then place each sphere
     # just 5mm inside the corresponding real *top* collision face.
     data.qpos[0:3]=[-.17,0,.035]
@@ -150,7 +153,7 @@ def test_explicit_riser_box_normal_is_horizontal_not_false_upper_support(
         rise_m,backend):
     contacts=solve_case(rise_m,backend=backend)
     risers=[c for c in contacts if
-            {'riser_ball','carpet_tile_geom_1'}.issubset(c[0]) and
+            {'riser_ball','carpet_wall_geom_1'}.issubset(c[0]) and
             c[1]<=.003]
     assert risers,(rise_m,backend,contacts)
     normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
