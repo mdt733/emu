@@ -285,13 +285,16 @@ This validates a *single* scoring case, not full step/slope competence.
 
 **Engineering decision:** the required CUDA resource, real PPO,
 checkpoint lineage and read-only physical exam *smoke gates* have
-passed. A source-pinned true 140M cold-start **research run may now be
-launched** with its normal per-checkpoint monitoring; it is *not*
-pre-certified to learn. In particular, the owner reports first
-standing around **5M**, 20M often barely standing and ~40M immature
-gait. Review early development without treating the foundation
-20M curriculum switch as a mastery gate. The six specialists must
-retain independently growing frontiers.
+passed. These tests are NOT evidence that the new 360-input cold start
+learns standing at the historical rate. **Do not blindly launch 140M
+as the first learning test.** Use the built-in completed-run
+`--resume auto` + increased total-steps extension to start from
+random weights for ~5M, inspect actual standing, extend the SAME
+optimiser/normaliser/teacher lineage to 20M, and only commit to 140M
+if the foundation competes with historical experience. This adds no
+checkpoint transplant or source fork. In particular, the owner
+reports first standing around **5M**, 20M often barely standing and
+~40M immature gait. Specialist age allocation is not a mastery gate.
 
 For the long run, use the exact clean Git SHA that will own all
 checkpoint metadata. Do not alter checked-out sources after starting.
@@ -300,23 +303,54 @@ Running source-pinned full CUDA PPO in the final source is the proof,
 not stale help text claiming old hfield collision.
 
 
-If the bounded lifecycle succeeds, and frozen physical terrain exams
-show no sensor/contact mismatch, a *new* 140M from-scratch lineage
-may be launched in another external directory:
+## Safer cold-start research: complete 5M, then extend SAME lineage
+
+Use one clean, committed source SHA, one **new** run directory and
+the exact same flags for every phase. The runner explicitly supports
+raising the **absolute target step count** only after the previous
+stage finished and its validated `checkpoints/final.pkl` exists.
 
 ```bash
-EMU_UNIFIED_CONTINUOUS=cold-growth-approved emu train \
-  --run-dir "$HOME/robot_lab/emu_runs/v5041_carpet_s735_140m" \
-  --steps 140000000 --envs 2048 --seed 735 --device cuda \
-  --profile sim2real --terrain-actor --terrain-step-max-m .08 \
-  --unified-capabilities --terrain-carpet --academy-stream \
-  --terrain-lesson coherent-careful --growth-recipe main-mature \
-  --foundation-steps 20000000 --foundation-mix main \
+cd ~/emu-v5041-gpu-preflight
+git pull --ff-only
+git status --short
+git rev-parse HEAD
+
+RUN="$HOME/robot_lab/emu_runs/v5041_carpet_s735_cold"
+COMMON=(
+  --run-dir "$RUN" --envs 2048 --seed 735 --device cuda
+  --profile sim2real --terrain-actor --terrain-step-max-m .08
+  --unified-capabilities --terrain-carpet --academy-stream
+  --terrain-lesson coherent-careful --growth-recipe main-mature
+  --foundation-steps 20000000 --foundation-mix main
   --fixed-eval-every-steps 10000000 --force-program gentle
+)
+
+# Starts with random network weights; NOT the 131k GPU smoke actor:
+emu train "${COMMON[@]}" --steps 5000000 --plan
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved \
+  emu train "${COMMON[@]}" --steps 5000000
+
+# Only after the 5M stage finished and checkpoint is validated:
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved \
+  emu train "${COMMON[@]}" --steps 20000000 --resume auto
+
+# Only after inspecting the 20M foundation and keeping the same SHA:
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved \
+  emu train "${COMMON[@]}" --steps 140000000 --resume auto
 ```
 
-Use **the same source SHA, learning arguments and run directory** for
-resume; never claim correctness just because a small training smoke
-passes. The physically relevant outcomes are stable fast walking,
-supported uphill/downhill lip crossings, changing-slope control,
-survival, effort and retained skills across all six roles.
+The target is rounded UP to an entire 65,536-world-step update, so
+final checkpoint ages can exceed these nominal targets slightly.
+`--resume auto` is for extension/resume of a source-identical lineage:
+don't use it in a new directory or for cross-source research. A
+partially completed run can be resumed with `--resume auto` and its
+**original unchanged target**, but only a *finished* target is eligible
+for the increase. Never change `main`.
+
+The ~16.8k/s figure estimates **PPO work only**. Repeated 10M
+independent evaluations, snapshot saves, training metrics and learner
+startup can materially extend elapsed wall time. Compare actual
+standing, command tracking, supported up/down crossings,
+changing-slope control, survival and effort rather than assuming the
+generator proves these skills.
