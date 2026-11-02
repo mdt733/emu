@@ -979,7 +979,7 @@ export class EmuBrowserSim {
     // terrain-height fallback that the 4x4 ToF raycaster already receives.
     // Only provide it for the park: adding a fictitious z=0 fallback to sloped
     // finite-box diagnostics would make downhill optical flow read a ghost floor.
-    const terrainHeightAt=['park','carpet'].includes(this.terrainMode)&&this.park ?
+    const terrainHeightAt=this.terrainMode==='park'&&this.park ?
       (x,y)=>this.park.sampleHeight(x,y):null;
     return {R,torso,vbody,gyro,heightAt,terrainHeightAt};
   }
@@ -989,7 +989,10 @@ export class EmuBrowserSim {
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
-      terrainHeightAt:['park','carpet'].includes(this.terrainMode)&&this.park ?
+      // v5041 uses nine actual moving solid MuJoCo boxes. Never let a
+      // future-terrain preview ray (or a ghost flat surface) override
+      // the true collision raycast in actor observations.
+      terrainHeightAt:this.terrainMode==='park'&&this.park ?
         (x,y)=>this.park.sampleHeight(x,y):null};
   }
 
