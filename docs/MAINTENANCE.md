@@ -14,8 +14,10 @@ the 24-arm v5033 branch is **paused**.
 | Body, six servos and passive springs | `emu/robot.xml` |
 | Actor 360-input contract and sensor schema | `emu/contracts.py` |
 | Real MJX physics, contacts, sensors and resets | `emu/environment.py` |
+| Per-world model randomisation | `emu/domain_randomization.py` |
 | Teaching reward | `emu/rewards.py` |
 | Teacher difficulty and six focus groups | `emu/curriculum.py`, `emu/capability_focus.py` |
+| PPO KL stress, collapse and recovery | `emu/training_health.py` |
 | One neural actor/critic and PPO updates | `emu/ppo.py`, `emu/training.py` |
 | Source-verified checkpoints and resume | `emu/run.py`, `emu/checkpoint_io.py` |
 | Held-out, read-only physical capability | `emu/physical_exam.py`, `emu/evaluation.py` |
@@ -36,9 +38,8 @@ Independent exam results NEVER feed back into its teaching.
    SHA, saved learner/config and checkpoint hashes are immutable.
    Updating today's `main` does not retroactively update its
    released weights.
-3. **Do not duplicate experiments.** The finished 260M
-   `scripts/train_pinnacle.py` is historical/reproducibility
-   infrastructure, not an instruction to run another flagship.
+3. **Do not duplicate experiments.** The finished 260M launcher is kept at the original Git SHA, not
+   executed from active `scripts/`. New training starts with `emu train`.
    The large old A/B launchers are retained at their Git commits.
 4. **Fix the real bug first.** The released 260M policy was
    trained with `verified_ascent_reallocation=0.0` despite
@@ -72,7 +73,10 @@ holds future experiments. Completed old research belongs in
 
 Avoid new permanent docs for every small experiment. A
 stranger should have ONE clear answer to *what is current*
-and *which file owns it*.
+and *which file owns it*. Remove replaced implementations in the
+same change; never keep duplicate experimental launchers in active code.
+`bash scripts/check.sh` is quick by default; `--full` opts into the
+historical Python/browser test suites.
 
 ## Preserved historical incident
 

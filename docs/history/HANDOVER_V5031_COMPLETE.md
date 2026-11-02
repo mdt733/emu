@@ -133,8 +133,8 @@ The A/B study completed both 80M policies at frozen source
 The B near-lip underspeed treatment improved some upsteps but
 downhill/overall tracking were mixed. Both remained at a +0.369m/s
 requested command frontier despite main's roughly 1m/s ambition.
-See `docs/V5028_CONSIDERED_STEPS.md` and
-`docs/V5028_SPEED_FRONTIER_AUDIT.md` for complete findings.
+See `V5028_CONSIDERED_STEPS.md` and
+`V5028_SPEED_FRONTIER_AUDIT.md` for complete findings.
 
 The earlier CLI omitted the coherent-careful choice, then the physical
 exam rejected an exact 15° fixture from float32 roundoff. Both are fixed
@@ -151,7 +151,7 @@ The old v5028 launcher (and its launch-only helper/test) is retired
 from the latest tree; use its original pinned source SHA to reproduce.
 The v5029 launcher and the shared evaluator/physics are kept. Design
 and pure, inactive helper functions are in
-[reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
+[reward experiments](V5030_REWARD_EXPERIMENTS.md).
 
 Proposed *conditional* matched reward studies: A unchanged, B causal
 25-frame (0.5s) blended forward tracking, C B + verified CoG and
@@ -213,7 +213,7 @@ continuation without explicit source and state-contract acceptance.
 
 [Architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
 [Capability map](docs/CAPABILITY_DIMENSIONS.md) ·
-[Current v5028 experiment](docs/V5028_CONSIDERED_STEPS.md) ·
+[Current v5028 experiment](V5028_CONSIDERED_STEPS.md) ·
 [Post-polish maintenance](docs/MAINTENANCE.md) ·
 [Research archive](docs/history/README.md) ·
 [Public release checks](docs/RELEASE_READINESS.md)
@@ -277,7 +277,7 @@ the archived v5029 training checkout.**
   far-side reached 0/8, mean vx ~0.010m/s: **stalling at the lip**.
   Yaw-rate stride oscillation remains diagnostic, not a suppression target.
 - New independent branch \`feature/v5031-verified-ascent\` from immutable
-  \`a7be11b\`. See [v5031 study](docs/V5031_VERIFIED_ASCENT.md).
+  \`a7be11b\`. See [v5031 study](V5031_VERIFIED_ASCENT.md).
   A single opt-in, reward-only scalar tracks a per-episode high-water
   mark of physically verified upper-slab contact plus torso elevation.
   Default-off is the B reward; treatment reassigns 3 of the existing 9

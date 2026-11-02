@@ -15,6 +15,9 @@ and [current handover](../../HANDOVER.md).
 | v5026 | [Audited recovery experiment](V5026_OVERNIGHT_FINDINGS.md) | 140M results; physical survival versus strict yaw scores |
 | v5027 | [Coherent commands experiment](V5027_EXPERIMENT.md) | Original source-pinned A/B/C setup |
 | v5027 | [Expanded physical findings](V5027_EXTENDED_PHYSICAL_FINDINGS.md) | Verified 2.0/2.5/3.0/3.5cm signed ascent/descents and slopes |
+| v5028 | [Considered steps](V5028_CONSIDERED_STEPS.md), [speed audit](V5028_SPEED_FRONTIER_AUDIT.md) | Completed single-step shaping and speed recovery evidence |
+| v5030 | [Reward experiments](V5030_REWARD_EXPERIMENTS.md) | Historical temporal velocity reward experiments |
+| v5031 | [Verified ascent](V5031_VERIFIED_ASCENT.md) | Historical supported transfer reward experiment |
 
 The original read-only v5026 terrain-exam rescoring utility is preserved as
 [rescore_unified_exam_v5026.py](rescore_unified_exam_v5026.py). It is **not** an
@@ -28,5 +31,5 @@ workflow; inspect the committed source SHA before reproducing any run.
 The completed v5028 A/B experiment and its old source-pinned launcher
 are preserved at `38713791023681dc9883f6c374d92e46261b3baf`.
 The experimental launcher is intentionally **not** in the current
-`scripts/` tree. See [v5028 experiment record](../V5028_CONSIDERED_STEPS.md)
-and [speed-regression audit](../V5028_SPEED_FRONTIER_AUDIT.md).
+`scripts/` tree. See [v5028 experiment record](V5028_CONSIDERED_STEPS.md)
+and [speed-regression audit](V5028_SPEED_FRONTIER_AUDIT.md).

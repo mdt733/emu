@@ -112,7 +112,7 @@ PPO science arms have been launched in this promotion.
 
 - `main` is the new **reference**, not a scratchpad for training
   variations. Work on one explicitly justified change at a time.
-- The abandoned `research/v5033-24-arm-science` branch
+- The abandoned `feature/v5033-260m-plateau-science` branch
   contains **unvalidated experimental code**. Do not execute
   its 24-arm launcher or mistake its changes for released EMU.
 - Keep the old 232 policy recoverable from rollback SHA.
@@ -142,3 +142,12 @@ Added research launchers, test suite, and Academy CI matrix have been
 removed from this branch to keep it maintainable; historical research
 remains in older branches. **Not GPU-profiled or trained yet.**
 See [short v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).
+
+### v5040 refactor hygiene
+
+The active research branch now separates model uncertainty (`emu/domain_randomization.py`),
+learner health (`emu/training_health.py`) and CLI diagnostics (`emu/doctor.py`).
+The obsolete v5037 Stage A flags and historical v5032 launcher were removed
+from this branch (their original Git history remains). The full Python/browser
+checks are optional via `scripts/check.sh --full`; CI retains one actual
+physical MJX/PPO step and the browser build. No v5040 GPU training has run.

@@ -13,7 +13,7 @@ neural networks.
 
 ```text
  operator / experiment plan
-   scripts/train_pinnacle.py        historical completed 260M campaign, source guard
+   emu train --plan               next source-pinned campaign, no writes
            |
            v
    emu/cli.py -> emu/run.py         validated train CLI, config + checkpoint guard
@@ -55,9 +55,10 @@ to judge them. The **actor** gets only deployable observations.
 |---|---|---|
 | What is EMU's body? | `emu/robot.xml` | Geometry, joint mechanics, six motors, contact material |
 | What does the actor see and output? | `emu/contracts.py` | Named observation fields, sensor revision, 4-frame history, 6 actions, hashes |
-| What physical world is it in? | `emu/environment.py` | Batched MJX worlds, slopes/step geometry, disturbances, sensor emulation, contact facts, reset |
+| What physical world is it in? | `emu/environment.py`, `emu/domain_randomization.py` | Batched MJX physics/sensors, plus separately owned model variation |
 | What does a successful training frame pay? | `emu/rewards.py` | Scalar *teaching reward*, distinct from physical exam |
 | What is practised next? | `emu/curriculum.py` and `emu/capability_focus.py` | Difficulty frontiers, retreats, six teacher emphases, task allocations |
+| How is PPO health monitored? | `emu/training_health.py` | KL stress, collapse and rollback decisions |
 | How is ongoing competence remembered? | `emu/capability_field.py` | Host-side training evidence; not a network input |
 | How are the weights optimised? | `emu/ppo.py` | Shared actor/critic, observation normalisation, PPO gradient |
 | What runs each update and saves progress? | `emu/training.py` | Rollout orchestration, logging, recovery, checkpoint cadence |
@@ -65,7 +66,7 @@ to judge them. The **actor** gets only deployable observations.
 | How do we judge the bird independently? | `emu/evaluation.py`, `emu/physical_exam.py` and `emu/capability_cloud.py` | Fixed tests, real supported steps, requested-vs-achieved speed, held-out recovery |
 | Where are measurable results written? | `emu/results.py` and `scripts/campaign_support.py` | CSV/JSON/console, campaign summaries, exportable *reports* |
 | How is a robot played in the browser? | `emu/viewer_server.py` and `emu/viewer_src/` | Portable actor export, live checkpoint watching, MuJoCo/WASM, controls and terrain |
-| Where did the completed 260M campaign start? | `scripts/train_pinnacle.py` | Historical pinned cold-start recipe and preflights; future studies need their own approved source |
+| Where did the completed 260M campaign start? | Original source SHA `9b11bbe596aea7201d29a6beb2d192922f8e2e9a` | Old launcher is preserved in Git history, not current scripts |
 | How are main and the candidate compared? | `scripts/compare_policies.py` | Common real physical commands/contacts; authentic 232/360 sensor contracts |
 | How is the published demo protected? | `scripts/verify_showcase_release.py`, `scripts/prepare_showcase.py`, `.github/workflows/emu-playground.yml` | Approved policy identity and explicitly controlled GitHub Pages deployment |
 
@@ -132,10 +133,10 @@ and its exact source SHA, not just the latest `main`.
 
 ## Trace one common task from start to finish
 
-**Train:** `python scripts/train_pinnacle.py` displays a plan
-(no writes) → `--run` checks source/manifest and full 2048 CUDA PPO
-preflight → `emu.cli train` validates lineage → `training.train`
-runs the one PPO learner → durable checkpoints and reports.
+**Train:** `emu train ... --plan` displays the resolved source-pinned recipe
+(no writes) → a separate GPU resource preflight checks the actual rollout
+→ `emu train` validates lineage → `training.train` runs the one PPO learner
+→ durable checkpoints and reports.
 
 **Examine:** `emu capability-exam --policy ... --terrain-matrix`
 loads the frozen actor, creates **real collision surfaces**, measures
@@ -167,7 +168,7 @@ GitHub Pages workflow keeps publication separate from training.
   the owner explicitly signs off the successor.
 - Put completed studies in historical docs/Git refs; keep
   [README](../README.md), [HANDOVER](../HANDOVER.md), this page and
-  the [current runbook](PINNACLE_CANDIDATE.md) about **today**.
+  the [active v5040 guide](V5040_REAL_MULTILIP_ACADEMY.md) about ongoing research.
 
 The [engineering hygiene rules](MAINTENANCE.md) make the same
 ownership and release boundaries operational.

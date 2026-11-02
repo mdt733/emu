@@ -94,12 +94,14 @@ the old one on **every** test.
 |---|---|
 | What's the robot physically made of? | `emu/robot.xml` |
 | What does it see? | `emu/contracts.py` |
-| How do terrain, springs, physics and sensor noise work? | `emu/environment.py` |
+| How do terrain, springs, physics and sensor noise work? | `emu/environment.py`, `emu/domain_randomization.py` |
 | What does PPO pay for? | `emu/rewards.py` |
 | Who selects the next lesson/difficulty? | `emu/curriculum.py`, `emu/capability_focus.py` |
+| Who monitors PPO health and recovery? | `emu/training_health.py` |
 | What keeps physical competence evidence? | `emu/capability_field.py` |
 | Where is the actor, critic and update? | `emu/ppo.py`, `emu/training.py` |
 | Who validates checkpoints and source lineage? | `emu/run.py`, `emu/checkpoint_io.py` |
+| Where are install diagnostics? | `emu/doctor.py` |
 | Who runs independent physical exams? | `emu/physical_exam.py`, `emu/evaluation.py` |
 | Who serves the trained bird and browser MuJoCo? | `emu/viewer_server.py`, `emu/viewer_src/` |
 | What makes a public policy release safe to publish? | `scripts/verify_showcase_release.py` |
@@ -136,9 +138,10 @@ diagnostic, **not** a held-out MJX physical certification.
 
 ### Want to train a new robot?
 
-The completed v5032 cold-start launcher is preserved as
-`scripts/train_pinnacle.py` and its [historical runbook](docs/PINNACLE_CANDIDATE.md).
-**It is not the next automatically recommended experiment.**
+The completed v5032 launcher is preserved at its original source SHA
+`9b11bbe596aea7201d29a6beb2d192922f8e2e9a`, together with its
+[historical runbook](docs/PINNACLE_CANDIDATE.md). It no longer lives
+in active `scripts/`. New source-pinned robots begin with `emu train`.
 To reproduce the exact released training source, use its original
 frozen Git SHA and independently backed-up full `final.pkl`
 checkpoint. Don't rerun a 260M campaign or transplant an
@@ -150,10 +153,13 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 ## What's next?
 
-We are **not** immediately running 24 new science arms.
-The abandoned experiment sketch remains available at
-`research/v5033-24-arm-science`, but its reward changes
-were not validated or incorporated into this released robot.
+The active research branch is
+[`feature/v5040-multi-lip-academy-world`](https://github.com/mdt733/emu/tree/feature/v5040-multi-lip-academy-world):
+the existing STEP specialist now receives four real consecutive lips,
+random up/down sequences and incremental physically supported rewards.
+It uses the same actor and retains the general curriculum, but has not
+yet been GPU-profiled or trained. See the [v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).
+The released 260M policy on `main` is unchanged.
 
 Our [research backlog](https://github.com/mdt733/emu/issues/17)
 starts with better downhill/path steering measurements, real
