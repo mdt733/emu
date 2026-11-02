@@ -438,6 +438,8 @@ function updateWorldTabs(){
   $('liveDemo').disabled=carpet;
   if(carpet)navHud.hidden=true;
   document.body.dataset.world=carpet?'carpet':'field';
+  $('viewerExercise').textContent=carpet
+    ?currentCarpetLesson().heading:'Field exploration';
 }
 function updateTerrain() {
   $('terrainMaxOut').textContent = `${terrainMax.value}°`;
@@ -540,6 +542,7 @@ function renderCarpetValues(){
     ? `Run ${carpetDifficulty.run} · ${Number(carpetDifficulty.step||0).toLocaleString()} steps`
     : 'No live training frontiers (illustrative default)';
   $('lessonName').textContent=lesson.heading;
+  if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   $('lessonDescription').textContent=lesson.description;
   $('lessonSlope').textContent=f.slope;
   $('lessonSteps').textContent=f.steps;
