@@ -898,7 +898,7 @@ function frame(ms) {
     fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
   }
   if (sim) {
-    if (!demoActive && !['sensor','carpet'].includes(terrainMode.value) && !navigationFault && handoff.shouldResume(now,
+    if (!demoActive && terrainMode.value==='park' && !navigationFault && handoff.shouldResume(now,
        held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
        Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
       startDemo();
