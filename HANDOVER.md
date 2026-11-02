@@ -480,3 +480,57 @@ a flat nine-box grid. Real browser WASM/manual observation remains
 a final sanity check; do not describe CI-only validation as interactive
 viewer proof. Full runbook: `docs/V5041_TRAINING_CARPET_VIEWER.md`
 and staged launcher: `docs/V5041_GPU_CARPET_TRAINING.md`.
+
+
+### Qwen prelaunch audit triage — 3 November 2026
+
+The owner requested a second review of v5041 before the first 5M
+cold-start stage. **Do not confuse retired v5040/browser prototypes
+with the source-pinned active MJX trainer**:
+
+- v5041's 360-input 4x4 ToF and optical-flow depth sample the **nine
+  actual rigid box colliders** via `_ray_box_distance`, including
+  vertical risers. Disabled 2x2 hfield geom data is kept as analytic
+  terrain-generation/teacher metadata; `terrain_carpet_mjx.ray_surface`
+  is NOT used by the actor's current `_terrain_4x4_ranges` path. The
+  owner measured max 2.71mm source-triangle versus solid-box top
+  discrepancy on 2048 CUDA worlds; this does not claim perfect
+  identity of the slightly curved source triangles and planar box tops.
+- `step_academy_world.signed_lip_height(progress)` is for the retired
+  three-platform recycler. `_academy_birth` returns immediately for
+  `terrain_carpet`, and `_recycle_academy_platform` is NOT called in
+  its step path. Actual carpet lip profiles are global-cell-index and
+  seed based; waiting in place cannot raise a current step.
+- Frozen read-only `ppo.evaluate_trace` logs raw MJX contacts,
+  vertically oriented normals, geometry and world cells but does not
+  participate in PPO `jax.value_and_grad(loss_fn)`. It is independently
+  JIT compiled, only in the exam path.
+- Qwen's suspicion about anti-rocking uncovered a REAL subtler bug:
+  the history used global cells and prevented immediate re-payment,
+  **but the write counter also advanced on already-seen supported
+  returns**. After sufficiently many redundant returns, older
+  legitimate cells could be evicted early and paid again. Fixed by
+  gating `note_confirmed_tile` **inside the helper** with
+  `unseen_tile`, independent of the calling teacher, so ONLY first
+  novel confirmed cells consume the 64-entry ring. The fixed-size
+  history remains an intentionally bounded last-64-UNIQUE-cell ring,
+  not unbounded lifetime memory. Added 320-revisit regression.
+- Added **real CPU and MJX** normal/contact seam test with a sphere
+  foot exactly at x=0 shared tile boundary for flat, 15mm and 8cm
+  rises. Tested exact seam contacts, NOT dynamic learned step crossing.
+- Existing `nan_grad_skips_total`, `exploration_std_mean`,
+  `ppo_kl_stopped_frac`, `ppo_adv_tail_frac` and per-role
+  curriculum events are real training metrics. Do not use a hard
+  "adv_tail_frac >5%" alarm: `flat['adv']` is standardized
+  before this records the fraction beyond FIVE standard deviations,
+  so a 5% rule is not a calibrated detector. Monitor temporal
+  changes, finite updates, KL and learning/standing outcomes.
+
+**Release gates:** after all new source-code CI tests pass, rerun one
+bounded 2048-CUDA full-PPO source-pinned smoke on the final SHA before
+launching a 5M cold-start stage; it never saves a training checkpoint.
+Check the browser nine-solid carpet separately using an existing
+untrained actor. The true cold-start first learns flat standing around
+5M historically; stop and inspect before extending the same optimiser
+and teacher lineage to 20M and later 140M. No automatic merging to
+`main`.
