@@ -425,3 +425,58 @@ historical expectations (~5M standing onset, 20M barely standing,
 20M ordinary foundation, and 60/80/100M STEP Academy share ramp.
 Do not change source SHA midlineage; never merge experimental
 topology into `main`. No 140M has yet been launched here.
+
+
+### v5041 live physically equivalent viewer and safer 5M cold-start gate — 3 November 2026
+
+Operator correctly challenged the initial "launch 140M" claim: CUDA
+topology/gradient/memory/throughput and ONE 131k-step frozen examiner
+demonstrate *engineering readiness*, not that a new source reliably
+learns standing or six terrain skills. Correct research plan is a
+**genuine cold-start ~5M** first, judge posture and survival against
+historical 5M standing emergence, then **source- and optimiser-identical
+extensions** to 20M and only then 140M. The validated existing
+`emu/run.py` `_validated_same_source_extension` path allows
+**finished** 5M `final.pkl` to `--resume auto --steps 20000000`
+(and subsequently 140M); same clean Git SHA/config, new dedicated run
+root, unchanged actor/critic/normaliser and teacher. This avoids a 2h+
+all-or-nothing run, without transplanting weights.
+
+The old browser Training Carpet was a finite 22m rasterised hfield
+with decorative moving guide only; it was NOT the real GPU trainer
+(the latter has 9 tilted moving solid boxes with actual vertical step
+faces). The feature branch now builds **NINE real MuJoCo solid boxes**
+with trainer-matched half-sizes (.258/.258/.270m), 50cm cells,
+per-role signed step / smooth slope generator, 3x3 modulo-slot ring,
+actual MuJoCo mocap recycling and conservative foot-overhang guard.
+The previous eight-fixture Terrain Park remains separate.
+`Settings → Terrain → Training Carpet → Auto` uses *read-only*
+`/api/live/terrain` source/metrics and config to show **FLAT through
+20M ordinary foundation**, then a *representative* slope specialist,
+then STEP/multi-lip Academy after intro (~60M default). Real specialist
+frontiers continue to evolve independently; a single browser cannot
+replay all 2048 randomly seeded worlds. Small metric changes don't
+reset the viewer; substantial changes do, without touching training
+weights or checkpoints. Browser terrain is a representative physical
+topology, **not exact seed/birth/reward/ToF parity**.
+
+Critical sensor fix: the browser 4x4 array raycast previously filtered
+out non-world-body geoms; nine moving terrain mocap boxes were
+invisible to policy ToF. `actorTerrainDistance` now includes world and
+mocap boxes but not articulated robot bodies, and removes a synthetic
+heightfield ray fallback for carpet while keeping it for the old
+heightfield Terrain Park. Added Node regressions and native MuJoCo
+CI check of **actual 9-box** XML and mocap movement, replacing an
+obsolete CI hfield assertion.
+
+CI status and latest source SHA must be checked before the owner pulls;
+native nine-box model CI success first seen on commit
+`84e68970925dea7229f91706c31a36b2cb0263df`, with sensor
+regressions committed later. User should run
+`emu viewer-build` on pulled clean feature code and
+`emu viewer --live --root ~/robot_lab/emu_runs/v5041_carpet_lifecycle_s735
+--no-open` **before** any 5M run; the old 131k policy should see
+a flat nine-box grid. Real browser WASM/manual observation remains
+a final sanity check; do not describe CI-only validation as interactive
+viewer proof. Full runbook: `docs/V5041_TRAINING_CARPET_VIEWER.md`
+and staged launcher: `docs/V5041_GPU_CARPET_TRAINING.md`.
