@@ -609,6 +609,9 @@ function runCarpetLesson(dt){
     carpetLastExercise=descriptor;
     $('lessonCommand').textContent='Viewer command: '+descriptor;
   }
+}
+function updateCarpetShoveStatus(){
+  if(!sim||terrainMode.value!=='carpet')return;
   const shove=sim.shoveTelemetry();
   const hz=shove.expectedHz;
   const expected=hz>0?`~${hz.toFixed(hz<.1?3:2)} shove starts/s (1 per ${(1/hz).toFixed(1)}s on average)`:'disabled';
@@ -890,6 +893,7 @@ function updateTelemetry(now, dt) {
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
   $('pitchRead').textContent = `${fmtSigned(deg(t.pitch),1)}° / ${fmtSigned(deg(t.cmd.pitch),1)}°`;
   updateDepthGrid();
+  updateCarpetShoveStatus();
 }
 
 function frame(ms) {
