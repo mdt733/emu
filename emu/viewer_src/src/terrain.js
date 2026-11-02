@@ -356,7 +356,7 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
   if(mode==='carpet'&&park?.physics==='nine-solid-boxes'){
-    const noFloor=robotXml.replace(/<geom\\s+name="floor"[^>]*\\/>/,'');
+    const noFloor=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
     if(noFloor===robotXml)throw Error('Carpet requires source robot ground plane');
     return noFloor.replace('</worldbody>',solidCarpetXml(park)+'\n</worldbody>');
   }
