@@ -430,6 +430,7 @@ export class EmuBrowserSim {
     v.frequencyMultiplier=multiplier;
     v.stepsLeft=0;
     v.visualLeft=0;
+    v.manualPending=false;
     v.last=[0,0];
     this.shoveArrow.visible=false;
     if(this.data&&this.torsoId>=0){
@@ -496,7 +497,10 @@ export class EmuBrowserSim {
   shoveTelemetry(){
     const s=this.shovePreview;
     return {enabled:s.enabled,limit:s.forceLimitN,intensity:s.intensity,
-      multiplier:s.frequencyMultiplier,active:s.stepsLeft>0,
+      multiplier:s.frequencyMultiplier,
+      active:Boolean(this.data&&this.torsoId>=0&&
+        Math.hypot(Number(this.data.xfrc_applied[6*this.torsoId]),
+                   Number(this.data.xfrc_applied[6*this.torsoId+1]))>1e-7),
       recent:s.visualLeft>0,force:[...s.last]};
   }
 
