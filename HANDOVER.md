@@ -229,3 +229,19 @@ reports finite fall height instead of infinity. Execute the
 `scripts/smoke_gpu_carpet.py --full-update` 2048-CUDA acceptance
 before any substantial run; no such acceptance has yet been run by
 the assistant on the user's GPU.
+
+### v5041 collider redesign — real solid tiles
+
+After strict contact tests exposed incorrect MJX hfield-skirt upward
+normals, an isolated real-MJX test established **box-only 50cm tiles**
+give the correct horizontal riser normal and ~0.024mm z drift over
+eight steps. The earlier hfield+12-wall combination retained the
+spurious upward hfield contact. The experimental v5041 trainer now
+derives nine sloped solid-box top surfaces from the same 18-analytic-
+triangle height samples. All hfield collision flags are OFF; the
+hfield sample vectors remain read-only source inputs to the sensor
+and reward estimators. No old Academy slabs; no 12 seam wall geoms.
+This is a per-tile planar collision approximation, not perfect
+noncoplanar triangle collision; compare <8mm divergence and high-step
+foot contacts. Preserve v5040 and main; 2048 CUDA still untested.
+See docs/V5041_GPU_CARPET_TRAINING.md.

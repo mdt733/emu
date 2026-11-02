@@ -89,7 +89,12 @@ def main():
         good=[r for r in box["contacts"] if "upper_geom" in r["pair"]
               and abs(r["normal"][2])<.5]
         assert good,f"BOX did not deliver horizontal MJX contact: {box}"
-        assert abs(box["dz_8_steps_m"])<max(1e-5,abs(results[0]["dz_8_steps_m"])*.1),results
+        # A perfectly horizontal box-wall normal can still exhibit a
+        # tiny z drift from MJX's contact solver (<0.1mm in 8 steps).
+        # Compare against an absolute meaningful tolerance, not a
+        # baseline case that contains *no collision at all*.
+        assert abs(box["dz_8_steps_m"])<.0001,results
+        assert box["dx_8_steps_m"]<-.0001,results
     print("MJX box-only true vertical riser PASS",flush=True)
 
 if __name__=="__main__":

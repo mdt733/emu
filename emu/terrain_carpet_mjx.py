@@ -21,16 +21,14 @@ PROFILE_SIZE=PROFILE_HALF*2
 BODY_NAMES=tuple(f"carpet_tile_body_{i}" for i in range(TILE_COUNT))
 GEOM_NAMES=tuple(f"carpet_tile_geom_{i}" for i in range(TILE_COUNT))
 HFIELD_NAMES=tuple(f"carpet_tile_hfield_{i}" for i in range(TILE_COUNT))
-# Twelve interior tile seams: six x-normal and six y-normal. A hfield
-# skirt's *MJX* contact normal is incorrectly upwards on a vertical lip;
-# add real thin BOX risers for correct horizontal collision impulses.
-WALL_COUNT=12
-WALL_BODY_NAMES=tuple(f"carpet_wall_body_{i}" for i in range(WALL_COUNT))
-WALL_GEOM_NAMES=tuple(f"carpet_wall_geom_{i}" for i in range(WALL_COUNT))
-WALL_THICK_M=.005
-WALL_HALF_LENGTH_M=.249
-WALL_HALF_HEIGHT_M=.20
-WALL_MIN_RISE_M=.0015
+# Use 9 *solid-box* collision tops and their genuine vertical side faces.
+# Each plane is determined by the same four vertex samples that define
+# the two triangles. The original hfields become noncontact metadata so
+# sensors can sample exactly the same seeded global heightfield potential.
+SOLID_BODY_NAMES=tuple(f"carpet_solid_body_{i}" for i in range(TILE_COUNT))
+SOLID_GEOM_NAMES=tuple(f"carpet_solid_geom_{i}" for i in range(TILE_COUNT))
+SOLID_HALF_Z_M=.270
+SOLID_HALF_XY_M=.258
 BURIED_Z=-30.
 
 def add_carpet_geoms(xml: str) -> str:
@@ -61,20 +59,6 @@ def add_carpet_geoms(xml: str) -> str:
         if geom is not None:
             affinity=int(geom.get("conaffinity","1"))
             geom.set("conaffinity",str(affinity|4))
-    # First six walls are x-normal; next six are y-normal.
-    # All 12 geoms exist before JAX compilation and are independently
-    # repositioned using mjx.Data.mocap_pos/mocap_quat per environment.
-    for i in range(WALL_COUNT):
-        body=ET.SubElement(world,"body",dict(
-            name=WALL_BODY_NAMES[i],mocap="true",pos=f"0 0 {-31-i}"))
-        size=(f"{WALL_THICK_M} {WALL_HALF_LENGTH_M} {WALL_HALF_HEIGHT_M}"
-              if i<6 else
-              f"{WALL_HALF_LENGTH_M} {WALL_THICK_M} {WALL_HALF_HEIGHT_M}")
-        ET.SubElement(body,"geom",dict(
-            name=WALL_GEOM_NAMES[i],type="box",size=size,
-            contype="4",conaffinity="0",
-            friction="1.5 0.005 0.0001",
-            rgba="0.48 0.58 0.42 1"))
     for i in range(TILE_COUNT):
         ET.SubElement(asset,"hfield",dict(
             name=HFIELD_NAMES[i],nrow="2",ncol="2",
@@ -84,6 +68,17 @@ def add_carpet_geoms(xml: str) -> str:
             name=BODY_NAMES[i],mocap="true",pos=f"0 0 {-4-i}"))
         ET.SubElement(body,"geom",dict(
             name=GEOM_NAMES[i],type="hfield",hfield=HFIELD_NAMES[i],
+            contype="0",conaffinity="0",friction="1.5 0.005 0.0001",
+            rgba="0.39 0.65 0.39 1"))
+    # Every solid is a fixed 50cm planar square with a *real* vertical
+    # thickness / side face. Rotation+translation update per JAX world,
+    # but no geom size or model topology is ever recompiled.
+    for i in range(TILE_COUNT):
+        body=ET.SubElement(world,"body",dict(
+            name=SOLID_BODY_NAMES[i],mocap="true",pos=f"0 0 {-20-i}"))
+        ET.SubElement(body,"geom",dict(
+            name=SOLID_GEOM_NAMES[i],type="box",
+            size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
             contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
             rgba="0.39 0.65 0.39 1"))
     return ET.tostring(root,encoding="unicode")
@@ -229,6 +224,33 @@ def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
             xp.concatenate(heights,axis=1),
             xp.stack((xi,yi),axis=2))
 
+def solid_box_poses(xp,centres,vertex_samples):
+    """9 collision-solid poses from the SAME 18 procedural triangles.
+
+    A box's top is one tilted plane through the mean tile height, with
+    x/y slopes from the four original triangle vertices. Its true top
+    matches the triangle surface within the bounded small curvature
+    differences, and its *actual* vertical sides have horizontal normals.
+
+    The bottom is far below the walking surface; no forbidden collision
+    geom resizing. The original (disabled) hfields stay at their known
+    centres for ToF and teacher-side reconstruction.
+    """
+    v=vertex_samples.reshape((centres.shape[0],TILE_COUNT,4))
+    a,b,c,d=(v[:,:,0],v[:,:,1],v[:,:,2],v[:,:,3])
+    mean=(a+b+c+d)*(.25*TILE_SIZE_Z_M)+centres[:,:,2]
+    gx=.5*(b+d-a-c)*TILE_SIZE_Z_M/TILE_M
+    gy=.5*(c+d-a-b)*TILE_SIZE_Z_M/TILE_M
+    normal=xp.stack((-gx,-gy,xp.ones_like(gx)),axis=2)
+    normal=normal/xp.linalg.norm(normal,axis=2,keepdims=True)
+    # Shortest quaternion rotating +Z to the box's top-face normal.
+    w=xp.sqrt((1.+normal[:,:,2])*.5)
+    quat=xp.stack((w,-normal[:,:,1]/(2.*w),
+                   normal[:,:,0]/(2.*w),xp.zeros_like(w)),axis=2)
+    top=xp.stack((centres[:,:,0],centres[:,:,1],mean),axis=2)
+    box_center=top-SOLID_HALF_Z_M*normal
+    return box_center,quat
+
 def sample_surface(xp,data,mocap_ids,hfield_data,points):
     """Teacher and simulated ray physics lookup on the ACTUAL 9 tile vertices.
 
@@ -368,91 +390,3 @@ def shares_physical_edge(xp,previous,next_cell):
     not exist between those two tiles.
     """
     return xp.sum(xp.abs(next_cell-previous),axis=1)==1
-
-def wall_slot_indices(xp,cx,cy):
-    """Stable global (edge X index, edge Y index) for 12 modulo-ring slots.
-
-    First six boundaries are x-normal (left vs right plates); remaining
-    six y-normal (bottom vs top plates). All 12 follow the fixed 3x3
-    physical window without new MJX geom allocations.
-    """
-    xs=[];ys=[]
-    for sx in range(2):
-        for sy in range(3):
-            ix=cx+xp.mod(sx-xp.mod(cx,2),2)
-            base=cy-1
-            jy=base+xp.mod(sy-xp.mod(base,3),3)
-            xs.append(ix);ys.append(jy)
-    for sy in range(2):
-        for sx in range(3):
-            base=cx-1
-            ix=base+xp.mod(sx-xp.mod(base,3),3)
-            jy=cy+xp.mod(sy-xp.mod(cy,2),2)
-            xs.append(ix);ys.append(jy)
-    return xp.stack(xs,axis=1),xp.stack(ys,axis=1)
-
-
-def generate_wall_window(xp,cx,cy,tile_centres,tile_heights):
-    """Twelve physical vertical STEP faces between nine triangle tiles.
-
-    Real wall tops follow higher-side edge slopes, with constant geometry
-    and per-world mocap positions. They supply true HORIZONTAL collision
-    normals where MJX's hfield side skirts spuriously point upward.
-    NOTE: they supplement rather than eliminate hfield's false upward
-    side contacts; dynamic impulse reduction is separately tested.
-    """
-    xi,yi=wall_slot_indices(xp,cx,cy)
-    samples=tile_heights.reshape((cx.shape[0],TILE_COUNT,4))
-    positions=[];quats=[];rises=[]
-    def gather_tile(ix,iy):
-        slot=xp.mod(ix,3)+3*xp.mod(iy,3)
-        p=xp.take_along_axis(
-            tile_centres,slot[:,None,None],axis=1)[:,0,:]
-        h=xp.take_along_axis(
-            samples,slot[:,None,None],axis=1)[:,0,:]
-        return p,h
-    for wall in range(WALL_COUNT):
-        x,y=xi[:,wall],yi[:,wall]
-        if wall<6:
-            before_p,before_h=gather_tile(x-1,y)
-            after_p,after_h=gather_tile(x,y)
-            b0=before_p[:,2]+TILE_SIZE_Z_M*before_h[:,1]
-            b1=before_p[:,2]+TILE_SIZE_Z_M*before_h[:,3]
-            a0=after_p[:,2]+TILE_SIZE_Z_M*after_h[:,0]
-            a1=after_p[:,2]+TILE_SIZE_Z_M*after_h[:,2]
-        else:
-            before_p,before_h=gather_tile(x,y-1)
-            after_p,after_h=gather_tile(x,y)
-            b0=before_p[:,2]+TILE_SIZE_Z_M*before_h[:,2]
-            b1=before_p[:,2]+TILE_SIZE_Z_M*before_h[:,3]
-            a0=after_p[:,2]+TILE_SIZE_Z_M*after_h[:,0]
-            a1=after_p[:,2]+TILE_SIZE_Z_M*after_h[:,1]
-        rise=.5*(a0+a1-b0-b1)
-        high_after=rise>0.
-        high0=xp.where(high_after,a0,b0)
-        high1=xp.where(high_after,a1,b1)
-        incline=xp.arctan2(high1-high0,TILE_M)
-        mid=.5*(high0+high1)
-        height=mid-WALL_HALF_HEIGHT_M*xp.cos(incline)-.001
-        sign=xp.where(high_after,1.,-1.)
-        if wall<6:
-            px=x.astype(xp.float32)*TILE_M+sign*WALL_THICK_M
-            py=(y.astype(xp.float32)+.5)*TILE_M
-            q=xp.stack((xp.cos(incline*.5),xp.sin(incline*.5),
-                        xp.zeros_like(xp.asarray(incline)),
-                        xp.zeros_like(xp.asarray(incline))),axis=1)
-        else:
-            px=(x.astype(xp.float32)+.5)*TILE_M
-            py=y.astype(xp.float32)*TILE_M+sign*WALL_THICK_M
-            q=xp.stack((xp.cos(incline*.5),xp.zeros_like(incline),
-                        -xp.sin(incline*.5),xp.zeros_like(incline)),axis=1)
-        centre=xp.stack((px,py,height),axis=1)
-        live=xp.abs(rise)>=WALL_MIN_RISE_M
-        centre=xp.where(live[:,None],centre,
-                        xp.asarray([0.,0.,BURIED_Z],dtype=xp.float32))
-        positions.append(centre)
-        quats.append(xp.where(live[:,None],q,
-                     xp.asarray([1.,0.,0.,0.],dtype=xp.float32)))
-        rises.append(rise)
-    return (xp.stack(positions,axis=1),xp.stack(quats,axis=1),
-            xp.stack((xi,yi),axis=2),xp.stack(rises,axis=1))

@@ -5,76 +5,48 @@ v5040. **Do not merge to main** or resume v5040 optimizer state into this
 different collision topology. Begin a new source-verified, cold training
 run. The 260M champion and the old v5040 step streams remain available.
 
-## What works in the trainer (not the browser lab)
+## Current experimental collider architecture (v5041)
 
-`emu train --terrain-carpet` allocates **nine real MJX 2×2 heightfield
-geoms** per world (18 actual collision triangles, 50cm tiles). They
-remain the same fixed collision topology for every JAX JIT update. Each
-world independently carries its 36 hfield samples, 9 movable body
-positions, seeded 50cm tile coordinates, deterministic ±128-cell x/y
-terrain profiles and a 3×3 rolling window.
+Each JAX world has **one 3×3 deterministic rolling window** of 50cm
+terrain cells. Each cell still generates **two source triangles**
+(four vertex heights) from one seeded smooth gradient potential plus
+independently bounded up/down step discontinuities. The *actual collision*
+geometry is now **NINE TILTED SOLID BOX TOPS**, not heightfield skirts:
 
-The one shared 360-input PPO actor, six specialist assignments,
-20M foundation, command tracking, recoveries, push curriculum and
-Academy birth-share schedule remain. Every specialist trains on the
-same physical generator; the teacher's envelope changes with role.
-SLOPE inherits half of STEP's demonstrated height envelope and STEP
-half of SLOPE's demonstrated maximum inclination, while the other
-roles receive graded background terrain. Flat foundation uses zero
-terrain exposure. Independent UP/DOWN Academy frontiers are preserved.
-New step opportunities rise from roughly 50% of current directional
-competence near the episode's starting cells to 150% at farther cells
-(deterministically, so revisits do not edit physical ground). SLOPE
-now samples a **continuous varied-gradient field**, not one global
-tilted plane: neighbouring triangle angles change smoothly with a
-teacher-side maximum transition cap (default `--carpet-transition-cap-deg 3`).
-The slope frontier still governs overall severity; **transition ability
-is not yet independently earned**. Actual near-frontier triangle slope
-is inspected during training rather than inferred from the target.
-Only physically supported tile-to-tile transitions can earn per-lip
-stepping rewards, and a **64-tile episode memory** rejects repeat
-rewards from crossing the same lip back and forth. The history is
-teacher-only, never an actor input.
-When evaluating a crossed tile, the reward checks that the **same
-foot** has a real upward-facing MJX contact and its ball bottom matches
-the sampled triangle top. A foot merely pressed against a **vertical
-riser** cannot pass. A diagonal corner crossing has no single shared
-edge and cannot be paid as an invented lip; it remains legitimate
-general locomotion. If the robot strays outside the 3×3 collision ring,
-teacher support becomes a finite negative fall height, never infinite
-clearance or a poisoned PPO reward.
+- A solid tile is a genuine rigid planar top and four real sides.
+  Its plane is fitted to the same four corner samples (the two triangles
+  are coplanar only when local curvature is zero).
+- Non-contact 2×2 hfield samples remain in the batched JAX model solely
+  for the exact curriculum, ToF and reward-side source geometry.
+- No 12-wall workaround is needed; all 9 physical boxes recycle using
+  the existing safe-foot/one-cell window rule, with constant MJX topology.
+- Exact independent UP/DOWN stepping evidence and the 64-tile
+  teacher-only anti-rocking history are preserved. Six specialists still
+  share the SAME 360-input PPO actor.
+- Changing slope gradients are controlled by
+  `--carpet-transition-cap-deg` (default 3 degrees) and mixed skill
+  envelopes. A tile-box's top approximates the two triangle samples,
+  with an explicit <8mm collision-to-sensor discrepancy test across the
+  reference difficulty.
+- Actual MJX foot-top contact must be upward-facing, near the physical
+  sampled top, and not a vertical side. No diagonal corner is paid as
+  an imaginary single-lip transition.
 
-After a cell transition the old outer row/column is moved to the
-new window **only if BOTH feet are still inside the new 3×3 footprint**.
-It never recycles a plate that remains under a foot. World coordinates
-and per-episode seeds make revisits deterministic. Only 9 tile bodies
-exist regardless of the 14/24-second distance travelled.
+**Reason for change:** MJX 3.17 gave a misleading upward contact
+normal for a sphere striking a *heightfield skirt* from the side. An
+isolated A/B physical test verified that a real solid box side gives
+a horizontal contact and minimal unintended upward displacement.
+The earlier nine-heightfield+12-wall approach could not eliminate the
+spurious extra hfield contact. Rather than teach the PPO to exploit that
+artifact, the source now has **NO active heightfield collision**.
 
-Both 4×4 ToF slant-ray distances and optical-flow depth are computed
-against the new tile vertex buffer, not the retired flat/slab model.
-Teacher-only torso and foot support distances likewise read the
-current real tile samples. Heightfield triangle ray intersections
-and vertical outer-wall ToF intersections use the same sampled hfield
-data and thickness as the MJX collision engine. Synthetic 4×4 ray
-tests cover uphill-wall detection, no phantom upper support, and
-out-of-bounds miss cases.
-
-Source-matched frozen evaluator worlds also now instantiate the carpet
-rather than silently grading the new policy on the old two-slab ground.
-
-**Contact evidence:** Independent real CPU MuJoCo AND MJX contact
-solvers both detected physical supported left/right feet and **vertical
-uphill riser contact at 4cm and 15cm** in synthetic tests. This proves
-those collisions exist, NOT that the learned policy can cross them.
-The former three long Academy slabs are now excluded from the carpet
-model; the old two slabs remain as disabled diagnostic-only geoms.
-
-**Crucial remaining limits:** The full biped has not passed a dedicated
-dynamic, commanded stepping course; the CPU contact probes are tiny
-geometrical unit exams. The no-rebuild per-environment model was
-verified on four CPU worlds; **2,048-world CUDA memory, speed and
-real-policy terrain competence are not verified by CPU CI**. The viewer's finite heightfield remains
-a preview, not a frame-accurate replay of the MJX grid.
+**Limits not yet proven:** The tilted box is a planar approximation to
+two possibly noncoplanar triangles, and its corners/edges can differ by
+millimetres from the analytic source. This difference, high-step
+clearances, 9-tile 3×3 recycling with actual biped feet, and the complete
+360-input sensor pipeline must pass dedicated collision and PPO tests.
+2048-world 8GB GPU memory/performance has **NOT** been verified; the
+140M run is therefore NOT authorised yet.
 
 ## CPU source acceptance
 
@@ -82,6 +54,7 @@ These checks ran on the branch in CI:
 ```bash
 python -m pytest -q tests/test_terrain_carpet.py
 python -m pytest -q tests/test_carpet_physical_contacts.py
+python -m pytest -q tests/test_carpet_solid_geometry.py
 python -m pytest -q tests/test_carpet_sensor_geometry.py
 python -m pytest -q tests/test_carpet_visit_rewards.py
 python scripts/probe_carpet_hfield.py

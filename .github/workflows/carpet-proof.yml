@@ -31,7 +31,7 @@ jobs:
           python -m compileall -q emu scripts tests
           python -m pytest -q tests/test_terrain_carpet.py
           python -m pytest -q tests/test_carpet_physical_contacts.py
-          python -m pytest -q tests/test_carpet_wall_geometry.py
+          python -m pytest -q tests/test_carpet_solid_geometry.py
           python -m pytest -q tests/test_carpet_sensor_geometry.py
           python -m pytest -q tests/test_carpet_visit_rewards.py
           python scripts/probe_carpet_hfield.py
