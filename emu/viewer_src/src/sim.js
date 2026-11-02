@@ -120,6 +120,16 @@ export class EmuBrowserSim {
     this.carpetWindowCenter = null;
     this.carpetMocapIds = [];
     this.carpetGeomIds = new Set();
+    // Actual browser MuJoCo torso forces, not merely SVG decorations.
+    // The real GPU trainer samples independent stochastic pushes; this
+    // visibly repeatable spectator demo is NOT a replay of those RNG draws.
+    this.shovePreview={enabled:false,forceLimitN:0,stepsLeft:0,elapsed:0,
+      intervalS:6,last:[0,0],directionIndex:0,manualPending:false};
+    this.shoveArrow=new THREE.ArrowHelper(
+      new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),
+      .4,0xffbb66,.12,.075);
+    this.shoveArrow.visible=false;
+    this.scene.add(this.shoveArrow);
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
@@ -306,6 +316,8 @@ export class EmuBrowserSim {
     this.carpetWindowCenter=null;
     this.carpetMocapIds=[];
     this.carpetGeomIds.clear();
+    this.shovePreview.stepsLeft=0;
+    this.shoveArrow.visible=false;
     if(this.carpetTileOverlay){
       this.scene.remove(this.carpetTileOverlay);
       this.carpetTileOverlay.geometry.dispose();
@@ -402,6 +414,65 @@ export class EmuBrowserSim {
     this.carpetDifficulty=next;
     if(this.terrainMode==='carpet')this.loadModel();
   }
+  setShovePreview({enabled=false,forceLimitN=0}={}){
+    this.shovePreview.enabled=Boolean(enabled);
+    this.shovePreview.forceLimitN=Math.max(0,Math.min(10,Number(forceLimitN)||0));
+    this.shovePreview.elapsed=0;
+    this.shovePreview.stepsLeft=0;
+    this.shovePreview.last=[0,0];
+    this.shovePreview.manualPending=false;
+    this.shoveArrow.visible=false;
+    if(this.data&&this.torsoId>=0){
+      const offset=6*this.torsoId;
+      this.data.xfrc_applied[offset]=0;
+      this.data.xfrc_applied[offset+1]=0;
+    }
+  }
+  triggerShove(){
+    if(!this.data||this.terrainMode!=='carpet')return false;
+    this.shovePreview.manualPending=true;
+    return true;
+  }
+  applyViewerShove(dt){
+    if(!this.data||this.torsoId<0)return;
+    const xfrc=this.data.xfrc_applied;
+    const offset=6*this.torsoId;
+    xfrc[offset]=0;xfrc[offset+1]=0;xfrc[offset+2]=0;
+    const v=this.shovePreview;
+    if(this.terrainMode!=='carpet'||v.forceLimitN<=0){
+      v.stepsLeft=0;this.shoveArrow.visible=false;return;
+    }
+    v.elapsed+=dt;
+    if(v.manualPending||(v.enabled&&v.elapsed>=v.intervalS)){
+      v.elapsed=0;
+      v.manualPending=false;
+      v.stepsLeft=5;  // a genuine five-control-frame physical impulse
+      const a=(v.directionIndex++%8)*Math.PI/4;
+      v.last=[v.forceLimitN*Math.cos(a),v.forceLimitN*Math.sin(a)];
+    }
+    if(v.stepsLeft>0){
+      xfrc[offset]=v.last[0];
+      xfrc[offset+1]=v.last[1];
+      v.stepsLeft--;
+      const m=Math.hypot(...v.last);
+      const direction=new THREE.Vector3(v.last[0]/m,v.last[1]/m,0);
+      const center=this.torsoId*3;
+      const pos=new THREE.Vector3(
+        this.data.xpos[center]-direction.x*.36,
+        this.data.xpos[center+1]-direction.y*.36,
+        this.data.xpos[center+2]+.12);
+      this.shoveArrow.position.copy(pos);
+      this.shoveArrow.setDirection(direction);
+      this.shoveArrow.setLength(.32,.13,.08);
+      this.shoveArrow.visible=true;
+    }else this.shoveArrow.visible=false;
+  }
+  shoveTelemetry(){
+    const s=this.shovePreview;
+    return {enabled:s.enabled,limit:s.forceLimitN,
+      active:s.stepsLeft>0,force:[...s.last]};
+  }
+
   setSensorObstacle(id) {
     if(!['flat','step-up','step-up-1cm','step-up-2cm','step-down','crest','trough','log','angled',
       'lab-uphill','lab-downhill','lab-camber-left','lab-camber-right',
@@ -654,6 +725,9 @@ export class EmuBrowserSim {
     this.flattenHistory();
     this.controlAccumulator = 0;
     this.fallenFor = 0;
+    this.shovePreview.stepsLeft=0;
+    this.shovePreview.elapsed=0;
+    this.shoveArrow.visible=false;
     this.pathTrail.clear();
     this.levelPoseValid = false;
     this.chaseReady = false;
@@ -910,6 +984,9 @@ export class EmuBrowserSim {
       this.data.ctrl[i] = this.deliveredCtrl[i];
     }
 
+    // One control-frame force is held across all MuJoCo substeps, just
+    // like the real trainer's xfrc_applied on its torso body.
+    this.applyViewerShove(cdt);
     const nsub = Number(this.bundle.control.control_substeps || 4);
     const beforeJoints=this.actQpos.map(i=>Number(this.data.qpos[i]));
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
