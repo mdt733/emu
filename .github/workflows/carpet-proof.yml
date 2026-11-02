@@ -34,6 +34,7 @@ jobs:
           python -m pytest -q tests/test_carpet_solid_geometry.py
           python -m pytest -q tests/test_carpet_sensor_geometry.py
           python -m pytest -q tests/test_carpet_visit_rewards.py
+          python -m pytest -q tests/test_fixed_eval_progress.py
           python scripts/probe_carpet_hfield.py
           python scripts/smoke_gpu_carpet.py --worlds 4 --frames 2 --ppo
       - uses: actions/setup-node@v4
