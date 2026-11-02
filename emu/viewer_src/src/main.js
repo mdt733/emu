@@ -615,14 +615,18 @@ function runCarpetLesson(dt){
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
   const command=lesson.commandAt(carpetExerciseClock);
   sim.setDemoCommands(command);
-  const descriptor=`vx ${fmtSigned(command.vx)} · vy ${fmtSigned(command.vy)} · yaw ${fmtSigned(command.yaw)}`;
+  // MuJoCo's actual requested command is bounded by the exported policy's
+  // immutable command interface, which may be tighter than the live teacher
+  // frontier. Never print an unattainable exercise request as "applied".
+  const delivered=sim.commandTarget;
+  const descriptor=`vx ${fmtSigned(delivered.vx)} · vy ${fmtSigned(delivered.vy)} · yaw ${fmtSigned(delivered.yaw)}`;
   if(descriptor!==carpetLastExercise){
     carpetLastExercise=descriptor;
     $('lessonCommand').textContent=descriptor;
   }
   const shove=sim.shoveTelemetry();
   $('carpetShoveState').textContent=shove.active
-    ? `REAL TORso PUSH · ${shove.force[0].toFixed(2)}N X, ${shove.force[1].toFixed(2)}N Y (arrow in world)`
+    ? `REAL TORSO PUSH · ${shove.force[0].toFixed(2)}N X, ${shove.force[1].toFixed(2)}N Y (arrow in world)`
     : `Viewer shove demo: ${shove.enabled?'enabled':'off'} · limit ${shove.limit.toFixed(2)} N · live trainer impulses are not streamed`;
 }
 carpetRole.addEventListener('change',()=>applyCarpetTerrain(false));
