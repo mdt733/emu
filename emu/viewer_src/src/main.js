@@ -436,7 +436,7 @@ function updateWorldTabs(){
   fieldPanel.hidden=carpet;
   carpetPanel.hidden=!carpet;
   $('liveDemo').disabled=carpet;
-  if(carpet)navHud.hidden=true;
+  navHud.hidden=carpet||!sim;
   document.body.dataset.world=carpet?'carpet':'field';
   $('viewerExercise').textContent=carpet
     ?currentCarpetLesson().heading:'Field exploration';
@@ -637,8 +637,10 @@ function runCarpetLesson(dt){
   }
   const shove=sim.shoveTelemetry();
   $('carpetShoveState').textContent=shove.active
-    ? `REAL TORSO PUSH · ${shove.force[0].toFixed(2)}N X, ${shove.force[1].toFixed(2)}N Y (arrow in world)`
-    : `Viewer shove demo: ${shove.enabled?'enabled':'off'} · limit ${shove.limit.toFixed(2)} N · live trainer impulses are not streamed`;
+    ? `APPLIED NOW · ${shove.force[0].toFixed(2)}N X, ${shove.force[1].toFixed(2)}N Y · bright amber arrow`
+    : shove.recent
+      ? 'RECENT SHOVE · muted arrow shows completed force; no force currently applied'
+      : `Viewer shove demo: ${shove.enabled?'enabled':'off'} · limit ${shove.limit.toFixed(2)} N · trainer impulses are not streamed`;
 }
 carpetRole.addEventListener('change',()=>applyCarpetTerrain(false));
 carpetDrive.addEventListener('change',()=>{
