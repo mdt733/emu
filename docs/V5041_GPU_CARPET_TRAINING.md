@@ -354,3 +354,56 @@ startup can materially extend elapsed wall time. Compare actual
 standing, command tracking, supported up/down crossings,
 changing-slope control, survival and effort rather than assuming the
 generator proves these skills.
+
+
+## Real owner 10M cold start, and why finalisation seemed frozen
+
+The owner ran **10,000,000 requested steps**, rounded to
+**10,027,008** world-steps, 2048 CUDA worlds, seed 735, on **source
+`9070238b3c81a6805296f867a7849e8799f4a2ff`**. It finished and
+the uploaded `results_bundle(10).zip` contains `metrics.csv`,
+`fixed_eval.csv`, `performance.json`, `results.md` and saved config.
+
+The recorded PPO update compute was **600.37s** for 152
+post-first-update training updates. Final 10-panel / 2-cohort frozen
+physical exam cost **433.20s (7m13s)** — **not** checkpoint I/O
+(final write ~**0.032s**). In the original SHA the last regular
+console report was at 9,830,400; then the final PPO boundary and
+all ten held-out panels ran **without intermediate console text**,
+appearing to hang for minutes. The evaluation used all ten real
+physical panels (224,000 exam world-steps across 32-world cohorts)
+including slow first-use JAX compiles for the different world models.
+
+Final PPO sample: reward +2.488, 700-frame episode mean and 0%
+completed-episode fall fraction. Held-out core survival 100%;
+dynamic80 ~10.9%; resilience75 ~7.8%. At 10M this validates
+the initial FLAT standing foundation, **not** mature locomotion or
+terrain mastery. The total fixed score was -0.255, dominated by
+advanced challenges beyond the foundation's ability. The 10M
+`training_config.json` and `run_meta.json` are source pinned
+to 9070238b; do not try to resume their checkpoints with newer
+source simply because the new code only changes logging.
+
+### Visible finalisation in later v5041 source
+
+Later feature-branch commits add explicit **PPO TARGET REACHED**,
+**fixed-eval BEGIN**, per-panel/cohort **START / running / DONE**,
+wall time and survival summaries, and a **20s heartbeat** while
+JAX compiles/executes a blocking frozen panel. After all ten,
+the code announces checkpoint publication. A dedicated regression
+verifies that emitting progress does not change policy exam scores,
+fixed seeds, cohort counts or the saved metric schema.
+
+**The full ten-panel, two-cohort final test remains intact.** Most
+of the 433s came from building/testing different real MJX worlds; a
+global 'fast mode' that drops panels or cohorts would yield
+noncomparable frozen scores and is deliberately not silently
+substituted. Faster *optional diagnostic* exams can be investigated
+separately without replacing the full frozen benchmark.
+
+A currently completed or partially resumed `9070238b` lineage
+**cannot load these newer progress changes in-place** because the
+runner validates the Git source SHA. Continue that lineage from a
+clean `9070238b` source checkout, or choose a newly started,
+independent feature-branch cold run if the newer anti-rocking reward
+fix and progress reporting are required.
