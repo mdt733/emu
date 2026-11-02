@@ -603,11 +603,12 @@ Feature branch code now provides:
   diagnostics remain nested rather than another top-level world.
   Floating telemetry shows essential gait stats; extras in
   `More telemetry`.
-- In Carpet, specialist `Auto / Standing / Commands / Resilience /
-  Slopes / Steps / Transitions / Control` controls a genuinely
-  moving/recycled nine-solid MuJoCo box world AND one deterministic
-  representative exercise: speed/yaw commands, slopes, signed steps,
-  or resilience perturbations. An exercise is NOT an exact GPU world
+- In Carpet, ONE persistent **Training Role** chooser sits beside
+  the 3D world, not hidden in Settings. Specialist `Auto / Standing /
+  Commands / Resilience / Slopes / Steps / Transitions / Control`
+  controls a genuinely moving/recycled nine-solid MuJoCo box world
+  AND one deterministic representative exercise: speed/yaw commands,
+  slopes, signed steps, or resilience perturbations. An exercise is NOT an exact GPU world
   replay or evidence of mastery. Joystick/keyboard takes over manual
   control; specialist preview auto-resets after falls.
 - `/api/live/terrain` now exposes saved push ceiling, alongside
@@ -628,7 +629,12 @@ Feature branch code now provides:
   command scenarios, two modes, 4×4 integrated inspector and force
   bindings. Actual browser WASM interaction still needs user
   observation on the separate viewer checkout. Do not pull/reset or
-  reinstall the running trainer's checkout or venv.
+  reinstall the running trainer's checkout or venv. The clean,
+  separate viewer checkout can be installed with
+  `bash scripts/setup_wsl.sh --viewer-only --install-node`
+  (Python 3.13+, Node24) and served with `emu viewer --live --root
+  ~/robot_lab/emu_runs/v5041_carpet_s735_140m_fork10m --no-open`.
+  Do not update the source-pinned active GPU training checkout.
 
 See `docs/V5041_TRAINING_CARPET_VIEWER.md`. Preserve the training
 140M run source SHA and live checkpoint metadata independently of
