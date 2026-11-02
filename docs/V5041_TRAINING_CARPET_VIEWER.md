@@ -14,13 +14,15 @@ The visible top navigation now has exactly two world modes:
 
 **Settings** is the sole configuration drawer. The former floating
 `FRONT DEPTH · 4×4` laboratory is now a collapsed **Sensor inspector**
-within it, off by default; optional advanced legacy surface tests remain
-inside this diagnostic area rather than as competing top-level modes.
+within it, off by default; its ground is simply the selected Field
+or Carpet. The retired surface-lab menu, step presets and old Ground
+selector have been removed from the UI.
 The floating telemetry HUD shows just policy, age, exercise, body
 height and measured/requested velocity plus support grade; click
 **More telemetry** for yaw, heading, pitch and FPS.
 
-Training Carpet's specialist drop-down is an *exercise inspector*.
+Open **Settings** while in Training Carpet. The FIRST control is the
+specialist selector, followed by the actual projected challenge sliders.
 Choose **Auto, Standing, Commands, Resilience, Slopes, Steps,
 Transitions or Control**. The selected role changes both the physical
 terrain envelope (the actual GPU role's slope/step coefficients) and
@@ -31,40 +33,47 @@ than fighting your input. Automatic exercise resets the browser robot
 after falling, so repeated attempts remain visible. Field's normal
 autonomous navigation stays exclusively in Field.
 
-The **Match training frontiers** toggle uses the local
-`/api/live/terrain` read-only metrics for slope, signed up/down lip
-frontiers, command vx forward/reverse, lateral and yaw limits and
-resilience push frontier. Role factor and exposure multiplier are
-applied using the actual carpet training envelope logic. Before
-the Academy (~60M default), ordinary STEP births use
-`max(terrain_height_m,academy_height_up/down_m)`; once Academy
-births begin, it previews the independently measured Academy
-frontiers. This is a representative birth, **not** an exact clone of
-the randomly sampled 2048-world GPU cohort. Up/down signs and
-difficulty vary by position; step heights may grow to 1.5x the
-per-birth reference farther along the world.
+**Follow live specialist values** uses the read-only
+`/api/live/terrain` data for slope, transitions, up/down lips, forward
+and reverse velocity, strafe, yaw, push limit and resilience intensity.
+The sliders show **specialist-scaled effective values**, not the raw
+global maximum, so switching from SLOPE to STEP immediately shows
+their different terrain weightings. The origin note explains the
+role's percentage of the global slope/step frontiers.
 
-Uncheck **Match training frontiers** to expose manual slope, signed
-step heights, example speed and push limit. This deliberately makes an
-*illustrative* world; it doesn't claim those values were learned.
-It can be useful for testing how the current trained checkpoint
-behaves against a bigger step than its actual current teacher
-assigns.
+Move any slider to enter a **viewer-only customised scenario**.
+The physical MuJoCo carpet and representative command exercise use
+your selected values. You can retain separate experimental settings
+for different specialties and return with **Reset sliders to this
+specialist's training values**. If you adjust STEP during the original
+flat foundation, the deliberately unearned challenge can still be
+inspected; the actual trainer's foundation remains unchanged.
+
+The ordinary STEP birth uses `max(terrain_height_m,
+academy_height_up/down_m)` before Academy allocation begins around
+60M, then the Academy-specific signed fronts. The browser runs ONE
+deterministic representative birth. It's not an exact copy of any
+random GPU environment, and achieved skill requires independent exams.
 
 ### Real browser shoves and arrows
 
-In the **Resilience** exercise, the spectator can apply an actual
-horizontal torso force using `MjData.xfrc_applied`, held over five
-50Hz control frames and the same MuJoCo substeps as normal motion.
-A visible amber 3D arrow points in the **actual applied world force
-direction**. The strength is limited by the reported global push
-frontier and the configured physical push-force ceiling. You can
-trigger a single shove with **Test one shove**. Automatic Resilience
-preview intentionally repeats visible shoves at an **illustrative
-six-second cadence**, rather than pretending to show the trainer's
-per-world rare stochastic timing or hidden seed. A manual arrow/force
-is viewer-only and cannot modify the training policy, teacher or
-saved checkpoints.
+The viewer applies genuine horizontal torso forces through
+`MjData.xfrc_applied`, with random directions, magnitudes up to the
+shown push limit, and random 2–8 control-frame durations. These are
+real 50Hz-browser physics impulses (held over normal MuJoCo substeps)
+and appear as bright amber directional arrows while active. A muted
+arrow briefly marks a *completed* shove, with no extra force applied.
+The probability of a shove is checked every control frame and
+scales with the **Disturbance intensity** slider.
+
+The default **Inspection 8×** option multiplies the stochastic
+training-style event probability to make rare recovery behaviour
+easier to watch. Switch to **Training-like event frequency** for the
+unaccelerated 0.0015-per-frame baseline × resilience intensity.
+The browser doesn't know the exact sampled per-world GPU disturbance
+state, so this is only a *representative* stochastic exercise.
+**Apply one random shove** forces an immediate random test even
+between automatic events. No viewer action reaches the live learner.
 
 The live inspector continues to poll every five seconds, but
 only substantial terrain changes rebuild/reset the viewer. Different
@@ -107,12 +116,12 @@ doesn't place decorative trunks outside its nine-physical-box ring.
 
 ## Automatic development stages
 
-Choose **Training Carpet** at the top of the viewer and keep the
-persistent **Training Role** selector on **Auto** (the default). With a real source-tagged live run:
+Choose **Training Carpet** at the top of the viewer, open
+**Settings** and keep **Training specialist** on **Auto** (the default). With a real source-tagged live run:
 
 | Age / curriculum | Representative world |
 |---|---|
-| **Before 20M foundation cutoff** | Flat physical 50cm tiles, even if STEP/SLOPE is manually selected; training exposure is genuinely zero |
+| **Before 20M foundation cutoff** | Flat physical 50cm tiles in live-follow mode even when STEP/SLOPE is selected; manually overridden challenges are viewer-only |
 | **20M to ~60M** | Representative SLOPE specialist, with the actual measured frontier (often near zero when still learning) |
 | **From Academy introduction (~60M by default)** | Representative STEP world, real vertical UP/DOWN lips and the cross-specialist mild slope |
 
@@ -132,8 +141,8 @@ cap*. It never changes the PPO optimiser. Automatic refresh is every
 time metrics change slightly, the viewer only rebuilds the scene for a
 meaningful ~0.5° or ~2mm change, phase change or changed role.
 Rebuilding resets the **viewer robot only**, never the trainer.
-Uncheck **Follow training stage automatically** to hold a scene and
-apply updates manually.
+Uncheck **Update terrain when live limits change** under
+Training evidence & live connection to hold the current physical scene.
 
 ### Start the viewer while the 140M GPU trainer is running
 
@@ -165,8 +174,9 @@ emu viewer --live \
 
 Open `http://127.0.0.1:8765/` in the Windows browser. Select
 **Field** or **Training Carpet** using the prominent top buttons;
-the Carpet-specific **Training Role** drop-down remains visible
-next to the 3D world even when Settings is closed. The local server
+the **Training specialist** selector is the first control in
+Settings, above the editable sliders. Neither it nor the retired
+navigation HUD obscures the 3D view. The local server
 automatically selects Carpet for source-tagged `terrain_carpet` runs,
 when metrics become available. The watcher loads the latest validated
 policy snapshot; policy ages may lag the latest curriculum metrics
