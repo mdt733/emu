@@ -1,0 +1,101 @@
+"""Independent real MuJoCo contact exam for v5041 two-triangle carpet tiles.
+
+No model hints or JAX estimates: this test asks the CPU contact solver whether
+the feet encounter actual physical support and a real uphill vertical riser.
+"""
+from __future__ import annotations
+
+import math
+import xml.etree.ElementTree as ET
+
+import mujoco
+import numpy as np
+import pytest
+
+from emu.terrain_carpet_mjx import add_carpet_geoms, TILE_COUNT, TILE_SIZE_Z_M
+
+
+def make_probe_model():
+    robot='''<mujoco model="carpet_collision_exam">
+      <option timestep="0.005" gravity="0 0 0"/>
+      <worldbody>
+        <body name="left_foot" pos="-0.17 0 0.035">
+          <freejoint/>
+          <geom name="left_ball" type="sphere" size=".04" mass=".1"
+                contype="3" conaffinity="7"/>
+        </body>
+        <body name="right_foot" pos=".17 0 .035">
+          <freejoint/>
+          <geom name="right_ball" type="sphere" size=".04" mass=".1"
+                contype="3" conaffinity="7"/>
+        </body>
+        <body name="riser_probe" pos="-0.015 .09 .07">
+          <freejoint/>
+          <geom name="riser_ball" type="sphere" size=".020" mass=".1"
+                contype="3" conaffinity="7"/>
+        </body>
+      </worldbody>
+    </mujoco>'''
+    model=mujoco.MjModel.from_xml_string(add_carpet_geoms(robot))
+    model.hfield_data[:]=.5
+    assert model.nhfield==TILE_COUNT
+    return model
+
+
+def get_geoms(model):
+    return {mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,i):i
+            for i in range(model.ngeom)}
+
+
+def solve_case(rise_m):
+    model=make_probe_model()
+    data=mujoco.MjData(model)
+    bodyids=[mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
+                              f"carpet_tile_body_{i}")
+             for i in range(TILE_COUNT)]
+    mocaps=[int(model.body_mocapid[i]) for i in bodyids]
+    for mid in mocaps:
+        data.mocap_pos[mid]=[0.,0.,-30.]
+    data.mocap_pos[mocaps[0]]=[-.25,0.,-TILE_SIZE_Z_M/2]
+    data.mocap_pos[mocaps[1]]=[+.25,0.,rise_m-TILE_SIZE_Z_M/2]
+    # Original freejoint poses match XML defaults, then place each sphere
+    # just 5mm inside the corresponding real *top* collision face.
+    data.qpos[0:3]=[-.17,0,.035]
+    data.qpos[7:10]=[+.17,0,rise_m+.035]
+    data.qpos[14:17]=[-.015,.09,rise_m*.5]
+    mujoco.mj_forward(model,data)
+    geoms=get_geoms(model)
+    contacts=[]
+    for n in range(data.ncon):
+        c=data.contact[n]
+        a,b=int(c.geom1),int(c.geom2)
+        names={mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,g)
+               for g in (a,b)}
+        contacts.append((names,float(c.dist),
+                         np.asarray(c.frame[:3]).copy(),np.asarray(c.pos).copy()))
+    return contacts
+
+
+@pytest.mark.parametrize("rise_m",[.0,.02,.04,.15])
+def test_two_tile_foot_support_is_real_contact(rise_m):
+    contacts=solve_case(rise_m)
+    for foot,tile in (("left_ball","carpet_tile_geom_0"),
+                      ("right_ball","carpet_tile_geom_1")):
+        matches=[x for x in contacts if {foot,tile}.issubset(x[0]) and
+                 x[1]<0.]
+        assert matches, (rise_m,foot,tile,contacts)
+
+
+@pytest.mark.parametrize("rise_m",[.04,.15])
+def test_vertical_riser_is_not_a_ghost_or_ramp(rise_m):
+    """A sphere above the lower top but beside the higher tile must contact
+
+    the uphill vertical side. If this fails the model is NOT a staircase:
+    never launch expensive STEP training on it.
+    """
+    contacts=solve_case(rise_m)
+    risers=[x for x in contacts if
+            {"riser_ball","carpet_tile_geom_1"}.issubset(x[0])]
+    assert risers, (
+        f"NO vertical lip side contact at {rise_m*100:.0f}cm: "
+        f"heightfields may be top-surface only; inspect collision topology")

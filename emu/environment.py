@@ -2774,7 +2774,7 @@ class EmuMJXEnv(TaskSampler):
         return data.replace(mocap_pos=pos)
 
     def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
-                      task,birth_root_z):
+                      task,birth_root_z,academy_active):
         """The same nine real triangles-pair colliders for ALL six roles.
 
         A foundation episode has zero terrain difficulty. Every specialist
@@ -2785,12 +2785,11 @@ class EmuMJXEnv(TaskSampler):
         seeds=jax.vmap(lambda k:jax.random.randint(
             jax.random.fold_in(k,5041),(),0,2**31-1,
             dtype=jnp.int32))(keys)
-        academy=(specialist_active & (focus_id==STEP) &
-            (task[:,T.athletic_rehearsal]<.5) &
-            (jax.vmap(lambda k:jax.random.uniform(
-                jax.random.fold_in(k,5040),()))(keys) <
-             params[P.academy_episode_probability]))
-        up=xp_up=jnp.where(academy,params[P.academy_height_up_m],
+        # Use the SAME Academy assignment that the teacher, reward and
+        # timetable use. Sampling the same PRNG key with a DIFFERENT shape
+        # (scalar versus 8 draws) is not guaranteed to return that assignment.
+        academy=academy_active
+        up=jnp.where(academy,params[P.academy_height_up_m],
                            jnp.maximum(params[P.terrain_height_m],
                                        params[P.academy_height_up_m]))
         down=jnp.where(academy,params[P.academy_height_down_m],
@@ -2965,7 +2964,8 @@ class EmuMJXEnv(TaskSampler):
         carpet=None
         if self.terrain_carpet:
             data,carpet=self._carpet_birth(
-                data,keys,params,focus_id,specialist_active,task,birth_root_z)
+                data,keys,params,focus_id,specialist_active,task,
+                birth_root_z,academy_active)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
