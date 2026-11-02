@@ -490,6 +490,7 @@ function carpetEffectiveLimits(){
       vyMax:carpetDifficulty.vyMax??.12,
       yawMax:carpetDifficulty.yawMax??.6,
       pushN:val(manualPush,0,3,.35),
+      pushMaxForceN:val(manualPush,0,3,.35),
       academyStream:true
     };
   }
