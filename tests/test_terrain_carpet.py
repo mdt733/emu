@@ -258,9 +258,61 @@ def test_frozen_carpet_trace_reports_actual_live_solid_tiles_not_old_slabs():
     assert np.asarray(trace['initial_carpet_solid_geom_xmat']).shape==(4,9,3,3)
     assert np.asarray(trace['initial_carpet_cells']).shape==(4,9,2)
     assert np.asarray(trace['initial_carpet_source_hfields']).shape==(4,36)
+    assert np.asarray(trace['initial_foot_radii_m']).shape==(2,)
+    assert np.asarray(trace['carpet_raw_contact_pairs']).shape==(2,4,9,2)
+    assert np.asarray(trace['carpet_contact_vertical']).shape==(2,4,9,2)
+    assert np.asarray(trace['carpet_root_cell']).shape==(2,4,2)
     assert np.all(np.isfinite(trace['initial_carpet_solid_geom_xpos']))
     assert np.all(np.isfinite(trace['floor_normal_world']))
     # The old slab is disabled, and its fictional support must not leak
     # into the frozen policy examiner.
     assert 'academy_initial_platform_positions' not in trace
     assert 'terrain_platform_contact' not in trace
+
+
+
+def test_independent_carpet_scorer_rejects_side_contacts_and_post_fall_resets():
+    """Synthetic raw MJX trace, no STEP reward/teacher keys whatsoever."""
+    import numpy as np
+    from scripts.exam_step_course import independently_score_carpet_crossings
+    def trace(rise=.03,vertical=1.,fall=False):
+        tcount=8
+        cells=np.zeros((tcount,1,2),dtype=np.int32)
+        cells[1:,0,0]=1
+        centres=np.zeros((tcount,1,9,3),dtype=np.float32)
+        centres[:,:,:,:]=[0.,0.,-30.]
+        centres[:,:,0,:]=[.25,.25,-.27]
+        centres[:,:,1,:]=[.75,.25,rise-.27]
+        rotations=np.broadcast_to(np.eye(3,dtype=np.float32),
+                                  (tcount,1,9,3,3)).copy()
+        contacts=np.zeros((tcount,1,9,2),dtype=bool)
+        contacts[1:,0,1,0]=True
+        normals=np.zeros_like(contacts,dtype=np.float32)
+        normals[1:,0,1,0]=vertical
+        feet=np.zeros((tcount,1,2,3),dtype=np.float32)
+        feet[:,:,:,:]=[.75,.25,rise+.018]
+        done=np.zeros((tcount,1),dtype=bool)
+        fell=done.copy()
+        if fall:
+            done[3,0]=True
+            fell[3,0]=True
+        return dict(carpet_root_cell=cells,
+             carpet_solid_geom_xpos=centres,
+             carpet_solid_geom_xmat=rotations,
+             carpet_contact_vertical=normals,
+             carpet_raw_contact_pairs=contacts,
+             foot_xyz=feet,
+             initial_foot_radii_m=np.asarray([.018,.018]),
+             initial_carpet_solid_half_sizes=np.asarray([[.258,.258,.270]]*9),
+             done=done,fell=fell)
+    success=independently_score_carpet_crossings(trace())
+    assert success["up"]==1 and success["down"]==0
+    assert success["total"]==1
+    assert success["worlds"][0]["independently_supported_lips"][0][
+        "signed_height_cm"]==3.0
+    downhill=independently_score_carpet_crossings(trace(rise=-.03))
+    assert downhill["up"]==0 and downhill["down"]==1
+    side=independently_score_carpet_crossings(trace(vertical=.05))
+    assert side["total"]==0
+    dead=independently_score_carpet_crossings(trace(fall=True))
+    assert dead["total"]==0
