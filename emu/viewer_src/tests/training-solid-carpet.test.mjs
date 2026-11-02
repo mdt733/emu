@@ -6,6 +6,7 @@ import {
   terrainRoleEnvelope,safeCarpetShift
 } from '../src/training-solid-carpet.js';
 import {solidCarpetXml,withTerrain} from '../src/terrain.js';
+import {actorTerrainDistance} from '../src/sensor.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
 const measured=(step,more={})=>({
@@ -129,4 +130,30 @@ test('the integrated viewer keeps the real physical contacts separate from the r
   assert.match(main,/carpetAutoApply/);
   assert.match(main,/carpetEffectiveLimits/);
   assert.match(ui,/value="auto" selected/);
+});
+
+
+test('actor 4x4 optical ray sees a MOVING MuJoCo solid support and its vertical side, never robot',()=>{
+  const model={
+    ngeom:1,
+    geom_bodyid:[1],
+    body_mocapid:[-1,0],
+    geom_type:[6], // MuJoCo mjGEOM_BOX
+    geom_size:[.258,.258,.270]
+  };
+  const data={geom_xpos:[0,0,-.270],
+    geom_xmat:[1,0,0,0,1,0,0,0,1]};
+  assert.ok(Math.abs(
+    actorTerrainDistance([0,0,.30],[0,0,-1],model,data,[],null)-.30)<1e-9);
+  assert.ok(Math.abs(
+    actorTerrainDistance([-.45,0,-.10],[1,0,0],model,data,[],null)-.192)<1e-9);
+  // Same box geometry on a normal ARTICULATED robot body is NEVER ground.
+  model.body_mocapid[1]=-1;
+  assert.equal(actorTerrainDistance([0,0,.30],[0,0,-1],model,data,[],null),0);
+});
+
+test('no synthetic future-tile height is fed into carpet actor or optical-flow sensors',()=>{
+  const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
+  assert.match(sim,/terrainHeightAt:this\.terrainMode==='park'/);
+  assert.match(sim,/const terrainHeightAt=this\.terrainMode==='park'/);
 });
