@@ -53,7 +53,7 @@ python -u scripts/train_pinnacle.py --run        # CPU+2048 CUDA gate; train
 python -u scripts/train_pinnacle.py --run --skip-preflight
 ```
 
-A brand-new PC must first follow [INSTALL](docs/INSTALL.md).
+A brand-new PC must first follow [INSTALL](../INSTALL.md).
 Run in foreground, no tmux; GNU Screen for remote disconnects if
 desired. No other GPU campaigns at the same time. The launcher
 refuses dirty source, foreign checkpoint lineage, changed manifest
@@ -136,8 +136,8 @@ publish via the existing protected GitHub Pages workflow.
 Preserve old main SHA + policy bytes for instant rollback.
 No automatic `main` merge or deployment from candidate training.
 
-Read [graduation gates](docs/RELEASE_READINESS.md) and
-[the exact candidate runbook](docs/PINNACLE_CANDIDATE.md).
+Read [graduation gates](../RELEASE_READINESS.md) and
+[the exact candidate runbook](../PINNACLE_CANDIDATE.md).
 
 ## Housekeeping performed in this candidate source tree
 
@@ -174,14 +174,14 @@ Read [graduation gates](docs/RELEASE_READINESS.md) and
 
 ## Read these, not archived launch instructions
 
-[Current runbook](docs/PINNACLE_CANDIDATE.md) ·
-[Fresh-machine install](docs/INSTALL.md) ·
-[Physical release evidence](docs/RELEASE_READINESS.md) ·
-[Viewer graded park](docs/VIEWER_GRADUATED_PARK.md) ·
-[Code map](docs/ARCHITECTURE.md) ·
-[Learning architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
-[Complete v5031 handover preserved](docs/history/HANDOVER_V5031_COMPLETE.md) ·
-[Historical experiments](docs/history/README.md).
+[Current runbook](../PINNACLE_CANDIDATE.md) ·
+[Fresh-machine install](../INSTALL.md) ·
+[Physical release evidence](../RELEASE_READINESS.md) ·
+[Viewer graded park](../VIEWER_GRADUATED_PARK.md) ·
+[Code map](../ARCHITECTURE.md) ·
+[Learning architecture](../UNIFIED_CAPABILITY_GROWTH.md) ·
+[Complete v5031 handover preserved](HANDOVER_V5031_COMPLETE.md) ·
+[Historical experiments](README.md).
 
 **Guardrail:** freeze `main` until the independent evidence and
 explicit publication approval both exist.
