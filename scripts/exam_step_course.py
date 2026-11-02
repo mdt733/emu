@@ -1,7 +1,9 @@
-"""Read-only frozen-policy exam on the real three-platform streaming ring.
+"""Read-only frozen-policy STEP exam: legacy three-slab or v5041 nine-box carpet.
 
-Reports every approached UP/DOWN lip separately, with true top-support
-crossings, and four-lip milestones. The policy learns nothing here.
+Pass --carpet only for a source-tagged nine-box policy. All reported
+crossings come from live MJX contact evidence and are censored after
+each world's first terminal event; a policy reset cannot pad its score.
+No learning, checkpoint changes or curriculum promotion occurs here.
 """
 from __future__ import annotations
 
@@ -11,10 +13,11 @@ from pathlib import Path
 
 
 def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
-            device="cpu",heights_cm=(1.,2.,3.)):
+            device="cpu",heights_cm=(1.,2.,3.),carpet=False,slope_deg=0.):
     if (worlds<4 or worlds>32 or horizon<200 or horizon>1200 or
         speed<.04 or speed>.30 or not heights_cm or
-        any(h<.2 or h>15 for h in heights_cm)):
+        any(h<.2 or h>15 for h in heights_cm) or
+        not 0.<=slope_deg<=15.):
         raise ValueError("Need 4..32 worlds, 200..1200 frames, 0.04..0.30m/s, 0.2..15cm")
     policy=Path(policy).expanduser().resolve()
     output=Path(output).expanduser().resolve()
@@ -38,11 +41,18 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
     params,norm,actor=load_exported_actor_for_exam(policy)
     if actor.get("observation_schema")!=OBS_SCHEMA_TERRAIN or not actor.get("array_only"):
         raise ValueError("Only authentic terrain_360 array-only actor supported")
+    trained_carpet=(actor.get("training") or {}).get("terrain_carpet") is True
+    if bool(carpet)!=trained_carpet:
+        raise ValueError("Selected exam collision topology does not match exported policy; "
+                         "a nine-box actor requires --carpet and a legacy actor must omit it")
     sensor_settings=dict(actor["sensor_settings"])
     noise=sensor_settings.pop("sensor_noise_scale",0.)
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=worlds,seed=seed,
         max_episode_steps=1300,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_step_max_m=.08,
+        terrain_carpet=bool(carpet),
+        carpet_transition_cap_deg=float((actor.get("training") or {}).get(
+            "carpet_transition_cap_deg",3.)),
         academy_stream=True,academy_height_cap_m=.15,
         academy_course_episode_frames=1300,
         terrain_lesson="coherent-careful",
@@ -60,6 +70,8 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
     for h in heights_cm:
         packet=dict(specialist_mix=1.,academy_episode_probability=1.,
           terrain_exposure=1.,terrain_height_m=h/100,
+          slope_exposure=1. if slope_deg>0. else 0.,
+          slope_max_deg=float(slope_deg),
           academy_height_up_m=h/100,academy_height_down_m=h/100,
           focus_weight_step=1.,athletic_rehearsal_frac=0.,
           regime_frac_steady=1.,regime_frac_transition=0.,
@@ -68,8 +80,10 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
           probe_cmd_vx=speed,probe_cmd_vy=0.,probe_cmd_yaw=0.,
           probe_tilt_rad=0.,probe_push_n=0.,
           terrain_edge_angle_deg=float("nan"),
-          terrain_fixed_height_m=h/100)
-        print(f"Independent streaming ring exam {h:g}cm, {worlds} worlds",flush=True)
+          terrain_fixed_height_m=float("nan") if carpet else h/100)
+        print(f"Independent {'nine-box carpet' if carpet else 'streaming ring'} "
+              f"exam nominal frontier {h:g}cm, grade≤{slope_deg:g}°, "
+              f"{worlds} worlds",flush=True)
         trace=trainer["evaluate_trace"](
             params,env.params_array(packet),
             jnp.asarray(norm["mean"]),jnp.asarray(norm["std"]),
