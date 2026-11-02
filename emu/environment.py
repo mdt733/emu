@@ -1301,7 +1301,9 @@ class EmuMJXEnv(TaskSampler):
                 raise RuntimeError(f'2-triangle carpet hfield has wrong storage: {h.shape}')
             self.mjx_model=self.mjx_model.tree_replace({
                 'hfield_data':jnp.broadcast_to(h,(self.num_envs,h.shape[0]))})
-            self.model_in_axes=self.model_in_axes.tree_replace({'hfield_data':0})
+            axes=(self.model_in_axes if self.model_in_axes is not None else
+                  jax.tree_util.tree_map(lambda _:None,self.mjx_model_template))
+            self.model_in_axes=axes.tree_replace({'hfield_data':0})
         gravity_unit = self.domain_info.get('gravity_unit_world')
         self.gravity_unit_world = (
             gravity_unit if gravity_unit is not None
