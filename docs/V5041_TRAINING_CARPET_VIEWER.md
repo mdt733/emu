@@ -3,6 +3,82 @@
 **Research branch:** `feature/v5041-unified-terrain-carpet`. The
 released champion and Terrain Park on `main` are unchanged.
 
+## v5041 viewer refresh: two worlds, one inspector
+
+The visible top navigation now has exactly two world modes:
+
+- **Field:** the established natural grass/trees/radial-slope MuJoCo
+  world, with an optional numbered, graduated physical challenge course.
+- **Training Carpet:** the nine 50cm tilted MuJoCo SOLID boxes with sharp
+  vertical faces and safe row/column recycling around the robot.
+
+**Settings** is the sole configuration drawer. The former floating
+`FRONT DEPTH · 4×4` laboratory is now a collapsed **Sensor inspector**
+within it, off by default; optional advanced legacy surface tests remain
+inside this diagnostic area rather than as competing top-level modes.
+The floating telemetry HUD shows just policy, age, exercise, body
+height and measured/requested velocity plus support grade; click
+**More telemetry** for yaw, heading, pitch and FPS.
+
+Training Carpet's specialist drop-down is an *exercise inspector*.
+Choose **Auto, Standing, Commands, Resilience, Slopes, Steps,
+Transitions or Control**. The selected role changes both the physical
+terrain envelope (the actual GPU role's slope/step coefficients) and
+the representative exercise's velocity/yaw requests. Select
+**Run specialist commands** or **Manual joystick/WASD**. Moving a
+joystick/key during an automatic exercise switches to Manual rather
+than fighting your input. Automatic exercise resets the browser robot
+after falling, so repeated attempts remain visible. Field's normal
+autonomous navigation stays exclusively in Field.
+
+The **Match training frontiers** toggle uses the local
+`/api/live/terrain` read-only metrics for slope, signed up/down lip
+frontiers, command vx forward/reverse, lateral and yaw limits and
+resilience push frontier. Role factor and exposure multiplier are
+applied using the actual carpet training envelope logic. Before
+the Academy (~60M default), ordinary STEP births use
+`max(terrain_height_m,academy_height_up/down_m)`; once Academy
+births begin, it previews the independently measured Academy
+frontiers. This is a representative birth, **not** an exact clone of
+the randomly sampled 2048-world GPU cohort. Up/down signs and
+difficulty vary by position; step heights may grow to 1.5x the
+per-birth reference farther along the world.
+
+Uncheck **Match training frontiers** to expose manual slope, signed
+step heights, example speed and push limit. This deliberately makes an
+*illustrative* world; it doesn't claim those values were learned.
+It can be useful for testing how the current trained checkpoint
+behaves against a bigger step than its actual current teacher
+assigns.
+
+### Real browser shoves and arrows
+
+In the **Resilience** exercise, the spectator can apply an actual
+horizontal torso force using `MjData.xfrc_applied`, held over five
+50Hz control frames and the same MuJoCo substeps as normal motion.
+A visible amber 3D arrow points in the **actual applied world force
+direction**. The strength is limited by the reported global push
+frontier and the configured physical push-force ceiling. You can
+trigger a single shove with **Test one shove**. Automatic Resilience
+preview intentionally repeats visible shoves at an **illustrative
+six-second cadence**, rather than pretending to show the trainer's
+per-world rare stochastic timing or hidden seed. A manual arrow/force
+is viewer-only and cannot modify the training policy, teacher or
+saved checkpoints.
+
+The live inspector continues to poll every five seconds, but
+only substantial terrain changes rebuild/reset the viewer. Different
+specialists are inspected one at a time, sharing the latest validated
+policy, while their real GPU counterparts continue learning
+simultaneously. The trained policy age (in the HUD) can lag live
+curriculum age (in Settings) between checkpoints.
+
+**Source isolation:** Run this viewer from a **separate checkout**
+of `feature/v5041-unified-terrain-carpet`; never update or reinstall
+the active 140M trainer checkout/venv. The browser viewer is
+CPU/WebAssembly for physics and inference; it does not start an
+additional 2048-world GPU trainer.
+
 ## Which world does the viewer show?
 
 Training Carpet in the EXISTING EMU 3D MuJoCo viewer now instantiates
