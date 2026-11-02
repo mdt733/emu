@@ -32,7 +32,9 @@ export function specialistLesson(base,role='auto'){
       (active==='resilience'?1:active==='standing'?0:.15)),0,1);
   // The teacher reports a global push frontier, but its configured
   // physical ceiling may be smaller. Show the *applied* limit.
-  caps.push=clamp(Math.min(caps.push,Number(base.pushMaxForceN??caps.push)),0,10);
+  caps.push=override.command?.push!==undefined
+    ?clamp(override.command.push,0,10)
+    :clamp(Math.min(caps.push,Number(base.pushMaxForceN??caps.push)),0,10);
   return {role:active,stage:p.stage,terrain:p,caps,foundation,intensity,
     heading:SPECIALIST_GUIDE[active]?.[0]||'Training',
     description:SPECIALIST_GUIDE[active]?.[1]||'Representative challenge',
