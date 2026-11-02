@@ -162,6 +162,85 @@ This script checks checkpoint, warm continuation and export; it is
 stronger evidence than one uninterrupted `emu train --steps 131072`
 invocation, which by itself does not prove warm resume.
 
+## Follow-up engineering after first full GPU/lifecycle PASS
+
+The user completed the **updated 128- and 2048-world CUDA acceptance** on
+`728f0139b3f032dcc68770372730ccfb36494ac6`, including positive real
+actor-weight changes (max 0.001431 at 2048), nine-box/18mm ball-foot
+clearance and finite 360 inputs. The 2048 first update took **64.68s
+including XLA compilation**; JAX reported peak 1,075,855,360 bytes in use.
+
+The same SHA passed every stage of the true 2048-world carpet lifecycle:
+first 65,536 steps, fresh parent-preserving warm continuation to 131,072,
+normaliser count 65,536→131,072, completed-resume no-op and schema-3
+actor export/readback. This IS an authentic source-pinned CUDA test,
+but the exported actor has not learned to walk after two updates.
+
+The one-update console printed an impossible ~2M FPS and zero reward
+because the training wall clock started after the compilation+first PPO
+update and the final rolling-reward list was empty. Source now accounts
+for the first update and appends the last rollout's real reward. The
+77.6% early fall rate is still an actual novice-physics measurement.
+
+**Additional untested source improvements:** Frozen-policy trajectory
+exams now report contact with the NINE actual solid tiles, not the
+inactive Academy slabs, and only count a world's first uninterrupted
+episode. Deployable actor exports identify the real `terrain_carpet`
+collision topology. CPU trace regression, exam CLI, and optional
+post-compile GPU throughput benchmarking have been added. These
+improvements require **new CI and a freshly verified source SHA**;
+do not retroactively attribute them to the already-passed `728f0139` run.
+
+### Measure real sustained PPO throughput (bounded, no checkpoint)
+
+After pulling a source SHA whose full carpet CI is green, run:
+
+```bash
+cd ~/emu-v5041-gpu-preflight
+git pull --ff-only
+git rev-parse HEAD
+git status --short
+
+python scripts/smoke_gpu_carpet.py \
+  --device cuda --worlds 2048 --frames 2 --ppo \
+  --full-update --benchmark-updates 4
+```
+
+This trains only 4 × 65,536 temporary simulation steps, saving **no
+weights**. It reports synchronized throughput from the THREE
+post-compilation updates. It is not the performance of a full saved,
+logged 140M campaign, but far more meaningful than first-update timing.
+
+### Probe the actual frozen nine-box exam
+
+For the existing two-update lifecycle checkpoint, first re-export the
+same original actor to a **new** file so it carries the added physical
+topology provenance. This does not alter or resume the checkpoint:
+
+```bash
+ROOT="$HOME/robot_lab/emu_runs/v5041_carpet_lifecycle_s735"
+
+emu export-policy \
+  "$ROOT/continued/checkpoints/final.pkl" \
+  "$ROOT/tiny_carpet_exam_actor.emupolicy"
+
+python scripts/exam_step_course.py \
+  --policy "$ROOT/tiny_carpet_exam_actor.emupolicy" \
+  --output "$ROOT/carpet_exam_untrained_s1701" \
+  --carpet --worlds 8 --horizon 200 --seed 1701 \
+  --heights-cm 1 --slope-deg 0 --speed .10 --device cuda
+```
+
+This is a read-only **exam-pipeline smoke**, not evidence of competence
+from a virtually untrained actor. The output reports nominal frontier
+vs actual supported lip heights, signed UP/DOWN attempts and crossings,
+falls, and first-life forward progress; it cannot credit resets after
+the first fall. Denominators of 0 are **inconclusive**, not successful.
+No claim of independent external contact rescoring is made: the
+crossings come from the existing physically contact-gated teacher
+events. Do not call the 140M run ready until this works on actual GPU
+and independent step/slope physical checks have been inspected.
+
 If the bounded lifecycle succeeds, and frozen physical terrain exams
 show no sensor/contact mismatch, a *new* 140M from-scratch lineage
 may be launched in another external directory:
