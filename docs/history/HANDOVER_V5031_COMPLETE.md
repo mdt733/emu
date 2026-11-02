@@ -10,7 +10,7 @@ based on both `fix/viewer-park-optical-flow` and
 `fix/viewer-crest-contact-seam`. The viewer now offers eight real
 graded challenges with Gentle/Balanced/Stretch settings, numbered
 non-colliding signposts and corrected continuous crest/drop support.
-See [viewer graded park](docs/VIEWER_GRADUATED_PARK.md).
+See [viewer graded park](../VIEWER_GRADUATED_PARK.md).
 **Completed v5031 100M matched physical exams:** C100 (verified ascent)
 outperforms B100 control on 2.0cm up (8/8 vs 7/8), 2.5cm up
 (4/8 vs 2/8), 3.5cm down (7/8 vs 1/8), and 12° downhill
@@ -39,7 +39,7 @@ cold start, seed737; do not run before exact-source CUDA preflight).
 replace the public champion without explicit owner approval.**
 
 This is the concise read-first handover. The full pre-polish chronology
-remains in [historical handover](docs/history/HANDOVER_PRE_POLISH.md).
+remains in [historical handover](HANDOVER_PRE_POLISH.md).
 
 ## The mission
 
@@ -109,7 +109,7 @@ supported long-floor motion, real step retention and broader fixed exams.
   three 20→60M forks (140M aggregate); archived training source
   `5dec60c4`. Their **independent 16-world per physical condition**
   extended exam (0.15m/s, 350 frames) is documented in
-  [v5027 extended findings](docs/history/V5027_EXTENDED_PHYSICAL_FINDINGS.md).
+  [v5027 extended findings](V5027_EXTENDED_PHYSICAL_FINDINGS.md).
 - A supported climbed **2.0cm uphill 8/8; 2.5cm 6/8; 3.0cm 0/8;
   3.5cm 0/8**. Up/down outcomes must not be mixed. Surviving/stalling
   in front of 3cm is *not* evidence of a learned safe refusal.
@@ -133,8 +133,8 @@ The A/B study completed both 80M policies at frozen source
 The B near-lip underspeed treatment improved some upsteps but
 downhill/overall tracking were mixed. Both remained at a +0.369m/s
 requested command frontier despite main's roughly 1m/s ambition.
-See `docs/V5028_CONSIDERED_STEPS.md` and
-`docs/V5028_SPEED_FRONTIER_AUDIT.md` for complete findings.
+See `V5028_CONSIDERED_STEPS.md` and
+`V5028_SPEED_FRONTIER_AUDIT.md` for complete findings.
 
 The earlier CLI omitted the coherent-careful choice, then the physical
 exam rejected an exact 15° fixture from float32 roundoff. Both are fixed
@@ -151,7 +151,7 @@ The old v5028 launcher (and its launch-only helper/test) is retired
 from the latest tree; use its original pinned source SHA to reproduce.
 The v5029 launcher and the shared evaluator/physics are kept. Design
 and pure, inactive helper functions are in
-[reward experiments](docs/V5030_REWARD_EXPERIMENTS.md).
+[reward experiments](V5030_REWARD_EXPERIMENTS.md).
 
 Proposed *conditional* matched reward studies: A unchanged, B causal
 25-frame (0.5s) blended forward tracking, C B + verified CoG and
@@ -166,7 +166,7 @@ continuation without explicit source and state-contract acceptance.
 - [x] Inventory 105 Git tree entries, including 20 Markdown documents
   and four retired versioned experiment launchers.
 - [x] Move completed/superseded v5024–v5027 work under
-  [docs/history](docs/history/README.md), preserving findings.
+  [docs/history](README.md), preserving findings.
 - [x] Replace outdated 693-line v5024-centred README with a current,
   external-reader-friendly project overview.
 - [x] Fold the sole `velocity_i_step` command controller into `emu/environment.py` with the same function body, retire `emu/velocity_trim.py`, and keep the single focused controller test. No PPO, reward or actor change intended.
@@ -182,8 +182,8 @@ continuation without explicit source and state-contract acceptance.
   polish branch only*. Old source SHAs continue to preserve reproducibility.
   Retire associated historical launcher-only tests and add a current
   v5028 campaign-plan contract. Update workflow compile targets.
-- [x] Add [maintenance rules](docs/MAINTENANCE.md) and
-  [release readiness gates](docs/RELEASE_READINESS.md).
+- [x] Add [maintenance rules](../MAINTENANCE.md) and
+  [release readiness gates](../RELEASE_READINESS.md).
 - [ ] **Validation still required** on an actual checkout/CI: syntax,
   selected learning contracts, browser build, exact-source experiments.
   The GitHub connector can edit/inspect source but is not the owner's
@@ -211,12 +211,12 @@ continuation without explicit source and state-contract acceptance.
 
 ## Documents
 
-[Architecture](docs/UNIFIED_CAPABILITY_GROWTH.md) ·
-[Capability map](docs/CAPABILITY_DIMENSIONS.md) ·
-[Current v5028 experiment](docs/V5028_CONSIDERED_STEPS.md) ·
-[Post-polish maintenance](docs/MAINTENANCE.md) ·
-[Research archive](docs/history/README.md) ·
-[Public release checks](docs/RELEASE_READINESS.md)
+[Architecture](../UNIFIED_CAPABILITY_GROWTH.md) ·
+[Capability map](../CAPABILITY_DIMENSIONS.md) ·
+[Current v5028 experiment](V5028_CONSIDERED_STEPS.md) ·
+[Post-polish maintenance](../MAINTENANCE.md) ·
+[Research archive](README.md) ·
+[Public release checks](../RELEASE_READINESS.md)
 
 
 ## 30 Oct — main physical baseline + controlled A/B build
@@ -277,7 +277,7 @@ the archived v5029 training checkout.**
   far-side reached 0/8, mean vx ~0.010m/s: **stalling at the lip**.
   Yaw-rate stride oscillation remains diagnostic, not a suppression target.
 - New independent branch \`feature/v5031-verified-ascent\` from immutable
-  \`a7be11b\`. See [v5031 study](docs/V5031_VERIFIED_ASCENT.md).
+  \`a7be11b\`. See [v5031 study](V5031_VERIFIED_ASCENT.md).
   A single opt-in, reward-only scalar tracks a per-episode high-water
   mark of physically verified upper-slab contact plus torso elevation.
   Default-off is the B reward; treatment reassigns 3 of the existing 9

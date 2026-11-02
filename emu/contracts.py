@@ -255,6 +255,11 @@ UNIFIED_TERRAIN_FIELDS = (
     *((f'focus_weight_{name}',0.0) for name in
       ('command','resilience','slope','step','transition','control')),
     ('steering_attention',0.0),
+    # Teacher-only course assignment. Added AFTER historical G4 indices.
+    ('academy_episode_probability',0.0),
+    # Independent supported-up and supported-down frontiers, teacher only.
+    ('academy_height_up_m',0.003),
+    ('academy_height_down_m',0.003),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -275,6 +280,9 @@ P = SimpleNamespace(
        for i,name in enumerate(
            ('command','resilience','slope','step','transition','control'))},
     steering_attention=TERRAIN_TASK_PARAM_DIM+14,
+    academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
+    academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
+    academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
 )
 
 

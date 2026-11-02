@@ -11,6 +11,7 @@ from typing import Any
 import math
 
 from .contracts import CONTROL_DT
+from .training_health import TrainingHealth  # stable public import
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,9 @@ class RegimeParams:
     # Saved with ordinary governor rollback/resume state.
     terrain_exposure: float = 0.0
     terrain_height_m: float = 0.0
+    # Independently earned consecutive-lip frontier in the SAME governor.
+    academy_height_up_m: float = 0.003
+    academy_height_down_m: float = 0.003
     # True inclined collision slabs; independent of discontinuous steps.
     slope_exposure: float = 0.0
     slope_max_deg: float = 0.0
@@ -76,6 +80,11 @@ class RegimeGovernor:
     # episodes for reliable up/down decisions. Keep a short saved window.
     TERRAIN_MIN_ATTEMPTS_PER_DIRECTION = 20
     TERRAIN_MAX_WINDOW_UPDATES = 40
+    ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
+    ACADEMY_MAX_WINDOW_UPDATES = 50
+    ACADEMY_SEED_LIP_M = 0.003
+    ACADEMY_MIN_LIP_M = 0.0015
+    ACADEMY_HEIGHT_GROWTH_M = 0.0005
     TERRAIN_ASCENT_PRACTICE_MIN = 0.10
     TERRAIN_DESCENT_PRACTICE_MIN = 0.50
     TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
@@ -130,9 +139,22 @@ class RegimeGovernor:
                  frontier_vx_lo_safety: float = 0.45, frontier_vy_safety: float = 0.45,
                  frontier_yaw_safety: float = 3.0, frontier_combo_safety: float = 1.60,
                  frontier_push_safety_n: float = 3.0,
-                 unified_capability_focus: bool = False):
+                 unified_capability_focus: bool = False,
+                 science_step_promotion_mm: float = 0.0,
+                 science_step_retreat_mm: float = 0.0,
+                 science_step_min_attempts: int = 4):
         self.params = RegimeParams()
         self.unified_capability_focus = bool(unified_capability_focus)
+        if (not math.isfinite(science_step_promotion_mm) or
+                not 0. <= science_step_promotion_mm <= 10. or
+                not math.isfinite(science_step_retreat_mm) or
+                not 0. <= science_step_retreat_mm <= 10. or
+                type(science_step_min_attempts) is not int or
+                not 4 <= science_step_min_attempts <= 32):
+            raise ValueError('invalid step science: millimetres 0..10; attempts 4..32')
+        self.science_step_promotion_mm = float(science_step_promotion_mm)
+        self.science_step_retreat_mm = float(science_step_retreat_mm)
+        self.science_step_min_attempts = science_step_min_attempts
         self.command_evidence = {k:self._empty_command_window()
                                  for k in self.COMMAND_SECTORS}
         self.slope_evidence = {k:self._empty_slope_window()
@@ -170,6 +192,7 @@ class RegimeGovernor:
         self._episodes_ema = {k: 0.0 for k in self.fall_ema}
         self._updates_done_total = 0
         self.terrain_evidence = self._empty_terrain_evidence()
+        self.academy_evidence = self._empty_academy_evidence()
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -207,6 +230,14 @@ class RegimeGovernor:
                        for band in ('near','easy')
                        for outcome in ('attempts','successes')})
 
+    @staticmethod
+    def _empty_academy_evidence() -> dict[str,float]:
+        return dict(up_updates=0.,down_updates=0.,**{
+            f'{direction}_{band}_{kind}':0.
+            for direction in ('up','down')
+            for band in ('near','easy')
+            for kind in ('attempts','successes')})
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -219,6 +250,7 @@ class RegimeGovernor:
             '_falls_ema': dict(self._falls_ema), '_episodes_ema': dict(self._episodes_ema),
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
+            'academy_evidence': dict(self.academy_evidence),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -235,27 +267,37 @@ class RegimeGovernor:
         }
         legacy = set(expected)
         expected.add('terrain_evidence')
+        expected_without_academy=set(expected)
+        expected.add('academy_evidence')
         if self.unified_capability_focus:
             expected.update(('command_evidence','slope_evidence'))
         # Preserve exactly-known older flat governor state (empty new
         # window), without bypassing external checkpoint source provenance.
-        if not isinstance(d, dict) or set(d) not in (legacy, expected):
+        if self.unified_capability_focus:
+            expected_without_academy.update(('command_evidence','slope_evidence'))
+        if not isinstance(d, dict) or set(d) not in (
+                legacy,expected_without_academy,expected):
             raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
-        old_names = param_names - {
-            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg'}
-        previous_names = param_names - {'slope_exposure','slope_max_deg'}
-        if set(d['params']) == old_names:
-            saved_params = dict(d['params'],terrain_exposure=0.0,
-                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0)
-        elif set(d['params']) == previous_names:
-            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0)
-        elif set(d['params']) == param_names:
-            saved_params = d['params']
-        else:
-            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(d['params'])}")
+        saved_params = dict(d['params'])
+        # Previous v5040 used one shared frontier; never lose its measured
+        # progress if a source-authorised research fork is explicitly loaded.
+        if 'academy_height_m' in saved_params:
+            former = float(saved_params.pop('academy_height_m'))
+            saved_params['academy_height_up_m'] = former
+            saved_params['academy_height_down_m'] = former
+        defaults = {
+            'terrain_exposure': 0.0, 'terrain_height_m': 0.0,
+            'slope_exposure': 0.0, 'slope_max_deg': 0.0,
+            'academy_height_up_m': self.ACADEMY_SEED_LIP_M,
+            'academy_height_down_m': self.ACADEMY_SEED_LIP_M,
+        }
+        if set(saved_params) - param_names or param_names - set(saved_params) - set(defaults):
+            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(saved_params)}")
+        for key, default in defaults.items():
+            saved_params.setdefault(key, default)
         expected_regimes = set(self.REGIMES)
         expected_falls = expected_regimes | {'posture'}
         expected_frontier = {'vx_hi', 'vx_lo', 'vy', 'yaw', 'combo', 'accel'}
@@ -288,6 +330,26 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                     raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
+        school=d.get('academy_evidence',self._empty_academy_evidence())
+        if isinstance(school, dict) and 'updates' in school:
+            prior = dict(school)
+            updates = prior.pop('updates')
+            school = dict(prior, up_updates=updates, down_updates=updates)
+        if (not isinstance(school,dict) or
+            set(school)!=set(self._empty_academy_evidence()) or
+            any(not math.isfinite(float(v)) or float(v)<0.
+                for v in school.values())):
+            raise ValueError('Academy evidence checkpoint mismatch')
+        if any(int(school[f'{direction}_updates']) != school[f'{direction}_updates']
+                or school[f'{direction}_updates']>self.ACADEMY_MAX_WINDOW_UPDATES
+                for direction in ('up','down')):
+            raise ValueError('Academy evidence window age invalid')
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                if (school[f'{direction}_{band}_successes'] >
+                    school[f'{direction}_{band}_attempts']):
+                    raise ValueError('Academy proof exceeds physical encounter count')
+        self.academy_evidence={k:float(v) for k,v in school.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
             if (not isinstance(entries,dict) or
@@ -617,6 +679,66 @@ class RegimeGovernor:
             return 'expand_real_slope_angle'
         return 'hold_probe_learning'
 
+    def advance_academy(self, row: dict[str,float], *, max_height_m:float,
+                        enabled:bool, kl_ok:bool=True) -> str:
+        """Grow UP and DOWN independently from real, approached lip encounters.
+
+        Easy crossings audit retained skill; near-frontier encounters alone
+        authorize expansion. Neither direction can hold the other hostage.
+        """
+        if not enabled:
+            return 'academy_disabled'
+        if not (math.isfinite(max_height_m) and
+                self.ACADEMY_SEED_LIP_M<=max_height_m<=.25):
+            raise ValueError('Academy aspiration must be in [3mm,25cm]')
+        if float(row.get('academy_active_fraction',0.))<=0.:
+            return 'academy_await_births'
+        evidence=self.academy_evidence
+        events=[]
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    key=f'academy_{band}_{kind}_{direction}'
+                    amount=float(row.get(key,0.))
+                    if not math.isfinite(amount) or amount<0.:
+                        raise ValueError(f'invalid Academy physical evidence {key}')
+                    evidence[f'{direction}_{band}_{kind}']+=amount
+                if (evidence[f'{direction}_{band}_successes'] >
+                    evidence[f'{direction}_{band}_attempts']+1e-6):
+                    raise ValueError('Academy successes exceed encounters')
+            evidence[f'{direction}_updates']+=1.
+            frontier=f'academy_height_{direction}_m'
+            nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
+            easy_n=evidence[f'{direction}_easy_attempts']
+            near_n=evidence[f'{direction}_near_attempts']
+            if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
+                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                    getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
+                event='retreat'
+            elif near_n>=nmin:
+                good=(evidence[f'{direction}_near_successes']/near_n)>=.55
+                if good and kl_ok:
+                    previous=getattr(self.params,frontier)
+                    setattr(self.params,frontier,min(
+                        max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                    event='expand' if getattr(self.params,frontier)>previous else 'cap'
+                else:
+                    event='kl_hold' if good else 'learning'
+            elif evidence[f'{direction}_updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
+                event='insufficient_approaches'
+            else:
+                if easy_n>=nmin:
+                    for kind in ('attempts','successes'):
+                        evidence[f'{direction}_easy_{kind}']=0.
+                events.append(direction+':collect')
+                continue
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    evidence[f'{direction}_{band}_{kind}']=0.
+            evidence[f'{direction}_updates']=0.
+            events.append(direction+':'+event)
+        return ','.join(events)
+
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,
                         unified: bool = False, kl_ok: bool = True) -> str:
@@ -673,13 +795,17 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                         raise ValueError(f'step successes exceed attempts {direction}/{band}')
             evidence['updates']+=1.
-            min_attempts=4
+            min_attempts=self.science_step_min_attempts
             easy_bad=any(
                 evidence[f'{d}_easy_attempts']>=min_attempts and
                 evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
                 for d in ('up','down'))
             if easy_bad:
-                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.82)
+                p.terrain_height_m=max(
+                    min(.0015,max_height_m),
+                    (p.terrain_height_m-self.science_step_retreat_mm*.001
+                     if self.science_step_retreat_mm>0.
+                     else p.terrain_height_m*.82))
                 self.terrain_evidence=self._empty_terrain_evidence()
                 return 'terrain_retreat_easy_failure'
             for direction in ('up','down'):
@@ -700,7 +826,10 @@ class RegimeGovernor:
                 if not kl_ok:
                     return 'terrain_hold_ppo_health'
                 if good:
-                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+max(.0010,.18*p.terrain_height_m))
+                    increment = (self.science_step_promotion_mm*.001
+                                 if self.science_step_promotion_mm>0.
+                                 else max(.0010,.18*p.terrain_height_m))
+                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+increment)
                     self.terrain_evidence=self._empty_terrain_evidence()
                     return 'terrain_height_expand_real_cross'
                 return 'terrain_hold_probe_learning'
@@ -868,7 +997,8 @@ class RegimeGovernor:
 
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
-                           kl_ok_to_expand: bool = True) -> dict[str, float | str]:
+                           kl_ok_to_expand: bool = True,
+                           academy_max_height_m: float = 0.0) -> dict[str, float | str]:
         """One path for the ordinary and final rollout's curriculum decisions.
 
         Reuse the original regime logic and existing per-skill closed evidence.
@@ -889,6 +1019,15 @@ class RegimeGovernor:
                 unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
             if growth_enabled or not self.unified_capability_focus
             else 'foundation_flat')
+        report['academy_event']=self.advance_academy(
+            row,max_height_m=academy_max_height_m,
+            enabled=(self.unified_capability_focus and
+                     academy_max_height_m>0. and growth_enabled),
+            kl_ok=kl_ok_to_expand)
+        report['academy_height_up_m']=self.params.academy_height_up_m
+        report['academy_height_down_m']=self.params.academy_height_down_m
+        report.update({f'academy_window_{key}':value
+                       for key,value in self.academy_evidence.items()})
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
@@ -1158,106 +1297,6 @@ class RegimeGovernor:
                     f'slope_near_stability_successes_{direction}',0.)
             report['control_episode_quality']=row.get('control_episode_quality',-1.)
         return report
-
-# PPO health, KL stress and source-compatible recovery snapshot state.
-class TrainingHealth:
-    KL_STRESS_EXPAND_FLOOR = 0.10
-    KL_STRESS_CHRONIC_WINDOW = 50
-    KL_STRESS_CHRONIC_FRACTION = 0.90
-
-    COLLAPSE_FALL_THRESHOLD = 0.65
-    COLLAPSE_STREAK_LIMIT = 100
-
-    RECOVERY_GOOD_FLOOR = 0.60
-    RECOVERY_EFFORT_FLOOR = 0.20
-    RECOVERY_SEEN_FLOOR = 0.10
-    RECOVERY_WINDOW = 8
-
-    def __init__(self) -> None:
-        self.kl_stress_history: list[float] = []
-        self.kl_stress_chronic = False
-        self.stepping_collapse_streak = 0
-
-    def state_dict(self) -> dict[str, Any]:
-        return {
-            'kl_stress_history': list(self.kl_stress_history),
-            'kl_stress_chronic': bool(self.kl_stress_chronic),
-            'stepping_collapse_streak': int(self.stepping_collapse_streak),
-        }
-
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        expected = {'kl_stress_history', 'kl_stress_chronic', 'stepping_collapse_streak'}
-        if not isinstance(state, dict) or set(state) != expected:
-            raise ValueError(f"training-health state keys mismatch: expected={sorted(expected)} got={sorted(state) if isinstance(state, dict) else type(state).__name__}")
-        hist = state['kl_stress_history']
-        if not isinstance(hist, list):
-            raise ValueError('training-health kl_stress_history must be a list')
-        self.kl_stress_history = [float(v) for v in hist][-self.KL_STRESS_CHRONIC_WINDOW:]
-        self.kl_stress_chronic = bool(state['kl_stress_chronic'])
-        self.stepping_collapse_streak = int(state['stepping_collapse_streak'])
-
-    def observe_ppo(self, row: dict[str, float]) -> dict[str, float | bool]:
-        """Update the KL-stress gate for this rollout before curriculum moves."""
-        kl_stopped_frac = float(row.get('ppo_kl_stopped_frac', 0.0))
-        was_chronic = self.kl_stress_chronic
-        self.kl_stress_history.append(kl_stopped_frac)
-        self.kl_stress_history = self.kl_stress_history[-self.KL_STRESS_CHRONIC_WINDOW:]
-        engaged = sum(v > self.KL_STRESS_EXPAND_FLOOR for v in self.kl_stress_history)
-        self.kl_stress_chronic = (
-            len(self.kl_stress_history) >= self.KL_STRESS_CHRONIC_WINDOW
-            and engaged >= self.KL_STRESS_CHRONIC_FRACTION * self.KL_STRESS_CHRONIC_WINDOW
-        )
-        stress_now = kl_stopped_frac > self.KL_STRESS_EXPAND_FLOOR
-        return {
-            'kl_stopped_frac_seen': kl_stopped_frac,
-            'kl_stress_chronic': float(self.kl_stress_chronic),
-            'kl_ok_to_expand': (not stress_now) or self.kl_stress_chronic,
-            'kl_became_chronic': self.kl_stress_chronic and not was_chronic,
-        }
-
-    def observe_collapse(self, smoothed_global_fall_rate: float) -> dict[str, float | bool]:
-        """Update global collapse evidence after the curriculum's pooled fall EMA."""
-        collapsed = float(smoothed_global_fall_rate) > self.COLLAPSE_FALL_THRESHOLD
-        self.stepping_collapse_streak = self.stepping_collapse_streak + 1 if collapsed else 0
-        return {
-            'stepping_collapse_streak': float(self.stepping_collapse_streak),
-            'needs_recovery': self.stepping_collapse_streak >= self.COLLAPSE_STREAK_LIMIT,
-        }
-
-
-    @classmethod
-    def recovery_candidate(cls, competence: float, core_competence: float) -> tuple[tuple[int, float], str]:
-        """Rank one sustained-competence window for the canonical rollback snapshot."""
-        if competence >= cls.RECOVERY_GOOD_FLOOR and core_competence >= cls.RECOVERY_GOOD_FLOOR:
-            return (2, competence), 'confirmed-good'
-        if competence >= cls.RECOVERY_EFFORT_FLOOR and core_competence >= cls.RECOVERY_EFFORT_FLOOR:
-            return (1, competence), 'best-effort'
-        if competence >= cls.RECOVERY_SEEN_FLOOR:
-            return (0, competence), 'high-water-mark'
-        return (-1, -1.0), 'none'
-
-    @staticmethod
-    def adjust_learning_rate(
-        scale: float, *, approx_kl: float, target_kl: float,
-        factor: float, min_scale: float, max_scale: float,
-    ) -> float:
-        """Soft PPO KL controller, distinct from the hard minibatch KL stop.
-
-        Use only the KL of the collected TRAINING rollout, never held-out
-        exam scores. Non-finite KL preserves the prior scale; an in-band
-        update also leaves it alone. The clamp applies only to finite KL,
-        matching the established controller's timing and arithmetic.
-        """
-        if math.isfinite(approx_kl):
-            if approx_kl > 2.0 * target_kl:
-                scale /= factor
-            elif approx_kl < 0.5 * target_kl:
-                scale *= factor
-            scale = float(min(max_scale, max(min_scale, scale)))
-        return scale
-
-    def note_recovery_performed(self) -> None:
-        self.stepping_collapse_streak = 0
 
 # Public compatibility imports: existing training, exams and archived
 # checkpoint loader code may still import these names from emu.curriculum.

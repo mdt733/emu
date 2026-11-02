@@ -102,8 +102,7 @@ if ((!VIEWER_ONLY)); then
 fi
 emu viewer-build
 if ((CHECK)); then
-  python -m pytest -q tests
-  npm test --prefix emu/viewer_src
+  bash scripts/check.sh --full
 fi
 
 printf '\nEMU setup complete (%s). No training was started.\n' "$([[ "$VIEWER_ONLY" == 1 ]] && echo viewer-only || echo full)"

@@ -112,7 +112,7 @@ PPO science arms have been launched in this promotion.
 
 - `main` is the new **reference**, not a scratchpad for training
   variations. Work on one explicitly justified change at a time.
-- The abandoned `research/v5033-24-arm-science` branch
+- The abandoned `feature/v5033-260m-plateau-science` branch
   contains **unvalidated experimental code**. Do not execute
   its 24-arm launcher or mistake its changes for released EMU.
 - Keep the old 232 policy recoverable from rollback SHA.
@@ -125,3 +125,43 @@ PPO science arms have been launched in this promotion.
 [Release measurements](docs/V5032_PINNACLE_RELEASE.md) ·
 [Architecture](docs/ARCHITECTURE.md) ·
 [Documentation index](docs/README.md).
+
+
+---
+
+## Experimental v5040 STEP improvement — 2 November 2026
+
+Draft [PR #28](https://github.com/mdt733/emu/pull/28) on
+`feature/v5040-multi-lip-academy-world`; keep `main` and all checkpoints
+unchanged. The existing STEP specialist now samples four consecutive real
+up/down lips, with fresh random ordering per episode, real contact-gated
+per-lip incremental rewards, 4×4 physical ToF, a separately checkpointed
+height frontier, and original shared 360-input PPO. Other specialties and
+the 20M foundation remain. Prior CPU checks exercised physics, not learning.
+Added research launchers, test suite, and Academy CI matrix have been
+removed from this branch to keep it maintainable; historical research
+remains in older branches. **Not GPU-profiled or trained yet.**
+See [short v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).
+
+### v5040 refactor hygiene
+
+The active research branch now separates model uncertainty (`emu/domain_randomization.py`),
+learner health (`emu/training_health.py`) and CLI diagnostics (`emu/doctor.py`).
+The obsolete v5037 Stage A flags and historical v5032 launcher were removed
+from this branch (their original Git history remains). The full Python/browser
+checks are optional via `scripts/check.sh --full`; CI retains one actual
+physical MJX/PPO step and the browser build. No v5040 GPU training has run.
+
+### v5040 streaming terrain (untrained)
+
+A ring of three physical 50cm Academy supports now recycles the trailing
+platform after five real supported far-side frames, both feet safely
+beyond the edge and no trailing-slab contact. Each new lip chooses UP
+or DOWN independently, without a balancing pattern. The Academy governor
+holds distinct UP/DOWN supported-crossing frontiers, each initially 3mm,
+advancing/retreating by 0.5mm on that direction's physical evidence.
+New steps grow from 50% to 150% of the directional frontier over an
+episode. The default aspiration is 15cm, NOT demonstrated capability.
+There is no fixed course finish and no auxiliary CONTROL effort shaping.
+The generalist's other specialists and 20M foundation are unchanged.
+Must still pass actual 2048-environment GPU PPO preflight before training.

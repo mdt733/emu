@@ -1,6 +1,6 @@
 # EMU — learned traversability, cautious navigation and controlled refusal
 
-**Original design decision, 29 October 2026.** On `feature/v5028-considered-steps`, a bounded STEP-UP teaching-reward experiment **has been implemented and launched; its CUDA/learning results have not been reviewed**; see [V5028_CONSIDERED_STEPS](V5028_CONSIDERED_STEPS.md). The safe-refusal/ToF-based navigation supervisor described below is **not implemented**.
+**Original design decision, 29 October 2026.** On `feature/v5028-considered-steps`, a bounded STEP-UP teaching-reward experiment **has been implemented and launched; its CUDA/learning results have not been reviewed**; see [V5028_CONSIDERED_STEPS](history/V5028_CONSIDERED_STEPS.md). The safe-refusal/ToF-based navigation supervisor described below is **not implemented**.
 Preserve the frozen `feature/v5027-coherent-retention` actor at source
 `5dec60c4`, all saved checkpoint bytes and protected `main`.
 This is a proposed follow-up for the **one 360-input, six-servo actor**

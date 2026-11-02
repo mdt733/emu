@@ -119,6 +119,25 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('per-world real contact terrain requires --profile sim2real')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
+    academy_stream=bool(getattr(args,'academy_stream',False))
+    intro=int(getattr(args,'academy_intro_steps',60_000_000))
+    start=int(getattr(args,'academy_start_steps',80_000_000))
+    ramp=int(getattr(args,'academy_ramp_steps',20_000_000))
+    intro_share=float(getattr(args,'academy_intro_share',.10))
+    academy_share=float(getattr(args,'academy_max_share',.50))
+    height_cap=float(getattr(args,'academy_height_cap_m',.150))
+    course_frames=int(getattr(args,'academy_course_episode_frames',1200))
+    if academy_stream and terrain_lesson not in (
+            'coherent','coherent-direct','coherent-careful'):
+        raise ValueError(
+            'multi-lip Academy requires a coherent straight-ahead STEP lesson; '
+            'set --terrain-lesson coherent-careful (recommended)')
+    if ((academy_stream and not (unified and terrain_actor)) or
+        intro<0 or start<intro or ramp<=0 or
+        not (0.<=intro_share<=academy_share<=.85) or
+        not math.isfinite(height_cap) or not .003<=height_cap<=.25 or
+        not 700<=course_frames<=1500):
+        raise ValueError('streaming Academy requires unified terrain_360 and a valid age/share/height contract')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
@@ -128,6 +147,12 @@ def one_run_config(args) -> TrainingConfig:
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
                    growth_recipe=growth_recipe, retention_share=retention_share,
+                   academy_stream=academy_stream,
+                   academy_intro_steps=intro,academy_start_steps=start,
+                   academy_ramp_steps=ramp,academy_intro_share=intro_share,
+                   academy_max_share=academy_share,
+                   academy_height_cap_m=height_cap,
+                   academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    fixed_eval_every_steps=fixed_eval_every_steps,

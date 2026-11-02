@@ -345,6 +345,41 @@ def contact_pair_mask(xp, contact_geom1, contact_geom2, contact_distance,
     return xp.stack(result, axis=-1)
 
 
+def supported_top_foot_contacts(xp, contact_geom1, contact_geom2,
+                                contact_distance, contact_frame,
+                                surface_geom:int, foot_geoms,
+                                surface_top_z, foot_bottom_z,
+                                surface_normal_world=None,
+                                *, tolerance_m=.003, top_tolerance_m=.010,
+                                normal_alignment=.60):
+    """Real upper-surface foot support, not a vertical-wall grazing contact.
+
+    A contact pair alone can be a sphere pressed against the *side* of a box.
+    A legitimate stair foothold needs a near-zero separation, a near-vertical
+    contact normal and the spherical foot's low point at the target top.
+    The normal may change sign with MuJoCo geom pair ordering, so use abs(dot).
+    The platform's real top, not an actor-visible map, is reward-only truth.
+    """
+    frame=(contact_frame[:,:,0,:]
+           if contact_frame.ndim==4 else contact_frame[:,:,:3])
+    if surface_normal_world is None:
+        up=xp.asarray([0.,0.,1.],dtype=frame.dtype)
+        normal=up[None,None,:]
+    else:
+        normal=surface_normal_world[:,None,:]
+    vertical=xp.abs(xp.sum(frame*normal,axis=-1))>=normal_alignment
+    result=[]
+    for foot_i,foot in enumerate(foot_geoms):
+        pair=(((contact_geom1==surface_geom)&(contact_geom2==foot))|
+              ((contact_geom2==surface_geom)&(contact_geom1==foot)))
+        genuine=xp.any(pair & (contact_distance<=tolerance_m) &
+                       vertical,axis=-1)
+        height_match=(xp.abs(foot_bottom_z[:,foot_i]-surface_top_z)
+                      <=top_tolerance_m)
+        result.append(genuine & height_match)
+    return xp.stack(result,axis=-1)
+
+
 def count_contact_strides(body_xy, feet_xyz, contacts, *, settle_frames=0,
                           foot_clearance_m=None,
                           min_air_frames=3, min_swing_m=.012,

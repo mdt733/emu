@@ -119,7 +119,7 @@ bias and crouch/spring traces), then 2.5–3cm actual support,
 downhill braking/steering, fast gait, active recovery and efficiency.
 Organic hills are deliberately deferred.
 
-The previous `research/v5033-24-arm-science` branch is
+The previous `feature/v5033-260m-plateau-science` branch is
 **paused and not a validated training recipe**. It contains
 exploratory changes; none of its new rewards, sensor/teacher
 variants or candidate weights are included in this release.

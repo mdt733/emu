@@ -57,6 +57,18 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('terrain_successes_up','Supported step-up successes'),
         ('terrain_attempts_down','Step-down attempts'),
         ('terrain_successes_down','Supported step-down successes'),
+        ('academy_active_fraction','Academy occupancy fraction (frames)'),
+        ('academy_expected_birth_fraction','Academy target among ALL world births'),
+        ('academy_up_crossings','Academy supported uphill lips'),
+        ('academy_down_crossings','Academy supported downhill lips'),
+        ('academy_near_attempts_up','Academy near-height uphill encounters'),
+        ('academy_near_successes_up','Academy near-height supported up'),
+        ('academy_near_attempts_down','Academy near-height downhill encounters'),
+        ('academy_near_successes_down','Academy near-height supported down'),
+        ('academy_footholds','Academy upper footholds'),
+        ('academy_transfers','Academy supported weight transfers'),
+        ('academy_four_lip_milestones','Academy 4 supported lips (nonterminal)'),
+        ('academy_episodes','Academy episodes completed'),
         ('physical_slope_deg_max','Sampled real slope max (deg)'),
     )
     values={label:row.get(key,'') for key,label in keys if row.get(key,'') not in ('',None)}
@@ -72,6 +84,9 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         '| Measurement | Value |','| --- | ---: |',
         *[f'| {label} | {value} |' for label,value in values.items()],
         '','These are training-rollout observations, not held-out walking scores.',
+        'Academy crossings are distinct verified per-lip events, whereas Academy',
+        'episodes count completed course attempts. The newest metrics row is',
+        'not a cumulative sum across the full training run.',
         'A requested velocity is not an achieved velocity. Mechanical J/m is',
         'not verified battery consumption. Successful steps require actual',
         'foot-supported upper-platform contact; compare direction-matched exams.',
@@ -295,6 +310,15 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                f"{int(row.get('command_probe_attempts_vx_lo',0))} "
                f"slope={int(slope_near)} step={int(step_near)} "
                f"ctl_Jm={row.get('control_shaft_j_per_m',-1.):.1f}")
+        if row.get('academy_active_fraction',0.)>0.:
+            line6+=(f" academy={int(row.get('academy_up_crossings',0))}"
+                    f"↑/{int(row.get('academy_down_crossings',0))}↓"
+                    f" four_lips={int(row.get('academy_four_lip_milestones',0))}"
+                    f"/{int(row.get('academy_episodes',0))}"
+                    f" foothold={int(row.get('academy_footholds',0))}"
+                    f" transfer={int(row.get('academy_transfers',0))}"
+                    f" actual/asked={100*row.get('academy_active_fraction',0):.0f}%/"
+                    f"{100*row.get('academy_expected_birth_fraction',0):.0f}%")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
@@ -835,6 +859,35 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             if 'terrain_episode_success' in metrics else 0.0,
         'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
             if 'terrain_cross_new' in metrics else 0.0,
+        # A streaming world has no prescribed up/down balance or finite finish.
+        # Count actual approached and supported lips, in each direction.
+        'academy_active_fraction': mean_metric(metrics,'academy_active'),
+        'academy_crossings': float(np.asarray(
+            metrics.get('academy_cross_new',0.)).sum()),
+        'academy_encounter_verdicts': float(np.asarray(
+            metrics.get('academy_lip_attempt_new',0.)).sum()),
+        # Matched per-lip approach verdicts, not frame-level near masks:
+        # even a 14-second linger at the lip is ONE failed encounter.
+        **{f'academy_{band}_{outcome}_{direction}':float(np.asarray(
+            metrics.get(f'academy_{band}_{outcome}_{direction}',0.)).sum())
+           for band in ('near','easy')
+           for outcome in ('attempts','successes')
+           for direction in ('up','down')},
+        'academy_up_crossings': float(np.asarray(
+            metrics.get('academy_cross_up',0.)).sum()),
+        'academy_down_crossings': float(np.asarray(
+            metrics.get('academy_cross_down',0.)).sum()),
+        'academy_footholds': float(np.asarray(
+            metrics.get('academy_foothold_new',0.)).sum()),
+        'academy_transfers': float(np.asarray(
+            metrics.get('academy_transfer_new',0.)).sum()),
+        'academy_clearances': float(np.asarray(
+            metrics.get('academy_clearance_new',0.)).sum()),
+        'academy_episodes': float(np.asarray(
+            metrics.get('academy_episode_attempt',0.)).sum()),
+        'academy_four_lip_milestones': float(np.asarray(
+            metrics.get('academy_course_new',0.)).sum()),
+        'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'terrain_verified_transfer_reward_sum': float(
             np.asarray(metrics.get('terrain_verified_transfer_credit',0.)).sum()),

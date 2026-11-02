@@ -3,7 +3,7 @@
 > historical launcher, check out that exact commit in a separate worktree.
 > This document is a record, **not a current launch instruction**.
 > The v5029 study runs from its own pinned source; experimental reward
-> designs follow in `docs/V5030_REWARD_EXPERIMENTS.md`.
+> designs follow in `docs/history/V5030_REWARD_EXPERIMENTS.md`.
 
 # EMU v5028 — considered STEP-UP reinforcement experiment
 
@@ -101,5 +101,5 @@ Results: `~/robot_lab/emu_runs/v5028_considered_steps_s735/`.
 **Known limitation:** this is a teacher-only reward experiment.
 Sensor detection lead distance, safe stop/retreat and deployment
 refusal are separate and remain unimplemented. Read
-[TRAVERSABILITY_REFUSAL](TRAVERSABILITY_REFUSAL.md) before adding a
+[TRAVERSABILITY_REFUSAL](../TRAVERSABILITY_REFUSAL.md) before adding a
 navigation safety controller.

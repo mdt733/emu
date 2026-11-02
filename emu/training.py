@@ -27,9 +27,13 @@ from typing import Any
 
 import numpy as np
 
-from .checkpoint_io import resume_training_lineage, promote_checkpoint, try_restore_recovery
+from .checkpoint_io import (
+    resume_training_lineage, promote_checkpoint, try_restore_recovery,
+    save_checkpoint, save_rotating_snapshot, load_checkpoint,
+    source_provenance_from_env,
+)
 from .environment import EmuMJXEnv
-from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
+from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
 from .capability_cloud import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
@@ -46,12 +50,14 @@ from .training_config import (
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
 from .curriculum import RegimeGovernor
-from .curriculum import TrainingHealth
-from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
-from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
-from .results import summarize_rollout, augment_rollout_row
-from .ppo import PerfBook, configure_jax, require_backend
+from .training_health import TrainingHealth
+from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
+                               academy_birth_allocation, academy_focus_mix,
+                               academy_conditional_birth_share)
+from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
+                  PerfBook, configure_jax, require_backend)
 from .results import (
+    summarize_rollout, augment_rollout_row,
     ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
     write_capability_field_artifacts,
@@ -61,8 +67,6 @@ from .evaluation import (
     EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
 )
 from .contracts import ROBOT_XML, VERSION
-from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
-                            source_provenance_from_env)
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
@@ -99,6 +103,10 @@ def env_kwargs_from_args(args) -> dict:
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         verified_ascent_reallocation=args.verified_ascent_reallocation,
+        science_step_crouch_tolerance_m=args.science_step_crouch_tolerance_m,
+        academy_stream=args.academy_stream,
+        academy_height_cap_m=args.academy_height_cap_m,
+        academy_course_episode_frames=args.academy_course_episode_frames,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -223,7 +231,8 @@ def train(args: TrainingConfig) -> int:
     perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
-                    max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
+                    max_episode_steps=MAX_EPISODE_STEPS,
+                    **env_kwargs_from_args(args))
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
     if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
@@ -284,7 +293,10 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
                               frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
-                              unified_capability_focus=args.unified_capability_focus)
+                              unified_capability_focus=args.unified_capability_focus,
+                              science_step_promotion_mm=args.science_step_promotion_mm,
+                              science_step_retreat_mm=args.science_step_retreat_mm,
+                              science_step_min_attempts=args.science_step_min_attempts)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -296,6 +308,16 @@ def train(args: TrainingConfig) -> int:
     if resumed_payload is not None:
         try:
             governor.load_state_dict(resumed_payload['curriculum_state'])
+            # A fork must not spend 260M's partially collected old-threshold
+            # evidence. Preserve heights and all learned weights. Do NOT
+            # erase evidence on later same-source crash recovery.
+            ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
+                            .get('git_commit'))
+            if (args.science_reset_step_evidence_on_fork and
+                    ancestor_sha != source_provenance_from_env().get('git_commit')):
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                print(f'{LOG_PREFIX} science: reset inherited step evidence once '
+                      '(learned frontiers preserved)', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
@@ -351,6 +373,25 @@ def train(args: TrainingConfig) -> int:
                 target_control=max(base_control,args.retention_share)
                 weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
                 weights.append(target_control)
+            # Academy is an additional episode birth role, not a separate
+            # optimizer or policy. Its share is relative to ALL worlds.
+            # Original role fractions survive inside non-Academy births.
+            academy_probability=0.0
+            if args.academy_stream and profile.adaptive_specialists:
+                academy_share=academy_birth_allocation(
+                    step=step,intro_steps=args.academy_intro_steps,
+                    start_steps=args.academy_start_steps,
+                    ramp_steps=args.academy_ramp_steps,
+                    intro_share=args.academy_intro_share,
+                    max_share=args.academy_max_share)
+                # Fast rehearsal was reserved BEFORE focus assignment.
+                # Honour 50% of ALL births rather than accidentally 50% of
+                # the remaining 75% when 25% of worlds rehearse fast gait.
+                conditional,actual_share=academy_conditional_birth_share(
+                    academy_share,float(d['athletic_rehearsal_frac']))
+                weights,academy_probability=academy_focus_mix(
+                    weights,conditional)
+            d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
@@ -596,7 +637,8 @@ def train(args: TrainingConfig) -> int:
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
             foundation_steps=args.foundation_steps,
-            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+            academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -613,6 +655,10 @@ def train(args: TrainingConfig) -> int:
                 key='regime_frac_'+name
                 report[key]=float(params[key])
             report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['academy_expected_birth_fraction']=float(
+                (1.-params['athletic_rehearsal_frac'])*
+                params['specialist_mix']*params['focus_weight_step']*
+                params['academy_episode_probability'])
             for name in FOCUS_NAMES:
                 report['focus_alloc_'+name]=float(params['focus_weight_'+name])
             report['teaching_profile']=teaching_profile(
@@ -881,7 +927,8 @@ def train(args: TrainingConfig) -> int:
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
         foundation_steps=args.foundation_steps,
-        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+        academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
@@ -890,6 +937,10 @@ def train(args: TrainingConfig) -> int:
             key='regime_frac_'+name
             report[key]=float(params[key])
         report['foundation_control_mix']=float(params['foundation_control_mix'])
+        report['academy_expected_birth_fraction']=float(
+            (1.-params['athletic_rehearsal_frac'])*
+            params['specialist_mix']*params['focus_weight_step']*
+            params['academy_episode_probability'])
         for name in FOCUS_NAMES:
             report['focus_alloc_'+name]=float(params['focus_weight_'+name])
         report['teaching_profile']=teaching_profile(

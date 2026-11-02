@@ -9,6 +9,7 @@ The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility histor
 
 | Document | Purpose |
 |---|---|
+| [**v5040 STREAMING STEP CURRICULUM**](V5040_REAL_MULTILIP_ACADEMY.md) | Three recyclable real slabs, independent UP/DOWN ability, not yet trained |
 | [**PINNACLE 260M RELEASE**](V5032_PINNACLE_RELEASE.md) | **Current trained 360-input baseline**, physical results, limitations, SHA identities and rollback |
 | [POST-PINNACLE RESEARCH](https://github.com/mdt733/emu/issues/17) | Measurements and possible experiments to revisit later; no active science run |
 | [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |
@@ -26,10 +27,10 @@ The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility histor
 
 ## Completed experiments — not active launch commands
 
-- [v5028 considered step-ups](V5028_CONSIDERED_STEPS.md) and
-  [speed-restoration audit](V5028_SPEED_FRONTIER_AUDIT.md)
-- [v5030 temporal reward study](V5030_REWARD_EXPERIMENTS.md)
-- [v5031 verified support-transfer A/B](V5031_VERIFIED_ASCENT.md)
+- [v5028 considered step-ups](history/V5028_CONSIDERED_STEPS.md) and
+  [speed-restoration audit](history/V5028_SPEED_FRONTIER_AUDIT.md)
+- [v5030 temporal reward study](history/V5030_REWARD_EXPERIMENTS.md)
+- [v5031 verified support-transfer A/B](history/V5031_VERIFIED_ASCENT.md)
 - [Older research history](history/README.md)
 - [Full v5031 handover snapshot](history/HANDOVER_V5031_COMPLETE.md)
 
