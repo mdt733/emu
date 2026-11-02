@@ -21,8 +21,8 @@ const data=step=>trainingLimits({
 test('the 10 sliders expose effective specialist weights, not unscaled global frontiers',()=>{
   const b=data(34000000);
   const slope=roleSliders(b,'slope'),steps=roleSliders(b,'step');
-  assert.equal(slope.slope,.56);
-  assert.equal(steps.slope,.28);
+  assert.ok(Math.abs(slope.slope-.56)<1e-9);
+  assert.ok(Math.abs(steps.slope-.28)<1e-9);
   assert.equal(steps.up,2);
   assert.equal(steps.down,2);
   assert.equal(steps.forward,.28);
@@ -53,7 +53,7 @@ test('custom sliders override exactly the requested role terrain and commands',(
   assert.equal(solid.tiles.length,9);
   // Original trainer curriculum data was never modified by the preview.
   assert.equal(b.slopeDeg,.7);
-  assert.equal(roleSliders(b,'step').slope,.28);
+  assert.ok(Math.abs(roleSliders(b,'step').slope-.28)<1e-9);
 });
 
 test('manual challenge can be shown at a flat training foundation age',()=>{
