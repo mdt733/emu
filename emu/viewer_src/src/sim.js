@@ -415,8 +415,12 @@ export class EmuBrowserSim {
     if(this.terrainMode==='carpet')this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0}={}){
-    this.shovePreview.enabled=Boolean(enabled);
-    this.shovePreview.forceLimitN=Math.max(0,Math.min(10,Number(forceLimitN)||0));
+    const on=Boolean(enabled);
+    const limit=Math.max(0,Math.min(10,Number(forceLimitN)||0));
+    if(this.shovePreview.enabled===on&&
+       Math.abs(this.shovePreview.forceLimitN-limit)<1e-6)return;
+    this.shovePreview.enabled=on;
+    this.shovePreview.forceLimitN=limit;
     this.shovePreview.elapsed=0;
     this.shovePreview.stepsLeft=0;
     this.shovePreview.last=[0,0];
