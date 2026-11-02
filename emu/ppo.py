@@ -839,6 +839,27 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Actual disturbance delivered in the previous MJX step;
                 # recorded only for frozen recovery assessment.
                 applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
+            if env.terrain_carpet:
+                # Raw pre-step MJX contact pairs and full physical solid
+                # transforms for a separate NUMPY trajectory scorer. These
+                # are independent of the teacher's academy_cross_new credit:
+                # the operator can check sustained new-tile top support,
+                # approach direction and signed actual lip geometry.
+                solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+                foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
+                carpet_pairs=jnp.stack(tuple(
+                    contact_pair_mask(
+                        jnp,es.data.contact.geom1,es.data.contact.geom2,
+                        es.data.contact.dist,g,foot_geoms)
+                    for g in solids),axis=1)
+                sample.update({
+                    "carpet_raw_contact_pairs":carpet_pairs,
+                    "carpet_root_cell":jnp.floor(
+                        es.data.qpos[:,:2]/.50).astype(jnp.int32),
+                    "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
+                    "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
+                        (env.num_envs,9,3,3)),
+                })
             if env.academy_stream:
                 # Read-only per-lip physical measurements from the same
                 # step function as training; never the policy reward alone.
@@ -886,6 +907,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     env.mj_model.geom_size[list(solids),:3]),
                 initial_carpet_cells=jnp.stack((cx,cy),axis=-1),
                 initial_carpet_source_hfields=initial.carpet_hfields,
+                initial_foot_radii_m=jnp.asarray(
+                    env.mj_model.geom_size[list(env.ids['foot_geoms']),0]),
                 initial_root_quat=initial.data.qpos[:,3:7],
                 last_position_xy=last_xy,
                 last_heading_rad=last_yaw,last_foot_xyz=last_foot,
