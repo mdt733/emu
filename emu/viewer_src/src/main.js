@@ -474,7 +474,7 @@ function renderCarpetValues(){
     `${active.toUpperCase()}: slope ≤${projected.slopeDeg.toFixed(2)}° · local change ≤${projected.transitionDeg.toFixed(2)}°`,
     `step UP ≤${(projected.stepUpM*1000).toFixed(1)}mm · DOWN ≤${(projected.stepDownM*1000).toFixed(1)}mm`,
     `50cm real solid boxes · modulo-three recycling · illustrative env seed ${projected.seed}`,
-  ].join('\\n');
+  ].join('\n');
 }
 function acceptCarpetSnapshot(data,label){
   carpetDifficulty=trainingLimits(data);
