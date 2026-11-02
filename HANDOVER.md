@@ -696,3 +696,51 @@ navigation gating. Source-isolated viewer on
 140M source-pinned trainer checkout. Docs updated in
 `docs/V5041_TRAINING_CARPET_VIEWER.md`. Browser MuJoCo/WASM
 interaction needs owner acceptance after automated CI.
+
+
+### IMPORTANT: 140M resilience frequency audit and viewer recovery workout
+
+The owner observed the new Training Carpet spectator rarely getting
+pushed even in "training-like" mode and expects roughly two recovery
+challenges per second during a resilience lesson. Audited the actual
+v5041 trainer source at `emu/environment.py::_simulate_physics`:
+
+- `PUSH_PROB_PER_STEP=0.0015` at 50Hz, conditional on no active push,
+  times the per-episode `T.resilience` task fraction (which is NOT
+  `resilience_difficulty`). At full intensity, 0.075 starts/s =>
+  **one per 13.3s per robot**; at multiplier .36, **one per 37s**.
+- In open-frontier unified training, `T.resilience` of a RESILIENCE
+  regime is `max(.08 / configured_push_max_n,
+  lerp(birth_resilience_d*.70 / configured_push_max_n,
+       frontier_push_n / configured_push_max_n,
+       specialist_mix))`. With physical maximum 4.0N, frontier .65N
+  and full specialist exposure, the effective multiplier is .1625,
+  yielding **one per ~82s per robot** (subject to actual world RNG and
+  task birth). Other regimes usually borrow 25% intensity.
+- Genuine resilience training ALSO randomizes the initial episode
+  pose (roll/pitch), position, linear and angular velocity and
+  joint targets, with full recovery perturbations for the focused
+  RESILIENCE birth and partial borrow elsewhere. Across 2048 worlds
+  many independent recovery examples run simultaneously. A high
+  mid-walk shove frequency is an interesting intervention, not a
+  necessary correction to the existing run.
+- Fixed a viewer conceptual error: it used the global
+  `resilience_difficulty` as per-frame push probability instead of
+  the trainer's `T.resilience` physics intensity. The inspector
+  now projects the source frontier, 4N configured ceiling and
+  20M–30M specialist exposure ramp; labels it an estimate because
+  the per-world birth/field RNG cannot be replayed from metrics.
+- Added `training-shoves.js` explicit `training`, `inspection` and
+  `drill` schedules. **Training** retains rare original probability;
+  **Inspection** multiplies it 8x; **Recovery drill** (default)
+  applies roughly 1–2 stochastic pushes/s as severity increases
+  (2/s at full slider), with random magnitude/direction and
+  2–8 control-frame genuine MuJoCo `xfrc_applied` force. The HUD
+  shows expected shove starts/sec and per-robot interval.
+  The drill is explicitly NOT what the current GPU trainer does.
+- Future controlled training science, only AFTER the unchanged
+  source-pinned current 140M run is preserved: compare opt-in
+  0.25, 0.5, 1.0 and 2.0 shove starts/s with standing/command/step
+  retention and verified recovery, and separate push force and
+  timing effects. Never silently increase the running trainer's
+  stochastic force frequency.
