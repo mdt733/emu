@@ -257,6 +257,16 @@ def verify_stage(root: Path, *, unified: bool = False,
                 bundle.get("policy",{}).get("obs_dim") != TERRAIN_OBS_DIM):
             raise RuntimeError("exported unified actor is not a 360-input schema-3 policy")
     write_bundle(bundle, exported)
+    if carpet:
+        terrain_info=bundle.get('training') or {}
+        if (terrain_info.get('terrain_carpet') is not True or
+                terrain_info.get('academy_stream') is not True or
+                terrain_info.get('carpet_transition_cap_deg') !=
+                    first.carpet_transition_cap_deg or
+                terrain_info.get('academy_height_cap_m') !=
+                    first.academy_height_cap_m):
+            raise RuntimeError(
+                'Exported 360 actor lost the physical nine-box carpet/Academy provenance')
     if unified:
         # Decode exactly what the frozen physical examiner will consume;
         # this checks array-only ToF semantics, model hash, and normalizer.
