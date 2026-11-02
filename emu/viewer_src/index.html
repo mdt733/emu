@@ -62,12 +62,7 @@
       <div class="drawer-heading"><div><b>EMU VIEWER</b><span>Two worlds · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
       <section class="controls-panel">
       <div class="control-row">
-        <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
-        <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
-        <label><input id="noiseToggle" type="checkbox" checked /> Sensor noise</label>
-        <label><input id="gridToggle" type="checkbox" /> Ground grid</label>
-        <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
-        <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
+
         <select id="terrainMode" hidden aria-hidden="true"><option value="flat">Flat</option><option value="ramp">Ramp</option><option value="park" selected>Field</option><option value="carpet">Training Carpet</option><option value="sensor">Sensor lab</option></select>
         <section id="fieldPanel" class="world-settings" aria-label="Natural field options">
         <div class="world-settings-heading">🌿 Field <small>Grass, trees, rolling hills and optional real-collision course</small></div>
@@ -99,7 +94,7 @@
       </select>
           </label>
           <p id="carpetContext" class="subtle">Representative training-world challenge, not a replay of a particular GPU environment.</p>
-          <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Match current training limits</label>
+          <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Follow live specialist values</label>
           <div id="carpetTuning" class="tuning-group">
             <div class="tuning-heading"><b>Terrain</b><small>Specialist-scaled assignments</small></div>
             <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".1"></label>
@@ -143,6 +138,14 @@
             <small id="carpetStatus">Only the browser viewer resets. Training continues independently.</small>
           </details>
         </section>
+        <details class="inspector-details" id="viewPreferences"><summary>Display &amp; playback preferences</summary>
+          <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
+                  <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
+                  <label><input id="noiseToggle" type="checkbox" checked /> Sensor noise</label>
+                  <label><input id="gridToggle" type="checkbox" /> Ground grid</label>
+                  <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
+                  <label><input id="shadowToggle" type="checkbox" checked /> Soft shadows</label>
+        </details>
         <details class="inspector-details"><summary>Advanced steering &amp; presentation</summary>
           <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
           <label>Heading P gain <output id="headingGainOut">2.2</output><input id="headingGain" type="range" min="0.3" max="5" step="0.1" value="2.2" /></label>
