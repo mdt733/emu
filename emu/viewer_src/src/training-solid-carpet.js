@@ -48,7 +48,10 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
     return {...p,slopeDeg:0,transitionDeg:0,stepUpM:0,stepDownM:0,
       role:'standing',stage:'foundation'};
   }
-  return {...p,role,stage:carpetLearningStage(limits)};
+  // Trainer applies the geometric transition cap to the already
+  // role-scaled slope, NOT a second role-specific multiplier to the cap.
+  return {...p,transitionDeg:Number(limits.transitionDeg??3),
+    role,stage:carpetLearningStage(limits)};
 }
 
 function directionalProfiles(seed,up,down){
