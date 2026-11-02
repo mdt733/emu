@@ -1,0 +1,21 @@
+name: MJX box-only tile contact alternative
+on:
+  push:
+    branches: [feature/v5041-unified-terrain-carpet]
+    paths:
+      - 'scripts/probe_carpet_box_surface.py'
+      - '.github/workflows/carpet-box-probe.yml'
+  workflow_dispatch:
+jobs:
+  solid-box-tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install real physics and JAX
+        run: pip install -e .
+      - name: Three-way comparison — actual MJX contact normals and impulse
+        run: python scripts/probe_carpet_box_surface.py
