@@ -336,7 +336,21 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             transfers=total("academy_transfer_new"),
             clearances=total("academy_clearance_new"),
             worlds_fell=int(falls.any(axis=0).sum()))
+        if carpet:
+            independent=independently_score_carpet_crossings(out)
+            outcome["independent_trajectory"]=independent
+            outcome["teacher_minus_independent"]={
+                "up":outcome["up"]-independent["up"],
+                "down":outcome["down"]-independent["down"]}
+            for i,world in enumerate(per_world):
+                world["independent_supported_up"]=independent["worlds"][i]["independent_up"]
+                world["independent_supported_down"]=independent["worlds"][i]["independent_down"]
         outcomes.append(outcome)
+        if carpet:
+            print(f"Independent physical scorer: UP {independent['up']}, "
+                  f"DOWN {independent['down']}; "
+                  f"teacher credits UP {outcome['up']}, DOWN {outcome['down']}; "
+                  "differences are reported, not suppressed",flush=True)
         print(f"UP {outcome['up']}/{outcome['up_attempts']} approached; "
               f"DOWN {outcome['down']}/{outcome['down_attempts']} approached; "
               f"four-lip milestones {outcome['four_lip_milestones']}; "
@@ -364,8 +378,10 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
           "Height is the nominal Academy frontier; actual source-generated "
           "lip heights vary by global location and seed." if carpet else
           "Old three-slab world tests the assigned constant height.",
-          "Supported crossings are live training contact-evidence events; "
-          "independent external trajectory scoring remains a separate check.",
+          "Teacher crossing credits and independent trajectory crossings "
+          "are BOTH reported for carpet; disagreement requires investigation. "
+          "Independent scoring reconstructs new box-top support for five frames "
+          "from raw MJX contacts/poses and signed physical edge heights.",
           "One frozen policy and one seed are not repeatability proof.",
           "Simulated 15cm capability does not certify physical hardware."],
         results=outcomes)
@@ -382,6 +398,18 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
         lines.append(f"| {r['height_cm']:g}cm | {r['up']}/{r['up_attempts']} "
                      f"| {r['down']}/{r['down_attempts']} | {r['four_lip_milestones']} "
                      f"| {r['worlds_fell']}/{worlds} |")
+    if carpet:
+        lines.extend(["",
+          "| Nominal | Independent UP | Independent DOWN | Teacher UP | Teacher DOWN |",
+          "|---|---:|---:|---:|---:|"])
+        for result in outcomes:
+            physical=result["independent_trajectory"]
+            lines.append(f"| {result['height_cm']:g}cm | {physical['up']} "
+                         f"| {physical['down']} | {result['up']} | {result['down']} |")
+        lines.extend(["",
+            "Independent crossings reconstruct raw box geometry and five "
+            "consecutive top-support contacts, separately from training rewards.",
+            "Any disagreement with teacher credit requires physical trace review."])
     lines.extend([
         "",
         ("Each crossing requires five consecutive physically supported "
