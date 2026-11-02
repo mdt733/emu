@@ -325,6 +325,35 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
                 nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
     return nearest
 
+def feet_clear_of_abandoned_solids(
+        xp, old_center, new_center, foot_xy, foot_radii,
+        box_centres_xy, box_rotations, box_half_sizes, clearance_m=.002):
+    """Conservatively refuse recycling a real solid box beneath a foot.
+
+    Each moving tile's *actual rotated box* is projected to a world XY
+    bounding rectangle. A sphere-foot must be fully clear of that rectangle
+    (including its 18mm radius and a small safety margin). Using foot CELL
+    indices alone incorrectly declares a foot clear while its sphere still
+    overlaps the soon-to-be-recycled 8mm box overhang or tilted side face.
+
+    The AABB projection is deliberately conservative; it never says a foot
+    is clear when it could still touch the abandoned OBB in 3D. Shapes:
+    old/new [E,2], feet [E,F,2], radii [F], boxes [E,9,2],
+    orientations [E,9,3,3], half sizes [9,3]. Returns [E] booleans.
+    """
+    old_x,old_y=slot_indices(xp,old_center[:,0],old_center[:,1])
+    new_x,new_y=slot_indices(xp,new_center[:,0],new_center[:,1])
+    abandoned=(old_x!=new_x)|(old_y!=new_y)
+    projected_half=xp.sum(
+        xp.abs(box_rotations[:,:,:2,:])*box_half_sizes[None,:,None,:],
+        axis=-1)
+    distance=xp.abs(foot_xy[:,:,None,:]-box_centres_xy[:,None,:,:])
+    edge_margin=foot_radii[None,:,None,None]+clearance_m
+    may_touch=xp.all(
+        distance <= projected_half[:,None,:,:]+edge_margin,axis=-1)
+    return ~xp.any(abandoned & xp.any(may_touch,axis=1),axis=1)
+
+
 def unseen_tile(xp,coords,visited):
     """Reward-only episode history; returning to an old tile is NOT new
     terrain competence. 64 exact (x,y) cells cover >32m of recent walking.
