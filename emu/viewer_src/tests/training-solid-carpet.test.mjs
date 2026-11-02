@@ -94,7 +94,7 @@ test('browser MuJoCo sees nine literal contact boxes, no hfield or buried floor'
   const raw='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 0.05"/></worldbody></mujoco>';
   const xml=withTerrain(raw,'carpet',{park:carpet});
   assert.equal((xml.match(/mocap="true"/g)||[]).length,9);
-  assert.equal((xml.match(/viewer_carpet_solid_\\d+" type="box"/g)||[]).length,9);
+  assert.equal((xml.match(/viewer_carpet_solid_\d+" type="box"/g)||[]).length,9);
   assert.doesNotMatch(xml,/name="floor"/);
   assert.doesNotMatch(xml,/type="hfield"/);
   assert.doesNotMatch(xml,/viewer_park_hfield/);
@@ -122,10 +122,10 @@ test('the integrated viewer keeps the real physical contacts separate from the r
   const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
   const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../index.html',import.meta.url),'utf8');
-  assert.match(sim,/this\\.data\\.mocap_pos/);
-  assert.match(sim,/this\\.data\\.mocap_quat/);
+  assert.match(sim,/this\.data\.mocap_pos/);
+  assert.match(sim,/this\.data\.mocap_quat/);
   assert.match(sim,/safeCarpetShift/);
-  assert.match(sim,/!this\\.carpetGeomIds\\.has\\(geomId\\)/);
+  assert.match(sim,/!this\.carpetGeomIds\.has\(geomId\)/);
   assert.match(main,/carpetAutoApply/);
   assert.match(main,/carpetEffectiveLimits/);
   assert.match(ui,/value="auto" selected/);
