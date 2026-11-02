@@ -58,6 +58,29 @@ forward ToF range/validity signals. The teacher can inspect
 precise simulator contacts to decide whether a skill succeeded,
 but those privileged facts are **not actor inputs**.
 
+## Cold-start learning curve — don't mistake age for competence
+
+EMU starts with **random policy weights**; it is a dynamically unstable
+six-servo biped, not a pre-programmed standing or walking controller.
+The following is the owner's **historical, approximate observation**,
+not a source-pinned, controlled learning-curve measurement:
+
+| Total world steps | What is reasonable to expect |
+|---|---|
+| **~0–5M** | Discovery period: generally falls; even standing on flat ground is not yet reliably learned. |
+| **~5M** | First signs of learning to **stand on boring, flat ground**; not proof of reliable balance, gait or terrain skills. |
+| **~20M** | Still **barely standing** in historical early-foundation observations. The 20M curriculum foundation cutoff is a **recipe boundary**, not a pass certificate for walking. |
+| **~40M** | Early, **infant-like gait development** rather than mature controlled walking. |
+| **Later** | Meaningful speed, directional control, slopes and supported step crossing must be verified on **frozen physical exams** at the same source, sensor contract and seed. |
+
+Timing varies with seed, architecture and curriculum. **No global
+mastery gate** should block all six specialist populations until
+another specialty succeeds. Conversely, do not call a 131k-step
+smoke policy broken because it falls: those tests validate physics,
+PPO, memory and checkpoints, **not learned locomotion**.
+See the [foundation / six-specialist curriculum](docs/UNIFIED_CAPABILITY_GROWTH.md)
+and [active engineering handover](HANDOVER.md).
+
 ## Current baseline — v5032 Pinnacle 260M
 
 <small>First released 360-input generation · 31 October 2026</small>
