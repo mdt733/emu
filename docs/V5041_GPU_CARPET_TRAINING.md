@@ -50,9 +50,12 @@ clearances, 9-tile 3×3 recycling with actual biped feet, and the complete
 360-input sensor pipeline must pass dedicated collision and PPO tests.
 The first 2048-world CUDA PPO acceptance **PASSED** on commit
 `c876240f935d1acc4346b229f84381286f314ace`, as documented below.
-Sustained training throughput and later-source GPU performance are not yet
-established; the 140M run therefore remains gated on the bounded lifecycle
-and physical exams.
+The original full-2048-CUDA acceptance, bounded checkpoint/resume/export
+lifecycle and later synchronized post-compilation full-PPO throughput gate
+have **now passed** on owner hardware. A short first-life frozen CUDA
+nine-solid step exam also agreed between independent and teacher physical
+scorers. These checks verify the trainer and evaluation plumbing, not
+a learned gait or robust mastered terrain.
 
 ## CPU source acceptance
 
@@ -246,8 +249,56 @@ do not count. Both UP/DOWN totals are preserved; any disagreement
 between teacher and independent trajectory evidence is an explicit
 physical diagnostic, not something to suppress.
 
-Do not call the 140M run ready until the exam works on actual GPU
-and its results have been inspected alongside slope and command exams.
+## Measured 2,048-world CUDA sustained PPO — 3 November 2026
+
+Owner used WSL2, RTX 4060 Ti 8 GB, at code SHA
+`39573722fc4b86ddabd9c2d2ec489d069129c79f`
+(later commits through this documentation update only revised docs).
+
+```text
+surface PASS; source-to-actual box-top discrepancy 2.71mm
+reset PASS; 9 solid 50cm tilted boxes, vertical sides
+recycler PASS; safe tile recycling, trailing-foot guard
+physics PASS; 2 frames in 2048 worlds
+full batched PPO PASS; actor delta 0.0014353991
+first update incl XLA compilation: 71.985 seconds
+three POST-COMPILE full updates: 3.897s/update
+synchronized sustained rate: 16,818 world steps/s
+JAX peak allocated: 1,395,523,840 bytes
+JAX reported bytes limit: 6,440,353,792
+```
+
+That is **four real 32-frame, four-epoch, eight-minibatch PPO updates**,
+not just forward inference or batched physics. JAX memory stats are not
+whole-card VRAM accounting; still, fit was comfortably established.
+An idealized 140,000,000/16,818 = ~2.31 hours of raw PPO compute.
+Real duration includes compilation, Python/metrics, checkpoint I/O,
+frozen evaluation and possibly changing terrain workload.
+
+**Also passed on that SHA:** first CUDA 8-world/200-frame read-only
+nine-box exam, nominal 1cm, grade 0 degrees, seed 1701. Teacher
+credit UP 0 / DOWN 1; independently reconstructed raw-contact signed
+crossings UP 0 / DOWN 1; attempts UP 0/1, DOWN 1/3; fell 8/8. The
+policy came from a **131,072-step bounded lifecycle smoke**; falling is
+normal at that age. Nominal 1cm is not exact observed lip height.
+This validates a *single* scoring case, not full step/slope competence.
+
+**Engineering decision:** the required CUDA resource, real PPO,
+checkpoint lineage and read-only physical exam *smoke gates* have
+passed. A source-pinned true 140M cold-start **research run may now be
+launched** with its normal per-checkpoint monitoring; it is *not*
+pre-certified to learn. In particular, the owner reports first
+standing around **5M**, 20M often barely standing and ~40M immature
+gait. Review early development without treating the foundation
+20M curriculum switch as a mastery gate. The six specialists must
+retain independently growing frontiers.
+
+For the long run, use the exact clean Git SHA that will own all
+checkpoint metadata. Do not alter checked-out sources after starting.
+`emu train ... --plan` shows the resolved config without training.
+Running source-pinned full CUDA PPO in the final source is the proof,
+not stale help text claiming old hfield collision.
+
 
 If the bounded lifecycle succeeds, and frozen physical terrain exams
 show no sensor/contact mismatch, a *new* 140M from-scratch lineage
