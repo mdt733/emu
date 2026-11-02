@@ -410,7 +410,9 @@ export class EmuBrowserSim {
     const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
       transitionDeg:Number(limits.transitionDeg),stepUpM:Number(limits.stepUpM),
       stepDownM:Number(limits.stepDownM)};
-    if(Object.values(next).some(n=>!Number.isFinite(n)||n<0))throw Error('Invalid training difficulty');
+    if(['seed','slopeDeg','transitionDeg','stepUpM','stepDownM']
+      .some(key=>!Number.isFinite(next[key])||next[key]<0))
+      throw Error('Invalid training difficulty');
     if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
     this.carpetRole=role;
     this.carpetDifficulty=next;
