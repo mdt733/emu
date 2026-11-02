@@ -44,7 +44,7 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
   const role=carpetRepresentativeRole(limits,requested);
   const p=carpetRoleLimits(limits,role);
   // During actual foundation every specialist terrain-exposure is zero.
-  if(carpetLearningStage(limits)==='foundation'){
+  if(carpetLearningStage(limits)==='foundation' && !limits.previewOverride){
     return {...p,slopeDeg:0,transitionDeg:0,stepUpM:0,stepDownM:0,
       role:'standing',stage:'foundation'};
   }
@@ -58,7 +58,10 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
     stepUpM:p.stepUpM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
     stepDownM:p.stepDownM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
     transitionDeg:Number(limits.transitionDeg??3),
-    role,stage:carpetLearningStage(limits)};
+    role,stage:carpetLearningStage(limits),
+    // Explicit viewer-only specialist overrides are physical difficulty
+    // AFTER curriculum/role scaling. This is never fed to the trainer.
+    ...(limits.previewOverride?.terrain||{})};
 }
 
 function directionalProfiles(seed,up,down){
