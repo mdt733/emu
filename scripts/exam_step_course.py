@@ -12,6 +12,18 @@ import json
 from pathlib import Path
 
 
+def first_episode_mask(done):
+    """Include the first death frame, never any reset-policy frames thereafter."""
+    import numpy as np
+    terminated=np.asarray(done,dtype=bool)
+    if terminated.ndim!=2:
+        raise ValueError("Expected [frames, worlds] terminal array")
+    earlier=np.concatenate((
+        np.zeros((1,terminated.shape[1]),dtype=np.int32),
+        np.cumsum(terminated[:-1],axis=0)),axis=0)
+    return earlier==0
+
+
 def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             device="cpu",heights_cm=(1.,2.,3.),carpet=False,slope_deg=0.):
     if (worlds<4 or worlds>32 or horizon<200 or horizon>1200 or
@@ -89,43 +101,104 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             jnp.asarray(norm["mean"]),jnp.asarray(norm["std"]),
             jax.random.PRNGKey(seed),horizon,0.,None,jnp.asarray(schedule))
         out=jax.device_get(trace)
-        initial=np.asarray(out["academy_initial_platform_positions"])
-        signed=np.diff(initial[:,:,2]+.25,axis=1)
-        if (initial.shape!=(worlds,3,3) or
-            not np.allclose(np.abs(signed),h/100,atol=.00025)):
-            raise RuntimeError("Three physical initial support slabs were not constructed")
+        if carpet:
+            # The old three Academy slabs are deliberately DISABLED. Verify
+            # the physical poses of all nine live SOLID tiles instead.
+            solids=np.asarray(out["initial_carpet_solid_geom_xpos"])
+            orientations=np.asarray(out["initial_carpet_solid_geom_xmat"])
+            cells=np.asarray(out["initial_carpet_cells"])
+            if (solids.shape!=(worlds,9,3) or
+                orientations.shape!=(worlds,9,3,3) or
+                cells.shape!=(worlds,9,2) or
+                not np.all(np.isfinite(solids)) or
+                not np.all(np.isfinite(orientations)) or
+                not np.all(orientations[:,:,:,2][:,:,2]>.75)):
+                raise RuntimeError("Frozen carpet examiner did not load nine valid solid colliders")
+            signed=None
+        else:
+            initial=np.asarray(out["academy_initial_platform_positions"])
+            signed=np.diff(initial[:,:,2]+.25,axis=1)
+            if (initial.shape!=(worlds,3,3) or
+                not np.allclose(np.abs(signed),h/100,atol=.00025)):
+                raise RuntimeError("Three physical initial support slabs were not constructed")
         if not (np.asarray(out["academy_active"])[0]>.5).all():
             raise RuntimeError("Frozen exam must start in streaming Academy")
+        # Reset-on-fall is useful for PPO, but a frozen exam must not
+        # let repeated post-death restarts inflate the same world's score.
+        first_life=first_episode_mask(out["done"])
         signals=("academy_cross_new","academy_cross_up","academy_cross_down",
                  "academy_course_new","academy_lip_attempt_new",
                  "academy_clearance_new","academy_foothold_new",
                  "academy_transfer_new")
-        events={k:np.asarray(out[k])>.5 for k in signals}
+        events={k:(np.asarray(out[k])>.5)&first_life for k in signals}
         lip_height=np.asarray(out["academy_lip_height_m"])
         attempted=events["academy_lip_attempt_new"]
-        up_attempts=attempted & (lip_height>.001)
-        down_attempts=attempted & (lip_height<-.001)
-        falls=np.asarray(out["fell"])>.5
+        # A failed approach may be reported only on the eventual fall, at
+        # which moment the robot may have backed away from the lip. Recover
+        # the LAST observed signed physical lip, rather than classifying a
+        # real failed UP attempt as height=0 and dropping it silently.
+        attempt_height=lip_height.copy()
+        for w in range(worlds):
+            last=0.
+            for t in range(horizon):
+                if first_life[t,w] and abs(lip_height[t,w])>.0015:
+                    last=float(lip_height[t,w])
+                if attempted[t,w] and abs(attempt_height[t,w])<=.0015:
+                    attempt_height[t,w]=last
+        up_attempts=attempted & (attempt_height>.0015)
+        down_attempts=attempted & (attempt_height<-.0015)
+        unknown_attempts=attempted & ~(up_attempts|down_attempts)
+        falls=(np.asarray(out["fell"])>.5)&first_life
         def total(name):
             return int(events[name].sum())
+        supported=events["academy_cross_new"]
+        four_lips=(sum(int(supported[:,w].sum())//4 for w in range(worlds))
+                   if carpet else total("academy_course_new"))
+        observed_heights=np.abs(lip_height[supported])*100
         per_world=[]
         for w in range(worlds):
+            valid=np.flatnonzero(first_life[:,w])
+            last_index=int(valid[-1]) if len(valid) else 0
+            if carpet:
+                # These are OBSERVED signed lip samples, not an invented
+                # promise that the generator placed exactly h centimetres.
+                heights=lip_height[first_life[:,w],w]
+                starts=np.flatnonzero((np.abs(heights)>.0015)&
+                         np.r_[True,np.abs(heights[:-1])<=.0015])
+                first_two=np.round(heights[starts[:2]]*100,3).tolist()
+            else:
+                first_two=np.round(signed[w]*100,3).tolist()
             per_world.append(dict(
                 world=w,
-                first_two_lips_cm=np.round(signed[w]*100,3).tolist(),
+                first_two_lips_cm=first_two,
                 supported_up=int(events["academy_cross_up"][:,w].sum()),
                 supported_down=int(events["academy_cross_down"][:,w].sum()),
                 approached_up=int(up_attempts[:,w].sum()),
                 approached_down=int(down_attempts[:,w].sum()),
-                four_lip_milestones=int(events["academy_course_new"][:,w].sum()),
+                unclassified_attempts=int(unknown_attempts[:,w].sum()),
+                four_lip_milestones=(
+                    int(supported[:,w].sum())//4 if carpet
+                    else int(events["academy_course_new"][:,w].sum())),
                 footholds=int(events["academy_foothold_new"][:,w].sum()),
                 weight_transfers=int(events["academy_transfer_new"][:,w].sum()),
+                forward_displacement_m=round(float(
+                    np.asarray(out["position_xy"])[last_index,w,0]-
+                    np.asarray(out["position_xy"])[0,w,0]),4),
+                mean_forward_velocity_mps=round(float(np.mean(
+                    np.asarray(out["terrain_vx"])[first_life[:,w],w])),4),
                 fell=bool(falls[:,w].any())))
         outcome=dict(height_cm=h,worlds=per_world,
             up=total("academy_cross_up"),down=total("academy_cross_down"),
             up_attempts=int(up_attempts.sum()),down_attempts=int(down_attempts.sum()),
+            unclassified_attempts=int(unknown_attempts.sum()),
             lip_crossings=total("academy_cross_new"),
-            four_lip_milestones=total("academy_course_new"),
+            four_lip_milestones=four_lips,
+            observed_crossing_height_cm=(dict(
+                count=int(len(observed_heights)),
+                min=round(float(np.min(observed_heights)),3),
+                median=round(float(np.median(observed_heights)),3),
+                max=round(float(np.max(observed_heights)),3))
+                if len(observed_heights) else None),
             footholds=total("academy_foothold_new"),
             transfers=total("academy_transfer_new"),
             clearances=total("academy_clearance_new"),
