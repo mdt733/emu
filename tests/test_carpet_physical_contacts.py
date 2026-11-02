@@ -47,7 +47,7 @@ def get_geoms(model):
             for i in range(model.ngeom)}
 
 
-def solve_case(rise_m):
+def solve_case(rise_m, *, backend='cpu'):
     model=make_probe_model()
     data=mujoco.MjData(model)
     bodyids=[mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
@@ -64,6 +64,29 @@ def solve_case(rise_m):
     data.qpos[7:10]=[+.17,0,rise_m+.035]
     data.qpos[14:17]=[-.015,.09,rise_m*.5]
     mujoco.mj_forward(model,data)
+    if backend == 'mjx':
+        import jax
+        import jax.numpy as jnp
+        from mujoco import mjx
+        jmodel=mjx.put_model(model)
+        jdata=mjx.make_data(jmodel).replace(
+            qpos=jnp.asarray(data.qpos),
+            mocap_pos=jnp.asarray(data.mocap_pos))
+        jdata=jax.jit(lambda d:mjx.forward(jmodel,d))(jdata)
+        g1=np.asarray(jax.device_get(jdata.contact.geom1))
+        g2=np.asarray(jax.device_get(jdata.contact.geom2))
+        distances=np.asarray(jax.device_get(jdata.contact.dist))
+        frames=np.asarray(jax.device_get(jdata.contact.frame))
+        positions=np.asarray(jax.device_get(jdata.contact.pos))
+        contacts=[]
+        for n in range(len(g1)):
+            if min(int(g1[n]),int(g2[n]))<0 or not np.isfinite(distances[n]):
+                continue
+            names={mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,int(g))
+                   for g in (g1[n],g2[n])}
+            contacts.append((names,float(distances[n]),
+                             frames[n].copy(),positions[n].copy()))
+        return contacts
     geoms=get_geoms(model)
     contacts=[]
     for n in range(data.ncon):
@@ -99,3 +122,22 @@ def test_vertical_riser_is_not_a_ghost_or_ramp(rise_m):
     assert risers, (
         f"NO vertical lip side contact at {rise_m*100:.0f}cm: "
         f"heightfields may be top-surface only; inspect collision topology")
+
+
+@pytest.mark.parametrize("rise_m",[.04,.15])
+def test_mjx_and_cpu_agree_on_supported_steps_and_vertical_wall(rise_m):
+    """MJX is the actual production GPU collision solver, not CPU MuJoCo.
+
+    A CPU-only side contact passing is insufficient: the two real feet and
+    the uphill wall must all create nonpositive contact distances inside
+    mjx.Data.contact too.
+    """
+    contacts=solve_case(rise_m,backend='mjx')
+    for probe,terrain in (
+        ('left_ball','carpet_tile_geom_0'),
+        ('right_ball','carpet_tile_geom_1'),
+        ('riser_ball','carpet_tile_geom_1'),
+    ):
+        matching=[c for c in contacts if {probe,terrain}.issubset(c[0])
+                  and c[1]<=.001]
+        assert matching,(rise_m,probe,terrain,contacts)
