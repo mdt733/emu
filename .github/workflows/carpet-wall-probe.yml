@@ -1,0 +1,22 @@
+name: MJX riser wall diagnostic
+on:
+  push:
+    branches: [feature/v5041-unified-terrain-carpet]
+    paths:
+      - 'scripts/probe_carpet_wall.py'
+      - 'emu/terrain_carpet_mjx.py'
+      - '.github/workflows/carpet-wall-probe.yml'
+  workflow_dispatch:
+jobs:
+  wall-physics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CPU contact dynamics
+        run: pip install -e .
+      - name: Compare MJX riser response with and without a solid collision face
+        run: python scripts/probe_carpet_wall.py
