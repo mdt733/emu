@@ -3769,9 +3769,13 @@ class EmuMJXEnv(TaskSampler):
         fresh=carpet_unseen_tile(
             jnp,root,state.carpet_seen_cells)
         paid=confirmed&fresh&shared_lip
+        # Revisiting a known tile is a valid physical transfer, but
+        # MUST NOT consume one of the 64 unique-history slots. Otherwise
+        # rocking between already visited supports flushes genuinely new
+        # history entries and allows delayed repeat-crossing payments.
         seen_cells,seen_write=carpet_note_confirmed_tile(
             jnp,root,state.carpet_seen_cells,
-            state.carpet_seen_write,confirmed)
+            state.carpet_seen_write,confirmed&fresh)
         raised=rise>.0015
         lowered=rise<-.0015
         lip=raised|lowered
