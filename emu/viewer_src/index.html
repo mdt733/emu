@@ -57,21 +57,6 @@
       </details>
     </aside>
 
-    <aside id="carpetQuick" class="carpet-quick glass" hidden aria-label="Training specialist selector">
-      <span>TRAINING ROLE</span>
-      <label>Watch specialty <select id="carpetRole" aria-label="Representative specialist to inspect">
-        <option value="auto" selected>Auto phase</option>
-        <option value="standing">Standing / foundation</option>
-        <option value="command">Commands</option>
-        <option value="resilience">Resilience / shoves</option>
-        <option value="slope">Slopes</option>
-        <option value="step">Steps / Academy</option>
-        <option value="transition">Transitions</option>
-        <option value="control">Control / efficiency</option>
-      </select></label>
-      <small id="carpetQuickNote">Representative terrain; not a GPU-world replay</small>
-    </aside>
-
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
       <div class="drawer-heading"><div><b>EMU VIEWER</b><span>Two worlds · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
@@ -101,47 +86,62 @@
         </div>
         </section>
         <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
-          <div class="world-settings-heading">▦ Training Carpet <small>Nine recycled 50 cm solid tiles · genuine vertical step faces</small></div>
-          <small>This is one representative birth at the selected training limits—not a live replay of a particular GPU environment. Curriculum targets are not certified abilities.</small>
-          <small>Switch the specialist from the TRAINING ROLE selector beside the world; detailed limits and testing controls remain here.</small>
-          <label class="viewer-row">Exercise <select id="carpetDrive">
+          <label class="specialty-picker"><b>Training specialist</b>
+            <select id="carpetRole" aria-label="Representative specialist to inspect">
+        <option value="auto" selected>Auto phase</option>
+        <option value="standing">Standing / foundation</option>
+        <option value="command">Commands</option>
+        <option value="resilience">Resilience / shoves</option>
+        <option value="slope">Slopes</option>
+        <option value="step">Steps / Academy</option>
+        <option value="transition">Transitions</option>
+        <option value="control">Control / efficiency</option>
+      </select>
+          </label>
+          <p id="carpetContext" class="subtle">Representative training-world challenge, not a replay of a particular GPU environment.</p>
+          <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Match current training limits</label>
+          <div id="carpetTuning" class="tuning-group">
+            <div class="tuning-heading"><b>Terrain</b><small>Specialist-scaled assignments</small></div>
+            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".1"></label>
+            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" min="0" max="15" step=".1"></label>
+            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" min="0" max="150" step="1"></label>
+            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" min="0" max="150" step="1"></label>
+            <div class="tuning-heading"><b>Commands</b><small>Preview requests bounded by policy limits</small></div>
+            <label class="tuning-row">Forward speed <output id="tuneForwardOut">—</output><input id="tuneForward" type="range" min="0" max="1.5" step=".01"></label>
+            <label class="tuning-row">Reverse speed <output id="tuneReverseOut">—</output><input id="tuneReverse" type="range" min="0" max=".8" step=".01"></label>
+            <label class="tuning-row">Strafe speed <output id="tuneLateralOut">—</output><input id="tuneLateral" type="range" min="0" max="1" step=".01"></label>
+            <label class="tuning-row">Yaw speed <output id="tuneYawOut">—</output><input id="tuneYaw" type="range" min="0" max="3" step=".05"></label>
+            <div class="tuning-heading"><b>Resilience</b><small>Real browser torso forces</small></div>
+            <label class="tuning-row">Disturbance intensity <output id="tuneResilienceOut">—</output><input id="tuneResilience" type="range" min="0" max="1" step=".01"></label>
+            <label class="tuning-row">Maximum shove <output id="tunePushOut">—</output><input id="tunePush" type="range" min="0" max="3" step=".01"></label>
+          </div>
+          <button id="carpetResetLimits" type="button">Reset sliders to this specialist's training values</button>
+          <small id="tuneOrigin">Live reported frontiers are teacher targets, not proven capabilities.</small>
+          <label>Exercise <select id="carpetDrive">
             <option value="lesson" selected>Run specialist commands</option>
             <option value="manual">Manual joystick / WASD</option>
           </select></label>
-          <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Match training frontiers (terrain, speeds, shoves)</label>
-          <div id="carpetChallengeCard" class="lesson-card" aria-live="polite">
-            <strong id="lessonName">Waiting for training</strong>
-            <span id="lessonDescription">Representative 3×3 specialist exercise</span>
-            <div class="lesson-metrics">
-              <span>Grade <b id="lessonSlope">—</b></span>
-              <span>Up / down <b id="lessonSteps">—</b></span>
-              <span>Forward <b id="lessonSpeed">—</b></span>
-              <span>Push limit <b id="lessonPush">—</b></span>
+          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Random physical shoves with directional arrows</label>
+          <label>Shove timing <select id="carpetPushRate">
+            <option value="8" selected>Inspection · 8× training event frequency</option>
+            <option value="1">Training-like event frequency</option>
+          </select></label>
+          <button id="carpetTestShove" type="button">Apply one random shove</button>
+          <small id="carpetShoveState">Random push angle, strength and duration; frequency scales with the resilience setting.</small>
+          <div id="lessonCommand" class="lesson-command">Viewer command: —</div>
+          <details class="inspector-details" id="carpetDiagnostics">
+            <summary>Training evidence &amp; live connection</summary>
+            <div class="carpet-values" id="carpetValues" aria-live="polite"></div>
+            <label class="carpet-file">Import metrics.csv or JSON
+              <input id="carpetImport" type="file" accept=".csv,.json,text/csv,application/json"></label>
+            <label><input id="carpetLive" type="checkbox" checked> Read live metrics every 5 seconds</label>
+            <label><input id="carpetAutoApply" type="checkbox" checked> Update terrain when live limits change</label>
+            <div class="carpet-actions">
+              <button id="carpetFetch" type="button">Refresh metrics</button>
+              <button id="carpetApply" type="button">Apply current world</button>
             </div>
-            <div class="lesson-command">Viewer command: <b id="lessonCommand">—</b></div>
-          </div>
-          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Show and apply representative resilience shoves</label>
-          <button id="carpetTestShove" type="button">Test one shove →</button>
-          <div id="carpetShoveState" class="subtle">Shove visualisation applies real browser MuJoCo forces; timing is illustrative, not streamed from training.</div>
-          <details id="carpetManual" class="inspector-details" hidden>
-            <summary>Manual difficulty overrides</summary>
-            <label>Slope ° <input id="carpetManualSlope" type="number" min="0" max="20" step="0.5" value="5"/></label>
-            <label>Step up mm <input id="carpetManualUp" type="number" min="0" max="150" step="1" value="20"/></label>
-            <label>Step down mm <input id="carpetManualDown" type="number" min="0" max="150" step="1" value="20"/></label>
-            <label>Forward m/s <input id="carpetManualSpeed" type="number" min="0.02" max="1.5" step="0.05" value="0.2"/></label>
-            <label>Push N <input id="carpetManualPush" type="number" min="0" max="3" step="0.05" value="0.35"/></label>
+            <small id="carpetStatus">Only the browser viewer resets. Training continues independently.</small>
           </details>
-          <div class="carpet-values" id="carpetValues" aria-live="polite">No training metrics loaded · illustrative defaults</div>
-          <label class="carpet-file">Import metrics.csv, results_data.json or terrain snapshot
-            <input id="carpetImport" type="file" accept=".csv,.json,text/csv,application/json" />
-          </label>
-          <label><input id="carpetLive" type="checkbox" checked /> Read live curriculum metrics (every 5 s)</label>
-          <label><input id="carpetAutoApply" type="checkbox" checked /> Auto-refresh physical terrain when reported limits change (resets viewer robot only)</label>
-          <div class="carpet-actions">
-            <button id="carpetFetch" type="button">Refresh training values</button>
-            <button id="carpetApply" type="button">Apply terrain to robot viewer</button>
-          </div>
-          <small id="carpetStatus">Change a setting or import a training run. Applying difficulty reloads only the browser simulation, never training weights.</small>
         </section>
         <details class="inspector-details"><summary>Advanced steering &amp; presentation</summary>
           <label><input id="headingHoldToggle" type="checkbox" checked /> Heading assist</label>
@@ -150,35 +150,11 @@
       </div>
       </section>
       <details id="sensorDetails" class="inspector-details sensor-details">
-        <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay &amp; laboratory</span></summary>
+        <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay</span></summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
       <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
-      <div class="depth-sub">Diagnostic observer · not the neural actor's input and not another training mode</div>
-      <label class="depth-row">Ground <select id="depthCourse">
-        <option value="viewer" selected>Current viewer terrain</option>
-        <option value="flat">Flat reference</option>
-        <option value="step-up-1cm">1 cm training step up</option>
-        <option value="step-up-2cm">2 cm training step up</option>
-        <option value="step-up">5 cm step up</option>
-        <option value="step-down">5 cm step down</option>
-        <option value="crest">Hill crest</option>
-        <option value="trough">Hill trough</option>
-        <option value="log">Half-round log</option>
-        <option value="angled">Angled ridge</option>
-        <optgroup label="v5023 surface laboratory">
-          <option value="lab-uphill">Uphill · continuous plane</option>
-          <option value="lab-downhill">Downhill · continuous plane</option>
-          <option value="lab-camber-left">Left camber · continuous plane</option>
-          <option value="lab-camber-right">Right camber · continuous plane</option>
-          <option value="lab-step-up">Custom step up</option>
-          <option value="lab-step-down">Custom step down</option>
-        </optgroup>
-      </select></label>
-      <label class="depth-row">Slope angle <output id="surfaceSlopeOut">3.0°</output>
-        <input id="surfaceSlope" type="range" min="0.5" max="12" value="3" step="0.5" /></label>
-      <label class="depth-row">Step height <output id="surfaceStepOut">2.0 cm</output>
-        <input id="surfaceStep" type="range" min="0.1" max="6" value="2" step="0.1" /></label>
-      <div class="depth-foot">Surface tests use real browser MuJoCo collisions. They are manual physical diagnostics, not identical to an MJX training-world examination.</div>
+      <div class="depth-sub">Optional visual diagnostic; actor's physical input is separate</div>
+      <div class="depth-foot">Measures the currently selected Field or Training Carpet world. Never switches the simulation to a retired course.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">0 mm</output>
@@ -212,7 +188,7 @@
         <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
         <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
         <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
-          <span>Pose lattice · position + facing</span></div>
+          <span>Field navigation only</span></div>
         <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
         <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
       </section>
