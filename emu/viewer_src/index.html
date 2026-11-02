@@ -57,6 +57,21 @@
       </details>
     </aside>
 
+    <aside id="carpetQuick" class="carpet-quick glass" hidden aria-label="Training specialist selector">
+      <span>TRAINING ROLE</span>
+      <label>Watch specialty <select id="carpetRole" aria-label="Representative specialist to inspect">
+        <option value="auto" selected>Auto phase</option>
+        <option value="standing">Standing / foundation</option>
+        <option value="command">Commands</option>
+        <option value="resilience">Resilience / shoves</option>
+        <option value="slope">Slopes</option>
+        <option value="step">Steps / Academy</option>
+        <option value="transition">Transitions</option>
+        <option value="control">Control / efficiency</option>
+      </select></label>
+      <small id="carpetQuickNote">Representative terrain; not a GPU-world replay</small>
+    </aside>
+
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
       <div class="drawer-heading"><div><b>EMU VIEWER</b><span>Two worlds · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
@@ -88,16 +103,7 @@
         <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
           <div class="world-settings-heading">▦ Training Carpet <small>Nine recycled 50 cm solid tiles · genuine vertical step faces</small></div>
           <small>This is one representative birth at the selected training limits—not a live replay of a particular GPU environment. Curriculum targets are not certified abilities.</small>
-          <label>Specialist <select id="carpetRole">
-            <option value="auto" selected>Auto · foundation → slopes → step Academy</option>
-            <option value="standing">Standing · flat foundation</option>
-            <option value="command">Commands · gentle terrain</option>
-            <option value="resilience">Resilience · real shove impulses</option>
-            <option value="slope">Slope · gradient transitions</option>
-            <option value="step">Steps · supported up/down lips</option>
-            <option value="transition">Transitions · changing ground</option>
-            <option value="control">Control · nearly flat</option>
-          </select></label>
+          <small>Switch the specialist from the floating **TRAINING ROLE** selector; detailed limits and testing controls remain here.</small>
           <label class="viewer-row">Exercise <select id="carpetDrive">
             <option value="lesson" selected>Run specialist commands</option>
             <option value="manual">Manual joystick / WASD</option>
