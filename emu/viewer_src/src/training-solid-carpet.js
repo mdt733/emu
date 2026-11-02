@@ -71,7 +71,7 @@ function directionalProfiles(seed,up,down){
 
 export function createSolidCarpet(base=CARPET_DEFAULT,requested='auto'){
   const limits=terrainRoleEnvelope(base,requested);
-  const seed=(limits.seed||735)|0;
+  const seed=(limits.seed??735)|0;
   const profile=directionalProfiles(seed,limits.stepUpM,limits.stepDownM);
   const grade=Math.tan(radians(limits.slopeDeg));
   const maxTransition=Math.min(limits.slopeDeg,limits.transitionDeg);
@@ -112,6 +112,9 @@ export function createSolidCarpet(base=CARPET_DEFAULT,requested='auto'){
               top-SOLID_HALF_Z*normal[2]],
       x:x+.25,y:y+.25};
     cache.set(key,tile);
+    // Endless rolling terrain must not accumulate an unbounded world map.
+    // Recomputing a returned tile is deterministic from global coordinates.
+    if(cache.size>1024)cache.delete(cache.keys().next().value);
     return tile;
   };
   const sampleHeight=(x,y)=>{
@@ -141,11 +144,19 @@ export function safeCarpetShift(oldTiles,newTiles,feet,radius=.018){
   const newKeys=new Set(newTiles.map(t=>t.i+','+t.j));
   for(const tile of oldTiles){
     if(newKeys.has(tile.i+','+tile.j))continue;
-    const nx=Math.abs(tile.normal[0]),ny=Math.abs(tile.normal[1]);
-    const halfX=SOLID_HALF_XY+SOLID_HALF_Z*nx+radius+.002;
-    const halfY=SOLID_HALF_XY+SOLID_HALF_Z*ny+radius+.002;
-    if(feet.some(p=>Math.abs(p[0]-tile.x)<=halfX&&
-                     Math.abs(p[1]-tile.y)<=halfY))return false;
+    // EXACT projected half-extent of the rotated SOLID box, including
+    // its sideways-offset body centre. The trainer uses the same AABB
+    // projection in feet_clear_of_abandoned_solids(). Checking only the
+    // nominal tile centre is unsafe on a pitched or rolled support.
+    const [w,x,y,z]=tile.quat;
+    const rxx=1-2*(y*y+z*z),rxy=2*(x*y-w*z),rxz=2*(x*z+w*y);
+    const ryx=2*(x*y+w*z),ryy=1-2*(x*x+z*z),ryz=2*(y*z-w*x);
+    const halfX=(Math.abs(rxx)+Math.abs(rxy))*SOLID_HALF_XY+
+      Math.abs(rxz)*SOLID_HALF_Z+radius+.002;
+    const halfY=(Math.abs(ryx)+Math.abs(ryy))*SOLID_HALF_XY+
+      Math.abs(ryz)*SOLID_HALF_Z+radius+.002;
+    if(feet.some(p=>Math.abs(p[0]-tile.center[0])<=halfX&&
+                     Math.abs(p[1]-tile.center[1])<=halfY))return false;
   }
   return true;
 }
