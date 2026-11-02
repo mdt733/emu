@@ -709,6 +709,15 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
         "training": {
             "attitude_profile": profile,
             "pitch_command_max_deg": configured_pitch_deg if profile == 'v5015' else 8.0214,
+            # Provenance, NOT a new actor channel. A frozen policy should
+            # identify the actual collision engine on which it trained.
+            # Missing keys in historical bundles preserve old semantics.
+            "terrain_carpet": bool(run_cfg.get('terrain_carpet', False)),
+            "carpet_transition_cap_deg": _scalar(
+                run_cfg, 'carpet_transition_cap_deg', 3.0),
+            "academy_stream": bool(run_cfg.get('academy_stream', False)),
+            "academy_height_cap_m": _scalar(
+                run_cfg, 'academy_height_cap_m', .150),
             "capability_field_mode": run_cfg.get('capability_field_mode'),
             "field_max_influence": _number(run_cfg.get('field_max_influence')),
             "field_teach_nodes": run_cfg.get('field_teach_nodes'),
