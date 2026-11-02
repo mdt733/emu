@@ -50,7 +50,14 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
   }
   // Trainer applies the geometric transition cap to the already
   // role-scaled slope, NOT a second role-specific multiplier to the cap.
-  return {...p,transitionDeg:Number(limits.transitionDeg??3),
+  return {
+    ...p,
+    // Match GPU role_envelope's extra exposure multiplier. This is a
+    // curriculum BIRTH target, not an estimate of demonstrated skill.
+    slopeDeg:p.slopeDeg*Math.max(0,Math.min(1,Number(limits.slopeExposure??1))),
+    stepUpM:p.stepUpM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
+    stepDownM:p.stepDownM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
+    transitionDeg:Number(limits.transitionDeg??3),
     role,stage:carpetLearningStage(limits)};
 }
 
