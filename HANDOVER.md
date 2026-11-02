@@ -639,3 +639,60 @@ Feature branch code now provides:
 See `docs/V5041_TRAINING_CARPET_VIEWER.md`. Preserve the training
 140M run source SHA and live checkpoint metadata independently of
 whatever UI branch HEAD is used to watch.
+
+
+### Viewer usability hardening — 3 November 2026, specialist-first revision
+
+Further owner browser feedback corrected three practical flaws in the
+initial two-world viewer:
+
+1. **Retired depth courses were still visible.** The optional 4×4
+   Sensor inspector now always reads the CURRENT Field or Carpet.
+   Removed its old Ground selector (flat, step presets, ridge, log,
+   v5023 lab), separate slope/step lab sliders and the browser UI
+   commands that entered the retired `sensor` terrain mode. The main
+   viewer's internal mode selector exposes ONLY Field and Carpet.
+   The read-only 4×4 diagnostic still exists.
+2. **The stale “Manual control — autonomous navigation resumes in 0s”
+   overlay covered the Carpet role chooser.** Field navigation now
+   explicitly requires `terrainMode==='park'` in `syncGoalMode`;
+   Carpet never enters navigation tick, never displays the manual
+   countdown, and hard-hides the old HUD as a CSS fallback.
+   **Training specialist is now the first control INSIDE Settings**
+   rather than a floating selector. A single consolidated drawer, no
+   overlapping secondary navigation or inspector cards.
+3. **One checkbox/number-form did not expose the specialist's real
+   scaled assignment.** Settings now has a source-linked set of ten
+   role-effective sliders below Training specialist: slope angle,
+   transition, up/down lips, forward/reverse/strafe/yaw speed,
+   disturbance probability/intensity, and push cap. Current training
+   assignment is shown by default, with the role's relative scale
+   recorded. Drag any slider to leave live-follow mode and override
+   that role's **viewer-only** physical geometry/commands, including
+   deliberately unearned tall lips at a still-flat foundation age.
+   Overrides are keyed per role; Reset restores the source frontier.
+   No source-policy/teacher/optimizer changes.
+
+The old deterministic shove rotation and six-second timer are
+**removed**: `training-shoves.js` samples a real 50Hz MuJoCo
+`xfrc_applied` impulse after a stochastic Bernoulli event, with
+random XY direction, magnitude bounded by the chosen Newtons, and
+2–8 control-frame duration. Event probability is
+`0.0015 * selected resilience intensity` per control frame;
+default explicitly-labelled 8× inspection speed makes rare pushes
+observable, with 1× training-style frequency selectable.
+The **Apply one random shove** button is only an immediate manual
+preview, no longer the main way to see perturbations. Amber arrows
+are bright only when real force is applied, muted after completion.
+This is a browser observation of a representative task, NOT the
+hidden per-world GPU stochastic RNG replay.
+
+New `tests/training-tuning.test.mjs` and an expanded specialist
+test assert source role multipliers, custom box geometry independent
+of teacher source, manual foundation challenge, stochastic shove
+distribution/strength/frame bounds, removed retired UI and Field-only
+navigation gating. Source-isolated viewer on
+`~/emu-v5041-viewer` is still required. Do not alter the running
+140M source-pinned trainer checkout. Docs updated in
+`docs/V5041_TRAINING_CARPET_VIEWER.md`. Browser MuJoCo/WASM
+interaction needs owner acceptance after automated CI.
