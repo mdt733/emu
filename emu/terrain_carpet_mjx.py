@@ -61,17 +61,6 @@ def add_carpet_geoms(xml: str) -> str:
         if geom is not None:
             affinity=int(geom.get("conaffinity","1"))
             geom.set("conaffinity",str(affinity|4))
-    for i in range(TILE_COUNT):
-        ET.SubElement(asset,"hfield",dict(
-            name=HFIELD_NAMES[i],nrow="2",ncol="2",
-            size=f"{TILE_HALF_M} {TILE_HALF_M} {TILE_SIZE_Z_M} {TILE_BASE_M}",
-            elevation="0.5 0.5 0.5 0.5"))
-        body=ET.SubElement(world,"body",dict(
-            name=BODY_NAMES[i],mocap="true",pos=f"0 0 {-4-i}"))
-        ET.SubElement(body,"geom",dict(
-            name=GEOM_NAMES[i],type="hfield",hfield=HFIELD_NAMES[i],
-            contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
-            rgba="0.39 0.65 0.39 1"))
     # First six walls are x-normal; next six are y-normal.
     # All 12 geoms exist before JAX compilation and are independently
     # repositioned using mjx.Data.mocap_pos/mocap_quat per environment.
@@ -86,6 +75,17 @@ def add_carpet_geoms(xml: str) -> str:
             contype="4",conaffinity="0",
             friction="1.5 0.005 0.0001",
             rgba="0.48 0.58 0.42 1"))
+    for i in range(TILE_COUNT):
+        ET.SubElement(asset,"hfield",dict(
+            name=HFIELD_NAMES[i],nrow="2",ncol="2",
+            size=f"{TILE_HALF_M} {TILE_HALF_M} {TILE_SIZE_Z_M} {TILE_BASE_M}",
+            elevation="0.5 0.5 0.5 0.5"))
+        body=ET.SubElement(world,"body",dict(
+            name=BODY_NAMES[i],mocap="true",pos=f"0 0 {-4-i}"))
+        ET.SubElement(body,"geom",dict(
+            name=GEOM_NAMES[i],type="hfield",hfield=HFIELD_NAMES[i],
+            contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
+            rgba="0.39 0.65 0.39 1"))
     return ET.tostring(root,encoding="unicode")
 
 def hash_float(xp,i,j,seed,salt):
