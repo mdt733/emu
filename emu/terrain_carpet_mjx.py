@@ -85,9 +85,11 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
 def make_profiles(xp,seeds,up,down):
     """Exact per-world directional step limits on mostly independent strips.
 
-    The +/-X direction uses 70% of the UP/DOWN frontier. The +/-Y
-    component uses 18% of the smaller frontier; per-tile noise uses 5%.
-    Thus no single axis edge exceeds its relevant directional max.
+    The +/-X direction independently draws UP/DOWN under an early-to-late
+    0.5x→1.5x physical challenge schedule, with 90% of the directional
+    frontier as the base amplitude. The +/-Y component uses 18% of the
+    smaller frontier; per-tile jitter uses 5%. The final stretch may exceed
+    the mastered frontier by design (but never grows without bounds).
     All global tiles remain consistent on revisit within an episode.
     """
     n=seeds.shape[0]
@@ -95,8 +97,13 @@ def make_profiles(xp,seeds,up,down):
     seed=seeds[:,None]
     hx=hash_float(xp,idx,0,seed,101)
     ax=hash_float(xp,idx,0,seed,102)
-    signed_x=xp.where(hx<.5,.70*up[:,None],
-                       -.70*down[:,None])*(.3+.7*ax)
+    # Intentionally start at 50% demonstrated ability near the spawn and
+    # reach 150% in the farther tiles. Global coordinates make challenges
+    # immutable when revisited; advancing the episode age never edits a
+    # platform while the bird is standing on it.
+    challenge=.5+xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
+    signed_x=xp.where(hx<.5,.90*up[:,None],
+                       -.90*down[:,None])*(.75+.25*ax)*challenge
     hy=hash_float(xp,0,idx,seed,103)
     ay=hash_float(xp,0,idx,seed,104)
     minor=xp.minimum(up,down)[:,None]
@@ -126,8 +133,11 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg):
     x=ti.astype(xp.float32)*TILE_M
     y=tj.astype(xp.float32)*TILE_M
     phase=hash_float(xp,0,0,seeds,140)*2.*xp.pi
-    sx=xp.tan(xp.deg2rad(slope_deg))*.40
-    sy=xp.tan(xp.deg2rad(slope_deg))*.28
+    # The SLOPE specialist's actual local gradient must reach its
+    # near-frontier band (>=78%); using ~half the requested grade here
+    # would make meaningful slope promotion mathematically impossible.
+    sx=xp.tan(xp.deg2rad(slope_deg))*.82
+    sy=xp.tan(xp.deg2rad(slope_deg))*.82
     def z_at(dx,dy):
         gx=x+dx
         gy=y+dy

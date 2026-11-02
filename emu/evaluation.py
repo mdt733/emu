@@ -106,6 +106,9 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # two-slab world and sensor meanings even with ZERO terrain exposure.
         # Archived 220/232/older tripod-360 panels remain unchanged.
         unified_capability_focus=bool(config.unified_capability_focus),
+        # A carpet-trained actor's held-out physics MUST also use a carpet.
+        # A two-slab world would silently return a false flat benchmark.
+        terrain_carpet=bool(config.terrain_carpet),
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),

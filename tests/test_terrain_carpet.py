@@ -103,3 +103,34 @@ def test_actual_viewer_live_endpoint_exposes_real_training_frontiers(tmp_path):
     assert float(data["latest_metrics"]["academy_height_up_m"])==.022
     assert float(data["latest_metrics"]["academy_height_down_m"])==.035
     assert "source training metrics" in data["physics_mode"]
+
+def test_mjx_frontier_bands_and_directional_step_limits():
+    import jax.numpy as jnp
+    import numpy as np
+    from emu.terrain_carpet_mjx import (
+        make_profiles,tile_geometry,PROFILE_HALF)
+    seeds=jnp.array([735,761,902],dtype=jnp.int32)
+    up=jnp.full((3,),.02)
+    down=jnp.full((3,),.04)
+    xprofile,yprofile=make_profiles(jnp,seeds,up,down)
+    diffs=np.asarray(jnp.diff(xprofile,axis=1))
+    # The first tiles are easy, later tiles stretch beyond the earned
+    # frontier, but cannot become arbitrary unbounded cliffs.
+    early=np.abs(diffs[:,PROFILE_HALF+1:PROFILE_HALF+3])
+    middle=np.abs(diffs[:,PROFILE_HALF+7:PROFILE_HALF+13])
+    late=np.abs(diffs[:,PROFILE_HALF+16:PROFILE_HALF+20])
+    assert early.max()<.65*.04
+    assert middle.mean()>early.mean()
+    assert late.mean()>middle.mean()
+    assert diffs.max()<1.5*.02+1e-5
+    assert diffs.min()>-1.5*.04-1e-5
+
+    pos,h=tile_geometry(jnp,jnp.array([0,1,2]),jnp.array([0,0,0]),
+        seeds,xprofile,yprofile,up,down,jnp.full((3,),8.0))
+    top=np.asarray(h)
+    gx=.5*(top[:,1]+top[:,3]-top[:,0]-top[:,2])
+    gy=.5*(top[:,2]+top[:,3]-top[:,0]-top[:,1])
+    grade=np.rad2deg(np.arctan(np.hypot(gx,gy)))
+    assert np.all(grade>6.0),grade
+    assert np.all(grade<8.25),grade
+

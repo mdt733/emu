@@ -22,6 +22,11 @@ SLOPE inherits half of STEP's demonstrated height envelope and STEP
 half of SLOPE's demonstrated maximum inclination, while the other
 roles receive graded background terrain. Flat foundation uses zero
 terrain exposure. Independent UP/DOWN Academy frontiers are preserved.
+New step opportunities rise from roughly 50% of current directional
+competence near the episode's starting cells to 150% at farther cells
+(deterministically, so revisits do not edit physical ground). SLOPE
+reaches about 82% of its learned gradient envelope at the tile surface,
+making the near-frontier measurement band actually attainable.
 Only physically supported tile-to-tile transitions can earn the
 new per-lip stepping rewards.
 
@@ -37,6 +42,9 @@ Teacher-only torso and foot support distances likewise read the
 current real tile samples. Heightfield triangle ray intersections
 are reconstructed analytically; tiny differences at triangle diagonals
 or extreme vertical riser faces still require independent examination.
+
+Source-matched frozen evaluator worlds also now instantiate the carpet
+rather than silently grading the new policy on the old two-slab ground.
 
 **Crucial limits:** A 2×2 hfield contains two top triangles and its
 built-in thickness/skirt; it is not yet certified to have perfectly
