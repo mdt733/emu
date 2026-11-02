@@ -126,13 +126,14 @@
         </div>
         <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
           <b>TRAINING CARPET · CURRICULUM VIEW</b>
-          <small>The original Terrain Park is unchanged. This separate mode uses real browser MuJoCo collision with a finite sampled heightfield. Sharp steps are approximated; it is not an exact MJX training-world replay.</small>
+          <small>Nine real 50cm tilted MuJoCo solid boxes recycle around EMU, with actual vertical step faces. Live difficulty follows the training metrics, but this is a representative world, not a replay of any particular random MJX training environment.</small>
           <label>Specialist <select id="carpetRole">
+            <option value="auto" selected>Auto · foundation → slopes → step Academy</option>
             <option value="standing">Standing · flat foundation</option>
             <option value="command">Commands · gentle terrain</option>
             <option value="resilience">Resilience · mixed terrain</option>
             <option value="slope">Slope · gradient transitions</option>
-            <option value="step" selected>Step Academy · lips + mild slopes</option>
+            <option value="step">Step Academy · lips + mild slopes</option>
             <option value="transition">Transitions · changing ground</option>
             <option value="control">Control · nearly flat</option>
           </select></label>
@@ -141,6 +142,7 @@
             <input id="carpetImport" type="file" accept=".csv,.json,text/csv,application/json" />
           </label>
           <label><input id="carpetLive" type="checkbox" checked /> Read live difficulty from the local EMU training viewer (every 5 s)</label>
+          <label><input id="carpetAutoApply" type="checkbox" checked /> Follow training stage automatically; update the physical world when frontiers change materially (resets only browser robot)</label>
           <div class="carpet-actions">
             <button id="carpetFetch" type="button">Refresh training values</button>
             <button id="carpetApply" type="button">Apply terrain to robot viewer</button>
