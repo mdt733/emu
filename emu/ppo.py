@@ -815,13 +815,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Actual disturbance delivered in the previous MJX step;
                 # recorded only for frozen recovery assessment.
                 applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
-            if env.academy_course_lips:
+            if env.academy_stream:
                 # Read-only per-lip physical measurements from the same
                 # step function as training; never the policy reward alone.
                 sample.update({
                     "academy_active":out.metrics['academy_active'],
                     "academy_lip_index":out.metrics['academy_lip_index'],
                     "academy_cross_new":out.metrics['academy_cross_new'],
+                    "academy_lip_attempt_new":out.metrics['academy_lip_attempt_new'],
                     "academy_course_new":out.metrics['academy_course_new'],
                     "academy_cross_up":out.metrics['academy_cross_up'],
                     "academy_cross_down":out.metrics['academy_cross_down'],
@@ -858,7 +859,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                         "academy_initial_platform_xmat":initial.data.geom_xmat[
                             :,int(env.ids['floor_geom']),:].reshape(
                                 (env.num_envs,3,3))}
-                       if env.academy_course_lips else {}),
+                       if env.academy_stream else {}),
                     initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
                     initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
                     initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],

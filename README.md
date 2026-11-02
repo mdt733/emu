@@ -155,8 +155,9 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 The active research branch is
 [`feature/v5040-multi-lip-academy-world`](https://github.com/mdt733/emu/tree/feature/v5040-multi-lip-academy-world):
-the existing STEP specialist now receives four real consecutive lips,
-random up/down sequences and incremental physically supported rewards.
+the STEP specialist now uses a three-platform streaming course with
+endlessly random UP/DOWN steps, independent difficulty frontiers and
+physically supported progress rewards.
 It uses the same actor and retains the general curriculum, but has not
 yet been GPU-profiled or trained. See the [v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).
 The released 260M policy on `main` is unchanged.

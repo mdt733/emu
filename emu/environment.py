@@ -44,11 +44,11 @@ from .capability_focus import (focus_indices, diamond_commands,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
 from .step_academy_world import (
-    ACADEMY_LIPS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
-    ACADEMY_MIDDLE_HALF_LENGTH_M, ACADEMY_MIDDLE_HALF_WIDTH_M,
-    ACADEMY_MIDDLE_HALF_DEPTH_M, ACADEMY_MIDDLE_NAMES,
-    ACADEMY_MIDDLE_GEOMS, ACADEMY_PATTERNS, ACADEMY_MAX_EDGE_YAW_DEG,
-    course_heights)
+    ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
+    ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
+    ACADEMY_PLATFORM_HALF_DEPTH_M, ACADEMY_PLATFORM_NAMES,
+    ACADEMY_PLATFORM_GEOMS, ACADEMY_MAX_EDGE_YAW_DEG,
+    ACADEMY_BURIED_FLOOR_Z_M, signed_lip_height, initial_heights)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -195,7 +195,7 @@ UNIFIED_SLAB_HALF_WIDTH_M = 16.0
 UNIFIED_SLAB_HALF_DEPTH_M = .25
 
 
-def add_unified_terrain(robot_xml: str, academy_lips: int = 0) -> str:
+def add_unified_terrain(robot_xml: str, academy_stream: bool = False) -> str:
     """Replace the infinite floor with movable lower + higher solid slabs.
 
     The old XML/main is NEVER modified. Floor and platform are two mocap
@@ -204,8 +204,8 @@ def add_unified_terrain(robot_xml: str, academy_lips: int = 0) -> str:
     Their poses are sampled per episode through mjx.Data, with NO per-episode
     model rebuild and no privileged actor-input channels.
     """
-    if academy_lips not in (0, ACADEMY_LIPS):
-        raise ValueError('Step Academy requires exactly four lips or none')
+    if not isinstance(academy_stream,bool):
+        raise ValueError('academy_stream must be a boolean')
     root=ET.parse(robot_xml).getroot()
     world=root.find('worldbody')
     if world is None:
@@ -222,7 +222,7 @@ def add_unified_terrain(robot_xml: str, academy_lips: int = 0) -> str:
         if geom is None:
             raise ValueError(f'missing contact geometry {geom_name}')
         geom.set('contype','3')
-        geom.set('conaffinity','7' if academy_lips else '3')
+        geom.set('conaffinity','7' if academy_stream else '3')
     size=(f'{UNIFIED_SLAB_HALF_LENGTH_M} {UNIFIED_SLAB_HALF_WIDTH_M} '
           f'{UNIFIED_SLAB_HALF_DEPTH_M}')
     ground=ET.SubElement(world,'body',dict(name='unified_ground',mocap='true',
@@ -236,16 +236,15 @@ def add_unified_terrain(robot_xml: str, academy_lips: int = 0) -> str:
                                       type='box',size=size,
                                       contype='2',conaffinity='2',
                                       friction=friction,rgba='0.65 0.50 0.24 1'))
-    if academy_lips:
-        # The initial floor and final elevated slab are the two existing
-        # boxes. Three short *real* middle platforms provide four lips.
-        # Bit 4 touches robot conaffinity=7 but not the other floor boxes
-        # or other platforms; no self-collisions between abutting slabs.
-        size_mid=(f'{ACADEMY_MIDDLE_HALF_LENGTH_M} '
-                  f'{ACADEMY_MIDDLE_HALF_WIDTH_M} '
-                  f'{ACADEMY_MIDDLE_HALF_DEPTH_M}')
+    if academy_stream:
+        # Three short, fixed-topology colliders are recycled in a ring.
+        # The two original long slabs stay dormant during Academy births.
+        # Bit 4 lets robot feet touch any of the three, but no slab-slab pair.
+        size_mid=(f'{ACADEMY_PLATFORM_HALF_LENGTH_M} '
+                  f'{ACADEMY_PLATFORM_HALF_WIDTH_M} '
+                  f'{ACADEMY_PLATFORM_HALF_DEPTH_M}')
         for i,(body_name,geom_name) in enumerate(
-                zip(ACADEMY_MIDDLE_NAMES,ACADEMY_MIDDLE_GEOMS)):
+                zip(ACADEMY_PLATFORM_NAMES,ACADEMY_PLATFORM_GEOMS)):
             body=ET.SubElement(world,'body',dict(
                 name=body_name,mocap='true',pos=f'0 0 {-2.0-i*.3}'))
             ET.SubElement(body,'geom',dict(
@@ -322,7 +321,7 @@ class EnvState(NamedTuple):
     vx_reward_history: Any = None
     cmd_vx_reward_history: Any = None
     vx_reward_count: Any = None
-    # Teacher-only sequential four-lip progress, never actor observations.
+    # Teacher-only rolling three-platform progress; lip count is unbounded.
     academy_active: Any = None
     academy_lip_index: Any = None
     academy_streak: Any = None
@@ -1079,8 +1078,8 @@ class EmuMJXEnv(TaskSampler):
                  temporal_vx_reward_share: float = 0.0,
                  verified_ascent_reallocation: float = 0.0,
                  science_step_crouch_tolerance_m: float = 0.0,
-                 academy_course_lips: int = 0,
-                 academy_height_cap_m: float = 0.040,
+                 academy_stream: bool = False,
+                 academy_height_cap_m: float = 0.150,
                  academy_course_episode_frames: int = 1200):
         import jax
         import jax.numpy as jnp
@@ -1160,12 +1159,12 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
         self.terrain_step_max_m = float(terrain_step_max_m)
         self.paired_terrain_heights = bool(paired_terrain_heights)
-        if academy_course_lips not in (0,ACADEMY_LIPS) or (
-                academy_course_lips and not unified_capability_focus):
-            raise ValueError('four-lip Academy requires unified terrain_360')
-        if not .003 <= academy_height_cap_m <= .04:
-            raise ValueError('Academy lip height cap must be 3-40mm')
-        self.academy_course_lips=int(academy_course_lips)
+        if type(academy_stream) is not bool or (
+                academy_stream and not unified_capability_focus):
+            raise ValueError('streaming Academy requires unified terrain_360')
+        if not .003 <= academy_height_cap_m <= .25:
+            raise ValueError('Academy frontier aspiration must be 3mm-25cm')
+        self.academy_stream=bool(academy_stream)
         self.academy_height_cap_m=float(academy_height_cap_m)
         if (type(academy_course_episode_frames) is not int or
             not 700<=academy_course_episode_frames<=1500):
@@ -1174,7 +1173,7 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_pair_seed = int(seed)
         self.mj_model = (
             mujoco.MjModel.from_xml_string(
-                add_unified_terrain(self.robot_xml,self.academy_course_lips))
+                add_unified_terrain(self.robot_xml,self.academy_stream))
             if self.unified_capability_focus else
             mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
             if self.terrain_step_max_m > 0 else
@@ -1192,8 +1191,8 @@ class EmuMJXEnv(TaskSampler):
                 raise RuntimeError('unified ground must have a real movable mocap body')
         self.terrain_step_mocap_id = -1
         self.terrain_step_geom_id = -1
-        self.academy_mid_mocap_ids=()
-        self.academy_mid_geom_ids=()
+        self.academy_platform_mocap_ids=()
+        self.academy_platform_geom_ids=()
         if self.terrain_step_max_m:
             platform_body = mujoco.mj_name2id(
                 self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
@@ -1202,16 +1201,16 @@ class EmuMJXEnv(TaskSampler):
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
             if self.terrain_step_mocap_id < 0:
                 raise RuntimeError('physical episode terrain requires a mocap body')
-        if self.academy_course_lips:
-            self.academy_mid_mocap_ids=tuple(int(
+        if self.academy_stream:
+            self.academy_platform_mocap_ids=tuple(int(
                 self.mj_model.body_mocapid[mujoco.mj_name2id(
                     self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
-                for n in ACADEMY_MIDDLE_NAMES)
-            self.academy_mid_geom_ids=tuple(int(mujoco.mj_name2id(
+                for n in ACADEMY_PLATFORM_NAMES)
+            self.academy_platform_geom_ids=tuple(int(mujoco.mj_name2id(
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
-                for n in ACADEMY_MIDDLE_GEOMS)
-            if (any(x<0 for x in self.academy_mid_mocap_ids)
-                or any(x<0 for x in self.academy_mid_geom_ids)):
+                for n in ACADEMY_PLATFORM_GEOMS)
+            if (any(x<0 for x in self.academy_platform_mocap_ids)
+                or any(x<0 for x in self.academy_platform_geom_ids)):
                 raise RuntimeError('Missing real Academy platform body or geom')
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
@@ -1312,9 +1311,9 @@ class EmuMJXEnv(TaskSampler):
                  (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
             raise ValueError('step crouch science requires coherent-careful terrain; 0..4cm')
         self.science_step_crouch_tolerance_m=float(science_step_crouch_tolerance_m)
-        self.academy_geom_ids=(int(self.ids['floor_geom']),
-                              *self.academy_mid_geom_ids,
-                              int(self.terrain_step_geom_id)) if self.academy_course_lips else ()
+        # Three recyclable academy supports; original long slabs serve
+        # only generalist and ordinary single-step births.
+        self.academy_geom_ids=self.academy_platform_geom_ids if self.academy_stream else ()
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1628,28 +1627,26 @@ class EmuMJXEnv(TaskSampler):
                 if self.science_step_crouch_tolerance_m>0. else None),
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
-            motor_guidance_per_world=(control_effort_weights(jnp,
-                    jnp.where(state.specialist_active,state.focus_id,-1))
+            motor_guidance_per_world=(jnp.where(
+                    state.academy_active,0.,
+                    control_effort_weights(jnp,
+                      jnp.where(state.specialist_active,state.focus_id,-1)))
                 if self.unified_capability_focus else None))
-        # Academy gets up to 20s at the slow nursery pace, while other
-        # roles keep their original 700-frame staggered episode clock.
+        # Academy traverses a repeating physical ring up to its own timeout,
+        # while ordinary roles keep their 700-frame episode clock.
         timeout=jnp.where(state.academy_active,
             state.ep_len+1>=self.academy_course_episode_frames,
             step_i>=self.max_episode_steps)
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
         academy=self._academy_events(state,data,metrics,terminal_or_timeout)
-        # Fourth verified lip concludes the course immediately. No idle
-        # waiting on a second clock after genuine physical completion.
-        course_done=academy['completed'] & (
-            state.academy_lip_index<ACADEMY_LIPS)
         # Unlike the one-lip course, every new ascent deserves its OWN
         # bounded 120-frame careful approach budget. Do not allow infinite
         # standing/near-edge relief on the same lip.
         care_frames=jnp.where(
             state.academy_active & academy['cross_new'],
             jnp.zeros_like(care_frames),care_frames)
-        done=terminal_or_timeout|course_done
+        done=terminal_or_timeout
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
         # penalty points and drown out novice ascent/foothold discovery.
@@ -1679,12 +1676,15 @@ class EmuMJXEnv(TaskSampler):
         # height or approach position is ever passed to the actor.
         terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
             state, data, metrics)
-        # A separate physical Academy ceiling has its OWN verified frontier.
-        # A failed approach and the matched success are both scored at the
-        # physical height of this lip, NEVER by an arbitrary old STEP world.
+        # Near/easy support evidence uses the actual signed step size.
+        # Ascents and descents are independently measured against their OWN
+        # learned frontier. Late 150%-challenge lips cannot fake promotion.
+        academy_up_ref=params[P.academy_height_up_m]
+        academy_down_ref=params[P.academy_height_down_m]
+        academy_ref=jnp.where(academy['height_m']>0.,academy_up_ref,academy_down_ref)
         academy_ref=jnp.where(
             jnp.isfinite(params[P.terrain_fixed_height_m]),
-            params[P.terrain_fixed_height_m],params[P.academy_height_m])
+            jnp.abs(params[P.terrain_fixed_height_m]),academy_ref)
         academy_relative_height=(jnp.abs(academy['height_m']) /
                                  jnp.maximum(academy_ref,.001))
         academy_near=((academy_relative_height>=.78) &
@@ -1795,6 +1795,11 @@ class EmuMJXEnv(TaskSampler):
         base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
+        # On a verified fully-clear crossing, recycle only the trailing
+        # collision slab. Never mutate the geometry used to classify this
+        # frame's contacts or sensor measurements.
+        data = self._recycle_academy_platform(
+            state,data,academy,physics.next_keys,params)
         # carryover_qvel is this step's own (already divergence-safe)
         # qvel -- see the docstring on _reset_with_keys.
         reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
@@ -1946,9 +1951,10 @@ class EmuMJXEnv(TaskSampler):
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
+            # A four-crossing milestone, not a terminal course completion.
             'academy_course_new':(
-                academy['completed'] &
-                (state.academy_lip_index<ACADEMY_LIPS)
+                academy['cross_new'] &
+                (jnp.mod(academy['lip_index'],4)==0)
             ).astype(jnp.float32),
             'academy_cross_up':academy['up_new'].astype(jnp.float32),
             'academy_lip_attempt_new':academy['attempt_new'].astype(jnp.float32),
@@ -1969,8 +1975,9 @@ class EmuMJXEnv(TaskSampler):
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
-            'academy_episode_complete':(done & academy['completed'] &
-                                         ~terminal_fail).astype(jnp.float32),
+            'academy_episode_complete':(done & ~terminal_fail &
+                                         state.academy_active &
+                                         (academy['crossings']>0)).astype(jnp.float32),
             'academy_episode_crossings':jnp.where(done,
                  academy['crossings'].astype(jnp.float32),0.),
             'academy_episode_up_crossings':jnp.where(done,
@@ -2560,76 +2567,115 @@ class EmuMJXEnv(TaskSampler):
 
     def _academy_course(self, data, keys, params, focus_id,
                         specialist_active, athletic_rehearsal, birth_root_z):
-        """Install four REAL signed step lips at episode birth, no model rebuild.
+        """Birth three actual supports; recycle their roles during physics.
 
-        The first/final slabs are the existing unified floor/upper colliders;
-        three 0.35m platforms connect four consecutive lips. The up/down
-        order changes at each STEP birth; non-STEP worlds remain untouched.
-        Other worlds retain *exactly* their existing two-slab collision
-        poses and actual 16-ray terrain measurements.
+        Sign draws are independent Bernoulli choices, not a shuffled pattern.
+        The original two long slabs are parked twenty metres below Academy
+        worlds, preserving their ordinary physics for every other world.
         """
         jnp,jax=self.jnp,self.jax
-        zeros=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        if not self.academy_course_lips:
-            return data,zeros
-        def sample(key):
-            return jax.random.uniform(
-                jax.random.fold_in(key,5040),(6,),dtype=jnp.float32)
-        u=jax.vmap(sample)(keys)
+        inactive=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        if not self.academy_stream:
+            return data,inactive
+        u=jax.vmap(lambda k:jax.random.uniform(
+            jax.random.fold_in(k,5040),(8,),dtype=jnp.float32))(keys)
         active=(specialist_active & (focus_id==STEP) &
                 (athletic_rehearsal<.5) &
-                (u[:,0]<params[P.academy_episode_probability]) &
-                (params[P.academy_height_m]>.0001))
+                (u[:,0]<params[P.academy_episode_probability]))
         yaw=(u[:,5]*2.-1.)*jnp.deg2rad(ACADEMY_MAX_EDGE_YAW_DEG)
-        fixed=params[P.terrain_edge_angle_deg]
-        yaw=jnp.where(jnp.isfinite(fixed),jnp.deg2rad(fixed),yaw)
+        angle_override=params[P.terrain_edge_angle_deg]
+        yaw=jnp.where(jnp.isfinite(angle_override),
+                      jnp.deg2rad(angle_override),yaw)
         ca,sa=jnp.cos(yaw),jnp.sin(yaw)
         q=jnp.stack((jnp.cos(yaw/2),jnp.zeros_like(yaw),
                      jnp.zeros_like(yaw),jnp.sin(yaw/2)),axis=1)
-        fixed_height=params[P.terrain_fixed_height_m]
-        has_fixed=jnp.isfinite(fixed_height)
-        severity=jnp.where(has_fixed,fixed_height,
-            jnp.minimum(self.academy_height_cap_m,
-                        jnp.maximum(.0015,params[P.academy_height_m])))
-        # Frozen physical exams specify exact signed lip heights; training
-        # always randomises each independent physical ledge.
-        sampled=jnp.where(has_fixed,jnp.ones_like(u[:,1:5]),u[:,1:5])
-        # Keep pattern RNG independent of the birth-selection draw; using
-        # u[:,0] for both would bias the orders at low Academy exposure.
-        random_pattern=jax.vmap(lambda k:jax.random.randint(
-            jax.random.fold_in(k,5041),(),0,len(ACADEMY_PATTERNS)))(keys)
-        pattern=jnp.where(has_fixed,self.env_index,random_pattern)
-        h=course_heights(jnp,pattern,sampled,severity)
-        L=UNIFIED_SLAB_HALF_LENGTH_M
-        xs=(ACADEMY_EDGE_X_M-L,
-            *(ACADEMY_EDGE_X_M+(i+.5)*ACADEMY_INTERVAL_M
-              for i in range(ACADEMY_LIPS-1)),
-            ACADEMY_EDGE_X_M+(ACADEMY_LIPS-1)*ACADEMY_INTERVAL_M+L)
-        mocaps=(self.unified_ground_mocap_id,
-                *self.academy_mid_mocap_ids,self.terrain_step_mocap_id)
+        fixed=params[P.terrain_fixed_height_m]
+        has_fixed=jnp.isfinite(fixed)
+        # Only frozen exams use deterministic signs, so the same starting
+        # physical cases are reproducible. Training draws both signs freely.
+        first=jnp.where(has_fixed,
+            jnp.where((self.env_index%2)==0,1.,-1.),
+            jnp.where(u[:,1]<.5,1.,-1.))
+        second=jnp.where(has_fixed,
+            jnp.where((self.env_index%4)<2,-1.,1.),
+            jnp.where(u[:,2]<.5,1.,-1.))
+        fixed_h=jnp.maximum(.0015,jnp.abs(fixed))
+        up=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_up_m])
+        down=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_down_m])
+        rise0=jnp.where(has_fixed,first*fixed_h,
+            signed_lip_height(jnp,first,u[:,3],up,down))
+        rise1=jnp.where(has_fixed,second*fixed_h,
+            signed_lip_height(jnp,second,u[:,4],up,down))
+        levels=initial_heights(jnp,jnp.stack((rise0,rise1),axis=1))
         pos=data.mocap_pos
         quat=data.mocap_quat
-        for i,(x,mocap_id) in enumerate(zip(xs,mocaps)):
+        # Disabled original slabs cannot leak contact or phantom ToF returns.
+        buried=jnp.asarray((0.,0.,ACADEMY_BURIED_FLOOR_Z_M),
+                           dtype=jnp.float32)
+        for mocap in (self.unified_ground_mocap_id,
+                      self.terrain_step_mocap_id):
+            pos=pos.at[:,mocap,:].set(
+                jnp.where(active[:,None],buried,pos[:,mocap,:]))
+        # Same 3 collision boxes are recycled forever. No additional geoms
+        # or re-JIT after individual course transitions.
+        for i,mocap in enumerate(self.academy_platform_mocap_ids):
+            x=i*ACADEMY_INTERVAL_M
             centre=jnp.stack((x*ca,x*sa,
-                              h[:,i]-UNIFIED_SLAB_HALF_DEPTH_M),axis=1)
-            if i in (0,ACADEMY_LIPS):
-                centre=jnp.where(active[:,None],centre,pos[:,mocap_id,:])
-                new_q=jnp.where(active[:,None],q,quat[:,mocap_id,:])
-            else:
-                # No phantom steps/rays/contact on generalist worlds.
-                buried=jnp.asarray((0.,0.,-2.-i*.3),dtype=jnp.float32)
-                centre=jnp.where(active[:,None],centre,buried)
-                identity=jnp.asarray((1.,0.,0.,0.),dtype=jnp.float32)
-                new_q=jnp.where(active[:,None],q,identity)
-            pos=pos.at[:,mocap_id,:].set(centre)
-            quat=quat.at[:,mocap_id,:].set(new_q)
-        # The old two-slab reset may have raised alternate down-world roots.
-        # Re-base selected Academy births to the actual FIRST platform
-        # rather than accumulating that unrelated one-lip displacement.
-        root_z=jnp.where(active,birth_root_z+h[:,0],data.qpos[:,2])
+                      levels[:,i]-ACADEMY_PLATFORM_HALF_DEPTH_M),axis=1)
+            dormant=jnp.asarray((0.,0.,-2.-i*.3),dtype=jnp.float32)
+            centre=jnp.where(active[:,None],centre,dormant)
+            pos=pos.at[:,mocap,:].set(centre)
+            identity=jnp.asarray((1.,0.,0.,0.),dtype=jnp.float32)
+            quat=quat.at[:,mocap,:].set(jnp.where(active[:,None],q,identity))
         data=data.replace(mocap_pos=pos,mocap_quat=quat,
-                          qpos=data.qpos.at[:,2].set(root_z))
+            qpos=data.qpos.at[:,2].set(
+                jnp.where(active,birth_root_z,data.qpos[:,2])))
         return data,active
+
+    def _recycle_academy_platform(self, state, data, academy, keys, params):
+        """Move a cleared trailing slab past the look-ahead slab, per world.
+
+        Called only after a five-frame real supported crossing, both feet
+        fully beyond the old lip, and no remaining old-slab foot contact.
+        The move happens after this frame's contacts and sensor sample; MJX
+        recomputes kinematics before the next simulated frame.
+        """
+        if not self.academy_stream:
+            return data
+        jnp,jax=self.jnp,self.jax
+        move=academy['cross_new']
+        count=state.academy_lip_index
+        slot=jnp.mod(count,ACADEMY_PLATFORMS)
+        far_slot=jnp.mod(count+2,ACADEMY_PLATFORMS)
+        old_pos=jnp.stack(tuple(
+            data.mocap_pos[:,m,:] for m in self.academy_platform_mocap_ids),axis=1)
+        far_pos=jnp.take_along_axis(old_pos,far_slot[:,None,None],
+                                   axis=1)[:,0,:]
+        sample=jax.vmap(lambda k:jax.random.uniform(
+            jax.random.fold_in(k,5043),(2,),dtype=jnp.float32))(keys)
+        direction=jnp.where(sample[:,0]<.5,1.,-1.)
+        fixed=params[P.terrain_fixed_height_m]
+        has_fixed=jnp.isfinite(fixed)
+        up=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_up_m])
+        down=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_down_m])
+        progress=(state.ep_len+1)/self.academy_course_episode_frames
+        rise=jnp.where(has_fixed,
+            direction*jnp.maximum(.0015,jnp.abs(fixed)),
+            signed_lip_height(jnp,direction,sample[:,1],up,down,progress))
+        # The course yaw is fixed within one episode; both adjacent faces
+        # remain flush. Independent direction and size draws never repeat
+        a prescribed up/down pattern.
+        q=data.mocap_quat[:,self.academy_platform_mocap_ids[0],:]
+        ca=1.-2.*q[:,3]**2
+        sa=2.*q[:,0]*q[:,3]
+        x=(count+3)*ACADEMY_INTERVAL_M
+        centre=jnp.stack((x*ca,x*sa,far_pos[:,2]+rise),axis=1)
+        pos=data.mocap_pos
+        for i,mocap in enumerate(self.academy_platform_mocap_ids):
+            chosen=move & (slot==i)
+            pos=pos.at[:,mocap,:].set(
+                jnp.where(chosen[:,None],centre,pos[:,mocap,:]))
+        return data.replace(mocap_pos=pos)
 
     def _episode_terrain(self, data, keys, params,
                          focus_id=None, specialist_active=None,
@@ -2829,7 +2875,7 @@ class EmuMJXEnv(TaskSampler):
             depth_upper=self._ray_box_distance(
                 data,int(self.terrain_step_geom_id),torso,down_ray)[:,0]
             true_depth=jnp.minimum(depth_floor,depth_upper)
-            for geom_id in self.academy_mid_geom_ids:
+            for geom_id in self.academy_platform_geom_ids:
                 true_depth=jnp.minimum(true_depth,self._ray_box_distance(
                     data,geom_id,torso,down_ray)[:,0])
             true_depth=jnp.where(jnp.isfinite(true_depth)&
@@ -2917,7 +2963,7 @@ class EmuMJXEnv(TaskSampler):
             terrain_t=jnp.minimum(floor_t,box_t)
             # EXACT same collidable middle boxes as MJX foot contact.
             # No privileged height-field shortcut or imaginary ground rays.
-            for geom_id in self.academy_mid_geom_ids:
+            for geom_id in self.academy_platform_geom_ids:
                 terrain_t=jnp.minimum(terrain_t,self._ray_box_distance(
                     data,geom_id,origin,ray))
         else:
@@ -3005,7 +3051,7 @@ class EmuMJXEnv(TaskSampler):
         upper_depth=self._ray_box_distance(
             data,int(self.terrain_step_geom_id),torso,down)[:,0]
         depth=jnp.minimum(floor_depth,upper_depth)
-        for geom_id in self.academy_mid_geom_ids:
+        for geom_id in self.academy_platform_geom_ids:
             depth=jnp.minimum(depth,self._ray_box_distance(
                 data,geom_id,torso,down)[:,0])
         depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
@@ -3210,8 +3256,12 @@ class EmuMJXEnv(TaskSampler):
         """
         jnp=self.jnp
         centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
-        burial=jnp.asarray((0.,0.,-2.),dtype=centre.dtype)
-        return jnp.sum((centre-burial)**2,axis=1)>1.0
+        old_burial=jnp.asarray((0.,0.,-2.),dtype=centre.dtype)
+        school_burial=jnp.asarray((0.,0.,ACADEMY_BURIED_FLOOR_Z_M),
+                                  dtype=centre.dtype)
+        inactive=(jnp.sum((centre-old_burial)**2,axis=1)<1e-6) | (
+            jnp.sum((centre-school_burial)**2,axis=1)<1e-6)
+        return ~inactive
 
     def _support_signed_heights(self, data, positions):
         """Teacher-only distance above real local support (plane OR box top).
@@ -3233,15 +3283,17 @@ class EmuMJXEnv(TaskSampler):
             active=self._unified_platform_active(data)
             height=jnp.where(inside & active[:,None],
                              local[:,:,2]-half[2],flat)
-            for geom_id in self.academy_mid_geom_ids:
+            for geom_id in self.academy_platform_geom_ids:
                 mid_R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
                 mid_delta=positions-data.geom_xpos[:,geom_id,None,:]
                 mid_local=jnp.einsum('epi,eij->epj',mid_delta,mid_R)
                 mid_half=self.mj_model.geom_size[geom_id,:3]
                 mid_inside=((jnp.abs(mid_local[:,:,0])<=mid_half[0]) &
                             (jnp.abs(mid_local[:,:,1])<=mid_half[1]))
-                mid_live=data.mocap_pos[:,self.academy_mid_mocap_ids[
-                    self.academy_mid_geom_ids.index(geom_id)],2]>-1.
+                mid_index=self.academy_platform_geom_ids.index(geom_id)
+                mid_pos=data.mocap_pos[:,self.academy_platform_mocap_ids[mid_index],:]
+                dormant=jnp.asarray((0.,0.,-2.-mid_index*.3),dtype=jnp.float32)
+                mid_live=jnp.sum((mid_pos-dormant)**2,axis=1)>1e-6
                 height=jnp.where(mid_inside & mid_live[:,None],
                                  mid_local[:,:,2]-mid_half[2],height)
             return height
@@ -3263,33 +3315,27 @@ class EmuMJXEnv(TaskSampler):
         return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
 
     def _academy_care_window(self, state, data):
-        """Per-LIP supported uphill approach may briefly slow to place a foot.
-
-        Keeps the existing careful velocity/crouch reward exception, but uses
-        the NEXT actual Academy lip instead of the stale single-lip slab.
-        Descents and generalist worlds never receive this relief. No
-        privileged geometry is added to the 360-input actor.
-        """
+        """Short self-paced UP approach at the next ACTUAL recycled lip."""
         jnp=self.jnp
-        if not self.academy_course_lips:
+        if not self.academy_stream:
             return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
-        tops=jnp.stack(tuple(
-            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
+        slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
+        tops=jnp.stack(tuple(data.geom_xpos[:,g,2]+
+            float(self.mj_model.geom_size[g,2])
             for g in self.academy_geom_ids),axis=1)
-        base=jnp.take_along_axis(tops,idx[:,None],axis=1)[:,0]
-        nxt=jnp.take_along_axis(tops,(idx+1)[:,None],axis=1)[:,0]
-        R=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+        base=jnp.take_along_axis(tops,slot[:,None],axis=1)[:,0]
+        nxt=jnp.take_along_axis(tops,
+            jnp.mod(slot+1,ACADEMY_PLATFORMS)[:,None],axis=1)[:,0]
+        R=data.geom_xmat[:,int(self.academy_geom_ids[0]),:].reshape(
             (self.num_envs,3,3))
         axis,across=R[:,:,0],R[:,:,1]
         edge=axis*(ACADEMY_EDGE_X_M+
-                   idx*ACADEMY_INTERVAL_M)[:,None]
+                   state.academy_lip_index*ACADEMY_INTERVAL_M)[:,None]
         displacement=data.qpos[:,:3]-edge
         forward=jnp.sum(displacement*axis,axis=1)
         lateral=jnp.sum(displacement*across,axis=1)
-        return (state.academy_active &
-                (state.academy_lip_index<ACADEMY_LIPS) &
-                (nxt-base>.001) & (forward>-.16) & (forward<.12) &
+        return (state.academy_active & (nxt-base>.001) &
+                (forward>-.16) & (forward<.12) &
                 (jnp.abs(lateral)<.22) & (state.task[:,T.vx]>.02))
 
     def _considered_step_window(self, state, data):
@@ -3322,82 +3368,71 @@ class EmuMJXEnv(TaskSampler):
                 & (jnp.abs(lateral) < .22))
 
     def _academy_events(self, state, data, metrics, done=None):
-        """Genuine sequential foothold/transfer/crossing evidence for FOUR lips.
+        """Per-lip contact-verified milestones for an unbounded platform ring.
 
-        No synthetic height oracle in the actor. Each stage reads post-step
-        physical MuJoCo foot contact pairs and visible body poses. Advance
-        only after five consecutive far-side supported frames. Crossing or
-        milestone payment can occur once per lip; a return/backstep cannot
-        regenerate the old lip or earn extra reward.
+        A crossing needs far-side *top* contact over five frames, both feet
+        beyond the lip and no contact on the trailing slab. Only then is
+        it safe to recycle that slab beyond the existing look-ahead one.
         """
         jnp=self.jnp
-        zeros=jnp.zeros((self.num_envs,),dtype=jnp.float32)
-        zbool=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        izero=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        z=jnp.zeros((self.num_envs,),dtype=jnp.float32)
+        zb=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        zi=jnp.zeros((self.num_envs,),dtype=jnp.int32)
         if done is None:
-            done=zbool
-        if not self.academy_course_lips:
-            return dict(lip_index=izero,streak=izero,
-                crossings=izero,up_count=izero,down_count=izero,
-                clearance_seen=zbool,foothold_seen=zbool,
-                transfer_seen=zbool,cross_new=zbool,up_new=zbool,
-                down_new=zbool,clearance_new=zbool,
-                foothold_new=zbool,transfer_new=zbool,
-                reward=zeros,height_m=zeros,completed=zbool,
-                approach_seen=zbool,attempt_new=zbool)
+            done=zb
+        if not self.academy_stream:
+            return dict(lip_index=zi,streak=zi,crossings=zi,up_count=zi,
+                down_count=zi,clearance_seen=zb,foothold_seen=zb,
+                transfer_seen=zb,cross_new=zb,up_new=zb,down_new=zb,
+                clearance_new=zb,foothold_new=zb,transfer_new=zb,
+                reward=z,height_m=z,completed=zb,approach_seen=zb,
+                attempt_new=zb)
         from .directional import supported_top_foot_contacts
         active=state.academy_active
-        idx=jnp.clip(state.academy_lip_index,0,ACADEMY_LIPS-1)
-        before=state.academy_lip_index<ACADEMY_LIPS
-        live=active & before
+        slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
+        target_slot=jnp.mod(slot+1,ACADEMY_PLATFORMS)
         contact=getattr(data,'_impl',data).contact
         foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
+        feet=jnp.asarray(foot_geoms,dtype=jnp.int32)
         tops=jnp.stack(tuple(
             data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
             for g in self.academy_geom_ids),axis=1)
-        feet=jnp.asarray(foot_geoms,dtype=jnp.int32)
         foot_bottom=data.geom_xpos[:,feet,2]-jnp.asarray(
             self.mj_model.geom_size[list(foot_geoms),0])[None,:]
-        # Side-wall contact pairs are NOT upper footholds. Require
-        # actual near-vertical normal and the physical sphere's low point
-        # within 1cm of the platform's true upper face as well as contact.
-        all_pairs=jnp.stack(tuple(
+        contact_pairs=jnp.stack(tuple(
             supported_top_foot_contacts(
                 jnp,contact.geom1,contact.geom2,contact.dist,
                 contact.frame,g,foot_geoms,tops[:,i],foot_bottom,
                 data.geom_xmat[:,g,:].reshape((self.num_envs,3,3))[:,:,2])
             for i,g in enumerate(self.academy_geom_ids)),axis=1)
-        # [world,plateau,2 feet] -> current lower and target support.
-        sidx=jnp.broadcast_to(idx[:,None,None],(self.num_envs,1,2))
-        previous=jnp.take_along_axis(all_pairs,sidx,axis=1)[:,0,:]
-        target=jnp.take_along_axis(all_pairs,sidx+1,axis=1)[:,0,:]
+        sidx=jnp.broadcast_to(slot[:,None,None],(self.num_envs,1,2))
+        target_idx=jnp.broadcast_to(target_slot[:,None,None],(self.num_envs,1,2))
+        previous=jnp.take_along_axis(contact_pairs,sidx,axis=1)[:,0,:]
+        target=jnp.take_along_axis(contact_pairs,target_idx,axis=1)[:,0,:]
         target_supported=jnp.any(target,axis=1)
         stance_supported=jnp.any(previous,axis=1)
-        prev_top=jnp.take_along_axis(tops,idx[:,None],axis=1)[:,0]
-        next_top=jnp.take_along_axis(tops,(idx+1)[:,None],axis=1)[:,0]
+        prev_top=jnp.take_along_axis(tops,slot[:,None],axis=1)[:,0]
+        next_top=jnp.take_along_axis(tops,target_slot[:,None],axis=1)[:,0]
         rise=next_top-prev_top
         uphill=rise>.001
         downhill=rise<-.001
-        # Every platform shares this course's real small edge yaw.
-        R=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
+        R=data.geom_xmat[:,int(self.academy_geom_ids[0]),:].reshape(
             (self.num_envs,3,3))
         axis,across=R[:,:,0],R[:,:,1]
-        edge_distance=ACADEMY_EDGE_X_M+idx*ACADEMY_INTERVAL_M
+        edge_distance=ACADEMY_EDGE_X_M+state.academy_lip_index*ACADEMY_INTERVAL_M
         edge=axis*edge_distance[:,None]
         relative=data.qpos[:,:3]-edge
         forward=jnp.sum(relative*axis,axis=1)
         lateral=jnp.sum(relative*across,axis=1)
-        healthy=(live & (jnp.abs(lateral)<.24) &
+        healthy=(active & (jnp.abs(lateral)<.24) &
                  (metrics['bad_contact']<.5) &
                  (metrics['terminal']<.5))
         foot_xyz=data.xpos[:,self.foot_bodies,:]
         foot_forward=jnp.sum((foot_xyz-edge[:,None,:])*axis[:,None,:],axis=2)
         foot_clear=(foot_xyz[:,:,2]-.018 > next_top[:,None]+.004)
-        new_clear=(healthy & uphill & (forward>-.14) &
-                   (forward<.11) & stance_supported &
-                   jnp.any(foot_clear &
-                           (foot_forward>-.07) &
-                           (foot_forward<.13),axis=1) &
+        new_clear=(healthy & uphill & (forward>-.14) & (forward<.11) &
+                   stance_supported & jnp.any(foot_clear &
+                     (foot_forward>-.07) & (foot_forward<.13),axis=1) &
                    ~state.academy_clearance_seen)
         new_foothold=(healthy & uphill & target_supported &
                       (forward>-.06) & ~state.academy_foothold_seen)
@@ -3407,27 +3442,22 @@ class EmuMJXEnv(TaskSampler):
         new_transfer=(healthy & uphill & target_supported &
                       (forward>-.02) & (torso_height>target_lift) &
                       ~state.academy_transfer_seen)
-        # An encounter is counted ONCE when crossing is completed, or
-        # when this episode ends after actually approaching that lip.
-        # No reward or governor 'attempt' for just existing in a STEP world.
-        approached=(live & (forward>-.22) & (forward<.14) &
+        approached=(active & (forward>-.22) & (forward<.14) &
                     (jnp.abs(lateral)<.24) & (metrics['terminal']<.5))
         seen=state.academy_approach_seen | approached
-        real_cross=(healthy & (forward>.09) &
-                    target_supported & (metrics['support']>=.5))
-        streak=jnp.where(real_cross,state.academy_streak+1,0)
-        new_cross=real_cross & (streak>=5)
-        next_index=jnp.where(new_cross,
-                             state.academy_lip_index+1,
-                             state.academy_lip_index)
+        # Five frames of actual upper contact, with the entire foot pair
+        # safely past the old edge. The old platform is never under a foot
+        # when the recycler is allowed to move it.
+        supported=(healthy & (forward>.13) & target_supported &
+                   (metrics['support']>=.5) &
+                   ~jnp.any(previous,axis=1) &
+                   jnp.all(foot_forward>.035,axis=1))
+        streak=jnp.where(supported,state.academy_streak+1,0)
+        new_cross=supported & (streak>=5)
+        next_index=state.academy_lip_index+new_cross.astype(jnp.int32)
         up_new=new_cross & uphill
         down_new=new_cross & downhill
-        failed_attempt=done & live & seen & ~new_cross
-        attempt_new=new_cross | failed_attempt
-        # The original 9-point shaping is redistributed here per ascent:
-        # bounded 2/3/4 milestone points plus 10 for final supported
-        # crossing. Descents receive the same +10 crossing, no fake lift.
-        # Per-episode return grows with number of REAL learned obstacles.
+        attempt_new=new_cross | (done & active & seen & ~new_cross)
         reward=(2.*new_clear.astype(jnp.float32)+
                 3.*new_foothold.astype(jnp.float32)+
                 4.*new_transfer.astype(jnp.float32)+
@@ -3448,10 +3478,10 @@ class EmuMJXEnv(TaskSampler):
                 state.academy_transfer_seen|new_transfer),
             cross_new=new_cross,up_new=up_new,down_new=down_new,
             clearance_new=new_clear,foothold_new=new_foothold,
-            transfer_new=new_transfer,reward=reward,
-            height_m=jnp.where(live,rise,0.),
-            completed=active & (next_index==ACADEMY_LIPS))
-
+            transfer_new=new_transfer,reward=reward,height_m=jnp.where(
+                active,rise,0.),
+            completed=zb)
+        
     # ---- Teacher/evaluator-only supported crossing evidence ----
     def _terrain_crossing(self, state, data, metrics):
         """Sustained physical far-side crossing, teacher telemetry only.

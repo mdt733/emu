@@ -151,3 +151,17 @@ The obsolete v5037 Stage A flags and historical v5032 launcher were removed
 from this branch (their original Git history remains). The full Python/browser
 checks are optional via `scripts/check.sh --full`; CI retains one actual
 physical MJX/PPO step and the browser build. No v5040 GPU training has run.
+
+### v5040 streaming terrain (untrained)
+
+A ring of three physical 50cm Academy supports now recycles the trailing
+platform after five real supported far-side frames, both feet safely
+beyond the edge and no trailing-slab contact. Each new lip chooses UP
+or DOWN independently, without a balancing pattern. The Academy governor
+holds distinct UP/DOWN supported-crossing frontiers, each initially 3mm,
+advancing/retreating by 0.5mm on that direction's physical evidence.
+New steps grow from 50% to 150% of the directional frontier over an
+episode. The default aspiration is 15cm, NOT demonstrated capability.
+There is no fixed course finish and no auxiliary CONTROL effort shaping.
+The generalist's other specialists and 20M foundation are unchanged.
+Must still pass actual 2048-environment GPU PPO preflight before training.

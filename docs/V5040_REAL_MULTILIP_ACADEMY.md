@@ -1,65 +1,78 @@
-# v5040: improve STEP training, not the training architecture
+# v5040 — streaming STEP specialist
 
-Research branch: `feature/v5040-multi-lip-academy-world`.
-`main`, published actors and prior experiment checkpoints are untouched.
+Branch: `feature/v5040-multi-lip-academy-world`. Released 260M `main` is unchanged.
 
-## The actual change
+## Three real platforms, no end-of-course pattern
 
-The existing STEP specialist can now receive a short course of **four real
-physical lips** instead of a single step. Three intermediate collision boxes
-join the existing first/final slabs. Each episode chooses randomly among all
-six two-up/two-down orders; individual heights (up to the Academy frontier)
-and course yaw (±3°) also vary. No sequence or terrain truth is exposed to
-the actor: its existing 4×4 ToF, optical flow, IMU and proprioception are
-the only inputs. The observation size remains 360, with one actor and PPO.
+The Academy uses three 50cm-long *real* MJX box colliders, each wide enough
+for safe lateral correction. They rotate through current, next and ahead
+roles. The original long flat/step slabs are buried in Academy worlds and
+remain untouched in normal generalist worlds. The same fixed three
+colliders are recycled independently per environment, with no model rebuild.
 
-Each lip pays once for genuine physical progress: uphill foot clearance,
-top-supported foothold, weight transfer and five-frame supported crossing.
-Downward lips pay for their supported crossing, not imaginary foot lift.
-A lip that was never approached cannot be counted as a failed attempt.
-Academy difficulty has its own small checkpointed evidence window:
-both upward and downward near-height success must be demonstrated to grow
-by 0.5mm; repeated failures at easier heights retreat by 0.5mm.
-This does not change the ordinary single-step difficulty governor.
+Each new lip independently draws UP or DOWN (50/50); height has its own
+random jitter. There is no prescribed two-up/two-down sequence. A small
+per-episode course yaw (up to ±6°) requires visual edge alignment; bending
+terrain paths are not claimed or implemented.
 
-The proven 20M gait foundation stays intact. Academy births start ramping
-at 60M, reach 10% at 80M and up to 50% at 100M. Fast-gait rehearsal and
-other specialties retain their allocation. These are birth fractions;
-the longer 1200-frame (24s) Academy course may occupy more than half the
-active frame batch. Other worlds retain 700 frames (14s). Completing four
-verified lips ends the course immediately. No Stage A shortened-episode
-settings are used.
+A trailing platform can be recycled **only** after five consecutive frames
+of real far-side top-foot support, the root at least 13cm past the edge,
+both feet 3.5cm past it, and no remaining trailing-platform foot contact.
+Only then does its collision body move beyond the look-ahead platform.
+There are indefinitely many successive steps; the episode ends only
+on fall or its own time limit, not after crossing a fixed number of lips.
 
-## Keep it small
+The actor still sees only the real 360-input 4×4 ToF, IMU, flow and
+proprioception. The platform geometry and supported-contact ledger are
+strictly teacher-only. The Academy gets no auxiliary CONTROL specialist
+effort weight; the usual walking, balance and motor physics remain.
 
-Old v5033 science and v5037/v5038 single-lip research scripts,
-their reports/tests and duplicate design documents are left on their
-original Git branches, rather than copied into this implementation.
-No new test suite or Academy CI matrix. There is one optional quick MJX
-smoke/memory probe and one useful read-only four-lip examiner.
+## Independent uphill and downhill growth
 
-Earlier CPU physics probing observed real support, ToF visibility and a
-finite PPO step; this is **not** proof of learning. The simplified revision
-has not yet been run on the 8GB GPU or trained. Leave `main` alone.
+The governor stores two separate frontiers:
+`academy_height_up_m` and `academy_height_down_m`, both seeded at
+3mm. Each has its own approached-lip evidence window and promotes by
+0.5mm once near-frontier success is at least 55% across 12 encounters.
+Repeated easy-band failures retreat only that direction by 0.5mm.
+A successful descent cannot promote ascent, or vice versa.
 
-## On the GPU PC
+Each *newly generated* step is approximately 50% of its own directional
+frontier early in an episode, 100% halfway, and 150% late in the episode,
+plus small independent height jitter. Challenges above the current
+frontier are learning opportunities, NOT evidence of mastery.
+The default **earned frontier ceiling is 15cm**, configurable to 25cm.
+This is aspiration/headroom, not proof real hardware could climb a gutter.
 
-From a separate checkout, with the existing compatible JAX/MJX venv:
+Verified uphill progress can earn one-off clearance, target foothold,
+weight transfer and crossing rewards. Descents earn real supported
+crossings without imaginary upward lifting. Every four real crossings
+produce a *milestone counter*, never an artificial finish.
+
+## Generalist curriculum stays
+
+One actor, one PPO, six specialties. The proven first 20M flat walking
+foundation and ordinary single-lip STEP worlds are preserved. Academy
+births ramp 0→10% between 60–80M, then 10→50% between 80–100M, without
+deleting fast walking rehearsal or other skill allocations.
+An Academy episode may last 1200 frames (24s); ordinary ones 700
+(14s), so occupancy can be higher than the share of births.
+
+## Before a long cold-start train
+
+From a clean `v5040` checkout, with matching CUDA/JAX/MJX environment:
 
 ```bash
-git clone -b feature/v5040-multi-lip-academy-world --single-branch \
-  https://github.com/mdt733/emu.git ~/emu-multilip
-cd ~/emu-multilip
-source ~/emu-plateau/.venv/bin/activate
-git status --short
+python -m emu.cli doctor --require-gpu --no-mjx-smoke
 PYTHONPATH="$PWD" python scripts/smoke_step_course.py \
   --device cuda --worlds 128 --frames 3 --ppo
 PYTHONPATH="$PWD" python scripts/smoke_step_course.py \
   --device cuda --worlds 2048 --frames 3 --ppo --full-update
 ```
 
-The 2048×32 update may OOM the 4060 Ti 8GB. It writes no checkpoint.
-Only launch real training after this gate; do not silently reduce the
-production batch. Compare a trained candidate using both the ordinary
-single-step exam and `scripts/exam_step_course.py`. Success is supported
-crossings and preserved general walking, not reward numbers alone.
+The 2048×32 update may OOM an 8GB GPU. It saves no training weights.
+If it passes, normal `emu train` with `--academy-stream`,
+`--academy-height-cap-m .15` and
+`EMU_UNIFIED_CONTINUOUS=cold-growth-approved` can launch a new,
+source-pinned cold run in a **new** results directory. Frozen policy
+exams use `scripts/exam_step_course.py` and report actual approached
+up/down lips separately. Successful smoke tests do NOT prove learning.

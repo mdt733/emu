@@ -9,7 +9,7 @@ The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility histor
 
 | Document | Purpose |
 |---|---|
-| [**v5040 FOUR-LIP STEP CURRICULUM**](V5040_REAL_MULTILIP_ACADEMY.md) | Active research world, one actor, four real sharp lips; not GPU-trained or released |
+| [**v5040 STREAMING STEP CURRICULUM**](V5040_REAL_MULTILIP_ACADEMY.md) | Three recyclable real slabs, independent UP/DOWN ability, not yet trained |
 | [**PINNACLE 260M RELEASE**](V5032_PINNACLE_RELEASE.md) | **Current trained 360-input baseline**, physical results, limitations, SHA identities and rollback |
 | [POST-PINNACLE RESEARCH](https://github.com/mdt733/emu/issues/17) | Measurements and possible experiments to revisit later; no active science run |
 | [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |

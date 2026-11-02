@@ -54,7 +54,8 @@ class RegimeParams:
     terrain_exposure: float = 0.0
     terrain_height_m: float = 0.0
     # Independently earned consecutive-lip frontier in the SAME governor.
-    academy_height_m: float = 0.003
+    academy_height_up_m: float = 0.003
+    academy_height_down_m: float = 0.003
     # True inclined collision slabs; independent of discontinuous steps.
     slope_exposure: float = 0.0
     slope_max_deg: float = 0.0
@@ -231,7 +232,7 @@ class RegimeGovernor:
 
     @staticmethod
     def _empty_academy_evidence() -> dict[str,float]:
-        return dict(updates=0.,**{
+        return dict(up_updates=0.,down_updates=0.,**{
             f'{direction}_{band}_{kind}':0.
             for direction in ('up','down')
             for band in ('near','easy')
@@ -280,26 +281,23 @@ class RegimeGovernor:
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
-        old_names = param_names - {
-            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg',
-            'academy_height_m'}
-        previous_names = param_names - {
-            'slope_exposure','slope_max_deg','academy_height_m'}
-        prior_unified_names = param_names - {'academy_height_m'}
-        if set(d['params']) == old_names:
-            saved_params = dict(d['params'],terrain_exposure=0.0,
-                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0,
-                academy_height_m=self.ACADEMY_SEED_LIP_M)
-        elif set(d['params']) == previous_names:
-            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0,
-                                academy_height_m=self.ACADEMY_SEED_LIP_M)
-        elif set(d['params']) == prior_unified_names:
-            saved_params = dict(d['params'],
-                                academy_height_m=self.ACADEMY_SEED_LIP_M)
-        elif set(d['params']) == param_names:
-            saved_params = d['params']
-        else:
-            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(d['params'])}")
+        saved_params = dict(d['params'])
+        # Previous v5040 used one shared frontier; never lose its measured
+        # progress if a source-authorised research fork is explicitly loaded.
+        if 'academy_height_m' in saved_params:
+            former = float(saved_params.pop('academy_height_m'))
+            saved_params['academy_height_up_m'] = former
+            saved_params['academy_height_down_m'] = former
+        defaults = {
+            'terrain_exposure': 0.0, 'terrain_height_m': 0.0,
+            'slope_exposure': 0.0, 'slope_max_deg': 0.0,
+            'academy_height_up_m': self.ACADEMY_SEED_LIP_M,
+            'academy_height_down_m': self.ACADEMY_SEED_LIP_M,
+        }
+        if set(saved_params) - param_names or param_names - set(saved_params) - set(defaults):
+            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(saved_params)}")
+        for key, default in defaults.items():
+            saved_params.setdefault(key, default)
         expected_regimes = set(self.REGIMES)
         expected_falls = expected_regimes | {'posture'}
         expected_frontier = {'vx_hi', 'vx_lo', 'vy', 'yaw', 'combo', 'accel'}
@@ -333,13 +331,18 @@ class RegimeGovernor:
                     raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
         school=d.get('academy_evidence',self._empty_academy_evidence())
+        if isinstance(school, dict) and 'updates' in school:
+            prior = dict(school)
+            updates = prior.pop('updates')
+            school = dict(prior, up_updates=updates, down_updates=updates)
         if (not isinstance(school,dict) or
             set(school)!=set(self._empty_academy_evidence()) or
             any(not math.isfinite(float(v)) or float(v)<0.
                 for v in school.values())):
             raise ValueError('Academy evidence checkpoint mismatch')
-        if (int(school['updates'])!=school['updates'] or
-                school['updates']>self.ACADEMY_MAX_WINDOW_UPDATES):
+        if any(int(school[f'{direction}_updates']) != school[f'{direction}_updates']
+                or school[f'{direction}_updates']>self.ACADEMY_MAX_WINDOW_UPDATES
+                for direction in ('up','down')):
             raise ValueError('Academy evidence window age invalid')
         for direction in ('up','down'):
             for band in ('near','easy'):
@@ -678,76 +681,63 @@ class RegimeGovernor:
 
     def advance_academy(self, row: dict[str,float], *, max_height_m:float,
                         enabled:bool, kl_ok:bool=True) -> str:
-        """Independently grow FOUR-LIP difficulty from genuine physical events.
+        """Grow UP and DOWN independently from real, approached lip encounters.
 
-        A lip is one matched encounter verdict: a supported crossing or an
-        approached lip on which the episode ended. Up AND down must each
-        succeed at the current near-height frontier. Merely standing in a
-        STEP world, a foothold without transfer, or clearing a smaller lip
-        cannot certify a harder stair. Closed, checkpointed evidence windows
-        prevent regression and restart artefacts.
+        Easy crossings audit retained skill; near-frontier encounters alone
+        authorize expansion. Neither direction can hold the other hostage.
         """
         if not enabled:
             return 'academy_disabled'
         if not (math.isfinite(max_height_m) and
-                self.ACADEMY_SEED_LIP_M<=max_height_m<=.04):
-            raise ValueError('invalid Academy height ceiling')
+                self.ACADEMY_SEED_LIP_M<=max_height_m<=.25):
+            raise ValueError('Academy aspiration must be in [3mm,25cm]')
         if float(row.get('academy_active_fraction',0.))<=0.:
-            return 'academy_await_born_worlds'
+            return 'academy_await_births'
         evidence=self.academy_evidence
+        events=[]
         for direction in ('up','down'):
             for band in ('near','easy'):
                 for kind in ('attempts','successes'):
                     key=f'academy_{band}_{kind}_{direction}'
-                    n=float(row.get(key,0.))
-                    if not math.isfinite(n) or n<0.:
+                    amount=float(row.get(key,0.))
+                    if not math.isfinite(amount) or amount<0.:
                         raise ValueError(f'invalid Academy physical evidence {key}')
-                    evidence[f'{direction}_{band}_{kind}']+=n
+                    evidence[f'{direction}_{band}_{kind}']+=amount
                 if (evidence[f'{direction}_{band}_successes'] >
-                        evidence[f'{direction}_{band}_attempts']+1e-6):
-                    raise ValueError('Academy crossing successes exceed encounters')
-        evidence['updates']+=1.
-        nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
-        easy_bad=any(
-            evidence[f'{direction}_easy_attempts']>=nmin and
-            evidence[f'{direction}_easy_successes']/
-                evidence[f'{direction}_easy_attempts']<.25
-            for direction in ('up','down'))
-        if easy_bad:
-            self.params.academy_height_m=max(
-                self.ACADEMY_MIN_LIP_M,
-                self.params.academy_height_m-.0005)
-            self.academy_evidence=self._empty_academy_evidence()
-            return 'academy_retreat_failed_easy_support'
-        # Easy evidence is a RETREAT signal, never a promotion shortcut.
-        # Drop good closed easy cohorts while still collecting near fronts.
-        for direction in ('up','down'):
-            if evidence[f'{direction}_easy_attempts']>=nmin:
-                evidence[f'{direction}_easy_attempts']=0.
-                evidence[f'{direction}_easy_successes']=0.
-        near_ready=all(
-            evidence[f'{direction}_near_attempts']>=nmin
-            for direction in ('up','down'))
-        if near_ready:
-            good=all(
-                evidence[f'{direction}_near_successes']/
-                evidence[f'{direction}_near_attempts']>=.55
-                for direction in ('up','down'))
-            self.academy_evidence=self._empty_academy_evidence()
-            if not kl_ok:
-                return 'academy_hold_ppo_health'
-            if good:
-                previous=self.params.academy_height_m
-                self.params.academy_height_m=min(
-                    max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M)
-                return ('academy_height_expand_real_four_lips'
-                        if self.params.academy_height_m>previous
-                        else 'academy_height_ceiling')
-            return 'academy_hold_near_support_learning'
-        if evidence['updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
-            self.academy_evidence=self._empty_academy_evidence()
-            return 'academy_window_insufficient_approaches'
-        return 'academy_collect_real_lips'
+                    evidence[f'{direction}_{band}_attempts']+1e-6):
+                    raise ValueError('Academy successes exceed encounters')
+            evidence[f'{direction}_updates']+=1.
+            frontier=f'academy_height_{direction}_m'
+            nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
+            easy_n=evidence[f'{direction}_easy_attempts']
+            near_n=evidence[f'{direction}_near_attempts']
+            if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
+                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                    getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
+                event='retreat'
+            elif near_n>=nmin:
+                good=(evidence[f'{direction}_near_successes']/near_n)>=.55
+                if good and kl_ok:
+                    previous=getattr(self.params,frontier)
+                    setattr(self.params,frontier,min(
+                        max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                    event='expand' if getattr(self.params,frontier)>previous else 'cap'
+                else:
+                    event='kl_hold' if good else 'learning'
+            elif evidence[f'{direction}_updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
+                event='insufficient_approaches'
+            else:
+                if easy_n>=nmin:
+                    for kind in ('attempts','successes'):
+                        evidence[f'{direction}_easy_{kind}']=0.
+                events.append(direction+':collect')
+                continue
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    evidence[f'{direction}_{band}_{kind}']=0.
+            evidence[f'{direction}_updates']=0.
+            events.append(direction+':'+event)
+        return ','.join(events)
 
     def advance_terrain(self, row: dict[str,float], *, step: int,
                         max_height_m: float, foundation_steps: int,
@@ -1034,7 +1024,8 @@ class RegimeGovernor:
             enabled=(self.unified_capability_focus and
                      academy_max_height_m>0. and growth_enabled),
             kl_ok=kl_ok_to_expand)
-        report['academy_height_m']=self.params.academy_height_m
+        report['academy_height_up_m']=self.params.academy_height_up_m
+        report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value
                        for key,value in self.academy_evidence.items()})
         if self.unified_capability_focus:

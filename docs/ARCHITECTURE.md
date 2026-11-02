@@ -55,7 +55,7 @@ to judge them. The **actor** gets only deployable observations.
 |---|---|---|
 | What is EMU's body? | `emu/robot.xml` | Geometry, joint mechanics, six motors, contact material |
 | What does the actor see and output? | `emu/contracts.py` | Named observation fields, sensor revision, 4-frame history, 6 actions, hashes |
-| What physical world is it in? | `emu/environment.py`, `emu/domain_randomization.py` | Batched MJX physics/sensors, plus separately owned model variation |
+| What physical world is it in? | `emu/environment.py`, `emu/domain_randomization.py`, `emu/step_academy_world.py` | Batched physics/sensors, model randomisation and three streaming STEP platforms |
 | What does a successful training frame pay? | `emu/rewards.py` | Scalar *teaching reward*, distinct from physical exam |
 | What is practised next? | `emu/curriculum.py` and `emu/capability_focus.py` | Difficulty frontiers, retreats, six teacher emphases, task allocations |
 | How is PPO health monitored? | `emu/training_health.py` | KL stress, collapse and rollback decisions |

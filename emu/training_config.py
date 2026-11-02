@@ -202,16 +202,15 @@ class TrainingConfig:
     science_step_min_attempts: int = 4     # per direction / near or easy
     science_step_crouch_tolerance_m: float = 0.0  # gated reward, no physics changes
     science_reset_step_evidence_on_fork: bool = False
-    # Native multi-lip teaching from scratch. Four-lip topology is fixed
-    # at model construction; the share ramps via ordinary birth packets.
-    academy_course_lips: int = 0  # opt-in: 0=original two slabs, 4=real consecutive lips
+    # Streaming three-platform teaching from scratch; share ramps through births.
+    academy_stream: bool = False  # opt-in: three recyclable real platforms
     academy_intro_steps: int = 60_000_000
     academy_intro_share: float = 0.10
     academy_start_steps: int = 80_000_000
     academy_ramp_steps: int = 20_000_000
     academy_max_share: float = 0.50
-    academy_height_cap_m: float = 0.040
-    academy_course_episode_frames: int = 1200  # 24s four-lip lessons; other skills remain 14s
+    academy_height_cap_m: float = 0.150
+    academy_course_episode_frames: int = 1200  # 24s streaming lessons; other roles 14s
 
     # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
     attitude_profile: str = "v5014"
@@ -275,7 +274,7 @@ class TrainingConfig:
                       'science_step_promotion_mm','science_step_retreat_mm',
                       'science_step_min_attempts','science_step_crouch_tolerance_m',
                       'science_reset_step_evidence_on_fork',
-                      'academy_course_lips','academy_intro_steps',
+                      'academy_stream','academy_intro_steps',
                       'academy_intro_share','academy_start_steps',
                       'academy_ramp_steps','academy_max_share',
                       'academy_height_cap_m','academy_course_episode_frames'}
