@@ -29,7 +29,7 @@ test('measured speed, shove, slope and both lip ceilings reach every exercise',(
   const step=specialistLesson(data,'step');
   assert.equal(step.role,'step');
   assert.equal(step.terrain.slopeDeg,.35);
-  assert.equal(step.terrain.stepUpM,.003); // Academy frontier, actual selected value
+  assert.equal(step.terrain.stepUpM,.004); // Ordinary max(terrain, Academy), before Academy births
   assert.equal(friendlyFrontiers(step).speed,'[-0.07, +0.28] m/s');
   assert.ok(step.commandAt(1).vx>0);
   assert.ok(step.commandAt(1).vx<=.22);
