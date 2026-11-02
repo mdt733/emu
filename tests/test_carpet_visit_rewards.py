@@ -61,3 +61,35 @@ def test_diagonal_corner_is_not_falsely_paid_as_one_step_lip():
     new=jnp.asarray([[1,0],[1,1],[3,0],[1,1]],dtype=jnp.int32)
     shared=np.asarray(shares_physical_edge(jnp,old,new))
     assert np.array_equal(shared,[True,False,False,False])
+
+
+def test_revisits_do_not_advance_unique_history_or_evict_older_tiles():
+    """A/B rocking must never be able to flush earlier global tile credit.
+
+    In the former implementation every confirmed return consumed a ring
+    slot even if the coordinate was already in the history. 64 A/B
+    oscillations could evict other legitimately discovered locations.
+    """
+    v=jnp.full((1,VISIT_HISTORY,2),-2**30,dtype=jnp.int32)
+    first=jnp.asarray([[0,0]],dtype=jnp.int32)
+    second=jnp.asarray([[1,0]],dtype=jnp.int32)
+    third=jnp.asarray([[2,0]],dtype=jnp.int32)
+    v=v.at[:,0,:].set(first)
+    write=jnp.ones((1,),dtype=jnp.int32)
+    for tile in (second,third):
+        v,write=note_confirmed_tile(jnp,tile,v,write,jnp.asarray([True]))
+    snapshot=np.asarray(v).copy()
+    assert int(write[0])==3
+    # This deliberately exceeds the 64-slot history capacity: duplicate
+    # physical confirmations are not equivalent to 64 novel grid cells.
+    for _ in range(80):
+        for tile in (first,second,third,second):
+            v,write=note_confirmed_tile(jnp,tile,v,write,jnp.asarray([True]))
+    assert int(write[0])==3
+    assert np.array_equal(np.asarray(v),snapshot)
+    for tile in (first,second,third):
+        assert not bool(unseen_tile(jnp,tile,v)[0])
+    novel=jnp.asarray([[3,0]],dtype=jnp.int32)
+    v,write=note_confirmed_tile(jnp,novel,v,write,jnp.asarray([True]))
+    assert int(write[0])==4
+    assert not bool(unseen_tile(jnp,novel,v)[0])
