@@ -209,6 +209,9 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'academy_start_steps':cfg.get('academy_start_steps',80_000_000),
             'academy_ramp_steps':cfg.get('academy_ramp_steps',20_000_000),
             'carpet_transition_cap_deg':cfg.get('carpet_transition_cap_deg',3.),
+            # Actual configured physical push ceiling, distinct from the
+            # teacher's independently growing frontier_push_n target.
+            'push_max_force_n':cfg.get('push_max_force_n',0.35),
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
         'physics_mode':('nine-solid-box trainer / browser representative nine-solid-box world'
