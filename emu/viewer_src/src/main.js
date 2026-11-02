@@ -34,6 +34,7 @@ let carpetDifficulty={...CARPET_DEFAULT};
 let carpetSource='Illustrative defaults';
 let carpetFetching=false;
 let carpetLastAppliedSignature='';
+let discoverCarpetFromLive=false;
 const depthOn=$('depthOn'),depthCourse=$('depthCourse'),depthTilt=$('depthTilt');
 const surfaceSlopeSlider=$('surfaceSlope'),surfaceStepSlider=$('surfaceStep');
 const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
@@ -488,7 +489,8 @@ function acceptCarpetSnapshot(data,label){
   }
 }
 async function refreshCarpetLive(manual=false){
-  if(carpetFetching||(!manual&&(!carpetLive.checked||terrainMode.value!=='carpet')))return;
+  if(carpetFetching||(!manual&&(!carpetLive.checked||
+      (terrainMode.value!=='carpet'&&!discoverCarpetFromLive))))return;
   carpetFetching=true;
   try{
     const response=await fetch('/api/live/terrain',{cache:'no-store'});
@@ -497,6 +499,15 @@ async function refreshCarpetLive(manual=false){
     if(data.schema!=='emu_terrain_live_v1')throw Error('Unrecognized terrain telemetry format');
     const prev=`${carpetDifficulty.run}:${carpetDifficulty.step}`;
     const incoming=trainingLimits(data);
+    if(discoverCarpetFromLive){
+      discoverCarpetFromLive=false;
+      if(incoming.trainingCarpet){
+        // A just-started run may have had no metrics when this browser
+        // first connected; switch to flat-foundation Carpet once reported.
+        terrainMode.value='carpet';
+        updateTerrain();
+      }
+    }
     if(prev!==`${incoming.run}:${incoming.step}`)acceptCarpetSnapshot(data,'local EMU training viewer');
     else if(manual)carpetStatus.textContent='Live source unchanged: '+prev;
   }catch(err){
@@ -687,7 +698,10 @@ function updateDepthGrid(){
       ' ms · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
 }
 
-terrainMode.addEventListener('change',updateTerrain);
+terrainMode.addEventListener('change',()=>{
+  discoverCarpetFromLive=false; // manual terrain choice always wins
+  updateTerrain();
+});
 terrainMax.addEventListener('change',updateTerrain);
 treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
 parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{
@@ -957,6 +971,7 @@ async function startViewerFeed() {
           }
         }
         if (config.live) {
+          discoverCarpetFromLive=true;
           // Only source-tagged nine-solid training runs auto-enter Carpet.
           // The published champion and older/legacy live runs keep the
           // original Terrain Park until the user explicitly selects it.
