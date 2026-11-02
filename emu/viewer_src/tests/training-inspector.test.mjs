@@ -76,3 +76,25 @@ test('one world switch; sensor lab is not a floating second settings UI',()=>{
   assert.match(sim,/this\.shoveArrow\.setDirection\(direction\)/);
   assert.match(css,/\.settings-drawer \.depth-panel/);
 });
+
+test('settings begin with specialist, then editable effective role weights',()=>{
+  const ui=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+  assert.ok(ui.indexOf('id="carpetPanel"')<ui.indexOf('id="viewPreferences"'));
+  assert.ok(ui.indexOf('id="carpetRole"')<ui.indexOf('id="tuneSlope"'));
+  for(const id of ['tuneSlope','tuneTransition','tuneUp','tuneDown',
+                   'tuneForward','tuneReverse','tuneLateral','tuneYaw',
+                   'tuneResilience','tunePush']){
+    assert.match(ui,new RegExp('id="'+id+'"'));
+  }
+  assert.doesNotMatch(ui,/id="carpetQuick"/);
+  assert.doesNotMatch(ui,/id="depthCourse"/);
+  assert.doesNotMatch(ui,/id="surfaceSlope"/);
+  assert.doesNotMatch(ui,/id="surfaceStep"/);
+  assert.doesNotMatch(ui,/v5023 surface laboratory/i);
+  assert.match(main,/carpetEdits\.set\(role,readSliderOverride\(\)\)/);
+  assert.match(main,/carpetMatch\.checked=false/);
+  assert.match(main,/carpetResetLimits\.addEventListener/);
+  assert.match(main,/navHud\.hidden=!enabled/);
+  assert.match(main,/goalDemoActive\(\) && terrainMode\.value==='park'/);
+});
