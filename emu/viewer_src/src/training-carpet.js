@@ -66,12 +66,26 @@ export function trainingLimits(data){
                     CARPET_DEFAULT.stepDownM,0,.25);
   const reportedTransition=raw.slope_transition_deg??row.terrain_slope_transition_frontier_deg;
   const transitionMeasured=reportedTransition!=null&&reportedTransition!==''&&Number.isFinite(Number(reportedTransition));
-  const transitionDeg=transitionMeasured?as(reportedTransition,0,0,15):Math.min(3,slopeDeg*.5);
-  const seed=as(data.terrain_preview?.seed??data.training_config?.seed??data.seed,735,0,2147483647);
+  const cfg=data.training_config||{};
+  // The cap is a CONFIGURED physical geometry bound, not a newly
+  // demonstrated "transition skill". Never present it as measured ability.
+  const configuredTransition=cfg.carpet_transition_cap_deg;
+  const transitionConfigured=Number.isFinite(Number(configuredTransition))&&configuredTransition!=null;
+  const transitionDeg=transitionMeasured?as(reportedTransition,0,0,15)
+    :transitionConfigured?as(configuredTransition,3,0,15)
+    :Math.min(3,slopeDeg*.5);
+  const seed=as(data.terrain_preview?.seed??cfg.seed??data.seed,735,0,2147483647);
   const step=as(data.training_step??row.step??data.step,0,0,1e12);
   return {seed:Math.floor(seed),slopeDeg,transitionDeg,stepUpM,stepDownM,
     step,run:data.run_name||data.source_provenance?.run_name||data.run_dir||'Imported training',
-    transitionMeasured,source:'training',physicsMode:data.physics_mode||'source curriculum metrics',
+    foundationSteps:as(cfg.foundation_steps,20_000_000,0,1e12),
+    academyIntroSteps:as(cfg.academy_intro_steps,60_000_000,0,1e12),
+    academyStartSteps:as(cfg.academy_start_steps,80_000_000,0,1e12),
+    academyRampSteps:as(cfg.academy_ramp_steps,20_000_000,0,1e12),
+    academyStream:cfg.academy_stream===true,
+    trainingCarpet:cfg.terrain_carpet===true,
+    transitionMeasured,transitionConfigured,
+    source:'training',physicsMode:data.physics_mode||'source curriculum metrics',
     warnings:data.warnings||[]};
 }
 
