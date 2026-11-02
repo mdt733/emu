@@ -17,15 +17,23 @@ export const SPECIALIST_GUIDE=Object.freeze({
 export function specialistLesson(base,role='auto'){
   const active=carpetRepresentativeRole(base,role);
   const p=terrainRoleEnvelope(base,active);
+  const override=base.previewOverride||{};
   const caps={
     forward:clamp(finite(base.vxHi,.06),.01,3),
     reverse:clamp(Math.abs(finite(base.vxLo,-.02)),0,2),
     lateral:clamp(Math.abs(finite(base.vyMax,.035)),0,2),
     yaw:clamp(Math.abs(finite(base.yawMax,.14)),0,5),
-    push:clamp(finite(base.pushN,0),0,10)
+    push:clamp(finite(base.pushN,0),0,10),
+    ...(override.command||{})
   };
-  const foundation=carpetLearningStage(base)==='foundation';
-  return {role:active,stage:p.stage,terrain:p,caps,foundation,
+  const foundation=carpetLearningStage(base)==='foundation'&&!base.previewOverride;
+  const intensity=clamp(finite(override.resilience,
+    finite(base.resilienceDifficulty,0) *
+      (active==='resilience'?1:active==='standing'?0:.15)),0,1);
+  // The teacher reports a global push frontier, but its configured
+  // physical ceiling may be smaller. Show the *applied* limit.
+  caps.push=clamp(Math.min(caps.push,Number(base.pushMaxForceN??caps.push)),0,10);
+  return {role:active,stage:p.stage,terrain:p,caps,foundation,intensity,
     heading:SPECIALIST_GUIDE[active]?.[0]||'Training',
     description:SPECIALIST_GUIDE[active]?.[1]||'Representative challenge',
     // The curriculum can be far above the current trained skill. An
