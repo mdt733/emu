@@ -51,7 +51,7 @@ def get_geoms(model):
             for i in range(model.ngeom)}
 
 
-def solve_case(rise_m, *, backend='cpu'):
+def solve_case(rise_m, *, backend='cpu', seam=False):
     model=make_probe_model()
     data=mujoco.MjData(model)
     bodyids=[mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
@@ -74,7 +74,10 @@ def solve_case(rise_m, *, backend='cpu'):
     # and eventually compare the combined impulse against a box-only world.
     # Original freejoint poses match XML defaults, then place each sphere
     # just 5mm inside the corresponding real *top* collision face.
-    data.qpos[0:3]=[-.17,0,.035]
+    # Seam mode puts a spherical foot exactly on the shared 50cm
+    # boundary with its bottom 5mm into the upper box top. Both the
+    # 8mm physical box overhang and the vertical riser remain active.
+    data.qpos[0:3]=([0.,0.,rise_m+.035] if seam else [-.17,0,.035])
     data.qpos[7:10]=[+.17,0,rise_m+.035]
     data.qpos[14:17]=[-.018,.09,rise_m*.5]
     mujoco.mj_forward(model,data)
@@ -177,3 +180,24 @@ def test_foot_top_contacts_are_upward_facing(backend,rise_m):
         normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
                  else np.asarray(c[2])[:3] for c in candidates]
         assert any(abs(n[2])>=.60 for n in normals),(backend,rise_m,normals)
+
+
+@pytest.mark.parametrize('backend',['cpu','mjx'])
+@pytest.mark.parametrize('rise_m',[0.0,.015,.08])
+def test_exact_50cm_tile_boundary_keeps_real_top_foot_contact(rise_m,backend):
+    """A sphere centered on the sharp seam must not fall through a crack.
+
+    The target 50cm tile's genuine box side overlaps the adjacent
+    slab by 8mm, as it does in training. No idealized plane or disabled
+    hfield contributes to this contact. A 15mm step is an important
+    emerging early capability, while 8cm probes the configured extreme.
+    """
+    contacts=solve_case(rise_m,backend=backend,seam=True)
+    matches=[c for c in contacts
+             if {'left_ball','carpet_solid_geom_1'}.issubset(c[0])
+             and c[1]<=.003]
+    assert matches,(backend,rise_m,contacts)
+    normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
+             else np.asarray(c[2])[:3] for c in matches]
+    assert any(abs(n[2])>=.60 for n in normals),(
+        'Seam foot has no upward top contact',backend,rise_m,normals)
