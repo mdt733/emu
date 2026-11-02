@@ -38,6 +38,7 @@ const manualSlope=$('carpetManualSlope'),manualUp=$('carpetManualUp');
 const manualDown=$('carpetManualDown'),manualSpeed=$('carpetManualSpeed');
 const manualPush=$('carpetManualPush');
 const worldField=$('worldField'),worldCarpet=$('worldCarpet'),fieldPanel=$('fieldPanel');
+const carpetQuick=$('carpetQuick');
 let carpetExerciseClock=0;
 let carpetLastExercise='';
 
@@ -435,6 +436,7 @@ function updateWorldTabs(){
   }
   fieldPanel.hidden=carpet;
   carpetPanel.hidden=!carpet;
+  carpetQuick.hidden=!carpet;
   $('liveDemo').disabled=carpet;
   navHud.hidden=carpet||!sim;
   document.body.dataset.world=carpet?'carpet':'field';
@@ -544,6 +546,9 @@ function renderCarpetValues(){
     : 'No live training frontiers (illustrative default)';
   $('lessonName').textContent=lesson.heading;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
+  $('carpetQuickNote').textContent=measured
+    ?`${Number(carpetDifficulty.step||0).toLocaleString()} world-steps · representative ${lesson.role} birth`
+    :'Illustrative environment · import/live metrics for current frontiers';
   $('lessonDescription').textContent=lesson.description;
   $('lessonSlope').textContent=f.slope;
   $('lessonSteps').textContent=f.steps;
