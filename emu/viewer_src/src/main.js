@@ -471,7 +471,7 @@ function syncCarpetExercise(){
       (lesson.role==='resilience'||!carpetMatch.checked),
     forceLimitN:carpetShoves.checked?Math.max(0,actualPush):0,
     intensity:lesson.intensity,
-    frequencyMultiplier:Number(carpetPushRate.value)
+    mode:carpetPushRate.value
   });
   if(carpetDrive.value==='lesson'&&demoActive)stopDemo();
   if(carpetDrive.value==='manual'){
@@ -511,7 +511,8 @@ function renderCarpetValues(){
     `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; applied ${f.slope}`,
     `Role step up/down ${f.steps}`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
-    `Push cap ${f.shove} · resilience intensity ${lesson.intensity.toFixed(2)}`,
+    `Push cap ${f.shove} · effective push chance fraction ${lesson.intensity.toFixed(3)}`,
+    `Recovery at spawn (different quantity): ${lesson.birthRecovery.toFixed(2)}`,
     'All exercises share ONE trained actor. Browser previews are not',
     'exact samples from the GPU trainer and never change training.'
   ].join('\n');
@@ -609,10 +610,16 @@ function runCarpetLesson(dt){
     $('lessonCommand').textContent='Viewer command: '+descriptor;
   }
   const shove=sim.shoveTelemetry();
+  const hz=shove.expectedHz;
+  const expected=hz>0?`~${hz.toFixed(hz<.1?3:2)} shove starts/s (1 per ${(1/hz).toFixed(1)}s on average)`:'disabled';
+  $('shoveRateNote').textContent=`Stochastic per-robot rate: ${expected}. ${shove.mode==='training'
+    ?'Based on the actual GPU per-frame probability and estimated birth-task multiplier.'
+    :shove.mode==='inspection'?'Viewer inspection multiplies GPU event odds by 8.'
+    :'HIGH-FREQUENCY VIEWER DRILL — not the actual training frequency.'}`;
   $('carpetShoveState').textContent=shove.active
     ? `FORCE APPLIED · ${shove.force[0].toFixed(2)}N X, ${shove.force[1].toFixed(2)}N Y · amber arrow`
     :shove.recent?'Recent shove · muted arrow (force ended)'
-    :`Random pushes: ${shove.enabled?'on':'off'} · ${shove.limit.toFixed(2)} N cap · intensity ${shove.intensity.toFixed(2)} · ${shove.multiplier}× event frequency`;
+    :`Random pushes: ${shove.enabled?'on':'off'} · cap ${shove.limit.toFixed(2)} N · task intensity ${shove.intensity.toFixed(3)}`;
 }
 carpetRole.addEventListener('change',()=>{
   carpetExerciseClock=0;
