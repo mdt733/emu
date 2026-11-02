@@ -179,12 +179,16 @@ contract. Full checkpoints are not in Git; keep external backups.
 The experimental child branch
 [`feature/v5041-unified-terrain-carpet`](https://github.com/mdt733/emu/tree/feature/v5041-unified-terrain-carpet)
 adds **Training Carpet** to the existing 3D robot viewer without replacing
-the original Terrain Park. The viewer uses its own finite browser MuJoCo
-hfield scene; the **GPU trainer has a different real collision implementation**:
-a recycled 3×3 ring of nine tilted solid-box tiles. Both show the same
-terrain concepts, but they are **not geometrically identical**.
+the original Terrain Park. The browser now builds **nine real moving
+MuJoCo solid-box contacts** with vertical step sides, matching the
+GPU training world's collision *type*, half-sizes, 50cm grid and safe
+recycling idea. It can auto-follow the live source-tagged curriculum:
+flat physical tiles during the ordinary foundation, then a representative
+slope specialty, then signed up/down step Academy. It is **not an exact
+replay** of any one randomly sampled training environment, and the
+browser WASM collision runtime remains a separate acceptance check.
 See [viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md) and
-[real GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+[GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
 
 
 The active research branch is
