@@ -132,7 +132,22 @@ def main():
         blocked.mocap_pos[:,list(env.carpet_solid_mocap_ids),:]))
     if not np.array_equal(old_solids,solid_pos):
         raise RuntimeError("Blocked recycling moved a collision box with a trailing foot")
-    print("recycler PASS: safe turn advances 3x3 ring, trailing-foot hold blocks movement",flush=True)
+    # A spherical foot may still touch an outgoing solid even when its
+    # CENTRE has entered the new tile cell. The old integer-cell test
+    # incorrectly recycled such a tile, potentially teleporting support.
+    seam_x=(desired[:,0].astype(jnp.float32)-1.)*.5+.020
+    edge_feet=jnp.broadcast_to(root_xy[:,None,:],(a.worlds,2,2))
+    edge_feet=edge_feet.at[:,0,0].set(seam_x)
+    edge_data=safe_data.replace(xpos=safe_data.xpos.at[
+        :,env.foot_bodies,0:2].set(edge_feet))
+    edge_shifted,edge_h,edge_c=env._carpet_recycle(state,edge_data)
+    if not np.array_equal(np.asarray(jax.device_get(edge_c)),
+                          np.asarray(jax.device_get(old))):
+        raise RuntimeError("Recycler moved an overhanging box under a foot sphere")
+    if not np.array_equal(np.asarray(jax.device_get(edge_h)),heights):
+        raise RuntimeError("Recycler altered tile heights before foot cleared box")
+    print("recycler PASS: safe tile advance, trailing-foot hold, "
+          "real sphere/solid-overhang clearance",flush=True)
     for i in range(a.frames):
         out=env.step(state,jnp.zeros((a.worlds,6),dtype=jnp.float32),packet)
         state=out.state
