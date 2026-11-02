@@ -209,28 +209,58 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
               f"four-lip milestones {outcome['four_lip_milestones']}; "
               f"falls {outcome['worlds_fell']}/{worlds}",flush=True)
 
-    document=dict(schema="emu_step_streaming_frozen_physical_v2",
+    document=dict(
+        schema=("emu_carpet_frozen_physical_v1" if carpet else
+                "emu_step_streaming_frozen_physical_v2"),
         actor_sha256=actor["artifact_sha256"],actor_step=actor["source"]["step"],
+        actor_source_commit=actor["source"].get("git_commit"),
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       device=device,heights_cm=list(heights_cm),
-                      recycled_platforms=3,actual_collision=True,no_training=True),
-        warnings=["Denominators count physically approached lip encounters, not assigned terrain.",
-                  "A single trained policy and one seed are not repeatability proof.",
-                  "Simulation does not certify that 15cm is possible on real hardware."],
+                      slope_deg=slope_deg,terrain_carpet=bool(carpet),
+                      recycled_platforms=9 if carpet else 3,
+                      collision_geometry=("nine_tilted_solid_boxes" if carpet else
+                                          "three_streaming_slab_boxes"),
+                      scoring="first_termination_only",
+                      actual_collision=True,no_training=True),
+        warnings=[
+          "Only first-life observations and crossings count; post-fall resets are excluded.",
+          "Approaches that never end in supported crossing or terminal failure "
+          "may be censored, so 0/0 is NOT a proof of competence.",
+          "Unclassified attempts are reported, not silently discarded.",
+          "Height is the nominal Academy frontier; actual source-generated "
+          "lip heights vary by global location and seed." if carpet else
+          "Old three-slab world tests the assigned constant height.",
+          "Supported crossings are live training contact-evidence events; "
+          "independent external trajectory scoring remains a separate check.",
+          "One frozen policy and one seed are not repeatability proof.",
+          "Simulated 15cm capability does not certify physical hardware."],
         results=outcomes)
     output.mkdir(parents=True,exist_ok=True)
     (output/"academy_exam.json").write_text(json.dumps(document,indent=2)+"\n")
-    lines=["# EMU streaming STEP physical exam","",
-      f"Actor SHA256: {document['actor_sha256']}","",
+    lines=[("# EMU nine-box carpet STEP exam" if carpet else
+            "# EMU streaming STEP physical exam"),"",
+      f"Actor SHA256: {document['actor_sha256']}",
+      f"Actor source: {document['actor_source_commit']}","",
+      "First lifetime only: post-fall policy resets never count.","",
       "| Lip size | Supported UP / approaches | Supported DOWN / approaches | 4-lip milestones | Fell |",
       "|---|---:|---:|---:|---:|"]
     for r in outcomes:
         lines.append(f"| {r['height_cm']:g}cm | {r['up']}/{r['up_attempts']} "
                      f"| {r['down']}/{r['down_attempts']} | {r['four_lip_milestones']} "
                      f"| {r['worlds_fell']}/{worlds} |")
-    lines.extend(["","Each crossing requires far-side upper foot support and a fully cleared previous platform.",
-                  "Three physical boxes recycle, but an episode has no fixed number of lips.",
-                  "See academy_exam.json for first-lip signed heights and each world's evidence.",""])
+    lines.extend([
+        "",
+        ("Each crossing requires five consecutive physically supported "
+         "frames on a newly visited live tile top; nine solid tiles recycle."
+         if carpet else
+         "Each crossing requires far-side top support and a fully "
+         "cleared previous platform; three physical slabs recycle."),
+        ("Nominal frontier challenges vary in height; see JSON for actual "
+         "crossed lip height ranges." if carpet else
+         "Each assigned lip has the specified fixed height."),
+        "A 0/0 denominator does not mean success; few approached lips "
+        "may be inconclusive.",
+        "See academy_exam.json for per-world first-lifetime evidence.",""])
     (output/"academy_exam.md").write_text("\n".join(lines)+"\n")
     return document
 
@@ -245,9 +275,15 @@ def main():
     p.add_argument("--seed",type=int,default=1701)
     p.add_argument("--device",choices=("cpu","cuda","gpu","auto"),default="cpu")
     p.add_argument("--heights-cm",type=float,nargs="+",default=[1.,2.,3.])
+    p.add_argument("--carpet",action="store_true",
+                   help="use actual nine-box v5041 terrain, refuse older actors")
+    p.add_argument("--slope-deg",type=float,default=0.,
+                   help="optional mixed grade on carpet; 0 gives step-only exam")
     a=p.parse_args()
     examine(a.policy,a.output,worlds=a.worlds,horizon=a.horizon,
-            speed=a.speed,seed=a.seed,device=a.device,heights_cm=tuple(a.heights_cm))
+            speed=a.speed,seed=a.seed,device=a.device,
+            heights_cm=tuple(a.heights_cm),
+            carpet=a.carpet,slope_deg=a.slope_deg)
 
 
 if __name__=="__main__":
