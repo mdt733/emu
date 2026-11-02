@@ -35,21 +35,27 @@
     </header>
 
     <aside class="telemetry glass" aria-label="Simulation telemetry">
-      <div class="metric"><span>Policy</span><b id="policyName">—</b></div>
-      <div class="metric"><span>Step</span><b id="policyStep">—</b></div>
-      <div class="metric"><span>FPS</span><b id="fps">—</b></div>
-      <div class="metric"><span>Height</span><b id="height">—</b></div>
-      <div class="metric"><span>vx</span><b id="vxRead">—</b></div>
-      <div class="metric"><span>vy</span><b id="vyRead">—</b></div>
-      <div class="metric"><span>Yaw rate (actual / applied)</span><b id="yawRead">—</b></div>
-      <div class="metric"><span>Yaw request</span><b id="yawRequestRead">—</b></div>
-      <div class="metric"><span>Heading target / actual</span><b id="headingRead">—</b></div>
-      <div class="metric terrain-slope"><span>Ground under feet · uphill</span><b class="slope-data"><span id="slopeRead">—</span><span id="slopeArrow" class="slope-arrow" aria-hidden="true" hidden>↑</span></b></div>
-      <div class="metric"><span>Chassis pitch</span><b id="pitchRead">—</b></div>
-      <div class="metric"><span>Robot lean</span><b id="leanRead">—</b></div>
+      <div class="telemetry-primary">
+        <div class="metric"><span>Policy</span><b id="policyName">—</b></div>
+        <div class="metric"><span>Trained steps</span><b id="policyStep">—</b></div>
+        <div class="metric"><span>Exercise</span><b id="viewerExercise">Field exploration</b></div>
+        <div class="metric"><span>Height / posture</span><b id="height">—</b></div>
+        <div class="metric"><span>Forward · actual / requested</span><b id="vxRead">—</b></div>
+        <div class="metric"><span>Sideways · actual / requested</span><b id="vyRead">—</b></div>
+        <div class="metric terrain-slope"><span>Ground under feet</span><b class="slope-data"><span id="slopeRead">—</span><span id="slopeArrow" class="slope-arrow" aria-hidden="true" hidden>↑</span></b></div>
+      </div>
+      <details class="telemetry-more">
+        <summary>More telemetry</summary>
+        <div class="telemetry-extra">
+          <div class="metric"><span>FPS</span><b id="fps">—</b></div>
+          <div class="metric"><span>Yaw actual / applied</span><b id="yawRead">—</b></div>
+          <div class="metric"><span>Yaw request</span><b id="yawRequestRead">—</b></div>
+          <div class="metric"><span>Heading target / actual</span><b id="headingRead">—</b></div>
+          <div class="metric"><span>Chassis pitch</span><b id="pitchRead">—</b></div>
+          <div class="metric"><span>Robot lean</span><b id="leanRead">—</b></div>
+        </div>
+      </details>
     </aside>
-
-
 
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
