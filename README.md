@@ -153,6 +153,17 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 ## What's next?
 
+The experimental child branch
+[`feature/v5041-unified-terrain-carpet`](https://github.com/mdt733/emu/tree/feature/v5041-unified-terrain-carpet)
+adds **Training Carpet** as a separate mode inside the existing 3D robot
+viewer, with the original Terrain Park unchanged. It reads the actual
+training curriculum frontiers from `metrics.csv` / the live watcher,
+shows projected per-specialist difficulty, and renders real browser
+MuJoCo heightfield collisions with the regular grass and trees. The
+9-tile guiding grid is a visualization, **not** a finished 2048-MJX
+streaming terrain world. [Use the real viewer](docs/V5041_TRAINING_CARPET_VIEWER.md).
+
+
 The active research branch is
 [`feature/v5040-multi-lip-academy-world`](https://github.com/mdt733/emu/tree/feature/v5040-multi-lip-academy-world):
 the STEP specialist now uses a three-platform streaming course with

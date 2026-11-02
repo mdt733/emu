@@ -193,7 +193,7 @@ test('park heightfield has the same valid optical flow as a flat MuJoCo plane',(
   const sim=sourceText('../src/sim.js');
   const sensorPose=sim.slice(sim.indexOf('  sensorPose() {'),
     sim.indexOf('  terrainActorPose() {'));
-  assert.match(sensorPose,/terrainHeightAt=this\.terrainMode==='park'/,
+  assert.match(sensorPose,/terrainHeightAt=\['park','carpet'\]\.includes\(this\.terrainMode\)/,
     'browser sensorPose must actually pass terrain-height fallback for park');
   assert.match(sim,/this\.arraySensor\.advance\(\s*this\.sensorPose\(\)/,
     'array sensor must receive corrected pose on each live frame');

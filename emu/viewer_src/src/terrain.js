@@ -219,7 +219,7 @@ function parkXml(park) {
   const asset=`<hfield name="viewer_park_hfield" nrow="${resolution}" ncol="${resolution}"
     size="${radius} ${radius} ${rounded(maxHeight)} 0.20"
     elevation="${elevations.join(' ')}" />`;
-  const terrain='<geom name="viewer_park_ground" type="hfield" hfield="viewer_park_hfield" pos="0 0 0" friction="1.5 0.005 0.0001" rgba="0.31 0.53 0.25 1" />';
+  const terrain='<geom name="viewer_park_ground" type="hfield" hfield="viewer_park_hfield" pos="0 0 '+rounded(park.collisionOffsetZ||0)+'" friction="1.5 0.005 0.0001" rgba="0.31 0.53 0.25 1" />';
   const trunks=trees.map((t,i)=>`<geom name="viewer_tree_trunk_${i}" type="cylinder"
     pos="${rounded(t.x)} ${rounded(t.y)} ${rounded(t.z+t.trunkHeight/2)}"
     size="${rounded(t.trunkRadius)} ${rounded(t.trunkHeight/2)}"
@@ -335,7 +335,7 @@ export function withTerrain(robotXml,mode='flat',options={}) {
     return xml.replace('</worldbody>',course.geoms+'\n</worldbody>');
   }
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
-  if(mode!=='park')throw new Error('Unknown terrain mode');
+  if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
   const {asset,geometry}=parkXml(park);
   // The source floor must not overlap the hfield at the spawn point: that
@@ -356,7 +356,7 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null) {
   if (![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
-  if(mode==='park') {
+  if(mode==='park'||mode==='carpet') {
     if(!park||Math.abs(x)>=park.radius||Math.abs(y)>=park.radius)
       return {supported:false,degrees:0,arrowDegrees:0};
     const delta=Math.max(park.cell*0.5,0.05);

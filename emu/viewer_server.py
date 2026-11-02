@@ -166,6 +166,49 @@ def build() -> int:
     return 0
 
 
+def read_terrain_training_snapshot(root: Path) -> dict:
+    """Read-only live frontier evidence from real metrics.csv.
+
+    Called through the loopback-only viewer endpoint. The trainer is never
+    contacted or modified and no checkpoint/optimizer state is accessed.
+    """
+    from .results import _last_finite_metrics
+    root=Path(root).expanduser().resolve()
+    metrics=root/'metrics.csv'
+    if not metrics.is_file():
+        # Some launchers watch a parent containing multiple source-pinned runs.
+        candidates=[p for p in root.glob('*/metrics.csv') if p.is_file()]
+        if not candidates:
+            raise FileNotFoundError('No metrics.csv under the live training run')
+        metrics=max(candidates,key=lambda p:p.stat().st_mtime)
+    row=_last_finite_metrics(metrics)
+    if not row:
+        raise ValueError('No complete training metrics yet')
+    run_dir=metrics.parent
+    try:
+        cfg=json.loads((run_dir/'training_config.json').read_text(encoding='utf-8'))
+        if not isinstance(cfg,dict):cfg={}
+    except (OSError,ValueError):
+        cfg={}
+    try:
+        meta=json.loads((run_dir/'run_meta.json').read_text(encoding='utf-8'))
+        if not isinstance(meta,dict):meta={}
+    except (OSError,ValueError):
+        meta={}
+    return {
+        'schema':'emu_terrain_live_v1',
+        'training_step':int(float(row['step'])),
+        'run_name':run_dir.name,
+        'latest_metrics':row,
+        'training_config':{'seed':cfg.get('seed',735),
+                           'academy_stream':cfg.get('academy_stream',False)},
+        'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
+        'physics_mode':'source training metrics, projected browser carpet',
+        'warnings':['The browser hfield preview is not the MJX rolling carpet.',
+                    'Historical runs do not measure slope-transition competence.']
+    }
+
+
 def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
@@ -201,6 +244,13 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
                 if watcher is None:
                     return self._json({'enabled': False}, status=404)
                 return self._json(watcher.status())
+            if route == '/api/live/terrain':
+                if watcher is None:
+                    return self._json({'error':'live training mode disabled'},status=404)
+                try:
+                    return self._json(read_terrain_training_snapshot(watcher.root))
+                except (OSError,ValueError,TypeError) as exc:
+                    return self._json({'error':type(exc).__name__,'note':str(exc)},status=503)
             if route == '/api/live/policy':
                 if watcher is None:
                     return self._json({'error': 'live mode disabled'}, status=404)

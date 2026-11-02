@@ -409,3 +409,19 @@ button:disabled { opacity: .4; cursor: default; }
 }
 
 .depth-legend{font-size:9px;color:#93b8aa;line-height:1.3;margin-top:5px}
+
+/* v5041: training terrain controls live in the existing Settings drawer. */
+.carpet-panel { display:grid; gap:9px; padding:12px; width:100%; min-width:0;
+  border:1px solid rgba(107,212,178,.3);border-radius:12px;
+  background:rgba(18,45,43,.35); }
+.carpet-panel b {font-size:12px;letter-spacing:.05em;color:#8eefd5}
+.carpet-panel small {font-size:11px;color:#b3c8cd;line-height:1.5}
+.carpet-panel label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  font-size:12px;line-height:1.4}
+.carpet-panel select {flex:1;min-width:170px}
+.carpet-file{cursor:pointer;color:#9edbcf}
+.carpet-values {font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;
+  white-space:pre-wrap;color:#e7f4ee;background:rgba(0,0,0,.2);
+  border-radius:8px;padding:9px}
+.carpet-actions{display:flex;flex-wrap:wrap;gap:7px}
+.carpet-actions button{flex:1;min-width:110px;font-size:12px}

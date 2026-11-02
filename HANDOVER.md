@@ -165,3 +165,23 @@ episode. The default aspiration is 15cm, NOT demonstrated capability.
 There is no fixed course finish and no auxiliary CONTROL effort shaping.
 The generalist's other specialists and 20M foundation are unchanged.
 Must still pass actual 2048-environment GPU PPO preflight before training.
+
+### v5041 actual viewer integration — 2 November 2026
+
+Research child branch `feature/v5041-unified-terrain-carpet`, based on
+v5040. Adds `Training Carpet` **inside** EMU's existing 3D policy viewer,
+not a new standalone visualizer. Original `Terrain Park` remains a
+separate mode with its trees and all eight physical obstacle fixtures.
+The carpet mode reuses browser MuJoCo, grass/solid trees, the existing
+policy/360 sensor/ToF and camera stack. Settings expose specialist limits,
+real `metrics.csv`/JSON import and live `/api/live/terrain` readings via
+`emu viewer --live --root <run_dir>`. Changes are applied only on user
+request to avoid resetting a good walk mid-episode.
+
+The 3×3 golden guide follows EMU and shows 18 conceptual triangles.
+This browser implementation has a finite sampled **physical hfield**:
+its steep step edges are approximations, not exact vertical risers;
+the 3×3 collision ring is not yet present in GPU training. Source includes
+`emu/terrain_carpet.py` specification and a 2×2 MJX mutable-hfield CPU
+proof. Do not infer 2048-env performance or learned competence from this.
+See [v5041 actual viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md).

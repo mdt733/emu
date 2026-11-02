@@ -1,18 +1,66 @@
-name: Carpet collision proof
+name: v5041 Carpet viewer and collision checks
 on:
   push:
     branches: [feature/v5041-unified-terrain-carpet]
+  pull_request:
+    paths:
+      - 'emu/viewer_src/**'
+      - 'emu/terrain_carpet.py'
+      - 'emu/viewer_server.py'
+      - 'scripts/probe_carpet_hfield.py'
+      - 'scripts/terrain_snapshot.py'
+      - 'tests/test_terrain_carpet.py'
+      - '.github/workflows/carpet-proof.yml'
   workflow_dispatch:
 jobs:
-  mjx:
+  physics-and-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 17
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install physics and test runtime heightfield
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install identical MuJoCo / MJX and Python tests
         run: |
-          pip install 'mujoco==3.17.0' 'mujoco-mjx==3.17.0' 'jax==0.12.0.1' 'jaxlib==0.12.0.1'
+          python -m pip install -e '.[dev]'
+      - name: Python syntax and independent grid contract
+        run: |
+          python -m compileall -q emu scripts tests
+          python -m pytest -q tests/test_terrain_carpet.py
           python scripts/probe_carpet_hfield.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: emu/viewer_src/package-lock.json
+      - name: Install locked viewer dependencies
+        run: npm ci --prefix emu/viewer_src --no-audit --no-fund
+      - name: Existing 3D viewer regression tests and Training Carpet tests
+        run: npm test --prefix emu/viewer_src
+      - name: Build the *real* 3D viewer with the new terrain option
+        run: npm run build --prefix emu/viewer_src
+      - name: Confirm actual MuJoCo loads emitted carpet collision XML
+        run: |
+          node --input-type=module - <<'JS' > /tmp/emu-carpet.xml
+          import fs from 'node:fs';
+          import {generateTrainingCarpet} from './emu/viewer_src/src/training-carpet.js';
+          import {withTerrain} from './emu/viewer_src/src/terrain.js';
+          const robot=fs.readFileSync('emu/robot.xml','utf8');
+          const carpet=generateTrainingCarpet(
+            {seed:735,slopeDeg:8,transitionDeg:3,stepUpM:.02,stepDownM:.03},'step');
+          process.stdout.write(withTerrain(robot,'carpet',{park:carpet}));
+          JS
+          python - <<'PY'
+          import mujoco
+          from pathlib import Path
+          model=mujoco.MjModel.from_xml_path('/tmp/emu-carpet.xml')
+          assert model.nhfield==1, 'Carpet hfield collision is absent'
+          assert model.ngeom>=10, 'Robot plus terrain geometry missing'
+          data=mujoco.MjData(model)
+          mujoco.mj_forward(model,data)
+          assert all(float(x)==float(x) for x in data.qpos)
+          print('Real MuJoCo hfield, robot, trees: model/forward PASS')
+          PY

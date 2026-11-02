@@ -149,7 +149,7 @@ export function createParkSurface(THREE,park,grassTexture) {
   const faces=[];
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){
     const k=j*n+i,x=-xy+i*step,y=-xy+j*step;
-    vertices[k*3]=x;vertices[k*3+1]=y;vertices[k*3+2]=park.heights[k];
+    vertices[k*3]=x;vertices[k*3+1]=y;vertices[k*3+2]=park.heights[k]+(park.collisionOffsetZ||0);
     uvs[k*2]=x;uvs[k*2+1]=y;
     if(i<n-1&&j<n-1) {
       const a=k,b=k+1,c=k+n+1,d=k+n;
