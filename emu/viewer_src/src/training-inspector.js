@@ -27,15 +27,30 @@ export function specialistLesson(base,role='auto'){
     ...(override.command||{})
   };
   const foundation=carpetLearningStage(base)==='foundation'&&!base.previewOverride;
-  const intensity=clamp(finite(override.resilience,
-    finite(base.resilienceDifficulty,0) *
-      (active==='resilience'?1:active==='standing'?0:.15)),0,1);
-  // The teacher reports a global push frontier, but its configured
-  // physical ceiling may be smaller. Show the *applied* limit.
+  const birthRecovery=clamp(finite(base.resilienceDifficulty,0),0,1);
+  const pushCeiling=Math.max(.01,finite(base.pushMaxForceN,4));
+  // Mirrors _sample_task's REAL T.resilience physics multiplier for a
+  // representative RESILIENCE birth in the unified/open-frontier trainer.
+  // During the 20M->30M specialist mix, the main-style 0.70N foundation
+  // disturbance is blended into frontier_push_n / configured 4.0N.
+  // The field can independently select easier recovery nodes, and 2048
+  // worlds sample different regimes: this is a visible estimate only.
+  const step=finite(base.step,0);
+  const mix=clamp((step-finite(base.foundationSteps,20_000_000))/10_000_000,0,1);
+  const foundationFraction=clamp(birthRecovery*.70/pushCeiling,0,1);
+  const frontierFraction=clamp(finite(base.pushN,0)/pushCeiling,0,1);
+  const unifiedFraction=foundationFraction*(1-mix)+frontierFraction*mix;
+  const pushIntensity=active==='resilience'
+    ?Math.max(unifiedFraction,Math.min(1,.08/pushCeiling))
+    :active==='standing'?0:unifiedFraction*.25;
+  // The slider shows the actual probability multiplier for repeated pushes,
+  // not the separate birth recovery perturbation difficulty.
+  const intensity=clamp(finite(override.resilience,pushIntensity),0,1);
   caps.push=override.command?.push!==undefined
     ?clamp(override.command.push,0,10)
-    :clamp(Math.min(caps.push,Number(base.pushMaxForceN??caps.push)),0,10);
+    :clamp(Math.min(caps.push,pushCeiling),0,10);
   return {role:active,stage:p.stage,terrain:p,caps,foundation,intensity,
+    birthRecovery,sourcePushIntensity:pushIntensity,specialistMix:mix,
     heading:SPECIALIST_GUIDE[active]?.[0]||'Training',
     description:SPECIALIST_GUIDE[active]?.[1]||'Representative challenge',
     // The curriculum can be far above the current trained skill. An
