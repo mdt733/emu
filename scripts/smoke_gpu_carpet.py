@@ -17,10 +17,16 @@ def main():
     p.add_argument("--frames",type=int,default=2)
     p.add_argument("--ppo",action="store_true")
     p.add_argument("--full-update",action="store_true")
+    p.add_argument("--benchmark-updates",type=int,default=1,
+                   help="1..8 full PPO updates; report synchronized steady FPS "
+                        "after the first compilation; no checkpoint")
     a=p.parse_args()
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
     if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
         p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
+    if (not 1<=a.benchmark_updates<=8 or
+            (a.benchmark_updates>1 and not a.full_update)):
+        p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if a.device=="gpu" else a.device)
@@ -191,6 +197,33 @@ def main():
               f"max_actor_delta={max_actor_delta:.8g}; "
               f"first_update_including_compile={first_update_seconds:.2f}s; "
               f"world_steps={first_update_world_steps:,}",flush=True)
+        # The first update compiles XLA and CANNOT measure sustained
+        # performance. Subsequent calls use the SAME 2048x32 rollout and
+        # real four-epoch PPO, synchronized before reading each elapsed time.
+        # This mode never writes a checkpoint or launches an overnight run.
+        steady_update_times=[]
+        if a.benchmark_updates>1:
+            last=updated
+            for i in range(1,a.benchmark_updates):
+                start_steady=time.perf_counter()
+                nxt,_,_,_,_=trainer["train_update"](
+                    last,packet,jnp.zeros((360,),dtype=jnp.float32),
+                    jnp.ones((360,),dtype=jnp.float32),
+                    jnp.asarray(.25,jnp.float32))
+                jax.block_until_ready((nxt.obs,nxt.params["pi"][-1]["w"]))
+                steady_update_times.append(time.perf_counter()-start_steady)
+                last=nxt
+            # Keep output meaningful if a later PPO update blows up.
+            if not bool(np.asarray(jax.device_get(
+                    jnp.all(jnp.isfinite(last.params["pi"][-1]["w"]))))):
+                raise RuntimeError("Nonfinite actor parameters during sustained PPO benchmark")
+            steady_seconds=sum(steady_update_times)
+            steady_fps=(a.benchmark_updates-1)*first_update_world_steps/steady_seconds
+            print(f"steady state PPO PASS: {a.benchmark_updates-1} "
+                  f"post-compile full updates; "
+                  f"mean={steady_seconds/(a.benchmark_updates-1):.3f}s/update; "
+                  f"throughput={steady_fps:,.0f} world-steps/s "
+                  "(synchronized; no checkpoint)",flush=True)
         if a.full_update:
             dev=jax.devices("gpu")[0]
             stats=dev.memory_stats() or {}
@@ -202,7 +235,14 @@ def main():
           **(dict(ppo_parameter_delta=max_param_delta,
                   ppo_actor_delta=max_actor_delta,
                   first_update_seconds=round(first_update_seconds,3),
-                  first_update_world_steps=first_update_world_steps)
+                  first_update_world_steps=first_update_world_steps,
+                  benchmark_updates=a.benchmark_updates,
+                  **(dict(steady_update_seconds_mean=round(
+                             sum(steady_update_times)/len(steady_update_times),3),
+                          steady_world_steps_per_second=round(
+                             (a.benchmark_updates-1)*first_update_world_steps/
+                             sum(steady_update_times),1))
+                     if steady_update_times else {}))
              if a.ppo else {}))))
 
 
