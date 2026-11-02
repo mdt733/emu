@@ -225,6 +225,10 @@ function updateStickLabels() {
   sim?.setJoystickTargets(left.x,left.y,right.x,right.y);
 }
 function humanStickChange(side,x,y) {
+  if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'&&
+     (Math.abs(x)>.06||Math.abs(y)>.06)){
+    carpetDrive.value='manual';syncCarpetExercise();
+  }
   if(demoActive && (Math.abs(x)>.06||Math.abs(y)>.06))stopDemo();
   if(!demoActive){
     handoff.takeControl(performance.now()/1000);
@@ -431,6 +435,8 @@ function updateWorldTabs(){
   }
   fieldPanel.hidden=carpet;
   carpetPanel.hidden=!carpet;
+  $('liveDemo').disabled=carpet;
+  if(carpet)navHud.hidden=true;
   document.body.dataset.world=carpet?'carpet':'field';
 }
 function updateTerrain() {
@@ -453,6 +459,7 @@ function updateTerrain() {
        limits:carpetEffectiveLimits()});
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     if(goalDemoActive())navigator.reset();
+    if(isCarpet)navHud.hidden=true;
     carpetExerciseClock=0;
     syncCarpetExercise();
     updateStickLabels();
@@ -505,6 +512,7 @@ function syncCarpetExercise(){
     return;
   }
   const lesson=currentCarpetLesson();
+  sim.autoReset=carpetDrive.value==='lesson'||autoResetToggle.checked;
   const actualForceLimit=Math.min(
     lesson.caps.push,
     Math.max(.01,Number(carpetEffectiveLimits().pushMaxForceN??.35)));
@@ -869,6 +877,9 @@ window.addEventListener('keydown', e => {
   if (!settingsDrawer.hidden || ['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
   if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyF'].includes(e.code)) {
     if (demoActive) stopDemo();
+    if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'){
+      carpetDrive.value='manual';syncCarpetExercise();
+    }
     held.add(e.code); updateKeyboard(); e.preventDefault();
   } else if (e.code === 'Space' && sim) {
     sim.paused = !sim.paused; pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause'; e.preventDefault();
@@ -962,6 +973,11 @@ function stopDemo(){
 }
 function startDemo(){
   if(!sim||navigationFault)return;
+  if(terrainMode.value==='carpet'){
+    $('liveDemo').checked=false;
+    setStatus('Autonomous navigation is for Field mode; Carpet uses specialist exercises.','warn');
+    return;
+  }
   demoActive=true;
   handoff.resume();
   $('liveDemo').checked=true;
