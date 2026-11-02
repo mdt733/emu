@@ -394,3 +394,34 @@ independent terrain contact/step/slope exams on additional seeds or
 early-stage real gait if gate evidence warrants. Avoid inferring
 competence from a 131k-step random-ish actor or pretending the
 first-update ~64s is steady training speed.
+
+
+### v5041 complete sustained 2048-CUDA full-PPO gate — 3 November 2026
+
+The owner ran `python scripts/smoke_gpu_carpet.py --device cuda
+--worlds 2048 --frames 2 --ppo --full-update --benchmark-updates 4`
+on source `39573722fc4b86ddabd9c2d2ec489d069129c79f`,
+RTX 4060 Ti 8 GB / WSL2. **PASS**: 9 tilted solid boxes (actual
+collision, 2.71mm source/plane difference), safe recycling,
+real PPO actor gradient delta 0.0014353991, first including
+compile 71.985s, followed by 3 synchronized *full* PPO updates
+at **3.897s/update** or **16,818 world steps/s**, JAX peak in-use
+**1,395,523,840 bytes** against JAX memory limit 6,440,353,792.
+This measures four 32×2048-step, four-epoch/eight-minibatch PPO
+updates, not just physics stepping. Raw 140M PPO estimate ~2.31h
+plus training/eval/checkpoint overhead.
+
+The earlier same-source 131k-stage training lifecycle and 8-world
+read-only physical exam had already passed: teacher UP 0/DOWN 1,
+independent UP 0/DOWN 1, 8/8 fell (expected untrained).
+No proven uphill or slope skill yet. **Pre-long-run engineering smoke
+gates are now satisfied**, and long **monitored research training may
+start** from scratch with this branch in a NEW run directory after
+checking `emu train --plan`, clean Git SHA and config. The current
+README and GPU runbook correct the previous stale claims of 9 active
+heightfield colliders and untested 2048 CUDA. Keep early growth
+historical expectations (~5M standing onset, 20M barely standing,
+40M immature gait), one PPO actor, six independent specialties,
+20M ordinary foundation, and 60/80/100M STEP Academy share ramp.
+Do not change source SHA midlineage; never merge experimental
+topology into `main`. No 140M has yet been launched here.
