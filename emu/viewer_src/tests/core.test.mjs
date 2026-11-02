@@ -193,8 +193,10 @@ test('park heightfield has the same valid optical flow as a flat MuJoCo plane',(
   const sim=sourceText('../src/sim.js');
   const sensorPose=sim.slice(sim.indexOf('  sensorPose() {'),
     sim.indexOf('  terrainActorPose() {'));
-  assert.match(sensorPose,/terrainHeightAt=\['park','carpet'\]\.includes\(this\.terrainMode\)/,
-    'browser sensorPose must actually pass terrain-height fallback for park');
+  assert.match(sensorPose,/terrainHeightAt=this\.terrainMode==='park'/,
+    'the original park hfield retains its optical-flow height fallback');
+  assert.doesNotMatch(sensorPose,/terrainHeightAt=\['park','carpet'\]/,
+    'real moving carpet boxes must NEVER use a ghost hfield flow fallback');
   assert.match(sim,/this\.arraySensor\.advance\(\s*this\.sensorPose\(\)/,
     'array sensor must receive corrected pose on each live frame');
 });
