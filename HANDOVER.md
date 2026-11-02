@@ -322,9 +322,11 @@ but NOT yet independently GPU-approved:**
 - `scripts/exam_step_course.py --carpet`: provenance-gated read-only
   per-lip exam, counts only first-life supported contacts, reports
   observed physical UP/DOWN heights and uncategorised attempts; zero
-  attempted lips does not imply success. This is still using the
-  physically contact-gated training events; independent trajectory
-  rescoring remains a separate requirement.
+  attempted lips does not imply success. It ALSO independently rescores
+  five-frame supported new-tile transitions using raw box transforms,
+  actual foot-contact normals, ball-foot sphere clearance and the signed
+  physical edge rise. Teacher and independent counts remain separate,
+  with disagreements flagged rather than silently credited.
 - `scripts/smoke_gpu_carpet.py --full-update --benchmark-updates 4`
   measures synchronized throughput from 3 post-compilation full
   PPO updates, no checkpoint or long-run launch.
