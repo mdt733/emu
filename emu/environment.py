@@ -2664,7 +2664,7 @@ class EmuMJXEnv(TaskSampler):
             signed_lip_height(jnp,direction,sample[:,1],up,down,progress))
         # The course yaw is fixed within one episode; both adjacent faces
         # remain flush. Independent direction and size draws never repeat
-        a prescribed up/down pattern.
+        # a prescribed up/down pattern.
         q=data.mocap_quat[:,self.academy_platform_mocap_ids[0],:]
         ca=1.-2.*q[:,3]**2
         sa=2.*q[:,0]*q[:,3]
