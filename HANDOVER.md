@@ -129,48 +129,16 @@ PPO science arms have been launched in this promotion.
 
 ---
 
-## Experimental v5040 four-lip Step Academy — 2 November 2026
+## Experimental v5040 STEP improvement — 2 November 2026
 
-**DRAFT RESEARCH ONLY:** [PR #28](https://github.com/mdt733/emu/pull/28),
-branch `feature/v5040-multi-lip-academy-world`. No promotion to `main`,
-no edits to v5033 or v5037 source-pinned checkpoints. Full detailed
-engineering record and safe WSL physical acceptance commands:
-[docs/V5040_REAL_MULTILIP_ACADEMY.md](docs/V5040_REAL_MULTILIP_ACADEMY.md).
-
-**What changed:** v5037 trained only single-lip worlds, contrary to the
-original continuous-step user request. v5040 now adds three real MJX
-intermediate platforms, with the two existing slabs making four consecutive
-physical sharp lips at 0.25, 0.60, 0.95 and 1.30m; balanced UP/DOWN patterns,
-small ±3° edge yaw, authentic 16-ray sensing, support-verified and anti-farming
-per-lip reward/telemetry. Independent Academy height governor starts at 3mm,
-grows only on both-direction verified contact, retreats on failed EASY attempts,
-and is fully checkpointed. Careful pacing/crouch is bounded per uphill lip.
-24s Academy course budget and immediate course-finish reset coexist with
-normal 14s specialist episodes and existing early-fall penalties.
-
-**One policy, one optimizer, cold-from-0:** the Academy uses the same
-360-channel actor and source-pinned PPO, not a second trainer.
-The default experimental schedule introduces 0–10% Academy births at
-60–80M and ramps 10–50% at 80–100M. A fast-rehearsal allocation is protected;
-50% denotes all-world *birth share*, not necessarily 50% of active frame
-occupancy because Academy episodes can be longer. Both target and actual
-occupancy are explicitly logged. Do not combine the v5037 300-frame global
-Stage A settings with this mode. For any future cold-run launch, select
-`--terrain-lesson coherent-careful` for actual straight-line STEP intent.
-
-**Physical CPU acceptance already demonstrated:** physical course seams,
-all four signed lips, intermediate platform robot-foot contacts, anticipatory
-actual 4×4 ToF visibility of every lip, five-frame real supported crossing
-ledger (2UP+2DOWN, no repeat payment), and a finite PPO gradient.
-Independent frozen public 260M actor evaluation 4 worlds/200 frames/1cm cap:
-1/8 supported uphill and 2/8 downhill opportunities, 0/4 complete courses,
-0 falls. This validates the exam but NOT mastery of successive steps.
-
-**Not yet established:** latest post-change full CI acceptance, 2048×32
-CUDA PPO memory/throughput on the user's 8GB RTX 4060 Ti, learnability
-in a long multi-lip course, actual actuator sufficiency on hardware, or
-a successful multi-lip training campaign. Do NOT schedule expensive training
-until the CUDA resource gate is passed on a separate worktree. Never
-conflate real physical contact eligibility with proof that PPO has learned
-to choose it. Existing v5033/v5037 experiments remain valid single-lip
-science controls; do not relabel their results as multi-lip training.
+Draft [PR #28](https://github.com/mdt733/emu/pull/28) on
+`feature/v5040-multi-lip-academy-world`; keep `main` and all checkpoints
+unchanged. The existing STEP specialist now samples four consecutive real
+up/down lips, with fresh random ordering per episode, real contact-gated
+per-lip incremental rewards, 4×4 physical ToF, a separately checkpointed
+height frontier, and original shared 360-input PPO. Other specialties and
+the 20M foundation remain. Prior CPU checks exercised physics, not learning.
+Added research launchers, test suite, and Academy CI matrix have been
+removed from this branch to keep it maintainable; historical research
+remains in older branches. **Not GPU-profiled or trained yet.**
+See [short v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).

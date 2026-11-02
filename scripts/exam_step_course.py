@@ -11,10 +11,10 @@ from pathlib import Path
 
 def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
             device="cpu",heights_cm=(1.,2.,3.)):
-    if (worlds<4 or worlds>32 or worlds%4 or horizon<200 or horizon>700 or
+    if (worlds<4 or worlds>32 or horizon<200 or horizon>700 or
         speed<.04 or speed>.30 or not heights_cm or
         any(h<.2 or h>4 for h in heights_cm)):
-        raise ValueError("Need 4..32 worlds in groups of 4, 200..700 frames, 0.04..0.30m/s, 0.2..4cm")
+        raise ValueError("Need 4..32 worlds, 200..700 frames, 0.04..0.30m/s, 0.2..4cm")
     policy=Path(policy).expanduser().resolve()
     output=Path(output).expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
@@ -28,6 +28,7 @@ def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
     from emu.physical_exam import make_schedule
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
+    from emu.step_academy_world import ACADEMY_PATTERNS
     params,norm,actor=load_exported_actor_for_exam(policy)
     if actor.get("observation_schema")!=OBS_SCHEMA_TERRAIN or not actor.get("array_only"):
         raise ValueError("Only authentic terrain_360 array-only actor supported")
@@ -72,9 +73,9 @@ def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
         out=jax.device_get(trace)
         initial=np.asarray(out["academy_initial_platform_positions"])
         signed=np.diff(initial[:,:,2]+.25,axis=1)
-        expected=((1,1,-1,-1),(1,-1,1,-1),
-                  (-1,1,-1,1),(-1,-1,1,1))
-        if any(tuple(np.sign(signed[w]).astype(int))!=expected[w%4] for w in range(worlds)):
+        if any(tuple(np.sign(signed[w]).astype(int)) !=
+               ACADEMY_PATTERNS[w % len(ACADEMY_PATTERNS)]
+               for w in range(worlds)):
             raise RuntimeError("Four real physical signed steps were not created")
         active=np.asarray(out["academy_active"])[0]>.5
         if not active.all():
@@ -86,7 +87,7 @@ def examine(policy,output,*,worlds=8,horizon=650,speed=.16,seed=1701,
         falls=np.asarray(out["fell"])>.5
         per_world=[]
         for w in range(worlds):
-            per_world.append(dict(world=w,pattern=w%4,
+            per_world.append(dict(world=w,pattern=w%len(ACADEMY_PATTERNS),
               signed_lip_heights_cm=np.round(signed[w]*100,3).tolist(),
               supported_up=int(ev["academy_cross_up"][:,w].sum()),
               supported_down=int(ev["academy_cross_down"][:,w].sum()),

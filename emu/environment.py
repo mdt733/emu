@@ -40,7 +40,7 @@ from .step_academy_world import (
     ACADEMY_LIPS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_MIDDLE_HALF_LENGTH_M, ACADEMY_MIDDLE_HALF_WIDTH_M,
     ACADEMY_MIDDLE_HALF_DEPTH_M, ACADEMY_MIDDLE_NAMES,
-    ACADEMY_MIDDLE_GEOMS, course_heights)
+    ACADEMY_MIDDLE_GEOMS, ACADEMY_PATTERNS, course_heights)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -2863,8 +2863,8 @@ class EmuMJXEnv(TaskSampler):
         """Install four REAL signed step lips at episode birth, no model rebuild.
 
         The first/final slabs are the existing unified floor/upper colliders;
-        three additional 0.5m platforms connect them into four consecutive
-        lips. The per-world course is sampled only for selected STEP births.
+        three 0.35m platforms connect four consecutive lips. The up/down
+        order changes at each STEP birth; non-STEP worlds remain untouched.
         Other worlds retain *exactly* their existing two-slab collision
         poses and actual 16-ray terrain measurements.
         """
@@ -2896,7 +2896,12 @@ class EmuMJXEnv(TaskSampler):
         # Frozen physical exams specify exact signed lip heights; training
         # always randomises each independent physical ledge.
         sampled=jnp.where(has_fixed,jnp.ones_like(u[:,1:5]),u[:,1:5])
-        h=course_heights(jnp,self.env_index,sampled,severity)
+        # Keep pattern RNG independent of the birth-selection draw; using
+        # u[:,0] for both would bias the orders at low Academy exposure.
+        random_pattern=jax.vmap(lambda k:jax.random.randint(
+            jax.random.fold_in(k,5041),(),0,len(ACADEMY_PATTERNS)))(keys)
+        pattern=jnp.where(has_fixed,self.env_index,random_pattern)
+        h=course_heights(jnp,pattern,sampled,severity)
         L=UNIFIED_SLAB_HALF_LENGTH_M
         xs=(ACADEMY_EDGE_X_M-L,
             *(ACADEMY_EDGE_X_M+(i+.5)*ACADEMY_INTERVAL_M
