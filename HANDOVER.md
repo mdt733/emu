@@ -285,3 +285,57 @@ checkpoint, resume/source provenance, exporter and 360-observation actor.
 Then independent physical commanded step/slope exams and only afterward
 a new, source-pinned cold-start 140M run. See
 `docs/V5041_GPU_CARPET_TRAINING.md`; main and v5040 stay untouched.
+
+
+### v5041 update — CUDA acceptance AND warm lifecycle PASSED
+
+**Supersedes the earlier "CUDA/lifecycle still pending" text above.**
+The owner reran exact source
+`728f0139b3f032dcc68770372730ccfb36494ac6`:
+
+- 128 and 2048 world CUDA smokes PASS, including real 9-solid
+  geometry, true box/ball-foot clearance, finite 360 observations,
+  and positive actor PPO delta (0.001431 at 2048).
+- Production-shaped PPO = 2048×32=65,536 world steps, four epochs,
+  eight minibatches; 64.68 seconds INCLUDING first compilation.
+- JAX peak memory 1,075,855,360 bytes/limit 6,440,353,792 bytes.
+- True carpet first/continue/verify lifecycle PASS at 2048 worlds:
+  65,536→131,072 total steps, source-pinned optimiser/parent-preserving
+  warm continuation, obs normaliser count advances identically,
+  completed-resume is a no-op, 360 schema-3 export/readback PASS.
+- Novice checkpoint does NOT walk: ~77.6% early falls are genuine.
+  The ~2 million FPS and reward=0 console prints were reporting bugs,
+  not evidence of ultra-fast/zero-reward training. The wall timer
+  excluded compile+first PPO, and the one-update reward list was empty.
+
+**Engineering work subsequently added ON THE SAME EXPERIMENTAL BRANCH
+but NOT yet independently GPU-approved:**
+
+- Correct final reward and compilation-inclusive small-run wall FPS;
+  exclude warmup steps from perf's postwarmup-only train-FPS numerator.
+- Frozen `evaluate_trace` now gathers actual live nine-box contact
+  pairs, local tilted normals and source/solid geometry. It must not
+  `stack` the absent old Academy platform bodies.
+- Exported `.emupolicy` records nine-box training topology and
+  Academy settings. The three-stage checker refuses a carpet export
+  that lost this provenance.
+- `scripts/exam_step_course.py --carpet`: provenance-gated read-only
+  per-lip exam, counts only first-life supported contacts, reports
+  observed physical UP/DOWN heights and uncategorised attempts; zero
+  attempted lips does not imply success. This is still using the
+  physically contact-gated training events; independent trajectory
+  rescoring remains a separate requirement.
+- `scripts/smoke_gpu_carpet.py --full-update --benchmark-updates 4`
+  measures synchronized throughput from 3 post-compilation full
+  PPO updates, no checkpoint or long-run launch.
+- Regression tests cover first-life censor, real 9-box frozen traces,
+  and earlier sphere/solid overhang recycler defence.
+
+**Next:** get the latest Actions CPU CI green, pull/pin the new exact
+SHA, run bounded GPU steady-throughput smoke, re-export existing tiny
+untrained checkpoint with its real terrain provenance, and probe
+read-only frozen carpet exam for pipeline soundness. Do not claim
+trained 15cm skill or launch 140M merely from a two-update checkpoint.
+Only after frozen independent contact/slope exams and real speed
+are validated launch a fresh 140M lineage. `main`, v5040 and all
+legacy champions/checkpoints remain untouched.
