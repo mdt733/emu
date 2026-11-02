@@ -117,10 +117,12 @@
             <option value="manual">Manual joystick / WASD</option>
           </select></label>
           <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Random physical shoves with directional arrows</label>
-          <label>Shove timing <select id="carpetPushRate">
-            <option value="8" selected>Inspection · 8× training event frequency</option>
-            <option value="1">Training-like event frequency</option>
+          <label>Recovery shove schedule <select id="carpetPushRate">
+            <option value="drill" selected>Recovery drill · about 1–2 shoves/s (viewer only)</option>
+            <option value="inspection">Inspection · 8× real training frequency</option>
+            <option value="training">Training-like · deliberately sparse per robot</option>
           </select></label>
+          <small id="shoveRateNote">The viewer runs one robot; the GPU trainer runs 2,048 worlds with independent disturbances.</small>
           <button id="carpetTestShove" type="button">Apply one random shove</button>
           <small id="carpetShoveState">Random push angle, strength and duration; frequency scales with the resilience setting.</small>
           <div id="lessonCommand" class="lesson-command">Viewer command: —</div>
