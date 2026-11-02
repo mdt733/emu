@@ -126,21 +126,41 @@ GPU test as verification of those later changes. Rerun the 128 and 2048
 gates on the final source SHA after its CPU CI passes, then run the
 bounded checkpoint/export/resume lifecycle using that same frozen SHA.
 
-## Then a bounded lifecycle check (new external run directory)
+## Then an actual first/continue/verify lifecycle (new external run directory)
 
-The standard `emu train` bounded two-update smoke tests PPO plus
-checkpoint creation, provenance and export, not walking competence.
-Example at 2048 environments:
+The existing three-stage `scripts/smoke_training_lifecycle.py` now has a
+`--carpet` mode, explicitly selecting the **same nine-box v5041 physical
+terrain** as production. Without `--carpet`, the old unified smoke still
+uses the historical two-slab world and must NOT count as v5041 acceptance.
+
+The three stages exercise a 2048-world one-update cold learner, save a
+complete checkpoint, resume it into a fresh child run for one additional
+update, verify unchanged parent bytes and advancing observation
+normalization, and export/read back a 360-input schema-3 browser actor.
+The script internally gates the run to no more than two PPO updates and
+does not claim walking competence.
+
+Run all stages from the exact clean Git SHA that passed the updated
+128-world and 2048-world CUDA preflights:
 
 ```bash
-EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle emu train \
-  --run-dir "$HOME/robot_lab/emu_runs/v5041_carpet_smoke_s735" \
-  --steps 131072 --envs 2048 --seed 735 --device cuda \
-  --profile sim2real --terrain-actor --terrain-step-max-m .08 \
-  --unified-capabilities --terrain-carpet --academy-stream \
-  --terrain-lesson coherent-careful --growth-recipe main-mature \
-  --foundation-mix main --force-program gentle
+ROOT="$HOME/robot_lab/emu_runs/v5041_carpet_lifecycle_s735"
+
+python scripts/smoke_training_lifecycle.py first \
+  --root "$ROOT" --unified --carpet --envs 2048 --seed 735
+
+python scripts/smoke_training_lifecycle.py continue \
+  --root "$ROOT" --unified --carpet --envs 2048 --seed 735
+
+python scripts/smoke_training_lifecycle.py verify \
+  --root "$ROOT" --unified --carpet --envs 2048 --seed 735
 ```
+
+Choose a fresh `ROOT`: stage 1 refuses to overwrite one that already
+exists. Do not change source SHA, seed, flags, or root between stages.
+This script checks checkpoint, warm continuation and export; it is
+stronger evidence than one uninterrupted `emu train --steps 131072`
+invocation, which by itself does not prove warm resume.
 
 If the bounded lifecycle succeeds, and frozen physical terrain exams
 show no sensor/contact mismatch, a *new* 140M from-scratch lineage
