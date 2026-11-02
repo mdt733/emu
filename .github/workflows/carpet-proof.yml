@@ -47,25 +47,41 @@ jobs:
         run: npm test --prefix emu/viewer_src
       - name: Build the *real* 3D viewer with the new terrain option
         run: npm run build --prefix emu/viewer_src
-      - name: Confirm actual MuJoCo loads emitted carpet collision XML
+      - name: Confirm REAL browser nine-solid-box XML loads and mocap tiles physically move
         run: |
           node --input-type=module - <<'JS' > /tmp/emu-carpet.xml
           import fs from 'node:fs';
-          import {generateTrainingCarpet} from './emu/viewer_src/src/training-carpet.js';
+          import {createSolidCarpet} from './emu/viewer_src/src/training-solid-carpet.js';
           import {withTerrain} from './emu/viewer_src/src/terrain.js';
           const robot=fs.readFileSync('emu/robot.xml','utf8');
-          const carpet=generateTrainingCarpet(
+          const carpet=createSolidCarpet(
             {seed:735,slopeDeg:8,transitionDeg:3,stepUpM:.02,stepDownM:.03},'step');
           process.stdout.write(withTerrain(robot,'carpet',{park:carpet}));
           JS
           python - <<'PY'
           import mujoco
-          from pathlib import Path
+          import numpy as np
           model=mujoco.MjModel.from_xml_path('/tmp/emu-carpet.xml')
-          assert model.nhfield==1, 'Carpet hfield collision is absent'
-          assert model.ngeom>=10, 'Robot plus terrain geometry missing'
+          assert model.nhfield==0, 'Legacy heightfield unexpectedly remains'
+          assert model.nmocap==9, 'Rolling browser carpet needs nine moving bodies'
+          geom_ids=[]
+          for i in range(9):
+              gid=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,
+                                   f'viewer_carpet_solid_{i}')
+              bid=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
+                                   f'viewer_carpet_body_{i}')
+              assert gid>=0 and bid>=0
+              assert model.geom_type[gid]==mujoco.mjtGeom.mjGEOM_BOX
+              np.testing.assert_allclose(model.geom_size[gid], [.258,.258,.270])
+              assert model.body_mocapid[bid]>=0
+              geom_ids.append(gid)
           data=mujoco.MjData(model)
           mujoco.mj_forward(model,data)
-          assert all(float(x)==float(x) for x in data.qpos)
-          print('Real MuJoCo hfield, robot, trees: model/forward PASS')
+          assert np.isfinite(data.qpos).all()
+          before=data.geom_xpos[geom_ids[0]].copy()
+          mid=int(model.body_mocapid[model.geom_bodyid[geom_ids[0]]])
+          data.mocap_pos[mid,0]+=.5
+          mujoco.mj_forward(model,data)
+          assert np.isclose(data.geom_xpos[geom_ids[0],0]-before[0],.5,atol=1e-6)
+          print('Real MuJoCo nine solid boxes and moving contact bodies: PASS')
           PY
