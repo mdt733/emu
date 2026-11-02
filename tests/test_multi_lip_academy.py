@@ -246,7 +246,13 @@ def test_multilip_cli_refuses_the_old_global_300_frame_stage_a_setting(tmp_path)
     r=subprocess.run(cmd,cwd=Path(__file__).resolve().parents[1],
                      capture_output=True,text=True)
     assert r.returncode!=0
-    assert "multi-lip cold curriculum cannot be stacked" in (r.stderr+r.stdout)
+    # The obsolete Stage A global timeout is not part of the public train
+    # CLI. argparse correctly refuses it *before* reaching the secondary
+    # runtime guard; both paths prevent silently shortening every world.
+    assert ("unrecognized arguments: --academy-episode-frames 300" in
+            (r.stderr+r.stdout) or
+            "multi-lip cold curriculum cannot be stacked" in
+            (r.stderr+r.stdout))
 
 
 def test_multilip_cli_rejects_mixed_turning_lessons_that_hide_step_learning(tmp_path):
