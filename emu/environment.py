@@ -53,7 +53,12 @@ from .terrain_carpet_mjx import (
     unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
     signed_height_over_support as carpet_signed_support,
     supported_tile_foot_pairs as carpet_top_foot_pairs,
-    shares_physical_edge as carpet_shared_edge)
+    shares_physical_edge as carpet_shared_edge,
+    WALL_COUNT as CARPET_WALL_COUNT,
+    WALL_BODY_NAMES as CARPET_WALL_BODY_NAMES,
+    WALL_GEOM_NAMES as CARPET_WALL_GEOM_NAMES,
+    generate_wall_window as carpet_generate_wall_window,
+    wall_slot_indices as carpet_wall_slot_indices)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
@@ -1251,6 +1256,8 @@ class EmuMJXEnv(TaskSampler):
                 raise RuntimeError('Missing real Academy platform body or geom')
         self.carpet_mocap_ids=()
         self.carpet_geom_ids=()
+        self.carpet_wall_mocap_ids=()
+        self.carpet_wall_geom_ids=()
         if self.terrain_carpet:
             self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
                 mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
@@ -1258,9 +1265,18 @@ class EmuMJXEnv(TaskSampler):
             self.carpet_geom_ids=tuple(int(mujoco.mj_name2id(
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
                 for n in CARPET_GEOM_NAMES)
+            self.carpet_wall_mocap_ids=tuple(int(self.mj_model.body_mocapid[
+                mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
+                for n in CARPET_WALL_BODY_NAMES)
+            self.carpet_wall_geom_ids=tuple(int(mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
+                for n in CARPET_WALL_GEOM_NAMES)
             if (any(v<0 for v in self.carpet_mocap_ids)
-                or any(v<0 for v in self.carpet_geom_ids)):
-                raise RuntimeError('Not all nine carpet colliders were compiled')
+                or any(v<0 for v in self.carpet_geom_ids)
+                or any(v<0 for v in self.carpet_wall_mocap_ids)
+                or any(v<0 for v in self.carpet_wall_geom_ids)
+                or len(set(self.carpet_wall_mocap_ids))!=CARPET_WALL_COUNT):
+                raise RuntimeError('Missing physical tile or step-riser collider')
             assert self.mj_model.nhfield==CARPET_TILE_COUNT, self.mj_model.nhfield
             assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
             assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
@@ -2834,7 +2850,13 @@ class EmuMJXEnv(TaskSampler):
                 jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
         for i,mocap in enumerate(self.carpet_mocap_ids):
             pos=pos.at[:,mocap,:].set(centers[:,i,:])
-        data=data.replace(mocap_pos=pos)
+        wall_pos,wall_quat,_,_=carpet_generate_wall_window(
+            jnp,xy[:,0],xy[:,1],centers,heights)
+        quat=data.mocap_quat
+        for i,mocap in enumerate(self.carpet_wall_mocap_ids):
+            pos=pos.at[:,mocap,:].set(wall_pos[:,i,:])
+            quat=quat.at[:,mocap,:].set(wall_quat[:,i,:])
+        data=data.replace(mocap_pos=pos,mocap_quat=quat)
         top=carpet_sample_surface(jnp,data,self.carpet_mocap_ids,
                   heights,data.qpos[:,:3][:,None,:])[:,0]
         top=jnp.where(jnp.isfinite(top),top,0.)
@@ -2885,10 +2907,23 @@ class EmuMJXEnv(TaskSampler):
                             (indices[:,i,1]!=old_y[:,i])))
             pos=pos.at[:,mocap,:].set(
                 jnp.where(changed[:,None],centers[:,i,:],pos[:,mocap,:]))
-        # A full world-only heightfield replaces the old one for worlds
-        # whose window advanced; otherwise no training geometry changes.
+        # The 12 real vertical seam boxes follow the same *world*
+        # coordinates and recycle only after both feet are clear.
+        walls,quats,wall_indices,_=carpet_generate_wall_window(
+            jnp,new_center[:,0],new_center[:,1],centers,hfields)
+        wall_old_x,wall_old_y=carpet_wall_slot_indices(
+            jnp,old_cx,old_cy)
+        q=data.mocap_quat
+        for i,mocap in enumerate(self.carpet_wall_mocap_ids):
+            changed=(move & ((wall_indices[:,i,0]!=wall_old_x[:,i])
+                             |(wall_indices[:,i,1]!=wall_old_y[:,i])))
+            pos=pos.at[:,mocap,:].set(
+                jnp.where(changed[:,None],walls[:,i,:],pos[:,mocap,:]))
+            q=q.at[:,mocap,:].set(
+                jnp.where(changed[:,None],quats[:,i,:],q[:,mocap,:]))
+        # Per-world hfield updates occur only when centre tile changes.
         hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
-        return data.replace(mocap_pos=pos),hfield,new_center
+        return data.replace(mocap_pos=pos,mocap_quat=q),hfield,new_center
 
     def _episode_terrain(self, data, keys, params,
                          focus_id=None, specialist_active=None,

@@ -48,6 +48,8 @@ def main():
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly nine collision hfield tiles")
+    if len(env.carpet_wall_geom_ids)!=12 or len(env.carpet_wall_mocap_ids)!=12:
+        raise RuntimeError("Expected twelve real 3x3 carpet riser boxes")
     if env.academy_geom_ids or env.academy_platform_mocap_ids:
         raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
     if (env.mj_model.geom_contype[env.ids["floor_geom"]] != 0 or
@@ -71,8 +73,14 @@ def main():
         :,list(env.carpet_mocap_ids),:]))
     if tile_positions.shape!=(a.worlds,9,3):
         raise RuntimeError("Missing independently positioned tiles")
-    print("reset PASS: 9 x 2 real triangles, distinct per-world JAX model "
-          "buffers, 360 sensor inputs",flush=True)
+    wall_pos=np.asarray(jax.device_get(state.data.mocap_pos[
+        :,list(env.carpet_wall_mocap_ids),:]))
+    if wall_pos.shape!=(a.worlds,12,3) or not np.isfinite(wall_pos).all():
+        raise RuntimeError("Invalid per-world active riser wall poses")
+    if not np.any(wall_pos[:,:,2]>-5):
+        raise RuntimeError("No genuine physical riser present in focused STEP worlds")
+    print("reset PASS: 9 x 2 real triangles + 12 vertical seam boxes, "
+          "distinct per-world JAX geometry and 360 inputs",flush=True)
     # One robot crossing into a neighbouring 50cm tile must recycle only
     # abandoned slots. If a rear foot still occupies an abandoned tile,
     # the whole window must remain unchanged.
@@ -93,6 +101,10 @@ def main():
         relocated.mocap_pos[:,list(env.carpet_mocap_ids),:]))
     if not np.any(np.abs(after-before)>.3):
         raise RuntimeError("Abandoned physical tile colliders did not recycle")
+    wall_after=np.asarray(jax.device_get(
+        relocated.mocap_pos[:,list(env.carpet_wall_mocap_ids),:]))
+    if not np.any(np.abs(wall_after-wall_pos)>.3):
+        raise RuntimeError("Abandoned real STEP wall colliders did not recycle")
     trailing=((old-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
                ).astype(jnp.float32)+.5)*.5
     blocked_data=safe_data.replace(xpos=state.data.xpos.at[
@@ -104,6 +116,10 @@ def main():
         raise RuntimeError("Recycler moved a tile while a trailing foot stood on it")
     if not np.array_equal(np.asarray(jax.device_get(blocked_h)),heights):
         raise RuntimeError("Blocked recycling changed live collision triangles")
+    old_walls=np.asarray(jax.device_get(
+        blocked.mocap_pos[:,list(env.carpet_wall_mocap_ids),:]))
+    if not np.array_equal(old_walls,wall_pos):
+        raise RuntimeError("Blocked recycling moved a riser with a trailing foot")
     print("recycler PASS: safe turn advances 3x3 ring, trailing-foot hold blocks movement",flush=True)
     for i in range(a.frames):
         out=env.step(state,jnp.zeros((a.worlds,6),dtype=jnp.float32),packet)

@@ -12,7 +12,9 @@ import mujoco
 import numpy as np
 import pytest
 
-from emu.terrain_carpet_mjx import add_carpet_geoms, TILE_COUNT, TILE_SIZE_Z_M
+from emu.terrain_carpet_mjx import (
+    add_carpet_geoms, TILE_COUNT, TILE_SIZE_Z_M,
+    WALL_COUNT, WALL_HALF_HEIGHT_M, WALL_THICK_M)
 
 
 def make_probe_model():
@@ -39,6 +41,8 @@ def make_probe_model():
     model=mujoco.MjModel.from_xml_string(add_carpet_geoms(robot))
     model.hfield_data[:]=.5
     assert model.nhfield==TILE_COUNT
+    assert sum(mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,i).startswith(
+        'carpet_wall_geom_') for i in range(model.ngeom))==WALL_COUNT
     return model
 
 
@@ -58,6 +62,12 @@ def solve_case(rise_m, *, backend='cpu'):
         data.mocap_pos[mid]=[0.,0.,-30.]
     data.mocap_pos[mocaps[0]]=[-.25,0.,-TILE_SIZE_Z_M/2]
     data.mocap_pos[mocaps[1]]=[+.25,0.,rise_m-TILE_SIZE_Z_M/2]
+    if rise_m>.001:
+        b=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
+                            "carpet_wall_body_1")
+        mid=int(model.body_mocapid[b])
+        data.mocap_pos[mid]=[
+            WALL_THICK_M,0.,rise_m-WALL_HALF_HEIGHT_M-.001]
     # Original freejoint poses match XML defaults, then place each sphere
     # just 5mm inside the corresponding real *top* collision face.
     data.qpos[0:3]=[-.17,0,.035]
@@ -111,14 +121,10 @@ def test_two_tile_foot_support_is_real_contact(rise_m):
 
 @pytest.mark.parametrize("rise_m",[.04,.15])
 def test_vertical_riser_is_not_a_ghost_or_ramp(rise_m):
-    """A sphere above the lower top but beside the higher tile must contact
-
-    the uphill vertical side. If this fails the model is NOT a staircase:
-    never launch expensive STEP training on it.
-    """
+    """Spheres hit the NEW explicit riser box, not only hfield skirts."""
     contacts=solve_case(rise_m)
     risers=[x for x in contacts if
-            {"riser_ball","carpet_tile_geom_1"}.issubset(x[0])]
+            {"riser_ball","carpet_wall_geom_1"}.issubset(x[0])]
     assert risers, (
         f"NO vertical lip side contact at {rise_m*100:.0f}cm: "
         f"heightfields may be top-surface only; inspect collision topology")
@@ -126,17 +132,12 @@ def test_vertical_riser_is_not_a_ghost_or_ramp(rise_m):
 
 @pytest.mark.parametrize("rise_m",[.04,.15])
 def test_mjx_and_cpu_agree_on_supported_steps_and_vertical_wall(rise_m):
-    """MJX is the actual production GPU collision solver, not CPU MuJoCo.
-
-    A CPU-only side contact passing is insufficient: the two real feet and
-    the uphill wall must all create nonpositive contact distances inside
-    mjx.Data.contact too.
-    """
+    """CPU and MJX must both produce a real top support and a box side hit."""
     contacts=solve_case(rise_m,backend='mjx')
     for probe,terrain in (
         ('left_ball','carpet_tile_geom_0'),
         ('right_ball','carpet_tile_geom_1'),
-        ('riser_ball','carpet_tile_geom_1'),
+        ('riser_ball','carpet_wall_geom_1'),
     ):
         matching=[c for c in contacts if {probe,terrain}.issubset(c[0])
                   and c[1]<=.001]
@@ -145,7 +146,7 @@ def test_mjx_and_cpu_agree_on_supported_steps_and_vertical_wall(rise_m):
 
 @pytest.mark.parametrize('backend',['cpu','mjx'])
 @pytest.mark.parametrize('rise_m',[.04,.15])
-def test_riser_contact_normal_is_horizontal_not_false_upper_support(
+def test_explicit_riser_box_normal_is_horizontal_not_false_upper_support(
         rise_m,backend):
     contacts=solve_case(rise_m,backend=backend)
     risers=[c for c in contacts if
