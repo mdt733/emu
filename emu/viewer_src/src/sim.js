@@ -124,7 +124,8 @@ export class EmuBrowserSim {
     // The real GPU trainer samples independent stochastic pushes; this
     // visibly repeatable spectator demo is NOT a replay of those RNG draws.
     this.shovePreview={enabled:false,forceLimitN:0,stepsLeft:0,elapsed:0,
-      intervalS:6,last:[0,0],directionIndex:0,manualPending:false};
+      intervalS:6,last:[0,0],directionIndex:0,manualPending:false,
+      visualLeft:0};
     this.shoveArrow=new THREE.ArrowHelper(
       new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),
       .4,0xffbb66,.12,.075);
@@ -317,6 +318,7 @@ export class EmuBrowserSim {
     this.carpetMocapIds=[];
     this.carpetGeomIds.clear();
     this.shovePreview.stepsLeft=0;
+    this.shovePreview.visualLeft=0;
     this.shoveArrow.visible=false;
     if(this.carpetTileOverlay){
       this.scene.remove(this.carpetTileOverlay);
@@ -423,6 +425,7 @@ export class EmuBrowserSim {
     this.shovePreview.forceLimitN=limit;
     this.shovePreview.elapsed=0;
     this.shovePreview.stepsLeft=0;
+    this.shovePreview.visualLeft=0;
     this.shovePreview.last=[0,0];
     this.shovePreview.manualPending=false;
     this.shoveArrow.visible=false;
@@ -444,7 +447,7 @@ export class EmuBrowserSim {
     xfrc[offset]=0;xfrc[offset+1]=0;xfrc[offset+2]=0;
     const v=this.shovePreview;
     if(this.terrainMode!=='carpet'||v.forceLimitN<=0){
-      v.stepsLeft=0;this.shoveArrow.visible=false;return;
+      v.stepsLeft=0;v.visualLeft=0;this.shoveArrow.visible=false;return;
     }
     v.elapsed+=dt;
     if(v.manualPending||(v.enabled&&v.elapsed>=v.intervalS)){
@@ -458,6 +461,7 @@ export class EmuBrowserSim {
       xfrc[offset]=v.last[0];
       xfrc[offset+1]=v.last[1];
       v.stepsLeft--;
+      v.visualLeft=25; // brief after-image marks the LAST real impulse
       const m=Math.hypot(...v.last);
       const direction=new THREE.Vector3(v.last[0]/m,v.last[1]/m,0);
       const center=this.torsoId*3;
@@ -468,13 +472,20 @@ export class EmuBrowserSim {
       this.shoveArrow.position.copy(pos);
       this.shoveArrow.setDirection(direction);
       this.shoveArrow.setLength(.32,.13,.08);
+      this.shoveArrow.setColor(0xffbb66);
+      this.shoveArrow.visible=true;
+    }else if(v.visualLeft>0){
+      // No force is applied here. Muted colour marks a RECENT completed
+      // shove so a 100ms physical impulse can actually be seen.
+      v.visualLeft--;
+      this.shoveArrow.setColor(0x856e57);
       this.shoveArrow.visible=true;
     }else this.shoveArrow.visible=false;
   }
   shoveTelemetry(){
     const s=this.shovePreview;
     return {enabled:s.enabled,limit:s.forceLimitN,
-      active:s.stepsLeft>0,force:[...s.last]};
+      active:s.stepsLeft>0,recent:s.visualLeft>0,force:[...s.last]};
   }
 
   setSensorObstacle(id) {
@@ -730,6 +741,7 @@ export class EmuBrowserSim {
     this.controlAccumulator = 0;
     this.fallenFor = 0;
     this.shovePreview.stepsLeft=0;
+    this.shovePreview.visualLeft=0;
     this.shovePreview.elapsed=0;
     this.shoveArrow.visible=false;
     this.pathTrail.clear();
