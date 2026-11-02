@@ -77,6 +77,17 @@ export function trainingLimits(data){
   const seed=as(data.terrain_preview?.seed??cfg.seed??data.seed,735,0,2147483647);
   const step=as(data.training_step??row.step??data.step,0,0,1e12);
   return {seed:Math.floor(seed),slopeDeg,transitionDeg,stepUpM,stepDownM,
+    // Actual global teacher-frontier targets. These ARE NOT achieved gait
+    // velocities and do not imply every specialist gets maximum difficulty.
+    vxHi:as(row.frontier_vx_hi,.06,0,3),
+    vxLo:as(row.frontier_vx_lo,-.02,-2,0),
+    vyMax:as(row.frontier_vy,.035,0,2),
+    yawMax:as(row.frontier_yaw,.14,0,5),
+    pushN:as(row.frontier_push_n,0,0,10),
+    resilienceDifficulty:as(row.resilience_difficulty,0,0,1),
+    slopeExposure:as(row.slope_exposure,1,0,1),
+    stepExposure:as(row.terrain_exposure,1,0,1),
+    pushMaxForceN:as(cfg.push_max_force_n,0.35,.01,10),
     step,run:data.run_name||data.source_provenance?.run_name||data.run_dir||'Imported training',
     foundationSteps:as(cfg.foundation_steps,20_000_000,0,1e12),
     academyIntroSteps:as(cfg.academy_intro_steps,60_000_000,0,1e12),
