@@ -48,6 +48,18 @@ def main():
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly nine collision hfield tiles")
+    if env.academy_geom_ids or env.academy_platform_mocap_ids:
+        raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
+    if (env.mj_model.geom_contype[env.ids["floor_geom"]] != 0 or
+        env.mj_model.geom_contype[env.terrain_step_geom_id] != 0):
+        raise RuntimeError("Unused 64m slabs must not enter carpet collision pairs")
+    if np.any((env.mj_model.geom_conaffinity[
+            np.asarray(env.ids["foot_geoms"],dtype=np.int32)] & 4)==0):
+        raise RuntimeError("Robot feet must collide with carpet bit-4 surfaces")
+    if state.carpet_seen_cells.shape!=(a.worlds,64,2):
+        raise RuntimeError("Per-world visited-tile anti-rocking memory missing")
+    if state.carpet_seen_write.shape!=(a.worlds,):
+        raise RuntimeError("Per-world visit write pointer missing")
     heights=np.asarray(jax.device_get(state.carpet_hfields))
     if heights.shape!=(a.worlds,36) or not np.isfinite(heights).all():
         raise RuntimeError("Per-world hfield geometry must be finite [E,36]")

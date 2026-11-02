@@ -109,6 +109,7 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # A carpet-trained actor's held-out physics MUST also use a carpet.
         # A two-slab world would silently return a false flat benchmark.
         terrain_carpet=bool(config.terrain_carpet),
+        carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),

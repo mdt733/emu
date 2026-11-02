@@ -202,3 +202,20 @@ optic depth and support-height computations use the tile samples. GPU
 `docs/V5041_GPU_CARPET_TRAINING.md`. One 4-world CPU PPO update passed
 on GitHub Actions. Continue only on feature branch. DO NOT assume the
 viewer finite heightfield is the GPU engine.
+
+### v5041 latest physics hardening
+
+Removed obsolete three-platform Academy collision bodies from carpet
+mode, disabled the two nonphysical legacy long-slab contact flags,
+preserved teacher Academy births separately from terrain geometry and
+ensured they share exactly one sampled assignment. Extended 4x4 ToF
+simulation to the real vertical hfield sides, added locally varying
+shared-corner slope gradients with configurable maximum transition
+angle, and introduced 64-element per-environment exact recently visited
+tile memory to prevent rocking/revisiting reward farming while allowing
+real new multi-lip crossings before/after Academy allocation.
+Contact parity tested with real MJX and CPU MuJoCo at 4cm and 15cm.
+The remaining acceptance gate is full 2048 CUDA PPO on RTX4060Ti 8GB,
+plus a source-pinned bounded lifecycle and physical commanded crossings
+before large cold run. Keep `main` and v5040 intact. Runbook:
+`docs/V5041_GPU_CARPET_TRAINING.md`.

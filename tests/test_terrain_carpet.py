@@ -131,6 +131,50 @@ def test_mjx_frontier_bands_and_directional_step_limits():
     gx=.5*(top[:,1]+top[:,3]-top[:,0]-top[:,2])
     gy=.5*(top[:,2]+top[:,3]-top[:,0]-top[:,1])
     grade=np.rad2deg(np.arctan(np.hypot(gx,gy)))
-    assert np.all(grade>6.0),grade
-    assert np.all(grade<8.25),grade
+    # Per-tile slope is no longer a constant global plane: some 50cm
+    # triangles are easier, while others probe the governor's frontier.
+    # We must never exceed the requested physical grade by surprise.
+    assert np.all(grade<=8.25),grade
+    assert np.any(grade>3.0),grade
+    # Neighbouring triangles form a continuous grade field whose
+    # gradient changes with location, not a fixed pitched slab.
+    p1,h1=tile_geometry(jnp,jnp.array([1,2,3]),jnp.array([0,0,0]),
+        seeds,xprofile,yprofile,up,down,jnp.full((3,),8.0))
+    a=np.asarray(h1)
+    g0=np.stack((gx,gy),axis=1)
+    g1=np.stack((
+        .5*(a[:,1]+a[:,3]-a[:,0]-a[:,2]),
+        .5*(a[:,2]+a[:,3]-a[:,0]-a[:,1])),axis=1)
+    assert np.any(np.linalg.norm(g1-g0,axis=1)>.001)
+    delta_deg=np.rad2deg(np.arctan(np.linalg.norm(g1-g0,axis=1)))
+    assert np.all(delta_deg<=3.2),delta_deg
 
+
+def test_cartesian_gradient_can_change_for_same_seed():
+    import jax.numpy as jnp
+    import numpy as np
+    from emu.terrain_carpet_mjx import (
+        make_profiles,tile_geometry)
+    n=16
+    seeds=jnp.arange(100,116,dtype=jnp.int32)
+    up=jnp.zeros((n,),dtype=jnp.float32)
+    down=jnp.zeros_like(up)
+    px,py=make_profiles(jnp,seeds,up,down)
+    prev=None;differences=[]
+    for xi in range(-4,8):
+        _,h=tile_geometry(jnp,jnp.full((n,),xi),
+            jnp.full((n,),2),seeds,px,py,up,down,
+            jnp.full((n,),8.),transition_limit_deg=3.)
+        a=np.asarray(h)
+        gradient=np.stack((
+            .5*(a[:,1]+a[:,3]-a[:,0]-a[:,2]),
+            .5*(a[:,2]+a[:,3]-a[:,0]-a[:,1])),axis=1)
+        if prev is not None:
+            differences.append(np.linalg.norm(gradient-prev,axis=1))
+        prev=gradient
+    changes=np.stack(differences,axis=1)
+    # Genuine varied slope transitions across consecutive tiles without
+    # dramatic >3-degree jumps in local gradient.
+    assert np.any(changes>.002),changes
+    angles=np.rad2deg(np.arctan(changes))
+    assert np.max(angles)<3.3,angles.max()

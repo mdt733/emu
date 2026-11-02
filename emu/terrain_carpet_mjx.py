@@ -15,6 +15,7 @@ TILE_HALF_M=TILE_M/2
 TILE_SIZE_Z_M=.50
 TILE_BASE_M=.14
 TILE_COUNT=9
+VISIT_HISTORY=64
 PROFILE_HALF=128
 PROFILE_SIZE=PROFILE_HALF*2
 BODY_NAMES=tuple(f"carpet_tile_body_{i}" for i in range(TILE_COUNT))
@@ -30,6 +31,26 @@ def add_carpet_geoms(xml: str) -> str:
     if asset is None:
         asset=ET.Element("asset")
         root.insert(0,asset)
+    # The v5040 slab/Academy training geometry is not used in a carpet
+    # episode. Retain its stable named IDs for legacy diagnostics, but
+    # DISABLE collision pairs rather than wasting GPU broadphase work on
+    # five huge invisible boxes. The carpet's nine real tiles are the only
+    # ground surfaces in this opt-in training mode.
+    for name in ("floor","episode_terrain_surface",
+                 "academy_surface_0","academy_surface_1",
+                 "academy_surface_2"):
+        geom=root.find(f".//geom[@name='{name}']")
+        if geom is not None:
+            geom.set("contype","0")
+            geom.set("conaffinity","0")
+    # The historical two-slab model gives the robot bits 1 and 2.
+    # Carpet tiles are bit 4, so each active contact-capable robot geom
+    # must accept bit 4 before MJX compiles collision filtering.
+    for name in ("torso_box","r_foot_ball","l_foot_ball"):
+        geom=root.find(f".//geom[@name='{name}']")
+        if geom is not None:
+            affinity=int(geom.get("conaffinity","1"))
+            geom.set("conaffinity",str(affinity|4))
     for i in range(TILE_COUNT):
         ET.SubElement(asset,"hfield",dict(
             name=HFIELD_NAMES[i],nrow="2",ncol="2",
@@ -123,7 +144,8 @@ def tile_level(xp,ti,tj,seeds,xprofile,yprofile,up,down):
         xp.minimum(up,down)*.10)
     return xbase+ybase+noise
 
-def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg):
+def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
+                  transition_limit_deg=3.0):
     """All four world vertex heights from one continuous grade function.
 
     Neighbours have identical smooth vertex height at the shared edge.
@@ -133,17 +155,25 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg):
     x=ti.astype(xp.float32)*TILE_M
     y=tj.astype(xp.float32)*TILE_M
     phase=hash_float(xp,0,0,seeds,140)*2.*xp.pi
-    # The SLOPE specialist's actual local gradient must reach its
-    # near-frontier band (>=78%); using ~half the requested grade here
-    # would make meaningful slope promotion mathematically impossible.
-    sx=xp.tan(xp.deg2rad(slope_deg))*.82
-    sy=xp.tan(xp.deg2rad(slope_deg))*.82
+    p1=hash_float(xp,0,0,seeds,141)*2.*xp.pi
+    p2=hash_float(xp,0,0,seeds,142)*2.*xp.pi
+    # Independent sample height potential at GLOBAL vertex coordinates.
+    # Its first derivative is the changing slope and its second derivative
+    # bounds tile-to-tile angle transitions: smoothly joined, no cracks.
+    # The source of truth is exactly these four heights in MJX collision.
+    grade=xp.tan(xp.deg2rad(xp.maximum(0.,slope_deg)))
+    tlimit=xp.tan(xp.deg2rad(
+        xp.maximum(0.,xp.minimum(transition_limit_deg,slope_deg))))
+    frequency=1.15
+    variable=xp.minimum(.65*grade,
+        tlimit/(frequency*TILE_M*1.6))
+    base=xp.maximum(0.,.92*grade-variable)
     def z_at(dx,dy):
         gx=x+dx
         gy=y+dy
-        wave=.004*xp.clip(slope_deg/10.,0.,1.)*(
-              xp.sin(gx*1.2+phase)*xp.cos(gy*.8-phase))
-        return mean+sx*gx*xp.cos(phase)+sy*gy*xp.sin(phase)+wave
+        wave=(variable/frequency)*(
+            xp.sin(frequency*gx+p1)*xp.cos(.85*frequency*gy+p2))
+        return mean+base*(gx*xp.cos(phase)+gy*xp.sin(phase))+wave
     heights=xp.stack((z_at(0.,0.),z_at(TILE_M,0.),
                       z_at(0.,TILE_M),z_at(TILE_M,TILE_M)),axis=1)
     centre=xp.mean(heights,axis=1)
@@ -161,12 +191,14 @@ def slot_indices(xp,cx,cy):
         ys.append(cy+xp.mod(sy-xp.mod(cy,3)+1,3)-1)
     return xp.stack(xs,axis=1),xp.stack(ys,axis=1)
 
-def generate_window(xp,cx,cy,seeds,px,py,up,down,slope):
+def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
+                    transition_limit_deg=3.0):
     xi,yi=slot_indices(xp,cx,cy)
     centers=[];heights=[]
     for i in range(TILE_COUNT):
         center,verts=tile_geometry(
-            xp,xi[:,i],yi[:,i],seeds,px,py,up,down,slope)
+            xp,xi[:,i],yi[:,i],seeds,px,py,up,down,slope,
+            transition_limit_deg=transition_limit_deg)
         centers.append(center)
         heights.append(verts)
     return (xp.stack(centers,axis=1),
@@ -220,4 +252,50 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
         inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
         good=inside&(t>0.)&(rays[:,:,2]<-.05)
         nearest=xp.minimum(nearest,xp.where(good,t,xp.inf))
+
+        # A two-triangle MuJoCo hfield is a solid height volume with
+        # vertical *outer side walls*. Omitting those sides would let the
+        # 4x4 ToF miss precisely the uphill riser the feet collide with.
+        # This matches the SAME samples and base thickness as MJX, not a
+        # separate privileged ray obstacle. Two x-faces and two y-faces.
+        for axis,other,edges in ((0,1,((0,2),(1,3))),
+                                 (1,0,((0,1),(2,3)))):
+            direction=rays[:,:,axis]
+            safe_dir=xp.where(xp.abs(direction)>1e-7,direction,1.)
+            other_dir=rays[:,:,other]
+            for side,(lo,hi) in enumerate(edges):
+                edge_pos=pos[:,axis]+(-TILE_HALF_M if side==0 else TILE_HALF_M)
+                tt=(edge_pos[:,None]-origin[:,None,axis])/safe_dir
+                other_at=origin[:,None,other]+tt*other_dir
+                fraction=(other_at-pos[:,None,other]+TILE_HALF_M)/TILE_M
+                z_at=origin[:,None,2]+tt*rays[:,:,2]
+                z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
+                      sample[:,lo,None]*(1.-fraction)
+                      +sample[:,hi,None]*fraction)
+                z_bottom=pos[:,None,2]-TILE_BASE_M
+                hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
+                    fraction>=0.)&(fraction<=1.)&(
+                    z_at<=z_top)&(z_at>=z_bottom)
+                nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
     return nearest
+
+def unseen_tile(xp,coords,visited):
+    """Reward-only episode history; returning to an old tile is NOT new
+    terrain competence. 64 exact (x,y) cells cover >32m of recent walking.
+    """
+    return ~xp.any(xp.all(
+        coords[:,None,:]==visited,axis=2),axis=1)
+
+
+def note_confirmed_tile(xp,coords,visited,write,confirmed):
+    """Insert only a five-frame physically supported new tile transfer.
+
+    This is teacher state, invisible to the actor. The ring is fixed size
+    per environment, so no recompilation or per-episode allocations.
+    """
+    ix=xp.arange(coords.shape[0])
+    slot=xp.mod(write,VISIT_HISTORY)
+    before=visited[ix,slot,:]
+    out=visited.at[ix,slot,:].set(
+        xp.where(confirmed[:,None],coords,before))
+    return out,write+confirmed.astype(xp.int32)

@@ -193,3 +193,11 @@ terrain severity mixes. Both 360-input ToF and support metrics read the new
 physical geometry. The CPU full-physics/PPO smoke passed on four worlds;
 **2048 GPU resource fit, accurate step contact and learned walking are NOT
 certified**. See [actual GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+
+**v5041 follow-up physics:** Four- and 15-cm vertical risers now pass both
+CPU MuJoCo and MJX **contact** tests. All six teaching roles still share
+one policy, with smoothly varying tile gradients and a configurable
+slope-transition cap. A 64-cell teacher-only visit history prevents
+repeated crossing payments for rocking across old tiles. The source
+continues to require an independent 2048-env CUDA memory/throughput gate;
+contact feasibility does not establish learned step skill.

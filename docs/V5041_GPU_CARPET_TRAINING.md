@@ -25,10 +25,16 @@ terrain exposure. Independent UP/DOWN Academy frontiers are preserved.
 New step opportunities rise from roughly 50% of current directional
 competence near the episode's starting cells to 150% at farther cells
 (deterministically, so revisits do not edit physical ground). SLOPE
-reaches about 82% of its learned gradient envelope at the tile surface,
-making the near-frontier measurement band actually attainable.
-Only physically supported tile-to-tile transitions can earn the
-new per-lip stepping rewards.
+now samples a **continuous varied-gradient field**, not one global
+tilted plane: neighbouring triangle angles change smoothly with a
+teacher-side maximum transition cap (default `--carpet-transition-cap-deg 3`).
+The slope frontier still governs overall severity; **transition ability
+is not yet independently earned**. Actual near-frontier triangle slope
+is inspected during training rather than inferred from the target.
+Only physically supported tile-to-tile transitions can earn per-lip
+stepping rewards, and a **64-tile episode memory** rejects repeat
+rewards from crossing the same lip back and forth. The history is
+teacher-only, never an actor input.
 
 After a cell transition the old outer row/column is moved to the
 new window **only if BOTH feet are still inside the new 3×3 footprint**.
@@ -40,18 +46,26 @@ Both 4×4 ToF slant-ray distances and optical-flow depth are computed
 against the new tile vertex buffer, not the retired flat/slab model.
 Teacher-only torso and foot support distances likewise read the
 current real tile samples. Heightfield triangle ray intersections
-are reconstructed analytically; tiny differences at triangle diagonals
-or extreme vertical riser faces still require independent examination.
+and vertical outer-wall ToF intersections use the same sampled hfield
+data and thickness as the MJX collision engine. Synthetic 4×4 ray
+tests cover uphill-wall detection, no phantom upper support, and
+out-of-bounds miss cases.
 
 Source-matched frozen evaluator worlds also now instantiate the carpet
 rather than silently grading the new policy on the old two-slab ground.
 
-**Crucial limits:** A 2×2 hfield contains two top triangles and its
-built-in thickness/skirt; it is not yet certified to have perfectly
-vertical contact faces at every nonmatching tile boundary. The
-no-rebuild, per-environment profile model was verified on four CPU
-worlds; **2,048-world CUDA memory, speed and contact edge accuracy
-are not verified by CPU CI**. The viewer's finite heightfield remains
+**Contact evidence:** Independent real CPU MuJoCo AND MJX contact
+solvers both detected physical supported left/right feet and **vertical
+uphill riser contact at 4cm and 15cm** in synthetic tests. This proves
+those collisions exist, NOT that the learned policy can cross them.
+The former three long Academy slabs are now excluded from the carpet
+model; the old two slabs remain as disabled diagnostic-only geoms.
+
+**Crucial remaining limits:** The full biped has not passed a dedicated
+dynamic, commanded stepping course; the CPU contact probes are tiny
+geometrical unit exams. The no-rebuild per-environment model was
+verified on four CPU worlds; **2,048-world CUDA memory, speed and
+real-policy terrain competence are not verified by CPU CI**. The viewer's finite heightfield remains
 a preview, not a frame-accurate replay of the MJX grid.
 
 ## CPU source acceptance
@@ -59,6 +73,9 @@ a preview, not a frame-accurate replay of the MJX grid.
 These checks ran on the branch in CI:
 ```bash
 python -m pytest -q tests/test_terrain_carpet.py
+python -m pytest -q tests/test_carpet_physical_contacts.py
+python -m pytest -q tests/test_carpet_sensor_geometry.py
+python -m pytest -q tests/test_carpet_visit_rewards.py
 python scripts/probe_carpet_hfield.py
 python scripts/smoke_gpu_carpet.py --device cpu --worlds 4 --frames 2 --ppo
 ```

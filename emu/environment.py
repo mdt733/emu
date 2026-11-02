@@ -49,7 +49,8 @@ from .terrain_carpet_mjx import (
     TILE_M as CARPET_TILE_M, PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
-    ray_surface as carpet_ray_surface)
+    ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
+    unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
@@ -351,6 +352,8 @@ class EnvState(NamedTuple):
     carpet_down: Any = None
     carpet_slope: Any = None
     carpet_confirmed: Any = None
+    carpet_seen_cells: Any = None  # teacher anti-rocking: last 64 confirmed positions
+    carpet_seen_write: Any = None
 
 
 class SensorSample(NamedTuple):
@@ -1098,6 +1101,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_crouch_tolerance_m: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
+                 carpet_transition_cap_deg: float = 3.0,
                  academy_height_cap_m: float = 0.150,
                  academy_course_episode_frames: int = 1200):
         import jax
@@ -1186,6 +1190,10 @@ class EmuMJXEnv(TaskSampler):
         if terrain_carpet and (not unified_capability_focus or
                 observation_schema!=OBS_SCHEMA_TERRAIN or terrain_step_max_m<=0):
             raise ValueError('terrain carpet needs unified terrain_360 and physical topology')
+        if (not np.isfinite(carpet_transition_cap_deg) or
+                not 0.<=carpet_transition_cap_deg<=15.):
+            raise ValueError('carpet transition-angle cap must be 0..15deg')
+        self.carpet_transition_cap_deg=float(carpet_transition_cap_deg)
         self.terrain_carpet=bool(terrain_carpet)
         self.academy_stream=bool(academy_stream)
         self.academy_height_cap_m=float(academy_height_cap_m)
@@ -1197,7 +1205,7 @@ class EmuMJXEnv(TaskSampler):
         self.mj_model = (
             mujoco.MjModel.from_xml_string(
                 (add_carpet_geoms(add_unified_terrain(
-                    self.robot_xml,self.academy_stream or self.terrain_carpet))
+                    self.robot_xml,False))
                  if self.terrain_carpet else
                  add_unified_terrain(self.robot_xml,self.academy_stream)))
             if self.unified_capability_focus else
@@ -1227,7 +1235,7 @@ class EmuMJXEnv(TaskSampler):
                 self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
             if self.terrain_step_mocap_id < 0:
                 raise RuntimeError('physical episode terrain requires a mocap body')
-        if self.academy_stream:
+        if self.academy_stream and not self.terrain_carpet:
             self.academy_platform_mocap_ids=tuple(int(
                 self.mj_model.body_mocapid[mujoco.mj_name2id(
                     self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
@@ -1751,9 +1759,14 @@ class EmuMJXEnv(TaskSampler):
                       (academy_relative_height<=1.05))
         academy_easy=((academy_relative_height>=.36) &
                       (academy_relative_height<.68))
-        # Academy final-slab contact is not an extra old one-lip completion.
+        # A rolling carpet can contain MANY verified crossings in ONE
+        # ordinary STEP episode. Do not reuse the historical single-lip
+        # terrain_crossed high-water gate: it would pay only the first lip
+        # of the course and starve ordinary STEP before 60M.
         terrain_active=terrain_active & ~state.academy_active
-        terrain_cross_new=terrain_crossed & ~state.terrain_crossed & terrain_active
+        terrain_cross_new=(academy['ordinary_step_new']
+                           if self.terrain_carpet else
+                           terrain_crossed & ~state.terrain_crossed & terrain_active)
         terrain_up=(terrain_active & (academy['height_m']>0.)
                     if self.terrain_carpet else
                     terrain_active & ((self.env_index%2)==0))
@@ -1902,7 +1915,9 @@ class EmuMJXEnv(TaskSampler):
                            state.carpet_seed,state.carpet_xprofile,
                            state.carpet_yprofile,state.carpet_up,state.carpet_down,
                            state.carpet_slope,academy['confirmed_tile']
-                           if self.terrain_carpet else None)
+                           if self.terrain_carpet else None,
+                           academy['seen_cells'] if self.terrain_carpet else None,
+                           academy['seen_write'] if self.terrain_carpet else None)
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2678,6 +2693,11 @@ class EmuMJXEnv(TaskSampler):
         active=(specialist_active & (focus_id==STEP) &
                 (athletic_rehearsal<.5) &
                 (u[:,0]<params[P.academy_episode_probability]))
+        if self.terrain_carpet:
+            # The same Academy *birth selection* drives the nine-tile
+            # environment. Do not compile or manipulate the retired three
+            # long Academy slabs: they have no collision role in this mode.
+            return data,active
         yaw=(u[:,5]*2.-1.)*jnp.deg2rad(ACADEMY_MAX_EDGE_YAW_DEG)
         angle_override=params[P.terrain_edge_angle_deg]
         yaw=jnp.where(jnp.isfinite(angle_override),
@@ -2802,7 +2822,8 @@ class EmuMJXEnv(TaskSampler):
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
         centers,heights,_=carpet_generate_window(
-            jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope)
+            jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope,
+            transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
         for old in (self.unified_ground_mocap_id,
                     self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
@@ -2815,11 +2836,16 @@ class EmuMJXEnv(TaskSampler):
                   heights,data.qpos[:,:3][:,None,:])[:,0]
         top=jnp.where(jnp.isfinite(top),top,0.)
         data=data.replace(qpos=data.qpos.at[:,2].set(birth_root_z+top))
+        visited=jnp.full((self.num_envs,CARPET_VISIT_HISTORY,2),
+                         -(2**30),dtype=jnp.int32)
+        visited=visited.at[:,0,:].set(xy)
         return data,dict(
             carpet_hfields=heights,carpet_center=xy,carpet_seed=seeds,
             carpet_xprofile=xprof,carpet_yprofile=yprof,
             carpet_up=up,carpet_down=down,carpet_slope=slope,
-            carpet_confirmed=xy)
+            carpet_confirmed=xy,
+            carpet_seen_cells=visited,
+            carpet_seen_write=jnp.ones((self.num_envs,),dtype=jnp.int32))
 
     def _carpet_recycle(self,state,data):
         """Recycle only tiles not touched by either foot, one world at a time.
@@ -2843,7 +2869,8 @@ class EmuMJXEnv(TaskSampler):
         centers,hfields,indices=carpet_generate_window(
             jnp,new_center[:,0],new_center[:,1],state.carpet_seed,
             state.carpet_xprofile,state.carpet_yprofile,
-            state.carpet_up,state.carpet_down,state.carpet_slope)
+            state.carpet_up,state.carpet_down,state.carpet_slope,
+            transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
         # Identical slot geometry for every world; only the slots no
         # longer in the 3x3 window are moved. No platform under a foot moves.
@@ -3003,7 +3030,8 @@ class EmuMJXEnv(TaskSampler):
                          *(carpet[key] if carpet else None for key in (
                           'carpet_hfields','carpet_center','carpet_seed',
                           'carpet_xprofile','carpet_yprofile','carpet_up',
-                          'carpet_down','carpet_slope','carpet_confirmed')))
+                          'carpet_down','carpet_slope','carpet_confirmed',
+                          'carpet_seen_cells','carpet_seen_write')))
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
@@ -3650,34 +3678,41 @@ class EmuMJXEnv(TaskSampler):
         eligible=moved&near&on_target&on_target_foot&healthy
         streak=jnp.where(eligible,state.academy_streak+1,0)
         confirmed=eligible&(streak>=5)
+        fresh=carpet_unseen_tile(
+            jnp,root,state.carpet_seen_cells)
+        paid=confirmed&fresh
+        seen_cells,seen_write=carpet_note_confirmed_tile(
+            jnp,root,state.carpet_seen_cells,
+            state.carpet_seen_write,confirmed)
         raised=rise>.0015
         lowered=rise<-.0015
         lip=raised|lowered
         step_focus=state.specialist_active & (state.focus_id==STEP)
         academy_focus=step_focus&state.academy_active
-        approached=moved&near&lip&step_focus
+        approached=moved&near&lip&step_focus&fresh
         seen=state.academy_approach_seen|approached
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
         # No repeated foothold farm after 5-frame verification.
         reward=(3.*new_foothold.astype(jnp.float32)+
-                10.*(confirmed&academy_focus&lip).astype(jnp.float32))
-        up_new=confirmed&academy_focus&raised
-        down_new=confirmed&academy_focus&lowered
+                10.*(paid&academy_focus&lip).astype(jnp.float32))
+        up_new=paid&academy_focus&raised
+        down_new=paid&academy_focus&lowered
         return dict(
             confirmed_tile=jnp.where(confirmed[:,None],root,previous),
+            seen_cells=seen_cells,seen_write=seen_write,
             lip_index=state.academy_lip_index+
-                (confirmed&academy_focus&lip).astype(jnp.int32),
+                (paid&academy_focus&lip).astype(jnp.int32),
             streak=jnp.where(confirmed,0,streak),
             crossings=state.academy_crossings+
-                (confirmed&academy_focus&lip).astype(jnp.int32),
+                (paid&academy_focus&lip).astype(jnp.int32),
             up_count=state.academy_up_crossings+up_new.astype(jnp.int32),
             down_count=state.academy_down_crossings+down_new.astype(jnp.int32),
-            cross_new=confirmed&academy_focus&lip,
+            cross_new=paid&academy_focus&lip,
             # Standard STEP worlds before 60M earn normal supported-crossing
             # credit; Academy worlds use the separate independent frontiers.
-            ordinary_step_new=confirmed&step_focus&~state.academy_active&lip,
+            ordinary_step_new=paid&step_focus&~state.academy_active&lip,
             up_new=up_new,down_new=down_new,
-            attempt_new=((confirmed&academy_focus&lip) |
+            attempt_new=((paid&academy_focus&lip) |
                 (done&academy_focus&seen)),
             approach_seen=jnp.where(confirmed,False,seen),
             clearance_seen=jnp.where(confirmed,False,state.academy_clearance_seen),
@@ -3686,7 +3721,7 @@ class EmuMJXEnv(TaskSampler):
             transfer_seen=jnp.where(confirmed,False,state.academy_transfer_seen),
             clearance_new=false,foothold_new=new_foothold,
             transfer_new=false,
-            reward=reward,height_m=jnp.where(moved,rise,zero),
+            reward=reward,height_m=jnp.where(moved&fresh,rise,zero),
             completed=false)
 
     def _academy_events(self, state, data, metrics, done=None):

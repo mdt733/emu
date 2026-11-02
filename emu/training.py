@@ -106,6 +106,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_crouch_tolerance_m=args.science_step_crouch_tolerance_m,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
+        carpet_transition_cap_deg=args.carpet_transition_cap_deg,
         academy_height_cap_m=args.academy_height_cap_m,
         academy_course_episode_frames=args.academy_course_episode_frames,
         attitude_profile=args.attitude_profile,
