@@ -147,6 +147,7 @@ def main():
              minibatches=8 if a.full_update else 1)
         initial=trainer["make_initial_state"](params)
         initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
+        initial_actor=jax.tree_util.tree_leaves(jax.device_get(initial.params["pi"]))
         start_update=time.perf_counter()
         updated,_,diag,_,_=trainer["train_update"](
              initial,packet,jnp.zeros((360,),dtype=jnp.float32),
@@ -154,6 +155,7 @@ def main():
         # Device transfer synchronizes the asynchronous XLA update. Include
         # compilation in this first-update time; it is NOT steady-state FPS.
         updated_leaves=jax.tree_util.tree_leaves(jax.device_get(updated.params))
+        updated_actor=jax.tree_util.tree_leaves(jax.device_get(updated.params["pi"]))
         first_update_seconds=time.perf_counter()-start_update
         if len(initial_leaves)!=len(updated_leaves):
             raise RuntimeError("PPO parameter tree structure changed unexpectedly")
@@ -163,10 +165,15 @@ def main():
                             in zip(initial_leaves,updated_leaves))
         if not np.isfinite(max_param_delta) or max_param_delta<=1e-10:
             raise RuntimeError("PPO update did not change any network parameters")
+        max_actor_delta=max(float(np.max(np.abs(after-before))) for before,after
+                            in zip(initial_actor,updated_actor))
+        if not np.isfinite(max_actor_delta) or max_actor_delta<=1e-10:
+            raise RuntimeError("PPO update changed the critic but not the actor")
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "
               f"max_parameter_delta={max_param_delta:.8g}; "
+              f"max_actor_delta={max_actor_delta:.8g}; "
               f"first_update_including_compile={first_update_seconds:.2f}s; "
               f"world_steps={first_update_world_steps:,}",flush=True)
         if a.full_update:
@@ -178,6 +185,7 @@ def main():
           physics="nine-solid-tilted-boxes",tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
           **(dict(ppo_parameter_delta=max_param_delta,
+                  ppo_actor_delta=max_actor_delta,
                   first_update_seconds=round(first_update_seconds,3),
                   first_update_world_steps=first_update_world_steps)
              if a.ppo else {}))))
