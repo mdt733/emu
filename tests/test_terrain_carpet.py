@@ -178,3 +178,33 @@ def test_cartesian_gradient_can_change_for_same_seed():
     assert np.any(changes>.002),changes
     angles=np.rad2deg(np.arctan(changes))
     assert np.max(angles)<3.3,angles.max()
+
+
+def test_bounded_lifecycle_uses_actual_v5041_carpet_in_all_stages(tmp_path):
+    """Regression: the lifecycle smoke must not secretly test old slabs."""
+    from scripts.smoke_training_lifecycle import configs
+    first,continued=configs(tmp_path,unified=True,carpet=True,
+                            envs=8,seed=735)
+    for cfg in (first,continued):
+        assert cfg.terrain_carpet is True
+        assert cfg.academy_stream is True
+        assert cfg.terrain_lesson == 'coherent-careful'
+        assert cfg.growth_recipe == 'main-mature'
+        assert cfg.observation_schema == 'terrain_360'
+        assert cfg.unified_capability_focus is True
+        assert cfg.terrain_step_max_m == .08
+        assert cfg.seed == 735 and cfg.envs == 8
+    assert first.steps == 8*32
+    assert continued.steps == 2*8*32
+    assert continued.resume.endswith('/first/checkpoints/final.pkl')
+    assert first.resume == ''
+    assert first.run_dir != continued.run_dir
+
+
+def test_historical_unified_lifecycle_defaults_to_old_geometry(tmp_path):
+    """The new carpet option must not change previous acceptance recipes."""
+    from scripts.smoke_training_lifecycle import configs
+    first,_=configs(tmp_path,unified=True,envs=8)
+    assert first.terrain_carpet is False
+    assert first.academy_stream is False
+    assert first.terrain_step_max_m == .04
