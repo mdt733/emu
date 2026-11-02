@@ -200,12 +200,25 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         'training_step':int(float(row['step'])),
         'run_name':run_dir.name,
         'latest_metrics':row,
-        'training_config':{'seed':cfg.get('seed',735),
-                           'academy_stream':cfg.get('academy_stream',False)},
+        'training_config':{
+            'seed':cfg.get('seed',735),
+            'terrain_carpet':bool(cfg.get('terrain_carpet',False)),
+            'academy_stream':bool(cfg.get('academy_stream',False)),
+            'foundation_steps':cfg.get('foundation_steps',20_000_000),
+            'academy_intro_steps':cfg.get('academy_intro_steps',60_000_000),
+            'academy_start_steps':cfg.get('academy_start_steps',80_000_000),
+            'academy_ramp_steps':cfg.get('academy_ramp_steps',20_000_000),
+            'carpet_transition_cap_deg':cfg.get('carpet_transition_cap_deg',3.),
+        },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
-        'physics_mode':'source training metrics, projected browser carpet',
-        'warnings':['The browser hfield preview is not the MJX rolling carpet.',
-                    'Historical runs do not measure slope-transition competence.']
+        'physics_mode':('nine-solid-box trainer / browser representative nine-solid-box world'
+                        if cfg.get('terrain_carpet',False) else
+                        'older training topology / browser illustrative terrain'),
+        'warnings':[
+            'Browser matches the nine-solid-box collision TYPE but not the exact per-world'
+            ' seeded MJX tile arrangement, domain randomisation or training birth states.',
+            'Snapshot frontiers are curriculum targets, not independent skill proofs.',
+        ]
     }
 
 
