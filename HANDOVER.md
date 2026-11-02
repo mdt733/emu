@@ -341,3 +341,36 @@ trained 15cm skill or launch 140M merely from a two-update checkpoint.
 Only after frozen independent contact/slope exams and real speed
 are validated launch a fresh 140M lineage. `main`, v5040 and all
 legacy champions/checkpoints remain untouched.
+
+
+### v5041 first frozen CUDA nine-box independent STEP exam — 3 November 2026
+
+User pulled exact source SHA `39573722fc4b86ddabd9c2d2ec489d069129c79f`
+and re-exported the 131,072-step bounded lifecycle checkpoint with
+carpet provenance. Then ran the real CUDA read-only examiner on 8
+nine-box worlds (200 frames, forward command 0.10m/s, nominal 1cm
+UP/DOWN challenge, no slope, seed 1701):
+
+- **Teacher credits:** UP 0, DOWN 1.
+- **Independent raw-contact/box-plane scorer:** UP 0, DOWN 1.
+- **Teacher approached-denominator:** UP 0/1, DOWN 1/3.
+- **Falls:** 8/8 worlds, as expected for a nearly untrained policy.
+- Independent scorer / teacher aggregate agreement: **PASS for this
+  ONE smoke case**, not general scorer equivalence or demonstrated
+  terrain capability; nominal 1cm is not an exact every-lip height.
+- Optional Warp import warnings were harmless.
+
+Frozen collision topology, terrain source provenance, physical exam
+execution and separate independent-vs-teacher reporting have now
+passed an owner-run CUDA case. No checkpoint was retrained or altered;
+`main` stays frozen.
+
+**Remaining pre-140M gates:** (1) real synchronized postcompile
+2048-world PPO throughput (`scripts/smoke_gpu_carpet.py --device cuda
+--worlds 2048 --frames 2 --ppo --full-update --benchmark-updates 4`);
+(2) inspect observed signed heights and per-world independent raw
+crossings in the existing `academy_exam.json` artifact; (3) broaden
+independent terrain contact/step/slope exams on additional seeds or
+early-stage real gait if gate evidence warrants. Avoid inferring
+competence from a 131k-step random-ish actor or pretending the
+first-update ~64s is steady training speed.
