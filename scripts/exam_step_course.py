@@ -42,7 +42,7 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
 
     from emu.viewer_server import load_exported_actor_for_exam
     from emu.ppo import configure_jax,make_trainer
-    from emu.physical_exam import make_schedule
+    from emu.physical_exam import make_schedule,source_commit
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
     configure_jax(device)
@@ -214,6 +214,7 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
                 "emu_step_streaming_frozen_physical_v2"),
         actor_sha256=actor["artifact_sha256"],actor_step=actor["source"]["step"],
         actor_source_commit=actor["source"].get("git_commit"),
+        examiner_source_commit=source_commit(),
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       device=device,heights_cm=list(heights_cm),
                       slope_deg=slope_deg,terrain_carpet=bool(carpet),
