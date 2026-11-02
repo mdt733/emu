@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from emu.terrain_carpet_mjx import (
-    VISIT_HISTORY, unseen_tile, note_confirmed_tile)
+    VISIT_HISTORY, unseen_tile, note_confirmed_tile, shares_physical_edge)
 
 
 def test_new_tile_only_once_even_after_shuffling_across_lip():
@@ -54,3 +54,10 @@ def test_repeated_backtracking_is_rejected_for_full_episode_distance():
     for i in range(39,-1,-1):
         coord=jnp.asarray([[i,0]],dtype=jnp.int32)
         assert not bool(unseen_tile(jnp,coord,v)[0]),i
+
+
+def test_diagonal_corner_is_not_falsely_paid_as_one_step_lip():
+    old=jnp.asarray([[0,0],[0,0],[1,0],[1,1]],dtype=jnp.int32)
+    new=jnp.asarray([[1,0],[1,1],[3,0],[1,1]],dtype=jnp.int32)
+    shared=np.asarray(shares_physical_edge(jnp,old,new))
+    assert np.array_equal(shared,[True,False,False,False])

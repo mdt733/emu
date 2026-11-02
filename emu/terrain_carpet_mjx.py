@@ -299,3 +299,48 @@ def note_confirmed_tile(xp,coords,visited,write,confirmed):
     out=visited.at[ix,slot,:].set(
         xp.where(confirmed[:,None],coords,before))
     return out,write+confirmed.astype(xp.int32)
+
+def signed_height_over_support(xp,points,surface_heights):
+    """Never let off-carpet -inf become +inf height/reward.
+
+    A lost patch means unsupported and immediately fall-eligible, rather
+    than printing infinite clearance and poisoning shared PPO gradients.
+    """
+    measured=points[:,:,2]-surface_heights
+    return xp.where(xp.isfinite(surface_heights),measured,
+                    xp.full_like(measured,-1.))
+
+
+def supported_tile_foot_pairs(xp,geom1,geom2,distance,frame,
+                              tile_geom:int,foot_geoms,
+                              foot_bottom_z,terrain_top_z,
+                              *,vertical_min=.60,tolerance_m=.003,
+                              top_tolerance_m=.012):
+    """Reject a foot grazing a VERTICAL HFIELD RISER as foothold credit.
+
+    A mere tile-vs-foot collision pair is insufficient: require a
+    near-vertical contact normal and the same sphere's physical bottom
+    to be near the sampled triangle top at its XY coordinate.
+    Neither signal is visible to the policy.
+    """
+    normals=(frame[:,:,0,:] if frame.ndim==4 else frame[:,:,:3])
+    upward=xp.abs(normals[:,:,2])>=vertical_min
+    result=[]
+    for i,foot in enumerate(foot_geoms):
+        pair=(((geom1==tile_geom)&(geom2==foot)) |
+              ((geom2==tile_geom)&(geom1==foot)))
+        aligned=xp.any(pair & (distance<=tolerance_m)&upward,axis=1)
+        top_match=(xp.isfinite(terrain_top_z[:,i]) &
+                   (xp.abs(foot_bottom_z[:,i]-terrain_top_z[:,i])
+                    <=top_tolerance_m))
+        result.append(aligned&top_match)
+    return xp.stack(result,axis=1)
+
+def shares_physical_edge(xp,previous,next_cell):
+    """Only orthogonal neighbours have one common physical ledge.
+
+    Corner-cutting diagonals may still be real locomotion, but they
+    cannot earn a made-up single-lip reward across an edge that does
+    not exist between those two tiles.
+    """
+    return xp.sum(xp.abs(next_cell-previous),axis=1)==1

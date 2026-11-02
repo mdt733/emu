@@ -11,7 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from emu.terrain_carpet_mjx import (
-    TILE_SIZE_Z_M, ray_surface, sample_surface)
+    TILE_SIZE_Z_M, ray_surface, sample_surface,
+    signed_height_over_support, supported_tile_foot_pairs)
 
 
 def fixture():
@@ -54,3 +55,35 @@ def test_no_phantom_support_beyond_nine_tile_footprint():
     p=jnp.asarray([[[2.5,2.5,.5]]],dtype=jnp.float32)
     h=np.asarray(sample_surface(jnp,data,tuple(range(9)),samples,p))
     assert np.isneginf(h[0,0]),h
+
+
+def test_no_infinite_clearance_for_a_robot_leaving_generated_world():
+    p=jnp.asarray([[[0.,0.,.21],[2.,2.,.37]]],dtype=jnp.float32)
+    z=jnp.asarray([[0.,-jnp.inf]],dtype=jnp.float32)
+    d=np.asarray(signed_height_over_support(jnp,p,z))
+    assert np.all(np.isfinite(d)),d
+    assert abs(float(d[0,0])-.21)<1e-6
+    assert d[0,1]==-1.0  # fail-eligible instead of positive infinity
+
+
+def test_side_contact_cannot_be_counted_as_supported_top_foothold():
+    # Two contacts to the SAME upward tile. The first sphere is pressed
+    # into the vertical step riser; the second is standing on the top.
+    frame=jnp.zeros((1,2,3,3),dtype=jnp.float32)
+    frame=frame.at[0,0,0,:].set(jnp.asarray([1.,0.,0.]))
+    frame=frame.at[0,1,0,:].set(jnp.asarray([0.,0.,1.]))
+    support=supported_tile_foot_pairs(
+        jnp,jnp.asarray([[7,7]]),jnp.asarray([[1,2]]),
+        jnp.asarray([[-.002,-.002]]),frame,7,(1,2),
+        jnp.asarray([[.15,.15]]),jnp.asarray([[.15,.15]]))
+    assert np.array_equal(np.asarray(support),[[False,True]]),support
+
+
+def test_top_contact_must_match_foot_sphere_bottom_elevation():
+    frame=jnp.zeros((1,2,3,3),dtype=jnp.float32)
+    frame=frame.at[0,:,0,2].set(1.)
+    support=supported_tile_foot_pairs(
+        jnp,jnp.asarray([[7,7]]),jnp.asarray([[1,2]]),
+        jnp.asarray([[-.002,-.002]]),frame,7,(1,2),
+        jnp.asarray([[.09,.14]]),jnp.asarray([[.15,.15]]))
+    assert np.array_equal(np.asarray(support),[[False,True]]),support

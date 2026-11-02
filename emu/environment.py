@@ -50,7 +50,10 @@ from .terrain_carpet_mjx import (
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
-    unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile)
+    unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
+    signed_height_over_support as carpet_signed_support,
+    supported_tile_foot_pairs as carpet_top_foot_pairs,
+    shares_physical_edge as carpet_shared_edge)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
@@ -3511,7 +3514,7 @@ class EmuMJXEnv(TaskSampler):
         if self.terrain_carpet:
             top=carpet_sample_surface(
                 self.jnp,data,self.carpet_mocap_ids,carpet_heights,positions)
-            return positions[:,:,2]-top
+            return carpet_signed_support(self.jnp,positions,top)
         flat = self._floor_signed_heights(data, positions)
         if self.unified_capability_focus:
             jnp=self.jnp
@@ -3618,7 +3621,6 @@ class EmuMJXEnv(TaskSampler):
         required, not just a coordinate change or the robot being airborne.
         """
         jnp=self.jnp
-        from .directional import contact_pair_mask
         zero=jnp.zeros((self.num_envs,),dtype=jnp.float32)
         false=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         root=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
@@ -3626,6 +3628,7 @@ class EmuMJXEnv(TaskSampler):
         delta=root-previous
         moved=jnp.any(delta!=0,axis=1)
         near=jnp.all(jnp.abs(delta)<=1,axis=1)
+        shared_lip=carpet_shared_edge(jnp,previous,root)
         target_slot=jnp.mod(root[:,0],3)+3*jnp.mod(root[:,1],3)
         previous_slot=jnp.mod(previous[:,0],3)+3*jnp.mod(previous[:,1],3)
         height_map=state.carpet_hfields.reshape((self.num_envs,9,4))
@@ -3659,28 +3662,37 @@ class EmuMJXEnv(TaskSampler):
                              .5*(after[:,2]+after[:,3])))
         rise=(pos_after[:,2]-pos_before[:,2]+
               .5*(newedge-oldedge))
-        # A real source/target foot-geom contact, not simply nearest ground.
+        # Sidewall collision is not a supported *top* foothold. Require
+        # the SAME foot's MJX contact normal to face upward, its sphere
+        # bottom to match the target tile's actual triangle elevation,
+        # and its XY position to be inside that target tile.
         contact=getattr(data,'_impl',data).contact
         foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
-        contact_by_tile=jnp.stack(tuple(
-            jnp.any(contact_pair_mask(jnp,contact.geom1,contact.geom2,
-                  contact.dist,g,foot_geoms),axis=1)
+        foot_xyz=data.geom_xpos[:,foot_geoms,:]
+        foot_bottom=(foot_xyz[:,:,2]-jnp.asarray(
+            self.mj_model.geom_size[list(foot_geoms),0])[None,:])
+        physical_foot_top=carpet_sample_surface(
+            jnp,data,self.carpet_mocap_ids,state.carpet_hfields,foot_xyz)
+        top_contacts_by_tile=jnp.stack(tuple(
+            carpet_top_foot_pairs(
+                jnp,contact.geom1,contact.geom2,contact.dist,
+                contact.frame,g,foot_geoms,foot_bottom,physical_foot_top)
             for g in self.carpet_geom_ids),axis=1)
-        on_target=jnp.take_along_axis(
-            contact_by_tile,target_slot[:,None],axis=1)[:,0]
-        foot_cell=jnp.floor(data.xpos[:,self.foot_bodies,:2]/
+        target_pairs=jnp.take_along_axis(
+            top_contacts_by_tile,
+            jnp.broadcast_to(target_slot[:,None,None],
+                             (self.num_envs,1,2)),axis=1)[:,0,:]
+        foot_cell=jnp.floor(foot_xyz[:,:,:2]/
                             CARPET_TILE_M).astype(jnp.int32)
-        # One foot must be physically supported on the target plate.
-        # A five-frame verified transfer also demands a healthy torso.
-        on_target_foot=jnp.any(jnp.all(
-            foot_cell==root[:,None,:],axis=2),axis=1)
+        on_target_foot=jnp.any(
+            jnp.all(foot_cell==root[:,None,:],axis=2)&target_pairs,axis=1)
         healthy=(metrics['terminal']<.5)&(metrics['bad_contact']<.5)
-        eligible=moved&near&on_target&on_target_foot&healthy
+        eligible=moved&near&on_target_foot&healthy
         streak=jnp.where(eligible,state.academy_streak+1,0)
         confirmed=eligible&(streak>=5)
         fresh=carpet_unseen_tile(
             jnp,root,state.carpet_seen_cells)
-        paid=confirmed&fresh
+        paid=confirmed&fresh&shared_lip
         seen_cells,seen_write=carpet_note_confirmed_tile(
             jnp,root,state.carpet_seen_cells,
             state.carpet_seen_write,confirmed)
@@ -3689,7 +3701,7 @@ class EmuMJXEnv(TaskSampler):
         lip=raised|lowered
         step_focus=state.specialist_active & (state.focus_id==STEP)
         academy_focus=step_focus&state.academy_active
-        approached=moved&near&lip&step_focus&fresh
+        approached=moved&near&shared_lip&lip&step_focus&fresh
         seen=state.academy_approach_seen|approached
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
         # No repeated foothold farm after 5-frame verification.
@@ -3721,7 +3733,8 @@ class EmuMJXEnv(TaskSampler):
             transfer_seen=jnp.where(confirmed,False,state.academy_transfer_seen),
             clearance_new=false,foothold_new=new_foothold,
             transfer_new=false,
-            reward=reward,height_m=jnp.where(moved&fresh,rise,zero),
+            reward=reward,height_m=jnp.where(
+                moved&fresh&shared_lip,rise,zero),
             completed=false)
 
     def _academy_events(self, state, data, metrics, done=None):

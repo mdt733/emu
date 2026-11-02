@@ -219,3 +219,13 @@ The remaining acceptance gate is full 2048 CUDA PPO on RTX4060Ti 8GB,
 plus a source-pinned bounded lifecycle and physical commanded crossings
 before large cold run. Keep `main` and v5040 intact. Runbook:
 `docs/V5041_GPU_CARPET_TRAINING.md`.
+
+v5041 safety gate: synthetic MJX+CPU tests must prove horizontal
+step-riser normals and upward-facing foot-top normals. The live
+carpet STEP reward explicitly requires a physically supported sphere
+bottom at the *actual* collision triangle top, and refuses side-contact,
+diagonal phantom-lip or repeat-visited tile rewards. Off-grid support
+reports finite fall height instead of infinity. Execute the
+`scripts/smoke_gpu_carpet.py --full-update` 2048-CUDA acceptance
+before any substantial run; no such acceptance has yet been run by
+the assistant on the user's GPU.

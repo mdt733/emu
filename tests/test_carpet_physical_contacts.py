@@ -141,3 +141,31 @@ def test_mjx_and_cpu_agree_on_supported_steps_and_vertical_wall(rise_m):
         matching=[c for c in contacts if {probe,terrain}.issubset(c[0])
                   and c[1]<=.001]
         assert matching,(rise_m,probe,terrain,contacts)
+
+
+@pytest.mark.parametrize('backend',['cpu','mjx'])
+@pytest.mark.parametrize('rise_m',[.04,.15])
+def test_riser_contact_normal_is_horizontal_not_false_upper_support(
+        rise_m,backend):
+    contacts=solve_case(rise_m,backend=backend)
+    risers=[c for c in contacts if
+            {'riser_ball','carpet_tile_geom_1'}.issubset(c[0]) and
+            c[1]<=.003]
+    assert risers,(rise_m,backend,contacts)
+    normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
+             else np.asarray(c[2])[:3] for c in risers]
+    assert any(abs(n[2])<.50 for n in normals),(rise_m,backend,normals)
+
+
+@pytest.mark.parametrize('backend',['cpu','mjx'])
+@pytest.mark.parametrize('rise_m',[.02,.04,.15])
+def test_foot_top_contacts_are_upward_facing(backend,rise_m):
+    contacts=solve_case(rise_m,backend=backend)
+    for ball,plate in (('left_ball','carpet_tile_geom_0'),
+                       ('right_ball','carpet_tile_geom_1')):
+        candidates=[c for c in contacts if
+            {ball,plate}.issubset(c[0]) and c[1]<=.003]
+        assert candidates,(backend,rise_m,ball,plate)
+        normals=[np.asarray(c[2])[0] if np.asarray(c[2]).ndim==2
+                 else np.asarray(c[2])[:3] for c in candidates]
+        assert any(abs(n[2])>=.60 for n in normals),(backend,rise_m,normals)

@@ -35,6 +35,14 @@ Only physically supported tile-to-tile transitions can earn per-lip
 stepping rewards, and a **64-tile episode memory** rejects repeat
 rewards from crossing the same lip back and forth. The history is
 teacher-only, never an actor input.
+When evaluating a crossed tile, the reward checks that the **same
+foot** has a real upward-facing MJX contact and its ball bottom matches
+the sampled triangle top. A foot merely pressed against a **vertical
+riser** cannot pass. A diagonal corner crossing has no single shared
+edge and cannot be paid as an invented lip; it remains legitimate
+general locomotion. If the robot strays outside the 3×3 collision ring,
+teacher support becomes a finite negative fall height, never infinite
+clearance or a poisoned PPO reward.
 
 After a cell transition the old outer row/column is moved to the
 new window **only if BOTH feet are still inside the new 3×3 footprint**.
