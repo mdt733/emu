@@ -209,6 +209,24 @@ function createParkFeatures(challengeLevel='balanced') {
   ];
 }
 
+// Unlike the historical browser hfield preview, these are actual MuJoCo
+// solid boxes with vertical side faces. All nine are mocap bodies, allowing
+// the 3x3 ring to recycle as the biped crosses 50cm cell boundaries. They
+// deliberately use ordinary robot-compatible collision bits; the training
+// model uses bit 4 with extra foot affinity, but the contact topology matches.
+export function solidCarpetXml(park) {
+  if(park?.physics!=='nine-solid-boxes'||park.tiles?.length!==9)
+    throw Error('Expected exactly nine physical carpet tiles');
+  const n=x=>Number(x).toFixed(8);
+  return park.tiles.map((t,index)=>{
+    if(t.slot!==index)throw Error('Carpet solid slots must be ordered 0..8');
+    return `<body name="viewer_carpet_body_${index}" mocap="true" pos="${t.center.map(n).join(' ')}" quat="${t.quat.map(n).join(' ')}">
+      <geom name="viewer_carpet_solid_${index}" type="box" size="0.258 0.258 0.270"
+        contype="1" conaffinity="1" friction="1.5 0.005 0.0001" rgba="0.39 0.65 0.39 1"/>
+    </body>`;
+  }).join('\n');
+}
+
 function parkXml(park) {
   const {resolution,radius,maxHeight,heights,trees,features=[]}=park;
   // The hfield parser normalizes the inline elevation itself. All elevations
@@ -322,7 +340,7 @@ function depthCourseXml(kind,{slopeDegrees=3,stepHeightCm=2}={}) {
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_carpet_solid_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='sensor'){
@@ -337,6 +355,11 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
+  if(mode==='carpet'&&park?.physics==='nine-solid-boxes'){
+    const noFloor=robotXml.replace(/<geom\\s+name="floor"[^>]*\\/>/,'');
+    if(noFloor===robotXml)throw Error('Carpet requires source robot ground plane');
+    return noFloor.replace('</worldbody>',solidCarpetXml(park)+'\n</worldbody>');
+  }
   const {asset,geometry}=parkXml(park);
   // The source floor must not overlap the hfield at the spawn point: that
   // would double contacts and compromise the 120M actor's apparent walking.
