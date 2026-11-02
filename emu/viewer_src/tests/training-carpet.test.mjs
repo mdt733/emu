@@ -59,8 +59,10 @@ test('viewer integrates carpet into real MuJoCo, not detached lab',()=>{
   const source=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
-  assert.match(source,/generateTrainingCarpet\(this\.carpetDifficulty,this\.carpetRole/);
-  assert.match(source,/this\.parkSurface=createParkSurface/);
+  assert.match(source,/createSolidCarpet\(this\.carpetDifficulty,this\.carpetRole/);
+  assert.match(source,/this\.parkSurface=createParkSurface/); // unchanged Terrain Park
+  assert.match(source,/this\.recycleCarpetWindow\(\)/);
+  assert.match(source,/this\.writeCarpetMocap\(/);
   assert.match(source,/this\.park\.sampleHeight\(x,y\)/);
   assert.match(source,/updateCarpetTileOverlay\(\)/);
   assert.match(ui,/value="carpet"/);
