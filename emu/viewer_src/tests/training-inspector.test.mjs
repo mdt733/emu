@@ -71,7 +71,8 @@ test('one world switch; sensor lab is not a floating second settings UI',()=>{
   assert.match(ui,/id="carpetDrive"/);
   assert.match(main,/runCarpetLesson\(dt\)/);
   assert.match(main,/carpetDrive\.value==='manual'/);
-  assert.match(sim,/xfrc_applied\[offset\]/);
+  assert.match(sim,/const xfrc=this\.data\.xfrc_applied/);
+  assert.match(sim,/xfrc\[offset\]=v\.last\[0\]/);
   assert.match(sim,/this\.shoveArrow\.setDirection\(direction\)/);
   assert.match(css,/\.settings-drawer \.depth-panel/);
 });
