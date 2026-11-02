@@ -4,7 +4,8 @@ import {trainingLimits} from '../src/training-carpet.js';
 import {specialistLesson} from '../src/training-inspector.js';
 import {roleSliders,customRoleOverride} from '../src/training-slider-model.js';
 import {createSolidCarpet} from '../src/training-solid-carpet.js';
-import {sampleShove,shoveChance} from '../src/training-shoves.js';
+import {sampleShove,shoveChance,shoveChanceForMode,expectedShoveRate}
+  from '../src/training-shoves.js';
 
 const data=step=>trainingLimits({
   training_step:step,
@@ -28,8 +29,10 @@ test('the 10 sliders expose effective specialist weights, not unscaled global fr
   assert.equal(steps.forward,.28);
   assert.equal(steps.reverse,.07);
   assert.equal(steps.push,.65);
-  assert.equal(roleSliders(b,'resilience').resilience,.36);
-  assert.equal(roleSliders(b,'command').resilience,.36*.15);
+  // The real push-START probability uses T.resilience, not the
+  // separate teacher's birth-pose recovery difficulty (.36).
+  assert.ok(Math.abs(roleSliders(b,'resilience').resilience-(.65/.7))<1e-9);
+  assert.ok(Math.abs(roleSliders(b,'command').resilience-(.65/.7)*.25)<1e-9);
 });
 
 test('custom sliders override exactly the requested role terrain and commands',()=>{
@@ -83,4 +86,37 @@ test('random shoves use teacher per-frame odds, selectable inspection rate and 2
     rng:()=>.9});
   assert.ok(manual);
   assert.equal(manual.frames,8);
+});
+
+test('GPU-like viewer uses the per-episode push fraction, not birth-pose difficulty',()=>{
+  const b=trainingLimits({
+    training_step:34000000,
+    latest_metrics:{step:34000000,frontier_push_n:.65,resilience_difficulty:.36},
+    training_config:{terrain_carpet:true,academy_stream:true,seed:735,
+      foundation_steps:20000000,push_max_force_n:4.0}
+  });
+  const l=specialistLesson(b,'resilience');
+  assert.equal(l.birthRecovery,.36);
+  assert.ok(Math.abs(l.intensity-.65/4)<1e-9);
+  assert.ok(Math.abs(expectedShoveRate(l.intensity,'training')-.0121875)<1e-9);
+  // At 34M, this representative world should expect ~82s between
+  // push starts, not one every 0.5s; 2048 environments are independent.
+  assert.ok(1/expectedShoveRate(l.intensity,'training')>80);
+});
+
+test('recovery drill produces frequent truly random impulses without rewriting trainer',()=>{
+  assert.equal(shoveChanceForMode(0,'drill'),0);
+  assert.ok(Math.abs(expectedShoveRate(.36,'drill')-1.36)<1e-9);
+  assert.equal(expectedShoveRate(1,'drill'),2);
+  assert.equal(expectedShoveRate(1,'training'),.075);
+  assert.equal(expectedShoveRate(1,'inspection'),.6);
+  assert.throws(()=>shoveChanceForMode(.2,'unknown'));
+  const draws=[.02,.25,.5,.5];
+  const event=sampleShove({mode:'drill',intensity:.36,maxForceN:.7,
+    rng:()=>draws.shift()});
+  assert.ok(event);
+  assert.ok(Math.abs(event.fx)<1e-9);
+  assert.ok(Math.abs(event.fy-.35)<1e-9);
+  assert.equal(event.frames,5);
+  assert.equal(sampleShove({mode:'drill',intensity:0,maxForceN:1,rng:()=>0}),null);
 });
