@@ -583,6 +583,13 @@ def train(args: TrainingConfig) -> int:
             return
         if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
+        # A full frozen physical exam compiles multiple JAX worlds and can
+        # take minutes after the last training progress line. Announce the
+        # phase BEFORE the first compile, never leave the console looking hung.
+        print(f'{LOG_PREFIX} fixed-eval starting at step={step:,} '
+              f'({"final" if force else "scheduled"}; '
+              f'{FINAL_EVAL_COHORTS if force else EVAL_COHORTS} cohorts; '
+              'training updates paused while independent MJX worlds run)',flush=True)
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out, best_eval_score = record_fixed_exam(
             snapshot, worlds=fixed_eval_worlds,
@@ -591,7 +598,8 @@ def train(args: TrainingConfig) -> int:
             best_score=best_eval_score, best_path=best_eval_path,
             curriculum_state=governor.state_dict, health_state=health.state_dict,
             field_state=field.state_dict, lr_scale=lr_scale, version=version,
-            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX)
+            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX,
+            progress=lambda message: print(f'{LOG_PREFIX} {message}',flush=True))
         last_eval_step = step
         latest_eval.update(out)
 
@@ -929,7 +937,13 @@ def train(args: TrainingConfig) -> int:
     recent_rewards = recent_rewards[-64:]
     # Evaluate and report the exact policy that generated the final rollout
     # before allowing that rollout to update governor stats.
+    print(f'{LOG_PREFIX} PPO TARGET REACHED at step={total_steps:,}; '
+          'starting final read-only physics exams and checkpoint publication. '
+          'The next log lines report each exam panel; no new PPO updates '
+          'are running during this phase.',flush=True)
     maybe_fixed_eval(total_steps, force=True)
+    print(f'{LOG_PREFIX} final physical exams finished; '
+          'summarizing final rollout and writing validated final checkpoint...',flush=True)
     maybe_cloud_eval(total_steps, force=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
     row.update(field.update_from_rollout(
