@@ -7,6 +7,10 @@ baseline. The original 232-input champion remains at
 `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 
 **THIS IS ARCHIVED LAUNCH DOCUMENTATION, NOT A RECOMMENDATION TO TRAIN AGAIN.**
+The historical `scripts/train_pinnacle.py` launcher is available from the
+immutable original training source `9b11bbe596aea7201d29a6beb2d192922f8e2e9a`,
+rather than retained as an executable in the active v5040 branch. Use
+`emu train` for new from-scratch experiments.
 Read the [released 260M physical baseline](V5032_PINNACLE_RELEASE.md),
 [active handover](../HANDOVER.md) and
 [future research backlog](https://github.com/mdt733/emu/issues/17).

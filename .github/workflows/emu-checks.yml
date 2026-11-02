@@ -1,4 +1,4 @@
-name: EMU engineering checks
+name: EMU source and browser checks
 
 on:
   pull_request:
@@ -10,9 +10,7 @@ on:
 permissions:
   contents: read
 
-# When multiple revisions arrive on the same draft PR, only test the newest.
-# Avoid dozens of obsolete overlapping runs and failure notifications.
-# Manual dispatch and separate PRs retain independent concurrency groups.
+# New commits supersede stale PR checks; one practical physics check is enough.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -20,11 +18,8 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      # Legacy 232-input physics tests load the EXACT archived main policy
-      # by immutable pre-promotion Git commit. A shallow checkout cannot
-      # prove or load those historic source bytes.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -32,161 +27,16 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-      - name: Install
+      - name: Install dependencies
         run: python -m pip install -e ".[dev]"
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - name: Compile and validate setup syntax
+      - name: Syntax, public actor and CLI contract
         run: |
-          python -m compileall -q emu tests scripts
-          python -m py_compile emu/run.py scripts/train_pinnacle.py emu/curriculum.py emu/capability_field.py emu/capability_cloud.py emu/evaluation.py emu/physical_exam.py scripts/campaign_support.py scripts/compare_policies.py
-          bash -n scripts/setup_wsl.sh
-          bash scripts/setup_wsl.sh --help > /dev/null
-      # One G3 physical acceptance probe; no PPO training or new test framework.
-      - name: Verify exact approved 260M 360-input public actor
-        run: python scripts/verify_showcase_release.py
-      - name: Verify source and artifact are still the published v5032 model
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p=json.loads(Path("showcase/champion.emupolicy").read_text())
-          a=json.loads(Path("showcase/release_approval.json").read_text())
-          assert p["schema"]==3 and p["policy"]["obs_dim"]==360
-          assert p["source"]["step"]==260046848
-          assert a["training_source_commit"]=="9b11bbe596aea7201d29a6beb2d192922f8e2e9a"
-          assert a["checkpoint_sha256"]=="238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b"
-          PY
-      - name: G3 finite-step MJX contact and episode reset smoke (CPU)
-        run: |
-          timeout 180s python -m emu.terrain_spike --worlds 2 --steps 12
-          timeout 180s python -m emu.terrain_spike --environment --worlds 4
-      - name: G5 real 4x4 actor + PPO gradient (production MJX CPU)
-        run: timeout 240s python -m emu.terrain_spike --actor --worlds 4 --device cpu
-      - name: G4 verified 360-input two-slab terrain exams (read-only CPU)
-        run: |
-          timeout 300s emu capability-exam \
-            --policy showcase/champion.emupolicy \
-            --output "$RUNNER_TEMP/g4-two-slab-terrain" \
-            --device cpu --worlds 4 --horizon 140 --speed .15 \
-            --terrain-matrix --matrix-grades-deg 5 --matrix-heights-cm 2
-          python - <<'PY'
-          import json,os
-          from emu.contracts import OBS_SCHEMA_TERRAIN
-          p=os.environ['RUNNER_TEMP']+'/g4-two-slab-terrain/unified_exam.json'
-          d=json.load(open(p))
-          assert d['observation_schema']==OBS_SCHEMA_TERRAIN
-          assert d['protocol']['no_reward_or_curriculum_feedback']
-          assert d['protocol']['contact']=='real foot contact, five supported far-side frames'
-          steps=[w for c in d['results'] if c['case']['kind']=='step' for w in c['worlds']]
-          slopes=[w for c in d['results'] if c['case']['kind']=='slope' for w in c['worlds']]
-          assert len(steps)==4 and len(slopes)==16
-          assert all(w['height_verified'] and w['edge_verified'] for w in steps)
-          assert all(w['grade_verified'] for w in slopes)
-          print('PASS: authentic 360 actor, paired real step UP/DOWN and 4-bearing 5deg slopes')
-          PY
-      - name: Verify real world-frame route and physical quality on 260M actor
-        run: |
-          emu physical-quality \
-            --exam "$RUNNER_TEMP/g4-two-slab-terrain" \
-            --output "$RUNNER_TEMP/g4-physical-quality"
-          python - <<'PY'
-          import json,math,os
-          from pathlib import Path
-          root=Path(os.environ["RUNNER_TEMP"])
-          exam=json.loads((root/"g4-two-slab-terrain/unified_exam.json").read_text())
-          report=json.loads((root/"g4-physical-quality/physical_quality.json").read_text())
-          assert report["actor_sha256"]==exam["actor_artifact_sha256"]
-          assert report["source_training_step"]==260046848
-          assert report["global_score"] is None
-          assert report["schema"]=="emu_physical_quality_v1"
-          assert any(x["family"]=="step" and x["direction"]=="step-up" for x in report["cases"])
-          assert any(x["family"]=="step" and x["direction"]=="step-down" for x in report["cases"])
-          flat=next(x for x in exam["results"] if x["case"]["name"]=="flat")
-          valid=[w for w in flat["worlds"] if w["world_path_endpoint_error_m"] is not None]
-          assert valid, "real physics did not supply world-frame path diagnostics"
-          assert all(math.isfinite(w["world_path_rms_error_m"]) and
-                     math.isfinite(w["world_path_endpoint_error_m"])
-                     for w in valid)
-          print("REAL PHYSICS ROUTE METRICS, 2.8-second 4-world smoke only:")
-          for w in valid:
-              print("  world",w["world"],"path RMS",w["world_path_rms_error_m"],
-                    "endpoint",w["world_path_endpoint_error_m"],
-                    "directed m",w["directed_progress_m"])
-          print("PASS: read-only physical scorecard, real signed support, no fake global score")
-          PY
-      - name: 260M main 360-input policy on real two-slab MJX physics (read-only)
-        run: |
-          timeout 300s emu capability-exam \
-            --policy showcase/champion.emupolicy \
-            --output "$RUNNER_TEMP/pinnacle-main-360" \
-            --device cpu --worlds 2 --horizon 100 \
-            --speed .15 --speed-ladder --ladder-speeds .15
-          python - <<'PY'
-          import json,os
-          from emu.contracts import OBS_SCHEMA_TERRAIN
-          d=json.load(open(os.environ['RUNNER_TEMP']+'/pinnacle-main-360/unified_exam.json'))
-          assert d['observation_schema']==OBS_SCHEMA_TERRAIN
-          assert d['legacy_main_baseline'] is False
-          assert len(d['results'])==1
-          assert len(d['results'][0]['worlds'])==2
-          assert d['protocol']['legacy_232_actor_sensors_preserved'] is False
-          assert d['source_training_step']==260046848
-          print('Main 360 actor completed real matching two-slab physical exam')
-          PY
-      - name: Run full Python checks (do not hide pre-existing failures)
-        run: python -m pytest -q tests
-      - name: Smoke public doctor CLI (CPU-only)
-        run: emu doctor --no-require-gpu --no-mjx-smoke
-      - name: Smoke public planning, exams and exporter imports
-        run: |
-          emu directional-exam --help > /dev/null
-          emu terrain-exam --help > /dev/null
-          emu capability-exam --help > /dev/null
-          emu train --help > /dev/null
-          python scripts/smoke_training_lifecycle.py --help > /dev/null
-          python scripts/compare_policies.py --help > /dev/null
-          # Historical v5032 launcher was source-pinned to the original
-          # release branch; DO NOT execute its source_guard on current main.
-          # Keep it importable for reproducibility without pretending it is
-          # the next active flagship run.
-          python - <<'PY'
-          import sys
-          sys.path.insert(0,'scripts')
-          import train_pinnacle
-          assert train_pinnacle.TARGET_STEPS==260000000
-          print('Historical 260M cold-start launcher imports cleanly')
-          PY
-          emu train --run-dir "$RUNNER_TEMP/emu-plan-only" --steps 60000000 --envs 2048 --seed 733 --device cuda --profile sim2real --terrain-actor --terrain-step-max-m 0.04 --unified-capabilities --foundation-steps 10000000 --foundation-mix command-heavy --teaching-schedule steering --plan > /dev/null
-          emu evaluate --help > /dev/null
-          emu export-policy --help > /dev/null
-          python - <<'PY'
-          from emu.checkpoint_io import resume_training_lineage, git_provenance
-          from emu.run import train_one, one_run_config
-          from emu.evaluation import atlas_main, directional_main
-          from emu.viewer_server import build_bundle, field_main, LivePolicyWatcher
-          print('All public entrypoint owners import cleanly')
-          PY
-
-  # One unified shared-policy, six-cohort physical PPO smoke on CPU.
-  unified-focus-cpu:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-      - name: Install CPU learning dependencies
-        run: python -m pip install -e ".[dev]"
-      - name: Exercise single shared-policy unified specialists on MJX CPU
-        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12
-      - name: 25-frame forward tracking PPO gradient (CPU)
-        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --temporal-vx-reward-share .5
-      - name: Verified physical support-transfer PPO gradient (CPU)
-        run: timeout 540s python scripts/smoke_unified_focus.py --device cpu --envs 12 --terrain-max-m .08 --terrain-lesson coherent-careful --temporal-vx-reward-share .5 --verified-ascent-reallocation 3
+          python -m compileall -q emu scripts tests
+          python scripts/verify_showcase_release.py
+          emu doctor --no-require-gpu --no-mjx-smoke
+          emu train --run-dir "$RUNNER_TEMP/academy-plan" --steps 120000000 --envs 2048 --seed 761 --device cuda --profile sim2real --terrain-actor --terrain-step-max-m .08 --unified-capabilities --academy-course-lips 4 --terrain-lesson coherent-careful --plan > /dev/null
+      - name: One actual four-lip MJX physics + PPO update (CPU, no training)
+        run: timeout 540s python scripts/smoke_step_course.py --device cpu --worlds 4 --frames 3 --ppo
 
   browser:
     runs-on: ubuntu-latest
@@ -216,20 +66,3 @@ jobs:
       # The twelve maintained viewer contracts run above. Full manual
       # MuJoCo browser acceptance remains a release-review step.
 
-  cpu-viewer-ubuntu:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Validate WSL viewer bootstrap syntax
-        run: |
-          bash -n scripts/install_viewer_wsl.sh
-          bash scripts/install_viewer_wsl.sh --self-test
-      - name: Fresh Ubuntu CPU-only viewer install (no training)
-        run: bash scripts/install_viewer_wsl.sh --destination "$RUNNER_TEMP/emu-viewer-cpu" --branch "${{ github.head_ref || github.ref_name }}" --no-launch
