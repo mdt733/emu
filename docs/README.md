@@ -1,3 +1,6 @@
+**Current five-stage runnable architecture and removal plan:**
+[Core skeleton](CORE_SKELETON.md). Old reports below remain reference documents.
+
 # EMU documentation
 
 Start at the [project README](../README.md) for scope,
