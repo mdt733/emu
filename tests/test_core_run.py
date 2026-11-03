@@ -69,6 +69,12 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.retention_share == pytest.approx(.15)
     assert cfg.fixed_eval_every_steps == 10_000_000
     assert training_sensor_contract(cfg) is not None
+    # One current frozen-policy CLI; old two-slab exam routes are retired.
+    with patch("emu.prism_exam.evaluate_prism_policy",
+               return_value=(tmp_path / "prism_exam.json", tmp_path / "prism_exam.md")) as exam:
+        assert emu_cli_main(["prism-exam", "--policy", str(tmp_path / "actor.emupolicy"),
+                             "--output", str(tmp_path / "exam"), "--mode", "step"]) == 0
+        assert exam.call_args.kwargs["mode"] == "step"
 
 
 def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
