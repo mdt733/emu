@@ -52,10 +52,6 @@ EVAL_HORIZON = 350
 EVAL_SEED = 1701
 EVAL_COHORTS = 1
 FINAL_EVAL_COHORTS = 2
-CLOUD_EVAL_EVERY_STEPS = 40_000_000
-CLOUD_ENVS = 256
-CLOUD_HORIZON = 250
-CLOUD_BATCH_POINTS = 4
 FIELD_HALF_LIFE_STEPS = 20_000_000
 SENSOR_NOISE_SCALE = 1.5
 
@@ -88,10 +84,6 @@ DOCTRINE = {
     "EVAL_SEED": EVAL_SEED,
     "EVAL_COHORTS": EVAL_COHORTS,
     "FINAL_EVAL_COHORTS": FINAL_EVAL_COHORTS,
-    "CLOUD_EVAL_EVERY_STEPS": CLOUD_EVAL_EVERY_STEPS,
-    "CLOUD_ENVS": CLOUD_ENVS,
-    "CLOUD_HORIZON": CLOUD_HORIZON,
-    "CLOUD_BATCH_POINTS": CLOUD_BATCH_POINTS,
     # Fixed curriculum / field doctrine.
     "FRONTIER_GROWTH_FRAC": FRONTIER_GROWTH_FRAC,
     "FRONTIER_RETREAT_FRAC": FRONTIER_RETREAT_FRAC,
@@ -237,8 +229,8 @@ class TrainingConfig:
     allow_rollback: bool = True
 
     # Held-out evaluation.
-    cloud_probes_per_eval: int = 10
-    cloud_final_probes: int = 50
+    cloud_probes_per_eval: int = 0
+    cloud_final_probes: int = 0
 
     # Capability-field teaching.  These are the deliberately narrow experiment
     # surface for v5013: dose, family, evidence feedback, and schedule.  They
