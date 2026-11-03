@@ -104,9 +104,8 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     assert first.terrain_carpet and first.academy_stream
     assert first.observation_schema == OBS_SCHEMA_TERRAIN
     assert first.steps == 256 and second.steps == 512
-    boxes, _ = configs(tmp_path, unified=True, carpet=True,
-                       envs=8, seed=735)
-    assert boxes.terrain_carpet and not boxes.terrain_carpet_prisms
+    with pytest.raises(ValueError,match="prisms"):
+        configs(tmp_path, unified=True, carpet=True, envs=8, seed=735)
     with pytest.raises(ValueError):
         configs(tmp_path, prisms=True, envs=8, seed=735)
 
