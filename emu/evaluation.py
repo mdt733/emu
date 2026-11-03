@@ -91,6 +91,11 @@ EVAL_PERF_TIMER_NAMES = tuple(f'eval_{name}' for name in PANELS)
 
 def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, float, float, float],
            combo_mix: float = 0.0, sensor_scale: float | None = None):
+    # The learner and every held-out panel must use the same physical
+    # topology and sensor meaning. Fail before compiling MJX otherwise.
+    if not (config.unified_capability_focus and config.terrain_carpet
+            and config.terrain_carpet_prisms):
+        raise ValueError('Fixed evaluator requires the real unified prism world')
     seed = EVAL_SEED + seed_offset
     vx_hi, vx_lo, vy, yaw = limits
     env = EmuMJXEnv(
@@ -98,32 +103,25 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         max_episode_steps=MAX_EPISODE_STEPS,
         # A held-out physical exam must use the learner's actual push
         # physics: the new 360 learner can earn >0.70N challenges.
-        push_max_force_n=(config.push_max_force_n if config.unified_capability_focus else 0.70),
+        push_max_force_n=config.push_max_force_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo,
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
         observation_schema=config.observation_schema, open_frontier=False,
-        # Fixed evaluation of the new array-only 360 actor must use its real
-        # two-slab world and sensor meanings even with ZERO terrain exposure.
-        # Archived 220/232/older tripod-360 panels remain unchanged.
-        unified_capability_focus=bool(config.unified_capability_focus),
-        # A carpet-trained actor's held-out physics MUST also use a carpet.
-        # A two-slab world would silently return a false flat benchmark.
-        terrain_carpet=bool(config.terrain_carpet),
-        # Critical: a full 140M prism campaign must never be graded on
-        # the obsolete nine tilted-box collision geometry by default.
-        terrain_carpet_prisms=bool(config.terrain_carpet_prisms),
+        # A frozen benchmark is not permitted to substitute old slab/box
+        # physics, even when its requested terrain exposure is zero.
+        unified_capability_focus=True, terrain_carpet=True,
+        terrain_carpet_prisms=True,
         carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
-        terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),
+        terrain_step_max_m=config.terrain_step_max_m,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
-    if config.unified_capability_focus:
-        from .training_config import training_sensor_contract
-        if env.sensor_contract != training_sensor_contract(config):
-            raise RuntimeError('frozen fixed evaluator sensor geometry differs from unified policy')
+    from .training_config import training_sensor_contract
+    if env.sensor_contract != training_sensor_contract(config):
+        raise RuntimeError('frozen fixed evaluator sensor geometry differs from unified policy')
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
                            value_cost=PPO_VALUE_COST)
