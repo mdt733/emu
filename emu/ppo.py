@@ -18,10 +18,6 @@ from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
-from .contracts import (
-    VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
-    UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
-)
 
 # Fixed current PPO doctrine. These are not experiment knobs in modern EMU;
 # training_config records them with each run, while this module owns their use.
@@ -608,47 +604,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
-    def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
-                            eval_key, horizon):
-        """Common-condition efficiency telemetry, NEVER used as a PPO reward.
-
-        Three motor terms plus command smoothness are collected with the same
-        immutable exam seed. Interpret with survival/command performance;
-        a robot that falls early must not win merely by drawing less power.
-        This is simulated shaft power, not electrical battery consumption.
-        """
-        keys = jax.random.split(eval_key, env.num_envs)
-        state = env._reset_with_keys(keys, curriculum_params)
-        obs = env.obs(state)
-        totals = jnp.zeros((5,), dtype=jnp.float32)
-
-        def one(i, carry):
-            es, ob, sums = carry
-            mean, _ = apply(params, normalize_obs(
-                ob, obs_mean, obs_std, obs_norm_mask))
-            action = jnp.clip(mean, -1., 1.)
-            # action_delta_norm exists in the private reward computation,
-            # but REWARD_ONLY_METRICS deliberately strips it from StepOut.
-            # Measure the identical quantity directly from the pre-step
-            # action/state. Do not expand PPO telemetry or alter rewards.
-            action_delta_norm = jnp.linalg.norm(action - es.prev_action, axis=1)
-            out = env.step(es, action, curriculum_params)
-            m = out.metrics
-            sums = sums + jnp.stack((
-                jnp.sum(m['servo_shaft_abs_power_w']),
-                jnp.sum(m['servo_shaft_drive_power_w']),
-                jnp.sum(m['servo_over_rated_frac']),
-                jnp.sum(m['servo_peak_torque_limit_frac']),
-                jnp.sum(action_delta_norm),
-            ))
-            return out.state, out.obs, sums
-
-        _, _, sums = jax.lax.fori_loop(
-            0, horizon, one, (state, obs, totals))
-        return sums / float(env.num_envs * horizon)
-
-    evaluate_efficiency = jax.jit(evaluate_efficiency, static_argnums=(5,))
-
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
@@ -943,98 +898,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
     evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
 
-    def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
-                          stable_steps=10, recovery_not_before=0):
-        """Return fall/recovery times for capability probes.
-
-        Recovery means sustained healthy dynamic command tracking: alive,
-        commanded-attitude-compatible, supported, and tracking the three
-        movement axes for ``stable_steps``.
-        """
-        keys = jax.random.split(eval_key, env.num_envs)
-        env_state = env._reset_with_keys(keys, curriculum_params)
-        obs = env.obs(env_state)
-        first_fall0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
-        first_recovery0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
-        streak0 = jnp.zeros((env.num_envs,), dtype=jnp.int32)
-
-        def one_step(i, carry):
-            es, ob, first_fall, first_recovery, streak = carry
-            mean, _ = apply(params, normalize_obs(ob, obs_mean, obs_std, obs_norm_mask))
-            action = jnp.clip(mean, -1.0, 1.0)
-            out = env.step(es, action, curriculum_params)
-            m = out.metrics
-            fell = m['episode_fell'] > 0.5
-            first_fall = jnp.where(jnp.logical_and(first_fall < 0, fell), i + 1, first_fall)
-            # Slightly forgiving instantaneous gates plus a consecutive-frame
-            # requirement are a better definition of dynamic recovery than
-            # demanding low body rates during a walking gait.
-            vx_tol = jnp.maximum(VX_ABS_TOL, VX_REL_TOL * jnp.abs(m['cmd_vx']))
-            vy_tol = jnp.maximum(VY_ABS_TOL, VY_REL_TOL * jnp.abs(m['cmd_vy']))
-            yaw_tol = jnp.maximum(YAW_ABS_TOL, YAW_REL_TOL * jnp.abs(m['cmd_yaw']))
-            stable = (
-                (first_fall < 0) &
-                (m['structural_attitude_ok'] > .5) &  # requested chassis attitude, not rigid upright
-                (jnp.abs(m['vx'] - m['cmd_vx']) <= vx_tol) &
-                (jnp.abs(m['vy'] - m['cmd_vy']) <= vy_tol) &
-                (jnp.abs(m['yaw_rate'] - m['cmd_yaw']) <= yaw_tol) &
-                (m['support'] > SUPPORT_MIN)
-            )
-            streak = jnp.where(stable, streak + 1, 0)
-            newly = ((first_recovery < 0) & (streak >= stable_steps) &
-                     (i >= jnp.maximum(4, recovery_not_before + stable_steps - 1)))
-            first_recovery = jnp.where(newly, i + 1, first_recovery)
-            return out.state, out.obs, first_fall, first_recovery, streak
-
-        _, _, first_fall, first_recovery, _ = jax.lax.fori_loop(
-            0, horizon, one_step,
-            (env_state, obs, first_fall0, first_recovery0, streak0))
-        return first_fall, first_recovery
-
-    evaluate_recovery = jax.jit(evaluate_recovery, static_argnums=(5, 6))
-
-    def evaluate_node_window(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
-                             window_steps=50, settle_steps=25):
-        """Held-out node exam matching the capability-field window contract.
-
-        After settling, compare mean absolute tracking error with mean dynamic
-        tolerance and require structural health for the configured window fraction.
-        The result is one Bernoulli verdict per environment.
-        """
-        keys=jax.random.split(eval_key,env.num_envs)
-        env_state=env._reset_with_keys(keys,curriculum_params); obs=env.obs(env_state)
-        err0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
-        tol0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
-        good0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
-        count0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
-        end_step=jnp.minimum(jnp.asarray(horizon,dtype=jnp.int32),jnp.asarray(settle_steps+window_steps,dtype=jnp.int32))
-        def one_step(i,carry):
-            es,ob,err,tol,good,count=carry
-            mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask)); action=jnp.clip(mean,-1.0,1.0)
-            out=env.step(es,action,curriculum_params); m=out.metrics
-            use=(i>=settle_steps)&(i<end_step)
-            usef=use.astype(jnp.float32)
-            vx_tol=jnp.maximum(VX_ABS_TOL,VX_REL_TOL*jnp.abs(m['cmd_vx'])); vy_tol=jnp.maximum(VY_ABS_TOL,VY_REL_TOL*jnp.abs(m['cmd_vy'])); yaw_tol=jnp.maximum(YAW_ABS_TOL,YAW_REL_TOL*jnp.abs(m['cmd_yaw']))
-            e=jnp.stack((jnp.abs(m['vx']-m['cmd_vx']),jnp.abs(m['vy']-m['cmd_vy']),jnp.abs(m['yaw_rate']-m['cmd_yaw'])),axis=1)
-            tt=jnp.stack((vx_tol,vy_tol,yaw_tol),axis=1)
-            structural=((m['structural_attitude_ok']>.5)&(m['support']>SUPPORT_MIN)&(m['bad_contact']<.5)&(m['episode_fell']<.5)).astype(jnp.float32)
-            err=err+usef*e; tol=tol+usef*tt; good=good+usef*structural; count=count+usef
-            return out.state,out.obs,err,tol,good,count
-        _,_,err,tol,good,count=jax.lax.fori_loop(0,horizon,one_step,(env_state,obs,err0,tol0,good0,count0))
-        c=jnp.maximum(count,1.0); tracking=jnp.all((err/c[:,None]) <= (tol/c[:,None]),axis=1); structural=(good/c)>=NODE_STRUCTURAL_FRACTION_MIN
-        enough=count>=jnp.minimum(jnp.asarray(float(window_steps)),jnp.asarray(float(max(1,horizon-settle_steps))))
-        return tracking & structural & enough
-
-    evaluate_node_window = jax.jit(evaluate_node_window, static_argnums=(5,6,7))
-
     return {
         'make_initial_state': make_initial_state,
         'train_update': train_update,
         'evaluate_summary': evaluate_summary,
-        'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
-        'evaluate_recovery': evaluate_recovery,
-        'evaluate_node_window': evaluate_node_window,
         'obs_dim': obs_dim,
     }
 

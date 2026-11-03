@@ -498,3 +498,16 @@ clearance/transfer *state* bits were removed; their always-false
 diagnostic events remain available to existing reports. Contact-based
 footholds, supported shared-edge crossings and repeated lip rewards
 remain intact.
+
+### PPO evaluator ownership (4 November continuation)
+
+The maintained learner exposes only the three entry points its live callers
+need: `make_initial_state`, `train_update`, plus the frozen evaluators
+`evaluate_summary` (matched aggregate panels) and `evaluate_trace` (real
+prism-exam contact/sensor trajectories). Retired `evaluate_efficiency`,
+`evaluate_recovery`, and `evaluate_node_window` were stand-alone research
+kernels with **no callers in the current physical exam/training path**;
+remove them rather than compiling dead JAX callbacks or maintaining a
+second definition of exam competence. Measured efficiency remains in
+on-policy physical telemetry; frozen policy exam retains raw signed contact
+facts. No PPO optimizer, actor or critic mathematics changed.
