@@ -53,8 +53,8 @@ frozen-actor true-prism exam smoke.
 
 **[New v5045 runbook](docs/V5045_LEAN_PRISM_RUNBOOK.md)** has exact
 install, check, benchmark, lifecycle and launch commands.
-**[Core source skeleton](docs/CORE_SKELETON.md)** explains file ownership
-and retirement decisions. The historical full handover remains
+**[Core source skeleton and live 102-file ownership/retirement checklist](docs/CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)**
+reconciles every surviving module with its job and identifies open gates. The historical full handover remains
 [at the pinned v5044 commit](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md).
 
 ## 4 November — make the physical control frame understandable
