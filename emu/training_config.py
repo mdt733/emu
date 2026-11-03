@@ -1,13 +1,10 @@
-"""Modern EMU training configuration.
+"""One source-pinned, 360-input prism training configuration.
 
-The public CLI deliberately exposes only experiment-level choices. Trainer internals
-receive one serialized TrainingConfig, never a reconstructed forest of CLI flags.
-
-The mature profile intentionally freezes observation-normalizer statistics at 25M
-absolute environment steps. That is roughly 5M steps after the 20M foundation target:
-the hypothesis is that the actor's coordinate system should stop drifting before the
-mature curriculum substantially expands its command envelope. The freeze is therefore
-a deliberate profile choice, not a hidden fixed default.
+The public CLI exposes experiment-level teaching choices. Trainer internals
+receive one complete serialized TrainingConfig, and the modern cold foundation
+is a 20M-step teaching stage rather than a separate older network/profile.
+The current run recipe uses continuously updated observation normalization;
+historical frozen-normalizer experiments remain in their original Git commits.
 """
 from __future__ import annotations
 
@@ -275,10 +272,9 @@ def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, re
     )
 
 
-def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: str, envs: int,
-                  resume: Path | None) -> TrainingConfig:
-    if mode not in {"shadow", "graph"}:
-        raise ValueError(f"unsupported trainer mode: {mode}")
+def prism_base_config(*, run_dir: Path, steps: int, seed: int, device: str, envs: int,
+                      resume: Path | None) -> TrainingConfig:
+    """Shared physical/curriculum defaults before the user's experiment knobs."""
     return replace(
         TrainingConfig(), **_runtime(run_dir=run_dir, steps=steps, seed=seed, device=device, envs=envs, resume=resume),
         freeze_obs_norm_after_steps=25_000_000,
@@ -292,7 +288,7 @@ def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: st
         frontier_vy_safety=0.60, frontier_yaw_safety=4.50,
         frontier_combo_safety=2.00, frontier_push_safety_n=3.2,
         fall_target=0.34,
-        capability_field_mode=mode,
+        capability_field_mode='shadow',
         field_influence_start_steps=FOUNDATION_STEPS, field_influence_full_steps=30_000_000,
     )
 
