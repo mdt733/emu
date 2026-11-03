@@ -9,6 +9,8 @@ case "${1:---quick}" in
 esac
 python -m compileall -q emu scripts tests
 python scripts/verify_showcase_release.py
+python scripts/audit_core_dependencies.py --json >/dev/null
+python scripts/check_current_docs.py
 python -m emu.cli doctor --no-require-gpu --no-mjx-smoke
 python -m emu.cli train --help >/dev/null
 if ((FULL)); then
