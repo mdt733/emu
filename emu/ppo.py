@@ -903,6 +903,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
                         (env.num_envs,len(solids),3,3)),
                 })
+                if env.terrain_carpet_prisms:
+                    # The independent prism examiner consumes this world-space
+                    # physical vertex evidence, not teacher crossing rewards.
+                    # Each sample is PRE-step and matches raw MJX contact pairs.
+                    corner=es.carpet_hfields.reshape((env.num_envs,9,4))
+                    tile_z=es.data.mocap_pos[:,list(env.carpet_mocap_ids),2]
+                    sample["carpet_prism_corner_z"]=(
+                        tile_z[:,:,None]+.5*corner)
             if env.academy_stream:
                 # Read-only per-lip physical measurements from the same
                 # step function as training; never the policy reward alone.
