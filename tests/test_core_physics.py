@@ -19,7 +19,7 @@ from emu.terrain_carpet_mjx import (
     feet_clear_of_abandoned_prisms, add_carpet_geoms,
     TILE_SIZE_Z_M, ray_surface, supported_tile_foot_pairs,
     VISIT_HISTORY, unseen_tile, note_confirmed_tile)
-from scripts.exam_prism_course import score_prism_crossings
+from emu.prism_exam import score_prism_crossings
 
 
 def foot_guard(old, new, feet, radii=(.018,.018)):
