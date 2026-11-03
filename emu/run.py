@@ -81,34 +81,15 @@ def one_run_config(args) -> TrainingConfig:
     weight=float(getattr(args,'motor_guidance_weight',0.0))
     if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
         raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
-    grade=float(getattr(args,'contact_slope_deg',0.0))
-    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
-        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
-    sensor_actor = bool(getattr(args, 'sensor_actor', False))
     terrain_actor = bool(getattr(args, 'terrain_actor', False))
     terrain_max = float(getattr(args,'terrain_step_max_m',0.0))
     if unified and (not terrain_actor or args.profile != 'sim2real'):
         raise ValueError('unified capability learning requires sim2real and terrain_360')
 
-    if sensor_actor and terrain_actor:
-        raise ValueError('--sensor-actor and --terrain-actor are mutually exclusive')
     if not math.isfinite(terrain_max) or not 0.0 <= terrain_max <= .08:
         raise ValueError('--terrain-step-max-m must be between 0 and 0.08')
     if terrain_actor and not 0.001 <= terrain_max <= .08:
         raise ValueError('--terrain-actor needs --terrain-step-max-m above zero')
-    if terrain_max > 0 and (grade > 0 or getattr(args,'contact_terrain_radius',0.0)>0):
-        raise ValueError('finite steps and inclined floor are not yet compatible')
-    if (sensor_actor or terrain_actor) and args.profile not in ('foundation', 'sim2real'):
-        raise ValueError('--sensor-actor requires --profile foundation or sim2real')
-    if grade > 0 and args.profile != 'sim2real':
-        raise ValueError('real contact slope requires --profile sim2real')
-    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
-    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
-        raise ValueError('--contact-terrain-radius must be in [0, 1]')
-    if terrain_radius > 0 and args.profile != 'sim2real':
-        raise ValueError('per-world real contact terrain requires --profile sim2real')
-    if terrain_radius > 0 and grade > 0:
-        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     terrain_carpet=bool(getattr(args,'terrain_carpet',False))
     carpet_prisms=bool(getattr(args,'carpet_prisms',False))
     if carpet_prisms and not terrain_carpet:
@@ -143,8 +124,7 @@ def one_run_config(args) -> TrainingConfig:
     # Prior foundation, 232-input and nine-box lineages are source-pinned
     # to their historical Git commits; do not accept fake --plan recipes.
     if not (unified and terrain_actor and terrain_carpet and carpet_prisms
-            and academy_stream and args.profile == 'sim2real'
-            and not sensor_actor and grade == 0. and terrain_radius == 0.):
+            and academy_stream):
         raise ValueError(
             "v5045 prism-only training requires --profile sim2real "
             "--terrain-actor --unified-capabilities --terrain-carpet "
@@ -196,7 +176,7 @@ def one_run_config(args) -> TrainingConfig:
                    # governor may later earn real larger pushes.
                    push_max_force_n=4.0, capability_field_mode='shadow',
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
-                   contact_slope_deg=grade,domain_randomization=False,
+                   contact_slope_deg=0.0,domain_randomization=False,
                    domain_terrain_radius=0.0, domain_terrain_mode='gravity')
 
 
