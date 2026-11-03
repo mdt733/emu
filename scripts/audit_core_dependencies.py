@@ -19,7 +19,7 @@ STAGES: dict[str, tuple[str, ...]] = {
                 "contracts", "domain_randomization", "rewards"),
     "learning": ("training", "ppo", "curriculum", "capability_focus",
                  "training_health", "capability_field"),
-    "exam": ("evaluation", "prism_exam", "capability_cloud", "results"),
+    "exam": ("evaluation", "prism_exam", "results"),
     "viewer": ("viewer_server",),
 }
 
