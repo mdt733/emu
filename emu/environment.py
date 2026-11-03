@@ -3109,10 +3109,16 @@ class EmuMJXEnv(TaskSampler):
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
         birth_root_z=data.qpos[:,2]
-        data = self._episode_terrain(
-            data, keys, params, focus_id, specialist_active,
-            task[:,T.athletic_rehearsal] if self.unified_capability_focus
-            else None)
+        if not self.terrain_carpet:
+            # Legacy two-slab/reset-only geometry has NO collision role
+            # in a procedural carpet world. Previously the full teacher
+            # RNG and 64m slab deformation executed on every prism reset,
+            # only to be parked and overwritten in _carpet_birth below.
+            # Skip that dead computation in the compiled prism path.
+            data = self._episode_terrain(
+                data, keys, params, focus_id, specialist_active,
+                task[:,T.athletic_rehearsal] if self.unified_capability_focus
+                else None)
         data,academy_active=self._academy_course(
             data,keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal],birth_root_z)
