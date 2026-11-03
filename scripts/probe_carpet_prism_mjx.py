@@ -172,6 +172,50 @@ def run_probe(worlds=4, frames=2):
                 if wedge>3e-5:
                     raise AssertionError(
                         f"Unexpected tilted seam across {i,j}->{i+di,j+dj}")
+    # REAL modulo-three recycling: six prisms from the outgoing row
+    # must move as three inseparable top-triangle pairs. Moving retired
+    # non-contacting boxes alone is not a valid physics proof.
+    old_centers=state.carpet_center
+    desired=old_centers+jnp.asarray([1,0],dtype=jnp.int32)[None,:]
+    shifted_root=(desired.astype(jnp.float32)+.5)*.5
+    fake_qpos=state.data.qpos.at[:,:2].set(shifted_root)
+    feet_new=jnp.broadcast_to(shifted_root[:,None,:],(worlds,2,2))
+    fake_data=state.data.replace(
+        qpos=fake_qpos,
+        xpos=state.data.xpos.at[:,env.foot_bodies,:2].set(feet_new))
+    moved,after_h,after_cent=env._carpet_recycle(state,fake_data)
+    assert np.array_equal(np.asarray(jax.device_get(after_cent)),
+                          np.asarray(jax.device_get(desired))),(
+                          "Safe root tile advance failed")
+    prism_ids=list(env.carpet_prism_mocap_ids)
+    source_ids=list(env.carpet_mocap_ids)
+    before_pos=np.asarray(jax.device_get(
+        state.data.mocap_pos[:,prism_ids,:]))
+    moved_pos=np.asarray(jax.device_get(moved.mocap_pos[:,prism_ids,:]))
+    changed=np.any(np.abs(moved_pos-before_pos)>1e-5,axis=2)
+    if not np.array_equal(changed[:,0::2],changed[:,1::2]):
+        raise AssertionError("Two physical prism halves recycled independently")
+    if not np.all(changed.sum(axis=1)==6):
+        raise AssertionError("Expected exactly 3 retired tiles x 2 prisms")
+    moved_samples=np.asarray(jax.device_get(moved.mocap_pos[:,source_ids,:]))
+    wanted=moved_samples+np.asarray([0.,0.,.25],dtype=np.float32)
+    np.testing.assert_allclose(moved_pos[:,0::2,:],wanted,rtol=0,atol=2e-5)
+    np.testing.assert_allclose(moved_pos[:,1::2,:],wanted,rtol=0,atol=2e-5)
+    # One foot still resting on the retired row must veto the move.
+    trailing=((old_centers-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
+              ).astype(jnp.float32)+.5)*.5
+    feet_old=feet_new.at[:,0,:].set(trailing)
+    blocked_data=fake_data.replace(
+        xpos=fake_data.xpos.at[:,env.foot_bodies,:2].set(feet_old))
+    blocked,blocked_h,blocked_cent=env._carpet_recycle(state,blocked_data)
+    assert np.array_equal(np.asarray(jax.device_get(blocked_cent)),
+                          np.asarray(jax.device_get(old_centers)))
+    assert np.array_equal(np.asarray(jax.device_get(blocked_h)),
+                          np.asarray(jax.device_get(state.carpet_hfields)))
+    assert np.array_equal(np.asarray(jax.device_get(
+        blocked.mocap_pos[:,prism_ids,:])),before_pos),(
+        "Prism collider teleported away under an outgoing foot")
+
     params=env.params_array(settings)
     for _ in range(frames):
         out=env.step(state,jnp.zeros((worlds,6),dtype=jnp.float32),params)
@@ -181,6 +225,8 @@ def run_probe(worlds=4, frames=2):
         worlds=worlds,frames=frames,convex_prisms=PRISM_COUNT,
         flat_seam=seam,physical_4cm_riser=step,
         deep_sidewall_40cm_geometry_only=deep_step,
+        safe_recycle_prisms_moved_per_world=6,
+        blocked_recycle_under_foot=True,
         full_emu_360_actor=True,
         physical_vertex_max_error_mm=round(max_vertex_error*1000,6),
         max_unwanted_edge_wedge_mm=round(max_edge_wedge*1000,6)),indent=2),flush=True)
