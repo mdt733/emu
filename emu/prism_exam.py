@@ -296,7 +296,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     trace = trainer["evaluate_trace"](
         params, task,
         jnp.asarray(norm["mean"]), jnp.asarray(norm["std"]),
-        jax.random.PRNGKey(seed), horizon, 0., None,
+        jax.random.PRNGKey(seed), horizon, 0.,
         jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
@@ -322,7 +322,11 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         omega = np.diff(yaw[start:stop, w]) / dt
         body_vx_mean = float(np.mean(body_vx)) if len(body_vx) else None
         vx_error = float(np.mean(np.abs(body_vx - speed))) if len(body_vx) else None
-        progress = float(np.linalg.norm(xy[stop-1, w]-xy[start, w]))
+        delta = xy[stop-1, w]-xy[start, w]
+        travelled = float(np.sum(np.linalg.norm(
+            np.diff(xy[start:stop, w], axis=0), axis=1)))
+        progress = float(delta[0]*np.cos(yaw[start,w]) +
+                         delta[1]*np.sin(yaw[start,w]))
         work = float(np.sum(np.maximum(0., power[:stop, w])) * dt)
         own = independent["worlds"][w]
         rows.append(dict(
@@ -338,8 +342,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             actual_grade_mean_deg=float(np.mean(grades[:stop, w])),
             actual_grade_max_deg=float(np.max(grades[:stop, w])),
             drive_work_j=work,
-            path_distance_m=progress,
-            shaft_drive_j_per_path_m=(work/progress if progress > .02 else None),
+            path_distance_m=travelled,
+            directed_progress_m=progress,
+            shaft_drive_j_per_progress_m=(work/progress if progress > .02 else None),
             verified_up=int(own["independent_up"]),
             verified_down=int(own["independent_down"]),
             supported_lips=own["independently_supported_lips"],
@@ -390,7 +395,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
-        value = row["shaft_drive_j_per_path_m"]
+        value = row["shaft_drive_j_per_progress_m"]
         lines.append(
             f"| {row['world']} | {'yes' if row['survived'] else 'no'} | "
             f"{row['achieved_vx_mps'] if row['achieved_vx_mps'] is not None else float('nan'):.3f} | "
@@ -403,7 +408,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             f"{row['actual_grade_mean_deg']:.2f}° | {row['verified_up']} | {row['verified_down']} | — |"
         )
     lines += [
-        "", "*Mechanical positive shaft work divided by traveled path distance;"
+        "", "*Mechanical positive shaft work divided by actual forward directed progress;"
         " not battery energy, and omitted when travel is below 2 cm.",
         "Per-world measured support and signed lip geometry are in \`prism_exam.json\`.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
