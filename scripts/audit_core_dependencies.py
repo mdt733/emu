@@ -51,6 +51,33 @@ def local_module_imports(tree: ast.AST, local_modules: set[str]) -> list[str]:
     return sorted(found)
 
 
+def missing_emu_modules(tree: ast.AST, *, owner: str, available: set[str]) -> list[str]:
+    """Detect explicit references to modules removed from the live EMU tree.
+
+    This intentionally checks *module names*, not arbitrary exported symbols
+    or dynamic imports. A deleted local module must never disappear from the
+    inventory silently, even if it was mentioned only in a compatibility shim.
+    """
+    missing: set[str] = set()
+    for node in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 1 and owner == "emu":
+                if node.module:
+                    names.append(node.module.split(".", 1)[0])
+                else:
+                    names.extend(alias.name for alias in node.names)
+            elif node.module and node.module.startswith("emu."):
+                names.append(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            names.extend(alias.name.split(".")[1] for alias in node.names
+                         if alias.name.startswith("emu."))
+        for name in names:
+            if name not in available and name != "__init__":
+                missing.add(name)
+    return sorted(missing)
+
+
 def reachable(graph: dict[str, list[str]], roots: tuple[str, ...]) -> list[str]:
     visited: set[str] = set()
     pending = list(roots)
@@ -68,16 +95,23 @@ def inventory(root: Path = REPO_ROOT) -> dict:
     local = set(modules)
     edges: dict[str, list[str]] = {}
     lines: dict[str, int] = {}
+    broken_imports: dict[str, list[str]] = {}
     for name, path in sorted(modules.items()):
         source = path.read_text(encoding="utf-8")
-        edges[name] = [m for m in local_module_imports(
-            ast.parse(source, filename=str(path)), local) if m != name]
+        tree = ast.parse(source, filename=str(path))
+        edges[name] = [m for m in local_module_imports(tree, local) if m != name]
+        broken = missing_emu_modules(tree, owner="emu", available=local)
+        if broken:
+            broken_imports[path.relative_to(root).as_posix()] = broken
         lines[name] = len(source.splitlines())
 
     script_users: dict[str, list[str]] = {name: [] for name in local}
     for directory in ("scripts", "tests"):
         for path in (root / directory).glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            broken = missing_emu_modules(tree, owner=directory, available=local)
+            if broken:
+                broken_imports[path.relative_to(root).as_posix()] = broken
             for name in local_module_imports(tree, local):
                 script_users[name].append(path.relative_to(root).as_posix())
     stage_reachability = {
@@ -106,6 +140,7 @@ def inventory(root: Path = REPO_ROOT) -> dict:
         },
         "stage_reachable": stage_reachability,
         "static_unlinked_manual_review_only": review_only,
+        "missing_emu_module_imports": broken_imports,
         "limitations": (
             "Static Python imports only. Dynamic CLI dispatch, JAX tracing, "
             "browser modules, package exports and historical checkpoints "
@@ -134,7 +169,9 @@ def markdown(data: dict) -> str:
         out.append(f"| `{name}` | {detail['lines']} | "
                    f"{', '.join(detail['imports']) or '—'} | "
                    f"{len(detail['script_or_test_users'])} |")
-    out.extend(["", "## Manual-review candidates only", "",
+    out.extend(["", "## Deleted-module imports (must be empty)", "",
+                json.dumps(data["missing_emu_module_imports"], sort_keys=True),
+                "", "## Manual-review candidates only", "",
                 ", ".join(data["static_unlinked_manual_review_only"]) or "None.",
                 "", "**Caveat:** " + data["limitations"]])
     return "\n".join(out) + "\n"
@@ -147,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     data = inventory()
     print(json.dumps(data, sort_keys=True, indent=2) if args.json
           else markdown(data), end="")
-    return 0
+    return 1 if data["missing_emu_module_imports"] else 0
 
 
 if __name__ == "__main__":
