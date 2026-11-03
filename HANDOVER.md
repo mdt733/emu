@@ -95,3 +95,31 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - On any latest commit, require core Python/JS and 4-world MJX CI green,
   then same-SHA CUDA first/continue/verify plus exported frozen-actor
   prism examination **before** starting a fresh 140M run.
+
+## 4 November — tree-to-skeleton reconciliation
+
+- [Live file ownership and retirement checklist](docs/CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)
+  compares the complete `c4e3c739` tree to historical v5044:
+  **102 retained tracked paths**, **76 removed**, **12 newly created**,
+  net **64 fewer files**. Every one of the **25 surviving Python engine
+  modules** has an explicit owner; 77 support files are classified.
+  Six retired Python engines, eight scripts, 21 Python test files,
+  11 browser files, three workflows and 27 historical documents are
+  accounted for. This is an inventory, not an assertion that every
+  function has had a deep physical equivalence review.
+- `scripts/audit_core_dependencies.py` now fails the usual fast CI if
+  an unknown Python engine module appears, a required skeleton owner
+  disappears or a retired engine module returns. `scripts/check.sh`
+  also checks the current docs links, without adding new test files.
+- The maintained install guide now checks out the correct v5045 branch
+  and runs `probe_carpet_prism_mjx.py` and `smoke_gpu_carpet.py`, not
+  the deleted v5031 tests or `smoke_unified_focus.py`. Maintenance
+  points to `prism_exam.py`, not the removed `physical_exam.py`.
+- Removed the phantom `--verified-ascent-reallocation` switch and the
+  unsupported 232-input/rotated-plane CLI flags; removed the matching
+  dead guard branches from `run.py`. The single 360-input prism source
+  and legitimate training experiment controls remain. Historic programs
+  still live in their own Git commits and are not source-compatible.
+- The latest edited source must pass fresh Python/browser and real-prism
+  CI, then source-matched CUDA lifecycle and frozen-policy examination.
+  **Do not infer new GPU performance from line or file counts.**
