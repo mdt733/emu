@@ -1013,15 +1013,6 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
-        # Strict, examiner-only exception: place a legacy 232-input actor
-        # into the SAME v5029 two-slab physical world. It must keep its
-        # original simulated 3-ToF/flow/IMU readings, not 360 array channels.
-        # No active training run ever sets this flag.
-        if physical_exam_legacy_actor and (
-                not unified_capability_focus or observation_schema!=OBS_SCHEMA_SENSOR
-                or terrain_step_max_m<=0):
-            raise ValueError('legacy physical baseline requires unified two-slab geometry and sim2real_232')
-        self.physical_exam_legacy_actor=bool(physical_exam_legacy_actor)
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1103,11 +1094,6 @@ class EmuMJXEnv(TaskSampler):
             add_carpet_geoms(ET.tostring(
                 ET.parse(self.robot_xml).getroot(),encoding='unicode'),
                 prisms=True))
-        self.unified_ground_mocap_id=-1
-        self.terrain_step_mocap_id=-1
-        self.terrain_step_geom_id=-1
-        self.academy_platform_mocap_ids=()
-        self.academy_platform_geom_ids=()
         self.carpet_mocap_ids=()
         self.carpet_geom_ids=()
         self.carpet_solid_mocap_ids=()
@@ -1265,7 +1251,8 @@ class EmuMJXEnv(TaskSampler):
         self.science_step_crouch_tolerance_m=float(science_step_crouch_tolerance_m)
         # Three recyclable academy supports; original long slabs serve
         # only generalist and ordinary single-step births.
-        self.academy_geom_ids=self.academy_platform_geom_ids if self.academy_stream else ()
+        # Academy shares the same real prisms; there are no extra slab geoms.
+        self.academy_geom_ids=()
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -1389,7 +1376,7 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
-        if self.terrain_carpet_prisms or self.terrain_step_mocap_id >= 0:
+        if self.terrain_carpet_prisms:
             # The unified 360-input task packet is independent of the OLD
             # two-slab mocap bodies. A prism-only model has no old slab IDs,
             # but still requires the full six-specialist schedule extension.
@@ -1652,39 +1639,15 @@ class EmuMJXEnv(TaskSampler):
         # terrain_crossed high-water gate: it would pay only the first lip
         # of the course and starve ordinary STEP before 60M.
         terrain_active=terrain_active & ~state.academy_active
-        terrain_cross_new=(academy['ordinary_step_new']
-                           if self.terrain_carpet else
-                           terrain_crossed & ~state.terrain_crossed & terrain_active)
-        terrain_up=(terrain_active & (academy['height_m']>0.)
-                    if self.terrain_carpet else
-                    terrain_active & ((self.env_index%2)==0))
-        terrain_down=(terrain_active & (academy['height_m']<0.)
-                      if self.terrain_carpet else
-                      terrain_active & ((self.env_index%2)==1))
-        # Physical step severity: displacement between the two actual
-        # surface collider centres projected onto their shared normal.
-        # Never infer it from the requested teacher height or flat fallback.
-        if self.terrain_carpet:
-            physical_height=jnp.abs(academy['height_m'])
-            ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
-            step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
-            step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
-        elif self.unified_capability_focus:
-            base_id=int(self.ids['floor_geom'])
-            upper_id=int(self.terrain_step_geom_id)
-            support_n=data.geom_xmat[:,base_id,:].reshape(
-                (self.num_envs,3,3))[:,:,2]
-            physical_height=jnp.abs(jnp.sum((
-                data.geom_xpos[:,upper_id,:]-data.geom_xpos[:,base_id,:])
-                * support_n,axis=1))
-            physical_height=jnp.where(terrain_active,physical_height,0.)
-            ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
-            step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
-            step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
-        else:
-            physical_height=jnp.zeros_like(reward)
-            step_near=terrain_active & False
-            step_easy=terrain_active & False
+        terrain_cross_new=academy['ordinary_step_new']
+        terrain_up=terrain_active & (academy['height_m']>0.)
+        terrain_down=terrain_active & (academy['height_m']<0.)
+        # Step severity is measured from physical shared-edge contacts,
+        # never the teacher's requested lip height or a retired slab.
+        physical_height=jnp.abs(academy['height_m'])
+        ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+        step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
+        step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
         # The one-slab ascent subsidy was always inactive on prism carpets.
         # Preserve state/metric shape; ordinary contact-verified lips still
         # receive their non-repeatable +10 completion payment below.
@@ -1775,45 +1738,19 @@ class EmuMJXEnv(TaskSampler):
         unit_y=jnp.abs(metrics['cmd_vy'])/jnp.maximum(.05,params[P.frontier_vy])
         unit_z=jnp.abs(metrics['cmd_yaw'])/jnp.maximum(.10,params[P.frontier_yaw])
         unit_radius=unit_x+unit_y+unit_z
-        if self.terrain_carpet:
-            # Actual local triangle gradients, excluding step discontinuities.
-            # Both slopes and step encounters share these NINE real colliders.
-            cx=jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32)
-            cy=jnp.floor(data.qpos[:,1]/CARPET_TILE_M).astype(jnp.int32)
-            slot=jnp.mod(cx,3)+3*jnp.mod(cy,3)
-            hv=state.carpet_hfields.reshape((self.num_envs,9,4))
-            h=jnp.take_along_axis(hv,slot[:,None,None],axis=1)[:,0,:]
-            if self.terrain_carpet_prisms:
-                # Local support is one of TWO physical planes, not a
-                # quadrilateral's averaged gradient.
-                u=(data.qpos[:,0]/CARPET_TILE_M-cx.astype(jnp.float32))
-                v=(data.qpos[:,1]/CARPET_TILE_M-cy.astype(jnp.float32))
-                gx=jnp.where(u+v<=1.,h[:,1]-h[:,0],h[:,3]-h[:,2])
-                gy=jnp.where(u+v<=1.,h[:,2]-h[:,0],h[:,3]-h[:,1])
-                gx=gx*(CARPET_TILE_M/CARPET_TILE_M)
-                gy=gy*(CARPET_TILE_M/CARPET_TILE_M)
-            else:
-                gx=.5*(h[:,1]+h[:,3]-h[:,0]-h[:,2])
-                gy=.5*(h[:,2]+h[:,3]-h[:,0]-h[:,1])
-            physical_slope=jnp.rad2deg(jnp.arctan(
-                jnp.sqrt(gx*gx+gy*gy)))
-            slope_role=state.specialist_active & (state.focus_id==SLOPE)
-        elif self.unified_capability_focus:
-            # Read the ACTUAL tilted COLLISION geom, not requested lesson
-            # severity, world gravity or a guessed angle. This is teacher
-            # evidence and never enters the neural observation.
-            Rfloor=data.geom_xmat[:,int(self.ids['floor_geom']),:].reshape(
-                (self.num_envs,3,3))
-            floor_normal=Rfloor[:,:,2]
-            gx=-floor_normal[:,0]/jnp.maximum(.01,floor_normal[:,2])
-            gy=-floor_normal[:,1]/jnp.maximum(.01,floor_normal[:,2])
-            physical_slope=jnp.rad2deg(jnp.arctan(
-                jnp.sqrt(gx*gx+gy*gy)))
-            slope_role=state.specialist_active & (state.focus_id==SLOPE)
-        else:
-            gx=jnp.zeros_like(unit_x);gy=jnp.zeros_like(unit_x)
-            physical_slope=jnp.zeros_like(unit_x)
-            slope_role=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        # Actual local triangle gradients of the two real top planes.
+        # Do not average a fictitious quadrilateral or inspect a retired slab.
+        cx=jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32)
+        cy=jnp.floor(data.qpos[:,1]/CARPET_TILE_M).astype(jnp.int32)
+        slot=jnp.mod(cx,3)+3*jnp.mod(cy,3)
+        hv=state.carpet_hfields.reshape((self.num_envs,9,4))
+        h=jnp.take_along_axis(hv,slot[:,None,None],axis=1)[:,0,:]
+        u=data.qpos[:,0]/CARPET_TILE_M-cx.astype(jnp.float32)
+        v=data.qpos[:,1]/CARPET_TILE_M-cy.astype(jnp.float32)
+        gx=jnp.where(u+v<=1.,h[:,1]-h[:,0],h[:,3]-h[:,2])
+        gy=jnp.where(u+v<=1.,h[:,2]-h[:,0],h[:,3]-h[:,1])
+        physical_slope=jnp.rad2deg(jnp.arctan(jnp.sqrt(gx*gx+gy*gy)))
+        slope_role=state.specialist_active & (state.focus_id==SLOPE)
         # Smaller-than-seed incline lessons remain meaningful retreat
         # territory; do not let a stale .25-degree recognition threshold
         # erase their completed-episode evidence.
