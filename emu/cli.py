@@ -21,16 +21,6 @@ def main(argv=None) -> int:
     q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model')
     q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    q=sub.add_parser('terrain-exam',help='frozen-policy continuous MJX terrain course: flat vs step up/down')
-    q.add_argument('--policy',required=True,help='verified 220/232-input .emupolicy (diagnostic, read only)')
-    q.add_argument('--output',required=True,help='new/empty directory OUTSIDE checkout')
-    q.add_argument('--worlds',type=int,default=4,help='even worlds, paired up/down, max 32')
-    q.add_argument('--horizon',type=int,default=260,help='control frames, 80..700')
-    q.add_argument('--speed',type=float,default=.15,help='requested forward speed, m/s')
-    q.add_argument('--heights-cm',type=float,nargs='+',default=[0.,2.,4.],
-                   help='matched real collision heights in cm (default 0 2 4)')
-    q.add_argument('--seed',type=int,default=1701)
-    q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
     q=sub.add_parser('capability-exam',help='frozen 360-input unified physics: command, slope, step, recovery and control')
     q.add_argument('--policy',required=True,help='verified array-only 360 .emupolicy')
     q.add_argument('--output',required=True,help='new/empty directory separate from actor')
@@ -187,15 +177,6 @@ def main(argv=None) -> int:
     if args.cmd=='posture-report':
         from .results import posture_report
         return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd=='terrain-exam':
-        from .evaluation import evaluate_terrain_course
-        paths=evaluate_terrain_course(
-            policy=Path(args.policy),output=Path(args.output),
-            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
-            heights_cm=tuple(args.heights_cm),seed=args.seed,device=args.device)
-        for path in paths:
-            print(path)
-        return 0
     if args.cmd=='capability-exam':
         from .evaluation import evaluate_unified_capabilities
         paths=evaluate_unified_capabilities(

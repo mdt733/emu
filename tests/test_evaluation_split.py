@@ -10,8 +10,6 @@ from emu import physical_exam as physical
 def test_evaluation_api_preserves_exam_identity():
     assert api.PolicySnapshot.__module__ == "emu.evaluation"
     assert api.evaluate_directional_run is physical.evaluate_directional_run
-    assert api.score_terrain_course_trace is physical.score_terrain_course_trace
-    assert api.evaluate_terrain_course is physical.evaluate_terrain_course
     assert api.evaluate_directional_pair is physical.evaluate_directional_pair
     assert api.exam_request is physical.exam_request
     assert api.source_commit is physical.source_commit

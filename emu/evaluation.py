@@ -519,8 +519,7 @@ def atlas_main(argv=None):
 # All independent physical-exam implementations are in physical_exam.py.
 from .physical_exam import (
     exam_gravity, sha256_file, source_commit, validate_request, exam_request,
-    evaluate_directional_run, score_terrain_course_trace, evaluate_terrain_course,
-    _summarize_worlds, evaluate_directional_pair, directional_main,
+    evaluate_directional_run, _summarize_worlds, evaluate_directional_pair, directional_main,
     SCENARIOS, make_schedule, score_unified_capability_trace, _unified_exam_json,
     unified_terrain_matrix_cases, evaluate_unified_capabilities,
 )
