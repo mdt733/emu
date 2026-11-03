@@ -83,6 +83,30 @@ test('unearned terrain flat, slope-only continuous grades, steps real signed lip
   assert.ok(differences.every(d=>Math.abs(d)<.1),'bounded source profiled lips');
 });
 
+test('live exposure means chance of full-height terrain, not scaling its severity',()=>{
+  const b=measured(90_000_000,{
+    slopeDeg:.7,stepUpM:.004,stepDownM:.004,
+    academyStepUpM:.003,academyStepDownM:.003,
+    slopeExposure:.15,stepExposure:.15
+  });
+  const slope=terrainRoleEnvelope(b,'slope');
+  assert.equal(slope.slopeDeg,.7);
+  assert.equal(slope.slopeExposureRate,.15);
+  const ordinary=terrainRoleEnvelope({...b,academyStream:false},'step');
+  assert.equal(ordinary.stepUpM,.004);
+  assert.equal(ordinary.stepDownM,.004);
+  const academy=terrainRoleEnvelope(b,'step');
+  assert.equal(academy.stepUpM,.003);
+  assert.equal(academy.stepDownM,.003);
+  const suppressed=terrainRoleEnvelope({...b,slopeExposure:0,stepExposure:0,academyStream:false},'slope');
+  assert.equal(suppressed.slopeDeg,0);
+  assert.equal(suppressed.stepUpM,0);
+  const stillAcademy=terrainRoleEnvelope({...b,stepExposure:0},'step');
+  assert.equal(stillAcademy.stepUpM,.003);
+  const carpet=createSolidCarpet(b,'step');
+  assert.ok(carpet.at(1,0).top!==carpet.at(0,0).top);
+});
+
 test('never recycle a box while a sphere foot overlaps its abandoned edge',()=>{
   const carpet=createSolidCarpet(measured(90_000_000));
   const before=carpet.window(0,0),after=carpet.window(1,0);

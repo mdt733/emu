@@ -122,7 +122,7 @@ def test_mjx_frontier_bands_and_directional_step_limits():
     early=np.abs(diffs[:,PROFILE_HALF+1:PROFILE_HALF+3])
     middle=np.abs(diffs[:,PROFILE_HALF+7:PROFILE_HALF+13])
     late=np.abs(diffs[:,PROFILE_HALF+16:PROFILE_HALF+20])
-    assert early.max()<.65*.04
+    assert early.max()<.95*.04
     assert middle.mean()>early.mean()
     assert late.mean()>middle.mean()
     assert diffs.max()<1.5*.02+1e-5
@@ -151,6 +151,63 @@ def test_mjx_frontier_bands_and_directional_step_limits():
     assert np.any(np.linalg.norm(g1-g0,axis=1)>.001)
     delta_deg=np.rad2deg(np.arctan(np.linalg.norm(g1-g0,axis=1)))
     assert np.all(delta_deg<=3.2),delta_deg
+
+
+def test_carpet_birth_exposure_is_probability_not_obstacle_amplitude():
+    """Regression for the 140M run: .15 exposure must not shrink a .7deg
+    SLOPE world to .105deg or a 3mm Academy lip to .45mm."""
+    import jax.numpy as jnp
+    import numpy as np
+    from emu.capability_focus import SLOPE, STEP
+    from emu.terrain_carpet_mjx import role_envelope
+    count=512
+    seeds=jnp.arange(12000,12000+count,dtype=jnp.int32)
+    active=jnp.ones((count,),dtype=jnp.bool_)
+    idle=jnp.zeros((count,),dtype=jnp.float32)
+    no_academy=jnp.zeros((count,),dtype=jnp.bool_)
+    slope,up,down=role_envelope(
+        jnp,jnp.full((count,),SLOPE),active,idle,
+        .7,.003,.003,no_academy,.15,.15,seeds)
+    slope=np.asarray(slope)
+    assert 30 < np.count_nonzero(slope) < 120
+    assert np.allclose(slope[slope>0],.7,rtol=0,atol=1e-5)
+    # Non-academy STEP worlds follow the *same* exposure probability,
+    # retaining the full 3mm height of the STEP specialist when active.
+    _,step_up,step_down=role_envelope(
+        jnp,jnp.full((count,),STEP),active,idle,
+        .7,.003,.003,no_academy,.15,.15,seeds)
+    step_up=np.asarray(step_up)
+    assert 30 < np.count_nonzero(step_up) < 120
+    assert np.allclose(step_up[step_up>0],.003,rtol=0,atol=1e-7)
+    assert np.array_equal(step_up,np.asarray(step_down))
+    # Assigned Academy episodes get physical lips regardless of the
+    # ordinary STEP exposure probability; foundation stays flat.
+    academy=jnp.arange(count)%2==0
+    _,academy_up,academy_down=role_envelope(
+        jnp,jnp.full((count,),STEP),active,idle,
+        0.,.003,.003,academy,0.,0.,seeds)
+    assert np.array_equal(np.asarray(academy_up)>0,np.asarray(academy))
+    assert np.allclose(np.asarray(academy_up)[::2],.003,atol=1e-7)
+    assert np.array_equal(np.asarray(academy_up),np.asarray(academy_down))
+    slope_flat,up_flat,down_flat=role_envelope(
+        jnp,jnp.full((count,),SLOPE),active,idle,
+        .7,.003,.003,no_academy,0.,0.,seeds)
+    for x in (slope_flat,up_flat,down_flat):
+        assert not np.any(np.asarray(x))
+
+
+def test_spawn_adjacent_seed_lips_are_not_hidden_below_contact_threshold():
+    """3mm Academy seed needs real >1.5mm signed lips within first tiles."""
+    import jax.numpy as jnp
+    import numpy as np
+    from emu.terrain_carpet_mjx import make_profiles,PROFILE_HALF
+    n=256
+    seeds=jnp.arange(n,dtype=jnp.int32)+735
+    size=jnp.full((n,),.003)
+    xp,_=make_profiles(jnp,seeds,size,size)
+    first=np.abs(np.diff(np.asarray(xp),axis=1)[:,PROFILE_HALF:PROFILE_HALF+4])
+    assert first.min()>.0018
+    assert np.mean((first/.003>=.78)&(first/.003<=1.05))>.10
 
 
 def test_cartesian_gradient_can_change_for_same_seed():

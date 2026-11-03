@@ -2835,7 +2835,7 @@ class EmuMJXEnv(TaskSampler):
         slope,up,down=carpet_role_envelope(
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
-            params[P.slope_exposure],params[P.terrain_exposure])
+            params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
         centers,heights,_=carpet_generate_window(
