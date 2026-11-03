@@ -1,57 +1,53 @@
-**Current five-stage runnable architecture and removal plan:**
-[Core skeleton](CORE_SKELETON.md). Old reports below remain reference documents.
+# EMU documentation index
 
-# EMU documentation
+**Start here:** [five-stage core skeleton](CORE_SKELETON.md)
+(launch → physics → PPO → checkpoint/exam → viewer),
+[project README](../README.md),
+[current concise handover](../HANDOVER.md).
 
-Start at the [project README](../README.md) for scope,
-[HANDOVER](../HANDOVER.md) for what is currently frozen,
-or the [260M release card](V5032_PINNACLE_RELEASE.md) for the current actor.
-The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility history.
+## Active experiment and engineering
 
-## Current, maintained
-
-| Document | Purpose |
+| Guide | Status and purpose |
 |---|---|
-| [**v5041 GPU TERRAIN TRAINER**](V5041_GPU_CARPET_TRAINING.md) | Nine real 2-triangle MJX heightfield tiles per world; four-world CPU PPO passed; 2048 CUDA acceptance pending |
-| [**v5040 STREAMING STEP CURRICULUM**](V5040_REAL_MULTILIP_ACADEMY.md) | Three recyclable real slabs, independent UP/DOWN ability, not yet trained |
-| [**PINNACLE 260M RELEASE**](V5032_PINNACLE_RELEASE.md) | **Current trained 360-input baseline**, physical results, limitations, SHA identities and rollback |
-| [POST-PINNACLE RESEARCH](https://github.com/mdt733/emu/issues/17) | Measurements and possible experiments to revisit later; no active science run |
-| [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |
-| [**ARCHITECTURE**](ARCHITECTURE.md) | One-page system diagram, actor/teacher/exam separation and exact file ownership |
-| [HANDOVER](../HANDOVER.md) | Current source/policy identity, honest v5032 physical baseline and immediate follow-up |
-| [RELEASE READINESS](RELEASE_READINESS.md) | Owner-approval checkpoints and physical graduation criteria |
-| [**PHYSICAL QUALITY**](PHYSICAL_QUALITY.md) | What genuinely defines a good robot; signed capability envelopes, path accuracy and no fake scalar |
-| [**260M PHYSICAL BASELINE**](PHYSICAL_BASELINE_260M.md) | Real original exam evidence: verified step crossing versus full controlled mission, per-direction/speed curves |
-| [UNIFIED CAPABILITY GROWTH](UNIFIED_CAPABILITY_GROWTH.md) | Six focus curricula, one actor and physically earned frontiers |
-| [CAPABILITY DIMENSIONS](CAPABILITY_DIMENSIONS.md) | Detailed motion, resilience, terrain and J/m metrics |
-| [VIEWER GRADUATED PARK](VIEWER_GRADUATED_PARK.md) | Eight real-collision viewer challenges and three difficulty levels |
-| [PLAYGROUND](PLAYGROUND.md) | Protected public demo, source-safe viewer and GitHub Pages |
-| [MAINTENANCE](MAINTENANCE.md) | Branch, checkpoint, code hygiene and clear ownership |
-| [TRAVERSABILITY REFUSAL](TRAVERSABILITY_REFUSAL.md) | **Deferred design only**: ToF-informed slowdown, retreat and replan |
+| [**v5044 140M true-prism cold start**](V5044_PRISM_140M_COLDSTART.md) | Source-pinned 2,048-world run, six specialists, live checkpoints, 10M physical evals and safe resume; independently verify run start/status |
+| [**v5043 actual prism collision proof**](V5043_MJX_PRISM_CARPET.md) | 18 real convex meshes, true step walls, GPU memory and matched nine-box PPO throughput |
+| [**Current core skeleton and retirement map**](CORE_SKELETON.md) | Keep / isolate / archive decisions, performance measurement programme and viewer parity boundary |
+| [**v5041 140M terrain postmortem**](V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md) | Why exposure probability must not multiply obstacle severity |
+| [INSTALL](INSTALL.md) | WSL2/CUDA/JAX/MJX/Node prerequisites |
+| [MAINTENANCE](MAINTENANCE.md) | Branches, checkpoints, code hygiene, source identity |
+| [Architecture: expanded original overview](ARCHITECTURE.md) | Historical broader code map, retained for compatibility |
 
-## Completed experiments — not active launch commands
+## Released champion / ongoing evaluation
 
-- [v5028 considered step-ups](history/V5028_CONSIDERED_STEPS.md) and
-  [speed-restoration audit](history/V5028_SPEED_FRONTIER_AUDIT.md)
-- [v5030 temporal reward study](history/V5030_REWARD_EXPERIMENTS.md)
-- [v5031 verified support-transfer A/B](history/V5031_VERIFIED_ASCENT.md)
+| Guide | Purpose |
+|---|---|
+| [**Pinnacle 260M release**](V5032_PINNACLE_RELEASE.md) | **Released 360-input baseline**, exact policy identity and rollback |
+| [260M physical baseline](PHYSICAL_BASELINE_260M.md) | Proven step crossing versus full controlled mission |
+| [Physical quality](PHYSICAL_QUALITY.md) | Multi-axis movement, support, efficiency and survival measurements |
+| [Capability dimensions](CAPABILITY_DIMENSIONS.md) | Capability envelopes / stability |
+| [Release readiness](RELEASE_READINESS.md) | Owner approval and physical graduation gates |
+| [Protected playground](PLAYGROUND.md) | Public viewer release protection |
+| [Graduated terrain park](VIEWER_GRADUATED_PARK.md) | Browser-side real collision diagnostics; not an MJX certification |
+
+## Historical / reference (do not treat as current launch commands)
+
+- [**Complete v5044-era handover archived verbatim**](history/HANDOVER_V5044_FULL_ARCHIVE.md)
 - [Older research history](history/README.md)
-- [Full v5031 handover snapshot](history/HANDOVER_V5031_COMPLETE.md)
+- [v5041 9-box trainer](V5041_GPU_CARPET_TRAINING.md) and
+  [representative nine-box browser](V5041_TRAINING_CARPET_VIEWER.md).
+  These **passed GPU engineering acceptance** and are a historical
+  speed baseline. The v5044 prism runner is the present experiment.
+- [v5042 browser-only prism geometry lab](V5042_PRISM_LAB_VIEWER.md).
+- [v5040 separate three-slab Academy](V5040_REAL_MULTILIP_ACADEMY.md).
+  Its original slabs are retired from v5044 *active collision physics*;
+  the current Academy teaches on the shared carpet.
+- [Old Pinnacle campaign plan](PINNACLE_CANDIDATE.md),
+  [six-specialist design](UNIFIED_CAPABILITY_GROWTH.md),
+  [traversability design](TRAVERSABILITY_REFUSAL.md),
+  [terrain transition gap](TERRAIN_TRANSITION_GAP.md) and
+  [surface lab](SURFACE_LAB.md) are reference material, not live
+  commands.
 
-Their original **source SHA** remains the reproducible reference.
-Historical source code was removed from the *active release-candidate
-tree*, not destroyed in Git. Do not launch old experiments from
-today's branch or transplant incompatible training checkpoints.
-
-## Deferred until after the baseline is settled
-
-[Organic terrain transitions](TERRAIN_TRANSITION_GAP.md) and
-[manual surface lab](SURFACE_LAB.md) remain reference material.
-The 260M candidate is complete and promoted as the new baseline.
-We will revisit supported 3cm-plus step-ups and organic terrain only
-after targeted diagnostics from [issue #17](https://github.com/mdt733/emu/issues/17).
-
-**Current baseline:** `main` now carries the 360-input 260M
-Pinnacle and approved portable actor. The old 232-input champion
-remains recoverable from commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
-Any *future* replacement again requires measured evidence and approval.
+Historical source SHA and original documents remain in Git.
+**Do not resume checkpoints with a different source commit merely
+because a later branch has a cleaner folder layout.**

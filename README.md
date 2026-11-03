@@ -8,7 +8,7 @@ learns six servo commands using PPO reinforcement learning in
 thousands of parallel MuJoCo/MJX physics worlds.
 
 [**Open the EMU playground**](https://mdt733.github.io/emu/) ·
-[**How the code works**](docs/ARCHITECTURE.md) ·
+[**Run-to-viewer core skeleton**](docs/CORE_SKELETON.md) ·
 [**260M Pinnacle measurements**](docs/V5032_PINNACLE_RELEASE.md) ·
 [**Fresh installation**](docs/INSTALL.md) ·
 [**Current handover**](HANDOVER.md)
@@ -130,9 +130,11 @@ the old one on **every** test.
 | What makes a public policy release safe to publish? | `scripts/verify_showcase_release.py` |
 | Where are the old experiments and next questions? | `docs/history/`, [issue #17](https://github.com/mdt733/emu/issues/17) |
 
-[**The end-to-end architecture map**](docs/ARCHITECTURE.md)
-explains each boundary: actor vs teacher, teaching vs independent
-exam, saved learner vs exported actor, and local viewer vs Pages.
+[**The five-stage core skeleton and cleanup plan**](docs/CORE_SKELETON.md)
+is the current entry point from source-pinned `emu train` through
+procedural MJX physics, PPO, physical exams, export and local viewer.
+The [broader historical architecture](docs/ARCHITECTURE.md) remains
+available for preserved legacy interfaces.
 
 ## Three useful things to run
 
@@ -174,60 +176,37 @@ A `.pkl` holds optimizer, normalizer and curriculum state;
 an `.emupolicy` is an inference-only actor with a sensor
 contract. Full checkpoints are not in Git; keep external backups.
 
-## What's next?
+## Current development (3 November 2026)
 
-The experimental child branch
-[`feature/v5041-unified-terrain-carpet`](https://github.com/mdt733/emu/tree/feature/v5041-unified-terrain-carpet)
-adds **Training Carpet** to the existing 3D robot viewer without replacing
-the original Terrain Park. The browser now builds **nine real moving
-MuJoCo solid-box contacts** with vertical step sides, matching the
-GPU training world's collision *type*, half-sizes, 50cm grid and safe
-recycling idea. It can auto-follow the live source-tagged curriculum:
-flat physical tiles during the ordinary foundation, then a representative
-slope specialty, then signed up/down step Academy. It is **not an exact
-replay** of any one randomly sampled training environment, and the
-browser WASM collision runtime remains a separate acceptance check.
-See [viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md) and
-[GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+**The current large research campaign is v5044: a source-pinned,
+140-million-step from-scratch 18-prism MJX learner**, with 2,048 CUDA
+worlds, one 360-input actor, six curricula and a gradually introduced
+same-carpet STEP Academy. It is built on a feature branch,
+**not** merged into the public `main` release.
 
+The verified v5043 CUDA capacity/performance benchmark measured
+**7,492 post-JIT world-steps/s and 1.90GB peak GPU use** for 18
+real convex prisms, versus **17,774 steps/s and 1.37GB** for the older
+nine tilted boxes. This proves the training implementation runs;
+it does not prove the learned walker can cross steps.
 
-The active research branch is
-[`feature/v5040-multi-lip-academy-world`](https://github.com/mdt733/emu/tree/feature/v5040-multi-lip-academy-world):
-the STEP specialist now uses a three-platform streaming course with
-endlessly random UP/DOWN steps, independent difficulty frontiers and
-physically supported progress rewards.
-It uses the same actor and retains the general curriculum, but has not
-yet been GPU-profiled or trained. See the [v5040 guide](docs/V5040_REAL_MULTILIP_ACADEMY.md).
-The released 260M policy on `main` is unchanged.
+- [**v5044 true-prism 140M launch and resume guide**](docs/V5044_PRISM_140M_COLDSTART.md)
+- [**v5043 real collision and physics proof**](docs/V5043_MJX_PRISM_CARPET.md)
+- [**v5041 140M postmortem and exposure fix**](docs/V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md)
+- [**Five-stage core skeleton, old-code review and performance plan**](docs/CORE_SKELETON.md)
 
-Our [research backlog](https://github.com/mdt733/emu/issues/17)
-starts with better downhill/path steering measurements, real
-2.5–3 cm support transfer, torso crouch and stored spring
-energy, fast controllable gait and meaningful J/m. Organic
-terrain comes later. Future work gets one clear hypothesis
-and a comparable physical exam before another full training.
+**Housekeeping is separate:** `feature/v5045-core-skeleton-audit`
+maps the actual dependency graph, archives old handovers and tests
+a small JAX prism update optimization. **Do not pull this refactor into
+a running v5044 source-pinned experiment.** A new code SHA cannot
+silently resume the existing training lineage.
+
+The published `showcase/champion.emupolicy` and `main`
+continue to preserve the independently released 260M baseline.
+Its browser MuJoCo/WASM playground is a **second physical simulation**
+with representative terrain, not a pixel-perfect replay of one of
+the GPU training worlds.
 
 [Documentation index](docs/README.md) ·
-[Maintenance principles](docs/MAINTENANCE.md).
-
-### v5041 GPU trainer experiment (new source, not released)
-
-The opt-in `emu train --terrain-carpet` path uses **nine real tilted
-solid boxes** with vertical contact sides and a safely recycled 3×3
-window in each MJX world. It retains source-sampled two-triangle tile
-heights for terrain generation, but the actual feet touch box geometry.
-All six teaching specialties share one PPO actor with 360-input
-4×4 ToF/IMU/optical-flow observations; a 64-tile teacher visit memory
-prevents repeated crossing reward from rocking backward and forward.
-
-**GPU engineering passed on 3 November 2026:** 2,048 real CUDA worlds,
-full 32-frame / four-epoch PPO updates, sustained **16,818 world
-steps/s** (three synchronized post-compile updates), JAX peak
-allocation **1.40 GB**, and a checkpoint/resume/export lifecycle.
-A frozen first-life nine-box exam also ran on CUDA: raw-contact
-independent scorer **0 UP / 1 DOWN** and teacher **0 UP / 1 DOWN**
-on eight worlds; **all eight fell** on the untrained 131k-step actor.
-These results validate engineering and exam plumbing, **not learned
-walking or step mastery**. The historical cold-start learning curve
-is documented above; a fresh long run must demonstrate it anew.
-See [GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+[Maintenance principles](docs/MAINTENANCE.md) ·
+[Research backlog](https://github.com/mdt733/emu/issues/17).
