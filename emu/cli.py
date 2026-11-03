@@ -49,12 +49,6 @@ def main(argv=None) -> int:
     q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (current prism default 8)')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
-    q.add_argument('--contact-slope-deg',type=float,default=0.0,
-                   help='opt-in shared real incline 0..5 degrees, sim2real only')
-    q.add_argument('--contact-terrain-radius',type=float,default=0.0,
-                   help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
-    q.add_argument('--sensor-actor',action='store_true',
-                   help='historical 232 input; unsupported by the v5045 prism-only trainer')
     q.add_argument('--terrain-actor',action='store_true',
                    help='required: current 360-input 4x4 depth-ToF policy')
     q.add_argument('--terrain-step-max-m',type=float,default=0.,
