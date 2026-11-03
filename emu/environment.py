@@ -180,13 +180,7 @@ class EnvState(NamedTuple):
     # real gait clears easily and true freezing does not.
     ep_step_evidence_sum: Any
     ep_command_quality_sum: Any   # physical vx/vy/yaw tracking across entire episode
-    terrain_cross_streak: Any
-    terrain_crossed: Any
-    # Ascent-only high-water marks, teacher state, never actor observations.
-    # Prevent repeated lip-rocking and foot-tapping from farming rewards.
-    terrain_ascent_root_peak: Any
-    terrain_ascent_foot_peak: Any
-    terrain_verified_height_peak: Any  # reward-only per-lip high-water mark
+    terrain_crossed: Any  # episode-level confirmed crossing evidence
     # The command actually being tracked this step ("cmd_now", written
     # into task[:,VX/VY/YAW] each step in _step_impl) ramps from
     # cmd_ramp_from toward cmd_target over cmd_ramp_frac in [0,1],
@@ -209,7 +203,6 @@ class EnvState(NamedTuple):
     sensor_state: Any = None
     velocity_i_integral: Any = None  # two controller axes, not actor inputs
     raw_velocity_command: Any = None  # true operator request
-    terrain_care_frames: Any = None  # used near-lip reward frames; reset every episode
     # NEW v5030 reward-only rolling 25-frame history (never actor input).
     # This is a fresh source/checkpoint shape: no cross-SHA resume.
     vx_reward_history: Any = None
@@ -1549,21 +1542,9 @@ class EmuMJXEnv(TaskSampler):
                   hist_c.sum(axis=1)/jnp.maximum(1,hist_n),
                   self.temporal_vx_reward_share*(
                       hist_n.astype(jnp.float32)/25.))
-        # The former one-slab approach/underspeed window has no role on
-        # real multi-lip prisms. Reward is from _carpet_events evidence.
-        care_window=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        care_active = care_window & (state.terrain_care_frames < 120)
-        care_frames = state.terrain_care_frames + care_active.astype(jnp.int32)
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
             attitude_profile=self.attitude_profile, xp=jnp,
-            careful_step=(care_active if self.terrain_lesson == 'coherent-careful' else None),
-            science_crouch_tolerance_m=self.science_step_crouch_tolerance_m,
-            careful_crouch=(
-                care_active & (metrics['support']>=.5) &
-                (metrics['bad_contact']<.5) & (metrics['terminal']<.5) &
-                ~physics_diverged
-                if self.science_step_crouch_tolerance_m>0. else None),
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(jnp.where(
@@ -1579,12 +1560,6 @@ class EmuMJXEnv(TaskSampler):
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
         academy=self._academy_events(state,data,metrics,terminal_or_timeout)
-        # Unlike the one-lip course, every new ascent deserves its OWN
-        # bounded 120-frame careful approach budget. Do not allow infinite
-        # standing/near-edge relief on the same lip.
-        care_frames=jnp.where(
-            state.academy_active & academy['cross_new'],
-            jnp.zeros_like(care_frames),care_frames)
         done=terminal_or_timeout
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
@@ -1613,7 +1588,6 @@ class EmuMJXEnv(TaskSampler):
         # G4 examiner/teacher: evidence comes exclusively from actual
         # root travel AND far-side MJX foot contacts. No privileged terrain
         # height or approach position is ever passed to the actor.
-        terrain_streak=state.terrain_cross_streak*0
         terrain_crossed=(state.terrain_crossed |
             academy['ordinary_step_new'])
         terrain_active=(state.specialist_active &
@@ -1648,14 +1622,6 @@ class EmuMJXEnv(TaskSampler):
         ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
         step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
         step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
-        # The one-slab ascent subsidy was always inactive on prism carpets.
-        # Preserve state/metric shape; ordinary contact-verified lips still
-        # receive their non-repeatable +10 completion payment below.
-        ascent_payment=jnp.zeros_like(reward)
-        verified_transfer_payment=jnp.zeros_like(reward)
-        root_peak=state.terrain_ascent_root_peak
-        foot_peak=state.terrain_ascent_foot_peak
-        verified_peak=state.terrain_verified_height_peak
         reward=reward+10.0*terrain_cross_new.astype(jnp.float32)
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
         reward=reward+academy['reward']
@@ -1663,11 +1629,9 @@ class EmuMJXEnv(TaskSampler):
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
-        sensors = (self._advance_sensor_state(
+        sensors = self._advance_sensor_state(
             state.sensor_state, data, task, phase, physics.next_keys,
-            state.ep_len + 1,carpet_heights=state.carpet_hfields)
-            if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
-            else None)
+            state.ep_len + 1, carpet_heights=state.carpet_hfields)
         integral_next = state.velocity_i_integral
         raw_next = task[:,[T.vx,T.vy]]
         if self.velocity_i_multiplier > 1.0:
@@ -1698,26 +1662,54 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
-        stepped = EnvState(data, hist, physics.next_keys, task_for_state, state.specialist_active, state.focus_id, action, data.xpos[:, self.foot_bodies, :], raw_target, phase, step_i,
-                           ep_return, ep_len, ep_vx_sum, ep_cmd_vx_sum, ep_bad_sum, ep_support_sum, ep_step_evidence_sum, ep_command_quality_sum,
-                           terrain_streak,terrain_crossed,root_peak,foot_peak,verified_peak,
-                           lesson.target_next, lesson.ramp_from_next, lesson.ramp_frac_next, lesson.ramp_speed_next, lesson.hold_left_next,
-                           physics.push_force, physics.push_steps_left, sensors,
-                           integral_next,raw_next,care_frames,
-                           hist_v,hist_c,hist_n,
-                           state.academy_active,
-                           academy['lip_index'],academy['streak'],
-                           academy['crossings'],academy['up_count'],
-                           academy['down_count'],academy['clearance_seen'],
-                           academy['foothold_seen'],academy['transfer_seen'],
-                           academy['approach_seen'],
-                           carpet_hfields,carpet_center,
-                           state.carpet_seed,state.carpet_xprofile,
-                           state.carpet_yprofile,state.carpet_up,state.carpet_down,
-                           state.carpet_slope,academy['confirmed_tile']
-                           if self.terrain_carpet else None,
-                           academy['seen_cells'] if self.terrain_carpet else None,
-                           academy['seen_write'] if self.terrain_carpet else None)
+        stepped = state._replace(
+            data=data,
+            hist=hist,
+            rng=physics.next_keys,
+            task=task_for_state,
+            prev_action=action,
+            prev_foot_pos=data.xpos[:, self.foot_bodies, :],
+            prev_raw_target=raw_target,
+            phase=phase,
+            step_i=step_i,
+            ep_return=ep_return,
+            ep_len=ep_len,
+            ep_vx_sum=ep_vx_sum,
+            ep_cmd_vx_sum=ep_cmd_vx_sum,
+            ep_bad_sum=ep_bad_sum,
+            ep_support_sum=ep_support_sum,
+            ep_step_evidence_sum=ep_step_evidence_sum,
+            ep_command_quality_sum=ep_command_quality_sum,
+            terrain_crossed=terrain_crossed,
+            cmd_target=lesson.target_next,
+            cmd_ramp_from=lesson.ramp_from_next,
+            cmd_ramp_frac=lesson.ramp_frac_next,
+            cmd_ramp_speed=lesson.ramp_speed_next,
+            cmd_hold_left=lesson.hold_left_next,
+            push_force=physics.push_force,
+            push_steps_left=physics.push_steps_left,
+            sensor_state=sensors,
+            velocity_i_integral=integral_next,
+            raw_velocity_command=raw_next,
+            vx_reward_history=hist_v,
+            cmd_vx_reward_history=hist_c,
+            vx_reward_count=hist_n,
+            academy_lip_index=academy['lip_index'],
+            academy_streak=academy['streak'],
+            academy_crossings=academy['crossings'],
+            academy_up_crossings=academy['up_count'],
+            academy_down_crossings=academy['down_count'],
+            academy_clearance_seen=academy['clearance_seen'],
+            academy_foothold_seen=academy['foothold_seen'],
+            academy_transfer_seen=academy['transfer_seen'],
+            academy_approach_seen=academy['approach_seen'],
+            carpet_hfields=carpet_hfields,
+            carpet_center=carpet_center,
+            carpet_confirmed=academy['confirmed_tile']
+                           ,
+            carpet_seen_cells=academy['seen_cells'] ,
+            carpet_seen_write=academy['seen_write'] ,
+        )
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
         denom = jnp.maximum(ep_len, 1.0)
@@ -1834,8 +1826,6 @@ class EmuMJXEnv(TaskSampler):
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             'episode_timeout': timeout.astype(jnp.float32),
-            'careful_step_relief': care_active.astype(jnp.float32),
-            'careful_step_frames_used': care_frames.astype(jnp.float32),
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
@@ -1884,8 +1874,6 @@ class EmuMJXEnv(TaskSampler):
                 for outcome,condition in (
                     ('attempt',done),
                     ('success',timeout & ~terminal_fail & terrain_crossed))},
-            'terrain_ascent_guidance':ascent_payment,
-            'terrain_verified_transfer_credit':verified_transfer_payment,
             # Teacher-only direction: actor observations remain unchanged.
             'terrain_active_up': terrain_up.astype(jnp.float32),
             'terrain_active_down': terrain_down.astype(jnp.float32),
@@ -2512,24 +2500,62 @@ class EmuMJXEnv(TaskSampler):
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
-        return EnvState(data, hist, next_keys, task, specialist_active, focus_id, prev_action, prev_foot_pos, prev_raw_target, phase, izeros, zeros, zeros, zeros, zeros, zeros, zeros, zeros,
-                         zeros, izeros,jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.full((self.num_envs,),-.12,dtype=jnp.float32), zeros, zeros,
-                         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left, push_force0, izeros, sensors,
-                         jnp.zeros((self.num_envs,2),dtype=jnp.float32),
-                         task[:,[T.vx,T.vy]],izeros,
-                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),
-                         jnp.zeros((self.num_envs,25),dtype=jnp.float32),izeros,
-                         academy_active,izeros,izeros,izeros,izeros,izeros,
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-                         *(carpet[key] if carpet else None for key in (
-                          'carpet_hfields','carpet_center','carpet_seed',
-                          'carpet_xprofile','carpet_yprofile','carpet_up',
-                          'carpet_down','carpet_slope','carpet_confirmed',
-                          'carpet_seen_cells','carpet_seen_write')))
+        return EnvState(
+            data=data,
+            hist=hist,
+            rng=next_keys,
+            task=task,
+            specialist_active=specialist_active,
+            focus_id=focus_id,
+            prev_action=prev_action,
+            prev_foot_pos=prev_foot_pos,
+            prev_raw_target=prev_raw_target,
+            phase=phase,
+            step_i=izeros,
+            ep_return=zeros,
+            ep_len=zeros,
+            ep_vx_sum=zeros,
+            ep_cmd_vx_sum=zeros,
+            ep_bad_sum=zeros,
+            ep_support_sum=zeros,
+            ep_step_evidence_sum=zeros,
+            ep_command_quality_sum=zeros,
+            terrain_crossed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            cmd_target=cmd_target,
+            cmd_ramp_from=cmd_ramp_from,
+            cmd_ramp_frac=cmd_ramp_frac,
+            cmd_ramp_speed=cmd_ramp_speed,
+            cmd_hold_left=cmd_hold_left,
+            push_force=push_force0,
+            push_steps_left=izeros,
+            sensor_state=sensors,
+            velocity_i_integral=jnp.zeros((self.num_envs,2),dtype=jnp.float32),
+            raw_velocity_command=task[:,[T.vx,T.vy]],
+            vx_reward_history=jnp.zeros((self.num_envs,25),dtype=jnp.float32),
+            cmd_vx_reward_history=jnp.zeros((self.num_envs,25),dtype=jnp.float32),
+            vx_reward_count=izeros,
+            academy_active=academy_active,
+            academy_lip_index=izeros,
+            academy_streak=izeros,
+            academy_crossings=izeros,
+            academy_up_crossings=izeros,
+            academy_down_crossings=izeros,
+            academy_clearance_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            carpet_hfields=carpet['carpet_hfields'],
+            carpet_center=carpet['carpet_center'],
+            carpet_seed=carpet['carpet_seed'],
+            carpet_xprofile=carpet['carpet_xprofile'],
+            carpet_yprofile=carpet['carpet_yprofile'],
+            carpet_up=carpet['carpet_up'],
+            carpet_down=carpet['carpet_down'],
+            carpet_slope=carpet['carpet_slope'],
+            carpet_confirmed=carpet['carpet_confirmed'],
+            carpet_seen_cells=carpet['carpet_seen_cells'],
+            carpet_seen_write=carpet['carpet_seen_write'],
+        )
 
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
