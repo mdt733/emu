@@ -58,3 +58,50 @@ The separate training CLI accepts `--terrain-carpet --carpet-prisms` together. N
 3. Measure 128 and 2048 worlds GPU compile, peak VRAM, steady steps/sec, PPO gradient shape and numerical finiteness
 4. Read-only frozen-policy forward/reverse/cross-slope and up/down step exams; distinguish supported motion from simply surviving
 5. Verify teacher attempt evidence persists long enough to promote the STEP specialists (the old transient end-of-episode evidence issue remains a separate open problem)
+
+## Run a trained robot on the real prisms — frozen read-only exam
+
+The `scripts/exam_step_course.py` examiner now supports `--carpet --prisms`.
+It loads an existing exported **360-input `.emupolicy`**, runs that
+*unchanged actor* in 18 actual convex-prism MJX physics geoms, and reports
+two independently measured results:
+
+1. The training teacher's UP/DOWN credit and observed approach events, and
+2. A **separate signed physical trajectory scorer**. It reads 18 real MJX
+foot–prism contact pairs, upward-facing normals, actual 2-triangle top
+heights in each live tile, a five-consecutive-frame support streak, and
+first-lifetime trajectory (excluding post-fall resets). It never consumes
+teacher crossing/reward flags to decide an independent crossing.
+
+```bash
+cd ~/emu-prism-physics
+# Use a source-verified exported .emupolicy from the v5041 360-input run:
+python scripts/exam_step_course.py \
+  --policy /path/to/frozen_360_input.emupolicy \
+  --output /tmp/emu_prism_exam_01 \
+  --carpet --prisms --device cuda \
+  --worlds 8 --horizon 1050 --speed .16 \
+  --heights-cm .3 1 2 3 --slope-deg 10
+```
+
+The command creates new `academy_exam.json` and `academy_exam.md`.
+The JSON explicitly identifies `eighteen_true_convex_triangular_prisms`,
+records the actor's original source commit/weights hash, the examiner commit,
+actual steps encountered, and disagreements between the two scorers. A
+nine-box-trained actor evaluated on prisms is a **cross-geometry transfer
+test**, not proof it learned on the new world. The 10° above is the **global
+teacher request**: STEP specialist physical grades are scaled (typically
+half), not a 10° dedicated SLOPE test. This exam does **not** alter a
+checkpoint or launch training.
+
+The separate `tests/test_prism_exam_scorer.py` contains signed-X/Y,
+3 mm, vertical-side exclusion, first-fall censoring, and no-repeat tests.
+
+## Not ready for an overnight run
+
+A four-world JAX CPU contact/robot test verifies the **existence** of a
+real collision implementation, not reasonable speed/memory at 2,048 GPU
+worlds. The WSL 128/2,048-world `--prisms` PPO smoke above is still a
+hard gate. If it fails (VRAM, compilation, invalid normals or nonfinite
+gradient), leave this branch unmerged and send the full console output.
+No trial training run should overwrite the 140M nine-box checkpoint.
