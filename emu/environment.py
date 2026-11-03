@@ -501,28 +501,22 @@ class TaskSampler:
         yaw_max = self._lerp(0.0, self.yaw_max_rad_s, steady_d)
         vy_max = self._lerp(0.0, self.vy_max_mps, steady_d)
         if self.open_frontier:
-            if self.unified_capability_focus:
-                mix = jnp.clip(params[P.specialist_mix], 0., 1.)
-                # A newly seeded specialist frontier (.06 m/s, etc.) is
-                # initially SMALLER than main's already-earned 20M command
-                # experience. Never replace that successful foundation with
-                # an easier limit during the specialist fade-in. Only let
-                # specialist evidence EXTEND each signed main-style axis.
-                vx_hi = jnp.maximum(vx_hi,
-                    self._lerp(SEED_VX_HI,
-                        jnp.maximum(SEED_VX_HI,params[P.frontier_vx_hi]),mix))
-                vx_lo = jnp.minimum(vx_lo,
-                    self._lerp(SEED_VX_LO,
-                        jnp.minimum(SEED_VX_LO,params[P.frontier_vx_lo]),mix))
-                yaw_max = jnp.maximum(yaw_max,
-                    mix*jnp.maximum(0.,params[P.frontier_yaw]))
-                vy_max = jnp.maximum(vy_max,
-                    mix*jnp.maximum(0.,params[P.frontier_vy]))
-            else:
-                vx_hi = jnp.maximum(SEED_VX_HI, params[P.frontier_vx_hi])
-                vx_lo = jnp.minimum(SEED_VX_LO, params[P.frontier_vx_lo])
-                yaw_max = jnp.maximum(0.0, params[P.frontier_yaw])
-                vy_max = jnp.maximum(0.0, params[P.frontier_vy])
+            mix = jnp.clip(params[P.specialist_mix], 0., 1.)
+            # A newly seeded specialist frontier (.06 m/s, etc.) is
+            # initially SMALLER than main's already-earned 20M command
+            # experience. Never replace that successful foundation with
+            # an easier limit during the specialist fade-in. Only let
+            # specialist evidence EXTEND each signed main-style axis.
+            vx_hi = jnp.maximum(vx_hi,
+                self._lerp(SEED_VX_HI,
+                    jnp.maximum(SEED_VX_HI,params[P.frontier_vx_hi]),mix))
+            vx_lo = jnp.minimum(vx_lo,
+                self._lerp(SEED_VX_LO,
+                    jnp.minimum(SEED_VX_LO,params[P.frontier_vx_lo]),mix))
+            yaw_max = jnp.maximum(yaw_max,
+                mix*jnp.maximum(0.,params[P.frontier_yaw]))
+            vy_max = jnp.maximum(vy_max,
+                mix*jnp.maximum(0.,params[P.frontier_vy]))
         full = CommandEnvelope(vx_hi, vx_lo, vy_max, yaw_max)
         reduced = CommandEnvelope(
             SEED_VX_HI + command_frac * (vx_hi - SEED_VX_HI),
@@ -672,16 +666,15 @@ class TaskSampler:
                 birth_resilience_d = jnp.clip(resilience_d, 0.0, 1.0)
             if self.open_frontier:
                 resilience_frac = jnp.clip(params[P.frontier_push_n] / jnp.maximum(self.push_max_force_n, 1e-6), 0.0, 1.0)
-                if self.unified_capability_focus:
-                    # Main's foundation scaled pushes with earned resilience
-                    # difficulty and a 0.70 N physical maximum. Unified has
-                    # 3.2 N *headroom* but must not use its whole frontier
-                    # merely because open-frontier sampling is enabled.
-                    foundation_frac = birth_resilience_d * (
-                        .70 / jnp.maximum(self.push_max_force_n, 1e-6))
-                    resilience_frac = self._lerp(
-                        foundation_frac, resilience_frac,
-                        jnp.clip(params[P.specialist_mix], 0., 1.))
+                # Main's foundation scaled pushes with earned resilience
+                # difficulty and a 0.70 N physical maximum. Unified has
+                # 3.2 N *headroom* but must not use its whole frontier
+                # merely because open-frontier sampling is enabled.
+                foundation_frac = birth_resilience_d * (
+                    .70 / jnp.maximum(self.push_max_force_n, 1e-6))
+                resilience_frac = self._lerp(
+                    foundation_frac, resilience_frac,
+                    jnp.clip(params[P.specialist_mix], 0., 1.))
             else:
                 resilience_frac = birth_resilience_d
             resilience_task = jnp.where(regime > 1.5, jnp.maximum(resilience_frac, 0.08 / jnp.maximum(self.push_max_force_n, 1e-6)),
@@ -878,12 +871,11 @@ class TaskSampler:
         # Transition-focused episodes push command-change timing and
         # acceleration, not the maximum walking envelope at the same time.
         # Reduce the NEXT requested velocity too, not only its birth task.
-        if self.unified_capability_focus:
-            trans_focus=state.specialist_active & (state.focus_id==TRANSITION)
-            centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
-            new_target=jnp.where(trans_focus[:,None],
-                       centre+NONFOCUS_STRENGTH*(new_target-centre),
-                       new_target)
+        trans_focus=state.specialist_active & (state.focus_id==TRANSITION)
+        centre=jnp.asarray((.04,0.,0.),dtype=jnp.float32)
+        new_target=jnp.where(trans_focus[:,None],
+                   centre+NONFOCUS_STRENGTH*(new_target-centre),
+                   new_target)
         if self.attitude_profile == 'v5015':
             pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
             pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
