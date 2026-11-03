@@ -1,0 +1,40 @@
+name: v5043 Opt-in true MJX prism collisions
+
+on:
+  push:
+    branches:
+      - feature/v5043-mjx-convex-prism-carpet
+  pull_request:
+    paths:
+      - "emu/carpet_prism_mjx.py"
+      - "emu/terrain_carpet_mjx.py"
+      - "emu/environment.py"
+      - "scripts/probe_carpet_prism_mjx.py"
+      - ".github/workflows/prism-mjx-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prism-physics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JAX_PLATFORMS: cpu
+      XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install real physics / JAX
+        run: python -m pip install -e ".[dev]"
+      - name: Python syntax and deterministic terrain mathematical tests
+        run: |
+          python -m compileall -q emu scripts tests
+          python -m pytest -q tests/test_terrain_carpet.py -k "cartesian_gradient or deterministic_tiles or shared_corners"
+      - name: Actual 18 convex prism MJX riser, seam, EMU reset and step
+        run: python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
