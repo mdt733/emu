@@ -947,8 +947,6 @@ class EmuMJXEnv(TaskSampler):
                  retention_share: float = 0.0,
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
-                 verified_ascent_reallocation: float = 0.0,
-                 science_step_crouch_tolerance_m: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -965,8 +963,6 @@ class EmuMJXEnv(TaskSampler):
         if not (terrain_carpet_prisms and terrain_carpet and
                 unified_capability_focus and observation_schema==OBS_SCHEMA_TERRAIN):
             raise ValueError('Current EMU requires unified terrain_360 and true MJX prisms')
-        if verified_ascent_reallocation>0.:
-            raise ValueError('Retired slab-only ascent reward is unavailable')
 
         self.jax = jax
         self.jnp = jnp
@@ -1172,15 +1168,6 @@ class EmuMJXEnv(TaskSampler):
                 or (temporal_vx_reward_share>0 and not self.unified_capability_focus)):
             raise ValueError('temporal vx reward requires unified terrain and share 0..1')
         self.temporal_vx_reward_share=float(temporal_vx_reward_share)
-        if (not np.isfinite(verified_ascent_reallocation) or
-                not 0.0<=verified_ascent_reallocation<=4.0 or
-                (verified_ascent_reallocation>0. and
-                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
-            raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
-        # The old approach/crouch subsidy is absent from the prism reward.
-        # Reject experiments requesting it instead of silently doing nothing.
-        if science_step_crouch_tolerance_m != 0.0:
-            raise ValueError('Retired single-lip crouch subsidy is unavailable on prisms')
         # Academy uses the same physical prism bodies, never extra slabs.
         self.academy_geom_ids=()
         self.sensor_noise_scale = float(sensor_noise_scale)
