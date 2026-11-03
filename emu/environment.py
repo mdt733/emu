@@ -3117,124 +3117,17 @@ class EmuMJXEnv(TaskSampler):
             flow_valid=flow_valid,
             tof_age_frames=tof_age, flow_age_frames=flow_age)
 
-    def _floor_signed_heights(self, data, positions):
-        """Per-world signed distance to the *actual* collision plane.
-
-        positions is [worlds,points,3]. Flat ground preserves exact world-Z
-        semantics; tilted-gravity trials still have a flat contact surface.
-        This is privileged simulator geometry, NEVER an actor observation.
-        """
-        floor = int(self.ids['floor_geom'])
-        normal = self.jnp.reshape(data.geom_xmat[:,floor], (self.num_envs,3,3))[:,:,2]
-        origin = data.geom_xpos[:,floor,:]
-        if self.unified_capability_focus:
-            origin=origin+UNIFIED_SLAB_HALF_DEPTH_M*normal
-        return self.jnp.sum((positions-origin[:,None,:])*normal[:,None,:],axis=-1)
-
-    def _unified_platform_active(self, data):
-        """Explicit fixed-topology activation, independent of slab centre Z.
-
-        Extended sloped boxes have centres metres above/below the edge and
-        must NOT be mistaken for the buried inactive platform. Only the
-        exact fixed burial at (0,0,-2) denotes absence in unified worlds.
-        """
-        jnp=self.jnp
-        centre=data.mocap_pos[:,self.terrain_step_mocap_id,:]
-        old_burial=jnp.asarray((0.,0.,-2.),dtype=centre.dtype)
-        school_burial=jnp.asarray((0.,0.,ACADEMY_BURIED_FLOOR_Z_M),
-                                  dtype=centre.dtype)
-        inactive=(jnp.sum((centre-old_burial)**2,axis=1)<1e-6) | (
-            jnp.sum((centre-school_burial)**2,axis=1)<1e-6)
-        return ~inactive
-
     def _carpet_real_top_height(self,data,positions,carpet_heights=None):
-        """Teacher support from exact physical tilted box tops, not rays.
+        """Teacher-only support height from the SAME actual prism vertices."""
+        if carpet_heights is None:
+            raise ValueError('Prism top needs live physical vertex samples')
+        return carpet_sample_surface(
+            self.jnp,data,self.carpet_mocap_ids,carpet_heights,positions)
 
-        The nine real MJX box transforms determine actual top contact
-        elevations. Outside their footprint return -inf so unsupported
-        positions cannot be mistaken for solid ground.
-        """
-        jnp=self.jnp
-        if self.terrain_carpet_prisms:
-            if carpet_heights is None:
-                raise ValueError('prism top must use same live vertex samples')
-            return carpet_sample_surface(
-                jnp,data,self.carpet_mocap_ids,carpet_heights,positions)
-        best=jnp.full(positions.shape[:2],-jnp.inf,dtype=jnp.float32)
-        for geom in self.carpet_solid_geom_ids:
-            R=data.geom_xmat[:,geom,:].reshape((self.num_envs,3,3))
-            centre=data.geom_xpos[:,geom,:]
-            half=jnp.asarray(self.mj_model.geom_size[geom,:3],
-                             dtype=jnp.float32)
-            normal=R[:,:,2]
-            top=centre+normal*half[2]
-            safe_z=jnp.where(jnp.abs(normal[:,2])>1e-5,normal[:,2],1.)
-            dx=positions[:,:,0]-top[:,None,0]
-            dy=positions[:,:,1]-top[:,None,1]
-            z=top[:,None,2]-(dx*normal[:,None,0]+
-                               dy*normal[:,None,1])/safe_z[:,None]
-            delta=jnp.stack((positions[:,:,0]-centre[:,None,0],
-                             positions[:,:,1]-centre[:,None,1],
-                             z-centre[:,None,2]),axis=2)
-            local=jnp.einsum('eki,eij->ekj',delta,R)
-            inside=(jnp.abs(local[:,:,0])<=half[0]+.0001)&(
-                    jnp.abs(local[:,:,1])<=half[1]+.0001)
-            best=jnp.maximum(best,jnp.where(inside,z,-jnp.inf))
-        return best
-
-    def _support_signed_heights(self, data, positions, carpet_heights=None):
-        """Teacher-only distance above real local support (plane OR box top).
-
-        This does NOT go to the 220/232 policy. The approximate top-surface
-        classifier is valid away from vertical side contacts; crossing
-        acceptance must still inspect real contact pairs and trajectory.
-        """
-        if self.terrain_carpet:
-            top=self._carpet_real_top_height(data,positions,carpet_heights)
-            return carpet_signed_support(self.jnp,positions,top)
-        flat = self._floor_signed_heights(data, positions)
-        if self.unified_capability_focus:
-            jnp=self.jnp
-            geom=int(self.terrain_step_geom_id)
-            R=data.geom_xmat[:,geom,:].reshape((self.num_envs,3,3))
-            delta=positions-data.geom_xpos[:,geom,None,:]
-            local=jnp.einsum('epi,eij->epj',delta,R)
-            half=self.mj_model.geom_size[geom,:3]
-            inside=(jnp.abs(local[:,:,0])<=half[0]) & (
-                    jnp.abs(local[:,:,1])<=half[1])
-            active=self._unified_platform_active(data)
-            height=jnp.where(inside & active[:,None],
-                             local[:,:,2]-half[2],flat)
-            for geom_id in self.academy_platform_geom_ids:
-                mid_R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
-                mid_delta=positions-data.geom_xpos[:,geom_id,None,:]
-                mid_local=jnp.einsum('epi,eij->epj',mid_delta,mid_R)
-                mid_half=self.mj_model.geom_size[geom_id,:3]
-                mid_inside=((jnp.abs(mid_local[:,:,0])<=mid_half[0]) &
-                            (jnp.abs(mid_local[:,:,1])<=mid_half[1]))
-                mid_index=self.academy_platform_geom_ids.index(geom_id)
-                mid_pos=data.mocap_pos[:,self.academy_platform_mocap_ids[mid_index],:]
-                dormant=jnp.asarray((0.,0.,-2.-mid_index*.3),dtype=jnp.float32)
-                mid_live=jnp.sum((mid_pos-dormant)**2,axis=1)>1e-6
-                height=jnp.where(mid_inside & mid_live[:,None],
-                                 mid_local[:,:,2]-mid_half[2],height)
-            return height
-        if self.terrain_step_mocap_id < 0:
-            return flat
-        jnp = self.jnp
-        i = self.terrain_step_mocap_id
-        center = data.mocap_pos[:, i, :]
-        quat = data.mocap_quat[:, i, :]
-        c = 1.0 - 2.0*quat[:, 3]**2
-        si = 2.0*quat[:, 0]*quat[:, 3]
-        delta = positions[:, :, :2] - center[:, None, :2]
-        local_x = delta[:, :, 0]*c[:, None] + delta[:, :, 1]*si[:, None]
-        local_y = -delta[:, :, 0]*si[:, None] + delta[:, :, 1]*c[:, None]
-        inside = ((jnp.abs(local_x) < TERRAIN_PLATFORM_HALF_LENGTH_M) &
-                  (jnp.abs(local_y) < TERRAIN_PLATFORM_HALF_WIDTH_M))
-        top = center[:, 2] + TERRAIN_PLATFORM_HALF_DEPTH_M
-        elevated = inside & (top[:, None] > 0.001)
-        return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
+    def _support_signed_heights(self,data,positions,carpet_heights=None):
+        """Signed height over actual prism top, never a phantom floor."""
+        top=self._carpet_real_top_height(data,positions,carpet_heights)
+        return carpet_signed_support(self.jnp,positions,top)
 
     def _carpet_events(self,state,data,metrics,done):
         """Genuine supported tile-to-tile crossings, separately for UP/DOWN.
@@ -3542,65 +3435,58 @@ class EmuMJXEnv(TaskSampler):
 
     # ---- Actor observation: sensor/command contract, no teacher geometry ----
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
-        """Deployable actor observation: sensors/estimators, not teacher truth."""
-        jnp = self.jnp
-        projected_gravity, body_vel, body_ang = self._body_packets(data)
-        q = data.qpos[:, self.act_qpos]
-        qv = data.qvel[:, self.act_qvel]
-        shin_flex = data.qpos[:, self.shin_qpos]
-        shin_rate = data.qvel[:, self.shin_qvel]
-        n0 = jnp.sin(1.73 * phase + 0.6180339 * self.env_index)
-        n1 = jnp.sin(2.31 * phase + 1.4142136 * self.env_index + 0.7)
-        ns = jnp.where(task[:, T.sensor_scale] >= 0.0, task[:, T.sensor_scale], self.sensor_noise_scale)
-        grav_est = projected_gravity + ns[:, None] * 0.008 * jnp.stack([n0, n1, -0.5*n0], axis=1)
-        gyro_est = body_ang + ns[:, None] * 0.025 * jnp.stack([n1, n0, -n1], axis=1)
-        q_est = q + ns[:, None] * 0.0015 * n0[:, None]
-        qv_est = qv + ns[:, None] * 0.015 * n1[:, None]
-        R = self._rotation_body_to_world(data)
-        RT = jnp.swapaxes(R, 1, 2)
-        torso = data.xpos[:, self.torso_id, :]
-        foot_rel_world = data.xpos[:, self.foot_bodies, :] - torso[:, None, :]
-        foot_rel = jnp.einsum('nij,nkj->nki', RT, foot_rel_world).reshape((self.num_envs, 6))
-        # Simulator counterpart of a fused optical-flow + ToF + IMU/leg estimate.
-        # Exact root vxy is never handed straight to the actor.
-        vel_est = body_vel[:, :2] + ns[:, None] * 0.018 * jnp.stack([n0, n1], axis=1)
-        # Approximate height-sensor reading over the physical ground plane.
-        # The sensor noise remains the legacy observer model; this is not
-        # evidence that hardware can recover true floor geometry perfectly.
-        ground_height = self._floor_signed_heights(data,torso[:,None,:])
-        tof_height = ground_height + ns[:, None] * 0.0025 * n1[:, None]
-        vel_conf = jnp.clip(1.0 - 0.18*ns, 0.2, 1.0)[:, None].astype(jnp.float32)
-        shin_flex_est = shin_flex + ns[:, None] * 0.0010 * jnp.stack([n0, n1], axis=1)
-        shin_rate_est = shin_rate + ns[:, None] * 0.010 * jnp.stack([n1, n0], axis=1)
-        shin_load_est = jnp.clip(jnp.abs(shin_flex_est) / 0.10, 0.0, 1.5)
-        cmd = task[:, [T.vx, T.vy, T.yaw, T.height, T.pitch, T.roll, T.step_height]]
-        phase_pack = jnp.stack([jnp.sin(phase), jnp.cos(phase)], axis=1)
-        base = jnp.concatenate([grav_est, gyro_est, q_est, qv_est, prev_action, delivered_ctrl,
-                                foot_rel, vel_est, tof_height, vel_conf, cmd, phase_pack,
-                                shin_flex_est, shin_rate_est, shin_load_est], axis=1)
-        if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
-            # No direct access to simulated true velocity, floor normal or
-            # even instantaneous raw ToF/flow readings: the persistent sensor
-            # ring owns acquisition cadence, delay, dropout and gyro bias.
-            if sensor_state is None:
-                raise ValueError('sim2real_232 requires a sensor state')
-            sensor = self._sensor_readout(sensor_state, grav_est)
-            vel_i = BASE_OBS_FIELDS.index('vel_x')
-            height_i = BASE_OBS_FIELDS.index('tof_height')
-            conf_i = BASE_OBS_FIELDS.index('vel_confidence')
-            base = (base.at[:, 3:6].set(sensor['measured_gyro_body_rad_s'])
-                        .at[:, vel_i:vel_i+2].set(sensor['velocity_body_xy_mps'])
-                        .at[:, height_i].set(sensor['tof_estimated_depth_m'])
-                        .at[:, conf_i].set(sensor['velocity_confidence']))
-            terrain = jnp.stack((
+        """ONE deployable 360-input array-only observation.
+
+        The old routine built a 220-input synthetic ground/tripod packet,
+        queried the disabled floor, and then scattered raw 360-sensor
+        values over four of its columns. Build the real input directly,
+        using the same acquisition ring/normalizer semantics and field
+        ordering, without privileged ground-plane geometry.
+        """
+        if sensor_state is None:
+            raise ValueError('360-input actor requires an acquired 4x4 sensor state')
+        jnp=self.jnp
+        gravity_body,_,_=self._body_packets(data)
+        q=data.qpos[:,self.act_qpos]
+        qv=data.qvel[:,self.act_qvel]
+        shin_flex=data.qpos[:,self.shin_qpos]
+        shin_rate=data.qvel[:,self.shin_qvel]
+        n0=jnp.sin(1.73*phase+0.6180339*self.env_index)
+        n1=jnp.sin(2.31*phase+1.4142136*self.env_index+.7)
+        ns=jnp.where(task[:,T.sensor_scale]>=0.,
+                     task[:,T.sensor_scale],self.sensor_noise_scale)
+        grav_est=gravity_body+ns[:,None]*.008*jnp.stack(
+            (n0,n1,-.5*n0),axis=1)
+        q_est=q+ns[:,None]*.0015*n0[:,None]
+        qv_est=qv+ns[:,None]*.015*n1[:,None]
+        R=self._rotation_body_to_world(data)
+        foot_rel_world=data.xpos[:,self.foot_bodies,:] - (
+            data.xpos[:,self.torso_id,None,:])
+        foot_rel=jnp.einsum(
+            'nij,nkj->nki',jnp.swapaxes(R,1,2),foot_rel_world
+        ).reshape((self.num_envs,6))
+        shin_flex_est=shin_flex+ns[:,None]*.001*jnp.stack((n0,n1),axis=1)
+        shin_rate_est=shin_rate+ns[:,None]*.010*jnp.stack((n1,n0),axis=1)
+        shin_load_est=jnp.clip(jnp.abs(shin_flex_est)/.10,0.,1.5)
+        sensor=self._sensor_readout(sensor_state,grav_est)
+        cmd=task[:,[T.vx,T.vy,T.yaw,T.height,T.pitch,T.roll,T.step_height]]
+        phases=jnp.stack((jnp.sin(phase),jnp.cos(phase)),axis=1)
+        base=jnp.concatenate((
+            grav_est,
+            sensor['measured_gyro_body_rad_s'],
+            q_est,qv_est,prev_action,delivered_ctrl,foot_rel,
+            sensor['velocity_body_xy_mps'],
+            sensor['tof_estimated_depth_m'][:,None],
+            sensor['velocity_confidence'][:,None],
+            cmd,phases,shin_flex_est,shin_rate_est,shin_load_est,
+            jnp.stack((
                 sensor['ground_forward_grade_rad'],
                 sensor['ground_sideways_grade_rad'],
-                sensor['ground_visibility_confidence']), axis=1)
-            base = jnp.concatenate((base, terrain), axis=1)
-            if self.observation_schema == OBS_SCHEMA_TERRAIN:
-                base = jnp.concatenate((base,sensor['terrain_ranges_m'],
-                    sensor['terrain_valid'].astype(jnp.float32)),axis=1)
-        assert base.shape[1] == self.base_obs_dim, (
-            f"_base_obs produced {base.shape[1]} columns, "
-            f"{self.observation_schema} requires {self.base_obs_dim}")
-        return jnp.nan_to_num(base, nan=0.0, posinf=10.0, neginf=-10.0).astype(jnp.float32)
+                sensor['ground_visibility_confidence']),axis=1),
+            sensor['terrain_ranges_m'],
+            sensor['terrain_valid'].astype(jnp.float32)),axis=1)
+        assert base.shape[1]==self.base_obs_dim,(
+            f'Array-only sensor produced {base.shape[1]} channels, '
+            f'contract requires {self.base_obs_dim}')
+        return jnp.nan_to_num(
+            base,nan=0.,posinf=10.,neginf=-10.).astype(jnp.float32)
