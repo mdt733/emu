@@ -1,62 +1,115 @@
 # EMU core skeleton — run to robot walking in the viewer
 
-**Audit branch:** `feature/v5045-core-skeleton-audit`, 3 November 2026.
+**Audit branch:** `feature/v5045-core-skeleton-audit`, 4 November 2026.
 **Current new-run candidate:** this v5045 feature branch; the previous
 source-pinned v5044 large run was stopped. Its saved checkpoints belong to
 that old source SHA and must never resume on v5045. `main` and the released
 browser champion remain untouched.
 
-## Whole-tree audit — 4 November 2026
+## Skeleton ⇄ actual files ⇄ retired code — living checklist
 
-The GitHub recursive tree listing at the start of this sweep was
-**complete (not truncated)**: **103 tracked files initially**. Every tracked
-path was classified; text-based source, tests, scripts, CI, viewer
-configuration and maintained documentation received a first-pass
-content scan. The 886 KB shipped `.emupolicy` is an encoded artifact,
-so verify **hash + observation/servo/schema provenance** with
-`scripts/verify_showcase_release.py` instead of treating it as
-human-readable code. This is a **whole-tree triage, not a claim that
-every line has passed functional or adversarial review**.
+**Census:** 4 November 2026; [v5044 source tree](https://github.com/mdt733/emu/tree/a2f59bb31bec049204b60a3eb86500b100db039f)
+compared with the complete (not truncated) [v5045 tree at `c4e3c739`](https://github.com/mdt733/emu/tree/c4e3c739938bf3e5cc6e2d51bef42b9776c47cee).
+At census: **102 active tracked files; 76 paths retired; 12 new paths**.
+That is 64 fewer tracked files, not 76 fewer *features*. Historical
+research stays accessible at its original Git SHA. The 886 KB
+`showcase/champion.emupolicy` is a binary/encoded actor artifact,
+not readable source. Verify its hash and manifest with
+`scripts/verify_showcase_release.py`.
 
-| Category | Files | First-pass finding |
-|---|---:|---|
-| Python engine modules | 25 current (26 at census) | One prism PPO runtime; old directional examiner and obsolete sparse-cloud module retired; checkpoint/config shapes remain review candidates |
-| Browser JS and CSS | 25 | All currently used files classified; nine-box preview is **viewer-only representative physics**, not part of MJX learning, so do not break it by blind deletion |
-| Viewer build/config/tests/notices | 7 | Required for package, six UI tests and WebAssembly build |
-| Scripts | 12 | GPU benchmark, lifecycle, viewer setup, source checks and protected release scripts; no script is an extra PPO trainer |
-| Python tests | 3 | 18 maintained Python cases; separate real-MJX physical probe |
-| CI workflows | 3 | Feature proof, protected main checks, separately approved public deployment |
-| Documentation and image | 17 | Current runbook plus historical measurements clearly scoped to older source revisions |
-| Root/config | 5 | README, handover, package/build defaults and ignores |
-| Robot XML and version | 2 | Six-servo model and stable package version |
-| Public showcase artifacts | 3 | Protected released actor, deployment request and source/actor approval hashes |
-| **Total** | **102 current (103 inventoried)** | **Complete path census; staged behavioral validation still required** |
+**Status key:** checked = present and assigned an owner / retired from
+the current tree. A checked box is **not** a claim of completed
+new-policy training, GPU speed improvement, or complete source audit.
 
-**Retention/next-cut decisions:**
+### 1. One owner for each live Python module — 25/25
 
-- **Keep:** `showcase/champion.emupolicy`, its approvals and release
-  guardrails; `robot.xml`; sensor contract/hash semantics; v5044
-  historical benchmark/runbook; browser's explicitly representative
-  park and carpet; checkpoint/source provenance.
-- **Removed:** unused 232-era physical examiner, retired separate prism
-  scorer, slab and nine-box MJX branches, hundreds of directional
-  course/tripod implementation lines, and the inactive 585-line sparse
-  `capability_cloud.py` examiner plus its dead training loop. The small tripod constants in
-  `directional.py` still construct historical metadata hashes but
-  no longer simulate sensors.
-- **Next deep-review candidates:** old schema-1/2 checkpoint/export
-  decoding and legacy default profiles spread across `contracts.py`,
-  `checkpoint_io.py`, `policy_export.py`,
-  `training_config.py`, `run.py`, `curriculum.py` and
-  `training.py`. Some are required for released-actor
-  reproducibility or to decode old state; do not remove them until a
-  v5045 same-source checkpoint lifecycle and true-prism frozen-policy
-  replay prove the replacement. This is not yet line-by-line sign-off.
-- **Performance:** first actual user RTX 4060 Ti full-PPO test:
-  **7,536.1 world-steps/s** (two post-JIT 2,048-world updates);
-  7,492.3 previously. A nominal **+0.58%** is effectively flat.
-  Peak allocated: 1,818,866,944 bytes. Later source commits,
-  including the directional trim, have not been re-benchmarked.
+| Status | Skeleton responsibility | Actual Python files (all paths relative to `emu/`) |
+|---|---|---|
+| [x] | Command and configuration (4) | `__init__.py`, `cli.py`, `run.py`, `training_config.py` |
+| [x] | Physical world, sensors and terrain (6) | `contracts.py`, `environment.py`, `terrain_carpet_mjx.py`, `carpet_prism_mjx.py`, `domain_randomization.py`, `directional.py` |
+| [x] | One learner and six teaching specialties (7) | `training.py`, `ppo.py`, `rewards.py`, `curriculum.py`, `capability_focus.py`, `capability_field.py`, `training_health.py` |
+| [x] | Complete state, reports, independent exams (4) | `checkpoint_io.py`, `results.py`, `evaluation.py`, `prism_exam.py` |
+| [x] | Export and browser interfaces (3) | `policy_export.py`, `viewer_server.py`, `capability_viewer.py` |
+| [x] | Installation and environment diagnostics (1) | `doctor.py` |
+
+The robot's six-servo physical definition lives separately in
+`emu/robot.xml`. None of the six specialist roles owns a separate
+actor, PPO optimizer or terrain generator. The 360-input policy is
+assembled from real sensor and command data, not privileged teacher
+geometry. The browser's nine-box *illustration* is not one of the
+eighteen real MJX collision prisms.
+
+### 2. Every remaining supporting file group — 77/77
+
+| Status | Current folder or files | Count | Why retained |
+|---|---|---:|---|
+| [x] | `emu/viewer_src/src/`: 24 JavaScript modules + `style.css` | 25 | Local MuJoCo/WASM viewer: actor, sensors, physics, controls, navigation and representative terrain; **not** a GPU trainer |
+| [x] | `emu/viewer_src/` build files, notices, one browser test | 7 | Reproducible `npm ci`, build and six browser contracts |
+| [x] | `scripts/`: launch (1), physical/GPU/lifecycle probes (3), release/static checks (6), WSL setup (2) | 12 | One production campaign; explicit acceptance and guarded deployment |
+| [x] | `tests/test_core_{run,physics,delivery}.py` | 3 | 18 focused Python contracts; no archived test matrix |
+| [x] | `.github/workflows/`: `core-skeleton-proof.yml`, `emu-checks.yml`, `emu-playground.yml` | 3 | Branch physics checks, protected main checks and approved publishing |
+| [x] | `docs/`: 16 Markdown files + one architecture diagram | 17 | Current skeleton/runbook/installation plus clearly dated physical baselines |
+| [x] | `showcase/`: `champion.emupolicy`, `deployment_request.json`, `release_approval.json` | 3 | Protected released 260M actor and approved release identity |
+| [x] | Root metadata, `emu/VERSION` and `emu/robot.xml` | 7 | `README.md`, `HANDOVER.md`, `pyproject.toml`, `.gitignore`, `.nvmrc`, version, robot model |
+| | **Total, including 25 engine modules** | **102** | No unassigned tracked category at this census |
+
+### 3. What was actually cleared away — 76/76
+
+| Status | Retired paths compared with v5044 | Count | Replacement or reason |
+|---|---|---:|---|
+| [x] | Engine: `capability_cloud.py`, `physical_exam.py`, `physical_quality.py`, `step_academy_world.py`, `terrain_carpet.py`, `terrain_spike.py` | 6 | One prism physics engine, current governor, `prism_exam.py` |
+| [x] | Scripts: `campaign_support.py`, `compare_policies.py`, `exam_prism_course.py`, `exam_step_course.py`, `probe_carpet_box_surface.py`, `probe_carpet_hfield.py`, `smoke_step_course.py`, `smoke_unified_focus.py` | 8 | Current runbook, three explicit smoke/lifecycle/physics scripts and immutable old research |
+| [x] | Viewer: separate Prism Lab HTML/CSS/JS and prism-terrain module (4); seven redundant browser test files | 11 | Integrated viewer and `essential.test.mjs` |
+| [x] | Old Python tests, including `conftest.py` and 20 research fixture/test files | 21 | Three maintained core test files + real MJX contact probe |
+| [x] | Superseded box/hfield/prism workflow YAML files | 3 | One complete branch proof workflow |
+| [x] | Historical/duplicated `docs/` pages and `docs/history/` files | 27 | Current docs reference historical commits instead of carrying experiments as active code |
+| | **Total removed paths** | **76** | Contents can be recovered from source-pinned v5044 |
+
+**Not deleted:** `training-carpet.js` and
+`training-solid-carpet.js` are still required by the *browser*
+as a deliberately approximate terrain preview. `directional.py`
+remains part of the live velocity/sensor contract. The released actor,
+checkpoint provenance, genuine signed terrain crossing tests, all
+18 prism contacts, and all six lesson roles stay.
+
+### 4. Verification and remaining engineering work
+
+- [x] One 360-input, six-output actor; 18 physically colliding triangular
+  prisms; 9 noncolliding source-sample tiles; one shared PPO.
+- [x] No old slab, nine-box GPU collision, legacy physical examiner or
+  obsolete Prism Lab in the active tree.
+- [x] `EnvState` requires 52 explicitly named fields; control-frame
+  reporting is isolated in `_step_report`; source-level report
+  dictionary and reward invocation compared unchanged.
+- [x] Core static import inventory, current local Markdown links,
+  18 Python contracts, 6 browser contracts and source-locked champion
+  checks. Last fully green branch SHA: `c4e3c739`
+  ([CI](https://github.com/mdt733/emu/actions/runs/41728465668)).
+- [x] Actual 4-world MJX prism contact, 360-input reset/step,
+  safe recycle and essential telemetry probe at that last green SHA.
+- [ ] **Repeat all CI checks on the final new source SHA.** A green
+  earlier commit does not green-light subsequent cleanup commits.
+- [ ] Same-SHA RTX 4060 Ti 2,048-world, 3-update full-PPO throughput
+  comparison. The earlier 7,536.1 world-steps/s measurement does
+  not benchmark the latest state or reporting changes.
+- [ ] Same-SHA 8-world CUDA `first → continue → verify` checkpoint,
+  normalizer and optimizer lifecycle; independently export its actor.
+- [ ] Same-SHA **frozen exported actor** on real MJX prisms,
+  proving the examiner consumes genuine contact and sensor evidence.
+- [ ] Review `environment.py` episode event/report coupling,
+  `curriculum.py` evidence/state complexity, and `results.py`
+  redundant host-side outputs. Change no numerical thresholds
+  without a measured equivalence check.
+- [ ] Only after those physical gates: a fresh, empty 140M cold-start
+  directory. **Never** resume an earlier source lineage or move the
+  protected main actor before owner-reviewed capability evidence.
+
+**How to repeat the census:** GitHub tree/compare against the pinned
+SHAs above, plus `python scripts/audit_core_dependencies.py` and
+`python scripts/check_current_docs.py`. Import reachability is a
+*review aid*, not proof that a module is safe to remove. The released
+actor is validated by `scripts/verify_showcase_release.py`; GPU and
+checkpoint behavior require the real acceptance runs.
 
 ## The five-stage minimum product
 
