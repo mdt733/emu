@@ -3,10 +3,10 @@
 import {specialistLesson} from './training-inspector.js';
 const clip=(n,a,b)=>Math.min(b,Math.max(a,Number(n)||0));
 export const SLIDER_FIELDS=Object.freeze([
-  ['slope','tuneSlope','°',20,1],
-  ['transition','tuneTransition','°',15,1],
-  ['up','tuneUp',' mm',150,1],
-  ['down','tuneDown',' mm',150,1],
+  ['slope','tuneSlope','°',20,2],
+  ['transition','tuneTransition','°',15,2],
+  ['up','tuneUp',' mm',150,3],
+  ['down','tuneDown',' mm',150,3],
   ['forward','tuneForward',' m/s',1.5,2],
   ['reverse','tuneReverse',' m/s',.8,2],
   ['lateral','tuneLateral',' m/s',1,2],
