@@ -103,6 +103,71 @@ def run_probe(worlds=4, frames=2):
         state.data,state.data.qpos[:,:3][:,None,:],
         state.carpet_hfields)
     assert np.isfinite(np.asarray(jax.device_get(surface))).all()
+    # Validate that EACH of the 18 deformed MJX convex collision meshes
+    # has top corners exactly equal to the source 2x2 height samples.
+    # A 3mm training lip cannot tolerate an 8mm fitted-box discrepancy.
+    live=env._carpet_dynamic_model(state.carpet_hfields)
+    meshes=live._impl.mesh_convex
+    xpos=np.asarray(jax.device_get(state.data.geom_xpos))
+    xmat=np.asarray(jax.device_get(state.data.geom_xmat))
+    mocap=np.asarray(jax.device_get(state.data.mocap_pos))
+    max_vertex_error=0.
+    for w in range(worlds):
+        for tile in range(9):
+            original=mocap[w,env.carpet_mocap_ids[tile]]
+            centre=original[:2]
+            target_xy=np.array([
+                centre+[-.25,-.25],centre+[.25,-.25],
+                centre+[-.25,.25],centre+[.25,.25]])
+            target_z=original[2]+hf[w,4*tile:4*tile+4]*.5
+            cloud=[]
+            for tri in (2*tile,2*tile+1):
+                geom=env.carpet_prism_geom_ids[tri]
+                mid=int(env.mj_model.geom_dataid[geom])
+                verts=np.asarray(jax.device_get(meshes[mid].vert))[w]
+                rot=xmat[w,geom].reshape(3,3)
+                cloud.extend(verts@rot.T+xpos[w,geom])
+            cloud=np.asarray(cloud)
+            for corner,height in zip(target_xy,target_z):
+                pair=np.linalg.norm(cloud[:,:2]-corner[None,:],axis=1)
+                candidates=cloud[pair<1e-4]
+                if not len(candidates):
+                    raise AssertionError(
+                        f"Prism {tile} in world {w} missing exact corner {corner}")
+                error=abs(np.max(candidates[:,2])-height)
+                max_vertex_error=max(max_vertex_error,float(error))
+                if error>3e-5:
+                    raise AssertionError(
+                        f"Physical prism vertex differs from sensor by {error} m")
+    if worlds>1 and np.max(np.abs(hf[0]-hf[1]))<1e-5:
+        raise AssertionError("Distinct worlds unexpectedly share identical terrain")
+
+    # Shared smooth edge endpoints must agree after subtracting their
+    # intentional tile-level offset. Different offsets mean a vertical
+    # riser, never an accidental wedge/twist between neighbouring tiles.
+    cells=np.asarray(jax.device_get(state.carpet_center))
+    from emu.terrain_carpet_mjx import slot_indices
+    xs,ys=slot_indices(jnp,state.carpet_center[:,0],state.carpet_center[:,1])
+    gridx=np.asarray(jax.device_get(xs))
+    gridy=np.asarray(jax.device_get(ys))
+    max_edge_wedge=0.
+    for w in range(worlds):
+        bycell={(int(gridx[w,t]),int(gridy[w,t])):t for t in range(9)}
+        for (i,j),a in bycell.items():
+            az=mocap[w,env.carpet_mocap_ids[a],2]+hf[w,4*a:4*a+4]*.5
+            for di,dj,ia,ib in ((1,0,(1,3),(0,2)),
+                                (0,1,(2,3),(0,1))):
+                b=bycell.get((i+di,j+dj))
+                if b is None:
+                    continue
+                bz=mocap[w,env.carpet_mocap_ids[b],2]+hf[w,4*b:4*b+4]*.5
+                edge_delta=np.asarray([az[ia[0]]-bz[ib[0]],
+                                       az[ia[1]]-bz[ib[1]]])
+                wedge=abs(edge_delta[0]-edge_delta[1])
+                max_edge_wedge=max(max_edge_wedge,float(wedge))
+                if wedge>3e-5:
+                    raise AssertionError(
+                        f"Unexpected tilted seam across {i,j}->{i+di,j+dj}")
     params=env.params_array(settings)
     for _ in range(frames):
         out=env.step(state,jnp.zeros((worlds,6),dtype=jnp.float32),params)
@@ -111,7 +176,9 @@ def run_probe(worlds=4, frames=2):
     print(json.dumps(dict(status="PASS",backend=jax.default_backend(),
         worlds=worlds,frames=frames,convex_prisms=PRISM_COUNT,
         flat_seam=seam,physical_4cm_riser=step,
-        full_emu_360_actor=True),indent=2),flush=True)
+        full_emu_360_actor=True,
+        physical_vertex_max_error_mm=round(max_vertex_error*1000,6),
+        max_unwanted_edge_wedge_mm=round(max_edge_wedge*1000,6)),indent=2),flush=True)
 
 
 if __name__=="__main__":
