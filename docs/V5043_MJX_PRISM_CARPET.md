@@ -120,10 +120,38 @@ python scripts/smoke_gpu_carpet.py \
   --ppo --full-update --benchmark-updates 3
 ```
 
-Compare the **steady post-compile** world-steps/s against 7,492.3.
-The command is bounded, creates no checkpoints and does not modify training
-runs. Don't substitute older 15–35k world-steps/s logs: those may use
-different source, terrain, teacher, or PPO configurations.
+### Matched nine-box versus prism results — user hardware, 2026-11-03
+
+The user completed that matched baseline on 2048 worlds with the same
+full PPO update, 32 rollout frames and `--benchmark-updates 3`, using
+the same local source checkout (prism baseline at `0f779bae2e41`;
+nine-box run performed before the next code pull):
+
+| Metric | 9 tilted-box contacts | 18 real triangular-prism contacts |
+| --- | ---: | ---: |
+| Steady full PPO throughput | **17,774.2 world-steps/s** | **7,492.3 world-steps/s** |
+| Post-JIT full PPO mean update | 3.687 s | 8.747 s |
+| First PPO update incl. JIT | 66.141 s | 123.715 s |
+| Peak device bytes in use | 1,373,398,784 (1.37 GB) | 1,901,136,128 (1.90 GB) |
+| GPU peak pool bytes | 2,149,580,800 | 2,145,386,496 |
+| Successful real actor update | 0.00151793 max actor delta | 0.00149838 max actor delta |
+| Geometry top mismatch | up to 0.677 mm vs exact triangles | 0.000 mm |
+
+**Interpretation:** Prisms cost **2.372×** as much post-compile
+wall time (approximately **57.9% lower throughput**) with **528 MB**
+additional peak GPU memory in use, well inside this card's limits.
+Both report `PASS` with finite 360-input observations and nonzero actor
+parameter updates. Neither benchmark proves long-horizon locomotion or
+actual teaching/learning quality. The same full PPO training step count
+of 140M projects to approximately **2.19 h boxes / 5.19 h prisms** only
+under these bounded benchmark rates; real runs can differ in
+curriculum, diagnostics, evaluation and system overhead.
+
+The bounded commands did not save checkpoints or mutate a training run.
+The next gate is a read-only, source-verified 360-input frozen actor
+exam on the real prism world, checking supported real footfalls and
+step crossing independently of Academy rewards. The nine-box model
+remains available as a fast alternative and experimental control.
 
 ## Run a trained robot on the real prisms — frozen read-only exam
 
@@ -166,8 +194,8 @@ The separate `tests/test_prism_exam_scorer.py` contains signed-X/Y,
 ## Not ready for an overnight run
 
 Full-size 2,048-world CUDA PPO has passed and sustained throughput has
-been measured. **Remaining release gates:** matched nine-box performance
-baseline, actual frozen-policy supported walking and repeated mixed-terrain
-crossings, robust corner contacts and recycling under real foot motion, and
-curriculum STEP attempt/evidence retention. Keep this PR a draft; no
+been measured. **Remaining release gates:** actual frozen-policy supported walking and
+repeated mixed-terrain crossings, robust corner contacts and recycling under
+real foot motion, and curriculum STEP attempt/evidence retention. The
+matched nine-box benchmark has passed; prisms cost 2.37x time. Keep this PR a draft; no
 trial run should overwrite the 140M nine-box checkpoint.
