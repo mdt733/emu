@@ -203,6 +203,7 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         'training_config':{
             'seed':cfg.get('seed',735),
             'terrain_carpet':bool(cfg.get('terrain_carpet',False)),
+            'terrain_carpet_prisms':bool(cfg.get('terrain_carpet_prisms',False)),
             'academy_stream':bool(cfg.get('academy_stream',False)),
             'foundation_steps':cfg.get('foundation_steps',20_000_000),
             'academy_intro_steps':cfg.get('academy_intro_steps',60_000_000),
@@ -214,12 +215,19 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'push_max_force_n':cfg.get('push_max_force_n',0.35),
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
-        'physics_mode':('nine-solid-box trainer / browser representative nine-solid-box world'
-                        if cfg.get('terrain_carpet',False) else
-                        'older training topology / browser illustrative terrain'),
-        'warnings':[
+        'physics_mode':(
+            '18 convex triangular-prism MJX collisions / browser illustrative terrain'
+            if cfg.get('terrain_carpet_prisms',False) else
+            'nine-solid-box trainer / browser representative nine-solid-box world'
+            if cfg.get('terrain_carpet',False) else
+            'older training topology / browser illustrative terrain'),
+        'warnings':([
+            'Browser is illustrative, not the 18 actual per-world MJX convex-prism'
+            ' colliders, normals, seeded tiles or changing training birth states.'
+        ] if cfg.get('terrain_carpet_prisms',False) else [
             'Browser matches the nine-solid-box collision TYPE but not the exact per-world'
-            ' seeded MJX tile arrangement, domain randomisation or training birth states.',
+            ' seeded MJX tile arrangement, domain randomisation or training birth states.'
+        ]) + [
             'Snapshot frontiers are curriculum targets, not independent skill proofs.',
         ]
     }
@@ -729,6 +737,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             # identify the actual collision engine on which it trained.
             # Missing keys in historical bundles preserve old semantics.
             "terrain_carpet": bool(run_cfg.get('terrain_carpet', False)),
+            "terrain_carpet_prisms": bool(run_cfg.get('terrain_carpet_prisms', False)),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
