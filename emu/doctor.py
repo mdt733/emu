@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
-from .contracts import VERSION, ROBOT_XML
+from .contracts import VERSION, ROBOT_XML, OBS_SCHEMA_TERRAIN
 
 def doctor(args) -> int:
     print(f'EMU {VERSION} doctor')
@@ -39,8 +39,16 @@ def doctor(args) -> int:
             import jax.numpy as jnp
             from .environment import EmuMJXEnv
             from .curriculum import RegimeGovernor
-            e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=7,max_episode_steps=40,)
-            p=RegimeGovernor().params_dict(); st,_=e.reset(p); out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),p); out.obs.block_until_ready()
+            e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=7,max_episode_steps=700,
+                        terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
+                        unified_capability_focus=True,academy_stream=True,
+                        terrain_carpet=True,terrain_carpet_prisms=True)
+            p=RegimeGovernor().params_dict()
+            st,_=e.reset(p)
+            out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),e.params_array(p))
+            out.obs.block_until_ready()
+            if out.obs.shape != (8,360):
+                raise RuntimeError(f'Expected [8,360] from real prisms, got {out.obs.shape}')
             print(f'MJX reset/step: PASS obs={tuple(out.obs.shape)}')
         except Exception as exc: failures.append(f'MJX reset/step: {exc}')
     if args.domain_smoke:
@@ -50,12 +58,22 @@ def doctor(args) -> int:
             from .domain_randomization import DomainRandomizationConfig
             from .environment import EmuMJXEnv
             from .curriculum import RegimeGovernor
-            cfg=DomainRandomizationConfig(enabled=True,robot_radius=.6,terrain_radius=.6,hardware_radius=.6)
-            e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=5014,max_episode_steps=40,domain_config=cfg)
-            p=RegimeGovernor().params_dict(); st,_=e.reset(p); out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),p); out.obs.block_until_ready()
-            info=jax.device_get(e.domain_info)
-            max_slope=max(float(abs(info['slope_roll_rad']).max()),float(abs(info['slope_pitch_rad']).max()))
-            print(f'Domain MJX smoke: PASS obs={tuple(out.obs.shape)} max_sampled_slope={max_slope*57.2957795:.2f}deg')
+            # Geometry comes only from the prism carpet. Randomize robot
+            # inertia, friction and hardware; do not rotate a retired plane.
+            cfg=DomainRandomizationConfig(
+                enabled=True,robot_radius=.6,terrain_radius=0.,hardware_radius=.6)
+            e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=5014,max_episode_steps=700,
+                        terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
+                        unified_capability_focus=True,academy_stream=True,
+                        terrain_carpet=True,terrain_carpet_prisms=True,
+                        domain_config=cfg)
+            p=RegimeGovernor().params_dict()
+            st,_=e.reset(p)
+            out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),e.params_array(p))
+            out.obs.block_until_ready()
+            if out.obs.shape != (8,360):
+                raise RuntimeError('Domain MJX actor has the wrong 360 input shape')
+            print(f'Domain MJX robot/hardware noise: PASS obs={tuple(out.obs.shape)}')
         except Exception as exc: failures.append(f'Domain MJX smoke: {exc}')
     if failures:
         print('\nNOT READY:'); [print('  -',x) for x in failures]; return 1
