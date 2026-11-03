@@ -84,6 +84,16 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     # The retired sparse-cloud evaluator must not be used by this lineage.
     assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
     assert training_sensor_contract(cfg) is not None
+    # Direct callers cannot revive the legacy launch mode or old actor
+    # contract by skipping the prism-only CLI parser.
+    from dataclasses import replace
+    from emu.training import unified_launch_mode
+    with pytest.raises(ValueError, match='v5045 trainer requires'):
+        unified_launch_mode(replace(cfg, unified_capability_focus=False))
+    with pytest.raises(ValueError, match='v5045 trainer requires'):
+        unified_launch_mode(replace(cfg, observation_schema='sim2real_232'))
+    with pytest.raises(ValueError, match='v5045 trainer requires'):
+        unified_launch_mode(replace(cfg, terrain_carpet_prisms=False))
     # Public CLI must refuse a superficially valid legacy launch before GPU
     # model creation, rather than printing a plan for an impossible world.
     with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):

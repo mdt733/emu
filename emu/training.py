@@ -35,7 +35,7 @@ from .checkpoint_io import (
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -138,10 +138,15 @@ def unified_launch_mode(args: TrainingConfig) -> str:
     training target. The runner independently enforces Git and checkpoint
     provenance; this gate accepts research forks; inspect_run verifies compatibility.
     """
-    if not args.unified_capability_focus:
-        return 'legacy'
-    core = (args.device == 'cuda'
+    # Fail before JAX compilation if a caller bypasses the public
+    # prism-only CLI and supplies a retired configuration directly.
+    if not (args.unified_capability_focus
             and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_carpet and args.terrain_carpet_prisms
+            and args.academy_stream and args.attitude_profile == 'v5015'):
+        raise ValueError('v5045 trainer requires one unified v5015 '
+                         '360-input prism carpet with streaming Academy')
+    core = (args.device == 'cuda'
             and args.terrain_step_max_m >= .001
             and args.open_frontier)
     if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
@@ -206,17 +211,15 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # Schema/physical sensor meaning is part of the learning state:
-    # legacy 220, sim2real 232 and terrain 360 policies cannot share
-    # an observation normalizer or checkpoint merely by array reshaping.
+    # One exact 360-input actor and normalizer/checkpoint identity.
+    # Historical 220/232 schemas cannot enter this executable trainer.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = (TERRAIN_OBS_DIM if args.observation_schema == OBS_SCHEMA_TERRAIN else
-               SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
-    obs_meta = (dict(
-        checkpoint_schema=(9 if args.observation_schema == OBS_SCHEMA_TERRAIN else 8),
-        observation_schema=args.observation_schema,
+    if sensor_contract is None:
+        raise RuntimeError('v5045 trainer has no 360-input sensor contract')
+    obs_dim = TERRAIN_OBS_DIM
+    obs_meta = dict(
+        checkpoint_schema=9, observation_schema=OBS_SCHEMA_TERRAIN,
         sensor_contract=sensor_contract, obs_dim=obs_dim)
-        if sensor_contract is not None else {})
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
         run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs,
         expected_observation_schema=args.observation_schema,
@@ -239,8 +242,6 @@ def train(args: TrainingConfig) -> int:
                     **env_kwargs_from_args(args))
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
-    if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
-        raise ValueError('terrain_360 actor requires a physical terrain topology, including flat foundation')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     # A two-update CUDA acceptance verifies PPO, physical telemetry,
