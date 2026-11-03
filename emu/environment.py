@@ -1583,12 +1583,9 @@ class EmuMJXEnv(TaskSampler):
                   hist_c.sum(axis=1)/jnp.maximum(1,hist_n),
                   self.temporal_vx_reward_share*(
                       hist_n.astype(jnp.float32)/25.))
-        # Only real upward STEP specialist approaches receive a short
-        # self-paced reward allowance; general walking keeps its economics.
-        care_window = ((self._considered_step_window(state, data) |
-                        self._academy_care_window(state, data))
-                       if self.terrain_lesson == 'coherent-careful'
-                       else jnp.zeros((self.num_envs,), dtype=jnp.bool_))
+        # The former one-slab approach/underspeed window has no role on
+        # real multi-lip prisms. Reward is from _carpet_events evidence.
+        care_window=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         care_active = care_window & (state.terrain_care_frames < 120)
         care_frames = state.terrain_care_frames + care_active.astype(jnp.int32)
         reward, terms = training_reward(
@@ -1650,16 +1647,12 @@ class EmuMJXEnv(TaskSampler):
         # G4 examiner/teacher: evidence comes exclusively from actual
         # root travel AND far-side MJX foot contacts. No privileged terrain
         # height or approach position is ever passed to the actor.
-        if self.terrain_carpet:
-            terrain_streak=state.terrain_cross_streak*0
-            terrain_crossed=(state.terrain_crossed |
-                academy['ordinary_step_new'])
-            terrain_active=(state.specialist_active &
-                (state.focus_id==STEP) & ~state.academy_active &
-                (jnp.abs(academy['height_m'])>.0015))
-        else:
-            terrain_streak, terrain_crossed, terrain_active = self._terrain_crossing(
-                state, data, metrics)
+        terrain_streak=state.terrain_cross_streak*0
+        terrain_crossed=(state.terrain_crossed |
+            academy['ordinary_step_new'])
+        terrain_active=(state.specialist_active &
+            (state.focus_id==STEP) & ~state.academy_active &
+            (jnp.abs(academy['height_m'])>.0015))
         # Near/easy support evidence uses the actual signed step size.
         # Ascents and descents are independently measured against their OWN
         # learned frontier. Late 150%-challenge lips cannot fake promotion.
@@ -1713,59 +1706,16 @@ class EmuMJXEnv(TaskSampler):
             physical_height=jnp.zeros_like(reward)
             step_near=terrain_active & False
             step_easy=terrain_active & False
-        ascent_payment = jnp.zeros_like(reward)
-        verified_transfer_payment = jnp.zeros_like(reward)
-        root_peak = state.terrain_ascent_root_peak
-        foot_peak = state.terrain_ascent_foot_peak
-        verified_peak = state.terrain_verified_height_peak
-        if self.observation_schema == OBS_SCHEMA_TERRAIN:
-            # A single bounded foothold/progress lesson for ASCENT, before
-            # the very sparse far-side completion. Both high-water marks are
-            # reset at the next episode birth; no pay for rocking backwards.
-            ascent_payment, root_peak, foot_peak = self._terrain_ascent_guidance(
-                state, data, metrics, terrain_up)
-            if self.verified_ascent_reallocation > 0.:
-                # Transfer part of the EXISTING max-nine-point ascent shaping
-                # (6.6 root travel + 2.4 foot reach) to genuine upper contact.
-                # The +10 supported-crossing payment remains unchanged.
-                ascent_payment = ascent_payment * (
-                    (9.0-self.verified_ascent_reallocation)/9.0)
-                from .directional import contact_pair_mask
-                contact = getattr(data, '_impl', data).contact
-                feet = tuple(int(x) for x in self.ids['foot_geoms'])
-                upper_pairs = contact_pair_mask(
-                    jnp,contact.geom1,contact.geom2,contact.dist,
-                    int(self.terrain_step_geom_id),feet)
-                upper_contact = jnp.any(upper_pairs,axis=1)
-                base_id = int(self.ids['floor_geom'])
-                base_n = data.geom_xmat[:,base_id,:].reshape(
-                    (self.num_envs,3,3))[:,:,2]
-                lower_top = (data.geom_xpos[:,base_id,:] +
-                             UNIFIED_SLAB_HALF_DEPTH_M*base_n)
-                torso = data.xpos[:,self.torso_id,:]
-                torso_above_lower = jnp.sum(
-                    (torso-lower_top)*base_n,axis=1)
-                # Real signed CoG ascent relative to its neutral pose on the
-                # LOWER slab. Lifting in place earns nothing without target
-                # upper-foot contact and a physically upright, supported body.
-                expected_flat = NEUTRAL_ROOT_Z + state.task[:,T.height]
-                cog_delta = jnp.maximum(0.,torso_above_lower-expected_flat)
-                valid = (care_window & terrain_up & upper_contact &
-                         (metrics['support']>=.5) &
-                         (metrics['bad_contact']<.5) &
-                         (metrics['terminal']<.5) & ~physics_diverged)
-                verified_transfer_payment,verified_peak = verified_support_elevation_credit(
-                    physical_height,cog_delta,upper_contact,valid,
-                    state.terrain_verified_height_peak,direction=1,xp=jnp,
-                    max_rise_m=.04,
-                    total_credit=self.verified_ascent_reallocation,
-                    normalize_by_actual_height=True)
-                ascent_payment = ascent_payment + verified_transfer_payment
-            reward = reward + ascent_payment
-            ep_return = ep_return + ascent_payment
-            # Completion still requires real, sustained far-side MJX support.
-            reward = reward + 10.0 * terrain_cross_new.astype(jnp.float32)
-            ep_return = ep_return + 10.0 * terrain_cross_new.astype(jnp.float32)
+        # The one-slab ascent subsidy was always inactive on prism carpets.
+        # Preserve state/metric shape; ordinary contact-verified lips still
+        # receive their non-repeatable +10 completion payment below.
+        ascent_payment=jnp.zeros_like(reward)
+        verified_transfer_payment=jnp.zeros_like(reward)
+        root_peak=state.terrain_ascent_root_peak
+        foot_peak=state.terrain_ascent_foot_peak
+        verified_peak=state.terrain_verified_height_peak
+        reward=reward+10.0*terrain_cross_new.astype(jnp.float32)
+        ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
         reward=reward+academy['reward']
         ep_return=ep_return+academy['reward']
 
@@ -3286,59 +3236,6 @@ class EmuMJXEnv(TaskSampler):
         elevated = inside & (top[:, None] > 0.001)
         return jnp.where(elevated, positions[:, :, 2]-top[:, None], flat)
 
-    def _academy_care_window(self, state, data):
-        """Short self-paced UP approach at the next ACTUAL recycled lip."""
-        jnp=self.jnp
-        if not self.academy_stream or self.terrain_carpet:
-            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
-        tops=jnp.stack(tuple(data.geom_xpos[:,g,2]+
-            float(self.mj_model.geom_size[g,2])
-            for g in self.academy_geom_ids),axis=1)
-        base=jnp.take_along_axis(tops,slot[:,None],axis=1)[:,0]
-        nxt=jnp.take_along_axis(tops,
-            jnp.mod(slot+1,ACADEMY_PLATFORMS)[:,None],axis=1)[:,0]
-        R=data.geom_xmat[:,int(self.academy_geom_ids[0]),:].reshape(
-            (self.num_envs,3,3))
-        axis,across=R[:,:,0],R[:,:,1]
-        edge=axis*(ACADEMY_EDGE_X_M+
-                   state.academy_lip_index*ACADEMY_INTERVAL_M)[:,None]
-        displacement=data.qpos[:,:3]-edge
-        forward=jnp.sum(displacement*axis,axis=1)
-        lateral=jnp.sum(displacement*across,axis=1)
-        return (state.academy_active & (nxt-base>.001) &
-                (forward>-.16) & (forward<.12) &
-                (jnp.abs(lateral)<.22) & (state.task[:,T.vx]>.02))
-
-    def _considered_step_window(self, state, data):
-        """Teacher-only 120-frame maximum STEP-UP negotiation window.
-
-        True lip geometry gates reward but never enters actor observations.
-        The counter does not reset if the walker backs away, preventing
-        perpetual near-edge underspeed-reward farming.
-        """
-        jnp = self.jnp
-        if self.terrain_step_mocap_id < 0:
-            return jnp.zeros((self.num_envs,), dtype=jnp.bool_)
-        R = data.geom_xmat[:, int(self.terrain_step_geom_id), :].reshape(
-            (self.num_envs, 3, 3))
-        axis, across = R[:, :, 0], R[:, :, 1]
-        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
-        base_center = data.mocap_pos[:, self.unified_ground_mocap_id, :]
-        real_rise = jnp.sum((center - base_center) * R[:, :, 2], axis=1)
-        lip = center - UNIFIED_SLAB_HALF_LENGTH_M * axis
-        delta = data.qpos[:, :3] - lip
-        forward = jnp.sum(delta * axis, axis=1)
-        lateral = jnp.sum(delta * across, axis=1)
-        return (state.specialist_active & (state.focus_id == STEP)
-                & ~state.academy_active
-                & ((self.env_index % 2) == 0)
-                & self._unified_platform_active(data) & (real_rise > .001)
-                & (state.task[:, T.vx] > .02)
-                & (~state.terrain_crossed)
-                & (forward > -.16) & (forward < .12)
-                & (jnp.abs(lateral) < .22))
-
     def _carpet_events(self,state,data,metrics,done):
         """Genuine supported tile-to-tile crossings, separately for UP/DOWN.
 
@@ -3473,279 +3370,12 @@ class EmuMJXEnv(TaskSampler):
             completed=false)
 
     def _academy_events(self, state, data, metrics, done=None):
-        """Per-lip contact-verified milestones for an unbounded platform ring.
-
-        A crossing needs far-side *top* contact over five frames, both feet
-        beyond the lip and no contact on the trailing slab. Only then is
-        it safe to recycle that slab beyond the existing look-ahead one.
-        """
-        jnp=self.jnp
-        z=jnp.zeros((self.num_envs,),dtype=jnp.float32)
-        zb=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        zi=jnp.zeros((self.num_envs,),dtype=jnp.int32)
+        """One physical Academy: contact-verified events on actual prisms."""
         if done is None:
-            done=zb
-        if self.terrain_carpet:
-            return self._carpet_events(state,data,metrics,done)
-        if not self.academy_stream:
-            return dict(lip_index=zi,streak=zi,crossings=zi,up_count=zi,
-                down_count=zi,clearance_seen=zb,foothold_seen=zb,
-                transfer_seen=zb,cross_new=zb,up_new=zb,down_new=zb,
-                clearance_new=zb,foothold_new=zb,transfer_new=zb,
-                reward=z,height_m=z,completed=zb,approach_seen=zb,
-                attempt_new=zb)
-        from .directional import (supported_top_foot_contacts, contact_pair_mask)
-        active=state.academy_active
-        slot=jnp.mod(state.academy_lip_index,ACADEMY_PLATFORMS)
-        target_slot=jnp.mod(slot+1,ACADEMY_PLATFORMS)
-        contact=getattr(data,'_impl',data).contact
-        foot_geoms=tuple(int(x) for x in self.ids['foot_geoms'])
-        feet=jnp.asarray(foot_geoms,dtype=jnp.int32)
-        tops=jnp.stack(tuple(
-            data.geom_xpos[:,g,2]+float(self.mj_model.geom_size[g,2])
-            for g in self.academy_geom_ids),axis=1)
-        foot_bottom=data.geom_xpos[:,feet,2]-jnp.asarray(
-            self.mj_model.geom_size[list(foot_geoms),0])[None,:]
-        contact_pairs=jnp.stack(tuple(
-            supported_top_foot_contacts(
-                jnp,contact.geom1,contact.geom2,contact.dist,
-                contact.frame,g,foot_geoms,tops[:,i],foot_bottom,
-                data.geom_xmat[:,g,:].reshape((self.num_envs,3,3))[:,:,2])
-            for i,g in enumerate(self.academy_geom_ids)),axis=1)
-        sidx=jnp.broadcast_to(slot[:,None,None],(self.num_envs,1,2))
-        target_idx=jnp.broadcast_to(target_slot[:,None,None],(self.num_envs,1,2))
-        previous=jnp.take_along_axis(contact_pairs,sidx,axis=1)[:,0,:]
-        # The recycler must reject ANY trailing-slab foot contact, including
-        # grazing its vertical face. Top support alone is not enough here.
-        all_foot_contacts=jnp.stack(tuple(
-            contact_pair_mask(jnp,contact.geom1,contact.geom2,contact.dist,
-                              g,foot_geoms)
-            for g in self.academy_geom_ids),axis=1)
-        trailing_contacts=jnp.take_along_axis(
-            all_foot_contacts,sidx,axis=1)[:,0,:]
-        target=jnp.take_along_axis(contact_pairs,target_idx,axis=1)[:,0,:]
-        target_supported=jnp.any(target,axis=1)
-        stance_supported=jnp.any(previous,axis=1)
-        prev_top=jnp.take_along_axis(tops,slot[:,None],axis=1)[:,0]
-        next_top=jnp.take_along_axis(tops,target_slot[:,None],axis=1)[:,0]
-        rise=next_top-prev_top
-        uphill=rise>.001
-        downhill=rise<-.001
-        R=data.geom_xmat[:,int(self.academy_geom_ids[0]),:].reshape(
-            (self.num_envs,3,3))
-        axis,across=R[:,:,0],R[:,:,1]
-        edge_distance=ACADEMY_EDGE_X_M+state.academy_lip_index*ACADEMY_INTERVAL_M
-        edge=axis*edge_distance[:,None]
-        relative=data.qpos[:,:3]-edge
-        forward=jnp.sum(relative*axis,axis=1)
-        lateral=jnp.sum(relative*across,axis=1)
-        healthy=(active & (jnp.abs(lateral)<.24) &
-                 (metrics['bad_contact']<.5) &
-                 (metrics['terminal']<.5))
-        foot_xyz=data.xpos[:,self.foot_bodies,:]
-        foot_forward=jnp.sum((foot_xyz-edge[:,None,:])*axis[:,None,:],axis=2)
-        foot_clear=(foot_xyz[:,:,2]-.018 > next_top[:,None]+.004)
-        new_clear=(healthy & uphill & (forward>-.14) & (forward<.11) &
-                   stance_supported & jnp.any(foot_clear &
-                     (foot_forward>-.07) & (foot_forward<.13),axis=1) &
-                   ~state.academy_clearance_seen)
-        new_foothold=(healthy & uphill & target_supported &
-                      (forward>-.06) & ~state.academy_foothold_seen)
-        torso_height=data.xpos[:,self.torso_id,2]
-        target_lift=(NEUTRAL_ROOT_Z+state.task[:,T.height] +
-                     prev_top+.40*jnp.maximum(rise,0.))
-        new_transfer=(healthy & uphill & target_supported &
-                      (forward>-.02) & (torso_height>target_lift) &
-                      ~state.academy_transfer_seen)
-        approached=(active & (forward>-.22) & (forward<.14) &
-                    (jnp.abs(lateral)<.24) & (metrics['terminal']<.5))
-        seen=state.academy_approach_seen | approached
-        # Five frames of actual upper contact, with the entire foot pair
-        # safely past the old edge. The old platform is never under a foot
-        # when the recycler is allowed to move it.
-        supported=(healthy & (forward>.13) & target_supported &
-                   (metrics['support']>=.5) &
-                   ~jnp.any(trailing_contacts,axis=1) &
-                   jnp.all(foot_forward>.035,axis=1))
-        streak=jnp.where(supported,state.academy_streak+1,0)
-        new_cross=supported & (streak>=5)
-        next_index=state.academy_lip_index+new_cross.astype(jnp.int32)
-        up_new=new_cross & uphill
-        down_new=new_cross & downhill
-        attempt_new=new_cross | (done & active & seen & ~new_cross)
-        reward=(2.*new_clear.astype(jnp.float32)+
-                3.*new_foothold.astype(jnp.float32)+
-                4.*new_transfer.astype(jnp.float32)+
-                10.*new_cross.astype(jnp.float32))
-        return dict(
-            lip_index=next_index,
-            approach_seen=jnp.where(new_cross,False,seen),
-            attempt_new=attempt_new,
-            streak=jnp.where(new_cross,0,streak),
-            crossings=state.academy_crossings+new_cross.astype(jnp.int32),
-            up_count=state.academy_up_crossings+up_new.astype(jnp.int32),
-            down_count=state.academy_down_crossings+down_new.astype(jnp.int32),
-            clearance_seen=jnp.where(new_cross,False,
-                state.academy_clearance_seen|new_clear),
-            foothold_seen=jnp.where(new_cross,False,
-                state.academy_foothold_seen|new_foothold),
-            transfer_seen=jnp.where(new_cross,False,
-                state.academy_transfer_seen|new_transfer),
-            cross_new=new_cross,up_new=up_new,down_new=down_new,
-            clearance_new=new_clear,foothold_new=new_foothold,
-            transfer_new=new_transfer,reward=reward,height_m=jnp.where(
-                active,rise,0.),
-            completed=zb)
-        
+            done=self.jnp.zeros((self.num_envs,),dtype=self.jnp.bool_)
+        return self._carpet_events(state,data,metrics,done)
+
     # ---- Teacher/evaluator-only supported crossing evidence ----
-    def _terrain_crossing(self, state, data, metrics):
-        """Sustained physical far-side crossing, teacher telemetry only.
-
-        Real foot-floor/box contacts come from MJX. A step-down is not a
-        zero-height reading: its target support is the actual lower floor.
-        The initial edge location is known ONLY to this independent examiner.
-        """
-        jnp = self.jnp
-        if self.terrain_step_mocap_id < 0:
-            return state.terrain_cross_streak*0,state.terrain_crossed & False,(
-                jnp.zeros((self.num_envs,),dtype=jnp.bool_))
-        from .directional import contact_pair_mask
-        i = self.terrain_step_mocap_id
-        centre=data.mocap_pos[:,i,:]
-        q=data.mocap_quat[:,i,:]
-        down=(self.env_index.astype(jnp.int32)%2)==1
-        side=jnp.where(down,-1.,1.)
-        if self.unified_capability_focus:
-            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
-                (self.num_envs,3,3))
-            axis=R[:,:,0]
-            across=R[:,:,1]
-            half_length=UNIFIED_SLAB_HALF_LENGTH_M
-            edge=centre-side[:,None]*half_length*axis
-            delta=data.qpos[:,:3]-edge
-            forward=jnp.sum(delta*axis,axis=1)
-            lateral=jnp.sum(delta*across,axis=1)
-        else:
-            ca=1.0-2.0*q[:,3]**2
-            sa=2.0*q[:,0]*q[:,3]
-            axis=jnp.stack((ca,sa),axis=1)
-            edge=centre[:,:2]-side[:,None]*TERRAIN_PLATFORM_HALF_LENGTH_M*axis
-            delta=data.qpos[:,:2]-edge
-            forward=jnp.sum(delta*axis,axis=1)
-            lateral=-delta[:,0]*sa+delta[:,1]*ca
-        contact=getattr(data,'_impl',data).contact
-        feet=tuple(int(x) for x in self.ids['foot_geoms'])
-        box_geom=int(self.terrain_step_geom_id)
-        floor=int(self.ids['floor_geom'])
-        box_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
-                                      contact.dist,box_geom,feet)
-        floor_contact=contact_pair_mask(jnp,contact.geom1,contact.geom2,
-                                        contact.dist,floor,feet)
-        supported=jnp.any(jnp.where(down[:,None],floor_contact,box_contact),axis=1)
-        active=(self._unified_platform_active(data)
-                if self.unified_capability_focus else centre[:,2]>-.5)
-        # Considered ascent may settle on the high side after gaining
-        # far-side contact. The old programmes keep the moving-contact gate;
-        # the new programme uses real signed lip progression + contact.
-        forward_ok = ((metrics['vx'] > .02)
-                      if self.terrain_lesson != 'coherent-careful'
-                      else ((metrics['vx'] > .02) | (~down)))
-        good=(active & (forward>.10) & (jnp.abs(lateral)<.27) &
-              supported & forward_ok &
-              (metrics['bad_contact']<.5) & (metrics['terminal']<.5))
-        streak=jnp.where(good,state.terrain_cross_streak+1,0)
-        crossed=state.terrain_crossed | (streak>=5)
-        return streak,crossed,active
-
-    def _terrain_ascent_guidance(self, state, data, metrics, terrain_up):
-        """Small, non-repeatable physical ascent teaching; NEVER an actor input.
-
-        Up to 6.6 progress + 2.4 foot-placement reward PER EPISODE.
-        Pay only near the real lip, when commanded forward and stable. Progress
-        needs new root travel and a real MJX floor-foot support pair; foot
-        placement needs the OTHER foot actually grounded and the swing ball
-        bottom above the upper platform. Merely lifting in place, moving while
-        falling, backwards rocking or an unsupported leap cannot farm rewards.
-        Real crossing remains scored independently in _terrain_crossing.
-        """
-        jnp = self.jnp
-        if self.terrain_step_mocap_id < 0 or self.terrain_carpet:
-            return (jnp.zeros_like(metrics['vx']), state.terrain_ascent_root_peak,
-                    state.terrain_ascent_foot_peak)
-        from .directional import contact_pair_mask
-        center = data.mocap_pos[:, self.terrain_step_mocap_id, :]
-        q = data.mocap_quat[:, self.terrain_step_mocap_id, :]
-        if self.unified_capability_focus:
-            R=data.geom_xmat[:,int(self.terrain_step_geom_id),:].reshape(
-                (self.num_envs,3,3))
-            axis,across,normal=R[:,:,0],R[:,:,1],R[:,:,2]
-            edge=center-UNIFIED_SLAB_HALF_LENGTH_M*axis
-            delta=data.qpos[:,:3]-edge
-            forward=jnp.sum(delta*axis,axis=1)
-            lateral=jnp.sum(delta*across,axis=1)
-            moved=jnp.sum((data.qpos[:,:3]-state.data.qpos[:,:3])*axis,axis=1)
-        else:
-            axis = jnp.stack((1.-2.*q[:,3]**2, 2.*q[:,0]*q[:,3]), axis=1)
-            edge = center[:,:2] - TERRAIN_PLATFORM_HALF_LENGTH_M*axis
-            delta = data.qpos[:,:2] - edge
-            forward = jnp.sum(delta*axis, axis=1)
-            lateral = -delta[:,0]*axis[:,1] + delta[:,1]*axis[:,0]
-            moved = jnp.sum((data.qpos[:,:2]-state.data.qpos[:,:2])*axis, axis=1)
-
-        c = getattr(data, '_impl', data).contact
-        feet = tuple(int(x) for x in self.ids['foot_geoms'])
-        floor_pairs = contact_pair_mask(
-            jnp, c.geom1, c.geom2, c.dist, int(self.ids['floor_geom']), feet)
-        floor_stance = jnp.any(floor_pairs, axis=1)
-        healthy = (terrain_up & (metrics['terminal']<.5) &
-                   (metrics['bad_contact']<.5) & floor_stance &
-                   (metrics['cmd_vx']>=.08) &
-                   (jnp.abs(metrics['cmd_vy'])<.08) &
-                   (jnp.abs(metrics['cmd_yaw'])<.5) &
-                   (jnp.abs(lateral)<.22) & (forward>-.13))
-
-        # Positive *new* root progress, up to 10cm past the lip. It must
-        # actually move forward during this frame, while a foot is grounded.
-        eligible_root = healthy & (moved>.0005) & (forward<.12)
-        root_now = jnp.clip(forward, -.12, .10)
-        root_peak = jnp.where(
-            eligible_root, jnp.maximum(state.terrain_ascent_root_peak, root_now),
-            state.terrain_ascent_root_peak)
-        root_gain = root_peak - state.terrain_ascent_root_peak
-
-        # A forward-reaching airborne foot, safely above the actual ledge
-        # top, with the opposite foot's floor contact confirmed by MJX.
-        # This signal is monotonic; 1,000 taps at the edge pay at most once.
-        fp = data.xpos[:, self.foot_bodies, :]
-        if self.unified_capability_focus:
-            foot_delta=fp-edge[:,None,:]
-            foot_forward=jnp.sum(foot_delta*axis[:,None,:],axis=2)
-            foot_lateral=jnp.sum(foot_delta*across[:,None,:],axis=2)
-            # Measured surface-normal clearance above the ACTUAL inclined
-            # upper top face; world Z would reward fake footholds on camber.
-            foot_clearance=jnp.sum((fp-center[:,None,:])*normal[:,None,:],
-                                   axis=2)-UNIFIED_SLAB_HALF_DEPTH_M-.018
-        else:
-            foot_delta = fp[:,:,:2] - edge[:,None,:]
-            foot_forward = jnp.sum(foot_delta*axis[:,None,:], axis=2)
-            foot_lateral = (-foot_delta[:,:,0]*axis[:,None,1] +
-                            foot_delta[:,:,1]*axis[:,None,0])
-            upper_z = center[:,2]+TERRAIN_PLATFORM_HALF_DEPTH_M
-            foot_bottom = fp[:,:,2] - .018  # 18mm ball radius
-            foot_clearance=foot_bottom-upper_z[:,None]
-        opposite_stance = jnp.flip(floor_pairs, axis=1)
-        reachable = ((~floor_pairs) & opposite_stance &
-                     (foot_clearance>.004) &
-                     (jnp.abs(foot_lateral)<.22))
-        reach = jnp.where(reachable, jnp.clip(foot_forward+.06, 0., .12), 0.)
-        best_reach = jnp.max(reach, axis=1)
-        eligible_foot = healthy & (forward<.06) & (forward>-.11)
-        foot_peak = jnp.where(
-            eligible_foot, jnp.maximum(state.terrain_ascent_foot_peak, best_reach),
-            state.terrain_ascent_foot_peak)
-        foot_gain = foot_peak - state.terrain_ascent_foot_peak
-        return 30.*root_gain + 20.*foot_gain, root_peak, foot_peak
-
     # ---- Physical facts for reward and report, not hidden actor inputs ----
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos,
                  carpet_heights=None):
