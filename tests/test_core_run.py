@@ -164,6 +164,36 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     with pytest.raises(ValueError):
         configs(tmp_path, prisms=True, envs=8, seed=735)
 
+    # Exact-current-source curriculum state is part of the same checkpoint
+    # contract. Older pooled evidence cannot quietly become v5045 progress.
+    from copy import deepcopy
+    from emu.curriculum import RegimeGovernor
+    gov = RegimeGovernor(unified_capability_focus=True)
+    gov.terrain_evidence['up_near_attempts'] = 5.
+    gov.terrain_evidence['up_near_successes'] = 3.
+    gov.academy_evidence['up_near_attempts'] = 2.
+    original = gov.state_dict()
+    restored = RegimeGovernor(unified_capability_focus=True)
+    restored.load_state_dict(original)
+    assert restored.state_dict() == original
+    for remove in ('academy_evidence', 'terrain_evidence', 'command_evidence'):
+        corrupt = deepcopy(original)
+        del corrupt[remove]
+        with pytest.raises(ValueError, match='curriculum state keys mismatch'):
+            restored.load_state_dict(corrupt)
+    corrupt = deepcopy(original)
+    del corrupt['params']['academy_height_up_m']
+    with pytest.raises(ValueError, match='curriculum parameter keys mismatch'):
+        restored.load_state_dict(corrupt)
+    corrupt = deepcopy(original)
+    del corrupt['command_evidence']['vx_hi']['easy_attempts']
+    with pytest.raises(ValueError, match='bad command frontier evidence'):
+        restored.load_state_dict(corrupt)
+    corrupt = deepcopy(original)
+    corrupt['academy_evidence']['updates'] = 2.
+    with pytest.raises(ValueError, match='Academy evidence checkpoint mismatch'):
+        restored.load_state_dict(corrupt)
+
 
 class _SavedLearner(NamedTuple):
     params: Any

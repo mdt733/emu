@@ -260,44 +260,22 @@ class RegimeGovernor:
         }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
-        expected = {
-            'params', 'competence', 'core_competence', 'best_len', 'core_bad_streak',
-            'fall_ema', '_falls_ema', '_episodes_ema', '_updates_done_total',
-            'frontier_precision_ema', 'frontier_bad_streak',
-        }
-        legacy = set(expected)
-        expected.add('terrain_evidence')
-        expected_without_academy=set(expected)
-        expected.add('academy_evidence')
-        if self.unified_capability_focus:
-            expected.update(('command_evidence','slope_evidence'))
-        # Preserve exactly-known older flat governor state (empty new
-        # window), without bypassing external checkpoint source provenance.
-        if self.unified_capability_focus:
-            expected_without_academy.update(('command_evidence','slope_evidence'))
-        if not isinstance(d, dict) or set(d) not in (
-                legacy,expected_without_academy,expected):
-            raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
+        # Source-pinned v5045 checkpoints must provide the complete current
+        # governor state. Historical layouts belong to historical commits;
+        # do not synthesize evidence after a silent schema migration.
+        expected = set(self.state_dict())
+        if not isinstance(d, dict) or set(d) != expected:
+            raise ValueError(
+                f"curriculum state keys mismatch: expected={sorted(expected)} "
+                f"got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
         saved_params = dict(d['params'])
-        # Previous v5040 used one shared frontier; never lose its measured
-        # progress if a source-authorised research fork is explicitly loaded.
-        if 'academy_height_m' in saved_params:
-            former = float(saved_params.pop('academy_height_m'))
-            saved_params['academy_height_up_m'] = former
-            saved_params['academy_height_down_m'] = former
-        defaults = {
-            'terrain_exposure': 0.0, 'terrain_height_m': 0.0,
-            'slope_exposure': 0.0, 'slope_max_deg': 0.0,
-            'academy_height_up_m': self.ACADEMY_SEED_LIP_M,
-            'academy_height_down_m': self.ACADEMY_SEED_LIP_M,
-        }
-        if set(saved_params) - param_names or param_names - set(saved_params) - set(defaults):
-            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(saved_params)}")
-        for key, default in defaults.items():
-            saved_params.setdefault(key, default)
+        if set(saved_params) != param_names:
+            raise ValueError(
+                f"curriculum parameter keys mismatch: expected={sorted(param_names)} "
+                f"got={sorted(saved_params)}")
         expected_regimes = set(self.REGIMES)
         expected_falls = expected_regimes | {'posture'}
         expected_frontier = {'vx_hi', 'vx_lo', 'vy', 'yaw', 'combo', 'accel'}
@@ -306,15 +284,8 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
-        evidence = d.get('terrain_evidence', self._empty_terrain_evidence())
+        evidence = d['terrain_evidence']
         names = set(self._empty_terrain_evidence())
-        legacy_names = {'up_attempts','up_successes','up_falls',
-                        'down_attempts','down_successes','down_falls','updates'}
-        if isinstance(evidence,dict) and set(evidence)==legacy_names:
-            # 40M-era pooled terrain episodes cannot justify promotion under
-            # the new severity-specific teacher; retain their diagnostic
-            # counts but introduce empty proof cohorts.
-            evidence={**self._empty_terrain_evidence(),**evidence}
         if (not isinstance(evidence, dict) or set(evidence) != names or
                 any(not math.isfinite(float(v)) or float(v) < 0. for v in evidence.values())):
             raise ValueError('curriculum terrain evidence window mismatch')
@@ -330,11 +301,7 @@ class RegimeGovernor:
                         evidence[f'{direction}_{band}_attempts']):
                     raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
-        school=d.get('academy_evidence',self._empty_academy_evidence())
-        if isinstance(school, dict) and 'updates' in school:
-            prior = dict(school)
-            updates = prior.pop('updates')
-            school = dict(prior, up_updates=updates, down_updates=updates)
+        school=d['academy_evidence']
         if (not isinstance(school,dict) or
             set(school)!=set(self._empty_academy_evidence()) or
             any(not math.isfinite(float(v)) or float(v)<0.
@@ -356,40 +323,27 @@ class RegimeGovernor:
                 set(entries)!=set(self.COMMAND_SECTORS)):
                 raise ValueError('unified command frontier evidence schema mismatch')
             for sector,values in entries.items():
-                # Preserve exact 40M-era saved near-edge evidence while
-                # introducing additional easier-task failure counters.
-                valid=({'attempts','successes'},
-                       set(self._empty_command_window()))
-                if (not isinstance(values,dict) or set(values) not in valid or
+                if (not isinstance(values,dict) or
+                    set(values)!=set(self._empty_command_window()) or
                     not all(math.isfinite(float(x)) and float(x)>=0.
                             for x in values.values()) or
                     values['successes']>values['attempts'] or
-                    values.get('easy_successes',0.)>
-                    values.get('easy_attempts',0.)):
+                    values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad command frontier evidence {sector}')
-            self.command_evidence={
-                k:{**self._empty_command_window(),**v}
-                for k,v in entries.items()}
+            self.command_evidence={k:dict(v) for k,v in entries.items()}
             entries=d['slope_evidence']
             if (not isinstance(entries,dict) or
                 set(entries)!=set(self.SLOPE_DIRECTIONS)):
                 raise ValueError('unified slope evidence schema mismatch')
             for direction,values in entries.items():
-                # Old 40M-era cohorts stored pooled directions. Keep their
-                # field schema loadable but never promote severity using
-                # evidence whose actual incline was not recorded.
-                old={'attempts','successes'}
-                new=set(self._empty_slope_window())
-                if (not isinstance(values,dict) or set(values) not in (old,new)
-                    or not all(math.isfinite(float(x)) and float(x)>=0.
-                               for x in values.values()) or
-                    (values['successes']>values['attempts'] if set(values)==old
-                     else values['near_successes']>values['near_attempts'] or
-                          values['easy_successes']>values['easy_attempts'])):
+                if (not isinstance(values,dict) or
+                    set(values)!=set(self._empty_slope_window()) or
+                    not all(math.isfinite(float(x)) and float(x)>=0.
+                            for x in values.values()) or
+                    values['near_successes']>values['near_attempts'] or
+                    values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad slope evidence {direction}')
-            self.slope_evidence={
-                k:(self._empty_slope_window() if set(v)==old else dict(v))
-                for k,v in entries.items()}
+            self.slope_evidence={k:dict(v) for k,v in entries.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
