@@ -33,6 +33,8 @@ def main():
                    help="1..8 full PPO updates; report synchronized steady FPS "
                         "after the first compilation; no checkpoint")
     a=p.parse_args()
+    if not a.prisms:
+        p.error("The active EMU simulator is prism-only; pass --prisms")
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
     if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
         p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
