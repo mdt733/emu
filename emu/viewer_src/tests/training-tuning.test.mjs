@@ -22,10 +22,12 @@ const data=step=>trainingLimits({
 test('the 10 sliders expose effective specialist weights, not unscaled global frontiers',()=>{
   const b=data(34000000);
   const slope=roleSliders(b,'slope'),steps=roleSliders(b,'step');
-  assert.ok(Math.abs(slope.slope-.56)<1e-9);
-  assert.ok(Math.abs(steps.slope-.28)<1e-9);
-  assert.equal(steps.up,2);
-  assert.equal(steps.down,2);
+  // Trainer treats exposure as probability of an EXPOSED birth, not
+  // a terrain grade/height multiplier (v5041 source bug fix).
+  assert.ok(Math.abs(slope.slope-.7)<1e-9);
+  assert.ok(Math.abs(steps.slope-.35)<1e-9);
+  assert.equal(steps.up,4);
+  assert.equal(steps.down,4);
   assert.equal(steps.forward,.28);
   assert.equal(steps.reverse,.07);
   assert.equal(steps.push,.65);
@@ -56,7 +58,7 @@ test('custom sliders override exactly the requested role terrain and commands',(
   assert.equal(solid.tiles.length,9);
   // Original trainer curriculum data was never modified by the preview.
   assert.equal(b.slopeDeg,.7);
-  assert.ok(Math.abs(roleSliders(b,'step').slope-.28)<1e-9);
+  assert.ok(Math.abs(roleSliders(b,'step').slope-.35)<1e-9);
 });
 
 test('manual challenge can be shown at a flat training foundation age',()=>{
@@ -119,4 +121,18 @@ test('recovery drill produces frequent truly random impulses without rewriting t
   assert.ok(Math.abs(event.fy-.35)<1e-9);
   assert.equal(event.frames,5);
   assert.equal(sampleShove({mode:'drill',intensity:0,maxForceN:1,rng:()=>0}),null);
+});
+
+test('live true-prism origin explicitly warns about nine-box browser replay',()=>{
+  const b=trainingLimits({
+    training_step:60000000,
+    latest_metrics:{step:60000000,slope_max_deg:.7,terrain_height_m:.004},
+    training_config:{terrain_carpet:true,terrain_carpet_prisms:true,
+      academy_stream:true,seed:735,foundation_steps:20000000}
+  });
+  assert.equal(b.trainingCarpet,true);
+  assert.equal(b.trainingCarpetPrisms,true);
+  assert.match(b.physicsMode,/18-prism MJX training/);
+  const boxSource=data(60000000);
+  assert.equal(boxSource.trainingCarpetPrisms,false);
 });

@@ -107,8 +107,12 @@ export function trainingLimits(data){
     academyRampSteps:as(cfg.academy_ramp_steps,20_000_000,0,1e12),
     academyStream:cfg.academy_stream===true,
     trainingCarpet:cfg.terrain_carpet===true,
+    trainingCarpetPrisms:cfg.terrain_carpet_prisms===true,
     transitionMeasured,transitionConfigured,
-    source:'training',physicsMode:data.physics_mode||'source curriculum metrics',
+    source:'training',physicsMode:data.physics_mode||(
+      cfg.terrain_carpet_prisms===true
+        ? '18-prism MJX training / representative nine-box browser'
+        : 'source curriculum metrics'),
     warnings:data.warnings||[]};
 }
 
