@@ -13,6 +13,27 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Keep this short on purpose: one explicit owner for each Python runtime
+# module. The matching checklist is in docs/CORE_SKELETON.md.
+# Adding a new engine module should prompt an ownership decision, not an
+# automatic acceptance of another layer. This is not a function-level
+# coverage assertion.
+OWNED_BACKEND: dict[str, tuple[str, ...]] = {
+    "commands": ("__init__", "cli", "run", "training_config"),
+    "physics": ("contracts", "environment", "terrain_carpet_mjx",
+                "carpet_prism_mjx", "domain_randomization", "directional"),
+    "learning": ("training", "ppo", "rewards", "curriculum",
+                 "capability_focus", "capability_field", "training_health"),
+    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam"),
+    "delivery": ("policy_export", "viewer_server", "capability_viewer"),
+    "diagnostics": ("doctor",),
+}
+RETIRED_BACKEND = frozenset((
+    "capability_cloud", "physical_exam", "physical_quality",
+    "step_academy_world", "terrain_carpet", "terrain_spike",
+))
+
 STAGES: dict[str, tuple[str, ...]] = {
     "run": ("cli", "run", "training_config", "checkpoint_io"),
     "physics": ("environment", "terrain_carpet_mjx", "carpet_prism_mjx",
@@ -93,6 +114,16 @@ def reachable(graph: dict[str, list[str]], roots: tuple[str, ...]) -> list[str]:
 def inventory(root: Path = REPO_ROOT) -> dict:
     modules = {path.stem: path for path in (root / "emu").glob("*.py")}
     local = set(modules)
+    expected_list = [name for group in OWNED_BACKEND.values() for name in group]
+    expected = set(expected_list)
+    ownership_errors = {
+        "unowned_backend": sorted(local - expected),
+        "missing_owned_backend": sorted(expected - local),
+        "retired_backend_returned": sorted(local & RETIRED_BACKEND),
+        "duplicate_owners": sorted({
+            name for name in expected_list if expected_list.count(name) != 1
+        }),
+    }
     edges: dict[str, list[str]] = {}
     lines: dict[str, int] = {}
     broken_imports: dict[str, list[str]] = {}
@@ -141,6 +172,10 @@ def inventory(root: Path = REPO_ROOT) -> dict:
         "stage_reachable": stage_reachability,
         "static_unlinked_manual_review_only": review_only,
         "missing_emu_module_imports": broken_imports,
+        "owned_backend_groups": {
+            group: list(names) for group, names in OWNED_BACKEND.items()
+        },
+        "ownership_errors": ownership_errors,
         "limitations": (
             "Static Python imports only. Dynamic CLI dispatch, JAX tracing, "
             "browser modules, package exports and historical checkpoints "
@@ -169,7 +204,9 @@ def markdown(data: dict) -> str:
         out.append(f"| `{name}` | {detail['lines']} | "
                    f"{', '.join(detail['imports']) or '—'} | "
                    f"{len(detail['script_or_test_users'])} |")
-    out.extend(["", "## Deleted-module imports (must be empty)", "",
+    out.extend(["", "## Skeleton ownership mismatches (must all be empty)", "",
+                json.dumps(data["ownership_errors"], sort_keys=True),
+                "", "## Deleted-module imports (must be empty)", "",
                 json.dumps(data["missing_emu_module_imports"], sort_keys=True),
                 "", "## Manual-review candidates only", "",
                 ", ".join(data["static_unlinked_manual_review_only"]) or "None.",
@@ -184,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     data = inventory()
     print(json.dumps(data, sort_keys=True, indent=2) if args.json
           else markdown(data), end="")
-    return 1 if data["missing_emu_module_imports"] else 0
+    return int(bool(data["missing_emu_module_imports"]) or
+               any(data["ownership_errors"].values()))
 
 
 if __name__ == "__main__":
