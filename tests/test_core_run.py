@@ -209,6 +209,20 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
             for kind,val in (('attempts',4.),('successes',0.))}
     assert step_gov.advance_terrain(easy,max_height_m=.08) == 'terrain_retreat_easy_failure'
     assert step_gov.params.terrain_height_m < before + .0011
+    # The unified controller's generic frontier helper must NOT independently
+    # promote signed command axes: six specialist proof cohorts own those.
+    g = RegimeGovernor(unified_capability_focus=True, open_frontier=True)
+    g.fall_ema['resilience'] = .20
+    g.competence['resilience'] = .60
+    old_vx = g.params.frontier_vx_hi
+    old_push = g.params.frontier_push_n
+    ev = g._advance_physical_frontiers(
+        {},global_fall=.20,global_retreat=False,specialist_growth_enabled=True)
+    assert ev['push_n'] == 'expand' and g.params.frontier_push_n > old_push
+    assert ev['combo'] == 'no_edge_data'
+    assert g.params.frontier_vx_hi == old_vx
+    assert g._advance_physical_frontiers(
+        {},global_fall=.20,global_retreat=False,specialist_growth_enabled=False) == {}
 
 
 class _SavedLearner(NamedTuple):
