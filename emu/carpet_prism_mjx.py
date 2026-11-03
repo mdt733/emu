@@ -17,6 +17,7 @@ import numpy as np
 
 from .terrain_carpet_mjx import TILE_COUNT, TILE_M, TILE_SIZE_Z_M
 
+PRISM_DEPTH_M = .65  # below top: safely spans simultaneous 15deg + signed XY-step corners
 PRISMS_PER_TILE = 2
 PRISM_COUNT = TILE_COUNT * PRISMS_PER_TILE
 PRISM_BODY_NAMES = tuple(f"carpet_prism_body_{i}" for i in range(PRISM_COUNT))
@@ -46,7 +47,7 @@ def prism_mesh_xml(root, *, active: bool):
     world = root.find("worldbody")
     if world is None:
         raise ValueError("prism mesh needs worldbody")
-    # CCW surface faces, top z=0, buried underside z=-.30m.
+    # CCW surface faces, top z=0, buried underside follows its top vertex by PRISM_DEPTH_M.
     faces = ((0, 1, 2), (5, 4, 3),
              (0, 3, 4), (0, 4, 1),
              (1, 4, 5), (1, 5, 2),
@@ -55,7 +56,7 @@ def prism_mesh_xml(root, *, active: bool):
     for k in range(PRISM_COUNT):
         xy = _local_triangle(k % 2)
         verts = [(x, y, 0.) for x, y in xy] + [
-            (x, y, -.30) for x, y in xy]
+            (x, y, -PRISM_DEPTH_M) for x, y in xy]
         vertex_string = " ".join(
             f"{c:.8f}" for vert in verts for c in vert)
         ET.SubElement(asset, "mesh", dict(
@@ -116,7 +117,7 @@ class PrismMeshBuilder:
                 if np.min(np.linalg.norm(xys-xy,axis=1)) > 1e-3:
                     raise ValueError(f"Prism {k} XY changed under MuJoCo compiler")
             top_z = float(np.max(physical[:,2]))
-            if float(np.max(physical[:,2])-np.min(physical[:,2])) < .20:
+            if float(np.max(physical[:,2])-np.min(physical[:,2])) < PRISM_DEPTH_M-.01:
                 raise ValueError("Prism must have substantial buried vertical sides")
             # Faces and edge normals in ConvexMesh are already materialized,
             # not indexed. Recover immutable index maps ONCE before JIT.
