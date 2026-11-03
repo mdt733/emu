@@ -744,3 +744,62 @@ v5041 trainer source at `emu/environment.py::_simulate_physics`:
   retention and verified recovery, and separate push force and
   timing effects. Never silently increase the running trainer's
   stochastic force frequency.
+
+
+### Important: 110M Carpet viewer looked flat despite nonzero console frontier
+
+Owner reported at 109.6M–110.3M training:
+`slope≤0.7°(0%) step≤0.4cm(15%)` and no obvious slope/steps
+in the 3×3 browser viewer. In `results.py`, slope parentheses are
+**observed physical slant occupancy**, whereas step parentheses
+report **`terrain_exposure` = 0.15**. The visible 4mm is a
+*governor ceiling*, not the actual height of a born STEP specialist
+world. `environment._carpet_birth` calls
+`terrain_carpet_mjx.role_envelope` with
+`actual_up_m=frontier_up_m × role_factor × terrain_exposure`
+and `actual_slope_deg=frontier_slope_deg × role_factor ×
+slope_exposure`. At ordinary STEP factor 1.0, a 4mm frontier
+and 15% exposure produce **0.600 mm reference step**, further
+varied by seeded directional profiles. A 0% reported physical
+slope occupancy is NOT itself a reliable number for the separate
+`slope_exposure` parameter; read metrics to know exact source
+assignments. This may explain why the active long-run Academy
+still reports zero signed crossings and little slope practice,
+but don't change its source while training.
+
+Found separate VIEWER problems that made it even more confusing:
+- Source-follow geometry signature rounded STEPS at 2mm increments
+  (`round(meters*500)`) and slopes at .5°, meaning every new
+  submillimetre change could be skipped without a physical rebuild.
+  Added `src/carpet-refresh.js`: signature at **0.025mm** and
+  **0.01°**, including distinct STEP birth programme.
+- Settings step sliders had `step=1` **millimetre**, rounding
+  real ~0.600mm assignments to zero/one. Now `step=.025` mm,
+  and printed millimetre values have three decimals.
+- The viewer had assumed every STEP birth after Academy
+  introduction was an Academy birth. Actual GPU
+  `academy_active` is a sampled per-episode boolean; ordinary
+  STEP uses `max(general terrain,Academy signed frontiers)`,
+  Academy uses its separate UP/DOWN frontiers. The viewer now
+  has a visible `Ordinary STEP / Academy STEP` chooser.
+- Top of Carpet settings now separates **global reported ceiling**,
+  **physical exposure factors**, **source-assigned role geometry**
+  and **browser collider geometry** with signed heights in mm.
+  A tiny readout also remains in the gait HUD outside Settings.
+  Default remains the real role×exposure physics. `Global frontier
+  maximum` is an EXPLICIT viewer-only diagnostic override
+  bypassing role/exposure; an actual physically taller preview
+  without claiming that the current GPU worlds are that hard.
+- New focused `tests/carpet-live-geometry.test.mjs` reproduces
+  110M 4mm×15%→0.6mm, the separate STEP/Academy signed caps,
+  upgraded physical-refresh precision, and DOM/slider controls.
+  `docs/V5041_TRAINING_CARPET_VIEWER.md` contains the complete
+  explanation and usage. Actual 140M trainer checkpoint/source
+  unchanged, `main` still frozen. If new branch CI is pending,
+  do not claim final Git SHA green before checking.
+
+Potential independent SCIENCE implication: `four_lips=0/43`,
+`foothold=0`, `transfer=0`, little physical slope exposure
+at 110M despite a very step-heavy allocated curriculum. Source
+curriculum frontier versus actual birth severity needs a careful
+post-140M analysis before any new source-pinned training experiment.
