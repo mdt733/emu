@@ -78,7 +78,7 @@ same change; never keep duplicate experimental launchers in active code.
 `bash scripts/check.sh` is quick by default, including the source
 ownership inventory and current-document links; `--full` runs the
 18 maintained Python and six browser contracts. The complete
-[tree-to-skeleton checklist](CORE_SKELETON.md#skeleton--actual-files--retired-code--living-checklist)
+[tree-to-skeleton checklist](CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)
 records current owners, retired files and outstanding physical gates.
 
 ## Preserved historical incident
