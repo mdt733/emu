@@ -4,27 +4,15 @@ on:
   push:
     branches:
       - feature/v5043-mjx-convex-prism-carpet
-  pull_request:
-    paths:
-      - "emu/carpet_prism_mjx.py"
-      - "emu/terrain_carpet_mjx.py"
-      - "emu/environment.py"
-      - "scripts/probe_carpet_prism_mjx.py"
-      - "scripts/exam_prism_course.py"
-      - "scripts/exam_step_course.py"
-      - "tests/test_prism_exam_scorer.py"
-      - "tests/test_prism_grade_cap.py"
-      - "emu/ppo.py"
-      - ".github/workflows/prism-mjx-proof.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# New experiments supersede their previous compile-heavy CPU acceptance runs.
-# The same branch on push and PR shares a group; only the newest SHA matters.
+# This experimental branch has one push run per SHA, not duplicate push+PR
+# probes that race to cancel each other. A newer push replaces stale work.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
