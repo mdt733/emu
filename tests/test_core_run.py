@@ -193,6 +193,22 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     corrupt['academy_evidence']['updates'] = 2.
     with pytest.raises(ValueError, match='Academy evidence checkpoint mismatch'):
         restored.load_state_dict(corrupt)
+    # A STEP teacher advances only when both signs have independently
+    # demonstrated supported near-frontier crossing.
+    step_gov = RegimeGovernor(unified_capability_focus=True)
+    assert step_gov.advance_terrain({}, max_height_m=.08) == 'terrain_unified_seed_4mm'
+    before = step_gov.params.terrain_height_m
+    near = {f'terrain_near_{kind}_{direction}': val
+            for direction in ('up','down')
+            for kind,val in (('attempts',4.),('successes',3.))}
+    assert step_gov.advance_terrain(near,max_height_m=.08) == 'terrain_height_expand_real_cross'
+    assert step_gov.params.terrain_height_m > before
+    # An easy failed encounter has priority over near successes; this is
+    # an actual retreat, not an academic metric-only diagnostic.
+    easy = {f'terrain_easy_{kind}_up': val
+            for kind,val in (('attempts',4.),('successes',0.))}
+    assert step_gov.advance_terrain(easy,max_height_m=.08) == 'terrain_retreat_easy_failure'
+    assert step_gov.params.terrain_height_m < before + .0011
 
 
 class _SavedLearner(NamedTuple):

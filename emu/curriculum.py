@@ -56,7 +56,7 @@ class RegimeParams:
     # Independently earned consecutive-lip frontier in the SAME governor.
     academy_height_up_m: float = 0.003
     academy_height_down_m: float = 0.003
-    # True inclined collision slabs; independent of discontinuous steps.
+    # Physically colliding prism gradients, independent of discrete lips.
     slope_exposure: float = 0.0
     slope_max_deg: float = 0.0
 
@@ -78,16 +78,12 @@ class RegimeGovernor:
     REGIMES = ('steady', 'transition', 'resilience')
     # At 5% births, each PPO rollout contains too few finished terrain
     # episodes for reliable up/down decisions. Keep a short saved window.
-    TERRAIN_MIN_ATTEMPTS_PER_DIRECTION = 20
     TERRAIN_MAX_WINDOW_UPDATES = 40
     ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
     ACADEMY_MAX_WINDOW_UPDATES = 50
     ACADEMY_SEED_LIP_M = 0.003
     ACADEMY_MIN_LIP_M = 0.0015
     ACADEMY_HEIGHT_GROWTH_M = 0.0005
-    TERRAIN_ASCENT_PRACTICE_MIN = 0.10
-    TERRAIN_DESCENT_PRACTICE_MIN = 0.50
-    TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
     COMMAND_MIN_EDGE_EPISODES = 4
     COMMAND_MIN_EASY_EPISODES = 4
@@ -220,15 +216,13 @@ class RegimeGovernor:
 
     @staticmethod
     def _empty_terrain_evidence() -> dict[str, float]:
-        # Retain the original pooled fields for legacy non-unified runs.
-        # New closed cohorts are measured against REAL physical ledge height.
-        return dict(up_attempts=0., up_successes=0., up_falls=0.,
-                    down_attempts=0., down_successes=0., down_falls=0.,
-                    updates=0.,
-                    **{f'{direction}_{band}_{outcome}':0.
-                       for direction in ('up','down')
-                       for band in ('near','easy')
-                       for outcome in ('attempts','successes')})
+        # Source-pinned, severity-conditioned evidence only: no retired
+        # undifferentiated step success counts can enter a new frontier.
+        return dict(updates=0., **{
+            f'{direction}_{band}_{outcome}':0.
+            for direction in ('up','down')
+            for band in ('near','easy')
+            for outcome in ('attempts','successes')})
 
     @staticmethod
     def _empty_academy_evidence() -> dict[str,float]:
@@ -293,9 +287,6 @@ class RegimeGovernor:
                 evidence['updates'] > self.TERRAIN_MAX_WINDOW_UPDATES):
             raise ValueError('curriculum terrain evidence age out of range')
         for direction in ('up','down'):
-            if (evidence[f'{direction}_successes'] > evidence[f'{direction}_attempts'] or
-                    evidence[f'{direction}_falls'] > evidence[f'{direction}_attempts']):
-                raise ValueError('curriculum terrain evidence outcome exceeds attempts')
             for band in ('near','easy'):
                 if (evidence[f'{direction}_{band}_successes'] >
                         evidence[f'{direction}_{band}_attempts']):
@@ -693,162 +684,84 @@ class RegimeGovernor:
             events.append(direction+':'+event)
         return ','.join(events)
 
-    def advance_terrain(self, row: dict[str,float], *, step: int,
-                        max_height_m: float, foundation_steps: int,
-                        unified: bool = False, kl_ok: bool = True) -> str:
-        """Physically verified up/down growth, using a checkpointed cohort.
+    def advance_terrain(self, row: dict[str, float], *,
+                        max_height_m: float, kl_ok: bool = True) -> str:
+        """Grow real signed step height from closed, near-severity evidence.
 
-        A single PPO rollout at 5% terrain exposure sees only a handful of
-        completed episodes. Aggregate direction-conditioned outcomes across
-        updates, then judge a CLOSED evidence batch; never pool down-only
-        successes or spend old/easier evidence after difficulty changes.
+        The one v5045 curriculum uses physical UP and DOWN proof cohorts.
+        Neither merely reaching a tile nor a pooled legacy success can
+        certify its frontier. The foundation gate lives in advance_curriculum.
         """
-        if max_height_m <= 0. or (step < foundation_steps and not unified):
+        if not self.unified_capability_focus:
+            raise ValueError('current prism terrain requires unified specialists')
+        if max_height_m <= 0.:
             return 'foundation_flat'
-        # Specialist worlds independently probe actual supported steps from
-        # their first birth. Main's non-unified bootstrap remains unchanged.
         p = self.params
-        speed_lesson = unified
-        exposure_min = .10 if speed_lesson else .05
-        practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
-        expansion_max = .20 if speed_lesson else .25
-        height_increment = .0005 if speed_lesson else .00025
-        # Legacy terrain retains its historical core-gait prerequisites.
-        # Only the unified six-cohort teacher removes cross-specialist
-        # dependencies. This must not change old 220/232 training recipes.
-        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
         if p.terrain_exposure <= 0.:
-            if not unified and not core_ok:
-                return 'await_core_walk'
             self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = .15 if speed_lesson else .05
-            p.terrain_height_m = min(.004 if unified else .010,max_height_m)
-            return 'terrain_unified_seed_4mm' if unified else 'terrain_seed_1cm_5pct'
-        if not unified and not core_ok:
-            self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
-            p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
-            return 'terrain_retreat_core'
-
-        if unified:
-            # One slowly wandering step-height target. Practice across 30-100%
-            # of the target stays broad; only actual near-target supported
-            # crossings can nudge it higher. A HARD failure is not a retreat
-            # signal; repeated difficulty on easier steps is. Up and down
-            # each earn their own evidence; no down-only graduation.
-            evidence=self.terrain_evidence
-            for direction in ('up','down'):
-                for band in ('near','easy'):
-                    for outcome in ('attempts','successes'):
-                        key=f'terrain_{band}_{outcome}_{direction}'
-                        value=float(row.get(key,0.))
-                        if not math.isfinite(value) or value<0.:
-                            raise ValueError(f'invalid step severity evidence {key}')
-                        evidence[f'{direction}_{band}_{outcome}']+=value
-                    if (evidence[f'{direction}_{band}_successes'] >
-                        evidence[f'{direction}_{band}_attempts']):
-                        raise ValueError(f'step successes exceed attempts {direction}/{band}')
-            evidence['updates']+=1.
-            min_attempts=self.science_step_min_attempts
-            easy_bad=any(
-                evidence[f'{d}_easy_attempts']>=min_attempts and
-                evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
-                for d in ('up','down'))
-            if easy_bad:
-                p.terrain_height_m=max(
-                    min(.0015,max_height_m),
-                    (p.terrain_height_m-self.science_step_retreat_mm*.001
-                     if self.science_step_retreat_mm>0.
-                     else p.terrain_height_m*.82))
-                self.terrain_evidence=self._empty_terrain_evidence()
-                return 'terrain_retreat_easy_failure'
-            for direction in ('up','down'):
-                key=f'{direction}_easy_attempts'
-                if evidence[key]>=min_attempts:
-                    evidence[key]=evidence[f'{direction}_easy_successes']=0.
-            ready=all(evidence[f'{d}_near_attempts']>=min_attempts
-                      for d in ('up','down'))
-            if ready:
-                good=all(
-                    evidence[f'{d}_near_successes']/
-                    evidence[f'{d}_near_attempts']>=.55
-                    for d in ('up','down'))
-                for direction in ('up','down'):
-                    evidence[f'{direction}_near_attempts']=0.
-                    evidence[f'{direction}_near_successes']=0.
-                evidence['updates']=0.
-                if not kl_ok:
-                    return 'terrain_hold_ppo_health'
-                if good:
-                    increment = (self.science_step_promotion_mm*.001
-                                 if self.science_step_promotion_mm>0.
-                                 else max(.0010,.18*p.terrain_height_m))
-                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+increment)
-                    self.terrain_evidence=self._empty_terrain_evidence()
-                    return 'terrain_height_expand_real_cross'
-                return 'terrain_hold_probe_learning'
-            if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
-                self.terrain_evidence=self._empty_terrain_evidence()
-                return 'terrain_window_insufficient_attempts'
-            return 'terrain_collect_real_step'
-
-        required = tuple(f'terrain_{outcome}_{direction}'
-                         for direction in ('up','down')
-                         for outcome in ('attempts','successes','falls'))
-        if not all(key in row for key in required):
-            return 'await_directional_terrain_evidence'
-        window = self.terrain_evidence
+            p.terrain_exposure = .15
+            p.terrain_height_m = min(.004,max_height_m)
+            return 'terrain_unified_seed_4mm'
+        # One slowly wandering step-height target. Practice across 30-100%
+        # of the target stays broad; only actual near-target supported
+        # crossings can nudge it higher. A HARD failure is not a retreat
+        # signal; repeated difficulty on easier steps is. Up and down
+        # each earn their own evidence; no down-only graduation.
+        evidence=self.terrain_evidence
         for direction in ('up','down'):
-            attempts = float(row[f'terrain_attempts_{direction}'])
-            successes = float(row[f'terrain_successes_{direction}'])
-            falls = float(row[f'terrain_falls_{direction}'])
-            if (not all(math.isfinite(v) for v in (attempts,successes,falls)) or
-                    min(attempts,successes,falls)<0. or
-                    successes>attempts or falls>attempts):
-                raise ValueError('invalid direction-conditioned terrain outcomes')
-            window[f'{direction}_attempts'] += attempts
-            window[f'{direction}_successes'] += successes
-            window[f'{direction}_falls'] += falls
-        window['updates'] += 1.
-
-        up_n = window['up_attempts']
-        down_n = window['down_attempts']
-        if min(up_n,down_n) < self.TERRAIN_MIN_ATTEMPTS_PER_DIRECTION:
-            if window['updates'] >= self.TERRAIN_MAX_WINDOW_UPDATES:
-                self.terrain_evidence = self._empty_terrain_evidence()
-                return 'terrain_window_insufficient_attempts'
-            return 'terrain_collect_directional_evidence'
-
-        up_rate = window['up_successes'] / up_n
-        down_rate = window['down_successes'] / down_n
-        # No evidence can be recycled after a decision, including holds.
-        self.terrain_evidence = self._empty_terrain_evidence()
-        if unified and not kl_ok:
-            return 'terrain_hold_ppo_health'
-        if min(up_rate,down_rate) >= .50:
-            if p.terrain_exposure < expansion_max:
-                p.terrain_exposure = min(expansion_max,p.terrain_exposure+.005)
-                return 'terrain_exposure_expand_real_cross'
-            p.terrain_height_m = min(max_height_m,p.terrain_height_m+height_increment)
-            return 'terrain_height_expand_real_cross'
-
-        # Practice dose != earned obstacle height. A small genuine ascent
-        # foothold and strong descent may justify at most 10% terrain births
-        # while preserving >=90% normal flat lessons.
-        if (up_rate >= self.TERRAIN_ASCENT_PRACTICE_MIN and
-                down_rate >= self.TERRAIN_DESCENT_PRACTICE_MIN and
-                p.terrain_exposure < practice_max):
-            p.terrain_exposure = min(practice_max,
-                                     p.terrain_exposure+.005)
-            return 'terrain_exposure_practice_ascent'
-
-        if min(up_rate,down_rate) < .12:
-            p.terrain_height_m = max(min(.004 if unified else .010,max_height_m),
-                                     p.terrain_height_m*.985)
-            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.975)
-            return ('terrain_retreat_failed_ascent' if up_rate < .12
-                    else 'terrain_retreat_failed_descent')
-        return 'terrain_hold_directional_learning'
+            for band in ('near','easy'):
+                for outcome in ('attempts','successes'):
+                    key=f'terrain_{band}_{outcome}_{direction}'
+                    value=float(row.get(key,0.))
+                    if not math.isfinite(value) or value<0.:
+                        raise ValueError(f'invalid step severity evidence {key}')
+                    evidence[f'{direction}_{band}_{outcome}']+=value
+                if (evidence[f'{direction}_{band}_successes'] >
+                    evidence[f'{direction}_{band}_attempts']):
+                    raise ValueError(f'step successes exceed attempts {direction}/{band}')
+        evidence['updates']+=1.
+        min_attempts=self.science_step_min_attempts
+        easy_bad=any(
+            evidence[f'{d}_easy_attempts']>=min_attempts and
+            evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
+            for d in ('up','down'))
+        if easy_bad:
+            p.terrain_height_m=max(
+                min(.0015,max_height_m),
+                (p.terrain_height_m-self.science_step_retreat_mm*.001
+                 if self.science_step_retreat_mm>0.
+                 else p.terrain_height_m*.82))
+            self.terrain_evidence=self._empty_terrain_evidence()
+            return 'terrain_retreat_easy_failure'
+        for direction in ('up','down'):
+            key=f'{direction}_easy_attempts'
+            if evidence[key]>=min_attempts:
+                evidence[key]=evidence[f'{direction}_easy_successes']=0.
+        ready=all(evidence[f'{d}_near_attempts']>=min_attempts
+                  for d in ('up','down'))
+        if ready:
+            good=all(
+                evidence[f'{d}_near_successes']/
+                evidence[f'{d}_near_attempts']>=.55
+                for d in ('up','down'))
+            for direction in ('up','down'):
+                evidence[f'{direction}_near_attempts']=0.
+                evidence[f'{direction}_near_successes']=0.
+            evidence['updates']=0.
+            if not kl_ok:
+                return 'terrain_hold_ppo_health'
+            if good:
+                increment = (self.science_step_promotion_mm*.001
+                             if self.science_step_promotion_mm>0.
+                             else max(.0010,.18*p.terrain_height_m))
+                p.terrain_height_m=min(max_height_m,p.terrain_height_m+increment)
+                self.terrain_evidence=self._empty_terrain_evidence()
+                return 'terrain_height_expand_real_cross'
+            return 'terrain_hold_probe_learning'
+        if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
+            self.terrain_evidence=self._empty_terrain_evidence()
+            return 'terrain_window_insufficient_attempts'
+        return 'terrain_collect_real_step'
 
     def _advance_specialist_commands(self, row, *, global_retreat: bool,
                                       kl_ok: bool) -> dict[str,str]:
@@ -958,7 +871,6 @@ class RegimeGovernor:
         Reuse the original regime logic and existing per-skill closed evidence.
         Each specialist already nudges its own target by a bounded small step,
         so there is no redundant second post-decision growth budget.
-        Legacy training stays on its historical regime controller.
         """
         # Only lesson share (not competence) fades in after 20M. The
         # controller cannot seed specialist limits during cold foundation.
@@ -968,11 +880,8 @@ class RegimeGovernor:
             specialist_growth_enabled=growth_enabled)
         report['terrain_event'] = (
             self.advance_terrain(
-                row, step=step, max_height_m=max_height_m,
-                foundation_steps=foundation_steps,
-                unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
-            if growth_enabled or not self.unified_capability_focus
-            else 'foundation_flat')
+                row, max_height_m=max_height_m, kl_ok=kl_ok_to_expand)
+            if growth_enabled else 'foundation_flat')
         report['academy_event']=self.advance_academy(
             row,max_height_m=academy_max_height_m,
             enabled=(self.unified_capability_focus and
