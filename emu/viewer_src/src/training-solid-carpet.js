@@ -54,9 +54,11 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
   const stage=carpetLearningStage(limits);
   const slopeRate=clamp(Number(limits.slopeExposure??1),0,1);
   const stepRate=clamp(Number(limits.stepExposure??1),0,1);
-  const academyBirth=(role==='step'&&stage==='multi-lip');
-  const stepUp=academyBirth?Number(limits.academyStepUpM??p.stepUpM):p.stepUpM;
-  const stepDown=academyBirth?Number(limits.academyStepDownM??p.stepDownM):p.stepDownM;
+  // The UI selects ORDINARY vs ACADEMY before projecting this envelope.
+  // Do not silently replace the ordinary STEP track just because 60M passed.
+  const academyBirth=(role==='step'&&stage==='multi-lip'&&
+    limits.stepTrack==='academy');
+  const stepUp=p.stepUpM,stepDown=p.stepDownM;
   return {
     ...p,
     slopeDeg:slopeRate>0?p.slopeDeg:0,

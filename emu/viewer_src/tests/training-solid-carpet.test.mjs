@@ -95,13 +95,16 @@ test('live exposure means chance of full-height terrain, not scaling its severit
   const ordinary=terrainRoleEnvelope({...b,academyStream:false},'step');
   assert.equal(ordinary.stepUpM,.004);
   assert.equal(ordinary.stepDownM,.004);
-  const academy=terrainRoleEnvelope(b,'step');
+  const academy=terrainRoleEnvelope({...b,stepTrack:'academy',
+    stepUpM:b.academyStepUpM,stepDownM:b.academyStepDownM},'step');
   assert.equal(academy.stepUpM,.003);
   assert.equal(academy.stepDownM,.003);
   const suppressed=terrainRoleEnvelope({...b,slopeExposure:0,stepExposure:0,academyStream:false},'slope');
   assert.equal(suppressed.slopeDeg,0);
   assert.equal(suppressed.stepUpM,0);
-  const stillAcademy=terrainRoleEnvelope({...b,stepExposure:0},'step');
+  const stillAcademy=terrainRoleEnvelope({...b,stepTrack:'academy',
+    stepUpM:b.academyStepUpM,stepDownM:b.academyStepDownM,
+    stepExposure:0},'step');
   assert.equal(stillAcademy.stepUpM,.003);
   const carpet=createSolidCarpet(b,'step');
   assert.ok(carpet.at(1,0).top!==carpet.at(0,0).top);
