@@ -7,7 +7,6 @@ from pathlib import Path
 
 from .contracts import VERSION, seed_root
 from .doctor import doctor
-from .checkpoint_io import find_evaluation
 
 
 def main(argv=None) -> int:
@@ -18,62 +17,25 @@ def main(argv=None) -> int:
     sub=p.add_subparsers(dest='cmd',required=True)
 
     q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
-    q=sub.add_parser('evaluate',help='run the physical capability atlas'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--checkpoint',default=''); q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda'); q.add_argument('--envs',type=int,default=1024); q.add_argument('--horizon',type=int,default=300); q.add_argument('--out-dir',default='')
-    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts'); q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True); q.add_argument('--no-mjx-smoke',action='store_true'); q.add_argument('--domain-smoke',action='store_true',help='also compile/step an 8-world randomized MJX model')
-    q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv'); q.add_argument('--root',default='')
-    q=sub.add_parser('capability-exam',help='frozen 360-input unified physics: command, slope, step, recovery and control')
-    q.add_argument('--policy',required=True,help='verified array-only 360 .emupolicy')
-    q.add_argument('--output',required=True,help='new/empty directory separate from actor')
-    q.add_argument('--worlds',type=int,default=4,help='even 2..32 paired physical worlds')
+    q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts')
+    q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True)
+    q.add_argument('--no-mjx-smoke',action='store_true')
+    q.add_argument('--domain-smoke',action='store_true',
+                   help='also compile/step an 8-world randomized MJX model')
+    q=sub.add_parser('posture-report',help='read-only height drift report for saved metrics.csv')
+    q.add_argument('--root',default='')
+    q=sub.add_parser('prism-exam',
+        help='read-only frozen 360 actor on true MJX prisms: raw support, terrain and progress')
+    q.add_argument('--policy',type=Path,required=True)
+    q.add_argument('--output',type=Path,required=True,help='new or empty directory outside policy')
+    q.add_argument('--worlds',type=int,default=4)
     q.add_argument('--horizon',type=int,default=300)
-    q.add_argument('--speed',type=float,default=.10)
+    q.add_argument('--speed',type=float,default=.12,help='positive forward command in m/s')
     q.add_argument('--seed',type=int,default=1701)
-    q.add_argument('--device',choices=['cpu','cuda','gpu','auto'],default='cpu')
-    q.add_argument('--quick',action='store_true',help='eight essential physical cases instead of the full nineteen')
-    q.add_argument('--legacy-main-baseline',action='store_true',
-                   help='explicit read-only sim2real_232 showcase on the SAME 360 two-slab physics')
-    q.add_argument('--speed-ladder',action='store_true',
-                   help='read-only flat 0.1..1.0m/s measured speed ladder')
-    q.add_argument('--ladder-speeds',type=float,nargs='+',default=None,
-                   help='optional requested forward speeds in m/s; requires --speed-ladder')
-    q.add_argument('--terrain-matrix',action='store_true',
-                   help='matched 1/2/3/5 degree four-direction slope and step matrix')
-    q.add_argument('--matrix-grades-deg',type=float,nargs='+',default=None,
-                   help='optional four-direction physical matrix, e.g. 5 8 10 12 15; require --terrain-matrix')
-    q.add_argument('--matrix-heights-cm',type=float,nargs='+',default=None,
-                   help='optional paired UP/DOWN physical steps in cm, e.g. 2 2.5 3 3.5 (max 4)')
-    q=sub.add_parser('directional-exam',help='read-only real-MJX course and contact-stride exam of a saved policy')
-    source=q.add_mutually_exclusive_group(required=True)
-    source.add_argument('--run-dir',help='read-only schema-7 training run')
-    source.add_argument('--policy',help='frozen exported .emupolicy actor')
-    q.add_argument('--output',required=True,help='unique examination directory, outside training root')
-    q.add_argument('--angle',type=float,default=0.)
-    q.add_argument('--direction',choices=['uphill','downhill','cross_left','cross_right'],default='uphill')
-    q.add_argument('--worlds',type=int,default=8)
-    q.add_argument('--horizon',type=int,default=350)
-    q.add_argument('--speed',type=float,default=.10)
-    q.add_argument('--lateral',type=float,default=0.)
-    q.add_argument('--yaw-rate',type=float,default=0.)
-    q.add_argument('--settle-frames',type=int,default=25)
-    from .evaluation import SCENARIOS
-    q.add_argument('--scenario',choices=SCENARIOS,default='steady')
-    q.add_argument('--turn-rate',type=float,default=.25)
-    q.add_argument('--gyro-bias',type=float,default=0.)
-    q.add_argument('--gyro-noise',type=float,default=0.)
-    q.add_argument('--gyro-delay-frames',type=int,default=0)
-    q.add_argument('--contact-slope',action='store_true',help='real inclined floor with vertical gravity')
-    q.add_argument('--reuse-completed',action='store_true',
-                   help='reuse saved OFF/ON exam JSON to rebuild missing comparison')
-    q.add_argument('--compare-heading',action='store_true',
-                   help='matched read-only controller OFF/ON comparison')
-    q.add_argument('--heading-kp',type=float,default=0.75)
-    q.add_argument('--seed',type=int,default=1701)
-    q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q=sub.add_parser('physical-quality',help='summarise independent frozen physical exams without GPU or policy changes')
-    q.add_argument('--exam',type=Path,action='append',required=True,
-                   help='unified_exam.json or its directory; repeat for independent seeds/test panels')
-    q.add_argument('--output',type=Path,required=True,
-                   help='new output directory for physical_quality.json and .md')
+    q.add_argument('--device',choices=('cpu','cuda','gpu','auto'),default='cpu')
+    q.add_argument('--mode',choices=('flat','slope','step','mixed'),default='mixed')
+    q.add_argument('--grade-deg',type=float,default=3.,help='requested slope frontier, not a fixed fixture')
+    q.add_argument('--lip-cm',type=float,default=1.,help='requested signed-step frontier, not a fixed fixture')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -167,63 +129,19 @@ def main(argv=None) -> int:
         if args.run_dir: av += ['--run-dir',args.run_dir]
         else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed))]
         return int(view(av) or 0)
-    if args.cmd=='evaluate':
-        root=Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed)
-        ck=Path(args.checkpoint).expanduser() if args.checkpoint else find_evaluation(root)
-        if ck is None or not ck.exists(): raise SystemExit(f'no checkpoint found under {root}')
-        out=Path(args.out_dir).expanduser() if args.out_dir else root/'atlas'
-        from .evaluation import atlas_main
-        return atlas_main(['--checkpoint',str(ck),'--out-dir',str(out),'--device',args.device,'--envs',str(args.envs),'--horizon',str(args.horizon),'--seed',str(args.seed)])
     if args.cmd=='posture-report':
         from .results import posture_report
         return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
-    if args.cmd=='capability-exam':
-        from .evaluation import evaluate_unified_capabilities
-        paths=evaluate_unified_capabilities(
-            policy=Path(args.policy),output=Path(args.output),
-            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
-            seed=args.seed,device=args.device,quick=args.quick,
-            terrain_matrix=args.terrain_matrix,
-            matrix_grades_deg=args.matrix_grades_deg,
-            matrix_heights_cm=args.matrix_heights_cm,
-            speed_ladder=args.speed_ladder,
-            ladder_speeds=args.ladder_speeds,
-            legacy_main_baseline=args.legacy_main_baseline)
+    if args.cmd=='prism-exam':
+        from .prism_exam import evaluate_prism_policy
+        paths=evaluate_prism_policy(
+            policy=args.policy, output=args.output, worlds=args.worlds,
+            horizon=args.horizon, speed=args.speed, seed=args.seed,
+            device=args.device, mode=args.mode,
+            grade_deg=args.grade_deg, lip_cm=args.lip_cm)
         for path in paths:
             print(path)
         return 0
-    if args.cmd=='directional-exam':
-        # Parse ONCE and call the examiner directly. Previously this rebuilt
-        # strings for a second parser: a fragile seam that caused real WSL
-        # crashes while lower-level tests remained green.
-        from .evaluation import evaluate_directional_pair, evaluate_directional_run
-        if args.reuse_completed and not args.compare_heading:
-            p.error('--reuse-completed requires --compare-heading')
-        request=dict(
-            run_dir=args.run_dir,policy_file=args.policy,output=args.output,
-            angle_deg=args.angle,direction=args.direction,
-            worlds=args.worlds,horizon=args.horizon,speed=args.speed,
-            lateral=args.lateral,yaw_rate=args.yaw_rate,
-            settle_frames=args.settle_frames,seed=args.seed,device=args.device,
-            scenario=args.scenario,turn_rate=args.turn_rate,
-            gyro_bias=args.gyro_bias,gyro_noise=args.gyro_noise,
-            gyro_delay_frames=args.gyro_delay_frames,
-            contact_slope=args.contact_slope)
-        if args.compare_heading:
-            paths=evaluate_directional_pair(
-                heading_kp=args.heading_kp,
-                reuse_completed=args.reuse_completed,**request)
-        else:
-            paths=evaluate_directional_run(heading_kp=0.,**request)
-        for path in paths:
-            print(path)
-        return 0
-    if args.cmd=='physical-quality':
-        from .physical_quality import report_main
-        av=[]
-        for path in args.exam: av += ['--exam',str(path)]
-        av += ['--output',str(args.output)]
-        return report_main(av)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
