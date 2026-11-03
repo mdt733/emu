@@ -59,7 +59,7 @@ from .contracts import (
     HISTORY_LEN, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG,
     TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
     TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P,
-    PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
+    PHASE_RATE_MAX_HZ, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
     FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE,
     FIELD_NODE_START, FIELD_EDGE_START, TASK_PARAM_DIM, TERRAIN_TASK_FIELDS,
     TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS, UNIFIED_TASK_PARAM_DIM,
@@ -797,10 +797,9 @@ class TaskSampler:
         instead, which always passes real keys).
         """
         jax, jnp = self.jax, self.jnp
-        # v5015 adds a continuously changing chassis-pitch target to the
-        # existing task ramps. The learned field remains 3D (vx,vy,yaw).
-        columns = ([T.vx, T.vy, T.yaw, T.pitch] if self.attitude_profile == 'v5015'
-                   else [T.vx, T.vy, T.yaw])
+        # The active 360-input policy ramps chassis pitch alongside the
+        # three learned command-field axes (vx, vy, yaw).
+        columns = [T.vx, T.vy, T.yaw, T.pitch]
         cmd_target = task[:, columns]
         cmd_ramp_from = cmd_target
         cmd_ramp_frac = jnp.ones((self.num_envs,), dtype=jnp.float32)
@@ -838,8 +837,7 @@ class TaskSampler:
         ramp_frac = jnp.clip(state.cmd_ramp_frac + state.cmd_ramp_speed, 0.0, 1.0)
         cmd_now = state.cmd_ramp_from + ramp_frac[:, None] * (state.cmd_target - state.cmd_ramp_from)
         task = state.task.at[:, T.vx].set(cmd_now[:, 0]).at[:, T.vy].set(cmd_now[:, 1]).at[:, T.yaw].set(cmd_now[:, 2])
-        if self.attitude_profile == 'v5015':
-            task = task.at[:, T.pitch].set(cmd_now[:, 3])
+        task = task.at[:, T.pitch].set(cmd_now[:, 3])
 
         hold_left = state.cmd_hold_left - 1
         should_resample = hold_left <= 0
@@ -859,11 +857,10 @@ class TaskSampler:
         new_target=jnp.where(trans_focus[:,None],
                    centre+NONFOCUS_STRENGTH*(new_target-centre),
                    new_target)
-        if self.attitude_profile == 'v5015':
-            pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
-            pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
-            pitch_draws = jax.vmap(lambda k: jax.random.uniform(k, (), minval=-1.0, maxval=1.0))(pitch_keys)
-            new_target = jnp.concatenate((new_target, (pitch_draws * pitch_range)[:, None]), axis=1)
+        pitch_keys = jax.vmap(lambda k: jax.random.fold_in(k, 5015))(rk_target)
+        pitch_range = self.pitch_limit_rad * jnp.clip(task[:, T.birth_posture_d], 0.0, 1.0)
+        pitch_draws = jax.vmap(lambda k: jax.random.uniform(k, (), minval=-1.0, maxval=1.0))(pitch_keys)
+        new_target = jnp.concatenate((new_target, (pitch_draws * pitch_range)[:, None]), axis=1)
         hold_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_hold)
         ramp_draw = jax.vmap(lambda k: jax.random.uniform(k, ()))(rk_ramp)
         min_hold_s, _ = self._transition_hold_and_jump(params[P.transition_difficulty])
@@ -927,7 +924,7 @@ class EmuMJXEnv(TaskSampler):
                  recovery_angvel_max_rad_s: float | None = None,
                  recovery_joint_max_deg: float = 0.0,
                  domain_config: DomainRandomizationConfig | None = None,
-                 attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
+                 attitude_profile: str = 'v5015', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
                  observation_schema: str = OBS_SCHEMA_TERRAIN,
@@ -966,8 +963,8 @@ class EmuMJXEnv(TaskSampler):
         self.jnp = jnp
         self.mujoco = mujoco
         self.mjx = mjx
-        if attitude_profile not in ('v5014', 'v5015'):
-            raise ValueError(f'unknown attitude profile {attitude_profile!r}')
+        if attitude_profile != 'v5015':
+            raise ValueError('The active 360-input prism trainer requires v5015 attitude')
         if not (0.0 < pitch_command_max_deg <= 45.0):
             raise ValueError('pitch command maximum must be within (0, 45] degrees')
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
@@ -1012,8 +1009,7 @@ class EmuMJXEnv(TaskSampler):
             'sensor_noise_scale': float(sensor_noise_scale),
         }, schema=OBS_SCHEMA_TERRAIN, array_only=True)
         self.attitude_profile = attitude_profile
-        self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
-                                else float(np.deg2rad(pitch_command_max_deg)))
+        self.pitch_limit_rad = float(np.deg2rad(pitch_command_max_deg))
         self.num_envs = int(num_envs)
         self.unified_capability_focus = bool(unified_capability_focus)
         self.focus_id = jnp.asarray(focus_indices(self.num_envs))
@@ -1450,7 +1446,7 @@ class EmuMJXEnv(TaskSampler):
                       hist_n.astype(jnp.float32)/25.))
         reward, terms = training_reward(
             metrics, reward_task[:, T.regime],
-            attitude_profile=self.attitude_profile, xp=jnp,
+            xp=jnp,
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             motor_guidance_per_world=(jnp.where(
@@ -2814,15 +2810,11 @@ class EmuMJXEnv(TaskSampler):
         # is exactly the operator semantics used by the browser/physical control
         # surface. Positive command requests nose-up/back lean relative to local
         # gravity, not relative to the world's nominal flat plane.
-        # v5015 movement targets are horizontal world motion relative to
-        # the robot's ground-heading, NOT body-local X/Y speed. Otherwise
-        # the same walk earns a different vx score as the camera tilts.
-        if self.attitude_profile == 'v5015':
-            motion_vx, motion_vy, motion_yaw = horizontal_tracking_motion(
-                jnp, self._rotation_body_to_world(data),
-                data.qvel[:, 0:3], data.qvel[:, 3:6])
-        else:
-            motion_vx, motion_vy, motion_yaw = body_vel[:, 0], body_vel[:, 1], body_ang[:, 2]
+        # Command tracking measures horizontal world motion relative to
+        # the robot's heading, not tilted body-local velocity.
+        motion_vx, motion_vy, motion_yaw = horizontal_tracking_motion(
+            jnp, self._rotation_body_to_world(data),
+            data.qvel[:, 0:3], data.qvel[:, 3:6])
         body_pitch = jnp.arctan2(projected_gravity[:, 0], -projected_gravity[:, 2])
         body_roll = jnp.arctan2(-projected_gravity[:, 1], -projected_gravity[:, 2])
         pitch_err = body_pitch - task[:, T.pitch]
@@ -2849,13 +2841,11 @@ class EmuMJXEnv(TaskSampler):
         robot_lean_forward = jnp.arctan2(jnp.sum(delta_xy * heading_xy, axis=1), torso_to_feet[:, 2])
         robot_lean_side = jnp.arctan2(-delta_xy[:, 0] * heading_xy[:, 1] + delta_xy[:, 1] * heading_xy[:, 0], torso_to_feet[:, 2])
         height_error = height - (NEUTRAL_ROOT_Z + task[:, T.height])
-        # v5015: healthy support and requested attitude, not a level camera.
-        posture_ok_5015 = ((foot_mid_angle < 0.6108652) &
-                            (jnp.abs(pitch_err) < 0.3141593) &
-                            (jnp.abs(roll_err) < 0.2792527) &
-                            (height_error > -0.040))
-        posture_ok = (posture_ok_5015 if self.attitude_profile == 'v5015'
-                      else (-projected_gravity[:, 2] > 0.93969262))
+        # Healthy support and requested attitude, not a level camera.
+        posture_ok = ((foot_mid_angle < 0.6108652) &
+                      (jnp.abs(pitch_err) < 0.3141593) &
+                      (jnp.abs(roll_err) < 0.2792527) &
+                      (height_error > -0.040))
         attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
         # 2. Contact, gait and fall proxies. Foot height indicates nearby
         # ground; it is NOT a verified load-bearing contact impulse.

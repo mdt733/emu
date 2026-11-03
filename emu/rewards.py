@@ -52,7 +52,7 @@ TRANSITION_TRACKING_BOOST = 1.5
 RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
-def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.0,
+def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                     motor_guidance_per_world=None, temporal_vx=None):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
@@ -68,8 +68,7 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
         temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
-     swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, attitude_profile, jnp)
+     swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(m, jnp)
     locomotion_maturity, stepping_gate = _gait_maturity(m, jnp)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
@@ -82,10 +81,9 @@ def training_reward(m, regime, *, attitude_profile, xp, motor_guidance_weight=0.
     }
     # Locomotion depends on real movement, body support and maturity.
     locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * (0.30 + 0.70 * m['foot_mid_cone'])
-    if attitude_profile == 'v5015':
-        remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
-                                0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
-        locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
+    remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
+                            0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
+    locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
     # Simulated actuator output is not verified motor current or electrical
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
     # Zero cost weight exactly reproduces pre-v5016 scalar economics.
@@ -189,19 +187,14 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, temporal_vx=None)
     return command_tracking
 
 
-def _physical_qualities(m, attitude_profile, jnp):
+def _physical_qualities(m, jnp):
     """Measure posture, supported feet, slip, movement shape and joint safety."""
-    upright = jnp.clip((m['gravity_z'] - 0.35) / 0.65, 0.0, 1.0)
-    height = jnp.exp(-80.0 * (m['height'] - m['target_height']) ** 2)
-    # Body-to-feet angle is dynamic catch-up shaping, not static standing.
-    if attitude_profile == 'v5015':
-        # Require requested chassis pitch AND healthy gait height.
-        pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
-        height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
-        height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
-        upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
-    else:
-        upright_height = 0.52 * upright + 0.28 * height + 0.20 * m['foot_mid_cone']
+    # Requested chassis pitch and healthy gait height, not a nominally
+    # level-body gravity proxy; use the single active v5015 reward.
+    pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
+    height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
+    height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
+    upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
     feet_only_contact = (1.0 - m['bad_contact']) * (0.35 + 0.65 * m['support'])
     stance_anti_slip = jnp.exp(-6.0 * m['stance_slip'])
     raw_swing = jnp.clip(m['swing_clearance'] / jnp.maximum(0.006, m['target_step_height']), 0.0, 1.0)

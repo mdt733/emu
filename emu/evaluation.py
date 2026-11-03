@@ -167,7 +167,7 @@ def initial_metrics() -> dict[str, float]:
     return out
 
 
-def broad_score(out: dict[str, float], *, profile: str = 'v5014') -> float:
+def broad_score(out: dict[str, float]) -> float:
     survival_weights = {
         'core': .05, 'stress30': .08, 'dynamic50': .10, 'dynamic80': .16,
         'combo70': .12, 'resilience50': .12, 'resilience75': .14,
@@ -182,12 +182,11 @@ def broad_score(out: dict[str, float], *, profile: str = 'v5014') -> float:
         .10 * min(1.0, out.get('eval_combo70_yaw_mae', 2.0) / .40) +
         .06 * min(1.0, out.get('eval_growthcombo110_yaw_mae', 2.0) / .55)
     )
-    if profile == 'v5015':
-        # v5015 checkpoint selection must not reward a descending gait.
-        panels = ('dynamic50', 'dynamic80', 'combo70', 'resilience75')
-        shortfall = sum(max(0.0, out.get(f'eval_{p}_height_shortfall_m', 0.0)) for p in panels) / len(panels)
-        pitch_err = sum(max(0.0, out.get(f'eval_{p}_pitch_mae', 0.0)) for p in panels) / len(panels)
-        penalties += 0.15 * min(1.0, shortfall / 0.035) + 0.10 * min(1.0, pitch_err / 0.35)
+    # v5015 checkpoint selection must not reward a descending gait.
+    panels = ('dynamic50', 'dynamic80', 'combo70', 'resilience75')
+    shortfall = sum(max(0.0, out.get(f'eval_{p}_height_shortfall_m', 0.0)) for p in panels) / len(panels)
+    pitch_err = sum(max(0.0, out.get(f'eval_{p}_pitch_mae', 0.0)) for p in panels) / len(panels)
+    penalties += 0.15 * min(1.0, shortfall / 0.035) + 0.10 * min(1.0, pitch_err / 0.35)
     return float(survival - penalties)
 
 
@@ -276,8 +275,7 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
                      f"total_wall={time.perf_counter()-started:.1f}s")
 
     elapsed = time.perf_counter() - started
-    scoring_profile = next(iter(worlds.values()))[0].attitude_profile
-    out['eval_broad_score'] = broad_score(out, profile=scoring_profile)
+    out['eval_broad_score'] = broad_score(out)
     out['perf_fixed_eval_total_s'] = float(elapsed)
     out['perf_eval_cohorts_used'] = float(max(1, int(cohorts)))
     out['perf_eval_env_steps'] = float(env_steps)

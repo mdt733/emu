@@ -202,8 +202,8 @@ class TrainingConfig:
     academy_height_cap_m: float = 0.150
     academy_course_episode_frames: int = 1200  # 24s streaming lessons; other roles 14s
 
-    # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
-    attitude_profile: str = "v5014"
+    # One executable 360-input prism trainer. Old attitude profiles live in Git.
+    attitude_profile: str = "v5015"
     pitch_command_max_deg: float = 8.0214
 
     # Curriculum / physical frontier.
