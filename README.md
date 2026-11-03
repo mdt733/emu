@@ -125,7 +125,7 @@ the old one on **every** test.
 | Where is the actor, critic and update? | `emu/ppo.py`, `emu/training.py` |
 | Who validates checkpoints and source lineage? | `emu/run.py`, `emu/checkpoint_io.py` |
 | Where are install diagnostics? | `emu/doctor.py` |
-| Who runs independent physical exams? | `emu/physical_exam.py`, `emu/evaluation.py` |
+| Who runs independent physical exams? | `emu/prism_exam.py` (raw physical prism contacts), `emu/evaluation.py` (training's fixed held-out panels) |
 | Who serves the trained bird and browser MuJoCo? | `emu/viewer_server.py`, `emu/viewer_src/` |
 | What makes a public policy release safe to publish? | `scripts/verify_showcase_release.py` |
 | Where are the old experiments and next questions? | Pinned Git history, [issue #17](https://github.com/mdt733/emu/issues/17) |
