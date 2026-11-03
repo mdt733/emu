@@ -1,15 +1,15 @@
 # v5043 — Real MJX-JAX triangular-prism carpet (experimental)
 
-**Branch:** \`feature/v5043-mjx-convex-prism-carpet\` (based on viewer-only \`feature/v5042-prism-terrain-viewer-lab\`, itself based on the exposure repair). **Main, the historical nine-box learner, trained checkpoints and the original viewer have not been modified.** Prototype is OFF unless \`--carpet-prisms\` / \`terrain_carpet_prisms=True\` is explicitly requested.
+**Branch:** `feature/v5043-mjx-convex-prism-carpet` (based on viewer-only `feature/v5042-prism-terrain-viewer-lab`, itself based on the exposure repair). **Main, the historical nine-box learner, trained checkpoints and the original viewer have not been modified.** Prototype is OFF unless `--carpet-prisms` / `terrain_carpet_prisms=True` is explicitly requested.
 
 ## Design
 
 - 50 cm per square; **18 independently addressable convex collision meshes** in the moving 3×3 tile window; each square has two physical triangular-prism tops.
 - MJX-JAX backend keeps an immutable six-vertex/five-face topology for each mesh, but generates different vertex heights and collision face/edge normals **per world** from the 36 existing terrain samples. No native MuJoCo runtime mesh mutation or topology recompile.
 - Both triangles of a square share their diagonal. Adjacent square edges share global vertex heights exactly, *except* for intentional signed changes in the square's own offset. True vertical faces give signed uphill/downhill step contacts. Actual edge normals must be tested (a visual approximation is not enough).
-- Deterministic hash of global coordinates and per-episode/world seed supplies 2D random slope perturbations and separately signed X/Y step transitions. Grade magnitude remains close to the current specialist slope frontier; changes are constrained by \`--carpet-transition-cap-deg\`. Step profiles use per-direction up/down teacher limits and a gradually increasing challenge schedule. No per-tile Python RNG inside JIT.
-- The previous nine 2×2 hfields remain **non-collidable** as terrain samples for analytic sensor/teacher geometry. The nine legacy **box geoms also remain non-collidable** in this opt-in mode. They stay untouched for normal \`--terrain-carpet\` jobs.
-- Robot input remains \`terrain_360\`; 4×4 ToF, optical-flow depth, teacher support, foot-foothold confirmation and dynamic curriculum continue to operate. Prism sensor sides extend exactly 30 cm below the varying upper edge.
+- Deterministic hash of global coordinates and per-episode/world seed supplies 2D random slope perturbations and separately signed X/Y step transitions. Grade magnitude remains close to the current specialist slope frontier; changes are constrained by `--carpet-transition-cap-deg`. Step profiles use per-direction up/down teacher limits and a gradually increasing challenge schedule. No per-tile Python RNG inside JIT.
+- The previous nine 2×2 hfields remain **non-collidable** as terrain samples for analytic sensor/teacher geometry. The nine legacy **box geoms also remain non-collidable** in this opt-in mode. They stay untouched for normal `--terrain-carpet` jobs.
+- Robot input remains `terrain_360`; 4×4 ToF, optical-flow depth, teacher support, foot-foothold confirmation and dynamic curriculum continue to operate. Prism sensor sides extend exactly 30 cm below the varying upper edge.
 - No hard-coded polygon-shaped physical exam reward is sent to the actor. Contacts must have the correct normal and actual supported foot height.
 
 ## Current proof and limitations
@@ -20,11 +20,11 @@ A subsequent stricter proof also checks every physical prism triangle corner aga
 
 **Not yet proven:** 128-world and 2,048-world CUDA throughput/memory on the 8GB RTX 4060 Ti; sustained locomotion of a trained policy; contacts at every slope/diagonal/step-corner; stable 3×3 recycling across all boundary configurations. The numerical estimate of the transition bound is not a formal guarantee on every collision normal. Verify physical grade statistics before using the frontier for promotion. Do NOT launch 140M training on the strength of a 4-world CPU probe.
 
-The older \`scripts/exam_step_course.py --carpet\` scorer is designed for nine boxes; do not use its independent box-geometry score as prism evidence. Viewer Prism Lab is a geometry preview only and does not yet use this new physics.
+The older `scripts/exam_step_course.py --carpet` scorer is designed for nine boxes; do not use its independent box-geometry score as prism evidence. Viewer Prism Lab is a geometry preview only and does not yet use this new physics.
 
 ## WSL install / experiment (never replace an existing run)
 
-\`\`\`bash
+```bash
 # In a clean worktree or fresh clone; no GitHub authentication for public repo.
 git clone --branch feature/v5043-mjx-convex-prism-carpet --single-branch \
   https://github.com/mdt733/emu.git ~/emu-prism-physics
@@ -45,11 +45,11 @@ python scripts/smoke_gpu_carpet.py --device cuda --worlds 128 \
 # Then the actual 2048-world, full PPO-update and memory acceptance:
 python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
   --frames 2 --ppo --full-update --prisms
-\`\`\`
+```
 
 These are **bounded no-checkpoint acceptance tests**, not training.
 
-The separate training CLI accepts \`--terrain-carpet --carpet-prisms\` together. Never silently resume pre-prism checkpoints in place: different physics must use a source-pinned, deliberate research fork into a **new** run directory and fresh source-provenance record. Preserve exact parent/child hashes when comparing against the historical 140M checkpoint.
+The separate training CLI accepts `--terrain-carpet --carpet-prisms` together. Never silently resume pre-prism checkpoints in place: different physics must use a source-pinned, deliberate research fork into a **new** run directory and fresh source-provenance record. Preserve exact parent/child hashes when comparing against the historical 140M checkpoint.
 
 ## Physical acceptance still required before a big run
 
