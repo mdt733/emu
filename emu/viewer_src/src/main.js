@@ -438,6 +438,7 @@ function updateWorldTabs(){
   $('liveDemo').disabled=carpet;
   navHud.hidden=carpet||!sim||!demoActive;
   document.body.dataset.world=carpet?'carpet':'field';
+  $('carpetHudRow').hidden=!carpet;
   $('viewerExercise').textContent=carpet
     ?currentCarpetLesson().heading:'Field exploration';
 }
