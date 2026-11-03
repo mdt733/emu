@@ -1,4 +1,4 @@
-"""v5041/v5043 GPU trainer gate: real 9-box or opt-in 18-prism MJX, per-world
+"""v5045 GPU trainer gate: one 18-prism MJX model, per-world
 streaming state, real 4x4 ToF and a genuine PPO gradient update.
 
 Does NOT claim learned locomotion; CPU smoke is not 2048 GPU acceptance.
@@ -10,13 +10,12 @@ import os
 import time
 
 
-def physics_report_fields(*, prisms: bool) -> dict:
-    """Report actual enabled colliders, never the dormant nine-box assets."""
+def physics_report_fields() -> dict:
+    """Report the only active collision topology."""
     return dict(
-        physics=("eighteen-dynamic-convex-triangular-prisms" if prisms
-                 else "nine-solid-tilted-boxes"),
-        active_collision_geoms=18 if prisms else 9,
-        terrain_carpet_prisms=bool(prisms),
+        physics="eighteen-dynamic-convex-triangular-prisms",
+        active_collision_geoms=18,
+        terrain_carpet_prisms=True,
     )
 
 
@@ -27,7 +26,7 @@ def main():
     p.add_argument("--frames",type=int,default=2)
     p.add_argument("--ppo",action="store_true")
     p.add_argument("--prisms",action="store_true",
-                   help="v5043 research only: 18 dynamic convex triangular-prism colliders")
+                   help="required compatibility flag: current EMU always uses real prisms")
     p.add_argument("--full-update",action="store_true")
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
@@ -58,7 +57,7 @@ def main():
         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_lesson="coherent-careful",
         academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
-        terrain_carpet_prisms=a.prisms)
+        terrain_carpet_prisms=True)
     params=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                 slope_max_deg=8.,terrain_height_m=.02,
                 academy_height_up_m=.02,academy_height_down_m=.03,
@@ -70,20 +69,15 @@ def main():
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly nine inactive source hfields")
-    expected_legacy_boxes=0 if a.prisms else 9
-    if (len(env.carpet_solid_geom_ids)!=expected_legacy_boxes or
-        len(env.carpet_solid_mocap_ids)!=expected_legacy_boxes):
-        raise RuntimeError('Prism model must contain ZERO old box bodies')
+    if env.carpet_solid_geom_ids or env.carpet_solid_mocap_ids:
+        raise RuntimeError("No legacy nine-box assets may exist in prism MJX")
     if np.any(env.mj_model.geom_contype[np.asarray(
             env.carpet_geom_ids,dtype=np.int32)]!=0):
-        raise RuntimeError("Heightfield side skirts must not collide")
-    if a.prisms:
-        if len(env.carpet_prism_geom_ids)!=18:
-            raise RuntimeError("Expected exactly 18 physical prism geoms")
-        if env.carpet_solid_geom_ids:
-            raise RuntimeError("No legacy box collision geoms permitted in prism model")
-        if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
-            raise RuntimeError("Prism bit-4 contacts are not enabled")
+        raise RuntimeError("Source heightfield skirts must not collide")
+    if len(env.carpet_prism_geom_ids)!=18:
+        raise RuntimeError("Expected exactly 18 physical prism geoms")
+    if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
+        raise RuntimeError("Prism bit-4 contacts are not enabled")
     if env.academy_geom_ids:
         raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
     if env.mj_model.geom_contype[env.ids["floor_geom"]] != 0:
@@ -107,27 +101,23 @@ def main():
     source=sample_surface(jnp,state.data,env.carpet_mocap_ids,
                           state.carpet_hfields,roots)[:,0]
     actual=env._carpet_real_top_height(
-        state.data,roots,state.carpet_hfields if a.prisms else None)[:,0]
+        state.data,roots,state.carpet_hfields)[:,0]
     gap=np.asarray(jax.device_get(jnp.abs(actual-source)))
-    if not np.all(np.isfinite(gap)) or np.max(gap)>(.00005 if a.prisms else .008):
+    if not np.all(np.isfinite(gap)) or np.max(gap)>.00005:
         raise RuntimeError(f"Collision surface diverges from analytic teacher by {gap}")
-    print("surface PASS: two triangles agree with real "
-          +("convex prism tops" if a.prisms else "tilted box approximation")+
-          f" within {float(np.max(gap))*1000:.3f}mm",flush=True)
+    print("surface PASS: two triangles agree with convex prism tops "
+          f"within {float(np.max(gap))*1000:.3f}mm",flush=True)
     tile_positions=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(env.carpet_mocap_ids),:]))
     if tile_positions.shape!=(a.worlds,9,3):
         raise RuntimeError("Missing independently positioned tiles")
-    physical_ids=(env.carpet_prism_mocap_ids if a.prisms
-                  else env.carpet_solid_mocap_ids)
+    physical_ids=env.carpet_prism_mocap_ids
     solid_pos=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(physical_ids),:]))
-    if (solid_pos.shape!=(a.worlds,18 if a.prisms else 9,3)
-        or not np.isfinite(solid_pos).all()):
+    if solid_pos.shape!=(a.worlds,18,3) or not np.isfinite(solid_pos).all():
         raise RuntimeError("Invalid per-world physical collision tile poses")
-    print("reset PASS: "+("18 dynamic convex triangular prisms" if a.prisms
-          else "9 rigid tilted boxes")+
-          ", distinct per-world 360-input JAX physics",flush=True)
+    print("reset PASS: 18 convex prisms, distinct per-world 360-input JAX physics",
+          flush=True)
     # One robot crossing into a neighbouring 50cm tile must recycle only
     # abandoned slots. If a rear foot still occupies an abandoned tile,
     # the whole window must remain unchanged.
@@ -151,7 +141,7 @@ def main():
     solid_after=np.asarray(jax.device_get(
         relocated.mocap_pos[:,list(physical_ids),:]))
     if not np.any(np.abs(solid_after-solid_pos)>.3):
-        raise RuntimeError("Abandoned real solid prism/box collision tiles did not recycle")
+        raise RuntimeError("Abandoned real prism collision tiles did not recycle")
     trailing=((old-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
                ).astype(jnp.float32)+.5)*.5
     blocked_data=safe_data.replace(xpos=state.data.xpos.at[
@@ -259,7 +249,7 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
-          **physics_report_fields(prisms=a.prisms),tiles=TILE_COUNT,
+          **physics_report_fields(),tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
           **(dict(ppo_parameter_delta=max_param_delta,
                   ppo_actor_delta=max_actor_delta,
