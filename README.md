@@ -150,11 +150,9 @@ python -m emu.cli viewer-build
 python -m emu.cli viewer showcase/champion.emupolicy \
   --no-open --port 8765
 
-# Independent frozen physics challenge, no PPO training.
-python -m emu.cli capability-exam \
-  --policy showcase/champion.emupolicy \
-  --output ~/robot_lab/emu_exams/pinnacle_260m \
-  --device cpu --quick
+# The shipped champion uses historical training physics. Its original
+# physical exams live in the pinned v5044/pre-cleanup Git history;
+# never substitute modern prism contacts and call it a matched baseline.
 ```
 
 The viewer offers live-checkpoint following and eight graduated,
@@ -178,28 +176,23 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 ## Current development (3 November 2026)
 
-**The current large research campaign is v5044: a source-pinned,
-140-million-step from-scratch 18-prism MJX learner**, with 2,048 CUDA
-worlds, one 360-input actor, six curricula and a gradually introduced
-same-carpet STEP Academy. It is built on a feature branch,
-**not** merged into the public `main` release.
+**v5045** is the new 18-prism single-policy, six-specialist, one-carpet
+codebase on draft PR #34. The previous v5044 140M user experiment was
+stopped voluntarily; its checkpoints remain source-pinned and must
+**not** be resumed with new model topology. There is now one maintained
+24-test suite, and real MJX collision/recycling probes.
 
-The verified v5043 CUDA capacity/performance benchmark measured
-**7,492 post-JIT world-steps/s and 1.90GB peak GPU use** for 18
-real convex prisms, versus **17,774 steps/s and 1.37GB** for the older
-nine tilted boxes. This proves the training implementation runs;
-it does not prove the learned walker can cross steps.
+The matched v5044 reference was **7,492 post-JIT world-steps/s**
+on RTX 4060 Ti at 2,048 GPU worlds. There is **no new v5045 speed
+measurement yet**; smaller Python source alone does not prove faster
+physics. The true-prism frozen-policy `emu prism-exam` reports raw
+supported crossings and *actual* procedural terrain exposure. It
+does not recreate the old two-slab fixed matrix.
 
-- [**v5044 true-prism 140M launch and resume guide**](docs/V5044_PRISM_140M_COLDSTART.md)
+- [**v5045 lean-prism GPU acceptance, benchmark and new-run guide**](docs/V5045_LEAN_PRISM_RUNBOOK.md)
+- [**v5044 historical 140M training source and runbook**](docs/V5044_PRISM_140M_COLDSTART.md)
 - [**v5043 real collision and physics proof**](docs/V5043_MJX_PRISM_CARPET.md)
-- [**v5041 140M postmortem and exposure fix**](docs/V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md)
-- [**Five-stage core skeleton, old-code review and performance plan**](docs/CORE_SKELETON.md)
-
-**Housekeeping is separate:** `feature/v5045-core-skeleton-audit`
-maps the actual dependency graph, archives old handovers and tests
-a small JAX prism update optimization. **Do not pull this refactor into
-a running v5044 source-pinned experiment.** A new code SHA cannot
-silently resume the existing training lineage.
+- [**Five-stage source skeleton and retirement plan**](docs/CORE_SKELETON.md)
 
 The published `showcase/champion.emupolicy` and `main`
 continue to preserve the independently released 260M baseline.
