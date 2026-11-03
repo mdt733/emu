@@ -1,6 +1,6 @@
 # v5045 — lean true-prism CUDA acceptance and cold-start
 
-**Only source branch:** \`feature/v5045-core-skeleton-audit\` (draft PR #34).
+**Only source branch:** `feature/v5045-core-skeleton-audit` (draft PR #34).
 **This replaces the old v5044 launcher in this branch only.** v5044
 checkpoints remain intact and MUST NOT be resumed with the v5045
 prism-only MJX model. The previous v5044 large run was stopped.
@@ -28,7 +28,7 @@ python scripts/run_prism_140m.py plan
 
 Source must be **clean**, on the exact v5045 feature branch and never
 silently pulled after starting a checkpoint lineage. The new launcher's
-default root is \`~/emu_runs/v5045_prism_140m_s735\`, not the old v5044
+default root is `~/emu_runs/v5045_prism_140m_s735`, not the old v5044
 experiment. No GitHub login is needed to clone this public repo.
 
 ## 2. Source, physics and PPO preflight
@@ -87,14 +87,14 @@ frontiers and 60–100M Academy ramp. All six specialties share one PPO.
 The real model contains **18 active prism colliders**, nine *noncontact*
 vertex-source samples, and no old slab or nine-box collision scene.
 
-Run metadata, \`metrics.csv\`, \`fixed_eval.csv\`, \`results.md\`, latest
+Run metadata, `metrics.csv`, `fixed_eval.csv`, `results.md`, latest
 and rotating checkpoint files are written **outside the repo**. Monitor
 whether issued tasks actually encounter physical slopes and signed
 steps; a curriculum target is not proof of exposure or mastery.
 
 To examine an interruption without changing weights, use
-\`python scripts/run_prism_140m.py verify\`. On the SAME source SHA, use
-\`python scripts/run_prism_140m.py resume\` to continue. Do not pull a new
+`python scripts/run_prism_140m.py verify`. On the SAME source SHA, use
+`python scripts/run_prism_140m.py resume` to continue. Do not pull a new
 cleanup commit into that checkout while training.
 
 ## 5. Honest frozen-policy prism examination
@@ -116,7 +116,7 @@ python -m emu.cli prism-exam \
 The exam runs a **frozen actor** on freshly sampled real prisms.
 It reports *actually measured* root-triangle grades, command tracking,
 real supported new-tile up/down crossings, survival and mechanical
-work per forward progress. The \`--grade-deg\` and \`--lip-cm\` values
+work per forward progress. The `--grade-deg` and `--lip-cm` values
 are teacher frontiers, **not guaranteed fixed fixtures**. This is
 deliberately **not comparable case-for-case** to the historical two-slab
 exam. Use old frozen source for old policy baseline reproducibility.
