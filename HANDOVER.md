@@ -40,7 +40,11 @@ lives only in draft PR #34 on `feature/v5045-core-skeleton-audit`.
    pass on the exact final source SHA**.
 2. On the RTX 4060 Ti, repeat the matched **2,048-world, 3-update
    full-PPO benchmark**. Old prism reference: 7,492 world-steps/s
-   after JIT. No new measured v5045 speed yet.
+   after JIT. First measured v5045 GPU benchmark: **7,536.1
+world-steps/s** on two steady 2,048-world updates (+0.6%; not a
+statistically convincing speedup), peak 1,818,866,944 device bytes.
+Next required: exact-source 8-world checkpoint/resume/export and
+frozen-actor true-prism exam smoke.
 3. Same-source CUDA two-update `first/continue/verify` checkpoint,
    normalizer, optimizer and exported actor acceptance.
 4. Only then start a **new empty** 140M run root. Never resume old
