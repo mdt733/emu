@@ -99,9 +99,16 @@ their heavier operations. They must not be dropped on a size guess.
 - `emu/viewer_src/src/training-carpet.js` old raster-heightfield
   generator: removed, with a fail-closed assertion that browser carpet
   must have actual collision solids.
-- `scripts/smoke_unified_focus.py` and old box/hfield probes: archived
-  by Git history; retained tests for the active curriculum and
-  prism simulator are the current proof.
+- `scripts/smoke_unified_focus.py` and old box/hfield probes: removed;
+  the active single-policy lifecycle and prism physics probes replace
+  them. Their old source remains in Git history.
+- The viewer now accepts only schema-3 **360-input array-only** actors.
+  Old 220/232 tripod-based policy readers and sensor simulators were
+  deleted. The published v5032 260M champion was inspected and
+  confirmed to use the retained exact array-only contract.
+- The old single finite-platform terrain examiner and `terrain-exam`
+  CLI route were deleted. The current independent 360-input capability
+  examiner and signed prism-step course remain.
 
 ## Legacy, not automatically dead
 
@@ -120,14 +127,12 @@ their heavier operations. They must not be dropped on a size guess.
 - `step_academy_world.py` is the older separate slab machinery. The
   v5044 Academy uses the shared prism carpet, but old tests and policy
   worlds still require these definitions.
-- `terrain_spike.py` and `terrain_carpet.py` contain older test /
-  surface abstractions. Establish **actual import/caller coverage**
-  before archiving or deleting either.
 - `directional.py` is large but is used by live PPO/contact
   computation **and** physical exams; it is not safe to delete wholesale.
-- Historical report documents and old release artifacts remain
-  useful for reproducibility, but should live under `docs/history/`
-  rather than visually overpower the current entry points.
+- Historical experiment documents and old handovers are now **removed
+  from the working tree**; the complete original contents remain in
+  immutable Git commits. Only the current runbook and physics proof
+  stay next to the source.
 
 **Crucial:** disabled modes behind an ordinary Python
 `if self.terrain_carpet_prisms` static flag may disappear from the JIT
@@ -193,6 +198,6 @@ for changed source; never load v5045 into the active pinned v5044 run.
 7. Historical branches and source-pinned research stay reproducible.
 
 This document is the **lean current entry point**. The earlier broader
-[architecture map](ARCHITECTURE.md) and
-[archived engineering handover](history/HANDOVER_V5044_FULL_ARCHIVE.md)
+[original architecture](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/ARCHITECTURE.md) and
+[original engineering handover](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md)
 preserve the historical detail.

@@ -128,12 +128,12 @@ the old one on **every** test.
 | Who runs independent physical exams? | `emu/physical_exam.py`, `emu/evaluation.py` |
 | Who serves the trained bird and browser MuJoCo? | `emu/viewer_server.py`, `emu/viewer_src/` |
 | What makes a public policy release safe to publish? | `scripts/verify_showcase_release.py` |
-| Where are the old experiments and next questions? | `docs/history/`, [issue #17](https://github.com/mdt733/emu/issues/17) |
+| Where are the old experiments and next questions? | Pinned Git history, [issue #17](https://github.com/mdt733/emu/issues/17) |
 
 [**The five-stage core skeleton and cleanup plan**](docs/CORE_SKELETON.md)
 is the current entry point from source-pinned `emu train` through
 procedural MJX physics, PPO, physical exams, export and local viewer.
-The [broader historical architecture](docs/ARCHITECTURE.md) remains
+The [original architecture in Git](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/ARCHITECTURE.md) remains
 available for preserved legacy interfaces.
 
 ## Three useful things to run
@@ -165,7 +165,7 @@ diagnostic, **not** a held-out MJX physical certification.
 
 The completed v5032 launcher is preserved at its original source SHA
 `9b11bbe596aea7201d29a6beb2d192922f8e2e9a`, together with its
-[historical runbook](docs/PINNACLE_CANDIDATE.md). It no longer lives
+[historical runbook in Git](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md). It no longer lives
 in active `scripts/`. New source-pinned robots begin with `emu train`.
 To reproduce the exact released training source, use its original
 frozen Git SHA and independently backed-up full `final.pkl`

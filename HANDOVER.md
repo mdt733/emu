@@ -34,9 +34,10 @@ The public `main` branch and published champion remain unchanged.
 - The viewer is local MuJoCo/WASM **replay**, not live MJX GPU state.
   Its illustrative prism/terrain view must not be described as
   identical to the actual training instances.
-- v5045 removes superseded Python/JS terrain implementations and
-  unused historical probes, archives old notes, batches prism mocap
-  updates, and removes the inert legacy boxes from the prism scene.
+- v5045 removes superseded Python/JS terrain implementations, legacy
+  probes and historical docs, and drops 220/232 browser compatibility.
+  It batches prism mocap updates, removes inert old box bodies from
+  prism scenes, and skips the retired two-slab sampler on reset.
   **No FPS improvement claimed until identical CUDA benchmarks.**
 
 ## Non-negotiables
@@ -47,5 +48,4 @@ exams, backward compatibility with the released model and the
 published public playground. Cleanup and optimisations belong to a
 new branch with fresh tests and matched benchmarks.
 
-**Full original handover (all previous decisions retained verbatim):**
-[docs/history/HANDOVER_V5044_FULL_ARCHIVE.md](docs/history/HANDOVER_V5044_FULL_ARCHIVE.md).
+**Full original handover:** [view the pinned v5044 Git copy](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md). All earlier history also remains in Git; it no longer bloats this branch.

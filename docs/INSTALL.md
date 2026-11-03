@@ -6,7 +6,7 @@ The new **`main`** baseline is the completed 360-input,
 preserved at commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 For the current policy and held-out results, see
 [the release card](V5032_PINNACLE_RELEASE.md). The old
-[cold-start runbook](PINNACLE_CANDIDATE.md) is now history.
+[cold-start runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) is now history.
 
 No step below launches training or replaces the released policy.
 Never install into, change, pull, or overwrite an **active** training
@@ -178,7 +178,7 @@ python scripts/smoke_unified_focus.py \
 
 This proves the source can execute on the machine; it does **not**
 prove that a new random policy can walk or that the trained checkpoint
-is valid. The [completed Pinnacle campaign](PINNACLE_CANDIDATE.md) required
+is valid. The [completed Pinnacle campaign](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) required
 separate CPU and 2048-world CUDA preflights under its exact source
 SHA before it permitted training. A *future* campaign must do
 the same using its own validated source and resolved configuration.
@@ -203,7 +203,7 @@ This reads the checked-in **trained 360-input policy**. It
 does not use your GPU to train anything or assume the full
 optimizer checkpoint is present. To reproduce the original
 260M policy's *training*, consult the exact source SHA and
-[historical runbook](PINNACLE_CANDIDATE.md) and use
+[historical runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) and use
 an independent run root. **Never run the old cold-start
 launcher casually from a later `main` checkout.**
 Do not run competing 2048-world GPU campaigns on 8GB VRAM.

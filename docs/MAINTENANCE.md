@@ -23,7 +23,7 @@ the 24-arm v5033 branch is **paused**.
 | Held-out, read-only physical capability | `emu/physical_exam.py`, `emu/evaluation.py` |
 | Browser emulator and approved public export | `emu/viewer_server.py`, `emu/viewer_src/`, `scripts/verify_showcase_release.py` |
 
-[Full architecture and data flow](ARCHITECTURE.md).
+[Full architecture and data flow](CORE_SKELETON.md).
 
 The actor gets only sensor/command observations; the teacher
 can use privileged physical contacts for reward and curriculum.
@@ -62,14 +62,14 @@ Independent exam results NEVER feed back into its teaching.
 ## Documentation ownership
 
 The [README](../README.md) welcomes new contributors;
-[ARCHITECTURE](ARCHITECTURE.md) maps code;
+[ARCHITECTURE](CORE_SKELETON.md) maps code;
 [HANDOVER](../HANDOVER.md) reports the current baseline;
 [release measurements](V5032_PINNACLE_RELEASE.md) record
 the exact policy, physical limitations and SHA;
 [INSTALL](INSTALL.md) explains setup;
 [issue #17](https://github.com/mdt733/emu/issues/17)
 holds future experiments. Completed old research belongs in
-[history](history/README.md) or an immutable Git commit.
+[history](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/history/README.md) or an immutable Git commit.
 
 Avoid new permanent docs for every small experiment. A
 stranger should have ONE clear answer to *what is current*
@@ -85,4 +85,4 @@ the launcher set `EMU_UNIFIED_CONTINUATION` instead of the
 required `EMU_UNIFIED_CONTINUOUS`. The repaired second
 cold-start run completed at 260,046,848 world steps.
 The old run logs, source hash and handover are archived at
-[docs/history/HANDOVER_V5032_PRE_RELEASE.md](history/HANDOVER_V5032_PRE_RELEASE.md).
+[docs/history/HANDOVER_V5032_PRE_RELEASE.md](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/history/HANDOVER_V5032_PRE_RELEASE.md).
