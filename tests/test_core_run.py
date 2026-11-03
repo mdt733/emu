@@ -69,6 +69,12 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.retention_share == pytest.approx(.15)
     assert cfg.fixed_eval_every_steps == 10_000_000
     assert training_sensor_contract(cfg) is not None
+    # Public CLI must refuse a superficially valid legacy launch before GPU
+    # model creation, rather than printing a plan for an impossible world.
+    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
+        with pytest.raises(ValueError, match="v5045 prism-only"):
+            emu_cli_main(["train", "--run-dir", str(tmp_path / "legacy"),
+                          "--steps", "256"])
     # One current frozen-policy CLI; old two-slab exam routes are retired.
     with patch("emu.prism_exam.evaluate_prism_policy",
                return_value=(tmp_path / "prism_exam.json", tmp_path / "prism_exam.md")) as exam:
