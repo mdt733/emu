@@ -1,6 +1,6 @@
 # EMU — fresh install and recovery (Windows 11 / WSL2 Ubuntu / NVIDIA)
 
-**Reviewed: 31 October 2026.** This is the maintained rebuild procedure.
+**Reviewed: 4 November 2026.** This is the maintained rebuild procedure.
 The new **`main`** baseline is the completed 360-input,
 260,046,848-step Pinnacle. The previous 232-input actor is
 preserved at commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
@@ -81,13 +81,15 @@ there is no need to install Node manually here.
 
 ## 3. Clone the source, install CUDA JAX and all test tools
 
-This example checks out the **current released `main` source**.
-For a future source-pinned training study, use the approved
-branch and exact SHA in the [handover](../HANDOVER.md).
+This example checks out the **current v5045 draft feature branch** to
+exercise the lean true-prism trainer. For the *published 260M release*
+use `--branch main` instead and its original source-pinned checks;
+the feature-branch prism scripts need not exist in the frozen main tree.
 For the public viewer alone, see [CPU-only setup](PLAYGROUND.md).
+Never resume a main/v5044 optimizer checkpoint under the new source.
 
 ```bash
-git clone --single-branch --branch main \
+git clone --single-branch --branch feature/v5045-core-skeleton-audit \
   https://github.com/mdt733/emu.git "$HOME/emu-research"
 cd "$HOME/emu-research"
 git branch --show-current
@@ -102,7 +104,7 @@ python --version
 python -m pytest --version
 ```
 
-**Important:** The historical 260M launcher's CPU preflight uses `pytest`.
+**Important:** The historical 260M launcher's CPU preflight used `pytest`.
 `setup_wsl.sh --cuda13` installs `.[dev]` on this source branch even
 without `--check`; `--check` additionally runs the Python and browser
 suites. Always use a **new environment** for a new source-pinned training
@@ -147,34 +149,31 @@ assert jax.devices("gpu"), "CUDA installation is NOT working"
 PY
 
 emu doctor --require-gpu
-python -m pytest -q tests/test_v5031_verified_ascent.py
+python -m pytest -q tests
 ```
 
 The command `jax.devices("gpu")` must show a CUDA device; merely seeing
 `gpu` in `nvidia-smi` or having `jax` import successfully is insufficient.
 
-**Acceptance checks, no training campaign:** run the real 360-input
-sensor/terrain and PPO smoke on a small CPU batch, then on the intended
-2048-world CUDA batch. The full CUDA smoke compiles and executes a
-real PPO update, consumes substantial GPU memory and should be run only
-when no other training process is using the GPU.
+**Acceptance checks, no training campaign:** on this v5045 branch,
+first exercise the real CPU MJX 18-prism contacts, then the matched
+2,048-world **CUDA full-PPO** preflight. The latter compiles and
+executes real gradients, consumes significant GPU memory, and must
+not compete with an active 8GB GPU training job.
 
 ```bash
-python scripts/smoke_unified_focus.py \
-  --device cpu --envs 12 \
-  --terrain-max-m .08 --growth-recipe main-mature \
-  --terrain-lesson coherent-careful \
-  --temporal-vx-reward-share .5 \
-  --verified-ascent-reallocation 3
-
-python scripts/smoke_unified_focus.py \
-  --device cuda --envs 2048 --full-update \
-  --terrain-max-m .08 --growth-recipe main-mature \
-  --terrain-lesson coherent-careful \
-  --fast-rehearsal-share .25 \
-  --temporal-vx-reward-share .5 \
-  --verified-ascent-reallocation 3
+python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
+  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms
 ```
+
+For a completely new v5045 study, run the bounded
+[checkpoint first/continue/verify and exported frozen actor
+prism exam](V5045_LEAN_PRISM_RUNBOOK.md) on this **exact same source
+SHA** before any 140M cold start. The old `smoke_unified_focus.py`,
+`tests/test_v5031_verified_ascent.py` and
+`--verified-ascent-reallocation` belong to archived v5044 history,
+not the current branch.
 
 This proves the source can execute on the machine; it does **not**
 prove that a new random policy can walk or that the trained checkpoint
