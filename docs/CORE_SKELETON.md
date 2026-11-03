@@ -34,7 +34,7 @@ sensor contracts are still used for reproducibility.
               |           |
               v           v
           FROZEN EXAM   VIEWER EXPORT
-          evaluation.py  viewer_server.py -> .emupolicy
+          evaluation.py  policy_export.py -> .emupolicy
           physical_exam.py                     |
           physical_quality.py                  v
                                        browser policy.js
@@ -78,7 +78,7 @@ pretend already exists.
 | `terrain_carpet_mjx.py`, `carpet_prism_mjx.py` | shared procedural generator, exact convex prism collision meshes, recycler |
 | `rewards.py`, `curriculum.py`, `capability_focus.py`, `training_health.py` | payment, six specialists, evidence-based challenge and health |
 | `checkpoint_io.py`, `results.py` | durable complete learning state, diagnostics and offline reporting |
-| `viewer_server.py`, `viewer_src/src/{policy,sensor,sim,main}.js` | verified actor export, local physics replay and user controls |
+| `policy_export.py`, `viewer_server.py`, `capability_viewer.py`, `viewer_src/src/{policy,sensor,sim,main}.js` | verified actor export, local HTTP physics replay, separate capability atlas and user controls |
 
 **Retain but isolate as optional interfaces:** `evaluation.py`,
 `physical_exam.py`, `physical_quality.py`, `capability_cloud.py`,
@@ -201,3 +201,13 @@ This document is the **lean current entry point**. The earlier broader
 [original architecture](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/ARCHITECTURE.md) and
 [original engineering handover](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md)
 preserve the historical detail.
+
+## Viewer module separation (v5045)
+
+`policy_export.py` now owns frozen checkpoint-to-actor normalizer/weights
+encoding and portable actor validation. `viewer_server.py` owns the
+loopback HTTP server, read-only checkpoint watcher and browser serving.
+`capability_viewer.py` owns the separate field-atlas web app. They were
+originally 1,032 lines combined in one file; each can now be tested,
+modified or deleted separately. The CLI and physical exams call their
+owning module directly. Actor export and viewer state never feed PPO.

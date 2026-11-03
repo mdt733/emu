@@ -249,7 +249,7 @@ def verify_stage(root: Path, *, unified: bool = False,
         raise RuntimeError("completed resume modified final checkpoint")
 
     # An actual deployable actor export is part of the acceptance contract.
-    from emu.viewer_server import build_bundle, write_bundle
+    from emu.policy_export import build_bundle, write_bundle
     exported = root / "tiny_smoke_actor.emupolicy"
     bundle = build_bundle(root / "continued/checkpoints/final.pkl",
                           label="Two-update smoke (not trained to walk)")
@@ -257,7 +257,7 @@ def verify_stage(root: Path, *, unified: bool = False,
         raise RuntimeError("exported actor has unexpected training step")
     if unified:
         from emu.contracts import TERRAIN_OBS_DIM
-        from emu.viewer_server import load_exported_actor_for_exam
+        from emu.policy_export import load_exported_actor_for_exam
         if (bundle.get("schema") != 3 or
                 bundle.get("policy",{}).get("obs_dim") != TERRAIN_OBS_DIM):
             raise RuntimeError("exported unified actor is not a 360-input schema-3 policy")

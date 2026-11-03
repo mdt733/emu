@@ -162,7 +162,7 @@ def main(argv=None) -> int:
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
     if args.cmd=='view':
-        from .viewer_server import field_main as view
+        from .capability_viewer import field_main as view
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
         else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed))]
@@ -233,7 +233,7 @@ def main(argv=None) -> int:
         from .run import train_one
         return train_one(args)
     if args.cmd=='export-policy':
-        from .viewer_server import build_bundle, write_bundle
+        from .policy_export import build_bundle, write_bundle
         bundle=build_bundle(Path(args.checkpoint)); write_bundle(bundle,Path(args.output),pretty=args.pretty); print(Path(args.output).expanduser().resolve()); return 0
     if args.cmd=='viewer-build':
         from .viewer_server import build

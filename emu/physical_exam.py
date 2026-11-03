@@ -195,7 +195,7 @@ def evaluate_directional_run(run_dir=None, *, policy_file=None,
         # Validate its physical/actor contracts and use its exported mean/std
         # through exactly the same JAX actor inference and MJX exam.
         from types import SimpleNamespace
-        from .viewer_server import load_exported_actor_for_exam
+        from .policy_export import load_exported_actor_for_exam
         params, norm, export = load_exported_actor_for_exam(run_dir)
         cfg = SimpleNamespace(
             phase_speed_gain=float(export['control']['phase_speed_gain']),
@@ -883,7 +883,7 @@ def evaluate_unified_capabilities(*, policy: Path, output: Path,
     """
     import json
     from .contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN,OBS_SCHEMA_SENSOR,TERRAIN_ARRAY_ONLY_REVISION
-    from .viewer_server import load_exported_actor_for_exam
+    from .policy_export import load_exported_actor_for_exam
     from .ppo import configure_jax,require_backend
     if worlds<2 or worlds>32 or worlds%2 or horizon<100 or horizon>700:
         raise ValueError('unified examiner requires even 2..32 worlds, 100..700 frames')
