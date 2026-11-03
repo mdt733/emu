@@ -30,9 +30,9 @@ jobs:
           python -m compileall -q emu scripts tests
           python scripts/check_current_docs.py
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
-      - name: Core, actual prism geometry and batched-mocap identity tests
+      - name: 18 essential Python contracts (no historical fixture suite)
         run: |
-          python -m pytest -q tests/test_core_run.py tests/test_core_physics.py tests/test_core_delivery.py
+          python -m pytest -q tests
       - name: True four-world convex prism MJX contact and recycle probe
         run: python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
 
@@ -47,9 +47,9 @@ jobs:
       - name: Locked browser dependencies
         working-directory: emu/viewer_src
         run: npm ci
-      - name: Six core browser contracts
+      - name: Six essential browser contracts
         working-directory: emu/viewer_src
-        run: node --test tests/essential.test.mjs
+        run: npm test
       - name: Build MuJoCo/WASM browser viewer
         working-directory: emu/viewer_src
         run: npm run build

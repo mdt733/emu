@@ -182,6 +182,46 @@ training run, repeat the identical `--benchmark-updates 3` test and
 real multi-world physical probes. Use a **new experiment directory**
 for changed source; never load v5045 into the active pinned v5044 run.
 
+## The deliberately small test suite
+
+**Exactly 24 maintained test functions**, split by responsibility:
+
+| Test file | Functions | What it protects |
+|---|---:|---|
+| `tests/test_core_run.py` | 6 | 140M prism CLI, restart recipe, 360-input checkpoint integrity, real-prism evaluation |
+| `tests/test_core_physics.py` | 11 | 18 real prism triangles, actual 3° grade, signed 3mm steps, recycling, ToF, independent supported-lip evidence |
+| `tests/test_core_delivery.py` | 1 | Numeric Python/JavaScript agreement on a real schema-3 360-input actor |
+| `emu/viewer_src/tests/essential.test.mjs` | 6 | Actor schema, raw 4×4 rays/occlusion, joystick/yaw hold, shipped champion, solid browser contacts, prism preview warning |
+
+**Every other historical test and the 232-input archived-policy fixture has
+been deleted from the current working tree**, not hidden or skipped.
+To reproduce old research tests, check out the original v5044 source SHA.
+
+Run the complete fast maintained suite:
+
+```bash
+python -m pytest -q tests
+npm test --prefix emu/viewer_src
+```
+
+The following are **operational acceptance checks, not more unit-test
+files**. They prove actual MJX dynamics or GPU PPO/checkpoint lifecycle
+which a simple Python assertion cannot substitute:
+
+```bash
+python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
+  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms
+```
+
+Before starting a new 140M training lineage, also execute the
+`smoke_training_lifecycle.py first / continue / verify` GPU checks on
+the **same source SHA**. No unit test proves the policy learned a step;
+only independent frozen-policy physical exams do.
+
+We have deliberately **not** added a test that tests the test-count.
+The list above is a simple maintenance budget, not another framework.
+
 ## Permanent boundary rules
 
 1. Exactly **one** PPO actor/critic and six target actuators, regardless
