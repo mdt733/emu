@@ -34,6 +34,6 @@ jobs:
       - name: Python syntax and deterministic terrain mathematical tests
         run: |
           python -m compileall -q emu scripts tests
-          python -m pytest -q tests/test_terrain_carpet.py tests/test_carpet_sensor_geometry.py tests/test_carpet_visit_rewards.py tests/test_prism_exam_scorer.py tests/test_prism_grade_cap.py
+          python -m pytest -q tests/test_terrain_carpet.py tests/test_carpet_sensor_geometry.py tests/test_carpet_visit_rewards.py tests/test_prism_exam_scorer.py tests/test_prism_grade_cap.py tests/test_prism_smoke_reporting.py
       - name: Actual 18 convex prism MJX riser, seam, EMU reset and step
         run: python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
