@@ -3305,7 +3305,7 @@ class EmuMJXEnv(TaskSampler):
                 # collision; never feed analytic height-map truth to the actor.
                 terrain_t=carpet_ray_surface(
                     jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    origin,ray)
+                    origin,ray,prism_bottom_depth_m=.30)
             else:
                 terrain_t=jnp.full(ray.shape[:2],jnp.inf,dtype=jnp.float32)
                 for geom in self.carpet_solid_geom_ids:
@@ -3410,7 +3410,7 @@ class EmuMJXEnv(TaskSampler):
             if self.terrain_carpet_prisms:
                 depth=carpet_ray_surface(
                     jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    torso,down)[:,0]
+                    torso,down,prism_bottom_depth_m=.30)[:,0]
             else:
                 depth=jnp.full((self.num_envs,),jnp.inf,dtype=jnp.float32)
                 for geom in self.carpet_solid_geom_ids:
