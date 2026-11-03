@@ -15,7 +15,7 @@ from pathlib import Path
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
-from .training_config import (TrainingConfig, mature_config,
+from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
 
@@ -30,9 +30,9 @@ def one_run_config(args) -> TrainingConfig:
             '(archived foundation/mature profiles are Git-history-only)')
     # One current 360-input profile. Foundation is an *age* within the same
     # run, never a separate obsolete 220-input training configuration.
-    cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
-                        seed=args.seed, device=args.device, envs=args.envs,
-                        resume=None)
+    cfg = prism_base_config(run_dir=run_dir, steps=args.steps,
+                            seed=args.seed, device=args.device, envs=args.envs,
+                            resume=None)
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
