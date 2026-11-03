@@ -39,14 +39,14 @@ def main(argv=None) -> int:
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
-    q=sub.add_parser('train',help='one source-pinned training lineage (foundation or unified research)')
+    q=sub.add_parser('train',help='one source-pinned 360-input prism training lineage')
     q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
     q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
-    q.add_argument('--profile',choices=['foundation','mature','sim2real'],default='foundation')
-    q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (sim2real defaults to 30; legacy profiles to 8)')
+    q.add_argument('--profile',choices=['sim2real'],default='sim2real')
+    q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (current prism default 8)')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
     q.add_argument('--contact-slope-deg',type=float,default=0.0,
