@@ -1990,8 +1990,7 @@ class EmuMJXEnv(TaskSampler):
         xfrc = jnp.zeros_like(data.xfrc_applied).at[:, self.torso_id, 0:3].set(push_force)
         data = data.replace(xfrc_applied=xfrc)
 
-        dynamic_model=(self._carpet_dynamic_model(state.carpet_hfields)
-            if self.terrain_carpet else self.mjx_model)
+        dynamic_model=self._carpet_dynamic_model(state.carpet_hfields)
         def substep(_, d):
             return self.step_batched(dynamic_model, d)
         data = jax.lax.fori_loop(0, CONTROL_SUBSTEPS, substep, data)
@@ -2158,11 +2157,8 @@ class EmuMJXEnv(TaskSampler):
         role map for held-out exams and legacy physical acceptance tests.
         With weights, zero-probability roles can never be sampled.
         """
-        # Legacy 220/232/single-platform teacher packets do NOT contain
-        # the unified schedule extension. The original fixed focus map
-        # remains entirely untouched for those older environments.
-        if not self.unified_capability_focus:
-            return self.focus_id
+        # Zero weights fall back to a deterministic fixed focus map in
+        # held-out tests, never to a second physical or policy model.
         jax,jnp=self.jax,self.jnp
         w=params[P.focus_weight_command:P.focus_weight_control+1]
         logits=jnp.where(w>0.,jnp.log(jnp.maximum(w,1e-30)),-1e9)
@@ -2180,8 +2176,6 @@ class EmuMJXEnv(TaskSampler):
         RNG streams remain independent of the legacy task/sensor sampler.
         """
         jax,jnp=self.jax,self.jnp
-        if not self.unified_capability_focus:
-            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         # The host supplies the sole training-age exposure blend; there is
         # no separate age or cross-specialist gate inside the world.
         mix=jnp.clip(params[P.specialist_mix],0.,1.)
@@ -2207,13 +2201,9 @@ class EmuMJXEnv(TaskSampler):
         jnp=self.jnp
         focus=self.focus_id if focus_id is None else focus_id
         active=self._specialist_enabled(keys,params,focus)
-        if self.unified_capability_focus:
-            # Rehearsal is an explicit baseline subset of the SAME policy.
-            # Its genuine fast command must not be rewritten to a 0.1m/s
-            # slope/step/control/auxiliary lesson on the next line.
-            active=active & (task[:,T.athletic_rehearsal]<.5)
-        if not self.unified_capability_focus:
-            return task,active
+        # Rehearsal preserves its genuine fast command; it is a cohort
+        # of the SAME policy, never another actor or terrain implementation.
+        active=active & (task[:,T.athletic_rehearsal]<.5)
         jax=self.jax
         is_step=active & (focus==STEP)
         is_slope=active & (focus==SLOPE)
@@ -2502,25 +2492,20 @@ class EmuMJXEnv(TaskSampler):
         data,academy_active=self._academy_course(
             data,keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal],birth_root_z)
-        carpet=None
-        if self.terrain_carpet:
-            data,carpet=self._carpet_birth(
-                data,keys,params,focus_id,specialist_active,task,
-                birth_root_z,academy_active)
+        data,carpet=self._carpet_birth(
+            data,keys,params,focus_id,specialist_active,task,
+            birth_root_z,academy_active)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
-        dynamic_model=(self._carpet_dynamic_model(carpet['carpet_hfields'])
-            if self.terrain_carpet else self.mjx_model)
+        dynamic_model=self._carpet_dynamic_model(carpet['carpet_hfields'])
         data = self.forward_batched(dynamic_model, data)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
         prev_raw_target = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
-        sensors = (self._initial_sensor_state(
-            data, task, phase, noise_keys,
-            carpet_heights=(carpet['carpet_hfields'] if carpet else None))
-                   if self.observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN) else None)
+        sensors = self._initial_sensor_state(
+            data, task, phase, noise_keys, carpet_heights=carpet['carpet_hfields'])
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
