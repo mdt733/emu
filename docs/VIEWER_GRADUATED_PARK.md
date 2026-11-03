@@ -88,7 +88,7 @@ tunnel. The trainer and public published actor are separate.
 
 The two-slab MJX training terrain still cannot produce within-episode
 continuous flat→incline→flat, rounded valleys or irregular surfaces.
-Read [terrain-transition gap](TERRAIN_TRANSITION_GAP.md). Build a
+Read [terrain-transition gap](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/TERRAIN_TRANSITION_GAP.md). Build a
 **separate read-only organic-terrain exam** before adding terrain to a
 new PPO campaign. Retain flat, speed, real step and constant-normal
 slope controls so improvement doesn't hide regressions. Avoid dense

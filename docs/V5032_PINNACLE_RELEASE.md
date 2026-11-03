@@ -129,7 +129,7 @@ Train a future replacement only when a small set of research
 questions has produced reproducible physical evidence. Keep the
 current 260M policy as the comparison baseline.
 
-[Architecture](ARCHITECTURE.md) ·
+[Architecture](CORE_SKELETON.md) ·
 [Handover](../HANDOVER.md) ·
-[Source-pinned historical runbook](PINNACLE_CANDIDATE.md) ·
+[Source-pinned historical runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) ·
 [Public release validator](../scripts/verify_showcase_release.py).

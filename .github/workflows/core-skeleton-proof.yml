@@ -28,6 +28,7 @@ jobs:
       - name: Compile Python and generate static ownership inventory
         run: |
           python -m compileall -q emu scripts tests
+          python scripts/check_current_docs.py
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
       - name: Core, actual prism geometry and batched-mocap identity tests
         run: |

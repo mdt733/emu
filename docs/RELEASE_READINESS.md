@@ -88,7 +88,7 @@ body, ground, disturbances, command schedule, horizons and scoring.
 
 ## Current candidate, release workflow and retained historical reference
 
-The completed [v5032 runbook](PINNACLE_CANDIDATE.md) is historical
+The completed [v5032 runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) is historical
 source-pinned reproducibility documentation. The [v5032 release card](V5032_PINNACLE_RELEASE.md)
 is the current physical baseline, and
 [issue #17](https://github.com/mdt733/emu/issues/17) holds proposed
@@ -104,6 +104,6 @@ workflow remains explicitly protected. Never infer approval
 from a successful training exit, higher reward or merged commit.
 
 [Maintenance](MAINTENANCE.md) ·
-[Historical research](history/README.md) ·
+[Historical research](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/history/README.md) ·
 [Public playground](PLAYGROUND.md) ·
-[Previous candidate handover](history/HANDOVER_V5031_COMPLETE.md).
+[Previous candidate handover](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/history/HANDOVER_V5031_COMPLETE.md).
