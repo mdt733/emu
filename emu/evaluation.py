@@ -111,6 +111,9 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # A carpet-trained actor's held-out physics MUST also use a carpet.
         # A two-slab world would silently return a false flat benchmark.
         terrain_carpet=bool(config.terrain_carpet),
+        # Critical: a full 140M prism campaign must never be graded on
+        # the obsolete nine tilted-box collision geometry by default.
+        terrain_carpet_prisms=bool(config.terrain_carpet_prisms),
         carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,

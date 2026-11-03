@@ -2,7 +2,7 @@
 """Bounded GPU acceptance: PPO → checkpoint → resume → exported actor.
 
 Pass --unified for the NEW 360-input actor, or --unified --carpet for
-the actual v5041 nine-box training physics. Guarded to TWO PPO updates.
+the v5041 boxes or v5044 true prisms. Guarded to TWO PPO updates.
 First/continue/verify use independent fresh directories outside Git;
 source hashes and old checkpoints are protected. No overnight unlock.
 """
@@ -35,8 +35,10 @@ UPDATE_STEPS = ENVS * ROLLOUT_STEPS
 
 
 def configs(root: Path, *, unified: bool = False, carpet: bool = False,
-            envs: int = ENVS, seed: int = SEED) -> tuple[TrainingConfig, TrainingConfig]:
+            envs: int = ENVS, seed: int = SEED, prisms: bool = False) -> tuple[TrainingConfig, TrainingConfig]:
     updates = envs * ROLLOUT_STEPS
+    if prisms and not (unified and carpet):
+        raise ValueError("prisms require --unified --carpet")
     if unified:
         # The EXACT public unified configuration, only with bounded total
         # steps. Never duplicate the profile by reconstructing handpicked
@@ -48,7 +50,7 @@ def configs(root: Path, *, unified: bool = False, carpet: bool = False,
             steps=updates, envs=envs, seed=seed, device="cuda",
             terrain_actor=True, unified_capabilities=True,
             terrain_step_max_m=.08 if carpet else .04,
-            terrain_carpet=carpet, academy_stream=carpet,
+            terrain_carpet=carpet, carpet_prisms=prisms, academy_stream=carpet,
             terrain_lesson='coherent-careful' if carpet else 'mixed',
             growth_recipe='main-mature' if carpet else 'legacy',
             force_program='gentle' if carpet else 'aggressive'))
@@ -166,13 +168,14 @@ def physical_telemetry_exists(run_dir: Path) -> None:
 
 
 def first_stage(root: Path, *, unified: bool = False,
-                carpet: bool = False, envs: int = ENVS, seed: int = SEED) -> None:
+                carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     provenance = current_source()
     if root.exists():
         raise RuntimeError(f"refusing to overwrite existing acceptance root: {root}")
     root.mkdir(parents=True)
-    first, _ = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed)
+    first, _ = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     print(f"Acceptance stage 1: one PPO update ({updates} steps), {envs} MJX worlds", flush=True)
     run_training(first, provenance=provenance)
     checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
@@ -185,10 +188,11 @@ def first_stage(root: Path, *, unified: bool = False,
 
 
 def continue_stage(root: Path, *, unified: bool = False,
-                   carpet: bool = False, envs: int = ENVS, seed: int = SEED) -> None:
+                   carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     provenance = current_source()
-    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed)
+    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     parent = root / "first/checkpoints/final.pkl"
     checkpoint(parent, updates, config=first)
     first_config = TrainingConfig.load(root / "first/training_config.json")
@@ -210,13 +214,14 @@ def continue_stage(root: Path, *, unified: bool = False,
 
 
 def verify_stage(root: Path, *, unified: bool = False,
-                 carpet: bool = False, envs: int = ENVS, seed: int = SEED) -> None:
+                 carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     # Verify both original commit identities before opening pickle checkpoints.
     provenance = current_source()
     for name in ('first', 'continued'):
         require_pinned_source(root / name, provenance['commit'])
-    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed)
+    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     p1 = checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
     p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
     for folder, step in (("first", updates), ("continued", 2 * updates)):
@@ -260,13 +265,14 @@ def verify_stage(root: Path, *, unified: bool = False,
     if carpet:
         terrain_info=bundle.get('training') or {}
         if (terrain_info.get('terrain_carpet') is not True or
+                terrain_info.get('terrain_carpet_prisms', False) is not prisms or
                 terrain_info.get('academy_stream') is not True or
                 terrain_info.get('carpet_transition_cap_deg') !=
                     first.carpet_transition_cap_deg or
                 terrain_info.get('academy_height_cap_m') !=
                     first.academy_height_cap_m):
             raise RuntimeError(
-                'Exported 360 actor lost the physical nine-box carpet/Academy provenance')
+                'Exported 360 actor lost the physical carpet/prism/Academy provenance')
     if unified:
         # Decode exactly what the frozen physical examiner will consume;
         # this checks array-only ToF semantics, model hash, and normalizer.
@@ -289,6 +295,8 @@ def main() -> None:
                         help="bounded 360-input unified acceptance; NEVER starts a campaign")
     parser.add_argument("--carpet", action="store_true",
                         help="test actual v5041 9-box terrain physics; requires --unified")
+    parser.add_argument("--prisms", action="store_true",
+                        help="test 18 true moving convex-prism collisions; requires --unified --carpet")
     parser.add_argument("--seed", type=int, default=SEED,
                         help="source-pinned learner seed; same on all three stages")
     parser.add_argument("--envs", type=int, default=ENVS,
@@ -296,6 +304,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.carpet and not args.unified:
         parser.error("--carpet requires --unified")
+    if args.prisms and not (args.carpet and args.unified):
+        parser.error("--prisms requires --unified --carpet")
     if not 0 <= args.seed < 2**31:
         parser.error("--seed must be a nonnegative signed 32-bit integer")
     if args.unified:
@@ -309,13 +319,13 @@ def main() -> None:
     root = protected_root(args.root)
     if args.stage == "first":
         first_stage(root, unified=args.unified, carpet=args.carpet,
-                    envs=args.envs, seed=args.seed)
+                    envs=args.envs, seed=args.seed, prisms=args.prisms)
     elif args.stage == "continue":
         continue_stage(root, unified=args.unified, carpet=args.carpet,
-                       envs=args.envs, seed=args.seed)
+                       envs=args.envs, seed=args.seed, prisms=args.prisms)
     else:
         verify_stage(root, unified=args.unified, carpet=args.carpet,
-                     envs=args.envs, seed=args.seed)
+                     envs=args.envs, seed=args.seed, prisms=args.prisms)
 
 
 if __name__ == "__main__":

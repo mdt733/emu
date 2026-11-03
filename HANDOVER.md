@@ -1,3 +1,7 @@
+## v5044 140M prism cold-start build — 2026-11-03
+
+New **feature/v5044-prism-140m-coldstart**, stacked on true-prism v5043; main frozen. Dedicated scripts/run_prism_140m.py has exact 2048-world 140M CUDA recipe (seed 735, one 360-input policy, six specialists, first 20M main-style foundation, 20–30M growth blend, terrain-early focus, multi-lip Academy 60–100M ramp to 50%, actual 18-prism tiles, 10% fast rehearsal, 15% retention, fixed exams 10M, latest checkpoint 20 PPO updates). start/resume/plan/verify modes source-pin to exact feature SHA and forbid overwrites. GPU checkpoint/resume/export acceptance via scripts/smoke_training_lifecycle.py --unified --carpet --prisms --envs 8 --seed 735; mandatory first/continue/verify before long start. Frozen policy bundles/live metadata now record true-prism contacts. Critical fix: emu/evaluation.py held-out fixed exams now use 18 prisms, not accidentally boxes. Detailed WSL commands: docs/V5044_PRISM_140M_COLDSTART.md. CPU CI and user's actual v5044 bounded GPU lifecycle must pass before launch. Never merge to main or train from old nine-box checkpoints.
+
 ## v5043 experimental prism physics — 2026-11-03
 
 **Feature branch:** `feature/v5043-mjx-convex-prism-carpet` · [draft PR #32](https://github.com/mdt733/emu/pull/32); stacks on viewer-only PR #31, which stacks on 140M exposure fix PR #30. No `main` merge or checkpoint mutation.
