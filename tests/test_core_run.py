@@ -131,6 +131,18 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     assert first.terrain_carpet and first.academy_stream
     assert first.observation_schema == OBS_SCHEMA_TERRAIN
     assert first.steps == 256 and second.steps == 512
+    # A source-locked training config cannot silently rebuild missing 5045
+    # physical fields using a pre-prism checkpoint's defaults.
+    import json
+    from emu.training_config import TrainingConfig
+    cfg_path = tmp_path / "training_config.json"
+    first.save(cfg_path)
+    assert TrainingConfig.load(cfg_path) == first
+    partial = json.loads(cfg_path.read_text(encoding="utf-8"))
+    partial.pop("terrain_carpet_prisms")
+    cfg_path.write_text(json.dumps(partial), encoding="utf-8")
+    with pytest.raises(ValueError,match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path)
     with pytest.raises(ValueError,match="prisms"):
         configs(tmp_path, unified=True, carpet=True, envs=8, seed=735)
     with pytest.raises(ValueError):
