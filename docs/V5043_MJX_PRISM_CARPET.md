@@ -2,6 +2,12 @@
 
 **Branch:** `feature/v5043-mjx-convex-prism-carpet` (based on viewer-only `feature/v5042-prism-terrain-viewer-lab`, itself based on the exposure repair). **Main, the historical nine-box learner, trained checkpoints and the original viewer have not been modified.** Prototype is OFF unless `--carpet-prisms` / `terrain_carpet_prisms=True` is explicitly requested.
 
+> **Historical source-pinned record (v5043).** The commands below belong
+> to the original v5043 research commit, not to the lean v5045 tree.
+> The old `scripts/exam_step_course.py` and box comparison were retired.
+> For the current 18-prism source use
+> [the v5045 runbook](V5045_LEAN_PRISM_RUNBOOK.md) and `emu prism-exam`.
+
 ## Design
 
 - 50 cm per square; **18 independently addressable convex collision meshes** in the moving 3×3 tile window; each square has two physical triangular-prism tops.
