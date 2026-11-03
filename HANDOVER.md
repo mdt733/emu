@@ -26,15 +26,18 @@ The public `main` branch and published champion remain unchanged.
 - v5044: one 2,048-world full 140M target, 20M foundation,
   dynamic six-specialist growth, streaming same-carpet Academy.
 - 18 real 3×3 convex-prism colliders, deterministic X/Y slopes and
-  signed step offsets. Old boxes disabled as colliders but retained
-  for recycler clearance bounds; 2×2 hfields supply geometry samples.
+  signed step offsets. In v5045 the inert 9 old box bodies are **removed
+  from prism scenes**; safe recycling uses the real prism XY footprint.
+  Noncontact 2×2 hfields supply physical vertex/sensor samples.
 - Matched 2048-world post-JIT PPO: **7,492 steps/s prisms**,
   **17,774 steps/s boxes**; prisms use **1.90 GB peak**.
 - The viewer is local MuJoCo/WASM **replay**, not live MJX GPU state.
   Its illustrative prism/terrain view must not be described as
   identical to the actual training instances.
-- v5045 begins a safety-first cleanup; first optimisation batches
-  two-triangle prism mocap updates. **No FPS improvement claimed yet.**
+- v5045 removes superseded Python/JS terrain implementations and
+  unused historical probes, archives old notes, batches prism mocap
+  updates, and removes the inert legacy boxes from the prism scene.
+  **No FPS improvement claimed until identical CUDA benchmarks.**
 
 ## Non-negotiables
 

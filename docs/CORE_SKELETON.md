@@ -87,17 +87,36 @@ independent physics probes and diagnostics. Most of these are imported by
 the training implementation even if a particular 140M recipe disables
 their heavier operations. They must not be dropped on a size guess.
 
+## Proven obsolete in the active path (removed from this branch)
+
+- `emu/terrain_spike.py`: old standalone finite-step spike world.
+- `emu/terrain_carpet.py`: pre-MJX deterministic specification, not
+  consumed by actual prism contacts or curriculum. Its obsolete unit
+  tests are replaced by tests of `terrain_carpet_mjx.py`.
+- `scripts/smoke_step_course.py`, `scripts/probe_carpet_hfield.py`:
+  old slab and hfield spikes. The current probe validates 18 real
+  six-vertex prism meshes, physical walls, actor reset and stepping.
+- `emu/viewer_src/src/training-carpet.js` old raster-heightfield
+  generator: removed, with a fail-closed assertion that browser carpet
+  must have actual collision solids.
+- `scripts/smoke_unified_focus.py` and old box/hfield probes: archived
+  by Git history; retained tests for the active curriculum and
+  prism simulator are the current proof.
+
 ## Legacy, not automatically dead
 
 - `environment.py` still supports older 220/232-input policies,
   legacy step platforms and non-carpet terrain paths. The v5044 prism
   mode does NOT use their active collision surfaces, but existing
   training/source and frozen-policy reproducibility depend on them.
-- The nine **disabled** boxes in prism MJX remain temporarily useful
-  for conservative trailing-foot/recycler AABB clearance checks.
-  Deleting them without a prism-correct replacement would change
-  physical safety. The nine 2×2 hfields are also a **vertex sample**
-  store for sensors and mesh deformation, not nine active ground geoms.
+- **Prism-only collision scene no longer creates the nine old box
+  bodies at all.** Tile recycling uses a conservative test against
+  each *actual* half-metre prism square in XY, expanded by each foot's
+  spherical radius and a 4mm safety margin, and only moves abandoned
+  slots once both feet clear. Nine inert 2×2 hfields remain as **source
+  vertex samples** for the analytic height, sensors and mesh deformation;
+  they are not collision surfaces. The old nine-box model still exists
+  only as a separate benchmark mode and is a later removal candidate.
 - `step_academy_world.py` is the older separate slab machinery. The
   v5044 Academy uses the shared prism carpet, but old tests and policy
   worlds still require these definitions.
@@ -145,9 +164,13 @@ Measure and keep separate:
    rendering; never combine their wall time with the GPU rollout.
 
 v5045 first experiment replaces **18 sequential prism mocap scatter
-updates** at birth/recycle with **one batched scatter**. No safety
-guard, geometry or network interface is changed; unit test compares
-the original scalar loop against eager and JIT batched operations.
+updates** at birth/recycle with **one batched scatter**. The second
+experiment removes nine inactive legacy-box bodies from prism physics,
+avoids their redundant pose and rotation calculations, and uses the
+real vertical prism footprint for safe recycling. Unit tests compare
+old scalar versus JIT batched updates and exercise foot-contact/clear
+boundaries. The second experiment changes the collision model's inert
+body count; **do not resume a v5044 checkpoint with v5045 code**.
 This is a *compilation/operation-count hypothesis*, not a measured
 training speed improvement. Before considering a merge or a future
 training run, repeat the identical `--benchmark-updates 3` test and

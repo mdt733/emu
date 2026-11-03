@@ -132,7 +132,7 @@ def markdown(data: dict) -> str:
                 "| Module | Lines | Direct internal imports | Script/test references |",
                 "|---|---:|---|---|"])
     for name, detail in data["modules"].items():
-        out.append(f"| \`{name}\` | {detail['lines']} | "
+        out.append(f"| `{name}` | {detail['lines']} | "
                    f"{', '.join(detail['imports']) or '—'} | "
                    f"{len(detail['script_or_test_users'])} |")
     out.extend(["", "## Manual-review candidates only", "",

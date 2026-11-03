@@ -395,7 +395,7 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
           "lip heights vary by global location and seed." if carpet else
           "Old three-slab world tests the assigned constant height.",
           "Teacher crossing credits and independent trajectory crossings "
-          "are BOTH reported for carpet; disagreement requires investigation. "
+          "are BOTH reported for carpet; disagreement requires investigation.",
           ("Independent prism scoring uses two genuine colliders, five "
            "consecutive top-face MJX contacts and signed physical triangle "
            "heights, independent of teacher rewards." if prisms else
