@@ -50,7 +50,12 @@ Fix on `feature/v5041-carpet-exposure-unlock`:
 No actor dimensions, PPO weights, other regime controller, collision
 shapes, sidewall tests, or model checkpoint bytes are changed.
 
-## Required verification, before more GPU training
+## Historical verification plan, for the original v5041 source only
+
+The following command names and tests belong to the **3 November v5041
+source**, and were deleted from the active v5045 prism branch. Do not
+paste them into a current checkout. For current physical acceptance use
+the [v5045 prism runbook](V5045_LEAN_PRISM_RUNBOOK.md).
 
 * Run `python -m pytest -q tests/test_terrain_carpet.py
   tests/test_carpet_solid_geometry.py tests/test_carpet_visit_rewards.py`
