@@ -59,7 +59,7 @@ and retirement decisions. The historical full handover remains
 
 ## 4 November — make the physical control frame understandable
 
-- `EnvState` was **59 fields, now 54**. The retired single-slab
+- `EnvState` was **59 fields, now 52**. The retired single-slab
   approach counters and ascent peaks never changed in real-prism training;
   they no longer occupy an MJX state. Reset populates fields by name and
   per-frame updates use `state._replace(...)` with named live changes,
@@ -78,8 +78,17 @@ and retirement decisions. The historical full handover remains
   forward tracking blend remain. Retired config fields were removed from
   `training.py` and `training_config.py`; this is a **new source-locked
   checkpoint lineage** and old branch checkpoints cannot be resumed.
-- Remaining large concepts: `environment._step_impl` still combines
-  episode outcomes and telemetry, `curriculum.py` still has a long
+- The 438-line `_step_impl` is now about 224 lines. Its reporting dictionary
+  and physical slope/STEP episode grading moved into `_step_report`,
+  which reads the pre-auto-reset episode accumulator and the same physical
+  contact facts. A byte-for-byte comparison confirms the 8,032-character
+  reporting dictionary and reward invocation were preserved.
+- The existing four-world prism probe now requires finite, world-shaped
+  rewards, episodes, signed-step, slope and stance evidence. Two more
+  never-set Academy flags were removed; state construction now requires
+  all 52 fields, without optional None defaults.
+- Remaining large concepts: `_step_report` still collects substantial
+  telemetry, `curriculum.py` still has a long
   evidence governor, and `results.py` still records legacy metric names.
   Consolidate only with fresh physical equivalence proof; do not change
   reward economics or teacher thresholds as part of cosmetic refactoring.
