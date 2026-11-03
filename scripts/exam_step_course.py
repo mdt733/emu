@@ -158,12 +158,14 @@ def independently_score_carpet_crossings(frames):
 
 
 def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
-            device="cpu",heights_cm=(1.,2.,3.),carpet=False,slope_deg=0.):
+            device="cpu",heights_cm=(1.,2.,3.),carpet=False,slope_deg=0.,prisms=False):
     if (worlds<4 or worlds>32 or horizon<200 or horizon>1200 or
         speed<.04 or speed>.30 or not heights_cm or
         any(h<.2 or h>15 for h in heights_cm) or
         not 0.<=slope_deg<=15.):
         raise ValueError("Need 4..32 worlds, 200..1200 frames, 0.04..0.30m/s, 0.2..15cm")
+    if prisms and not carpet:
+        raise ValueError("--prisms requires --carpet (terrain_360 actor)")
     policy=Path(policy).expanduser().resolve()
     output=Path(output).expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
@@ -196,6 +198,7 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
         max_episode_steps=1300,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_step_max_m=.08,
         terrain_carpet=bool(carpet),
+        terrain_carpet_prisms=bool(prisms),
         carpet_transition_cap_deg=float((actor.get("training") or {}).get(
             "carpet_transition_cap_deg",3.)),
         academy_stream=True,academy_height_cap_m=.15,
@@ -226,7 +229,7 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
           probe_tilt_rad=0.,probe_push_n=0.,
           terrain_edge_angle_deg=float("nan"),
           terrain_fixed_height_m=float("nan") if carpet else h/100)
-        print(f"Independent {'nine-box carpet' if carpet else 'streaming ring'} "
+        print(f"Independent {'18-prism carpet' if prisms else 'nine-box carpet' if carpet else 'streaming ring'} "
               f"exam nominal frontier {h:g}cm, grade≤{slope_deg:g}°, "
               f"{worlds} worlds",flush=True)
         trace=trainer["evaluate_trace"](
@@ -240,13 +243,17 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             solids=np.asarray(out["initial_carpet_solid_geom_xpos"])
             orientations=np.asarray(out["initial_carpet_solid_geom_xmat"])
             cells=np.asarray(out["initial_carpet_cells"])
-            if (solids.shape!=(worlds,9,3) or
-                orientations.shape!=(worlds,9,3,3) or
+            n_solid=18 if prisms else 9
+            if (solids.shape!=(worlds,n_solid,3) or
+                orientations.shape!=(worlds,n_solid,3,3) or
                 cells.shape!=(worlds,9,2) or
                 not np.all(np.isfinite(solids)) or
                 not np.all(np.isfinite(orientations)) or
-                not np.all(orientations[:,:,:,2][:,:,2]>.75)):
-                raise RuntimeError("Frozen carpet examiner did not load nine valid solid colliders")
+                (not prisms and not np.all(orientations[:,:,:,2][:,:,2]>.75))):
+                raise RuntimeError("Frozen carpet examiner did not load valid colliders")
+            if prisms and np.asarray(out["carpet_prism_corner_z"]).shape!=(
+                    horizon,worlds,9,4):
+                raise RuntimeError("Prism physical triangle evidence missing")
             signed=None
         else:
             initial=np.asarray(out["academy_initial_platform_positions"])
@@ -337,7 +344,11 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             clearances=total("academy_clearance_new"),
             worlds_fell=int(falls.any(axis=0).sum()))
         if carpet:
-            independent=independently_score_carpet_crossings(out)
+            if prisms:
+                from scripts.exam_prism_course import score_prism_crossings
+                independent=score_prism_crossings(out)
+            else:
+                independent=independently_score_carpet_crossings(out)
             outcome["independent_trajectory"]=independent
             outcome["teacher_minus_independent"]={
                 "up":outcome["up"]-independent["up"],
@@ -357,7 +368,8 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
               f"falls {outcome['worlds_fell']}/{worlds}",flush=True)
 
     document=dict(
-        schema=("emu_carpet_frozen_physical_v1" if carpet else
+        schema=("emu_prism_frozen_physical_v1" if prisms else
+                "emu_carpet_frozen_physical_v1" if carpet else
                 "emu_step_streaming_frozen_physical_v2"),
         actor_sha256=actor["artifact_sha256"],actor_step=actor["source"]["step"],
         actor_source_commit=actor["source"].get("git_commit"),
@@ -365,8 +377,12 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
         protocol=dict(seed=seed,worlds=worlds,horizon=horizon,speed=speed,
                       device=device,heights_cm=list(heights_cm),
                       slope_deg=slope_deg,terrain_carpet=bool(carpet),
-                      recycled_platforms=9 if carpet else 3,
-                      collision_geometry=("nine_tilted_solid_boxes" if carpet else
+                      research_prism_physics=bool(prisms),
+                      actor_was_trained_on_prisms=bool(
+                          (actor.get("training") or {}).get("terrain_carpet_prisms",False)),
+                      recycled_platforms=18 if prisms else 9 if carpet else 3,
+                      collision_geometry=("eighteen_true_convex_triangular_prisms" if prisms else
+                                          "nine_tilted_solid_boxes" if carpet else
                                           "three_streaming_slab_boxes"),
                       scoring="first_termination_only",
                       actual_collision=True,no_training=True),
@@ -380,14 +396,24 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
           "Old three-slab world tests the assigned constant height.",
           "Teacher crossing credits and independent trajectory crossings "
           "are BOTH reported for carpet; disagreement requires investigation. "
-          "Independent scoring reconstructs new box-top support for five frames "
-          "from raw MJX contacts/poses and signed physical edge heights.",
+          ("Independent prism scoring uses two genuine colliders, five "
+           "consecutive top-face MJX contacts and signed physical triangle "
+           "heights, independent of teacher rewards." if prisms else
+           "Independent scoring reconstructs new box-top support for five frames "
+           "from raw MJX contacts/poses and signed physical edge heights."),
+          ("A nine-box-trained actor in prism physics is an explicit generalization "
+           "test, not evidence of learning in prism terrain." if prisms else
+           "Existing actor geometry preserved."),
+          ("STEP specialist physical grade is role-scaled, so it need not "
+           "equal the full requested --slope-deg." if carpet else
+           "Legacy slab grade is explicit."),
           "One frozen policy and one seed are not repeatability proof.",
           "Simulated 15cm capability does not certify physical hardware."],
         results=outcomes)
     output.mkdir(parents=True,exist_ok=True)
     (output/"academy_exam.json").write_text(json.dumps(document,indent=2)+"\n")
-    lines=[("# EMU nine-box carpet STEP exam" if carpet else
+    lines=[("# EMU true-prism carpet STEP exam" if prisms else
+            "# EMU nine-box carpet STEP exam" if carpet else
             "# EMU streaming STEP physical exam"),"",
       f"Actor SHA256: {document['actor_sha256']}",
       f"Actor source: {document['actor_source_commit']}","",
@@ -407,13 +433,18 @@ def examine(policy,output,*,worlds=8,horizon=1050,speed=.16,seed=1701,
             lines.append(f"| {result['height_cm']:g}cm | {physical['up']} "
                          f"| {physical['down']} | {result['up']} | {result['down']} |")
         lines.extend(["",
-            "Independent crossings reconstruct raw box geometry and five "
-            "consecutive top-support contacts, separately from training rewards.",
+            ("Independent crossings reconstruct true triangle heights and five "
+             "consecutive raw MJX prism top contacts, separately from rewards."
+             if prisms else
+             "Independent crossings reconstruct raw box geometry and five "
+             "consecutive top-support contacts, separately from training rewards."),
             "Any disagreement with teacher credit requires physical trace review."])
     lines.extend([
         "",
         ("Each crossing requires five consecutive physically supported "
-         "frames on a newly visited live tile top; nine solid tiles recycle."
+         "frames on a newly visited live tile top; " + (
+             "18 true prisms recycle in nine pairs." if prisms else
+             "nine solid boxes recycle.")
          if carpet else
          "Each crossing requires far-side top support and a fully "
          "cleared previous platform; three physical slabs recycle."),
@@ -439,13 +470,15 @@ def main():
     p.add_argument("--heights-cm",type=float,nargs="+",default=[1.,2.,3.])
     p.add_argument("--carpet",action="store_true",
                    help="use actual nine-box v5041 terrain, refuse older actors")
+    p.add_argument("--prisms",action="store_true",
+                   help="explicit MJX 18-prism experiment; requires --carpet")
     p.add_argument("--slope-deg",type=float,default=0.,
                    help="optional mixed grade on carpet; 0 gives step-only exam")
     a=p.parse_args()
     examine(a.policy,a.output,worlds=a.worlds,horizon=a.horizon,
             speed=a.speed,seed=a.seed,device=a.device,
             heights_cm=tuple(a.heights_cm),
-            carpet=a.carpet,slope_deg=a.slope_deg)
+            carpet=a.carpet,slope_deg=a.slope_deg,prisms=a.prisms)
 
 
 if __name__=="__main__":

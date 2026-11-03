@@ -31,7 +31,7 @@ SOLID_HALF_Z_M=.270
 SOLID_HALF_XY_M=.258
 BURIED_Z=-30.
 
-def add_carpet_geoms(xml: str) -> str:
+def add_carpet_geoms(xml: str, *, prisms: bool = False) -> str:
     root=ET.fromstring(xml)
     world=root.find("worldbody")
     if world is None:raise ValueError("Carpet requires worldbody")
@@ -39,6 +39,9 @@ def add_carpet_geoms(xml: str) -> str:
     if asset is None:
         asset=ET.Element("asset")
         root.insert(0,asset)
+    # v5043 opt-in: collision surfaces will be 18 dynamically sheared
+    # convex triangular prisms. Legacy nine-box training remains untouched.
+    # The hfields still provide nine independent *analytic* 2x2 samples.
     # The v5040 slab/Academy training geometry is not used in a carpet
     # episode. Retain its stable named IDs for legacy diagnostics, but
     # DISABLE collision pairs rather than wasting GPU broadphase work on
@@ -79,8 +82,11 @@ def add_carpet_geoms(xml: str) -> str:
         ET.SubElement(body,"geom",dict(
             name=SOLID_GEOM_NAMES[i],type="box",
             size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
-            contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
+            contype="0" if prisms else "4",conaffinity="0",friction="1.5 0.005 0.0001",
             rgba="0.39 0.65 0.39 1"))
+    if prisms:
+        from .carpet_prism_mjx import prism_mesh_xml
+        prism_mesh_xml(root,active=True)
     return ET.tostring(root,encoding="unicode")
 
 def hash_float(xp,i,j,seed,salt):
@@ -141,8 +147,8 @@ def make_profiles(xp,seeds,up,down):
 
     The +/-X direction independently draws UP/DOWN under an early-to-late
     0.95x→1.5x physical challenge schedule, with 90% of the directional
-    frontier as the base amplitude. The +/-Y component uses 18% of the
-    smaller frontier; per-tile jitter uses 5%. The final stretch may exceed
+    frontier as the base amplitude. The +/-Y component uses independent signed up/down amplitudes near
+    the frontier; per-tile jitter uses 5%. The final stretch may exceed
     the mastered frontier by design (but never grows without bounds).
     All global tiles remain consistent on revisit within an episode.
     """
@@ -160,8 +166,13 @@ def make_profiles(xp,seeds,up,down):
                        -.90*down[:,None])*(.75+.25*ax)*challenge
     hy=hash_float(xp,0,idx,seed,103)
     ay=hash_float(xp,0,idx,seed,104)
-    minor=xp.minimum(up,down)[:,None]
-    signed_y=xp.where(hy<.5,.18*minor,-.18*minor)*(.3+.7*ay)
+    # v5043 experimental carpet: a newly generated row in Y is also a
+    # real, signed step encounter; it is no longer just an 18% camber.
+    # Each X/Y transition gets its OWN deterministic seed-derived sign
+    # and height around the independently earned UP/DOWN frontiers.
+    ychallenge=.95+.25*xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
+    signed_y=xp.where(hy<.5,.85*up[:,None],-.85*down[:,None])*\
+             (.8+.2*ay)*ychallenge
     xc=xp.cumsum(signed_x,axis=1)
     yc=xp.cumsum(signed_y,axis=1)
     xc=xc-xc[:,PROFILE_HALF:PROFILE_HALF+1]
@@ -190,23 +201,45 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
     phase=hash_float(xp,0,0,seeds,140)*2.*xp.pi
     p1=hash_float(xp,0,0,seeds,141)*2.*xp.pi
     p2=hash_float(xp,0,0,seeds,142)*2.*xp.pi
-    # Independent sample height potential at GLOBAL vertex coordinates.
-    # Its first derivative is the changing slope and its second derivative
-    # bounds tile-to-tile angle transitions: smoothly joined, no cracks.
+    # v5043: each global vertex has seeded 2D noise; adjacent squares
+    # share it exactly, while each square acquires a distinct X/Y grade.
+    # The random magnitude is limited by BOTH the absolute grade frontier
+    # and the maximum grade-transition frontier. No per-tile independently
+    # fitted plane can introduce an unearned seam step.
     # The source of truth is exactly these four heights in MJX collision.
     grade=xp.tan(xp.deg2rad(xp.maximum(0.,slope_deg)))
     tlimit=xp.tan(xp.deg2rad(
         xp.maximum(0.,xp.minimum(transition_limit_deg,slope_deg))))
     frequency=1.15
-    variable=xp.minimum(.65*grade,
+    # Keep sampled triangles near the earned slope frontier: multiplying
+    # down the base slope here would recreate the near-band starvation
+    # uncovered in the 140M v5041 investigation. A conservative <=15%
+    # varying gradient gives random 2D orientation without systematic
+    # under-exposure; transition_limit_deg bounds its spatial changes.
+    variable=xp.minimum(.15*grade,
         tlimit/(frequency*TILE_M*1.6))
-    base=xp.maximum(0.,.92*grade-variable)
+    base=xp.maximum(0.,.92*grade-.45*variable)
+    # Seeded random vertex elevation, continuous across the entire
+    # unbounded grid. The conservative amplitude budget keeps the
+    # resulting per-triangle grade and neighbouring normal jumps modest.
+    random_amp=xp.minimum(.28*grade*TILE_M,
+                          tlimit*TILE_M/12.)
     def z_at(dx,dy):
         gx=x+dx
         gy=y+dy
         wave=(variable/frequency)*(
             xp.sin(frequency*gx+p1)*xp.cos(.85*frequency*gy+p2))
-        return mean+base*(gx*xp.cos(phase)+gy*xp.sin(phase))+wave
+        # Weighted two-dimensional global vertex noise (1/16 kernel).
+        # No dependence on which tile requested the common corner.
+        vi=ti+xp.asarray(xp.rint(dx/TILE_M),dtype=xp.int32)
+        vj=tj+xp.asarray(xp.rint(dy/TILE_M),dtype=xp.int32)
+        corner=4.*hash_float(xp,vi,vj,seeds,201)
+        for oi,oj,w in ((-1,0,2.),(1,0,2.),(0,-1,2.),(0,1,2.),
+                        (-1,-1,1.),(-1,1,1.),(1,-1,1.),(1,1,1.)):
+            corner=corner+w*hash_float(xp,vi+oi,vj+oj,seeds,201)
+        corner=corner/16.-.5
+        return (mean+base*(gx*xp.cos(phase)+gy*xp.sin(phase))+
+                wave+random_amp*corner)
     heights=xp.stack((z_at(0.,0.),z_at(TILE_M,0.),
                       z_at(0.,TILE_M),z_at(TILE_M,TILE_M)),axis=1)
     centre=xp.mean(heights,axis=1)
@@ -286,7 +319,8 @@ def sample_surface(xp,data,mocap_ids,hfield_data,points):
         height=xp.maximum(height,xp.where(inside,z,-xp.inf))
     return height
 
-def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
+def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
+                prism_bottom_depth_m=None):
     """Slant range against both real triangles in every 50cm tile.
 
     Iterative ray-plane intersections use the same planar interpolation as
@@ -332,7 +366,13 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
                 z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
                       sample[:,lo,None]*(1.-fraction)
                       +sample[:,hi,None]*fraction)
-                z_bottom=pos[:,None,2]-TILE_BASE_M
+                # v5043 prisms have a sheared lower triangle by the configured prism depth
+                # below each top vertex. The old heightfield base used a
+                # different constant Z and would expose phantom sidewalls
+                # below the actual prism collision body.
+                z_bottom=(z_top-prism_bottom_depth_m if
+                          prism_bottom_depth_m is not None else
+                          pos[:,None,2]-TILE_BASE_M)
                 hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
                     fraction>=0.)&(fraction<=1.)&(
                     z_at<=z_top)&(z_at>=z_bottom)

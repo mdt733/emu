@@ -702,10 +702,35 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             rotation=env._rotation_body_to_world(data)
             yaw=jnp.arctan2(rotation[:,1,0],rotation[:,0,0])
             foot_geoms=tuple(int(x) for x in env.ids['foot_geoms'])
-            if env.terrain_carpet:
-                # Real floor contact is ANY of the NINE live physical solids.
-                # The inactive legacy slab always reports false in carpet
-                # mode and must never stand in for terrain contact here.
+            if env.terrain_carpet and env.terrain_carpet_prisms:
+                # A non-planar square has TWO real support normals. Select
+                # the triangle under this root, never the retired 9 boxes.
+                prisms=tuple(int(g) for g in env.carpet_prism_geom_ids)
+                contacts=jnp.any(jnp.stack(tuple(
+                    contact_pair_mask(jnp,data.contact.geom1,
+                                      data.contact.geom2,data.contact.dist,
+                                      int(g),foot_geoms)
+                    for g in prisms),axis=1),axis=1)
+                tile=jnp.floor(data.qpos[:,:2]/.50).astype(jnp.int32)
+                slot=jnp.mod(tile[:,0],3)+3*jnp.mod(tile[:,1],3)
+                h=es.carpet_hfields.reshape((env.num_envs,9,4))
+                chosen=jnp.take_along_axis(
+                    h,slot[:,None,None],axis=1)[:,0,:]
+                u=(data.qpos[:,0]/.50-tile[:,0].astype(jnp.float32))
+                v=(data.qpos[:,1]/.50-tile[:,1].astype(jnp.float32))
+                gx=jnp.where(u+v<=1.,chosen[:,1]-chosen[:,0],
+                                        chosen[:,3]-chosen[:,2])
+                gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
+                                        chosen[:,3]-chosen[:,1])
+                normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
+                floor_normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
+                top=env._carpet_real_top_height(
+                    data,data.qpos[:,:3][:,None,:],es.carpet_hfields)[:,0]
+                floor_origin=jnp.stack((
+                    data.qpos[:,0],data.qpos[:,1],
+                    jnp.where(jnp.isfinite(top),top,0.)),axis=1)
+            elif env.terrain_carpet:
+                # Legacy 9-box read-only examiner remains unchanged.
                 contacts=jnp.any(jnp.stack(tuple(
                     contact_pair_mask(jnp,data.contact.geom1,
                                       data.contact.geom2,data.contact.dist,
@@ -845,7 +870,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # are independent of the teacher's academy_cross_new credit:
                 # the operator can check sustained new-tile top support,
                 # approach direction and signed actual lip geometry.
-                solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+                solids=tuple(int(g) for g in (
+                    env.carpet_prism_geom_ids if env.terrain_carpet_prisms
+                    else env.carpet_solid_geom_ids))
                 foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
                 carpet_pairs=jnp.stack(tuple(
                     contact_pair_mask(
@@ -874,8 +901,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                         es.data.qpos[:,:2]/.50).astype(jnp.int32),
                     "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
                     "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
-                        (env.num_envs,9,3,3)),
+                        (env.num_envs,len(solids),3,3)),
                 })
+                if env.terrain_carpet_prisms:
+                    # The independent prism examiner consumes this world-space
+                    # physical vertex evidence, not teacher crossing rewards.
+                    # Each sample is PRE-step and matches raw MJX contact pairs.
+                    corner=es.carpet_hfields.reshape((env.num_envs,9,4))
+                    tile_z=es.data.mocap_pos[:,list(env.carpet_mocap_ids),2]
+                    sample["carpet_prism_corner_z"]=(
+                        tile_z[:,:,None]+.5*corner)
             if env.academy_stream:
                 # Read-only per-lip physical measurements from the same
                 # step function as training; never the policy reward alone.
@@ -912,13 +947,15 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             from .terrain_carpet_mjx import slot_indices
             cx,cy=slot_indices(jnp,initial.carpet_center[:,0],
                                initial.carpet_center[:,1])
-            solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+            solids=tuple(int(g) for g in (
+                env.carpet_prism_geom_ids if env.terrain_carpet_prisms
+                else env.carpet_solid_geom_ids))
             return dict(
                 **frames,
                 # Actual live collision surfaces, NOT inactive heightfields.
                 initial_carpet_solid_geom_xpos=initial.data.geom_xpos[:,solids,:],
                 initial_carpet_solid_geom_xmat=initial.data.geom_xmat[
-                    :,solids,:].reshape((env.num_envs,9,3,3)),
+                    :,solids,:].reshape((env.num_envs,len(solids),3,3)),
                 initial_carpet_solid_half_sizes=jnp.asarray(
                     env.mj_model.geom_size[list(solids),:3]),
                 initial_carpet_cells=jnp.stack((cx,cy),axis=-1),

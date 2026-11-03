@@ -1,4 +1,4 @@
-"""v5041 GPU trainer gate: nine real tilted-box MJX surfaces, per-world
+"""v5041/v5043 GPU trainer gate: real 9-box or opt-in 18-prism MJX, per-world
 streaming state, real 4x4 ToF and a genuine PPO gradient update.
 
 Does NOT claim learned locomotion; CPU smoke is not 2048 GPU acceptance.
@@ -10,12 +10,24 @@ import os
 import time
 
 
+def physics_report_fields(*, prisms: bool) -> dict:
+    """Report actual enabled colliders, never the dormant nine-box assets."""
+    return dict(
+        physics=("eighteen-dynamic-convex-triangular-prisms" if prisms
+                 else "nine-solid-tilted-boxes"),
+        active_collision_geoms=18 if prisms else 9,
+        terrain_carpet_prisms=bool(prisms),
+    )
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--worlds",type=int,default=4)
     p.add_argument("--device",choices=("cpu","cuda","gpu"),default="cpu")
     p.add_argument("--frames",type=int,default=2)
     p.add_argument("--ppo",action="store_true")
+    p.add_argument("--prisms",action="store_true",
+                   help="v5043 research only: 18 dynamic convex triangular-prism colliders")
     p.add_argument("--full-update",action="store_true")
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
@@ -43,7 +55,8 @@ def main():
         str(ROBOT_XML),num_envs=a.worlds,seed=735,max_episode_steps=700,
         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_lesson="coherent-careful",
-        academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True)
+        academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
+        terrain_carpet_prisms=a.prisms)
     params=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                 slope_max_deg=8.,terrain_height_m=.02,
                 academy_height_up_m=.02,academy_height_down_m=.03,
@@ -59,7 +72,14 @@ def main():
         raise RuntimeError("Expected nine real 50cm collision box tiles")
     if np.any(env.mj_model.geom_contype[np.asarray(
             env.carpet_geom_ids,dtype=np.int32)]!=0):
-        raise RuntimeError("Heightfield side skirts must not collide in box-only mode")
+        raise RuntimeError("Heightfield side skirts must not collide")
+    if a.prisms:
+        if len(env.carpet_prism_geom_ids)!=18:
+            raise RuntimeError("Expected exactly 18 physical prism geoms")
+        if np.any(env.mj_model.geom_contype[list(env.carpet_solid_geom_ids)]):
+            raise RuntimeError("Legacy boxes must be disabled in prism mode")
+        if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
+            raise RuntimeError("Prism bit-4 contacts are not enabled")
     if env.academy_geom_ids or env.academy_platform_mocap_ids:
         raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
     if (env.mj_model.geom_contype[env.ids["floor_geom"]] != 0 or
@@ -83,12 +103,14 @@ def main():
     roots=state.data.qpos[:,:3][:,None,:]
     source=sample_surface(jnp,state.data,env.carpet_mocap_ids,
                           state.carpet_hfields,roots)[:,0]
-    actual=env._carpet_real_top_height(state.data,roots)[:,0]
+    actual=env._carpet_real_top_height(
+        state.data,roots,state.carpet_hfields if a.prisms else None)[:,0]
     gap=np.asarray(jax.device_get(jnp.abs(actual-source)))
-    if not np.all(np.isfinite(gap)) or np.max(gap)>.008:
+    if not np.all(np.isfinite(gap)) or np.max(gap)>(.00005 if a.prisms else .008):
         raise RuntimeError(f"Collision surface diverges from analytic teacher by {gap}")
-    print("surface PASS: sampled two-triangle contract agrees with real tilted "
-          f"box top to within {float(np.max(gap))*1000:.2f}mm",flush=True)
+    print("surface PASS: two triangles agree with real "
+          +("convex prism tops" if a.prisms else "tilted box approximation")+
+          f" within {float(np.max(gap))*1000:.3f}mm",flush=True)
     tile_positions=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(env.carpet_mocap_ids),:]))
     if tile_positions.shape!=(a.worlds,9,3):
@@ -97,8 +119,9 @@ def main():
         :,list(env.carpet_solid_mocap_ids),:]))
     if solid_pos.shape!=(a.worlds,9,3) or not np.isfinite(solid_pos).all():
         raise RuntimeError("Invalid per-world nine solid tile poses")
-    print("reset PASS: 9 real 50cm planar boxes with vertical sides; "
-          "two-triangle source heights, distinct per-world JAX sensor model",flush=True)
+    print("reset PASS: "+("18 dynamic convex triangular prisms" if a.prisms
+          else "9 rigid tilted boxes")+
+          ", distinct per-world 360-input JAX physics",flush=True)
     # One robot crossing into a neighbouring 50cm tile must recycle only
     # abandoned slots. If a rear foot still occupies an abandoned tile,
     # the whole window must remain unchanged.
@@ -230,7 +253,7 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
-          physics="nine-solid-tilted-boxes",tiles=TILE_COUNT,
+          **physics_report_fields(prisms=a.prisms),tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
           **(dict(ppo_parameter_delta=max_param_delta,
                   ppo_actor_delta=max_actor_delta,

@@ -204,6 +204,7 @@ class TrainingConfig:
     science_reset_step_evidence_on_fork: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
     terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
+    terrain_carpet_prisms: bool = False  # v5043 research-only 18 true convex dynamic prisms
     carpet_transition_cap_deg: float = 3.0  # degree-bound for smoothly changing local gradients
     academy_stream: bool = False  # opt-in: three recyclable real platforms
     academy_intro_steps: int = 60_000_000
@@ -262,7 +263,7 @@ class TrainingConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
         # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'terrain_carpet','carpet_transition_cap_deg', 'attitude_profile', 'pitch_command_max_deg',
+        optional = {'terrain_carpet','terrain_carpet_prisms','carpet_transition_cap_deg', 'attitude_profile', 'pitch_command_max_deg',
                     'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
                     'motor_guidance_weight', 'contact_slope_deg',
                     'domain_terrain_mode', 'observation_schema',

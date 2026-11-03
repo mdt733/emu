@@ -120,6 +120,9 @@ def one_run_config(args) -> TrainingConfig:
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
     terrain_carpet=bool(getattr(args,'terrain_carpet',False))
+    carpet_prisms=bool(getattr(args,'carpet_prisms',False))
+    if carpet_prisms and not terrain_carpet:
+        raise ValueError('--carpet-prisms requires --terrain-carpet')
     carpet_transition_cap_deg=float(getattr(args,'carpet_transition_cap_deg',3.0))
     if (not math.isfinite(carpet_transition_cap_deg) or
             not 0.0<=carpet_transition_cap_deg<=15.0 or
@@ -157,6 +160,7 @@ def one_run_config(args) -> TrainingConfig:
                    growth_recipe=growth_recipe, retention_share=retention_share,
                    academy_stream=academy_stream,
                    terrain_carpet=terrain_carpet,
+                   terrain_carpet_prisms=carpet_prisms,
                    carpet_transition_cap_deg=carpet_transition_cap_deg,
                    academy_intro_steps=intro,academy_start_steps=start,
                    academy_ramp_steps=ramp,academy_intro_share=intro_share,
