@@ -61,8 +61,7 @@ from .terrain_carpet_mjx import (
 from .carpet_prism_mjx import (
     batch_update_prism_mocaps,
     PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PRISM_DEPTH_M, PrismMeshBuilder)
-from .directional import (simulate_tripod_ranges, fit_tripod_ground,
-                          fit_forward_array_ground,
+from .directional import (fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
 )
 from .contracts import (
@@ -246,9 +245,7 @@ class EnvState(NamedTuple):
 
 
 class SensorSample(NamedTuple):
-    """One raw sensor snapshot; no estimated grade or velocity stored."""
-    tof_ranges_m: Any
-    tof_beam_valid: Any
+    """One real 4x4 range/flow/gyro snapshot, not a tripod emulation."""
     terrain_ranges_m: Any
     terrain_valid: Any
     flow_rad_s: Any
@@ -2676,127 +2673,8 @@ class EmuMJXEnv(TaskSampler):
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
 
-    def ground_sensor_probe(self, data, range_errors_m=None):
-        """Provisional three-ToF + IMU surface observation, not actor truth.
-
-        Floor geometry is used ONLY to synthesize beam returns. The inverse
-        estimate sees measured ranges and projected IMU gravity, never the
-        MuJoCo ground normal. Intentionally diagnostic until versioned
-        v5016 actor input, latency and optical-flow models are accepted.
-        """
-        jnp=self.jnp
-        R=self._rotation_body_to_world(data)
-        torso=data.xpos[:,self.torso_id,:]
-        f=int(self.ids['floor_geom'])
-        floor_n=jnp.reshape(data.geom_xmat[:,f],(self.num_envs,3,3))[:,:,2]
-        floor_o=data.geom_xpos[:,f,:]
-        projected_gravity,_,_=self._body_packets(data)
-        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
-            ranges4,valid4=self._terrain_4x4_ranges(data)
-            fit=fit_forward_array_ground(jnp,ranges4,valid4,projected_gravity)
-            # Legacy diagnostic shape only; zero 3-ToF cells are NOT actor
-            # observations, and no independent tripod rays were sampled.
-            return dict(
-                ranges_m=jnp.zeros((self.num_envs,3),dtype=jnp.float32),
-                beam_valid=jnp.zeros((self.num_envs,3),dtype=jnp.bool_),
-                valid=fit['valid'],
-                optical_depth_m=fit['optical_depth_m'],
-                forward_grade_rad=fit['ground_forward_grade_rad'],
-                sideways_grade_rad=fit['ground_sideways_grade_rad'],
-                visibility_confidence=fit['ground_visibility_confidence'])
-        ranges,beam_valid=simulate_tripod_ranges(
-            jnp,torso,R,floor_o,floor_n,range_errors_m=range_errors_m)
-        estimate=fit_tripod_ground(jnp,ranges,projected_gravity)
-        return dict(ranges_m=ranges,beam_valid=beam_valid,**estimate)
-
-    def optical_flow_probe(self, data, *, range_errors_m=None,
-                           flow_errors_rad_s=None, gyro_errors_rad_s=None):
-        """Hardware-facing diagnostic: ToF-scaled, gyro-compensated image flow.
-
-        The forward camera model may read privileged MJX velocity/plane
-        geometry to synthesize a ray and image flow. The INVERSE estimator
-        receives measured flow, three-ToF fitted depth and local-frame gyro
-        only. This is not yet the production actor observation pipeline.
-        """
-        jnp=self.jnp
-        R=self._rotation_body_to_world(data)
-        torso=data.xpos[:,self.torso_id,:]
-        if self.unified_capability_focus:
-            # Flow scale is the measured surface distance from the actual
-            # downward camera, never a projected infinite plane.
-            down_ray=(-R[:,:,2])[:,None,:]
-            depth_floor=self._ray_box_distance(
-                data,int(self.ids['floor_geom']),torso,down_ray)[:,0]
-            depth_upper=self._ray_box_distance(
-                data,int(self.terrain_step_geom_id),torso,down_ray)[:,0]
-            true_depth=jnp.minimum(depth_floor,depth_upper)
-            for geom_id in self.academy_platform_geom_ids:
-                true_depth=jnp.minimum(true_depth,self._ray_box_distance(
-                    data,geom_id,torso,down_ray)[:,0])
-            true_depth=jnp.where(jnp.isfinite(true_depth)&
-                                  (true_depth>0.)&(true_depth<.60),true_depth,0.)
-        else:
-            floor=int(self.ids['floor_geom'])
-            normal=jnp.reshape(data.geom_xmat[:,floor],(self.num_envs,3,3))[:,:,2]
-            origin=data.geom_xpos[:,floor,:]
-            beam=-R[:,:,2]
-            denom=jnp.sum(beam*normal,axis=-1)
-            distance=jnp.sum((origin-torso)*normal,axis=-1)
-            true_depth=distance/jnp.where(jnp.abs(denom)>1e-6,denom,-1.)
-            true_depth=jnp.where(denom<-.3,true_depth,0.)
-        _,body_velocity,_=self._body_packets(data)
-        # MuJoCo freejoint qvel[3:6] is ALREADY body-local; do not apply
-        # the second world-to-body rotation used by the legacy 220 actor.
-        body_gyro=data.qvel[:,3:6]
-        measured_flow,flow_valid=simulate_downward_optical_flow(
-            jnp,body_velocity,body_gyro,true_depth,
-            flow_error_rad_s=flow_errors_rad_s)
-        ground=self.ground_sensor_probe(data,range_errors_m=range_errors_m)
-        measured_gyro=body_gyro+(jnp.asarray(gyro_errors_rad_s)
-                                 if gyro_errors_rad_s is not None else 0.)
-        estimate=estimate_flow_velocity(
-            jnp,measured_flow,measured_gyro,ground['optical_depth_m'],
-            flow_valid=flow_valid,tof_valid=ground['valid'])
-        return dict(flow_rad_s=measured_flow,flow_return_valid=flow_valid,
-                    measured_gyro_body_rad_s=measured_gyro,
-                    tof_ranges_m=ground['ranges_m'],
-                    tof_beam_valid=ground['beam_valid'],
-                    tof_estimated_depth_m=ground['optical_depth_m'],
-                    ground_measurement_valid=ground['valid'],
-                    ground_forward_grade_rad=ground['forward_grade_rad'],
-                    ground_sideways_grade_rad=ground['sideways_grade_rad'],
-                    ground_visibility_confidence=ground['visibility_confidence'],
-                    **estimate)
-
-    def _ray_box_distance(self, data, geom_id, origin, rays):
-        """Full 3-D ray/OBB slab test, including pitch, roll and edge yaw."""
-        jnp=self.jnp
-        R=data.geom_xmat[:,geom_id,:].reshape((self.num_envs,3,3))
-        centre=data.geom_xpos[:,geom_id,:]
-        if origin.ndim == 3:
-            local_o=jnp.einsum('eki,eij->ekj',origin-centre[:,None,:],R)
-        else:
-            local_o=jnp.einsum('ei,eij->ej',origin-centre,R)[:,None,:]
-        local_d=jnp.einsum('eki,eij->ekj',rays,R)
-        half=jnp.asarray(self.mj_model.geom_size[geom_id,:3],dtype=jnp.float32)
-        parallel=jnp.abs(local_d)<1e-7
-        safe=jnp.where(parallel,1.,local_d)
-        t1=(-half-local_o)/safe
-        t2=(half-local_o)/safe
-        inside=jnp.abs(local_o)<=half
-        near=jnp.max(jnp.where(
-            parallel,jnp.where(inside,-jnp.inf,jnp.inf),jnp.minimum(t1,t2)),axis=-1)
-        far=jnp.min(jnp.where(
-            parallel,jnp.where(inside,jnp.inf,-jnp.inf),jnp.maximum(t1,t2)),axis=-1)
-        return jnp.where(far>=jnp.maximum(near,0.),
-                         jnp.where(near>0.,near,far),jnp.inf)
-
     def _terrain_4x4_ranges(self, data, errors_m=None, carpet_heights=None):
-        """16 real slant rays, closest floor/finite box; foot occlusion masks cells.
-
-        No height-map truth, per-ray CPU raycasts, or actor-visible collision IDs.
-        A fixed-topology JAX slab/sphere intersection works on batched MJX data.
-        """
+        """16 exact prism surface/slant rays with real foot occlusion."""
         jnp = self.jnp
         beam_dirs = jnp.asarray([
             [math.cos(math.radians(p))*math.cos(math.radians(y)),
@@ -2807,75 +2685,11 @@ class EmuMJXEnv(TaskSampler):
         R = self._rotation_body_to_world(data)
         origin = data.xpos[:, self.torso_id, :]
         ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
-        if self.terrain_carpet:
-            if self.terrain_carpet_prisms:
-                # Same actual triangles and raised vertical skirts as prism
-                # collision; never feed analytic height-map truth to the actor.
-                terrain_t=carpet_ray_surface(
-                    jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    origin,ray,prism_bottom_depth_m=PRISM_DEPTH_M)
-            else:
-                terrain_t=jnp.full(ray.shape[:2],jnp.inf,dtype=jnp.float32)
-                for geom in self.carpet_solid_geom_ids:
-                    terrain_t=jnp.minimum(
-                        terrain_t,self._ray_box_distance(data,geom,origin,ray))
-        elif self.unified_capability_focus:
-            # Both measured slant ranges are to actual collidable boxes.
-            # Infinite-plane fallback would create phantom upper/lower
-            # support beyond the sharp step discontinuity.
-            floor_t=self._ray_box_distance(
-                data,int(self.ids['floor_geom']),origin,ray)
-            box_t=self._ray_box_distance(
-                data,int(self.terrain_step_geom_id),origin,ray)
-            terrain_t=jnp.minimum(floor_t,box_t)
-            # EXACT same collidable middle boxes as MJX foot contact.
-            # No privileged height-field shortcut or imaginary ground rays.
-            for geom_id in self.academy_platform_geom_ids:
-                terrain_t=jnp.minimum(terrain_t,self._ray_box_distance(
-                    data,geom_id,origin,ray))
-        else:
-            floor = int(self.ids['floor_geom'])
-            normal = data.geom_xmat[:, floor, :].reshape((self.num_envs,3,3))[:,:,2]
-            floor_orig = data.geom_xpos[:, floor, :]
-            denom = jnp.einsum('eki,ei->ek', ray, normal)
-            plane_t = jnp.einsum('ei,ei->e',floor_orig-origin,normal)[:,None] / jnp.where(
-                jnp.abs(denom)>1e-7,denom,1.)
-            plane_t = jnp.where(denom< -1e-6,plane_t,jnp.inf)
-
-            if self.terrain_step_mocap_id >= 0:
-                i = self.terrain_step_mocap_id
-                centre = data.mocap_pos[:,i,:]
-                q = data.mocap_quat[:,i,:]
-                ca = 1.-2.*q[:,3]**2
-                sa = 2.*q[:,0]*q[:,3]
-                offset = origin-centre
-                local_o = jnp.stack((
-                    ca*offset[:,0]+sa*offset[:,1],
-                    -sa*offset[:,0]+ca*offset[:,1],offset[:,2]),axis=-1)
-                local_d = jnp.stack((
-                    ca[:,None]*ray[:,:,0]+sa[:,None]*ray[:,:,1],
-                    -sa[:,None]*ray[:,:,0]+ca[:,None]*ray[:,:,1],
-                    ray[:,:,2]),axis=-1)
-                half = jnp.asarray((TERRAIN_PLATFORM_HALF_LENGTH_M,
-                                    TERRAIN_PLATFORM_HALF_WIDTH_M,
-                                    TERRAIN_PLATFORM_HALF_DEPTH_M),dtype=jnp.float32)
-                parallel = jnp.abs(local_d)<1e-7
-                safe = jnp.where(parallel,1.,local_d)
-                first = (-half-local_o[:,None,:])/safe
-                last = (half-local_o[:,None,:])/safe
-                inside = jnp.abs(local_o[:,None,:])<=half
-                entering = jnp.where(parallel,jnp.where(inside,-jnp.inf,jnp.inf),
-                                     jnp.minimum(first,last))
-                leaving = jnp.where(parallel,jnp.where(inside,jnp.inf,-jnp.inf),
-                                    jnp.maximum(first,last))
-                near = jnp.max(entering,axis=-1)
-                far = jnp.min(leaving,axis=-1)
-                box_t = jnp.where(far>=jnp.maximum(near,0.),
-                                  jnp.where(near>0.,near,far),jnp.inf)
-                terrain_t = jnp.minimum(plane_t,box_t)
-            else:
-                terrain_t = plane_t
-
+        # The same two physical triangles and vertical prism sidewall
+        # used by MJX contacts. Never substitute a box or infinite plane.
+        terrain_t=carpet_ray_surface(
+            jnp,data,self.carpet_mocap_ids,carpet_heights,
+            origin,ray,prism_bottom_depth_m=PRISM_DEPTH_M)
         foot_ids = jnp.asarray(self.ids['foot_geoms'],dtype=jnp.int32)
         foot_centres = data.geom_xpos[:,foot_ids,:]
         diff = origin[:,None,:]-foot_centres
@@ -2894,7 +2708,7 @@ class EmuMJXEnv(TaskSampler):
                                         TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
                 valid)
 
-    def _unified_sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
+    def _sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
         """Array-only sensor: 4x4 ranges, optical flow and gyro, NO tripod.
 
         Physics truth is used only to produce the simulated optical signal,
@@ -2914,25 +2728,9 @@ class EmuMJXEnv(TaskSampler):
         R=self._rotation_body_to_world(data)
         torso=data.xpos[:,self.torso_id,:]
         down=(-R[:,:,2])[:,None,:]
-        if self.terrain_carpet:
-            if self.terrain_carpet_prisms:
-                depth=carpet_ray_surface(
-                    jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    torso,down,prism_bottom_depth_m=PRISM_DEPTH_M)[:,0]
-            else:
-                depth=jnp.full((self.num_envs,),jnp.inf,dtype=jnp.float32)
-                for geom in self.carpet_solid_geom_ids:
-                    depth=jnp.minimum(
-                        depth,self._ray_box_distance(data,geom,torso,down)[:,0])
-        else:
-            floor_depth=self._ray_box_distance(
-                data,int(self.ids['floor_geom']),torso,down)[:,0]
-            upper_depth=self._ray_box_distance(
-                data,int(self.terrain_step_geom_id),torso,down)[:,0]
-            depth=jnp.minimum(floor_depth,upper_depth)
-            for geom_id in self.academy_platform_geom_ids:
-                depth=jnp.minimum(depth,self._ray_box_distance(
-                    data,geom_id,torso,down)[:,0])
+        depth=carpet_ray_surface(
+            jnp,data,self.carpet_mocap_ids,carpet_heights,
+            torso,down,prism_bottom_depth_m=PRISM_DEPTH_M)[:,0]
         depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
                         depth,0.)
         _,vbody,_=self._body_packets(data)
@@ -2941,47 +2739,9 @@ class EmuMJXEnv(TaskSampler):
             jnp,vbody,physical_gyro,depth,
             flow_error_rad_s=scale[:,None]*.035*noise[:,3:5])
         measured_gyro=physical_gyro+gyro_bias+scale[:,None]*.025*noise[:,5:8]
-        zero_ranges=jnp.zeros((self.num_envs,3),dtype=jnp.float32)
+        ages=jnp.zeros((self.num_envs,),dtype=jnp.int32)
         return SensorSample(
-            zero_ranges,jnp.zeros_like(zero_ranges,dtype=jnp.bool_),
-            four,valid,flow,flow_valid,measured_gyro,
-            jnp.zeros((self.num_envs,),dtype=jnp.int32),
-            jnp.zeros((self.num_envs,),dtype=jnp.int32))
-
-    def _sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
-        """Synthesize raw camera/ToF/IMU readings with independent JAX noise.
-
-        Simulator truth is used only in forward measurement synthesis. The
-        later inverse estimator is deliberately fed this sample ring, never
-        the simulated ground normal or qvel. Fold-in does not perturb
-        physics/lesson RNG streams or the old 220-input behavior.
-        """
-        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
-            return self._unified_sensor_sample(
-                data,task,keys,gyro_bias,carpet_heights=carpet_heights)
-        jax, jnp = self.jax, self.jnp
-        scale = jnp.where(task[:, T.sensor_scale] >= 0.,
-                          task[:, T.sensor_scale], self.sensor_noise_scale)
-        noise = jax.vmap(lambda k: jax.random.normal(
-            jax.random.fold_in(k, 5016), (8,), dtype=jnp.float32))(keys)
-        probe = self.optical_flow_probe(
-            data, range_errors_m=scale[:, None] * 0.0015 * noise[:, :3],
-            flow_errors_rad_s=scale[:, None] * 0.035 * noise[:, 3:5],
-            gyro_errors_rad_s=gyro_bias + scale[:, None] * 0.025 * noise[:, 5:8])
-        ages = jnp.zeros((self.num_envs,), dtype=jnp.int32)
-        if self.observation_schema == OBS_SCHEMA_TERRAIN:
-            four_noise = jax.vmap(lambda k: jax.random.normal(
-                jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
-            ranges4, valid4 = self._terrain_4x4_ranges(
-                data,errors_m=scale[:,None]*.002*four_noise)
-        else:
-            ranges4 = jnp.zeros((self.num_envs,16),dtype=jnp.float32)
-            valid4 = jnp.zeros((self.num_envs,16),dtype=jnp.bool_)
-        return SensorSample(
-            probe['tof_ranges_m'], probe['tof_beam_valid'],
-            ranges4,valid4,
-            probe['flow_rad_s'], probe['flow_return_valid'],
-            probe['measured_gyro_body_rad_s'], ages, ages)
+            four,valid,flow,flow_valid,measured_gyro,ages,ages)
 
     def _initial_sensor_state(self, data, task, phase, keys, carpet_heights=None):
         """Start an episode with a real first sample, not fabricated flat data."""
@@ -3018,12 +2778,9 @@ class EmuMJXEnv(TaskSampler):
             jax.random.fold_in(k, 5018), ()))(keys) < self.tof_dropout_prob
         flow_failed = jax.vmap(lambda k: jax.random.uniform(
             jax.random.fold_in(k, 5019), ()))(keys) < self.flow_dropout_prob
-        tof_valid = raw.tof_beam_valid & ~tof_failed[:, None]
         terrain_valid = raw.terrain_valid & ~tof_failed[:, None]
         flow_valid = raw.flow_valid & ~flow_failed
         latest = SensorSample(
-            jnp.where(tof_due[:, None], jnp.where(tof_valid, raw.tof_ranges_m, 0.), old.tof_ranges_m),
-            jnp.where(tof_due[:, None], tof_valid, old.tof_beam_valid),
             jnp.where(tof_due[:,None],jnp.where(terrain_valid,raw.terrain_ranges_m,0.),old.terrain_ranges_m),
             jnp.where(tof_due[:,None],terrain_valid,old.terrain_valid),
             jnp.where(flow_due[:, None], jnp.where(flow_valid[:, None], raw.flow_rad_s, 0.), old.flow_rad_s),
@@ -3038,84 +2795,45 @@ class EmuMJXEnv(TaskSampler):
         return SensorState(queued, state.gyro_bias_rad_s, raw.gyro_body_rad_s)
 
     def _sensor_readout(self, state, gravity_body):
-        """Invert delayed measured signals, including their validity/age.
+        """Invert delayed 4x4 rays + flow using the exact same IMU frames.
 
-        Flow is gyro-compensated with the IMU sample from the SAME camera
-        acquisition frame. The current actor gyro remains current (50 Hz).
-        ToF is independently delayed and the gravity estimate is current.
+        The original three-ToF model is deleted: it was never read by the
+        actual 360-input policy. World truth is not leaked to this estimator.
         """
-        jnp = self.jnp
-        s = state.samples
-        tf = HISTORY_LEN - 1 - self.tof_delay_frames
-        ff = HISTORY_LEN - 1 - self.flow_delay_frames
-        if self.unified_capability_focus and not self.physical_exam_legacy_actor:
-            ground=fit_forward_array_ground(
-                jnp,s.terrain_ranges_m[:,tf,:],s.terrain_valid[:,tf,:],
-                gravity_body)
-            flow_valid=s.flow_valid[:,ff]
-            estimate=estimate_flow_velocity(
-                jnp,s.flow_rad_s[:,ff,:],s.gyro_body_rad_s[:,ff,:],
-                ground['optical_depth_m'],flow_valid=flow_valid,
-                tof_valid=ground['depth_valid'])
-            tof_age=s.tof_age_frames[:,tf]
-            flow_age=s.flow_age_frames[:,ff]
-            freshness=jnp.clip(
-                1.-.25*(tof_age.astype(jnp.float32)/self.tof_period_frames+
-                         flow_age.astype(jnp.float32)/self.flow_period_frames),
-                .25,1.)
-            return dict(
-                measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
-                velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
-                velocity_confidence=estimate['velocity_confidence']*freshness,
-                tof_estimated_depth_m=ground['optical_depth_m'],
-                ground_forward_grade_rad=ground['ground_forward_grade_rad'],
-                ground_sideways_grade_rad=ground['ground_sideways_grade_rad'],
-                ground_visibility_confidence=ground['ground_visibility_confidence']*
-                    jnp.clip(1.-.25*tof_age.astype(jnp.float32)/
-                             self.tof_period_frames,.25,1.),
-                ground_valid=ground['valid'],
-                terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
-                terrain_valid=s.terrain_valid[:,tf,:],
-                flow_valid=flow_valid,
-                tof_age_frames=tof_age,flow_age_frames=flow_age)
-        ranges = s.tof_ranges_m[:, tf, :]
-        beams_valid = jnp.all(s.tof_beam_valid[:, tf, :], axis=1)
-        ground = fit_tripod_ground(jnp, ranges, gravity_body)
-        ground_valid = ground['valid'] & beams_valid
-        flow_valid = s.flow_valid[:, ff]
-        estimate = estimate_flow_velocity(
-            jnp, s.flow_rad_s[:, ff, :], s.gyro_body_rad_s[:, ff, :],
+        jnp=self.jnp
+        samples=state.samples
+        tf=HISTORY_LEN-1-self.tof_delay_frames
+        ff=HISTORY_LEN-1-self.flow_delay_frames
+        ground=fit_forward_array_ground(
+            jnp,samples.terrain_ranges_m[:,tf,:],
+            samples.terrain_valid[:,tf,:],gravity_body)
+        flow_valid=samples.flow_valid[:,ff]
+        estimate=estimate_flow_velocity(
+            jnp,samples.flow_rad_s[:,ff,:],
+            samples.gyro_body_rad_s[:,ff,:],
             ground['optical_depth_m'],
-            flow_valid=flow_valid, tof_valid=ground_valid)
-        # Confidence records age/staleness, not an invented probability of
-        # geometric accuracy. An outright invalid reading remains confidence 0.
-        tof_age = s.tof_age_frames[:, tf]
-        flow_age = s.flow_age_frames[:, ff]
-        freshness = jnp.clip(
-            1. - 0.25 * (tof_age.astype(jnp.float32) /
-                         self.tof_period_frames +
-                         flow_age.astype(jnp.float32) /
-                         self.flow_period_frames), .25, 1.)
-        grade_freshness = jnp.clip(
-            1. - 0.25 * tof_age.astype(jnp.float32) /
-            self.tof_period_frames, .25, 1.)
+            flow_valid=flow_valid,tof_valid=ground['depth_valid'])
+        tof_age=samples.tof_age_frames[:,tf]
+        flow_age=samples.flow_age_frames[:,ff]
+        freshness=jnp.clip(
+            1.-.25*(tof_age.astype(jnp.float32)/self.tof_period_frames+
+                     flow_age.astype(jnp.float32)/self.flow_period_frames),
+            .25,1.)
         return dict(
             measured_gyro_body_rad_s=state.current_gyro_body_rad_s,
             velocity_body_xy_mps=estimate['velocity_body_xy_mps'],
-            velocity_confidence=estimate['velocity_confidence'] * freshness,
-            tof_estimated_depth_m=jnp.where(ground_valid,
-                                              ground['optical_depth_m'], 0.),
-            ground_forward_grade_rad=jnp.where(ground_valid,
-                                               ground['forward_grade_rad'], 0.),
-            ground_sideways_grade_rad=jnp.where(ground_valid,
-                                                ground['sideways_grade_rad'], 0.),
-            ground_visibility_confidence=jnp.where(
-                ground_valid, ground['visibility_confidence'] * grade_freshness, 0.),
-            ground_valid=ground_valid,
-            terrain_ranges_m=s.terrain_ranges_m[:,tf,:],
-            terrain_valid=s.terrain_valid[:,tf,:],
+            velocity_confidence=estimate['velocity_confidence']*freshness,
+            tof_estimated_depth_m=ground['optical_depth_m'],
+            ground_forward_grade_rad=ground['ground_forward_grade_rad'],
+            ground_sideways_grade_rad=ground['ground_sideways_grade_rad'],
+            ground_visibility_confidence=ground['ground_visibility_confidence']*
+                jnp.clip(1.-.25*tof_age.astype(jnp.float32)/
+                         self.tof_period_frames,.25,1.),
+            ground_valid=ground['valid'],
+            terrain_ranges_m=samples.terrain_ranges_m[:,tf,:],
+            terrain_valid=samples.terrain_valid[:,tf,:],
             flow_valid=flow_valid,
-            tof_age_frames=tof_age, flow_age_frames=flow_age)
+            tof_age_frames=tof_age,flow_age_frames=flow_age)
 
     def _carpet_real_top_height(self,data,positions,carpet_heights=None):
         """Teacher-only support height from the SAME actual prism vertices."""
