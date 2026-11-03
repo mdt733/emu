@@ -23,7 +23,7 @@ __pycache__/
 /raw_runs/
 /local_runs/
 
-# Curated research evidence lives in docs/RESEARCH_HISTORY.md; older raw results remain in Git history.
+# Superseded research documents and raw results live in Git history.
 
 # Build and JS dependencies
 /build/
