@@ -6,6 +6,57 @@ source-pinned v5044 large run was stopped. Its saved checkpoints belong to
 that old source SHA and must never resume on v5045. `main` and the released
 browser champion remain untouched.
 
+## Whole-tree audit — 4 November 2026
+
+The GitHub recursive tree listing at the start of this sweep was
+**complete (not truncated)**: **103 tracked files**. Every tracked
+path was classified; text-based source, tests, scripts, CI, viewer
+configuration and maintained documentation received a first-pass
+content scan. The 886 KB shipped `.emupolicy` is an encoded artifact,
+so verify **hash + observation/servo/schema provenance** with
+`scripts/verify_showcase_release.py` instead of treating it as
+human-readable code. This is a **whole-tree triage, not a claim that
+every line has passed functional or adversarial review**.
+
+| Category | Files | First-pass finding |
+|---|---:|---|
+| Python engine modules | 26 | One prism PPO runtime; old directional exam/tripod implementation retired; historical checkpoint and config shapes remain review candidates |
+| Browser JS and CSS | 25 | All currently used files classified; nine-box preview is **viewer-only representative physics**, not part of MJX learning, so do not break it by blind deletion |
+| Viewer build/config/tests/notices | 7 | Required for package, six UI tests and WebAssembly build |
+| Scripts | 12 | GPU benchmark, lifecycle, viewer setup, source checks and protected release scripts; no script is an extra PPO trainer |
+| Python tests | 3 | 18 maintained Python cases; separate real-MJX physical probe |
+| CI workflows | 3 | Feature proof, protected main checks, separately approved public deployment |
+| Documentation and image | 17 | Current runbook plus historical measurements clearly scoped to older source revisions |
+| Root/config | 5 | README, handover, package/build defaults and ignores |
+| Robot XML and version | 2 | Six-servo model and stable package version |
+| Public showcase artifacts | 3 | Protected released actor, deployment request and source/actor approval hashes |
+| **Total** | **103** | **Complete path census; staged behavioral validation still required** |
+
+**Retention/next-cut decisions:**
+
+- **Keep:** `showcase/champion.emupolicy`, its approvals and release
+  guardrails; `robot.xml`; sensor contract/hash semantics; v5044
+  historical benchmark/runbook; browser's explicitly representative
+  park and carpet; checkpoint/source provenance.
+- **Removed:** unused 232-era physical examiner, retired separate prism
+  scorer, slab and nine-box MJX branches, hundreds of directional
+  course/tripod implementation lines. The small tripod constants in
+  `directional.py` still construct historical metadata hashes but
+  no longer simulate sensors.
+- **Next deep-review candidates:** old schema-1/2 checkpoint/export
+  decoding and legacy default profiles spread across `contracts.py`,
+  `checkpoint_io.py`, `policy_export.py`,
+  `training_config.py`, `run.py`, `curriculum.py` and
+  `training.py`. Some are required for released-actor
+  reproducibility or to decode old state; do not remove them until a
+  v5045 same-source checkpoint lifecycle and true-prism frozen-policy
+  replay prove the replacement. This is not yet line-by-line sign-off.
+- **Performance:** first actual user RTX 4060 Ti full-PPO test:
+  **7,536.1 world-steps/s** (two post-JIT 2,048-world updates);
+  7,492.3 previously. A nominal **+0.58%** is effectively flat.
+  Peak allocated: 1,818,866,944 bytes. Later source commits,
+  including the directional trim, have not been re-benchmarked.
+
 ## The five-stage minimum product
 
 ```text
