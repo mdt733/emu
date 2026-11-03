@@ -143,3 +143,20 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - All changes are on draft PR #34. The final SHA requires complete CI,
   the owner's exact-source CUDA PPO/checkpoint/export acceptance and a
   frozen actor exam before beginning a new 140M lineage.
+
+## 4 November — file-count pruning
+
+- Whole-tree inventory reduced from 102 to **91 tracked files**,
+  keeping all 25 backend owner modules and the three core Python tests.
+- Removed seven browser files net: folded the seeded navigation RNG into
+  navigation; auto/manual stick handoff into controls; preview sliders
+  and geometry signature into training inspector; grouped viewer-only
+  attitude, cadence, chase-camera and shove maths in `sim-math.js`.
+  The existing browser suite also checks the combined helper imports.
+- The redundant viewer-specific `.gitignore` is gone because root ignores
+  all its patterns. The three research-era v5041/v5043/v5044 documents
+  now have pinned source-history links from the current documentation
+  index and root README; active v5045 procedures remain local.
+- No network, PPO, reward, GPU terrain or released-champion behaviour was
+  removed. The latest head still requires CI and same-SHA GPU/physics
+  acceptance; file-count savings are not a performance claim.

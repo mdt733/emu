@@ -8,11 +8,14 @@ browser champion remain untouched.
 
 ## Live file ownership and retirement checklist
 
-**Census:** 4 November 2026; [v5044 source tree](https://github.com/mdt733/emu/tree/a2f59bb31bec049204b60a3eb86500b100db039f)
-compared with the complete (not truncated) [v5045 tree at `c4e3c739`](https://github.com/mdt733/emu/tree/c4e3c739938bf3e5cc6e2d51bef42b9776c47cee).
-At census: **102 active tracked files; 76 paths retired; 12 new paths**.
-That is 64 fewer tracked files, not 76 fewer *features*. Historical
-research stays accessible at its original Git SHA. The 886 KB
+**Live inventory:** 4 November 2026; pinned [v5044 source tree](https://github.com/mdt733/emu/tree/a2f59bb31bec049204b60a3eb86500b100db039f)
+compared with the current draft PR #34 tree. The first complete
+[census at `c4e3c739`](https://github.com/mdt733/emu/tree/c4e3c739938bf3e5cc6e2d51bef42b9776c47cee)
+had 102 files. Further browser-helper consolidation, historical-doc
+retirement and one redundant ignore file leave **91 tracked files:
+88 paths retired and 13 new paths** relative to v5044. That is 75
+fewer tracked files, not 88 fewer *features*. Historical research stays
+accessible at the pinned old SHA. The 886 KB
 `showcase/champion.emupolicy` is a binary/encoded actor artifact,
 not readable source. Verify its hash and manifest with
 `scripts/verify_showcase_release.py`.
@@ -39,31 +42,32 @@ assembled from real sensor and command data, not privileged teacher
 geometry. The browser's nine-box *illustration* is not one of the
 eighteen real MJX collision prisms.
 
-### 2. Every remaining supporting file group — 77/77
+### 2. Every remaining supporting file group — 66/66
 
 | Status | Current folder or files | Count | Why retained |
 |---|---|---:|---|
-| [x] | `emu/viewer_src/src/`: 24 JavaScript modules + `style.css` | 25 | Local MuJoCo/WASM viewer: actor, sensors, physics, controls, navigation and representative terrain; **not** a GPU trainer |
-| [x] | `emu/viewer_src/` build files, notices, one browser test | 7 | Reproducible `npm ci`, build and six browser contracts |
+| [x] | `emu/viewer_src/src/`: 17 JavaScript modules + `style.css` | 18 | Local MuJoCo/WASM viewer: actor, sensors, physics, controls, navigation and representative terrain; **not** a GPU trainer |
+| [x] | `emu/viewer_src/` build files, notices, one browser test | 6 | Reproducible `npm ci`, build and six browser contracts |
 | [x] | `scripts/`: launch (1), physical/GPU/lifecycle probes (3), release/static checks (6), WSL setup (2) | 12 | One production campaign; explicit acceptance and guarded deployment |
 | [x] | `tests/test_core_{run,physics,delivery}.py` | 3 | 18 focused Python contracts; no archived test matrix |
 | [x] | `.github/workflows/`: `core-skeleton-proof.yml`, `emu-checks.yml`, `emu-playground.yml` | 3 | Branch physics checks, protected main checks and approved publishing |
-| [x] | `docs/`: 16 Markdown files + one architecture diagram | 17 | Current skeleton/runbook/installation plus clearly dated physical baselines |
+| [x] | `docs/`: 13 Markdown files + one architecture diagram | 14 | Current skeleton/runbook/installation plus clearly dated physical baselines |
 | [x] | `showcase/`: `champion.emupolicy`, `deployment_request.json`, `release_approval.json` | 3 | Protected released 260M actor and approved release identity |
 | [x] | Root metadata, `emu/VERSION` and `emu/robot.xml` | 7 | `README.md`, `HANDOVER.md`, `pyproject.toml`, `.gitignore`, `.nvmrc`, version, robot model |
-| | **Total, including 25 engine modules** | **102** | No unassigned tracked category at this census |
+| | **Total, including 25 engine modules** | **91** | No unassigned tracked category at this census |
 
-### 3. What was actually cleared away — 76/76
+### 3. What was actually cleared away — 88/88
 
 | Status | Retired paths compared with v5044 | Count | Replacement or reason |
 |---|---|---:|---|
 | [x] | Engine: `capability_cloud.py`, `physical_exam.py`, `physical_quality.py`, `step_academy_world.py`, `terrain_carpet.py`, `terrain_spike.py` | 6 | One prism physics engine, current governor, `prism_exam.py` |
 | [x] | Scripts: `campaign_support.py`, `compare_policies.py`, `exam_prism_course.py`, `exam_step_course.py`, `probe_carpet_box_surface.py`, `probe_carpet_hfield.py`, `smoke_step_course.py`, `smoke_unified_focus.py` | 8 | Current runbook, three explicit smoke/lifecycle/physics scripts and immutable old research |
-| [x] | Viewer: separate Prism Lab HTML/CSS/JS and prism-terrain module (4); seven redundant browser test files | 11 | Integrated viewer and `essential.test.mjs` |
+| [x] | Viewer: old Prism Lab (4), seven obsolete tests and eight merged micro-helper files | 19 | Integrated viewer and `essential.test.mjs` |
 | [x] | Old Python tests, including `conftest.py` and 20 research fixture/test files | 21 | Three maintained core test files + real MJX contact probe |
 | [x] | Superseded box/hfield/prism workflow YAML files | 3 | One complete branch proof workflow |
-| [x] | Historical/duplicated `docs/` pages and `docs/history/` files | 27 | Current docs reference historical commits instead of carrying experiments as active code |
-| | **Total removed paths** | **76** | Contents can be recovered from source-pinned v5044 |
+| [x] | Historical/duplicated `docs/` pages and `docs/history/` files | 30 | Current docs reference historical commits instead of carrying experiments as active code |
+| [x] | Redundant `emu/viewer_src/.gitignore` (root patterns cover all three entries) | 1 | Root `.gitignore` owns viewer build exclusions |
+| | **Total removed paths** | **88** | Contents can be recovered from source-pinned v5044 |
 
 **Not deleted:** `training-carpet.js` and
 `training-solid-carpet.js` are still required by the *browser*

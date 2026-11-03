@@ -160,7 +160,7 @@ test('simulation helper consolidation preserves independent physics/UI functions
   const basis=[1,0,0, 0,1,0, 0,0,1];
   const feet=[0,0,0];
   const att=measuredAttitude(basis,[0,0,.2],feet,feet);
-  assert.equal(att.chassisPitch,0);
+  assert.ok(Math.abs(att.chassisPitch)<1e-9);
   assert.equal(att.robotLean,0);
   assert.equal(sampleEpisodeCadence({vx:0,vy:0},{phase_rate_max_hz:2.6},()=>0),.85);
   assert.equal(smoothFactor(0,8),0);

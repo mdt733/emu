@@ -192,8 +192,8 @@ supported crossings and *actual* procedural terrain exposure. It
 does not recreate the old two-slab fixed matrix.
 
 - [**v5045 lean-prism GPU acceptance, benchmark and new-run guide**](docs/V5045_LEAN_PRISM_RUNBOOK.md)
-- [**v5044 historical 140M training source and runbook**](docs/V5044_PRISM_140M_COLDSTART.md)
-- [**v5043 real collision and physics proof**](docs/V5043_MJX_PRISM_CARPET.md)
+- [**v5044 historical 140M training source and runbook**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5044_PRISM_140M_COLDSTART.md)
+- [**v5043 real collision and physics proof**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5043_MJX_PRISM_CARPET.md)
 - [**Five-stage source skeleton and retirement plan**](docs/CORE_SKELETON.md)
 
 The published `showcase/champion.emupolicy` and `main`
