@@ -58,6 +58,7 @@ from .terrain_carpet_mjx import (
     SOLID_GEOM_NAMES as CARPET_SOLID_GEOM_NAMES,
     solid_box_poses as carpet_solid_box_poses)
 from .carpet_prism_mjx import (
+    batch_update_prism_mocaps,
     PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PRISM_DEPTH_M, PrismMeshBuilder)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
@@ -2914,12 +2915,12 @@ class EmuMJXEnv(TaskSampler):
             pos=pos.at[:,mocap,:].set(solid_pos[:,i,:])
             quat=quat.at[:,mocap,:].set(solid_quat[:,i,:])
         if self.terrain_carpet_prisms:
-            # Every pair shares one 50cm square; the meshes shear in JAX.
-            # Their reference top face is z=0 in the tile-centre frame.
+            # Two physical half-tile prisms share one tile centre. Use
+            # a single batched scatter instead of 18 independent updates.
             prism_z=centers.at[:,:,2].add(.5*CARPET_TILE_M)
-            for i,mocap in enumerate(self.carpet_prism_mocap_ids):
-                tile=i//2
-                pos=pos.at[:,mocap,:].set(prism_z[:,tile,:])
+            pos=batch_update_prism_mocaps(
+                jnp,pos,self.carpet_prism_mocap_ids,prism_z,
+                jnp.ones((self.num_envs,CARPET_TILE_COUNT),dtype=jnp.bool_))
         data=data.replace(mocap_pos=pos,mocap_quat=quat)
         top=carpet_sample_surface(jnp,data,self.carpet_mocap_ids,
                   heights,data.qpos[:,:3][:,None,:])[:,0]
@@ -2988,13 +2989,10 @@ class EmuMJXEnv(TaskSampler):
                 jnp.where(changed[:,None],centers[:,i,:],pos[:,mocap,:]))
         if self.terrain_carpet_prisms:
             physical_centres=centers.at[:,:,2].add(.5*CARPET_TILE_M)
-            for i,mocap in enumerate(self.carpet_prism_mocap_ids):
-                slot=i//2
-                changed=(move & ((indices[:,slot,0]!=old_x[:,slot]) |
-                                 (indices[:,slot,1]!=old_y[:,slot])))
-                pos=pos.at[:,mocap,:].set(jnp.where(
-                    changed[:,None],physical_centres[:,slot,:],
-                    pos[:,mocap,:]))
+            change=move[:,None] & jnp.any(
+                indices!=jnp.stack((old_x,old_y),axis=-1),axis=-1)
+            pos=batch_update_prism_mocaps(
+                jnp,pos,self.carpet_prism_mocap_ids,physical_centres,change)
         # The nine rigid physical top faces follow exactly the same
         # modulo-three tile slots as the source vertex samples. Each
         # collider moves only after BOTH feet clear the outgoing row.

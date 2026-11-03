@@ -25,6 +25,25 @@ PRISM_GEOM_NAMES = tuple(f"carpet_prism_geom_{i}" for i in range(PRISM_COUNT))
 PRISM_MESH_NAMES = tuple(f"carpet_prism_mesh_{i}" for i in range(PRISM_COUNT))
 
 
+def batch_update_prism_mocaps(jnp, positions, mocap_ids, tile_centers, tile_changed):
+    """Update both prisms of each tile with ONE indexed scatter.
+
+    positions: [world, mocap, xyz]
+    tile_centers: [world, 9, xyz] (already offset to prism reference Z)
+    tile_changed: [world, 9] bool. No disjoint old-foot cell may move.
+    This is deliberately identical to the old 18 sequential .at[].set()
+    updates; it changes neither geometry nor the contact-clearance guard.
+    """
+    if len(mocap_ids) != PRISM_COUNT or len(set(mocap_ids)) != PRISM_COUNT:
+        raise ValueError("prism mocap IDs must be 18 distinct bodies")
+    ids = jnp.asarray(mocap_ids, dtype=jnp.int32)
+    tile = jnp.arange(PRISM_COUNT, dtype=jnp.int32) // PRISMS_PER_TILE
+    previous = positions[:, ids, :]
+    wanted = tile_centers[:, tile, :]
+    changed = tile_changed[:, tile, None]
+    return positions.at[:, ids, :].set(jnp.where(changed, wanted, previous))
+
+
 def _local_triangle(triangle):
     h = TILE_M * .5
     if triangle == 0:
