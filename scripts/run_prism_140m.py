@@ -132,13 +132,30 @@ def validate_acceptance(root: Path, *, source_sha: str, seed: int) -> None:
             raise RuntimeError(f"{name} acceptance checkpoint step mismatch")
         if not payload_train_state_is_finite(checkpoint):
             raise RuntimeError(f"{name} acceptance state contains nonfinite values")
-    if not (root / "tiny_smoke_actor.emupolicy").is_file():
+    exported_actor = root / "tiny_smoke_actor.emupolicy"
+    if not exported_actor.is_file():
         raise RuntimeError("Acceptance must complete verify and export a prism actor")
-    bundle = json.loads((root / "tiny_smoke_actor.emupolicy").read_text(encoding="utf-8"))
+    bundle = json.loads(exported_actor.read_text(encoding="utf-8"))
     training = bundle.get("training") or {}
     if training.get("terrain_carpet_prisms") is not True:
         raise RuntimeError("Exported acceptance actor must identify 18 real prism colliders")
-    print(f"PRISM LIFECYCLE PROOF PASS: 256 -> 512, resumed and exported; source={source_sha[:12]}", flush=True)
+    # Prove that the NEW frozen examiner can read the actual accepted actor
+    # and take an independent true-prism trace. The tiny actor need not walk.
+    import hashlib
+    exam_path = root / "prism_exam_smoke" / "prism_exam.json"
+    if not exam_path.is_file():
+        raise RuntimeError("Missing real-prism frozen-actor examination smoke; see v5045 runbook")
+    exam = json.loads(exam_path.read_text(encoding="utf-8"))
+    if (exam.get("schema") != "emu_prism_frozen_exam_v1" or
+            exam.get("source_training_sha") != source_sha or
+            exam.get("source_step") != ACCEPTANCE_END_STEP or
+            exam.get("source_actor_sha256") != hashlib.sha256(
+                exported_actor.read_bytes()).hexdigest() or
+            (exam.get("protocol") or {}).get(
+                "actual_collision") != "18 convex prism meshes / nine 50cm source tiles" or
+            (exam.get("protocol") or {}).get("no_optimizer_or_curriculum_updates") is not True):
+        raise RuntimeError("Frozen actor exam smoke does not match this exact accepted prism source")
+    print(f"PRISM LIFECYCLE + FROZEN EXAM PASS: 256 -> 512; source={source_sha[:12]}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
