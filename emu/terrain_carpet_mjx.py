@@ -39,7 +39,10 @@ def add_carpet_geoms(xml: str, *, prisms: bool = False) -> str:
     if asset is None:
         asset=ET.Element("asset")
         root.insert(0,asset)
-    # v5043 opt-in: collision surfaces will be 18 dynamically sheared\n    # convex triangular prisms. Legacy nine-box training remains untouched.\n    # The hfields still provide nine independent *analytic* 2x2 samples.\n    # The v5040 slab/Academy training geometry is not used in a carpet
+    # v5043 opt-in: collision surfaces will be 18 dynamically sheared
+    # convex triangular prisms. Legacy nine-box training remains untouched.
+    # The hfields still provide nine independent *analytic* 2x2 samples.
+    # The v5040 slab/Academy training geometry is not used in a carpet
     # episode. Retain its stable named IDs for legacy diagnostics, but
     # DISABLE collision pairs rather than wasting GPU broadphase work on
     # five huge invisible boxes. The carpet's nine real tiles are the only
@@ -81,7 +84,10 @@ def add_carpet_geoms(xml: str, *, prisms: bool = False) -> str:
             size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
             contype="0" if prisms else "4",conaffinity="0",friction="1.5 0.005 0.0001",
             rgba="0.39 0.65 0.39 1"))
-    if prisms:\n        from .carpet_prism_mjx import prism_mesh_xml\n        prism_mesh_xml(root,active=True)\n    return ET.tostring(root,encoding="unicode")
+    if prisms:
+        from .carpet_prism_mjx import prism_mesh_xml
+        prism_mesh_xml(root,active=True)
+    return ET.tostring(root,encoding="unicode")
 
 def hash_float(xp,i,j,seed,salt):
     """JAX-numeric deterministic seeded, bounded; no Python RNG inside jit."""
