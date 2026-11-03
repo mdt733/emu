@@ -966,13 +966,11 @@ class EmuMJXEnv(TaskSampler):
                  flow_dropout_prob: float = 0.02,
                  gyro_bias_std_rad_s: float = 0.015,
                  terrain_step_max_m: float = 0.0,
-                 paired_terrain_heights: bool = False,
                  unified_capability_focus: bool = False,
                  velocity_i_ramp_s: float = 0.4,
                  velocity_i_multiplier: float = 1.0,
                  retention_share: float = 0.0,
                  terrain_lesson: str = 'mixed',
-                 physical_exam_legacy_actor: bool = False,
                  temporal_vx_reward_share: float = 0.0,
                  verified_ascent_reallocation: float = 0.0,
                  science_step_crouch_tolerance_m: float = 0.0,
@@ -992,8 +990,8 @@ class EmuMJXEnv(TaskSampler):
         if not (terrain_carpet_prisms and terrain_carpet and
                 unified_capability_focus and observation_schema==OBS_SCHEMA_TERRAIN):
             raise ValueError('Current EMU requires unified terrain_360 and true MJX prisms')
-        if physical_exam_legacy_actor or verified_ascent_reallocation>0.:
-            raise ValueError('Retired slab-only exam/reward modes are unavailable')
+        if verified_ascent_reallocation>0.:
+            raise ValueError('Retired slab-only ascent reward is unavailable')
 
         self.jax = jax
         self.jnp = jnp
@@ -1058,7 +1056,6 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(terrain_step_max_m) or not 0 <= terrain_step_max_m <= .08:
             raise ValueError('terrain_step_max_m must be in [0, 0.08] metres')
         self.terrain_step_max_m = float(terrain_step_max_m)
-        self.paired_terrain_heights = bool(paired_terrain_heights)
         if type(academy_stream) is not bool or (
                 academy_stream and not unified_capability_focus):
             raise ValueError('streaming Academy requires unified terrain_360')
@@ -1235,13 +1232,10 @@ class EmuMJXEnv(TaskSampler):
                 (verified_ascent_reallocation>0. and
                  (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
             raise ValueError('verified ascent requires coherent-careful unified terrain; budget 0..4')
-        self.verified_ascent_reallocation=float(verified_ascent_reallocation)
-        if (not np.isfinite(science_step_crouch_tolerance_m) or
-                not 0. <= science_step_crouch_tolerance_m <= .04 or
-                (science_step_crouch_tolerance_m>0. and
-                 (not self.unified_capability_focus or terrain_lesson!='coherent-careful'))):
-            raise ValueError('step crouch science requires coherent-careful terrain; 0..4cm')
-        self.science_step_crouch_tolerance_m=float(science_step_crouch_tolerance_m)
+        # The old approach/crouch subsidy is absent from the prism reward.
+        # Reject experiments requesting it instead of silently doing nothing.
+        if science_step_crouch_tolerance_m != 0.0:
+            raise ValueError('Retired single-lip crouch subsidy is unavailable on prisms')
         # Three recyclable academy supports; original long slabs serve
         # only generalist and ordinary single-step births.
         # Academy shares the same real prisms; there are no extra slab geoms.
@@ -1369,65 +1363,61 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
-        if self.terrain_carpet_prisms:
-            # The unified 360-input task packet is independent of the OLD
-            # two-slab mocap bodies. A prism-only model has no old slab IDs,
-            # but still requires the full six-specialist schedule extension.
-            terrain = np.asarray(
-                [float(params.get(name, default)) for name, default in TERRAIN_TASK_FIELDS],
-                dtype=np.float32)
-            if not (np.isfinite(terrain).all() and
-                    0.0 <= terrain[0] <= 1.0 and
-                    0.0 <= terrain[1] <= self.terrain_step_max_m):
-                raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
-            packed = np.concatenate((packed, terrain))
-            assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
-            if self.unified_capability_focus:
-                slope = np.asarray(
-                    [float(params.get(name, default))
-                     for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
-                if (not np.isfinite(slope[:2]).all() or not 0.<=slope[0]<=1. or
-                        not 0.<=slope[1]<=15.0):
-                    raise ValueError('slope exposure must be [0,1], probe cap 15 degrees')
-                fixed_pitch,fixed_roll=slope[2],slope[3]
-                if np.isfinite(fixed_pitch) != np.isfinite(fixed_roll):
-                    raise ValueError('explicit terrain pitch and roll must be provided together')
-                if np.isfinite(fixed_pitch):
-                    g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
-                               np.tan(np.deg2rad(fixed_roll)))
-                    # Float32 tan/atan round-trip makes a genuine 15-degree
-                    # single-axis grade appear as 15.000001. Tolerate
-                    # numerical error, never a meaningful over-limit slope.
-                    if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0 + 1e-5:
-                        raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
-                if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
-                    raise ValueError('fixed step height outside compiled physical range')
-                if np.isfinite(slope[5]) and abs(slope[5])>45.0:
-                    raise ValueError('fixed edge yaw outside +/-45-degree exam range')
-                if not np.isfinite(slope[6]) or not 0. <= slope[6] <= 1.:
-                    raise ValueError('specialist_mix must be between zero and one')
-                if not np.isfinite(slope[7]) or not 0. <= slope[7] <= 1.:
-                    raise ValueError('foundation_control_mix must be between zero and one')
-                focus_weights=slope[8:14]
-                if (not np.isfinite(focus_weights).all() or
-                    (focus_weights<0.).any() or
-                    (focus_weights.sum()>0. and not np.isclose(
-                        focus_weights.sum(),1.,atol=1e-4))):
-                    raise ValueError('focus weights must be nonnegative and sum to one')
-                if (not np.isfinite(slope[14]) or
-                    slope[14]<0. or slope[14]>1.):
-                    raise ValueError('steering attention must be within [0,1]')
-                if (not np.isfinite(slope[15]) or
-                    slope[15]<0. or slope[15]>1.):
-                    raise ValueError('academy birth probability must be within [0,1]')
-                if (not np.isfinite(slope[16:18]).all() or
-                    np.any(slope[16:18]<.001) or
-                    np.any(slope[16:18]>(self.academy_height_cap_m if self.terrain_carpet else .25))):
-                    raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
-                if not np.all(np.isfinite(slope[~np.isnan(slope)])):
-                    raise ValueError('invalid physical terrain override')
-                packed=np.concatenate((packed,slope))
-                assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
+        # One complete parameter packet: control, terrain, six specialist weights.
+        terrain = np.asarray(
+            [float(params.get(name, default)) for name, default in TERRAIN_TASK_FIELDS],
+            dtype=np.float32)
+        if not (np.isfinite(terrain).all() and
+                0.0 <= terrain[0] <= 1.0 and
+                0.0 <= terrain[1] <= self.terrain_step_max_m):
+            raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
+        packed = np.concatenate((packed, terrain))
+        assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
+        slope = np.asarray(
+            [float(params.get(name, default))
+             for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
+        if (not np.isfinite(slope[:2]).all() or not 0.<=slope[0]<=1. or
+                not 0.<=slope[1]<=15.0):
+            raise ValueError('slope exposure must be [0,1], probe cap 15 degrees')
+        fixed_pitch,fixed_roll=slope[2],slope[3]
+        if np.isfinite(fixed_pitch) != np.isfinite(fixed_roll):
+            raise ValueError('explicit terrain pitch and roll must be provided together')
+        if np.isfinite(fixed_pitch):
+            g=np.hypot(np.tan(np.deg2rad(fixed_pitch)),
+                       np.tan(np.deg2rad(fixed_roll)))
+            # Float32 tan/atan round-trip makes a genuine 15-degree
+            # single-axis grade appear as 15.000001. Tolerate
+            # numerical error, never a meaningful over-limit slope.
+            if not np.isfinite(g) or np.rad2deg(np.arctan(g))>15.0 + 1e-5:
+                raise ValueError('physical terrain total inclination exceeds 15-degree exam cap')
+        if np.isfinite(slope[4]) and not 0.<=slope[4]<=self.terrain_step_max_m:
+            raise ValueError('fixed step height outside compiled physical range')
+        if np.isfinite(slope[5]) and abs(slope[5])>45.0:
+            raise ValueError('fixed edge yaw outside +/-45-degree exam range')
+        if not np.isfinite(slope[6]) or not 0. <= slope[6] <= 1.:
+            raise ValueError('specialist_mix must be between zero and one')
+        if not np.isfinite(slope[7]) or not 0. <= slope[7] <= 1.:
+            raise ValueError('foundation_control_mix must be between zero and one')
+        focus_weights=slope[8:14]
+        if (not np.isfinite(focus_weights).all() or
+            (focus_weights<0.).any() or
+            (focus_weights.sum()>0. and not np.isclose(
+                focus_weights.sum(),1.,atol=1e-4))):
+            raise ValueError('focus weights must be nonnegative and sum to one')
+        if (not np.isfinite(slope[14]) or
+            slope[14]<0. or slope[14]>1.):
+            raise ValueError('steering attention must be within [0,1]')
+        if (not np.isfinite(slope[15]) or
+            slope[15]<0. or slope[15]>1.):
+            raise ValueError('academy birth probability must be within [0,1]')
+        if (not np.isfinite(slope[16:18]).all() or
+            np.any(slope[16:18]<.001) or
+            np.any(slope[16:18]>self.academy_height_cap_m)):
+            raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
+        if not np.all(np.isfinite(slope[~np.isnan(slope)])):
+            raise ValueError('invalid physical terrain override')
+        packed=np.concatenate((packed,slope))
+        assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
 
     def reset(self, params: dict[str, float] | None = None):
@@ -1705,10 +1695,9 @@ class EmuMJXEnv(TaskSampler):
             academy_approach_seen=academy['approach_seen'],
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
-            carpet_confirmed=academy['confirmed_tile']
-                           ,
-            carpet_seen_cells=academy['seen_cells'] ,
-            carpet_seen_write=academy['seen_write'] ,
+            carpet_confirmed=academy['confirmed_tile'],
+            carpet_seen_cells=academy['seen_cells'],
+            carpet_seen_write=academy['seen_write'],
         )
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
