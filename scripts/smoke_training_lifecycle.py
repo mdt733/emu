@@ -37,8 +37,10 @@ UPDATE_STEPS = ENVS * ROLLOUT_STEPS
 def configs(root: Path, *, unified: bool = False, carpet: bool = False,
             envs: int = ENVS, seed: int = SEED, prisms: bool = False) -> tuple[TrainingConfig, TrainingConfig]:
     updates = envs * ROLLOUT_STEPS
-    if prisms and not (unified and carpet):
-        raise ValueError("prisms require --unified --carpet")
+    # v5045 runs one real topology. Historical 220/232 and box-only
+    # lifecycle recipes live at their source-pinned Git commits.
+    if not (unified and carpet and prisms):
+        raise ValueError("v5045 acceptance requires --unified --carpet --prisms")
     if unified:
         # The EXACT public unified configuration, only with bounded total
         # steps. Never duplicate the profile by reconstructing handpicked
