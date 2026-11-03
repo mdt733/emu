@@ -604,3 +604,9 @@ body[data-world="carpet"] .nav-hud {display:none !important;}
 .telemetry .terrain-assigned {grid-column:1 / -1;
   padding:8px 0 6px;border-top:1px solid rgba(146,205,175,.22);}
 .telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
+
+/* Standalone viewer-only prism geometry inspector; MJX training remains unchanged. */
+.world-switch .world-prism-link{display:inline-flex;align-items:center;min-height:38px;padding:0 10px;white-space:nowrap;border-radius:10px;color:#a2f3ca;text-decoration:none;font-size:12px;font-weight:650}
+.world-switch .world-prism-link:hover{background:rgba(95,184,153,.22);color:#e3fff2}
+.prism-panel-link{display:block;padding:12px;border-radius:10px;text-decoration:none;font-size:12px;font-weight:700;color:#c2ffe4;background:rgba(40,107,88,.27);border:1px solid rgba(138,246,198,.38)}
+.prism-panel-link:hover{background:rgba(55,137,102,.37)}
