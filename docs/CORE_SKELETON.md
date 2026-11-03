@@ -388,3 +388,31 @@ bury their mocap bodies 30 metres below every new prism episode.
 Current prism births do not touch any historical slab IDs. The 18 convex
 prisms and nine noncontact vertex-sample hfields remain; saved v5044
 checkpoints must not be resumed with this new model topology.
+
+## Follow-up: one physical control frame, not 59 anonymous positions
+
+As of the 4 November v5045 cleanup, `environment.py` has one legal
+constructor contract: 360 history inputs, one 4×4 array-only sensor,
+one 3×3 18-prism collider carpet and six sampled lesson roles. It is
+not a four-mode general simulator. A failed geometry/schema contract
+is raised on construction, before MJX compilation.
+
+The per-world `EnvState` now names its 54 surviving data fields at
+reset; `_step_impl` only replaces fields genuinely advanced on that
+frame. The old terrain-cross streak, two ascent high-water counters,
+verified-height peak and one-slab careful-approach frame counter were
+never meaningfully updated by the true-prism path, and were removed.
+The active `terrain_crossed` flag and independently verified crossing
+and episode evidence **were preserved**.
+
+The `rewards.py` equation now has no unreachable 120-frame single-lip
+underspeed/crouch discount or dormant offline v5031 ascent-credit
+utilities. Experimental temporal velocity tracking is still supported
+when explicitly enabled. `evaluation._world` refuses any non-prism
+fixed-eval world; the browser's nine-box representative preview remains
+honestly labelled as a visual approximation, not physical proof.
+
+**Still not a license to train:** a successful 4-world physical probe
+checks resets, prism geometry, contacts and recycling, not the complete
+same-SHA 8-world CUDA checkpoint/resume/export lifecycle or the actual
+exported-policy frozen prism exam. Keep PR #34 draft until those pass.
