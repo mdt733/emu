@@ -253,3 +253,13 @@ loopback HTTP server, read-only checkpoint watcher and browser serving.
 originally 1,032 lines combined in one file; each can now be tested,
 modified or deleted separately. The CLI and physical exams call their
 owning module directly. Actor export and viewer state never feed PPO.
+
+## Retired standalone browser Prism Lab
+
+The separate v5042 experimental Prism Lab (`prism-lab.html`, its own
+procedural geometry script and CSS) was a **visual-only sandbox** and was
+not the current MJX collision world or the robot-following browser scene.
+It has been removed along with its two main-viewer links and extra Vite
+entry point. The real integrated viewer's Field and Training Carpet
+modes remain, with their collision-preview caveat. The exact old Prism
+Lab lives in the preserved v5044 Git history.
