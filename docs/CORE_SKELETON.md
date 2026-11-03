@@ -1,10 +1,10 @@
 # EMU core skeleton — run to robot walking in the viewer
 
 **Audit branch:** `feature/v5045-core-skeleton-audit`, 3 November 2026.
-**Source of truth for a running 140M campaign:** the exact pinned v5044
-training commit, **never this refactor branch**. Do not merge or cherry-pick
-v5045 changes into a running training checkout. Champion/main and archived
-sensor contracts are still used for reproducibility.
+**Current new-run candidate:** this v5045 feature branch; the previous
+source-pinned v5044 large run was stopped. Its saved checkpoints belong to
+that old source SHA and must never resume on v5045. `main` and the released
+browser champion remain untouched.
 
 ## The five-stage minimum product
 
@@ -35,8 +35,7 @@ sensor contracts are still used for reproducibility.
               v           v
           FROZEN EXAM   VIEWER EXPORT
           evaluation.py  policy_export.py -> .emupolicy
-          physical_exam.py                     |
-          physical_quality.py                  v
+           prism_exam.py                         v
                                        browser policy.js
                                        browser sensor.js
                                        browser sim.js [MuJoCo/WASM]
@@ -120,12 +119,11 @@ schedule or energy-only success threshold.
 | `checkpoint_io.py`, `results.py` | durable complete learning state, diagnostics and offline reporting |
 | `policy_export.py`, `viewer_server.py`, `capability_viewer.py`, `viewer_src/src/{policy,sensor,sim,main}.js` | verified actor export, local HTTP physics replay, separate capability atlas and user controls |
 
-**Retain but isolate as optional interfaces:** `evaluation.py`,
-`physical_exam.py`, `physical_quality.py`, `capability_cloud.py`,
-`capability_field.py`, the capability atlas viewer, showcase publisher,
-independent physics probes and diagnostics. Most of these are imported by
-the training implementation even if a particular 140M recipe disables
-their heavier operations. They must not be dropped on a size guess.
+**Retain but isolate as optional interfaces:** `evaluation.py` is the
+trainer's read-only held-out evaluator; `prism_exam.py` independently
+scores frozen 360-input actor traces from true prism contacts.
+`capability_cloud.py`, `capability_field.py`, the atlas viewer,
+showcase publisher, physics probes and diagnostics are separately owned.
 
 ## Proven obsolete in the active path (removed from this branch)
 
@@ -146,9 +144,9 @@ their heavier operations. They must not be dropped on a size guess.
   Old 220/232 tripod-based policy readers and sensor simulators were
   deleted. The published v5032 260M champion was inspected and
   confirmed to use the retained exact array-only contract.
-- The old single finite-platform terrain examiner and `terrain-exam`
-  CLI route were deleted. The current independent 360-input capability
-  examiner and signed prism-step course remain.
+- The obsolete slab exam, directional CLI, legacy physical-quality scorecard,
+  finite-platform examiner and duplicate standalone scorer are deleted.
+  `emu prism-exam` uses one true-prism trace and independent raw contacts.
 
 ## Legacy, not automatically dead
 
@@ -162,13 +160,11 @@ their heavier operations. They must not be dropped on a size guess.
   spherical radius and a 4mm safety margin, and only moves abandoned
   slots once both feet clear. Nine inert 2×2 hfields remain as **source
   vertex samples** for the analytic height, sensors and mesh deformation;
-  they are not collision surfaces. The old nine-box model still exists
-  only as a separate benchmark mode and is a later removal candidate.
-- `step_academy_world.py` is the older separate slab machinery. The
-  v5044 Academy uses the shared prism carpet, but old tests and policy
-  worlds still require these definitions.
-- `directional.py` is large but is used by live PPO/contact
-  computation **and** physical exams; it is not safe to delete wholesale.
+  they are not collision surfaces. Old nine-box modes live only in Git history.
+- The Academy reuses the shared prism geometry; old three-platform
+  lesson bodies are no longer compiled in this branch.
+- `directional.py` remains used by live sensor estimation, locomotion
+  control and PPO; deleting it wholesale would break the 360 actor.
 - Historical experiment documents and old handovers are now **removed
   from the working tree**; the complete original contents remain in
   immutable Git commits. Only the current runbook and physics proof
@@ -184,26 +180,25 @@ optimize based on synchronized GPU measurements.
 
 | Priority | Work | Proof before removal |
 |---|---|---|
-| P0 | Freeze running v5044 SHA; archive oversized handover; keep one short current handover | original handover and all links preserved; no Python behaviour change |
+| P0 | Preserve killed v5044 source/checkpoints; keep a short current handover | original handover and all links preserved; no Python behaviour change |
 | P1 | Draw/import-audit actual runtime dependencies; label legacy/dev-only/public showcase paths | import graph, CLI dispatch, tests and viewer imports |
 | P2 | Extract physics groups from `environment.py` into focused modules **without changing numerical meaning** | exact old-vs-new contacts, ToF, reward, PPO and checkpoint shape tests |
 | P3 | Retire obsolete box/slab paths **from the prism-only runtime** after replacing recycler guard with prism-true clearance | 4cm and 40cm walls, diagonal contacts, first-life support, safe 3×3 recycling |
 | P4 | Consolidate CLI run/export/viewer boundaries; split UI/WebGL physics from policy/schema | fixed exported actor byte/field parity, browser sensor parity, champion showcase regression |
 | P5 | Archive tested-unused modules and redundant old docs; delete only proven unreachable code | affected tests green, release/legacy path comparison and documented rollback |
 
-## Physical examiner migration is an open blocker
+## Physical examiner migration
 
-The **current** model is prism-only, but the historical CLI entrypoints
-`emu evaluate`, `emu directional-exam` and `emu capability-exam`
-still contain slab-based environment construction or two-slab scoring
-assumptions. They are **not yet accepted as valid prism exams**; a
-successful build of their Python modules is not proof they work. Keep
-the genuine raw-prism contact scorer in `scripts/exam_prism_course.py`,
-the actual MJX prism probe and `evaluation.evaluate_fixed` as separate
-pieces of the validation path. Before v5045 becomes release-ready,
-port or explicitly retire these old CLI examiner paths and prove the
-replacement on real frozen-policy trajectories. Never mislabel old
-slab pass rates as 18-prism results.
+Historical `emu evaluate`, `emu directional-exam`,
+`emu capability-exam`, `physical_exam.py` and `physical_quality.py`
+have been retired with their incompatible two-slab assumptions.
+`emu prism-exam` is the new read-only frozen 360-actor route; it
+runs on real MJX prisms, independently verifies signed supported
+new-tile crossings and reports measured slope, tracking, survival and
+shaft work. **Requested severity is not guaranteed exposure.**
+`evaluation.evaluate_fixed` continues to grade training snapshots
+on real prisms. The new frozen-policy examiner still requires an
+end-to-end same-source GPU acceptance run before release.
 
 ## Performance programme (no invented speedup claims)
 
@@ -236,7 +231,7 @@ This is a *compilation/operation-count hypothesis*, not a measured
 training speed improvement. Before considering a merge or a future
 training run, repeat the identical `--benchmark-updates 3` test and
 real multi-world physical probes. Use a **new experiment directory**
-for changed source; never load v5045 into the active pinned v5044 run.
+for changed source; never load v5045 into an old pinned v5044 run.
 
 ## The deliberately small test suite
 
