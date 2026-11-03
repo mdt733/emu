@@ -14,8 +14,7 @@ from pathlib import Path
 
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
-from .contracts import (source_repo_root, OBS_SCHEMA_LEGACY,
-                        OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
+from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
 from .training_config import (TrainingConfig, mature_config,
                               training_sensor_contract, verify_existing_phase_config)
 
@@ -48,8 +47,7 @@ def one_run_config(args) -> TrainingConfig:
             or not 0.0<=rehearsal_arg<=0.5):
         raise ValueError('--athletic-rehearsal-share requires unified learning and 0..0.5')
     athletic_share=(float(rehearsal_arg) if rehearsal_arg is not None
-                    else .10 if unified and growth_recipe=='main-mature'
-                    else 0.0 if unified else cfg.athletic_rehearsal_frac)
+                    else .10 if growth_recipe=='main-mature' else 0.0)
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
     temporal_share=float(getattr(args,'temporal_vx_reward_share',0.))
     if (not math.isfinite(temporal_share) or not 0.<=temporal_share<=1.0
@@ -60,8 +58,6 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('invalid experimental lesson selection')
     if force_program not in ('gentle','aggressive') or not (0.<=retention_share<=.4):
         raise ValueError('invalid force programme or retention share')
-    if not unified and (growth_recipe!='legacy' or retention_share or terrain_lesson!='mixed'):
-        raise ValueError('recovery-first lessons require unified actor')
     if (not math.isfinite(velocity_i_ramp_s) or
             not 0.1 <= velocity_i_ramp_s <= 5.0 or
             not math.isfinite(velocity_i_multiplier) or
@@ -77,12 +73,9 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('unknown foundation mix')
     if teaching_schedule not in ('balanced','staged','terrain-early','steering'):
         raise ValueError('unknown teaching schedule')
-    if not unified and (foundation_steps!=20_000_000 or foundation_mix!='main'):
-        raise ValueError('foundation experiments require --unified-capabilities')
     requested_pitch=getattr(args, 'pitch_deg', None)
     # Main-style gentle cold posture, without changing mature sim2real runs.
-    pitch_deg=float((8.0 if unified or args.profile != 'sim2real' else 30.0)
-                    if requested_pitch is None else requested_pitch)
+    pitch_deg=float(8.0 if requested_pitch is None else requested_pitch)
     if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
         raise ValueError('--pitch-deg must be within (0, 30] degrees')
     weight=float(getattr(args,'motor_guidance_weight',0.0))
@@ -157,8 +150,7 @@ def one_run_config(args) -> TrainingConfig:
             "--terrain-actor --unified-capabilities --terrain-carpet "
             "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
-                                       OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
+                   observation_schema=OBS_SCHEMA_TERRAIN,
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    teaching_schedule=teaching_schedule,
@@ -179,43 +171,33 @@ def one_run_config(args) -> TrainingConfig:
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
-                   difficulty_base_step=(.0024 if (unified and growth_recipe=='main-mature')
-                                         else .0014 if unified else cfg.difficulty_base_step),
-                   fall_target=(.34 if (unified and growth_recipe=='main-mature')
-                                else .30 if unified else cfg.fall_target),
+                   difficulty_base_step=(.0024 if growth_recipe=='main-mature' else .0014),
+                   fall_target=(.34 if growth_recipe=='main-mature' else .30),
                    # Keep the proven 20M command/phase economics rather than
                    # accidentally inheriting mature speed limits.
-                   vx_hi_max=(.60 if growth_recipe=='main-mature' and unified else .40 if unified else cfg.vx_hi_max),
-                   vx_lo_min=(-.20 if growth_recipe=='main-mature' and unified else -.12 if unified else cfg.vx_lo_min),
-                   vy_max_mps=(.22 if growth_recipe=='main-mature' and unified else .14 if unified else cfg.vy_max_mps),
-                   yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' and unified else .90 if unified else cfg.yaw_max_rad_s),
-                   freeze_obs_norm_after_steps=0 if unified else cfg.freeze_obs_norm_after_steps,
-                   cloud_probes_per_eval=0 if unified else cfg.cloud_probes_per_eval,
-                   cloud_final_probes=0 if unified else cfg.cloud_final_probes,
-                   combo_probe_frac=(.12 if growth_recipe=='main-mature' and unified
-                                     else .08 if unified else cfg.combo_probe_frac),
-                   phase_speed_gain=(1.25 if growth_recipe=='main-mature' and unified
-                                     else .75 if unified else cfg.phase_speed_gain),
-                   regime_command_frac=(.85 if growth_recipe=='main-mature' and unified
-                                        else .60 if unified else cfg.regime_command_frac),
+                   vx_hi_max=(.60 if growth_recipe=='main-mature' else .40),
+                   vx_lo_min=(-.20 if growth_recipe=='main-mature' else -.12),
+                   vy_max_mps=(.22 if growth_recipe=='main-mature' else .14),
+                   yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' else .90),
+                   freeze_obs_norm_after_steps=0,
+                   cloud_probes_per_eval=0, cloud_final_probes=0,
+                   combo_probe_frac=(.12 if growth_recipe=='main-mature' else .08),
+                   phase_speed_gain=(1.25 if growth_recipe=='main-mature' else .75),
+                   regime_command_frac=(.85 if growth_recipe=='main-mature' else .60),
                    athletic_rehearsal_frac=athletic_share,
-                   combo_mix_frac=(.88 if growth_recipe=='main-mature' and unified
-                                   else 0.0 if unified else cfg.combo_mix_frac),
-                   frontier_vx_hi_safety=1.4 if unified else cfg.frontier_vx_hi_safety,
-                   frontier_vx_lo_safety=.55 if unified else cfg.frontier_vx_lo_safety,
-                   frontier_vy_safety=.55 if unified else cfg.frontier_vy_safety,
-                   frontier_yaw_safety=3.5 if unified else cfg.frontier_yaw_safety,
-                   frontier_combo_safety=2.0 if unified else cfg.frontier_combo_safety,
-                   frontier_push_safety_n=(.70 if force_program=='gentle' and unified
-                                           else 4.0 if unified else cfg.frontier_push_safety_n),
+                   combo_mix_frac=(.88 if growth_recipe=='main-mature' else 0.0),
+                   frontier_vx_hi_safety=1.4,
+                   frontier_vx_lo_safety=.55,
+                   frontier_vy_safety=.55,
+                   frontier_yaw_safety=3.5,
+                   frontier_combo_safety=2.0,
+                   frontier_push_safety_n=(.70 if force_program=='gentle' else 4.0),
                    # Main's foundation still sees ≤0.70N; the unified
                    # governor may later earn real larger pushes.
-                   push_max_force_n=4.0 if unified else cfg.push_max_force_n,
-                   capability_field_mode='shadow' if unified else cfg.capability_field_mode,
+                   push_max_force_n=4.0, capability_field_mode='shadow',
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
-                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
-                   domain_terrain_radius=terrain_radius,
-                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
+                   contact_slope_deg=grade,domain_randomization=False,
+                   domain_terrain_radius=0.0, domain_terrain_mode='gravity')
 
 
 def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig,
