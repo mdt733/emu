@@ -72,10 +72,28 @@ normalizer, checkpoint continuity, no-op completed resume and a real
 exported actor. If the Git SHA changes, use a **new unique** acceptance
 root; never relabel or delete previous evidence.
 
+### Final end-to-end gate: actual frozen-policy MJX trace
+
+~~~bash
+python -m emu.cli prism-exam \
+  --policy ~/emu_runs/v5045_prism_lifecycle_s735/tiny_smoke_actor.emupolicy \
+  --output ~/emu_runs/v5045_prism_lifecycle_s735/prism_exam_smoke \
+  --worlds 4 --horizon 100 --device cuda \
+  --mode mixed --grade-deg 3 --lip-cm 1 --speed .12
+~~~
+
+This actor has only **512 training steps and is not expected to walk**.
+A successful exam only proves the new frozen-policy evaluation pipeline
+uses 18 real prism colliders, authentic 4×4 sensor data and independently
+measured raw MJX contact evidence. It cannot claim a meaningful success
+rate. The long-run launcher verifies the resulting JSON against the
+exact source SHA and actor SHA256 before beginning a new 140M run.
+Use a fresh acceptance root if it already contains an old smoke report.
+
 ## 4. Start the clean 140M training lineage
 
-Only after **both** physical/PPO preflight and the bounded lifecycle
-have passed on the exact same commit:
+Only after the physical/PPO benchmark, bounded lifecycle **and**
+tiny frozen-policy prism trace have all passed on the same commit:
 
 ~~~bash
 python scripts/run_prism_140m.py start
@@ -125,5 +143,5 @@ exam. Use old frozen source for old policy baseline reproducibility.
 
 Current CI proves only a small four-world physics probe and the
 maintained 24-test suite. A fresh 2,048-world benchmark, same-source
-8-world first/continue/verify and independent actual trained-policy
-examination remain release gates. Keep PR #34 **draft** until all pass.
+8-world first/continue/verify plus frozen-actor smoke, and independent
+trained-policy physical examination remain release gates. Keep PR #34 **draft** until all pass.
