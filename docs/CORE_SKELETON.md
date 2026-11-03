@@ -9,7 +9,7 @@ browser champion remain untouched.
 ## Whole-tree audit — 4 November 2026
 
 The GitHub recursive tree listing at the start of this sweep was
-**complete (not truncated)**: **103 tracked files**. Every tracked
+**complete (not truncated)**: **103 tracked files initially**. Every tracked
 path was classified; text-based source, tests, scripts, CI, viewer
 configuration and maintained documentation received a first-pass
 content scan. The 886 KB shipped `.emupolicy` is an encoded artifact,
@@ -20,7 +20,7 @@ every line has passed functional or adversarial review**.
 
 | Category | Files | First-pass finding |
 |---|---:|---|
-| Python engine modules | 26 | One prism PPO runtime; old directional exam/tripod implementation retired; historical checkpoint and config shapes remain review candidates |
+| Python engine modules | 25 current (26 at census) | One prism PPO runtime; old directional examiner and obsolete sparse-cloud module retired; checkpoint/config shapes remain review candidates |
 | Browser JS and CSS | 25 | All currently used files classified; nine-box preview is **viewer-only representative physics**, not part of MJX learning, so do not break it by blind deletion |
 | Viewer build/config/tests/notices | 7 | Required for package, six UI tests and WebAssembly build |
 | Scripts | 12 | GPU benchmark, lifecycle, viewer setup, source checks and protected release scripts; no script is an extra PPO trainer |
@@ -30,7 +30,7 @@ every line has passed functional or adversarial review**.
 | Root/config | 5 | README, handover, package/build defaults and ignores |
 | Robot XML and version | 2 | Six-servo model and stable package version |
 | Public showcase artifacts | 3 | Protected released actor, deployment request and source/actor approval hashes |
-| **Total** | **103** | **Complete path census; staged behavioral validation still required** |
+| **Total** | **102 current (103 inventoried)** | **Complete path census; staged behavioral validation still required** |
 
 **Retention/next-cut decisions:**
 
@@ -40,7 +40,8 @@ every line has passed functional or adversarial review**.
   park and carpet; checkpoint/source provenance.
 - **Removed:** unused 232-era physical examiner, retired separate prism
   scorer, slab and nine-box MJX branches, hundreds of directional
-  course/tripod implementation lines. The small tripod constants in
+  course/tripod implementation lines, and the inactive 585-line sparse
+  `capability_cloud.py` examiner plus its dead training loop. The small tripod constants in
   `directional.py` still construct historical metadata hashes but
   no longer simulate sensors.
 - **Next deep-review candidates:** old schema-1/2 checkpoint/export
@@ -173,8 +174,8 @@ schedule or energy-only success threshold.
 **Retain but isolate as optional interfaces:** `evaluation.py` is the
 trainer's read-only held-out evaluator; `prism_exam.py` independently
 scores frozen 360-input actor traces from true prism contacts.
-`capability_cloud.py`, `capability_field.py`, the atlas viewer,
-showcase publisher, physics probes and diagnostics are separately owned.
+`capability_field.py` continues the active rollout-driven map; the atlas
+viewer, showcase publisher, physics probes and diagnostics stay separate.
 
 ## Proven obsolete in the active path (removed from this branch)
 
