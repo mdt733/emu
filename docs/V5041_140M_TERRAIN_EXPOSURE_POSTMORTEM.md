@@ -73,8 +73,35 @@ shapes, sidewall tests, or model checkpoint bytes are changed.
   its 0.7-degree frontier toward 10–12 degrees. Do not hard-code 10
   degrees immediately, change `main`, or rewrite old metrics.
 
+## Secondary evidence audit (not fixed by severity correction)
+
+The ordinary STEP teacher in `environment._step_impl` currently
+defines `terrain_active` using `academy['height_m']`. In carpet mode
+`_carpet_events()` sets that height only while the robot is moving
+into a new, not-yet-confirmed tile. The legacy
+`terrain_episode_attempt` and `terrain_episode_{near,easy}_attempt`
+then require `done & terrain_active`. Unless episode termination
+coincides with those entry frames, *real encounters can disappear
+from the episode-end curriculum denominator*. This is a distinct,
+source-observed **risk of undercounting** after geometry is unlocked,
+not proof that actual crossings occurred in the original 140M run.
+
+Also, `academy_lip_attempt_new` reports failed approaches at terminal
+frames, while the near/easy classifier uses this frame's signed
+`academy['height_m']`; the independent read-only exam already has
+special logic to recover the *last encountered lip height* for this
+reason. We must verify live teacher attribution, not just physical
+collision presence. A later fix should preserve per-encounter signed
+UP/DOWN difficulty across rollouts, apply one verdict per unique
+approach, and test against independent raw-contact traces. Do not
+prematurely loosen top-contact or anti-rocking safeguards.
+
 **Known remaining question:** Does the five-frame physical far-side
 contact gate actually accumulate credited up/down crossings after the
 birth-severity fix? This needs a frozen real-policy MJX exam and
 step-by-step physical trace; don't assume positive encounters imply
-crossings.
+crossings. Note the current `scripts/exam_step_course.py --carpet`
+forces STEP focus: its effective slope is HALF the global slope target.
+Do not present `--slope-deg 10` in that exam as proof of a **physical
+10° SLOPE-specialist** challenge; use a separately validated full-grade
+SLOPE-focus experiment.
