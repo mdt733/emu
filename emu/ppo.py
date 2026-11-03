@@ -927,14 +927,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     "academy_transfer_new":out.metrics['academy_transfer_new'],
                     "academy_lip_height_m":out.metrics['academy_lip_height_m'],
                 })
-            if env.terrain_step_mocap_id >= 0 and not env.terrain_carpet:
-                # Same collision pairs as the training environment; the
-                # frozen examiner never infers support from root altitude.
-                platform_id = int(env.terrain_step_geom_id)
-                contact = getattr(es.data, '_impl', es.data).contact
-                sample['terrain_platform_contact'] = contact_pair_mask(
-                    jnp, contact.geom1, contact.geom2, contact.dist,
-                    int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
@@ -963,49 +955,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 initial_foot_radii_m=jnp.asarray(
                     env.mj_model.geom_size[list(env.ids['foot_geoms']),0]),
                 initial_root_quat=initial.data.qpos[:,3:7],
-                last_position_xy=last_xy,
-                last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                last_floor_contact=last_contacts,
-                last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
-                last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
-                last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
-                spring_reference_rad=env.spring_reference,
-                spring_stiffness_nm_rad=env.spring_stiffness,
-                servo_peak_limit_nm=env.servo_stall_torque_nm)
-        if env.terrain_step_mocap_id >= 0:
-            if env.unified_capability_focus:
-                # Same two actual MJX collision surfaces; no constructed
-                # heightfield or training-only success labels in the examiner.
-                return dict(
-                    **frames,
-                    **({"academy_initial_platform_positions":jnp.stack(tuple(
-                           initial.data.geom_xpos[:,g,:]
-                           for g in env.academy_geom_ids),axis=1),
-                        "academy_initial_platform_xmat":initial.data.geom_xmat[
-                            :,int(env.ids['floor_geom']),:].reshape(
-                                (env.num_envs,3,3))}
-                       if env.academy_stream else {}),
-                    initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
-                    initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
-                    initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
-                    initial_upper_xmat=jnp.reshape(
-                        initial.data.geom_xmat[:,env.terrain_step_geom_id,:],(env.num_envs,3,3)),
-                    initial_ground_xmat=jnp.reshape(
-                        initial.data.geom_xmat[:,int(env.ids['floor_geom']),:],(env.num_envs,3,3)),
-                    initial_root_quat=initial.data.qpos[:,3:7],
-                    last_position_xy=last_xy,
-                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                    last_floor_contact=last_contacts,
-                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
-                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
-                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
-                    spring_reference_rad=env.spring_reference,
-                    spring_stiffness_nm_rad=env.spring_stiffness,
-                    servo_peak_limit_nm=env.servo_stall_torque_nm)
-            return dict(
-                **frames,
-                initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],
-                initial_terrain_mocap_quat=initial.data.mocap_quat[:, env.terrain_step_mocap_id, :],
                 last_position_xy=last_xy,
                 last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                 last_floor_contact=last_contacts,
