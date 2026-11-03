@@ -1,6 +1,6 @@
 # EMU engineering handover — lean prism v5045
 
-**3 November 2026.** The earlier v5044 140M experiment was manually
+**4 November 2026.** The earlier v5044 140M experiment was manually
 stopped; its source commit and checkpoints remain historical. New work
 lives only in draft PR #34 on `feature/v5045-core-skeleton-audit`.
 `main` and the published 260M champion are unchanged.
@@ -22,7 +22,7 @@ lives only in draft PR #34 on `feature/v5045-core-skeleton-audit`.
 
 ## Cleanup completed
 
-- Over **21k deleted lines** vs frozen v5044, the historic tests reduced
+- Over **23k deleted lines** vs frozen v5044, the historic tests reduced
   to 18 Python and six browser maintained contracts. Historic science
   stays in old Git SHAs rather than runtime compatibility branches.
 - `environment.py` is prism-only; zero extra slab/box bodies.
@@ -56,3 +56,33 @@ install, check, benchmark, lifecycle and launch commands.
 **[Core source skeleton](docs/CORE_SKELETON.md)** explains file ownership
 and retirement decisions. The historical full handover remains
 [at the pinned v5044 commit](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md).
+
+## 4 November — make the physical control frame understandable
+
+- `EnvState` was **59 fields, now 54**. The retired single-slab
+  approach counters and ascent peaks never changed in real-prism training;
+  they no longer occupy an MJX state. Reset populates fields by name and
+  per-frame updates use `state._replace(...)` with named live changes,
+  rather than counting 59 positional constructor arguments.
+- The only supported `params_array` always packs the full terrain/six-role
+  teacher packet. Frozen exams and the trainer both construct the real
+  18-prism model; `evaluation._world` rejects other geometry before JIT.
+- The environment has no alternate rotated-ground plane, tripod/220-input
+  sensor contract, or dead standalone finite-step platform dimensions.
+  Robot and hardware model randomization are preserved. Exact 4×4 ToF
+  acquisition, servo delivery, physical prism contacts and supported
+  terrain events remain the active simulation.
+- Removed the inactive v5031 single-lip careful-approach/crouch reward
+  and unused offline counterfactual ascent diagnostics from `rewards.py`.
+  The actual verified-prism crossing payment and the optional 25-frame
+  forward tracking blend remain. Retired config fields were removed from
+  `training.py` and `training_config.py`; this is a **new source-locked
+  checkpoint lineage** and old branch checkpoints cannot be resumed.
+- Remaining large concepts: `environment._step_impl` still combines
+  episode outcomes and telemetry, `curriculum.py` still has a long
+  evidence governor, and `results.py` still records legacy metric names.
+  Consolidate only with fresh physical equivalence proof; do not change
+  reward economics or teacher thresholds as part of cosmetic refactoring.
+- On any latest commit, require core Python/JS and 4-world MJX CI green,
+  then same-SHA CUDA first/continue/verify plus exported frozen-actor
+  prism examination **before** starting a fresh 140M run.
