@@ -76,14 +76,17 @@ def add_carpet_geoms(xml: str, *, prisms: bool = False) -> str:
     # Every solid is a fixed 50cm planar square with a *real* vertical
     # thickness / side face. Rotation+translation update per JAX world,
     # but no geom size or model topology is ever recompiled.
-    for i in range(TILE_COUNT):
-        body=ET.SubElement(world,"body",dict(
-            name=SOLID_BODY_NAMES[i],mocap="true",pos=f"0 0 {-20-i}"))
-        ET.SubElement(body,"geom",dict(
-            name=SOLID_GEOM_NAMES[i],type="box",
-            size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
-            contype="0" if prisms else "4",conaffinity="0",friction="1.5 0.005 0.0001",
-            rgba="0.39 0.65 0.39 1"))
+    if not prisms:
+        # No inert legacy boxes in the PRISM scene. The physical contact
+        # mesh footprint itself provides a cheaper, exact XY recycle guard.
+        for i in range(TILE_COUNT):
+            body=ET.SubElement(world,"body",dict(
+                name=SOLID_BODY_NAMES[i],mocap="true",pos=f"0 0 {-20-i}"))
+            ET.SubElement(body,"geom",dict(
+                name=SOLID_GEOM_NAMES[i],type="box",
+                size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
+                contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
+                rgba="0.39 0.65 0.39 1"))
     if prisms:
         from .carpet_prism_mjx import prism_mesh_xml
         prism_mesh_xml(root,active=True)
@@ -378,6 +381,30 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
                     z_at<=z_top)&(z_at>=z_bottom)
                 nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
     return nearest
+
+def feet_clear_of_abandoned_prisms(
+        xp, old_center, new_center, foot_xy, foot_radii,
+        clearance_m=.004):
+    """Recycle only when every sphere-foot clears abandoned REAL prisms.
+
+    A prism's two triangles exactly cover a 0.50m square in XY; their
+    shared and exterior walls are vertical, including the sheared bottom.
+    The tile's true projected XY AABB is therefore its global half-metre
+    square, with no rotation/box overhang. Add foot radius and 4mm
+    conservative safety distance. Ignore altitude deliberately:
+    a full-XY-foot-clear test cannot teleport a possible support, even
+    at a sharp stair corner. This guard is for PRISMS only.
+    """
+    old_x,old_y=slot_indices(xp,old_center[:,0],old_center[:,1])
+    new_x,new_y=slot_indices(xp,new_center[:,0],new_center[:,1])
+    abandoned=(old_x!=new_x)|(old_y!=new_y)
+    center_xy=(xp.stack((old_x,old_y),axis=-1).astype(xp.float32)
+               +.5)*TILE_M
+    distance=xp.abs(foot_xy[:,:,None,:]-center_xy[:,None,:,:])
+    margin=TILE_HALF_M+foot_radii[None,:,None,None]+clearance_m
+    could_touch=xp.all(distance<=margin,axis=-1)
+    return ~xp.any(abandoned & xp.any(could_touch,axis=1),axis=1)
+
 
 def feet_clear_of_abandoned_solids(
         xp, old_center, new_center, foot_xy, foot_radii,

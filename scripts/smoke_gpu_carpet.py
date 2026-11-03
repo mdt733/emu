@@ -68,16 +68,18 @@ def main():
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly nine inactive source hfields")
-    if len(env.carpet_solid_geom_ids)!=9 or len(env.carpet_solid_mocap_ids)!=9:
-        raise RuntimeError("Expected nine real 50cm collision box tiles")
+    expected_legacy_boxes=0 if a.prisms else 9
+    if (len(env.carpet_solid_geom_ids)!=expected_legacy_boxes or
+        len(env.carpet_solid_mocap_ids)!=expected_legacy_boxes):
+        raise RuntimeError('Prism model must contain ZERO old box bodies')
     if np.any(env.mj_model.geom_contype[np.asarray(
             env.carpet_geom_ids,dtype=np.int32)]!=0):
         raise RuntimeError("Heightfield side skirts must not collide")
     if a.prisms:
         if len(env.carpet_prism_geom_ids)!=18:
             raise RuntimeError("Expected exactly 18 physical prism geoms")
-        if np.any(env.mj_model.geom_contype[list(env.carpet_solid_geom_ids)]):
-            raise RuntimeError("Legacy boxes must be disabled in prism mode")
+        if env.carpet_solid_geom_ids:
+            raise RuntimeError("No legacy box collision geoms permitted in prism model")
         if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
             raise RuntimeError("Prism bit-4 contacts are not enabled")
     if env.academy_geom_ids or env.academy_platform_mocap_ids:
@@ -115,10 +117,13 @@ def main():
         :,list(env.carpet_mocap_ids),:]))
     if tile_positions.shape!=(a.worlds,9,3):
         raise RuntimeError("Missing independently positioned tiles")
+    physical_ids=(env.carpet_prism_mocap_ids if a.prisms
+                  else env.carpet_solid_mocap_ids)
     solid_pos=np.asarray(jax.device_get(state.data.mocap_pos[
-        :,list(env.carpet_solid_mocap_ids),:]))
-    if solid_pos.shape!=(a.worlds,9,3) or not np.isfinite(solid_pos).all():
-        raise RuntimeError("Invalid per-world nine solid tile poses")
+        :,list(physical_ids),:]))
+    if (solid_pos.shape!=(a.worlds,18 if a.prisms else 9,3)
+        or not np.isfinite(solid_pos).all()):
+        raise RuntimeError("Invalid per-world physical collision tile poses")
     print("reset PASS: "+("18 dynamic convex triangular prisms" if a.prisms
           else "9 rigid tilted boxes")+
           ", distinct per-world 360-input JAX physics",flush=True)
@@ -143,9 +148,9 @@ def main():
     if not np.any(np.abs(after-before)>.3):
         raise RuntimeError("Abandoned physical tile colliders did not recycle")
     solid_after=np.asarray(jax.device_get(
-        relocated.mocap_pos[:,list(env.carpet_solid_mocap_ids),:]))
+        relocated.mocap_pos[:,list(physical_ids),:]))
     if not np.any(np.abs(solid_after-solid_pos)>.3):
-        raise RuntimeError("Abandoned real tile boxes did not recycle")
+        raise RuntimeError("Abandoned real solid prism/box collision tiles did not recycle")
     trailing=((old-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
                ).astype(jnp.float32)+.5)*.5
     blocked_data=safe_data.replace(xpos=state.data.xpos.at[
@@ -158,9 +163,9 @@ def main():
     if not np.array_equal(np.asarray(jax.device_get(blocked_h)),heights):
         raise RuntimeError("Blocked recycling changed live collision triangles")
     old_solids=np.asarray(jax.device_get(
-        blocked.mocap_pos[:,list(env.carpet_solid_mocap_ids),:]))
+        blocked.mocap_pos[:,list(physical_ids),:]))
     if not np.array_equal(old_solids,solid_pos):
-        raise RuntimeError("Blocked recycling moved a collision box with a trailing foot")
+        raise RuntimeError("Blocked recycling moved a physical collision tile under a trailing foot")
     # A spherical foot may still touch an outgoing solid even when its
     # CENTRE has entered the new tile cell. The old integer-cell test
     # incorrectly recycled such a tile, potentially teleporting support.
@@ -172,11 +177,11 @@ def main():
     edge_shifted,edge_h,edge_c=env._carpet_recycle(state,edge_data)
     if not np.array_equal(np.asarray(jax.device_get(edge_c)),
                           np.asarray(jax.device_get(old))):
-        raise RuntimeError("Recycler moved an overhanging box under a foot sphere")
+        raise RuntimeError("Recycler moved a physical prism sidewall under a foot sphere")
     if not np.array_equal(np.asarray(jax.device_get(edge_h)),heights):
-        raise RuntimeError("Recycler altered tile heights before foot cleared box")
+        raise RuntimeError("Recycler altered physical triangle heights before a foot cleared a sidewall")
     print("recycler PASS: safe tile advance, trailing-foot hold, "
-          "real sphere/solid-overhang clearance",flush=True)
+          "real sphere/solid-footprint clearance",flush=True)
     for i in range(a.frames):
         out=env.step(state,jnp.zeros((a.worlds,6),dtype=jnp.float32),packet)
         state=out.state

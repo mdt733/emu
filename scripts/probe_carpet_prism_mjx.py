@@ -98,8 +98,11 @@ def run_probe(worlds=4, frames=2):
     state,obs=env.reset(settings)
     assert obs.shape==(worlds,360),obs.shape
     assert len(env.carpet_prism_geom_ids)==PRISM_COUNT
-    assert not np.any(np.asarray(env.mj_model.geom_contype[
-        list(env.carpet_solid_geom_ids)]))
+    assert not env.carpet_solid_geom_ids
+    assert not env.carpet_solid_mocap_ids
+    assert not any(mujoco.mj_id2name(
+        env.mj_model,mujoco.mjtObj.mjOBJ_GEOM,i).startswith(
+        'carpet_solid_geom_') for i in range(env.mj_model.ngeom))
     hf=np.asarray(jax.device_get(state.carpet_hfields))
     assert np.isfinite(hf).all() and hf.shape==(worlds,36)
     assert np.isfinite(np.asarray(jax.device_get(obs))).all()
