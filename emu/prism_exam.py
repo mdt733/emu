@@ -381,8 +381,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                          encoding="utf-8")
     lines = [
         "# Frozen-policy true-prism examination", "",
-        f"Actor SHA-256: \`{actor['artifact_sha256']}\`",
-        f"Source training commit: \`{actor['source'].get('git_commit')}\`",
+        f"Actor SHA-256: `{actor['artifact_sha256']}`",
+        f"Source training commit: `{actor['source'].get('git_commit')}`",
         f"Mode: **{mode}** | worlds: {worlds} | horizon: {horizon}",
         f"Command: +{speed:.2f} m/s | requested grade frontier: {grade_deg if has_grade else 0.}°"
         f" | requested lip frontier: {lip_cm if has_step else 0.} cm", "",
@@ -410,7 +410,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     lines += [
         "", "*Mechanical positive shaft work divided by actual forward directed progress;"
         " not battery energy, and omitted when travel is below 2 cm.",
-        "Per-world measured support and signed lip geometry are in \`prism_exam.json\`.",
+        "Per-world measured support and signed lip geometry are in `prism_exam.json`.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
         " from procedural difficulty alone.",
     ]
