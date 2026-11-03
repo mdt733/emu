@@ -22,8 +22,8 @@ resilience and efficient control.
   log exact source SHA, seed, JAX/MuJoCo versions and checkpoint hashes
 - [ ] Hold completed training checkpoints immutable; **never** resume
   the running source under a later cleanup branch
-- [ ] One simple launcher path and one shared campaign-support module;
-  dead experiments archived by immutable Git SHA, not active imports
+- [ ] One documented source-pinned launcher and no surviving duplicate
+  campaign-support framework; historical studies live at immutable Git SHAs
 - [ ] No unexplained duplicated rewards, alternate actor schemas or
   undocumented privileged observation fields
 - [ ] No stale README, dead links, superseded "current" run instructions
