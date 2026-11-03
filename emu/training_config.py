@@ -183,13 +183,11 @@ class TrainingConfig:
     retention_share: float = 0.0  # dynamic core rehearsal, NOT static survival
     terrain_lesson: str = 'mixed'  # coherent STEP/SLOPE tasks are an isolated treatment
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
-    verified_ascent_reallocation: float = 0.0  # v5031 C: transfer 0..4 from existing ascent shaping
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
     science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
     science_step_min_attempts: int = 4     # per direction / near or easy
-    science_step_crouch_tolerance_m: float = 0.0  # gated reward, no physics changes
     science_reset_step_evidence_on_fork: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
     terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
