@@ -16,11 +16,11 @@
 
 **Real CI passed:** [GitHub Actions run 41579145641](https://github.com/mdt733/emu/actions/runs/41579145641), MuJoCo 3.17/MJX 3.17, JAX CPU. Eighteen compiled convex meshes, a **flat join without false horizontal wall contact at the tested location**, **4 cm upward riser with a real horizontal side-wall normal**, and **four complete six-servo EMU physics worlds** with finite 360-input observations through two frames. Earlier JAX source/deterministic tests passed. This is genuinely collision-enabled; not a visual render.
 
-A subsequent stricter proof also checks every physical prism triangle corner against the corresponding analytic terrain height, in every tested world, and tests that adjacent edges differ only by their intended **constant** step offset. The latest CI result must pass before claiming this extra validation.
+The later stricter proof checks every physical prism triangle corner against the analytic height, verifies shared edges differ only by the deliberate **constant** step offset, checks deep sidewall contacts and pairwise recycler behaviour. [The source-pinned CI gate passed](https://github.com/mdt733/emu/actions/runs/41595603405).
 
-**Not yet proven:** 128-world and 2,048-world CUDA throughput/memory on the 8GB RTX 4060 Ti; sustained locomotion of a trained policy; contacts at every slope/diagonal/step-corner; stable 3×3 recycling across all boundary configurations. The numerical estimate of the transition bound is not a formal guarantee on every collision normal. Verify physical grade statistics before using the frontier for promotion. Do NOT launch 140M training on the strength of a 4-world CPU probe.
+**CUDA physics/PPO gate passed** at 128 and 2,048 worlds on the user’s 8GB RTX 4060 Ti, including synchronized steady throughput (details below). **Not yet proven:** sustained locomotion of a trained policy; contacts at every slope/diagonal/step-corner; stable 3×3 recycling across all boundary configurations. The numerical estimate of the transition bound is not a formal guarantee on every collision normal. Verify physical grade statistics before using the frontier for promotion. Do NOT launch 140M training on the strength of a 4-world CPU probe.
 
-The older `scripts/exam_step_course.py --carpet` scorer is designed for nine boxes; do not use its independent box-geometry score as prism evidence. Viewer Prism Lab is a geometry preview only and does not yet use this new physics.
+The old `scripts/exam_step_course.py --carpet` scorer is for nine boxes. The explicitly selected `--carpet --prisms` variant uses a separate independent prism scorer. Viewer Prism Lab is a geometry preview only and does not yet use this new physics.
 
 ## WSL install / experiment (never replace an existing run)
 
@@ -87,6 +87,44 @@ MuJoCo/MJX 3.17.0, JAX 0.12.0.1, CUDA and the 8 GB RTX 4060 Ti:
 - Independent frozen-policy walking and real multi-lip crossing exams
   remain required; one full PPO update does not establish learning quality.
 
+### Full PPO throughput, measured after JAX compilation
+
+**User RTX 4060 Ti, 3 November 2026; source SHA `0f779bae2e41`:**
+
+```text
+2048 worlds / 18 real dynamically deformed prism colliders
+65,536 world-steps per full PPO update (2048 x 32)
+Initial compilation + update:   123.715 s
+Two synchronized later updates: 8.747 s/update mean
+Steady full PPO throughput:      7,492.3 world-steps/s
+Peak GPU memory in use:          1,901,136,128 bytes = 1.90 GB
+Peak GPU pool allocation:        2,145,386,496 bytes = 2.15 GB
+GPU allocator reported limit:    6,440,353,792 bytes
+Actor parameter change:         0.00149838 (nonzero)
+STATUS: PASS; physics=eighteen-dynamic-convex-triangular-prisms
+```
+
+This measures the full PPO update, **not just physics-only stepping**;
+the first compilation time must not be used as steady FPS. The GPU limit
+is the allocator-reported limit, not a claim of 6.44 GB total card VRAM.
+Memory is not the bottleneck in this acceptance; collision/JAX compute and
+throughput remain subjects of a matched-baseline comparison.
+
+To compare the nine-box baseline with exactly the same seed, worlds,
+rollout, PPO schedule and benchmark methodology, omit only `--prisms`:
+
+```bash
+cd ~/emu-prism-physics
+python scripts/smoke_gpu_carpet.py \
+  --device cuda --worlds 2048 --frames 2 \
+  --ppo --full-update --benchmark-updates 3
+```
+
+Compare the **steady post-compile** world-steps/s against 7,492.3.
+The command is bounded, creates no checkpoints and does not modify training
+runs. Don't substitute older 15–35k world-steps/s logs: those may use
+different source, terrain, teacher, or PPO configurations.
+
 ## Run a trained robot on the real prisms — frozen read-only exam
 
 The `scripts/exam_step_course.py` examiner now supports `--carpet --prisms`.
@@ -127,9 +165,9 @@ The separate `tests/test_prism_exam_scorer.py` contains signed-X/Y,
 
 ## Not ready for an overnight run
 
-A four-world JAX CPU contact/robot test verifies the **existence** of a
-real collision implementation, not reasonable speed/memory at 2,048 GPU
-worlds. The WSL 128/2,048-world `--prisms` PPO smoke above is still a
-hard gate. If it fails (VRAM, compilation, invalid normals or nonfinite
-gradient), leave this branch unmerged and send the full console output.
-No trial training run should overwrite the 140M nine-box checkpoint.
+Full-size 2,048-world CUDA PPO has passed and sustained throughput has
+been measured. **Remaining release gates:** matched nine-box performance
+baseline, actual frozen-policy supported walking and repeated mixed-terrain
+crossings, robust corner contacts and recycling under real foot motion, and
+curriculum STEP attempt/evidence retention. Keep this PR a draft; no
+trial run should overwrite the 140M nine-box checkpoint.
