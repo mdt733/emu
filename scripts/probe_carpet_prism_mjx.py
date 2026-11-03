@@ -220,10 +220,29 @@ def run_probe(worlds=4, frames=2):
         "Prism collider teleported away under an outgoing foot")
 
     params=env.params_array(settings)
+    # This same physical smoke must catch telemetry/report regressions:
+    # PPO's governor reads episode and terrain evidence every frame.
+    # No additional test world or PPO update is required.
+    essential_evidence=(
+        'episode_done', 'episode_fell', 'episode_timeout',
+        'episode_return', 'episode_support', 'physical_slope_deg',
+        'terrain_cross_new', 'academy_cross_new',
+        'slope_episode_attempt_uphill', 'terrain_episode_success_up',
+        'exam_stance_slip_proxy', 'reward_command_tracking',
+    )
     for _ in range(frames):
         out=env.step(state,jnp.zeros((worlds,6),dtype=jnp.float32),params)
         state=out.state
         assert np.isfinite(np.asarray(jax.device_get(out.obs))).all()
+        assert np.isfinite(np.asarray(jax.device_get(out.reward))).all()
+        missing=set(essential_evidence)-set(out.metrics)
+        assert not missing, f"Missing live curriculum/evaluation evidence: {sorted(missing)}"
+        evidence=jax.device_get({name:out.metrics[name]
+                                for name in essential_evidence})
+        for name,values in evidence.items():
+            observed=np.asarray(values)
+            assert observed.shape==(worlds,), (name,observed.shape)
+            assert np.isfinite(observed).all(), f"Non-finite evidence: {name}"
     print(json.dumps(dict(status="PASS",backend=jax.default_backend(),
         worlds=worlds,frames=frames,convex_prisms=PRISM_COUNT,
         flat_seam=seam,physical_4cm_riser=step,
