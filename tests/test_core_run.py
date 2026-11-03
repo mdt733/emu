@@ -68,6 +68,8 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.athletic_rehearsal_frac == pytest.approx(.10)
     assert cfg.retention_share == pytest.approx(.15)
     assert cfg.fixed_eval_every_steps == 10_000_000
+    # The retired sparse-cloud evaluator must not be used by this lineage.
+    assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
     assert training_sensor_contract(cfg) is not None
     # Public CLI must refuse a superficially valid legacy launch before GPU
     # model creation, rather than printing a plan for an impossible world.
