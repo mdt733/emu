@@ -1,10 +1,10 @@
-"""v5041 GPU trainer: nine reusable, independently mutable MJX heightfield tiles.
+"""Current true-prism MJX terrain generator.
 
-Every 50cm tile owns one 2x2 heightfield (two physical triangles); the
-*same* nine MuJoCo collision geoms are repositioned per-world as EMU walks.
-
-Caution: this is a new experimental training geometry contract, not a
-retroactive replacement for source-pinned v5040 weights/checkpoints.
+Nine 50cm tiles carry four exact height samples each, as non-contact
+MuJoCo hfields. Each tile's two real convex triangular-prism meshes
+provide the ONLY physical terrain collisions. All six specialists use
+the same generator, collider and ToF source. Legacy nine-box geometry
+is available from Git history, not from this training engine.
 """
 from __future__ import annotations
 import math
@@ -21,76 +21,44 @@ PROFILE_SIZE=PROFILE_HALF*2
 BODY_NAMES=tuple(f"carpet_tile_body_{i}" for i in range(TILE_COUNT))
 GEOM_NAMES=tuple(f"carpet_tile_geom_{i}" for i in range(TILE_COUNT))
 HFIELD_NAMES=tuple(f"carpet_tile_hfield_{i}" for i in range(TILE_COUNT))
-# Use 9 *solid-box* collision tops and their genuine vertical side faces.
-# Each plane is determined by the same four vertex samples that define
-# the two triangles. The original hfields become noncontact metadata so
-# sensors can sample exactly the same seeded global heightfield potential.
-SOLID_BODY_NAMES=tuple(f"carpet_solid_body_{i}" for i in range(TILE_COUNT))
-SOLID_GEOM_NAMES=tuple(f"carpet_solid_geom_{i}" for i in range(TILE_COUNT))
-SOLID_HALF_Z_M=.270
-SOLID_HALF_XY_M=.258
-BURIED_Z=-30.
-
-def add_carpet_geoms(xml: str, *, prisms: bool = False) -> str:
-    root=ET.fromstring(xml)
-    world=root.find("worldbody")
-    if world is None:raise ValueError("Carpet requires worldbody")
-    asset=root.find("asset")
-    if asset is None:
-        asset=ET.Element("asset")
-        root.insert(0,asset)
-    # v5043 opt-in: collision surfaces will be 18 dynamically sheared
-    # convex triangular prisms. Legacy nine-box training remains untouched.
-    # The hfields still provide nine independent *analytic* 2x2 samples.
-    # The v5040 slab/Academy training geometry is not used in a carpet
-    # episode. Retain its stable named IDs for legacy diagnostics, but
-    # DISABLE collision pairs rather than wasting GPU broadphase work on
-    # five huge invisible boxes. The carpet's nine real tiles are the only
-    # ground surfaces in this opt-in training mode.
-    for name in ("floor","episode_terrain_surface",
-                 "academy_surface_0","academy_surface_1",
-                 "academy_surface_2"):
-        geom=root.find(f".//geom[@name='{name}']")
-        if geom is not None:
-            geom.set("contype","0")
-            geom.set("conaffinity","0")
-    # The historical two-slab model gives the robot bits 1 and 2.
-    # Carpet tiles are bit 4, so each active contact-capable robot geom
-    # must accept bit 4 before MJX compiles collision filtering.
-    for name in ("torso_box","r_foot_ball","l_foot_ball"):
-        geom=root.find(f".//geom[@name='{name}']")
-        if geom is not None:
-            affinity=int(geom.get("conaffinity","1"))
-            geom.set("conaffinity",str(affinity|4))
-    for i in range(TILE_COUNT):
-        ET.SubElement(asset,"hfield",dict(
-            name=HFIELD_NAMES[i],nrow="2",ncol="2",
-            size=f"{TILE_HALF_M} {TILE_HALF_M} {TILE_SIZE_Z_M} {TILE_BASE_M}",
-            elevation="0.5 0.5 0.5 0.5"))
-        body=ET.SubElement(world,"body",dict(
-            name=BODY_NAMES[i],mocap="true",pos=f"0 0 {-4-i}"))
-        ET.SubElement(body,"geom",dict(
-            name=GEOM_NAMES[i],type="hfield",hfield=HFIELD_NAMES[i],
-            contype="0",conaffinity="0",friction="1.5 0.005 0.0001",
-            rgba="0.39 0.65 0.39 1"))
-    # Every solid is a fixed 50cm planar square with a *real* vertical
-    # thickness / side face. Rotation+translation update per JAX world,
-    # but no geom size or model topology is ever recompiled.
+def add_carpet_geoms(xml: str, *, prisms: bool = True) -> str:
+    """Add only exact physical prisms and noncontact vertex sample hfields."""
     if not prisms:
-        # No inert legacy boxes in the PRISM scene. The physical contact
-        # mesh footprint itself provides a cheaper, exact XY recycle guard.
-        for i in range(TILE_COUNT):
-            body=ET.SubElement(world,"body",dict(
-                name=SOLID_BODY_NAMES[i],mocap="true",pos=f"0 0 {-20-i}"))
-            ET.SubElement(body,"geom",dict(
-                name=SOLID_GEOM_NAMES[i],type="box",
-                size=f"{SOLID_HALF_XY_M} {SOLID_HALF_XY_M} {SOLID_HALF_Z_M}",
-                contype="4",conaffinity="0",friction="1.5 0.005 0.0001",
-                rgba="0.39 0.65 0.39 1"))
-    if prisms:
-        from .carpet_prism_mjx import prism_mesh_xml
-        prism_mesh_xml(root,active=True)
-    return ET.tostring(root,encoding="unicode")
+        raise ValueError('This EMU version supports real prism contacts only')
+    root=ET.fromstring(xml)
+    world=root.find('worldbody')
+    if world is None:
+        raise ValueError('Prism carpet requires worldbody')
+    asset=root.find('asset')
+    if asset is None:
+        asset=ET.Element('asset')
+        root.insert(0,asset)
+    floor=world.find("geom[@name='floor']")
+    if floor is None:
+        raise ValueError('Current prism world requires original robot floor')
+    # A plane would create phantom support past the generated 3x3
+    # footprint. Keep the named floor only for structural ID consistency.
+    floor.set('contype','0')
+    floor.set('conaffinity','0')
+    for name in ('torso_box','r_foot_ball','l_foot_ball'):
+        geom=root.find(f".//geom[@name='{name}']")
+        if geom is None:
+            raise ValueError(f'Missing physical robot contact geom {name}')
+        affinity=int(geom.get('conaffinity','1'))
+        geom.set('conaffinity',str(affinity|4))
+    for i in range(TILE_COUNT):
+        ET.SubElement(asset,'hfield',dict(
+            name=HFIELD_NAMES[i],nrow='2',ncol='2',
+            size=f'{TILE_HALF_M} {TILE_HALF_M} {TILE_SIZE_Z_M} {TILE_BASE_M}',
+            elevation='0.5 0.5 0.5 0.5'))
+        body=ET.SubElement(world,'body',dict(
+            name=BODY_NAMES[i],mocap='true',pos=f'0 0 {-4-i}'))
+        ET.SubElement(body,'geom',dict(
+            name=GEOM_NAMES[i],type='hfield',hfield=HFIELD_NAMES[i],
+            contype='0',conaffinity='0',friction='1.5 0.005 0.0001'))
+    from .carpet_prism_mjx import prism_mesh_xml
+    prism_mesh_xml(root,active=True)
+    return ET.tostring(root,encoding='unicode')
 
 def hash_float(xp,i,j,seed,salt):
     """JAX-numeric deterministic seeded, bounded; no Python RNG inside jit."""
@@ -291,33 +259,6 @@ def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
             xp.concatenate(heights,axis=1),
             xp.stack((xi,yi),axis=2))
 
-def solid_box_poses(xp,centres,vertex_samples):
-    """9 collision-solid poses from the SAME 18 procedural triangles.
-
-    A box's top is one tilted plane through the mean tile height, with
-    x/y slopes from the four original triangle vertices. Its true top
-    matches the triangle surface within the bounded small curvature
-    differences, and its *actual* vertical sides have horizontal normals.
-
-    The bottom is far below the walking surface; no forbidden collision
-    geom resizing. The original (disabled) hfields stay at their known
-    centres for ToF and teacher-side reconstruction.
-    """
-    v=vertex_samples.reshape((centres.shape[0],TILE_COUNT,4))
-    a,b,c,d=(v[:,:,0],v[:,:,1],v[:,:,2],v[:,:,3])
-    mean=(a+b+c+d)*(.25*TILE_SIZE_Z_M)+centres[:,:,2]
-    gx=.5*(b+d-a-c)*TILE_SIZE_Z_M/TILE_M
-    gy=.5*(c+d-a-b)*TILE_SIZE_Z_M/TILE_M
-    normal=xp.stack((-gx,-gy,xp.ones_like(gx)),axis=2)
-    normal=normal/xp.linalg.norm(normal,axis=2,keepdims=True)
-    # Shortest quaternion rotating +Z to the box's top-face normal.
-    w=xp.sqrt((1.+normal[:,:,2])*.5)
-    quat=xp.stack((w,-normal[:,:,1]/(2.*w),
-                   normal[:,:,0]/(2.*w),xp.zeros_like(w)),axis=2)
-    top=xp.stack((centres[:,:,0],centres[:,:,1],mean),axis=2)
-    box_center=top-SOLID_HALF_Z_M*normal
-    return box_center,quat
-
 def sample_surface(xp,data,mocap_ids,hfield_data,points):
     """All nine exact two-triangle top surfaces in ONE array calculation.
 
@@ -421,35 +362,6 @@ def feet_clear_of_abandoned_prisms(
     margin=TILE_HALF_M+foot_radii[None,:,None,None]+clearance_m
     could_touch=xp.all(distance<=margin,axis=-1)
     return ~xp.any(abandoned & xp.any(could_touch,axis=1),axis=1)
-
-
-def feet_clear_of_abandoned_solids(
-        xp, old_center, new_center, foot_xy, foot_radii,
-        box_centres_xy, box_rotations, box_half_sizes, clearance_m=.002):
-    """Conservatively refuse recycling a real solid box beneath a foot.
-
-    Each moving tile's *actual rotated box* is projected to a world XY
-    bounding rectangle. A sphere-foot must be fully clear of that rectangle
-    (including its 18mm radius and a small safety margin). Using foot CELL
-    indices alone incorrectly declares a foot clear while its sphere still
-    overlaps the soon-to-be-recycled 8mm box overhang or tilted side face.
-
-    The AABB projection is deliberately conservative; it never says a foot
-    is clear when it could still touch the abandoned OBB in 3D. Shapes:
-    old/new [E,2], feet [E,F,2], radii [F], boxes [E,9,2],
-    orientations [E,9,3,3], half sizes [9,3]. Returns [E] booleans.
-    """
-    old_x,old_y=slot_indices(xp,old_center[:,0],old_center[:,1])
-    new_x,new_y=slot_indices(xp,new_center[:,0],new_center[:,1])
-    abandoned=(old_x!=new_x)|(old_y!=new_y)
-    projected_half=xp.sum(
-        xp.abs(box_rotations[:,:,:2,:])*box_half_sizes[None,:,None,:],
-        axis=-1)
-    distance=xp.abs(foot_xy[:,:,None,:]-box_centres_xy[:,None,:,:])
-    edge_margin=foot_radii[None,:,None,None]+clearance_m
-    may_touch=xp.all(
-        distance <= projected_half[:,None,:,:]+edge_margin,axis=-1)
-    return ~xp.any(abandoned & xp.any(may_touch,axis=1),axis=1)
 
 
 def unseen_tile(xp,coords,visited):
