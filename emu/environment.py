@@ -29,8 +29,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .domain_randomization import (
-    DomainRandomizationConfig, build_batched_model,
-    contact_plane_quaternion, doctrine_dict,
+    DomainRandomizationConfig, build_batched_model, doctrine_dict,
     MAX_SLOPE_DEG, GROUND_FRICTION_FRAC, FOOT_FRICTION_FRAC,
     BODY_MASS_GLOBAL_FRAC, BODY_MASS_LOCAL_FRAC,
     JOINT_DAMPING_FRAC, JOINT_FRICTIONLOSS_FRAC, JOINT_ARMATURE_FRAC,
@@ -956,7 +955,6 @@ class EmuMJXEnv(TaskSampler):
                  attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
-                 contact_uphill_xy: tuple[float, float] = (1.0, 0.0),
                  observation_schema: str = OBS_SCHEMA_LEGACY,
                  tof_period_frames: int = 2,
                  flow_period_frames: int = 1,
@@ -1031,7 +1029,8 @@ class EmuMJXEnv(TaskSampler):
         self.tof_dropout_prob = float(tof_dropout_prob)
         self.flow_dropout_prob = float(flow_dropout_prob)
         self.gyro_bias_std_rad_s = float(gyro_bias_std_rad_s)
-        self.sensor_contract = (sensor_observation_contract({
+        # There is only one deployable sensor geometry and one history width.
+        self.sensor_contract = sensor_observation_contract({
             'tof_period_frames': tof_period_frames,
             'flow_period_frames': flow_period_frames,
             'tof_delay_frames': tof_delay_frames,
@@ -1040,9 +1039,7 @@ class EmuMJXEnv(TaskSampler):
             'flow_dropout_prob': self.flow_dropout_prob,
             'gyro_bias_std_rad_s': self.gyro_bias_std_rad_s,
             'sensor_noise_scale': float(sensor_noise_scale),
-        }, schema=observation_schema, array_only=(unified_capability_focus and
-                observation_schema==OBS_SCHEMA_TERRAIN))
-            if observation_schema in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN) else None)
+        }, schema=OBS_SCHEMA_TERRAIN, array_only=True)
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = (PITCH_CMD_MAX_RAD if attitude_profile == 'v5014'
                                 else float(np.deg2rad(pitch_command_max_deg)))
@@ -1120,39 +1117,14 @@ class EmuMJXEnv(TaskSampler):
         assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
         assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
         self.mj_model.opt.timestep = SIM_DT
-        # A static real plane and per-world real contact-domain models
-        # share the same floor geom and forward-kinematics path. Both require
-        # disabling MuJoCo's compiled identity-frame shortcut BEFORE put_model.
+        # Terrain angles belong to the moving prisms, not an alternative
+        # rotated-floor or tilted-gravity teaching world. Robot/servo
+        # manufacturing randomization may still use batched model leaves.
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
-        self.contact_slope_deg = float(contact_slope_deg)
-        if self.terrain_step_max_m and not self.unified_capability_focus and (
-                self.contact_slope_deg != 0 or
-                (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
-            raise ValueError('legacy finite-step G3 probe cannot mix with inclined terrain')
-        if self.unified_capability_focus and (
-                self.contact_slope_deg != 0 or self.domain_config.terrain_radius>0):
-            raise ValueError('unified dynamic slope is episode sampled; disable old model-level incline randomizers')
-        self.contact_uphill_xy = tuple(np.asarray(contact_uphill_xy,dtype=float))
-        orientation = contact_plane_quaternion(self.contact_slope_deg,
-                                               self.contact_uphill_xy)
-        real_floor_domain = (self.domain_config.enabled
-                             and self.domain_config.terrain_mode == 'contact'
-                             and self.domain_config.terrain_radius > 0)
-        if self.contact_slope_deg > 0 and (real_floor_domain or
-                (self.domain_config.enabled and self.domain_config.terrain_radius > 0)):
-            raise ValueError('shared real contact slope cannot mix with randomized terrain')
-        if self.contact_slope_deg > 0 or real_floor_domain:
-            floor_id=mujoco.mj_name2id(
-                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
-            if floor_id < 0 or self.mj_model.geom_type[floor_id] != mujoco.mjtGeom.mjGEOM_PLANE:
-                raise ValueError('real contact slope requires a named plane geom floor')
-            if self.contact_slope_deg > 0:
-                self.mj_model.geom_quat[floor_id] = orientation
-            # A compiled world geom at zero pos/identity quat usually has
-            # geom_sameframe=BODY. Leaving that compiler shortcut in place
-            # can IGNORE the rotated geom_quat completely, in CPU and MJX.
-            # MuJoCo explicitly permits changing sameframe from nonzero->0.
-            self.mj_model.geom_sameframe[floor_id] = 0
+        if contact_slope_deg != 0.0 or self.domain_config.terrain_radius > 0.0:
+            raise ValueError(
+                'Prism terrain samples its own physical slopes; disable model-level plane inclines')
+        self.contact_slope_deg = 0.0
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
@@ -1187,17 +1159,13 @@ class EmuMJXEnv(TaskSampler):
             gravity_unit if gravity_unit is not None
             else jnp.tile(jnp.asarray([[0.0, 0.0, -1.0]], dtype=jnp.float32), (self.num_envs, 1))
         )
-        # Same world-specific normal drives spawn clearance and actual MJX
-        # plane collision; no independent 'virtual hill' for the trainer.
+        # The underlying floor is flat. Actual slopes come from the 18
+        # prism contacts; no synthetic gravity/plane incline is substituted.
         sampled_normal = self.domain_info.get('contact_normal_world')
-        if sampled_normal is None:
-            a = math.radians(self.contact_slope_deg)
-            u = np.asarray(self.contact_uphill_xy, dtype=float)
-            u = u / np.linalg.norm(u)
-            nominal = [-math.sin(a)*u[0], -math.sin(a)*u[1], math.cos(a)]
-            sampled_normal = jnp.tile(jnp.asarray([nominal],dtype=jnp.float32),
-                                      (self.num_envs,1))
-        self.floor_normal_world = sampled_normal
+        self.floor_normal_world = (
+            sampled_normal if sampled_normal is not None
+            else jnp.tile(jnp.asarray([[0., 0., 1.]], dtype=jnp.float32),
+                          (self.num_envs, 1)))
         self.key0 = jax.random.PRNGKey(int(seed))
 
         # Per-instance versions of a few module-level profile defaults
@@ -1236,9 +1204,7 @@ class EmuMJXEnv(TaskSampler):
         # Reject experiments requesting it instead of silently doing nothing.
         if science_step_crouch_tolerance_m != 0.0:
             raise ValueError('Retired single-lip crouch subsidy is unavailable on prisms')
-        # Three recyclable academy supports; original long slabs serve
-        # only generalist and ordinary single-step births.
-        # Academy shares the same real prisms; there are no extra slab geoms.
+        # Academy uses the same physical prism bodies, never extra slabs.
         self.academy_geom_ids=()
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
