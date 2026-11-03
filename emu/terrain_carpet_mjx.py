@@ -60,6 +60,30 @@ def add_carpet_geoms(xml: str, *, prisms: bool = True) -> str:
     prism_mesh_xml(root,active=True)
     return ET.tostring(root,encoding='unicode')
 
+
+def validate_prism_only_geoms(mujoco, model) -> None:
+    """Reject retired box/Academy terrain by inspecting compiled MJ geoms.
+
+    The old flags were always empty tuples, so they could never detect an
+    accidentally reintroduced collider. Compare actual geom names instead:
+    nine noncolliding source samplers and eighteen physical prisms, nothing
+    else in the terrain/Academy namespace.
+    """
+    from .carpet_prism_mjx import PRISM_GEOM_NAMES
+    expected = set(GEOM_NAMES) | set(PRISM_GEOM_NAMES)
+    actual = {
+        name
+        for i in range(model.ngeom)
+        if (name := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
+        and name.startswith(('carpet_', 'academy_'))
+    }
+    if actual != expected:
+        raise RuntimeError(
+            f'Prism scene terrain mismatch: missing={sorted(expected-actual)} '
+            f'extra={sorted(actual-expected)}')
+
+
+
 def hash_float(xp,i,j,seed,salt):
     """JAX-numeric deterministic seeded, bounded; no Python RNG inside jit."""
     # Integer arithmetic intentionally overflows uint32, mapping every

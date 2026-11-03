@@ -36,7 +36,7 @@ from .capability_focus import (focus_indices, diamond_commands,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
 from .terrain_carpet_mjx import (
-    update_tile_mocaps,
+    update_tile_mocaps, validate_prism_only_geoms,
     add_carpet_geoms, BODY_NAMES as CARPET_BODY_NAMES,
     GEOM_NAMES as CARPET_GEOM_NAMES, TILE_COUNT as CARPET_TILE_COUNT,
     TILE_M as CARPET_TILE_M, PROFILE_HALF as CARPET_PROFILE_HALF,
@@ -1046,19 +1046,11 @@ class EmuMJXEnv(TaskSampler):
             not 700<=academy_course_episode_frames<=1500):
             raise ValueError('Academy course episode time must be 700..1500 frames')
         self.academy_course_episode_frames=int(academy_course_episode_frames)
-        self.terrain_pair_seed = int(seed)
         # No buried 64m slabs, separate finite platforms or legacy boxes.
         self.mj_model=mujoco.MjModel.from_xml_string(
             add_carpet_geoms(ET.tostring(
                 ET.parse(self.robot_xml).getroot(),encoding='unicode'),
                 prisms=True))
-        self.carpet_mocap_ids=()
-        self.carpet_geom_ids=()
-        self.carpet_solid_mocap_ids=()
-        self.carpet_solid_geom_ids=()
-        self.carpet_prism_mocap_ids=()
-        self.carpet_prism_geom_ids=()
-        self.carpet_prism_builder=None
         self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
             mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
             for n in CARPET_BODY_NAMES)
@@ -1082,8 +1074,7 @@ class EmuMJXEnv(TaskSampler):
         if any(self.mj_model.geom_contype[g]!=4
                for g in self.carpet_prism_geom_ids):
             raise RuntimeError('Prisms must be physical bit-4 colliders')
-        if self.carpet_solid_geom_ids or self.carpet_solid_mocap_ids:
-            raise RuntimeError('Prism training must not allocate legacy solid boxes')
+        validate_prism_only_geoms(self.mujoco, self.mj_model)
         assert self.mj_model.nhfield==CARPET_TILE_COUNT,self.mj_model.nhfield
         assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
         assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
@@ -1095,7 +1086,6 @@ class EmuMJXEnv(TaskSampler):
         if contact_slope_deg != 0.0 or self.domain_config.terrain_radius > 0.0:
             raise ValueError(
                 'Prism terrain samples its own physical slopes; disable model-level plane inclines')
-        self.contact_slope_deg = 0.0
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
@@ -1166,8 +1156,6 @@ class EmuMJXEnv(TaskSampler):
                 or (temporal_vx_reward_share>0 and not self.unified_capability_focus)):
             raise ValueError('temporal vx reward requires unified terrain and share 0..1')
         self.temporal_vx_reward_share=float(temporal_vx_reward_share)
-        # Academy uses the same physical prism bodies, never extra slabs.
-        self.academy_geom_ids=()
         self.sensor_noise_scale = float(sensor_noise_scale)
         self.open_frontier = bool(open_frontier)
         self.combo_mix_frac = float(max(0.0, min(1.0, combo_mix_frac)))
@@ -2255,8 +2243,8 @@ class EmuMJXEnv(TaskSampler):
         return task,active
 
     # ---- Teacher-only physical terrain placement at episode birth ----
-    def _academy_course(self, data, keys, params, focus_id,
-                        specialist_active, athletic_rehearsal, birth_root_z):
+    def _academy_birth(self, keys, params, focus_id,
+                       specialist_active, athletic_rehearsal):
         """Assign a real prism STEP cohort; old three-slab bodies are gone.
 
         Preserve the original salted 8-draw RNG assignment for reproducible
@@ -2264,13 +2252,13 @@ class EmuMJXEnv(TaskSampler):
         """
         jnp,jax=self.jnp,self.jax
         if not self.academy_stream:
-            return data,jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+            return jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         u=jax.vmap(lambda k:jax.random.uniform(
             jax.random.fold_in(k,5040),(8,),dtype=jnp.float32))(keys)
         active=(specialist_active & (focus_id==STEP) &
                 (athletic_rehearsal<.5) &
                 (u[:,0]<params[P.academy_episode_probability]))
-        return data,active
+        return active
 
     def _carpet_dynamic_model(self,heights):
         """Rebuild convex prism vertices/normals per environment, fixed topology."""
@@ -2347,7 +2335,7 @@ class EmuMJXEnv(TaskSampler):
         desired=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
         # The old cell-only guard missed a subtle but real collision:
         # a ball-foot centre can be inside the NEW 3x3 footprint while
-        # its 18mm sphere still touches an abandoned solid-box overhang.
+        # its 18mm sphere still touches an abandoned prism overhang.
         # Use the actual rotated collider AABBs as a conservative exclusion.
         from .terrain_carpet_mjx import feet_clear_of_abandoned_prisms
         feet_xy=data.xpos[:,self.foot_bodies,:2]
@@ -2413,9 +2401,9 @@ class EmuMJXEnv(TaskSampler):
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
         birth_root_z=data.qpos[:,2]
-        data,academy_active=self._academy_course(
-            data,keys,params,focus_id,specialist_active,
-            task[:,T.athletic_rehearsal],birth_root_z)
+        academy_active=self._academy_birth(
+            keys,params,focus_id,specialist_active,
+            task[:,T.athletic_rehearsal])
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
             birth_root_z,academy_active)

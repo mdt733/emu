@@ -19,6 +19,7 @@ def run_probe(worlds=4, frames=2):
         PRISM_GEOM_NAMES, PrismMeshBuilder)
     from emu.contracts import ROBOT_XML, OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
+    from emu.terrain_carpet_mjx import validate_prism_only_geoms
 
     def sphere_contact(rise):
         root=ET.fromstring('''<mujoco model="prism_sphere_exam">
@@ -98,11 +99,7 @@ def run_probe(worlds=4, frames=2):
     state,obs=env.reset(settings)
     assert obs.shape==(worlds,360),obs.shape
     assert len(env.carpet_prism_geom_ids)==PRISM_COUNT
-    assert not env.carpet_solid_geom_ids
-    assert not env.carpet_solid_mocap_ids
-    assert not any(mujoco.mj_id2name(
-        env.mj_model,mujoco.mjtObj.mjOBJ_GEOM,i).startswith(
-        'carpet_solid_geom_') for i in range(env.mj_model.ngeom))
+    validate_prism_only_geoms(mujoco,env.mj_model)
     hf=np.asarray(jax.device_get(state.carpet_hfields))
     assert np.isfinite(hf).all() and hf.shape==(worlds,36)
     assert np.isfinite(np.asarray(jax.device_get(obs))).all()

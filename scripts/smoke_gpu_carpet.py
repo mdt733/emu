@@ -48,7 +48,7 @@ def main():
     import numpy as np
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
-    from emu.terrain_carpet_mjx import TILE_COUNT
+    from emu.terrain_carpet_mjx import TILE_COUNT, validate_prism_only_geoms
 
     if a.device in ("cuda","gpu") and jax.default_backend()!="gpu":
         raise RuntimeError("Expected a CUDA-capable GPU")
@@ -69,8 +69,7 @@ def main():
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly nine inactive source hfields")
-    if env.carpet_solid_geom_ids or env.carpet_solid_mocap_ids:
-        raise RuntimeError("No legacy nine-box assets may exist in prism MJX")
+    validate_prism_only_geoms(__import__('mujoco'),env.mj_model)
     if np.any(env.mj_model.geom_contype[np.asarray(
             env.carpet_geom_ids,dtype=np.int32)]!=0):
         raise RuntimeError("Source heightfield skirts must not collide")
@@ -78,8 +77,6 @@ def main():
         raise RuntimeError("Expected exactly 18 physical prism geoms")
     if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
         raise RuntimeError("Prism bit-4 contacts are not enabled")
-    if env.academy_geom_ids:
-        raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
     if env.mj_model.geom_contype[env.ids["floor_geom"]] != 0:
         raise RuntimeError("Static XML floor must not enter prism contact pairs")
     if np.any((env.mj_model.geom_conaffinity[
