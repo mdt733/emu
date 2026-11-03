@@ -49,11 +49,74 @@ specialist's training values**. If you adjust STEP during the original
 flat foundation, the deliberately unearned challenge can still be
 inspected; the actual trainer's foundation remains unchanged.
 
-The ordinary STEP birth uses `max(terrain_height_m,
-academy_height_up/down_m)` before Academy allocation begins around
-60M, then the Academy-specific signed fronts. The browser runs ONE
+An ordinary STEP birth always uses `max(terrain_height_m,
+academy_height_up/down_m)`; an Academy-active birth instead gets the
+independent signed Academy frontiers. Both can coexist after 60M
+and the viewer has a separate chooser for each. The browser runs ONE
 deterministic representative birth. It's not an exact copy of any
 random GPU environment, and achieved skill requires independent exams.
+
+### 110M investigation: why 0.7° / 4 mm can look flat
+
+The console's `slope=≤0.7°(0%)` and
+`step≤0.4cm(15%)` do NOT mean every training world has
+0.7° grade and 4 mm steps. The percentage printed after
+**slope** is the physically slanted-world fraction observed in the
+rollout. The percentage after **step** is the teacher's
+`terrain_exposure` scalar: an actual per-birth geometric multiplier
+on the carpet, not simply a count of STEP-specialist worlds.
+
+Specifically `environment._carpet_birth()` applies
+`terrain_carpet_mjx.role_envelope()`:
+`actual_slope_deg = slope_max_deg × slope_role_factor × slope_exposure`
+and
+`actual_step_up_m = signed_step_frontier × step_role_factor × terrain_exposure`.
+For example, with a 4 mm frontier, 15% terrain exposure and a focused
+STEP role (step factor 1.0), the **physical reference step is 0.600 mm**.
+The directional seed profile then generates local steps of varying
+height around that bound. A SLOPE role has its own factors; its actual
+grade depends on the *separate* `slope_exposure` frontier value, NOT
+necessarily the observed 0% slanted-world occupancy.
+
+There were TWO browser bugs and one misleading projection:
+
+1. Auto-follow rounded physical STEP heights to **2mm** and grade to
+   **0.5°** when choosing whether to rebuild the browser MuJoCo world.
+   Consequently a growing 0.1–0.6mm source assignment could remain
+   stuck on its *earlier* physical geometry. The new
+   `carpet-refresh.js` compares **0.025mm** and **0.01°**
+   physical role-envelope increments, including which signed STEP
+   stream is shown.
+2. Viewer STEP height sliders were stepped in whole **1mm**, so a
+   legitimate **0.600mm** applied difficulty was displayed as zero or
+   rounded to the wrong value. They now resolve **0.025mm**, with
+   three decimals in millimetres; grade uses hundredths of a degree.
+3. At 60M+ the viewer treated every STEP birth as Academy, but
+   `_carpet_birth` uses the actual `academy_active` **per-episode**
+   assignment. **Ordinary STEP** gets signed
+   `max(terrain_height_m,academy_height_{up/down}_m)`, while an
+   **Academy STEP** receives only the independent Academy limits.
+   The new selector exposes BOTH streams.
+
+The top of Carpet Settings now states all four quantities:
+**global frontier**, **severity exposure**, **specialist physical
+birth**, and **actual browser colliders**, including signed UP/DOWN
+heights and physical grade. A compact physical readout also appears
+in the gait HUD when Settings is closed. No visually exaggerated
+geometry is passed off as real training.
+
+Use **Physical difficulty preview** to switch between the default
+**Actual specialist assignment** and an explicitly diagnostic
+**Global frontier maximum**. The latter removes the role/exposure
+scaling (e.g. shows a full 4mm step and 0.7° grade), without changing
+the trainer. Moving any individual slider still makes a local,
+viewer-only custom challenge.
+
+The independent `tests/carpet-live-geometry.test.mjs` test reproduces
+a 110M source snapshot, both STEP streams, precise refresh comparisons
+and physical geometry. This fixes viewer diagnostics **only**; the
+active source-pinned 140M GPU run and its zero/low slope/step
+achievements are unchanged.
 
 ### Real browser shoves and arrows
 
