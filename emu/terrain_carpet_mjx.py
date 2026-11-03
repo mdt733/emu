@@ -314,7 +314,8 @@ def sample_surface(xp,data,mocap_ids,hfield_data,points):
         height=xp.maximum(height,xp.where(inside,z,-xp.inf))
     return height
 
-def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
+def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
+                prism_bottom_depth_m=None):
     """Slant range against both real triangles in every 50cm tile.
 
     Iterative ray-plane intersections use the same planar interpolation as
@@ -360,7 +361,13 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays):
                 z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
                       sample[:,lo,None]*(1.-fraction)
                       +sample[:,hi,None]*fraction)
-                z_bottom=pos[:,None,2]-TILE_BASE_M
+                # v5043 prisms have a sheared lower triangle exactly 30cm
+                # below each top vertex. The old heightfield base used a
+                # different constant Z and would expose phantom sidewalls
+                # below the actual prism collision body.
+                z_bottom=(z_top-prism_bottom_depth_m if
+                          prism_bottom_depth_m is not None else
+                          pos[:,None,2]-TILE_BASE_M)
                 hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
                     fraction>=0.)&(fraction<=1.)&(
                     z_at<=z_top)&(z_at>=z_bottom)
