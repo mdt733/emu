@@ -2,7 +2,7 @@
 
 **Current code, not a chronological research scrapbook.**
 
-1. [**Run → physics → PPO → exam/export → browser: core skeleton**](CORE_SKELETON.md).
+1. [**Core skeleton and exact 102-file/76-retirement checklist**](CORE_SKELETON.md#live-file-ownership-and-retirement-checklist) — one owner per module, clear open gates.
 2. [**v5045 lean-prism training and GPU acceptance**](V5045_LEAN_PRISM_RUNBOOK.md).
 3. [**v5044 historical 140M recipe**](V5044_PRISM_140M_COLDSTART.md) and [**v5043 real-prism baseline**](V5043_MJX_PRISM_CARPET.md).
 4. [**Latest engineering handover**](../HANDOVER.md).
