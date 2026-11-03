@@ -442,7 +442,8 @@ function updateWorldTabs(){
     ?currentCarpetLesson().heading:'Field exploration';
 }
 function carpetSourceLimits(){
-  const academy=carpetStepTrack.value==='academy';
+  const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
+  const academy=carpetStepTrack.value==='academy'&&role==='step';
   return {...carpetDifficulty,
     stepUpM:academy
       ?carpetDifficulty.academyStepUpM??carpetDifficulty.stepUpM
@@ -529,12 +530,17 @@ function renderCarpetValues(){
   const fmt=(n,d=2)=>Number(n).toFixed(d);
   const roleIsStep=lesson.role==='step';
   $('carpetStepTrackRow').hidden=!roleIsStep;
+  const activeStepTrack=roleIsStep?carpetStepTrack.value:'ordinary';
+  $('carpetHudTerrain').textContent=
+    `${lesson.terrain.slopeDeg.toFixed(2)}° · +${(lesson.terrain.stepUpM*1000).toFixed(2)}/−${(lesson.terrain.stepDownM*1000).toFixed(2)} mm`;
   $('carpetPhysicalEvidence').textContent=[
-    `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${carpetStepTrack.value==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
+    `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${activeStepTrack==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
     `PHYSICAL SEVERITY GATE · slope ×${fmt(slopeExposure*100,1)}% · steps ×${fmt(stepExposure*100,1)}%`,
     `SELECTED ${lesson.role.toUpperCase()} · source birth ${fmt(sourceRole.slope)}° · +${fmt(sourceRole.up,3)}/−${fmt(sourceRole.down,3)} mm`,
     `VIEWER COLLIDERS · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
-    carpetDifficultyMode.value==='frontier'
+    activeStepTrack==='academy'&&!frontier.academyEligible
+      ?'Academy births are NOT currently allocated in the source; this is an illustrative Academy preview.'
+      :carpetDifficultyMode.value==='frontier'
       ?'FRONTIER DEMO — unscaled source ceilings, NOT the sampled GPU physical assignment.'
       :carpetMatch.checked
         ?'Live-follow assignment. Tile heights also vary by direction and seeded position.'
