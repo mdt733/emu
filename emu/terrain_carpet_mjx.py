@@ -211,9 +211,14 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
     tlimit=xp.tan(xp.deg2rad(
         xp.maximum(0.,xp.minimum(transition_limit_deg,slope_deg))))
     frequency=1.15
-    variable=xp.minimum(.25*grade,
+    # Keep sampled triangles near the earned slope frontier: multiplying
+    # down the base slope here would recreate the near-band starvation
+    # uncovered in the 140M v5041 investigation. A conservative <=15%
+    # varying gradient gives random 2D orientation without systematic
+    # under-exposure; transition_limit_deg bounds its spatial changes.
+    variable=xp.minimum(.15*grade,
         tlimit/(frequency*TILE_M*1.6))
-    base=xp.maximum(0.,.65*grade-variable)
+    base=xp.maximum(0.,.92*grade-.45*variable)
     # Seeded random vertex elevation, continuous across the entire
     # unbounded grid. The conservative amplitude budget keeps the
     # resulting per-triangle grade and neighbouring normal jumps modest.
