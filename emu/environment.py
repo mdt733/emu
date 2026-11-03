@@ -1566,9 +1566,10 @@ class EmuMJXEnv(TaskSampler):
             edge_pad.reshape(-1),
         ])
         assert packed.shape[0] == TASK_PARAM_DIM, (packed.shape, TASK_PARAM_DIM)
-        if self.terrain_step_mocap_id >= 0:
-            # Explicit versioned task extension. Flat runs keep their old
-            # exact shape and P-index semantics, even on this feature branch.
+        if self.terrain_carpet_prisms or self.terrain_step_mocap_id >= 0:
+            # The unified 360-input task packet is independent of the OLD
+            # two-slab mocap bodies. A prism-only model has no old slab IDs,
+            # but still requires the full six-specialist schedule extension.
             terrain = np.asarray(
                 [float(params.get(name, default)) for name, default in TERRAIN_TASK_FIELDS],
                 dtype=np.float32)
