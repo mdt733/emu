@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v5044: one source-pinned, 140M-step, cold-start 18-prism GPU campaign.
+"""v5045: one source-pinned, 140M-step, lean 18-prism GPU campaign.
 
 This is a launch recipe for the existing one-run CLI, NOT a second trainer.
 The gate is a separate two-update prism checkpoint/resume/export acceptance.
@@ -17,7 +17,7 @@ import sys
 STEPS = 140_000_000
 ENVS = 2048
 DEFAULT_SEED = 735
-EXPECTED_BRANCH = "feature/v5044-prism-140m-coldstart"
+EXPECTED_BRANCH = "feature/v5045-core-skeleton-audit"
 ACCEPTANCE_END_STEP = 2 * 8 * 32
 
 
@@ -144,9 +144,9 @@ def validate_acceptance(root: Path, *, source_sha: str, seed: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("mode", choices=("plan", "start", "resume", "verify"))
-    p.add_argument("--run-dir", default="~/emu_runs/v5044_prism_140m_s735",
+    p.add_argument("--run-dir", default="~/emu_runs/v5045_prism_140m_s735",
                    help="dedicated permanent run directory, outside Git (default seed 735)")
-    p.add_argument("--acceptance-root", default="~/emu_runs/v5044_prism_lifecycle_s735",
+    p.add_argument("--acceptance-root", default="~/emu_runs/v5045_prism_lifecycle_s735",
                    help="same-source 8-world prism first/continue/verify acceptance")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     a = p.parse_args(argv)
