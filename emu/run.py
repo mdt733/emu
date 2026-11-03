@@ -16,7 +16,7 @@ from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import (source_repo_root, OBS_SCHEMA_LEGACY,
                         OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
-from .training_config import (TrainingConfig, foundation_config, mature_config,
+from .training_config import (TrainingConfig, mature_config,
                               training_sensor_contract, verify_existing_phase_config)
 
 
@@ -25,18 +25,15 @@ def one_run_config(args) -> TrainingConfig:
     if args.envs <= 0 or args.steps <= 0:
         raise ValueError('--envs and --steps must both be positive')
     run_dir = Path(args.run_dir).expanduser().resolve()
-    if args.profile == 'foundation':
-        cfg = foundation_config(run_dir=run_dir, seed=args.seed,
-                                device=args.device, envs=args.envs)
-    elif args.profile in ('mature', 'sim2real'):
-        # v5016 reuses the stable learning engine: pitch is a SHARED task
-        # distribution, not a pitch-only experiment arm. Future trials can
-        # vary acquisition, motor cost and terrain with this range fixed.
-        cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
-                            seed=args.seed, device=args.device, envs=args.envs,
-                            resume=None)
-    else:
-        raise ValueError(f'unknown profile: {args.profile}')
+    if args.profile != 'sim2real':
+        raise ValueError(
+            'v5045 prism-only training requires --profile sim2real '
+            '(archived foundation/mature profiles are Git-history-only)')
+    # One current 360-input profile. Foundation is an *age* within the same
+    # run, never a separate obsolete 220-input training configuration.
+    cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
+                        seed=args.seed, device=args.device, envs=args.envs,
+                        resume=None)
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
