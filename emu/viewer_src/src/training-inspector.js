@@ -93,3 +93,63 @@ export function friendlyFrontiers(lesson){
     shove:c.push.toFixed(2)+' N'
   };
 }
+
+
+// Lesson control-panel model; spectator-only, never PPO authority.
+// Pure UI projection: effective role frontiers and reversible viewer-only
+// overrides. These values are NOT the actor's weights or a learned ability.
+const clip=(n,a,b)=>Math.min(b,Math.max(a,Number(n)||0));
+export const SLIDER_FIELDS=Object.freeze([
+  ['slope','tuneSlope','°',20,2],
+  ['transition','tuneTransition','°',15,2],
+  ['up','tuneUp',' mm',150,3],
+  ['down','tuneDown',' mm',150,3],
+  ['forward','tuneForward',' m/s',1.5,2],
+  ['reverse','tuneReverse',' m/s',.8,2],
+  ['lateral','tuneLateral',' m/s',1,2],
+  ['yaw','tuneYaw',' rad/s',3,2],
+  ['resilience','tuneResilience','',1,2],
+  ['push','tunePush',' N',3,2],
+]);
+export function roleSliders(base,role='auto'){
+  const l=specialistLesson(base,role);
+  return {
+    slope:l.terrain.slopeDeg,transition:l.terrain.transitionDeg,
+    up:l.terrain.stepUpM*1000,down:l.terrain.stepDownM*1000,
+    forward:l.caps.forward,reverse:l.caps.reverse,
+    lateral:l.caps.lateral,yaw:l.caps.yaw,
+    resilience:l.intensity,push:l.caps.push
+  };
+}
+export function customRoleOverride(values){
+  const t=Object.fromEntries(SLIDER_FIELDS.map(([key,,_,max])=>[
+    key,clip(values[key],0,max)]));
+  return {
+    terrain:{slopeDeg:t.slope,transitionDeg:t.transition,
+             stepUpM:t.up/1000,stepDownM:t.down/1000},
+    command:{forward:t.forward,reverse:t.reverse,
+             lateral:t.lateral,yaw:t.yaw,push:t.push},
+    resilience:t.resilience
+  };
+}
+
+// Compare PHYSICAL role-envelope difficulty, not large rounded global
+// frontiers. At 110M a 4mm global step * 15% exposure is only 0.6mm;
+// the retired 2mm quantisation silently skipped the whole curriculum.
+export function carpetGeometrySignature(lesson,stepProgram='ordinary'){
+  if(!lesson||!lesson.terrain)throw Error('Missing carpet lesson');
+  const p=lesson.terrain;
+  const finite=(value,label)=>{
+    const n=Number(value);
+    if(!Number.isFinite(n))throw Error('Invalid carpet '+label);
+    return n;
+  };
+  return JSON.stringify([
+    lesson.stage,lesson.role,String(stepProgram),finite(p.seed,'seed'),
+    // 0.01 degree for slope and transition, 0.025mm for steps.
+    Math.round(finite(p.slopeDeg,'slope')*100),
+    Math.round(finite(p.transitionDeg,'transition')*100),
+    Math.round(finite(p.stepUpM,'rise')*40000),
+    Math.round(finite(p.stepDownM,'drop')*40000)
+  ]);
+}

@@ -1,6 +1,5 @@
 // One navigation mode: pose-lattice A* in a background Worker.
-import {makeRng} from './rng.js';
-import {sampleGoal,planPoseRoute} from './goal-navigation.js';
+import {makeRng,sampleGoal,planPoseRoute} from './goal-navigation.js';
 const random=makeRng(5017);
 self.onmessage=event=>{
   const {id,kind,pose,limits,trees=[],goal}=event.data||{};

@@ -1,15 +1,12 @@
 import './style.css';
 import { parsePolicy } from './policy.js';
 import { VirtualStick } from './joystick.js';
-import { joystickToCommands } from './controls.js';
+import { joystickToCommands, DemoHandoff, commandStickPositions } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
 import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
-import { specialistLesson, friendlyFrontiers } from './training-inspector.js';
-import {SLIDER_FIELDS,roleSliders,customRoleOverride} from './training-slider-model.js';
-import {carpetGeometrySignature} from './carpet-refresh.js';
-import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
+import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
