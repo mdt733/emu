@@ -725,3 +725,16 @@ test('near outer zones of 0/70 mount distinguish left-to-right ground grade',()=
   // The 4x4 grid represents slant range, not a precomputed ground angle.
   assert.equal(scan.ranges.length,16);
 });
+
+// Verify the actual shipped, immutable 260M champion still loads without
+// the obsolete tripod-based schema-1/2 compatibility implementation.
+test('published Pinnacle 260M is compatible with the lean 360-input viewer',()=>{
+  const archived=readFileSync(new URL('../../../showcase/champion.emupolicy',
+    import.meta.url),'utf8');
+  const b=parsePolicy(archived);
+  assert.equal(b.schema,3);
+  assert.equal(b.policy.obs_dim,360);
+  assert.equal(b.source.checkpoint_schema,9);
+  assert.equal(b.observation.sensor_contract.sensor_model_revision,
+    'forward_tof4x4_array_plane_fit_no_tripod_2');
+});
