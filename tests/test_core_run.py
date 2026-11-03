@@ -68,6 +68,19 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.athletic_rehearsal_frac == pytest.approx(.10)
     assert cfg.retention_share == pytest.approx(.15)
     assert cfg.fixed_eval_every_steps == 10_000_000
+    # Keep the 20M cold-start/mature limits identical while deleting
+    # unreachable legacy mode branches from the config builder.
+    assert cfg.foundation_steps == 20_000_000
+    assert cfg.difficulty_base_step == pytest.approx(.0024)
+    assert cfg.fall_target == pytest.approx(.34)
+    assert (cfg.vx_hi_max, cfg.vx_lo_min, cfg.vy_max_mps, cfg.yaw_max_rad_s) == pytest.approx(
+        (.60, -.20, .22, 1.50))
+    assert (cfg.combo_probe_frac, cfg.phase_speed_gain, cfg.regime_command_frac,
+            cfg.combo_mix_frac) == pytest.approx((.12, 1.25, .85, .88))
+    assert cfg.frontier_push_safety_n == pytest.approx(.70)
+    assert cfg.push_max_force_n == pytest.approx(4.)
+    assert cfg.capability_field_mode == "shadow"
+    assert cfg.freeze_obs_norm_after_steps == 0
     # The retired sparse-cloud evaluator must not be used by this lineage.
     assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
     assert training_sensor_contract(cfg) is not None
