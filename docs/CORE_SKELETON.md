@@ -397,7 +397,7 @@ one 3×3 18-prism collider carpet and six sampled lesson roles. It is
 not a four-mode general simulator. A failed geometry/schema contract
 is raised on construction, before MJX compilation.
 
-The per-world `EnvState` now names its 54 surviving data fields at
+The per-world `EnvState` now names its 52 surviving data fields at
 reset; `_step_impl` only replaces fields genuinely advanced on that
 frame. The old terrain-cross streak, two ascent high-water counters,
 verified-height peak and one-slab careful-approach frame counter were
@@ -416,3 +416,25 @@ honestly labelled as a visual approximation, not physical proof.
 checks resets, prism geometry, contacts and recycling, not the complete
 same-SHA 8-world CUDA checkpoint/resume/export lifecycle or the actual
 exported-policy frozen prism exam. Keep PR #34 draft until those pass.
+
+## Follow-up: isolate reported evidence from the control frame
+
+The one physical control frame in `EmuMJXEnv._step_impl` now has a
+straight-line JAX path: apply motor forces and physics; advance the
+next teacher command; score the previous operator command; update
+episode accumulators; acquire the next 360-input history; recycle and
+conditionally reset; publish physical reports.
+
+The detailed `slope_episode_*`, `academy_*` and
+`terrain_episode_*` metrics are built in `_step_report` from the
+pre-auto-reset `stepped` state, the original task and the physical
+prism heights. No additional network or world exists. The report
+dictionary was compared byte for byte with its pre-extraction
+implementation; the `training_reward` call was also unchanged.
+
+`EnvState` has 52 compulsory fields, all named at reset and validated
+against the per-frame `_replace` names. Two inert Academy
+clearance/transfer *state* bits were removed; their always-false
+diagnostic events remain available to existing reports. Contact-based
+footholds, supported shared-edge crossings and repeated lip rewards
+remain intact.
