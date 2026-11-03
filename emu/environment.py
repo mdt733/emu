@@ -58,7 +58,7 @@ from .terrain_carpet_mjx import (
     SOLID_GEOM_NAMES as CARPET_SOLID_GEOM_NAMES,
     solid_box_poses as carpet_solid_box_poses)
 from .carpet_prism_mjx import (
-    PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PrismMeshBuilder)
+    PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PRISM_DEPTH_M, PrismMeshBuilder)
 from .step_academy_world import (
     ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
     ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
@@ -3305,7 +3305,7 @@ class EmuMJXEnv(TaskSampler):
                 # collision; never feed analytic height-map truth to the actor.
                 terrain_t=carpet_ray_surface(
                     jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    origin,ray,prism_bottom_depth_m=.30)
+                    origin,ray,prism_bottom_depth_m=PRISM_DEPTH_M)
             else:
                 terrain_t=jnp.full(ray.shape[:2],jnp.inf,dtype=jnp.float32)
                 for geom in self.carpet_solid_geom_ids:
@@ -3410,7 +3410,7 @@ class EmuMJXEnv(TaskSampler):
             if self.terrain_carpet_prisms:
                 depth=carpet_ray_surface(
                     jnp,data,self.carpet_mocap_ids,carpet_heights,
-                    torso,down,prism_bottom_depth_m=.30)[:,0]
+                    torso,down,prism_bottom_depth_m=PRISM_DEPTH_M)[:,0]
             else:
                 depth=jnp.full((self.num_envs,),jnp.inf,dtype=jnp.float32)
                 for geom in self.carpet_solid_geom_ids:
