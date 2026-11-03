@@ -199,9 +199,7 @@ class EnvState(NamedTuple):
     academy_crossings: Any = None
     academy_up_crossings: Any = None
     academy_down_crossings: Any = None
-    academy_clearance_seen: Any = None
     academy_foothold_seen: Any = None
-    academy_transfer_seen: Any = None
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any = None
     # v5041 physics-only rolling tile state. All nine mutable colliders
@@ -1479,7 +1477,7 @@ class EmuMJXEnv(TaskSampler):
             step_i>=self.max_episode_steps)
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
-        academy=self._academy_events(state,data,metrics,terminal_or_timeout)
+        academy=self._carpet_events(state,data,metrics,terminal_or_timeout)
         done=terminal_or_timeout
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
@@ -1586,9 +1584,7 @@ class EmuMJXEnv(TaskSampler):
             academy_crossings=academy['crossings'],
             academy_up_crossings=academy['up_count'],
             academy_down_crossings=academy['down_count'],
-            academy_clearance_seen=academy['clearance_seen'],
             academy_foothold_seen=academy['foothold_seen'],
-            academy_transfer_seen=academy['transfer_seen'],
             academy_approach_seen=academy['approach_seen'],
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
@@ -2480,9 +2476,7 @@ class EmuMJXEnv(TaskSampler):
             academy_crossings=izeros,
             academy_up_crossings=izeros,
             academy_down_crossings=izeros,
-            academy_clearance_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
-            academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
@@ -2805,21 +2799,13 @@ class EmuMJXEnv(TaskSampler):
             attempt_new=((paid&academy_focus&lip) |
                 (done&academy_focus&seen)),
             approach_seen=jnp.where(confirmed,False,seen),
-            clearance_seen=jnp.where(confirmed,False,state.academy_clearance_seen),
             foothold_seen=jnp.where(confirmed,False,
                 state.academy_foothold_seen|new_foothold),
-            transfer_seen=jnp.where(confirmed,False,state.academy_transfer_seen),
             clearance_new=false,foothold_new=new_foothold,
             transfer_new=false,
             reward=reward,height_m=jnp.where(
                 moved&fresh&shared_lip,rise,zero),
             completed=false)
-
-    def _academy_events(self, state, data, metrics, done=None):
-        """One physical Academy: contact-verified events on actual prisms."""
-        if done is None:
-            done=self.jnp.zeros((self.num_envs,),dtype=self.jnp.bool_)
-        return self._carpet_events(state,data,metrics,done)
 
     # ---- Teacher/evaluator-only supported crossing evidence ----
     # ---- Physical facts for reward and report, not hidden actor inputs ----
