@@ -1,9 +1,9 @@
-name: v5043 Opt-in true MJX prism collisions
+name: v5044 140M real-prism run proof
 
 on:
   push:
     branches:
-      - feature/v5043-mjx-convex-prism-carpet
+      - feature/v5044-prism-140m-coldstart
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,9 @@ jobs:
       - name: Python syntax and deterministic terrain mathematical tests
         run: |
           python -m compileall -q emu scripts tests
-          python -m pytest -q tests/test_terrain_carpet.py tests/test_carpet_sensor_geometry.py tests/test_carpet_visit_rewards.py tests/test_prism_exam_scorer.py tests/test_prism_grade_cap.py tests/test_prism_smoke_reporting.py
+          python -m pytest -q tests/test_terrain_carpet.py tests/test_carpet_sensor_geometry.py tests/test_carpet_visit_rewards.py tests/test_prism_exam_scorer.py tests/test_prism_grade_cap.py tests/test_prism_smoke_reporting.py tests/test_prism_140m_recipe.py
       - name: Actual 18 convex prism MJX riser, seam, EMU reset and step
         run: python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+
+      - name: 140M launch CLI plan (dry; no actual training)
+        run: python scripts/run_prism_140m.py plan
