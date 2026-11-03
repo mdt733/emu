@@ -1,3 +1,15 @@
+## v5043 experimental prism physics — 2026-11-03
+
+**Feature branch:** `feature/v5043-mjx-convex-prism-carpet` · [draft PR #32](https://github.com/mdt733/emu/pull/32); stacks on viewer-only PR #31, which stacks on 140M exposure fix PR #30. No `main` merge or checkpoint mutation.
+
+- New explicit `--terrain-carpet --carpet-prisms` path replaces the **contact** surfaces of the 3×3/50cm carpet with 18 unique convex triangular-prism MJX-JAX meshes (two top triangles per tile). Other training remains the old nine-box default. Top vertices, face normals and sidewall normals deform separately in each world with a fixed mesh topology, so no per-frame XML recompilation.
+- Global seed + integer tile coords generate two-axis, shared-vertex random grade variation around the physically learned slope frontier, bounded by the configurable transition angle; X/Y changes carry signed independent up/down step heights. Faces meet exactly on smooth boundaries, and real riser sides appear at deliberate discontinuities. Prism skirts are 65cm deep to keep steep mixed step corners closed.
+- Sensor 4×4 ToF and optical-depth, physical teacher support, foot-contact STEP scoring and paired-prism 3×3 recycling operate in the *same* triangulated world. 360-input actor/NN is unchanged.
+- Real GitHub Actions CPU MJX acceptance established 18 collidable meshes, flat seam, 4cm sidewall contact with a genuinely horizontal wall normal, exact prism/sensor corner heights in every sampled world, 4-world six-servo dynamics and finite observations. A further 40cm **geometry-only** sidewall/depth probe and true-prism pair-recycling safety tests are in CI; do not claim those passed until the latest run is green.
+- `scripts/exam_step_course.py --carpet --prisms` runs a frozen exported terrain_360 actor without PPO, independently rescoring five consecutive supported MJX foot contacts against the actual signed two-triangle heights; first terminal ends the credit window, repeated cells do not count. Synthetic scorer and 0.7–15deg triangle-normal/transition test suites are green on previous CI.
+- **Next required gate on user's RTX 4060 Ti 8GB:** `python scripts/smoke_gpu_carpet.py --device cuda --worlds 128 --frames 2 --ppo --prisms`; only if that succeeds, `--worlds 2048 --full-update` with `--prisms`. Need memory, FPS and first-life frozen-policy physical step evidence before any long run. Training a policy on the new mesh should be done as a *new source-/SHA256-verified research fork*, not a silent resume.
+- Dedicated runbook: `docs/V5043_MJX_PRISM_CARPET.md`. Existing STEP attempt-evidence aliasing near episode termination remains a separate open teacher bug; do not confuse four-world collision acceptance with solved learning.
+
 # EMU — active engineering handover
 
 **3 November 2026 · v5041 140M terrain investigation:** A 140.05M
