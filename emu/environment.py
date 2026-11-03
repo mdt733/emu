@@ -1633,6 +1633,7 @@ class EmuMJXEnv(TaskSampler):
         ep_support_sum = stepped.ep_support_sum
         ep_command_quality_sum = stepped.ep_command_quality_sum
         terrain_crossed = stepped.terrain_crossed
+        terrain_cross_new = academy['ordinary_step_new']
         terrain_active=(state.specialist_active &
             (state.focus_id==STEP) & ~state.academy_active &
             (jnp.abs(academy['height_m'])>.0015))
