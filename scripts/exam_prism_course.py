@@ -10,6 +10,21 @@ import numpy as np
 TILE_M = .50
 
 
+def first_episode_mask(done):
+    """Count the terminal frame, never a reset-policy frame after death.
+
+    This safety rule now lives with the CURRENT prism examiner rather than
+    importing an obsolete 9-box or three-slab physical exam.
+    """
+    ended=np.asarray(done,dtype=bool)
+    if ended.ndim!=2:
+        raise ValueError('Expected [frames, worlds] terminal array')
+    earlier=np.concatenate((
+        np.zeros((1,ended.shape[1]),dtype=np.int32),
+        np.cumsum(ended[:-1],axis=0)),axis=0)
+    return earlier==0
+
+
 def score_prism_crossings(frames, *, required_frames=5):
     """Count first-life, new-cell crossings with sustained true prism top contact.
 
@@ -26,7 +41,6 @@ def score_prism_crossings(frames, *, required_frames=5):
     convex-mesh corner positions in the prism acceptance probe; reward flags
     are never used as scoring inputs.
     """
-    from scripts.exam_step_course import first_episode_mask
 
     cells = np.asarray(frames["carpet_root_cell"], dtype=np.int32)
     tops = np.asarray(frames["carpet_prism_corner_z"], dtype=float)
