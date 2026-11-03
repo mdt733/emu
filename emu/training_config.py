@@ -254,28 +254,13 @@ class TrainingConfig:
     def load(cls, path: Path) -> "TrainingConfig":
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
-        # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'terrain_carpet','terrain_carpet_prisms','carpet_transition_cap_deg', 'attitude_profile', 'pitch_command_max_deg',
-                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
-                    'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode', 'observation_schema',
-                    'terrain_step_max_m', 'unified_capability_focus',
-                    'foundation_steps', 'foundation_mix', 'teaching_schedule',
-                    'fixed_eval_every_steps',
-                    'velocity_i_ramp_s', 'velocity_i_multiplier',
-                    'growth_recipe', 'retention_share', 'terrain_lesson',
-                    'force_program', 'temporal_vx_reward_share',
-                     'verified_ascent_reallocation',
-                      'science_step_promotion_mm','science_step_retreat_mm',
-                      'science_step_min_attempts','science_step_crouch_tolerance_m',
-                      'science_reset_step_evidence_on_fork',
-                      'academy_stream','academy_intro_steps',
-                      'academy_intro_share','academy_start_steps',
-                      'academy_ramp_steps','academy_max_share',
-                      'academy_height_cap_m','academy_course_episode_frames'}
         missing, extra = expected - set(data), set(data) - expected
-        if extra or (missing - optional):
-            raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
+        # No source-pinned v5045 run can accept an incomplete historical
+        # config: re-creating defaults would change teacher and sensor meaning.
+        if missing or extra:
+            raise ValueError(
+                f"training config keys mismatch: missing={sorted(missing)} "
+                f"extra={sorted(extra)}")
         return cls(**data)
 
 
