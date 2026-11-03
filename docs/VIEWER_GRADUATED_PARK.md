@@ -86,8 +86,10 @@ tunnel. The trainer and public published actor are separate.
 
 ## Future research (not implemented here)
 
-The two-slab MJX training terrain still cannot produce within-episode
-continuous flat→incline→flat, rounded valleys or irregular surfaces.
+The **current** training world does generate continuous irregular
+triangle gradients and signed 50 cm tile lips on an endless prism
+carpet. The browser park is a *separate representative MuJoCo world*,
+not a bit-for-bit replay of those GPU prisms.
 Read [terrain-transition gap](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/TERRAIN_TRANSITION_GAP.md). Build a
 **separate read-only organic-terrain exam** before adding terrain to a
 new PPO campaign. Retain flat, speed, real step and constant-normal
