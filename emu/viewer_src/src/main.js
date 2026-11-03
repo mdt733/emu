@@ -8,6 +8,7 @@ import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-c
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { specialistLesson, friendlyFrontiers } from './training-inspector.js';
 import {SLIDER_FIELDS,roleSliders,customRoleOverride} from './training-slider-model.js';
+import {carpetGeometrySignature} from './carpet-refresh.js';
 import { DemoHandoff, commandStickPositions } from './demo-handoff.js';
 import { GoalNavigator } from './goal-navigation.js';
 import { GoalPlannerWorker } from './goal-planner-client.js';
@@ -35,6 +36,7 @@ const carpetAutoApply=$('carpetAutoApply');
 const carpetMatch=$('carpetMatch'),carpetDrive=$('carpetDrive');
 const carpetShoves=$('carpetShoves'),carpetTestShove=$('carpetTestShove');
 const carpetPushRate=$('carpetPushRate'),carpetResetLimits=$('carpetResetLimits');
+const carpetDifficultyMode=$('carpetDifficultyMode'),carpetStepTrack=$('carpetStepTrack');
 const worldField=$('worldField'),worldCarpet=$('worldCarpet'),fieldPanel=$('fieldPanel');
 const carpetEdits=new Map();
 const tuningInputs=Object.fromEntries(SLIDER_FIELDS.map(([key,id])=>[key,$(id)]));
@@ -439,20 +441,37 @@ function updateWorldTabs(){
   $('viewerExercise').textContent=carpet
     ?currentCarpetLesson().heading:'Field exploration';
 }
+function carpetSourceLimits(){
+  const academy=carpetStepTrack.value==='academy';
+  return {...carpetDifficulty,
+    stepUpM:academy
+      ?carpetDifficulty.academyStepUpM??carpetDifficulty.stepUpM
+      :carpetDifficulty.ordinaryStepUpM??carpetDifficulty.stepUpM,
+    stepDownM:academy
+      ?carpetDifficulty.academyStepDownM??carpetDifficulty.stepDownM
+      :carpetDifficulty.ordinaryStepDownM??carpetDifficulty.stepDownM};
+}
 function carpetEffectiveLimits(){
-  const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
+  const source=carpetSourceLimits();
+  const role=carpetRepresentativeRole(source,carpetRole.value);
   const custom=carpetMatch.checked?null:carpetEdits.get(role);
-  return {...carpetDifficulty,...(custom?{previewOverride:custom}:{})};
+  if(custom)return {...source,previewOverride:custom};
+  if(carpetDifficultyMode.value==='frontier'){
+    // An explicit VIEWER challenge at the global source ceilings.
+    // Do not confuse this unscaled geometry with MJX role birth values.
+    return {...source,previewOverride:{terrain:{
+      slopeDeg:source.slopeDeg,
+      transitionDeg:source.transitionDeg,
+      stepUpM:source.stepUpM,
+      stepDownM:source.stepDownM}}};
+  }
+  return source;
 }
 function currentCarpetLesson(){
   return specialistLesson(carpetEffectiveLimits(),carpetRole.value);
 }
 function carpetTerrainSignature(){
-  const l=currentCarpetLesson(),p=l.terrain;
-  return JSON.stringify([p.stage,l.role,p.seed,
-    Math.round(p.slopeDeg*2),
-    Math.round(p.transitionDeg*2),
-    Math.round(p.stepUpM*500),Math.round(p.stepDownM*500)]);
+  return carpetGeometrySignature(currentCarpetLesson(),carpetStepTrack.value);
 }
 function syncCarpetExercise(){
   if(!sim||terrainMode.value!=='carpet'){
@@ -482,7 +501,8 @@ function syncCarpetExercise(){
 function renderCarpetValues(){
   const base=carpetEffectiveLimits();
   const lesson=currentCarpetLesson(),f=friendlyFrontiers(lesson);
-  const measured=carpetMatch.checked&&carpetDifficulty.source==='training';
+  const measured=carpetMatch.checked&&
+    carpetDifficultyMode.value==='assignment'&&carpetDifficulty.source==='training';
   const stage=carpetLearningStage(carpetDifficulty);
   const phase={
     foundation:'flat foundation',specialists:'six specialists',
@@ -497,19 +517,39 @@ function renderCarpetValues(){
     el.value=String(values[key]);
     $(id+'Out').textContent=values[key].toFixed(digits)+unit;
   }
-  const original=roleSliders(carpetDifficulty,carpetRole.value);
+  const original=roleSliders(carpetSourceLimits(),carpetRole.value);
   const sRatio=carpetDifficulty.slopeDeg>0
     ?Math.round(original.slope/carpetDifficulty.slopeDeg*100):0;
   const tRatio=carpetDifficulty.stepUpM>0
-    ?Math.round(original.up/(carpetDifficulty.stepUpM*1000)*100):0;
-  $('tuneOrigin').textContent=carpetMatch.checked
-    ?`Role weights: slope ${sRatio}% · upward lip ${tRatio}% of global frontiers; exposure included. Move any slider to inspect an override.`
-    :`CUSTOM ${lesson.role.toUpperCase()} · trainer's original values remain available using Reset.`;
+    ?Math.round(original.up/(carpetSourceLimits().stepUpM*1000)*100):0;
+  const frontier=carpetSourceLimits();
+  const sourceRole=roleSliders(frontier,carpetRole.value);
+  const slopeExposure=Number(frontier.slopeExposure??1);
+  const stepExposure=Number(frontier.stepExposure??1);
+  const fmt=(n,d=2)=>Number(n).toFixed(d);
+  const roleIsStep=lesson.role==='step';
+  $('carpetStepTrackRow').hidden=!roleIsStep;
+  $('carpetPhysicalEvidence').textContent=[
+    `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${carpetStepTrack.value==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
+    `PHYSICAL SEVERITY GATE · slope ×${fmt(slopeExposure*100,1)}% · steps ×${fmt(stepExposure*100,1)}%`,
+    `SELECTED ${lesson.role.toUpperCase()} · source birth ${fmt(sourceRole.slope)}° · +${fmt(sourceRole.up,3)}/−${fmt(sourceRole.down,3)} mm`,
+    `VIEWER COLLIDERS · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
+    carpetDifficultyMode.value==='frontier'
+      ?'FRONTIER DEMO — unscaled source ceilings, NOT the sampled GPU physical assignment.'
+      :carpetMatch.checked
+        ?'Live-follow assignment. Tile heights also vary by direction and seeded position.'
+        :'CUSTOM VIEWER ONLY — this does not change the running trainer.'
+  ].join('\n');
+  $('tuneOrigin').textContent=!carpetMatch.checked
+    ?`CUSTOM ${lesson.role.toUpperCase()} · Reset sliders restores selected source preview.`
+    :carpetDifficultyMode.value==='frontier'
+      ?'Unscaled source maximum; this is a diagnostic challenge, NOT the GPU sampling distribution.'
+      :`Role × exposure: slope ${sRatio}% · upward lip ${tRatio}% of source frontier. At low exposure, physical steps can be far below the console ceiling.`;
   carpetValues.textContent=[
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
-    `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; applied ${f.slope}`,
-    `Role step up/down ${f.steps}`,
+    `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
+    `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
     `Push cap ${f.shove} · effective push chance fraction ${lesson.intensity.toFixed(3)}`,
     `Recovery at spawn (different quantity): ${lesson.birthRecovery.toFixed(2)}`,
@@ -586,6 +626,7 @@ function updateTerrain(){
       role:carpetRepresentativeRole(limits,carpetRole.value),limits});
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     if(isPark&&demoActive)navigator.reset();
+    if(!isPark)carpetLastAppliedSignature=carpetTerrainSignature();
     carpetExerciseClock=0;
     syncCarpetExercise();
     updateStickLabels();
@@ -628,6 +669,13 @@ carpetRole.addEventListener('change',()=>{
   carpetExerciseClock=0;
   applyCarpetTerrain(false);
 });
+for(const control of [carpetDifficultyMode,carpetStepTrack]){
+  control.addEventListener('change',()=>{
+    carpetMatch.checked=true;
+    carpetExerciseClock=0;
+    applyCarpetTerrain(false);
+  });
+}
 function readSliderOverride(){
   const values=Object.fromEntries(SLIDER_FIELDS.map(([key])=>[key,
     Number(tuningInputs[key].value)]));
