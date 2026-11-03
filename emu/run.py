@@ -119,6 +119,14 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('per-world real contact terrain requires --profile sim2real')
     if terrain_radius > 0 and grade > 0:
         raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
+    terrain_carpet=bool(getattr(args,'terrain_carpet',False))
+    carpet_transition_cap_deg=float(getattr(args,'carpet_transition_cap_deg',3.0))
+    if (not math.isfinite(carpet_transition_cap_deg) or
+            not 0.0<=carpet_transition_cap_deg<=15.0 or
+            (not terrain_carpet and carpet_transition_cap_deg!=3.0)):
+        raise ValueError('--carpet-transition-cap-deg requires --terrain-carpet and value 0..15')
+    if terrain_carpet and not (unified and terrain_actor and args.profile=='sim2real'):
+        raise ValueError('--terrain-carpet requires unified sim2real terrain_360')
     academy_stream=bool(getattr(args,'academy_stream',False))
     intro=int(getattr(args,'academy_intro_steps',60_000_000))
     start=int(getattr(args,'academy_start_steps',80_000_000))
@@ -148,6 +156,8 @@ def one_run_config(args) -> TrainingConfig:
                    velocity_i_multiplier=velocity_i_multiplier,
                    growth_recipe=growth_recipe, retention_share=retention_share,
                    academy_stream=academy_stream,
+                   terrain_carpet=terrain_carpet,
+                   carpet_transition_cap_deg=carpet_transition_cap_deg,
                    academy_intro_steps=intro,academy_start_steps=start,
                    academy_ramp_steps=ramp,academy_intro_share=intro_share,
                    academy_max_share=academy_share,

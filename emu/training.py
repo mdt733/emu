@@ -105,6 +105,8 @@ def env_kwargs_from_args(args) -> dict:
         verified_ascent_reallocation=args.verified_ascent_reallocation,
         science_step_crouch_tolerance_m=args.science_step_crouch_tolerance_m,
         academy_stream=args.academy_stream,
+        terrain_carpet=args.terrain_carpet,
+        carpet_transition_cap_deg=args.carpet_transition_cap_deg,
         academy_height_cap_m=args.academy_height_cap_m,
         academy_course_episode_frames=args.academy_course_episode_frames,
         attitude_profile=args.attitude_profile,
@@ -517,7 +519,11 @@ def train(args: TrainingConfig) -> int:
     # the restored step total, and log/save cadence continues from where
     # it left off instead of immediately firing at time zero.
     total_steps = resumed_step + args.envs * ROLLOUT_STEPS
-    start = time.time()
+    # The first rollout is real training. Starting the wall timer AFTER it
+    # made one-update lifecycle smoke report impossible multi-million FPS.
+    # Include the compilation/first-update wall time conservatively; steady
+    # training throughput is separately available in perf diagnostics.
+    start = t0
     last_log = resumed_step
     last_save = resumed_step
     last_snapshot = resumed_step
@@ -577,6 +583,13 @@ def train(args: TrainingConfig) -> int:
             return
         if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
+        # A full frozen physical exam compiles multiple JAX worlds and can
+        # take minutes after the last training progress line. Announce the
+        # phase BEFORE the first compile, never leave the console looking hung.
+        print(f'{LOG_PREFIX} fixed-eval starting at step={step:,} '
+              f'({"final" if force else "scheduled"}; '
+              f'{FINAL_EVAL_COHORTS if force else EVAL_COHORTS} cohorts; '
+              'training updates paused while independent MJX worlds run)',flush=True)
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out, best_eval_score = record_fixed_exam(
             snapshot, worlds=fixed_eval_worlds,
@@ -585,7 +598,8 @@ def train(args: TrainingConfig) -> int:
             best_score=best_eval_score, best_path=best_eval_path,
             curriculum_state=governor.state_dict, health_state=health.state_dict,
             field_state=field.state_dict, lr_scale=lr_scale, version=version,
-            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX)
+            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX,
+            progress=lambda message: print(f'{LOG_PREFIX} {message}',flush=True))
         last_eval_step = step
         latest_eval.update(out)
 
@@ -736,7 +750,12 @@ def train(args: TrainingConfig) -> int:
             # time would produce nonsense fps spikes right after a resume.
             wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
             train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-            train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+            # train_update perf only measures subsequent updates, never the
+            # compile+first update. Its numerator must cover the SAME steps.
+            measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+            train_fps = (measured_train_steps / train_seconds
+                         if train_seconds > 0.0 and measured_train_steps > 0
+                         else wall_fps)
             # Surfaces optax.apply_if_finite's running counter, so a
             # skipped (non-finite) gradient update shows up in the log
             # instead of silently vanishing. Any nonzero value here means
@@ -911,9 +930,20 @@ def train(args: TrainingConfig) -> int:
         perf.add('obs_norm_and_sync', time.perf_counter() - norm_t0)
         total_steps = next_total_steps
 
-    # final write. Evaluate and report the exact policy that generated the
-    # final rollout before allowing that rollout to update governor stats.
+    # final write. The last rollout was not reduced by the while-loop; in a
+    # one-update smoke the reward history is otherwise EMPTY and prints 0.000,
+    # although PPO really saw nonzero rewards. Include the last rollout once.
+    recent_rewards.append(float(np.asarray(aux['rollout_reward_mean'])))
+    recent_rewards = recent_rewards[-64:]
+    # Evaluate and report the exact policy that generated the final rollout
+    # before allowing that rollout to update governor stats.
+    print(f'{LOG_PREFIX} PPO TARGET REACHED at step={total_steps:,}; '
+          'starting final read-only physics exams and checkpoint publication. '
+          'The next log lines report each exam panel; no new PPO updates '
+          'are running during this phase.',flush=True)
     maybe_fixed_eval(total_steps, force=True)
+    print(f'{LOG_PREFIX} final physical exams finished; '
+          'summarizing final rollout and writing validated final checkpoint...',flush=True)
     maybe_cloud_eval(total_steps, force=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
     row.update(field.update_from_rollout(
@@ -952,11 +982,14 @@ def train(args: TrainingConfig) -> int:
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
     train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-    train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+    measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+    train_fps = (measured_train_steps / train_seconds
+                 if train_seconds > 0.0 and measured_train_steps > 0
+                 else wall_fps)
     nan_grad_skips = int(np.asarray(state.opt_state.total_notfinite))
     final_row = make_metrics_row(
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-        reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
+        reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(

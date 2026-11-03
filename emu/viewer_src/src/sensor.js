@@ -294,7 +294,12 @@ export function actorTerrainDistance(origin, ray, model, data, footGeomIds, heig
   const gpos=data.geom_xpos,gmat=data.geom_xmat,types=model.geom_type,
         sizes=model.geom_size, bodies=model.geom_bodyid;
   for(let g=0;g<Number(model.ngeom);g++) {
-    if(Number(bodies[g])!==0)continue; // static world collision geometry
+    const body=Number(bodies[g]);
+    // Static terrain lives in world body 0. The v5041 nine-solid training
+    // carpet uses *mocap* bodies, which are equally physical terrain and
+    // must be included. Ordinary articulated robot bodies are never
+    // allowed to pose as ground in the actor's 4x4 observation.
+    if(body!==0 && Number(model.body_mocapid?.[body]??-1)<0)continue;
     const t=Number(types[g]);
     const ix=3*g,im=9*g;
     const delta=[origin[0]-gpos[ix],origin[1]-gpos[ix+1],origin[2]-gpos[ix+2]];

@@ -701,12 +701,36 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             data=es.data
             rotation=env._rotation_body_to_world(data)
             yaw=jnp.arctan2(rotation[:,1,0],rotation[:,0,0])
-            contacts=contact_pair_mask(
-                jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
-                int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
-            floor = int(env.ids['floor_geom'])
-            floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
-            floor_origin = data.geom_xpos[:,floor,:]
+            foot_geoms=tuple(int(x) for x in env.ids['foot_geoms'])
+            if env.terrain_carpet:
+                # Real floor contact is ANY of the NINE live physical solids.
+                # The inactive legacy slab always reports false in carpet
+                # mode and must never stand in for terrain contact here.
+                contacts=jnp.any(jnp.stack(tuple(
+                    contact_pair_mask(jnp,data.contact.geom1,
+                                      data.contact.geom2,data.contact.dist,
+                                      int(g),foot_geoms)
+                    for g in env.carpet_solid_geom_ids),axis=1),axis=1)
+                tile=jnp.floor(data.qpos[:,:2]/.50).astype(jnp.int32)
+                slot=jnp.mod(tile[:,0],3)+3*jnp.mod(tile[:,1],3)
+                solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+                matrices=data.geom_xmat[:,solids,:].reshape(
+                    (env.num_envs,9,3,3))
+                centres=data.geom_xpos[:,solids,:]
+                selected=jnp.arange(env.num_envs)
+                floor_normal=matrices[selected,slot,:,2]
+                half_depth=jnp.asarray(
+                    env.mj_model.geom_size[list(solids),2],dtype=jnp.float32)
+                floor_origin=(centres[selected,slot,:]+
+                              floor_normal*half_depth[slot,None])
+            else:
+                contacts=contact_pair_mask(
+                    jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
+                    int(env.ids['floor_geom']),foot_geoms)
+                floor = int(env.ids['floor_geom'])
+                floor_normal = jnp.reshape(
+                    data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
+                floor_origin = data.geom_xpos[:,floor,:]
             return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
                     contacts,floor_normal,floor_origin)
 
@@ -815,6 +839,43 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Actual disturbance delivered in the previous MJX step;
                 # recorded only for frozen recovery assessment.
                 applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
+            if env.terrain_carpet:
+                # Raw pre-step MJX contact pairs and full physical solid
+                # transforms for a separate NUMPY trajectory scorer. These
+                # are independent of the teacher's academy_cross_new credit:
+                # the operator can check sustained new-tile top support,
+                # approach direction and signed actual lip geometry.
+                solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+                foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
+                carpet_pairs=jnp.stack(tuple(
+                    contact_pair_mask(
+                        jnp,es.data.contact.geom1,es.data.contact.geom2,
+                        es.data.contact.dist,g,foot_geoms)
+                    for g in solids),axis=1)
+                c=es.data.contact
+                contact_vertical=[]
+                for g in solids:
+                    foot_vertical=[]
+                    for foot in foot_geoms:
+                        matching=((c.geom1==g)&(c.geom2==foot))|(
+                                  (c.geom1==foot)&(c.geom2==g))
+                        # A real top-support face has a near-vertical
+                        # normal; side contacts (even at a box corner)
+                        # cannot satisfy this criterion alone.
+                        vertical=jnp.max(jnp.where(
+                            matching&(c.dist<=.003),
+                            jnp.abs(c.frame[:,:,0,2]),0.),axis=1)
+                        foot_vertical.append(vertical)
+                    contact_vertical.append(jnp.stack(foot_vertical,axis=1))
+                sample.update({
+                    "carpet_raw_contact_pairs":carpet_pairs,
+                    "carpet_contact_vertical":jnp.stack(contact_vertical,axis=1),
+                    "carpet_root_cell":jnp.floor(
+                        es.data.qpos[:,:2]/.50).astype(jnp.int32),
+                    "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
+                    "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
+                        (env.num_envs,9,3,3)),
+                })
             if env.academy_stream:
                 # Read-only per-lip physical measurements from the same
                 # step function as training; never the policy reward alone.
@@ -831,7 +892,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     "academy_transfer_new":out.metrics['academy_transfer_new'],
                     "academy_lip_height_m":out.metrics['academy_lip_height_m'],
                 })
-            if env.terrain_step_mocap_id >= 0:
+            if env.terrain_step_mocap_id >= 0 and not env.terrain_carpet:
                 # Same collision pairs as the training environment; the
                 # frozen examiner never infers support from root altitude.
                 platform_id = int(env.terrain_step_geom_id)
@@ -847,6 +908,33 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
+        if env.terrain_carpet:
+            from .terrain_carpet_mjx import slot_indices
+            cx,cy=slot_indices(jnp,initial.carpet_center[:,0],
+                               initial.carpet_center[:,1])
+            solids=tuple(int(g) for g in env.carpet_solid_geom_ids)
+            return dict(
+                **frames,
+                # Actual live collision surfaces, NOT inactive heightfields.
+                initial_carpet_solid_geom_xpos=initial.data.geom_xpos[:,solids,:],
+                initial_carpet_solid_geom_xmat=initial.data.geom_xmat[
+                    :,solids,:].reshape((env.num_envs,9,3,3)),
+                initial_carpet_solid_half_sizes=jnp.asarray(
+                    env.mj_model.geom_size[list(solids),:3]),
+                initial_carpet_cells=jnp.stack((cx,cy),axis=-1),
+                initial_carpet_source_hfields=initial.carpet_hfields,
+                initial_foot_radii_m=jnp.asarray(
+                    env.mj_model.geom_size[list(env.ids['foot_geoms']),0]),
+                initial_root_quat=initial.data.qpos[:,3:7],
+                last_position_xy=last_xy,
+                last_heading_rad=last_yaw,last_foot_xyz=last_foot,
+                last_floor_contact=last_contacts,
+                last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
+                last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
+                last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
+                spring_reference_rad=env.spring_reference,
+                spring_stiffness_nm_rad=env.spring_stiffness,
+                servo_peak_limit_nm=env.servo_stall_torque_nm)
         if env.terrain_step_mocap_id >= 0:
             if env.unified_capability_focus:
                 # Same two actual MJX collision surfaces; no constructed

@@ -58,6 +58,29 @@ forward ToF range/validity signals. The teacher can inspect
 precise simulator contacts to decide whether a skill succeeded,
 but those privileged facts are **not actor inputs**.
 
+## Cold-start learning curve — don't mistake age for competence
+
+EMU starts with **random policy weights**; it is a dynamically unstable
+six-servo biped, not a pre-programmed standing or walking controller.
+The following is the owner's **historical, approximate observation**,
+not a source-pinned, controlled learning-curve measurement:
+
+| Total world steps | What is reasonable to expect |
+|---|---|
+| **~0–5M** | Discovery period: generally falls; even standing on flat ground is not yet reliably learned. |
+| **~5M** | First signs of learning to **stand on boring, flat ground**; not proof of reliable balance, gait or terrain skills. |
+| **~20M** | Still **barely standing** in historical early-foundation observations. The 20M curriculum foundation cutoff is a **recipe boundary**, not a pass certificate for walking. |
+| **~40M** | Early, **infant-like gait development** rather than mature controlled walking. |
+| **Later** | Meaningful speed, directional control, slopes and supported step crossing must be verified on **frozen physical exams** at the same source, sensor contract and seed. |
+
+Timing varies with seed, architecture and curriculum. **No global
+mastery gate** should block all six specialist populations until
+another specialty succeeds. Conversely, do not call a 131k-step
+smoke policy broken because it falls: those tests validate physics,
+PPO, memory and checkpoints, **not learned locomotion**.
+See the [foundation / six-specialist curriculum](docs/UNIFIED_CAPABILITY_GROWTH.md)
+and [active engineering handover](HANDOVER.md).
+
 ## Current baseline — v5032 Pinnacle 260M
 
 <small>First released 360-input generation · 31 October 2026</small>
@@ -153,6 +176,21 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 ## What's next?
 
+The experimental child branch
+[`feature/v5041-unified-terrain-carpet`](https://github.com/mdt733/emu/tree/feature/v5041-unified-terrain-carpet)
+adds **Training Carpet** to the existing 3D robot viewer without replacing
+the original Terrain Park. The browser now builds **nine real moving
+MuJoCo solid-box contacts** with vertical step sides, matching the
+GPU training world's collision *type*, half-sizes, 50cm grid and safe
+recycling idea. It can auto-follow the live source-tagged curriculum:
+flat physical tiles during the ordinary foundation, then a representative
+slope specialty, then signed up/down step Academy. It is **not an exact
+replay** of any one randomly sampled training environment, and the
+browser WASM collision runtime remains a separate acceptance check.
+See [viewer runbook](docs/V5041_TRAINING_CARPET_VIEWER.md) and
+[GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).
+
+
 The active research branch is
 [`feature/v5040-multi-lip-academy-world`](https://github.com/mdt733/emu/tree/feature/v5040-multi-lip-academy-world):
 the STEP specialist now uses a three-platform streaming course with
@@ -171,3 +209,25 @@ and a comparable physical exam before another full training.
 
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md).
+
+### v5041 GPU trainer experiment (new source, not released)
+
+The opt-in `emu train --terrain-carpet` path uses **nine real tilted
+solid boxes** with vertical contact sides and a safely recycled 3×3
+window in each MJX world. It retains source-sampled two-triangle tile
+heights for terrain generation, but the actual feet touch box geometry.
+All six teaching specialties share one PPO actor with 360-input
+4×4 ToF/IMU/optical-flow observations; a 64-tile teacher visit memory
+prevents repeated crossing reward from rocking backward and forward.
+
+**GPU engineering passed on 3 November 2026:** 2,048 real CUDA worlds,
+full 32-frame / four-epoch PPO updates, sustained **16,818 world
+steps/s** (three synchronized post-compile updates), JAX peak
+allocation **1.40 GB**, and a checkpoint/resume/export lifecycle.
+A frozen first-life nine-box exam also ran on CUDA: raw-contact
+independent scorer **0 UP / 1 DOWN** and teacher **0 UP / 1 DOWN**
+on eight worlds; **all eight fell** on the untrained 131k-step actor.
+These results validate engineering and exam plumbing, **not learned
+walking or step mastery**. The historical cold-start learning curve
+is documented above; a fresh long run must demonstrate it anew.
+See [GPU trainer runbook](docs/V5041_GPU_CARPET_TRAINING.md).

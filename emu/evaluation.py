@@ -11,6 +11,8 @@ from pathlib import Path
 from .checkpoint_io import save_checkpoint, load_checkpoint
 from .results import append_metrics_csv, write_json, write_rows_csv
 from dataclasses import dataclass
+from contextlib import contextmanager
+from threading import Event, Thread
 import time
 import math
 import argparse
@@ -106,6 +108,10 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # two-slab world and sensor meanings even with ZERO terrain exposure.
         # Archived 220/232/older tripod-360 panels remain unchanged.
         unified_capability_focus=bool(config.unified_capability_focus),
+        # A carpet-trained actor's held-out physics MUST also use a carpet.
+        # A two-slab world would silently return a false flat benchmark.
+        terrain_carpet=bool(config.terrain_carpet),
+        carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),
@@ -184,9 +190,43 @@ def broad_score(out: dict[str, float], *, profile: str = 'v5014') -> float:
     return float(survival - penalties)
 
 
+@contextmanager
+def _eval_heartbeat(progress: Callable[[str], None] | None, label: str,
+                    interval_s: float = 20.0):
+    """Emit bounded wall-clock progress while JAX is blocking on a compilation.
+
+    The thread only prints a message: no JAX calls, no mutation of the
+    policy, worlds, optimiser or examiner. A stopped event guarantees that
+    completed panels cannot keep printing stale 'working' lines.
+    """
+    if progress is None:
+        yield
+        return
+    done = Event()
+    started = time.perf_counter()
+    def ticker():
+        while not done.wait(interval_s):
+            progress(f"fixed-eval still working: {label} "
+                     f"({time.perf_counter()-started:.0f}s elapsed; "
+                     "first use can compile MJX kernels)")
+    worker = Thread(target=ticker, name='emu-fixed-eval-heartbeat', daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        worker.join(timeout=1.0)
+
+
 def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params: Any,
-                   obs_norm: dict[str, Any], *, step: int, cohorts: int, perf=None) -> dict[str, float]:
-    """Evaluate all fixed panels without mutating any training subsystem."""
+                   obs_norm: dict[str, Any], *, step: int, cohorts: int, perf=None,
+                   progress: Callable[[str], None] | None = None) -> dict[str, float]:
+    """Evaluate all fixed panels without mutating any training subsystem.
+
+    Progress callbacks are read-only console reporting; the exam's physical
+    scenarios, deterministic seeds, scores and two-cohort final standard
+    are unchanged.
+    """
     import jax
 
     base_key = jax.random.PRNGKey(EVAL_SEED)
@@ -196,16 +236,30 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
     started = time.perf_counter()
     obs_std = obs_norm['var'] ** 0.5
 
-    for name, (world_name, salt, episode) in PANELS.items():
+    total_panels=len(PANELS)
+    total_cohorts=max(1, int(cohorts))
+    if progress is not None:
+        progress(f"fixed-eval BEGIN step={step:,} — {total_panels} physical panels "
+                 f"× {total_cohorts} cohorts, {EVAL_HORIZON} frames/cohort "
+                 "(JAX first-use compilation can take minutes; training is no longer updating)")
+    for index, (name, (world_name, salt, episode)) in enumerate(PANELS.items(),start=1):
         env, trainer = worlds[world_name]
         t0 = time.perf_counter()
         summaries = []
-        for cohort in range(max(1, int(cohorts))):
-            key = jax.random.fold_in(base_key, salt + 10007 * cohort)
-            compact = trainer['evaluate_summary'](
-                policy_params, env.params_array(episode), obs_norm['mean'], obs_std,
-                key, EVAL_HORIZON)
-            compact = np.asarray(jax.device_get(compact), dtype=np.float64)
+        if progress is not None:
+            progress(f"fixed-eval panel {index}/{total_panels} {name} START "
+                     f"({total_cohorts} cohorts, {env.num_envs} worlds)")
+        for cohort in range(total_cohorts):
+            if progress is not None:
+                progress(f"fixed-eval panel {index}/{total_panels} {name} "
+                         f"cohort {cohort+1}/{total_cohorts} running")
+            label=f"panel {index}/{total_panels} {name} cohort {cohort+1}/{total_cohorts}"
+            with _eval_heartbeat(progress,label):
+                key = jax.random.fold_in(base_key, salt + 10007 * cohort)
+                compact = trainer['evaluate_summary'](
+                    policy_params, env.params_array(episode), obs_norm['mean'], obs_std,
+                    key, EVAL_HORIZON)
+                compact = np.asarray(jax.device_get(compact), dtype=np.float64)
             summaries.append({k: float(v) for k, v in zip(EVAL_FIELDS, compact)})
             env_steps += int(env.num_envs) * EVAL_HORIZON
         summary = {k: float(sum(x[k] for x in summaries) / len(summaries)) for k in EVAL_FIELDS}
@@ -213,6 +267,12 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
         timings[name] = time.perf_counter() - t0
         if perf is not None:
             perf.add(f'eval_{name}', timings[name])
+        if progress is not None:
+            progress(f"fixed-eval panel {index}/{total_panels} {name} DONE "
+                     f"survival={summary['survival']:.1%} "
+                     f"vx_mae={summary['vx_mae']:.3f}m/s "
+                     f"panel_wall={timings[name]:.1f}s "
+                     f"total_wall={time.perf_counter()-started:.1f}s")
 
     elapsed = time.perf_counter() - started
     scoring_profile = next(iter(worlds.values()))[0].attitude_profile
@@ -222,6 +282,10 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
     out['perf_eval_env_steps'] = float(env_steps)
     out['perf_eval_env_steps_per_s'] = float(env_steps / max(elapsed, 1e-9))
     out.update({f'perf_eval_{name}_s': float(seconds) for name, seconds in timings.items()})
+    if progress is not None:
+        progress(f"fixed-eval COMPLETE step={step:,} "
+                 f"score={out['eval_broad_score']:+.3f} "
+                 f"total_wall={elapsed:.1f}s; publishing read-only evidence")
     return out
 
 
@@ -231,6 +295,7 @@ def record_fixed_exam(
     curriculum_state: Callable[[], dict], health_state: Callable[[], dict],
     field_state: Callable[[], dict], lr_scale: float, version: str,
     perf: Any, log_prefix: str, checkpoint_meta: dict | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, float], float]:
     """Evaluate one frozen policy and retain the strongest exact checkpoint.
 
@@ -240,7 +305,7 @@ def record_fixed_exam(
     step = snapshot.step
     out = evaluate_fixed(
         worlds, snapshot.params, snapshot.norm(),
-        step=snapshot.step, cohorts=cohorts, perf=perf)
+        step=snapshot.step, cohorts=cohorts, perf=perf, progress=progress)
     broad_history.append(float(out['eval_broad_score']))
     out['eval_broad_tail3'] = float(sum(broad_history[-3:]) / len(broad_history[-3:]))
 

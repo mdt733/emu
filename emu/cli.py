@@ -108,6 +108,10 @@ def main(argv=None) -> int:
     q.add_argument('--terrain-step-max-m',type=float,default=0.,
                    help='fixed physical finite-step topology, 0.01..0.08m for terrain actor')
     q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
+    q.add_argument('--terrain-carpet',action='store_true',
+                   help='v5041: 9 real 2-triangle MJX heightfields recycled in all specialist worlds')
+    q.add_argument('--carpet-transition-cap-deg',type=float,default=3.0,
+                   help='maximum smoothly varying local slope-angle change between 50cm tiles')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,

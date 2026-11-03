@@ -166,6 +166,65 @@ def build() -> int:
     return 0
 
 
+def read_terrain_training_snapshot(root: Path) -> dict:
+    """Read-only live frontier evidence from real metrics.csv.
+
+    Called through the loopback-only viewer endpoint. The trainer is never
+    contacted or modified and no checkpoint/optimizer state is accessed.
+    """
+    from .results import _last_finite_metrics
+    root=Path(root).expanduser().resolve()
+    metrics=root/'metrics.csv'
+    if not metrics.is_file():
+        # Some launchers watch a parent containing multiple source-pinned runs.
+        candidates=[p for p in root.glob('*/metrics.csv') if p.is_file()]
+        if not candidates:
+            raise FileNotFoundError('No metrics.csv under the live training run')
+        metrics=max(candidates,key=lambda p:p.stat().st_mtime)
+    row=_last_finite_metrics(metrics)
+    if not row:
+        raise ValueError('No complete training metrics yet')
+    run_dir=metrics.parent
+    try:
+        cfg=json.loads((run_dir/'training_config.json').read_text(encoding='utf-8'))
+        if not isinstance(cfg,dict):cfg={}
+    except (OSError,ValueError):
+        cfg={}
+    try:
+        meta=json.loads((run_dir/'run_meta.json').read_text(encoding='utf-8'))
+        if not isinstance(meta,dict):meta={}
+    except (OSError,ValueError):
+        meta={}
+    return {
+        'schema':'emu_terrain_live_v1',
+        'training_step':int(float(row['step'])),
+        'run_name':run_dir.name,
+        'latest_metrics':row,
+        'training_config':{
+            'seed':cfg.get('seed',735),
+            'terrain_carpet':bool(cfg.get('terrain_carpet',False)),
+            'academy_stream':bool(cfg.get('academy_stream',False)),
+            'foundation_steps':cfg.get('foundation_steps',20_000_000),
+            'academy_intro_steps':cfg.get('academy_intro_steps',60_000_000),
+            'academy_start_steps':cfg.get('academy_start_steps',80_000_000),
+            'academy_ramp_steps':cfg.get('academy_ramp_steps',20_000_000),
+            'carpet_transition_cap_deg':cfg.get('carpet_transition_cap_deg',3.),
+            # Actual configured physical push ceiling, distinct from the
+            # teacher's independently growing frontier_push_n target.
+            'push_max_force_n':cfg.get('push_max_force_n',0.35),
+        },
+        'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
+        'physics_mode':('nine-solid-box trainer / browser representative nine-solid-box world'
+                        if cfg.get('terrain_carpet',False) else
+                        'older training topology / browser illustrative terrain'),
+        'warnings':[
+            'Browser matches the nine-solid-box collision TYPE but not the exact per-world'
+            ' seeded MJX tile arrangement, domain randomisation or training birth states.',
+            'Snapshot frontiers are curriculum targets, not independent skill proofs.',
+        ]
+    }
+
+
 def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
@@ -201,6 +260,13 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
                 if watcher is None:
                     return self._json({'enabled': False}, status=404)
                 return self._json(watcher.status())
+            if route == '/api/live/terrain':
+                if watcher is None:
+                    return self._json({'error':'live training mode disabled'},status=404)
+                try:
+                    return self._json(read_terrain_training_snapshot(watcher.root))
+                except (OSError,ValueError,TypeError) as exc:
+                    return self._json({'error':type(exc).__name__,'note':str(exc)},status=503)
             if route == '/api/live/policy':
                 if watcher is None:
                     return self._json({'error': 'live mode disabled'}, status=404)
@@ -659,6 +725,15 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
         "training": {
             "attitude_profile": profile,
             "pitch_command_max_deg": configured_pitch_deg if profile == 'v5015' else 8.0214,
+            # Provenance, NOT a new actor channel. A frozen policy should
+            # identify the actual collision engine on which it trained.
+            # Missing keys in historical bundles preserve old semantics.
+            "terrain_carpet": bool(run_cfg.get('terrain_carpet', False)),
+            "carpet_transition_cap_deg": _scalar(
+                run_cfg, 'carpet_transition_cap_deg', 3.0),
+            "academy_stream": bool(run_cfg.get('academy_stream', False)),
+            "academy_height_cap_m": _scalar(
+                run_cfg, 'academy_height_cap_m', .150),
             "capability_field_mode": run_cfg.get('capability_field_mode'),
             "field_max_influence": _number(run_cfg.get('field_max_influence')),
             "field_teach_nodes": run_cfg.get('field_teach_nodes'),

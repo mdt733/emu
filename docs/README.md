@@ -9,6 +9,7 @@ The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility histor
 
 | Document | Purpose |
 |---|---|
+| [**v5041 GPU TERRAIN TRAINER**](V5041_GPU_CARPET_TRAINING.md) | Nine real 2-triangle MJX heightfield tiles per world; four-world CPU PPO passed; 2048 CUDA acceptance pending |
 | [**v5040 STREAMING STEP CURRICULUM**](V5040_REAL_MULTILIP_ACADEMY.md) | Three recyclable real slabs, independent UP/DOWN ability, not yet trained |
 | [**PINNACLE 260M RELEASE**](V5032_PINNACLE_RELEASE.md) | **Current trained 360-input baseline**, physical results, limitations, SHA identities and rollback |
 | [POST-PINNACLE RESEARCH](https://github.com/mdt733/emu/issues/17) | Measurements and possible experiments to revisit later; no active science run |
