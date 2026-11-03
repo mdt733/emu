@@ -50,11 +50,10 @@ def configs(root: Path, *, unified: bool = False, carpet: bool = False,
         profile="sim2real", run_dir=str(root / "first"),
         steps=updates, envs=envs, seed=seed, device="cuda",
         terrain_actor=True, unified_capabilities=True,
-        terrain_step_max_m=.08 if carpet else .04,
-        terrain_carpet=carpet, carpet_prisms=prisms, academy_stream=carpet,
-        terrain_lesson='coherent-careful' if carpet else 'mixed',
-        growth_recipe='main-mature' if carpet else 'legacy',
-        force_program='gentle' if carpet else 'aggressive'))
+        terrain_step_max_m=.08,
+        terrain_carpet=True, carpet_prisms=True, academy_stream=True,
+        terrain_lesson='coherent-careful',
+        growth_recipe='main-mature', force_program='gentle'))
     second = replace(first, run_dir=str(root / "continued"),
                      resume=str((root / "first/checkpoints/final.pkl").resolve()),
                      steps=2 * updates)
