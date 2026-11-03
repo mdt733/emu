@@ -1,14 +1,11 @@
-import {sampleShove,expectedShoveRate} from './training-shoves.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
-import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
-import { sampleEpisodeCadence } from './cadence.js';
+import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';

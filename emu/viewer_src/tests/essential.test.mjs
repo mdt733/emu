@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove} from '../src/sim-math.js';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {parsePolicy} from '../src/policy.js';
@@ -153,4 +154,18 @@ test('live true-prism origin explicitly warns about nine-box browser replay',()=
   assert.match(b.physicsMode,/18-prism MJX training/);
   const boxSource=data(60000000);
   assert.equal(boxSource.trainingCarpetPrisms,false);
+});
+
+test('simulation helper consolidation preserves independent physics/UI functions',()=>{
+  const basis=[1,0,0, 0,1,0, 0,0,1];
+  const feet=[0,0,0];
+  const att=measuredAttitude(basis,[0,0,.2],feet,feet);
+  assert.equal(att.chassisPitch,0);
+  assert.equal(att.robotLean,0);
+  assert.equal(sampleEpisodeCadence({vx:0,vy:0},{phase_rate_max_hz:2.6},()=>0),.85);
+  assert.equal(smoothFactor(0,8),0);
+  assert.ok(smoothFactor(.02,8)>0);
+  const p=chasePose([0,0,.2],0);
+  assert.equal(p.position.length,3);
+  assert.equal(sampleShove({intensity:0,maxForceN:0}),null);
 });
