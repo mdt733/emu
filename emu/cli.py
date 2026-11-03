@@ -54,16 +54,16 @@ def main(argv=None) -> int:
     q.add_argument('--contact-terrain-radius',type=float,default=0.0,
                    help='opt-in per-world real plane inclines (0..1 strength, max 5deg), sim2real only')
     q.add_argument('--sensor-actor',action='store_true',
-                   help='train opt-in 232-input ToF/optical-flow policy (foundation or sim2real profile)')
+                   help='historical 232 input; unsupported by the v5045 prism-only trainer')
     q.add_argument('--terrain-actor',action='store_true',
-                   help='train NEW 360-input 4x4 actual-depth ToF policy, not the 232 champion')
+                   help='required: current 360-input 4x4 depth-ToF policy')
     q.add_argument('--terrain-step-max-m',type=float,default=0.,
-                   help='fixed physical finite-step topology, 0.01..0.08m for terrain actor')
+                   help='maximum signed procedural-prism step frontier, up to 0.08m')
     q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
     q.add_argument('--terrain-carpet',action='store_true',
-                   help='v5041: 9 real 2-triangle MJX heightfields recycled in all specialist worlds')
+                   help='required: one endless procedural 3x3 prism source carpet')
     q.add_argument('--carpet-prisms',action='store_true',
-                   help='EXPERIMENTAL v5043: 18 dynamic convex prism MJX collision geoms (GPU preflight required)')
+                   help='required: 18 real convex-prism MJX contact solids (GPU preflight required)')
     q.add_argument('--carpet-transition-cap-deg',type=float,default=3.0,
                    help='maximum smoothly varying local slope-angle change between 50cm tiles')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
@@ -94,7 +94,7 @@ def main(argv=None) -> int:
                    help='experimental command trim ceiling: 1=OFF, 1.5/2=trial')
     # From-scratch streaming STEP worlds, same actor/optimizer/world batch.
     q.add_argument('--academy-stream',action='store_true',
-                   help='three recyclable real MJX slabs; unlimited random up/down lips')
+                   help='required: Academy episodes share the same streaming prism carpet')
     q.add_argument('--academy-intro-steps',type=int,default=60000000,
                    help='birth age for initial easy multi-lip nursery')
     q.add_argument('--academy-intro-share',type=float,default=.10,
