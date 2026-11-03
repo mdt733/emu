@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {trainingLimits} from '../src/training-carpet.js';
 import {specialistLesson} from '../src/training-inspector.js';
 import {roleSliders} from '../src/training-slider-model.js';
@@ -87,9 +88,8 @@ test('auto-refresh sees sub-mm step growth and hundredth-degree slope growth',()
 });
 
 test('precise viewer controls display hundredths of mm and do not contain obsolete 2mm snap',()=>{
-  const fs=await import('node:fs');
-  const ui=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
-  const main=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+  const ui=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
   assert.match(ui,/id="carpetDifficultyMode"/);
   assert.match(ui,/id="carpetStepTrack"/);
   assert.match(ui,/id="carpetPhysicalEvidence"/);
