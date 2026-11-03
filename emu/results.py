@@ -212,22 +212,16 @@ def _fmt_len(v: float) -> str:
 
 
 def format_line(version: str, step: int, reward: float, row: dict[str, float], report: dict[str, Any], train_fps: float,
-                wall_fps: float | None = None, nan_grad_skips: int = 0,
-                *, slope_deg: float = 0.0, contact_terrain_radius: float = 0.0) -> str:
+                wall_fps: float | None = None, nan_grad_skips: int = 0) -> str:
     """Readable first line; detailed diagnostics remain in the run's console.log.
 
     The \u201cstep\u201d height is an exposure ceiling, not the sampled ledge height.
     Shaft J/m is simulated positive mechanical work, not battery energy.
     """
-    if 'slope_max_deg' in report:
-        # Real-world sampled slope, not a static compiled terrain setting.
-        # The fraction is the ACTUAL physical slant-world occupancy seen.
-        slope = (f"≤{report['slope_max_deg']:.1f}°"
-                 f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
-    elif contact_terrain_radius > 0.0:
-        slope = f"≤{5.0*contact_terrain_radius:.1f}°"
-    else:
-        slope = f"{slope_deg:.1f}°"
+    # The current trainer always reports actual prism-gradient teaching.
+    # No fallback to a retired rotated-floor or fake gravity incline.
+    slope = (f"≤{report['slope_max_deg']:.1f}°"
+             f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
     exposure = 100.0 * float(report.get('terrain_exposure', 0.0))
     ceiling_cm = 100.0 * float(report.get('terrain_height_m', 0.0))
     jpm = float(row.get('shaft_j_per_m_forward', -1.0))
