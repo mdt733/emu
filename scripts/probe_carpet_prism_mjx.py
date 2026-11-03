@@ -90,7 +90,8 @@ def run_probe(worlds=4, frames=2):
                   unified_capability_focus=True,
                   terrain_lesson="coherent-careful",
                   academy_stream=True,academy_height_cap_m=.15,
-                  terrain_carpet=True,terrain_carpet_prisms=True)
+                  terrain_carpet=True,terrain_carpet_prisms=True,
+                  attitude_profile='v5015',pitch_command_max_deg=8.0)
     settings=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                   slope_max_deg=8.,terrain_height_m=.02,
                   academy_height_up_m=.02,academy_height_down_m=.03,

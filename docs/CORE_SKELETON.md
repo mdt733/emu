@@ -372,6 +372,13 @@ python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
   --frames 2 --ppo --full-update --benchmark-updates 3 --prisms
 ```
 
+All maintained physics, GPU and diagnostic probes now explicitly use the
+**v5015 attitude profile and 8° pitch limit** of the pinned 140M recipe.
+Older stand-alone GPU throughput numbers used the constructor's v5014 default;
+treat those as historical measurements, **not** a matched performance
+comparison for the v5015 launch. Repeat the full-PPO benchmark under the
+same profile and source SHA before making any speedup claim.
+
 Before starting a new 140M training lineage, also execute the
 `smoke_training_lifecycle.py first / continue / verify` GPU checks on
 the **same source SHA**. No unit test proves the policy learned a step;

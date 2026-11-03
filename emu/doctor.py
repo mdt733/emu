@@ -42,7 +42,8 @@ def doctor(args) -> int:
             e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=7,max_episode_steps=700,
                         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
                         unified_capability_focus=True,academy_stream=True,
-                        terrain_carpet=True,terrain_carpet_prisms=True)
+                        terrain_carpet=True,terrain_carpet_prisms=True,
+                        attitude_profile='v5015',pitch_command_max_deg=8.0)
             p=RegimeGovernor().params_dict()
             st,_=e.reset(p)
             out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),e.params_array(p))
@@ -66,7 +67,8 @@ def doctor(args) -> int:
                         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
                         unified_capability_focus=True,academy_stream=True,
                         terrain_carpet=True,terrain_carpet_prisms=True,
-                        domain_config=cfg)
+                        domain_config=cfg,
+                        attitude_profile='v5015',pitch_command_max_deg=8.0)
             p=RegimeGovernor().params_dict()
             st,_=e.reset(p)
             out=e.step(st,jnp.zeros((8,6),dtype=jnp.float32),e.params_array(p))
