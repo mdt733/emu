@@ -83,8 +83,9 @@ checkpoint provenance, genuine signed terrain crossing tests, all
   dictionary and reward invocation compared unchanged.
 - [x] Core static import inventory, current local Markdown links,
   18 Python contracts, 6 browser contracts and source-locked champion
-  checks. Last fully green branch SHA: `c4e3c739`
-  ([CI](https://github.com/mdt733/emu/actions/runs/41728465668)).
+  checks. Last confirmed fully green branch SHA before this continuation:
+  `ab9a52a6` ([CI](https://github.com/mdt733/emu/actions/runs/41740744834)).
+  Subsequent cleanup commits require their own complete rerun.
 - [x] Actual 4-world MJX prism contact, 360-input reset/step,
   safe recycle and essential telemetry probe at that last green SHA.
 - [ ] **Repeat all CI checks on the final new source SHA.** A green
@@ -501,7 +502,7 @@ remain intact.
 
 ### PPO evaluator ownership (4 November continuation)
 
-The maintained learner exposes only the three entry points its live callers
+The maintained learner exposes four operations its live callers
 need: `make_initial_state`, `train_update`, plus the frozen evaluators
 `evaluate_summary` (matched aggregate panels) and `evaluate_trace` (real
 prism-exam contact/sensor trajectories). Retired `evaluate_efficiency`,
@@ -511,3 +512,35 @@ remove them rather than compiling dead JAX callbacks or maintaining a
 second definition of exam competence. Measured efficiency remains in
 on-policy physical telemetry; frozen policy exam retains raw signed contact
 facts. No PPO optimizer, actor or critic mathematics changed.
+
+### Strict v5045 curriculum/evaluator continuation
+
+The live governor no longer loads incomplete old checkpoints or reconstructs
+40M-era pooled terrain, Academy, slope, or command evidence. Its complete
+saved-state key set and independently measured per-direction counts must
+match exactly; the 24 maintained core tests now exercise a valid
+roundtrip and reject old partial layouts. A fresh source-pinned run is
+required for this altered checkpoint contract. Historical policy artifacts
+remain readable using their matching Git commits, not synthetic defaults.
+
+`advance_terrain` now contains only the real-prism STEP near/easy evidence
+controller. Both UP and DOWN must meet their own near-height evidence
+thresholds; failures on easier terrain can retreat the height. The
+unreachable non-unified terrain governor and its pooled counters were
+deleted without changing this active controller's height increments,
+success thresholds, or safety limits. The generic velocity/yaw/combo
+frontier loop, which had already been disabled in unified training, was
+removed; `_advance_specialist_commands` retains sole authority over
+those frontiers. Resilience, sensor, and transition control retain their
+existing active progression rules.
+
+`results.format_line` now always reports the actual prism-gradient target
+and measured terrain occupancy, not a retired gravity/rotated-plane
+fallback. The current learner retains the two necessary JAX evaluators:
+`evaluate_summary` for fixed panels and `evaluate_trace` for frozen
+prism contact evidence. Three uncalled standalone evaluators were
+removed. These code deletions are not evidence of a GPU throughput gain.
+
+**Open gate:** the latest head requires full branch CI, same-source CUDA
+PPO/checkpoint lifecycle and an exported frozen-actor true-prism exam.
+Do not start or resume a 140M campaign on prior checkpoint/source SHAs.

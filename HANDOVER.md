@@ -123,3 +123,23 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - The latest edited source must pass fresh Python/browser and real-prism
   CI, then source-matched CUDA lifecycle and frozen-policy examination.
   **Do not infer new GPU performance from line or file counts.**
+
+## 4 November — further checkpoint and PPO cleanup
+
+- The governor accepts only the exact current checkpoint evidence layout:
+  no v5040 pooled step-success migrations, no fabricated missing Academy
+  records and no command/slope windows silently filled from defaults.
+  The existing core-run test now rejects incomplete state and checks
+  near/easy signed STEP graduation and retreat.
+- Deleted the non-unified STEP governor and the already-disabled
+  generic command/combo growth loop. The active six-specialist controller
+  remains the only command-frontier owner; physical up/down verification
+  and current growth/retreat thresholds are retained.
+- Removed three orphaned PPO exam kernels. Current frozen evaluation still
+  uses `evaluate_summary`; the actual prism policy examiner still uses
+  `evaluate_trace`. No active optimizer, actor or critic logic changed.
+- Removed the retired rotated-plane/tilted-gravity console slope reporting
+  fallback. The learner reports its real prism slope and exposure only.
+- All changes are on draft PR #34. The final SHA requires complete CI,
+  the owner's exact-source CUDA PPO/checkpoint/export acceptance and a
+  frozen actor exam before beginning a new 140M lineage.
