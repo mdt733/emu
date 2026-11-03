@@ -35,7 +35,6 @@ from .checkpoint_io import (
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
-from .capability_cloud import record_capability_cloud_exam
 from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
@@ -44,7 +43,6 @@ from .training_config import (
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
     OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS,
     EVAL_EVERY_STEPS, EVAL_SEED, EVAL_COHORTS, FINAL_EVAL_COHORTS,
-    CLOUD_EVAL_EVERY_STEPS, CLOUD_ENVS, CLOUD_HORIZON, CLOUD_BATCH_POINTS,
     FIELD_HALF_LIFE_STEPS, SENSOR_NOISE_SCALE,
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
@@ -74,7 +72,7 @@ LOG_PREFIX = f'[{RUN_VERSION}]'
 TRAIN_PERF_TIMER_NAMES = (
     'train_update', 'host_metric_transfer', 'capability_field_update',
     'host_rollout_summary', 'governor_and_params', 'obs_norm_and_sync',
-    'log_io', 'fixed_eval_total', 'capability_cloud',
+    'log_io', 'fixed_eval_total',
     'checkpoint_best_device_get', 'checkpoint_best_pickle_write', 'checkpoint_best_total',
     'checkpoint_latest_device_get', 'checkpoint_latest_pickle_write', 'checkpoint_latest_total',
     'checkpoint_snapshot_device_get', 'checkpoint_snapshot_pickle_write', 'checkpoint_snapshot_total',
@@ -189,6 +187,11 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
+    # The old independent sparse cloud was only built for archived
+    # non-unified policies. The current prism actor is evaluated with the
+    # fixed real-MJX panel and separate frozen-policy prism examiner.
+    if args.cloud_probes_per_eval or args.cloud_final_probes:
+        raise ValueError("retired sparse capability-cloud probes are unavailable in v5045")
     launch_mode = unified_launch_mode(args)
     bounded_acceptance = launch_mode == 'bounded'
     continuous_growth = launch_mode == 'continuous'
@@ -263,28 +266,6 @@ def train(args: TrainingConfig) -> int:
         print(f'{LOG_PREFIX} bounded lifecycle acceptance: expensive final '
               'walking exams disabled; use independent frozen policy exam '
               'after checkpoint/resume/export verification', flush=True)
-
-    # Sparse capability cloud: intentionally much smaller than the fixed
-    # continuity evaluator. Each cloud point is one real vx+vy+yaw command
-    # combination plus a categorical disturbance family and one severity
-    # scalar. Nuisance direction/sign is randomized across the vector batch
-    # rather than becoming another map dimension.
-    cloud_enabled = int(args.cloud_probes_per_eval) > 0 or int(args.cloud_final_probes) > 0
-    cloud_eval_env = cloud_eval_trainer = None
-    cloud_rows: list[dict] = []
-    if cloud_enabled:
-        cloud_eval_env = EmuMJXEnv(str(ROBOT_XML), num_envs=int(CLOUD_ENVS),
-                    seed=EVAL_SEED + 44000, max_episode_steps=max(MAX_EPISODE_STEPS, int(CLOUD_HORIZON)+50),
-                    push_max_force_n=max(4.0, float(args.push_max_force_n or 0.35)),
-                    vx_hi_max=1.20, vx_lo_min=-0.65, vy_max_mps=0.65, yaw_max_rad_s=5.0,
-                    phase_speed_gain=args.phase_speed_gain,
-                    attitude_profile=args.attitude_profile,
-                    pitch_command_max_deg=args.pitch_command_max_deg,
-                    sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
-                    open_frontier=False, combo_mix_frac=0.0)
-        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
-                           epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
-        cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
     governor = RegimeGovernor(fall_target=args.fall_target,
@@ -563,8 +544,6 @@ def train(args: TrainingConfig) -> int:
                 latest_eval[key] = float(fixed_history[-1][key])
     broad_eval_history = [float(row['eval_broad_score']) for row in fixed_history[-2:]
                           if row.get('eval_broad_score') not in (None, '')]
-    last_cloud_step = max(
-        [int(float(row.get('policy_step', resumed_step))) for row in cloud_rows] or [resumed_step])
     best_eval_score = -1e9
 
     # Preserve evaluation cadence/history and best-checkpoint monotonicity across
@@ -604,27 +583,8 @@ def train(args: TrainingConfig) -> int:
         last_eval_step = step
         latest_eval.update(out)
 
-    def maybe_cloud_eval(step: int, force: bool = False) -> None:
-        nonlocal last_cloud_step
-        if not cloud_enabled or cloud_eval_env is None or cloud_eval_trainer is None:
-            return
-        every = max(0, int(CLOUD_EVAL_EVERY_STEPS))
-        if not force and (every <= 0 or step - last_cloud_step < every):
-            return
-        count = int(args.cloud_final_probes if force else args.cloud_probes_per_eval)
-        if count <= 0:
-            return
-        record_capability_cloud_exam(
-            PolicySnapshot(step, state, obs_mean, obs_var, obs_count),
-            field=field, cloud_eval_env=cloud_eval_env,
-            cloud_eval_trainer=cloud_eval_trainer, cloud_rows=cloud_rows,
-            latest_eval=latest_eval, run_dir=run_dir, perf=perf,
-            log_prefix=LOG_PREFIX, force=force, count=count, every=every)
-        last_cloud_step = int(step)
-
     while total_steps < args.steps:
         maybe_fixed_eval(total_steps)
-        maybe_cloud_eval(total_steps)
         host_summary_t0 = time.perf_counter()
         row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
         # Continuous capability review: ordinary PPO experience updates the
@@ -945,7 +905,6 @@ def train(args: TrainingConfig) -> int:
     maybe_fixed_eval(total_steps, force=True)
     print(f'{LOG_PREFIX} final physical exams finished; '
           'summarizing final rollout and writing validated final checkpoint...',flush=True)
-    maybe_cloud_eval(total_steps, force=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
