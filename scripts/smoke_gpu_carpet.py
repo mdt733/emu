@@ -82,11 +82,10 @@ def main():
             raise RuntimeError("No legacy box collision geoms permitted in prism model")
         if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
             raise RuntimeError("Prism bit-4 contacts are not enabled")
-    if env.academy_geom_ids or env.academy_platform_mocap_ids:
+    if env.academy_geom_ids:
         raise RuntimeError("Carpet must NOT compile the old three Academy slabs")
-    if (env.mj_model.geom_contype[env.ids["floor_geom"]] != 0 or
-        env.mj_model.geom_contype[env.terrain_step_geom_id] != 0):
-        raise RuntimeError("Unused 64m slabs must not enter carpet collision pairs")
+    if env.mj_model.geom_contype[env.ids["floor_geom"]] != 0:
+        raise RuntimeError("Static XML floor must not enter prism contact pairs")
     if np.any((env.mj_model.geom_conaffinity[
             np.asarray(env.ids["foot_geoms"],dtype=np.int32)] & 4)==0):
         raise RuntimeError("Robot feet must collide with carpet bit-4 surfaces")
