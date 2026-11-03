@@ -50,6 +50,33 @@ not a claimed v5045 result.
 These checks prove MJX dynamics, terrain, commands, sensors, gradients
 and memory capacity, **not learned walking**.
 
+### First user RTX 4060 Ti result — 4 November 2026
+
+The owner ran the exact 2,048-world / full-PPO / three-update benchmark
+from this runbook on the lean branch, with both completed post-compile
+updates synchronized:
+
+| Measurement | Observed |
+|---|---:|
+| True convex prisms | 18 |
+| Worlds | 2,048 |
+| First update **including JIT compilation** | 122.638 s |
+| World steps per update | 65,536 |
+| Mean steady update | 8.696 s |
+| Steady throughput | **7,536.1 world-steps/s** |
+| GPU `peak_bytes_in_use` | 1,818,866,944 bytes (~1.82 GB decimal) |
+| CUDA JAX reported allocation limit | 6,440,353,792 bytes |
+| Initial PPO parameter / actor delta | 0.001785513 / 0.001497511 |
+
+The prior matched prism experiment reported **7,492.3 world-steps/s**,
+a nominal **+0.58%** difference. Two steady updates are not enough to
+establish a real performance win; effectively the lean refactor has
+**preserved** full-MJX PPO speed, not accelerated it dramatically.
+Compilation, the reduced device memory and normal live-run monitoring
+need their own matched measurements. The optional Warp import warnings
+were nonfatal: surface, reset, recycling, physics and PPO all passed.
+
+
 ## 3. Same-source, bounded two-update CUDA checkpoint proof
 
 ~~~bash
