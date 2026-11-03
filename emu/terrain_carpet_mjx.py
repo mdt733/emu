@@ -366,7 +366,7 @@ def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
                 z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
                       sample[:,lo,None]*(1.-fraction)
                       +sample[:,hi,None]*fraction)
-                # v5043 prisms have a sheared lower triangle exactly 30cm
+                # v5043 prisms have a sheared lower triangle by the configured prism depth
                 # below each top vertex. The old heightfield base used a
                 # different constant Z and would expose phantom sidewalls
                 # below the actual prism collision body.
