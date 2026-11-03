@@ -20,7 +20,7 @@ the 24-arm v5033 branch is **paused**.
 | PPO KL stress, collapse and recovery | `emu/training_health.py` |
 | One neural actor/critic and PPO updates | `emu/ppo.py`, `emu/training.py` |
 | Source-verified checkpoints and resume | `emu/run.py`, `emu/checkpoint_io.py` |
-| Held-out, read-only physical capability | `emu/physical_exam.py`, `emu/evaluation.py` |
+| Held-out training metrics and independent frozen-policy prism exam | `emu/evaluation.py`, `emu/prism_exam.py` |
 | Browser emulator and approved public export | `emu/viewer_server.py`, `emu/viewer_src/`, `scripts/verify_showcase_release.py` |
 
 [Full architecture and data flow](CORE_SKELETON.md).
@@ -41,9 +41,9 @@ Independent exam results NEVER feed back into its teaching.
 3. **Do not duplicate experiments.** The finished 260M launcher is kept at the original Git SHA, not
    executed from active `scripts/`. New training starts with `emu train`.
    The large old A/B launchers are retained at their Git commits.
-4. **Fix the real bug first.** The released 260M policy was
+4. **Fix the real bug first.** A historical v5031-era attempt
    trained with `verified_ascent_reallocation=0.0` despite
-   its manifest requesting 3.0. Future commands must prove
+   its manifest requesting 3.0. That option is now retired. Future commands must prove
    that **resolved TrainingConfig and actual environment**
    match the requested treatment, not just a CLI echo.
 5. **Real physical evidence.** Report actual supported upper
@@ -75,8 +75,11 @@ Avoid new permanent docs for every small experiment. A
 stranger should have ONE clear answer to *what is current*
 and *which file owns it*. Remove replaced implementations in the
 same change; never keep duplicate experimental launchers in active code.
-`bash scripts/check.sh` is quick by default; `--full` opts into the
-historical Python/browser test suites.
+`bash scripts/check.sh` is quick by default, including the source
+ownership inventory and current-document links; `--full` runs the
+18 maintained Python and six browser contracts. The complete
+[tree-to-skeleton checklist](CORE_SKELETON.md#skeleton--actual-files--retired-code--living-checklist)
+records current owners, retired files and outstanding physical gates.
 
 ## Preserved historical incident
 
