@@ -107,6 +107,37 @@ def test_batched_mocaps_match_old_birth_and_recycling():
                 np.asarray(old_tiles),np.asarray(direct))
 
 
+    # This is also where the same nine source tile heights become every
+    # foot-support sample. Prove the vectorised nine-tile calculation
+    # reproduces the previous sequential support-height calculation.
+    from emu.terrain_carpet_mjx import (
+        sample_surface, TILE_HALF_M, TILE_M, TILE_SIZE_Z_M)
+    source_ids=ids[:9]
+    samples=jnp.asarray(rng.uniform(.1,.9,(worlds,36)),dtype=jnp.float32)
+    query=original[:,source_ids,:]+jnp.asarray(
+        [.06,-.04,.10],dtype=jnp.float32)[None,None,:]
+    old_surface=jnp.full((worlds,9),-jnp.inf,dtype=jnp.float32)
+    for i,mocap in enumerate(source_ids):
+        p=original[:,mocap,:]
+        u=(query[:,:,0]-p[:,None,0]+TILE_HALF_M)/TILE_M
+        v=(query[:,:,1]-p[:,None,1]+TILE_HALF_M)/TILE_M
+        a,b,c,d=[samples[:,i*4+k,None] for k in range(4)]
+        near=a*(1.-u-v)+b*u+c*v
+        far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
+        z=p[:,None,2]+TILE_SIZE_Z_M*jnp.where(u+v<=1.,near,far)
+        inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
+        old_surface=jnp.maximum(old_surface,jnp.where(inside,z,-jnp.inf))
+    new_surface=sample_surface(
+        jnp,SimpleNamespace(mocap_pos=original),source_ids,samples,query)
+    np.testing.assert_array_equal(
+        np.asarray(old_surface),np.asarray(new_surface))
+    compiled_surface=jax.jit(lambda p,h,q:sample_surface(
+        jnp,SimpleNamespace(mocap_pos=p),source_ids,h,q))(
+            original,samples,query)
+    np.testing.assert_array_equal(
+        np.asarray(old_surface),np.asarray(compiled_surface))
+
+
 def test_prism_model_has_no_inactive_box_bodies_at_all():
     model=mujoco.MjModel.from_xml_string(
         add_carpet_geoms('<mujoco><worldbody/></mujoco>',prisms=True))

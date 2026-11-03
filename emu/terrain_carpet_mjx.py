@@ -319,25 +319,25 @@ def solid_box_poses(xp,centres,vertex_samples):
     return box_center,quat
 
 def sample_surface(xp,data,mocap_ids,hfield_data,points):
-    """Teacher and simulated ray physics lookup on the ACTUAL 9 tile vertices.
+    """All nine exact two-triangle top surfaces in ONE array calculation.
 
-    No global terrain coordinates are passed into the actor. This computes
-    upper support elevations from the same model hfield_data sent to MJX.
-    Missing tile footprint returns -inf, not a fictitious infinite plane.
+    Same physical world, sensor/teacher contract and missing-footprint
+    behaviour as the former nine sequential tile checks. This reduces
+    compiled graph repetition; its effect on actual GPU FPS must be measured.
     """
-    height=xp.full(points.shape[:2],-xp.inf,dtype=xp.float32)
-    for i,mocap in enumerate(mocap_ids):
-        p=data.mocap_pos[:,mocap,:]
-        u=(points[:,:,0]-p[:,None,0]+TILE_HALF_M)/TILE_M
-        v=(points[:,:,1]-p[:,None,1]+TILE_HALF_M)/TILE_M
-        a,b,c,d=[hfield_data[:,i*4+k,None] for k in range(4)]
-        # Two planar triangles, diagonal (right-bottom to left-top).
-        near=a*(1.-u-v)+b*u+c*v
-        far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
-        z=p[:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
-        inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
-        height=xp.maximum(height,xp.where(inside,z,-xp.inf))
-    return height
+    if len(mocap_ids)!=TILE_COUNT:
+        raise ValueError('Expected nine source tile mocap IDs')
+    positions=data.mocap_pos[:,xp.asarray(mocap_ids,dtype=xp.int32),:]
+    source=hfield_data.reshape((hfield_data.shape[0],TILE_COUNT,4))
+    # Shapes: [world,tile,point] and [world,tile,1].
+    u=(points[:,None,:,0]-positions[:,:,None,0]+TILE_HALF_M)/TILE_M
+    v=(points[:,None,:,1]-positions[:,:,None,1]+TILE_HALF_M)/TILE_M
+    a,b,c,d=[source[:,:,k,None] for k in range(4)]
+    near=a*(1.-u-v)+b*u+c*v
+    far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
+    z=positions[:,:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
+    inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
+    return xp.max(xp.where(inside,z,-xp.inf),axis=1)
 
 def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
                 prism_bottom_depth_m=None):
