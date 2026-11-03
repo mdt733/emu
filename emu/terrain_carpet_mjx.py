@@ -251,6 +251,23 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
                        centre-TILE_SIZE_Z_M*.5),axis=1)
     return position,values
 
+def update_tile_mocaps(xp, positions, mocap_ids, centers, changed=None):
+    """Move the nine source-height tiles with ONE indexed JAX scatter.
+
+    The hfield tiles are noncontact samples used by the ray synthesizer
+    and the convex-prism mesh builder. Both birth (all slots) and recycle
+    (changed slots only) retain exactly the old per-world positions.
+    """
+    if len(mocap_ids)!=TILE_COUNT or len(set(mocap_ids))!=TILE_COUNT:
+        raise ValueError('Expected exactly nine distinct source tile mocaps')
+    ids=xp.asarray(mocap_ids,dtype=xp.int32)
+    if changed is None:
+        return positions.at[:,ids,:].set(centers)
+    previous=positions[:,ids,:]
+    return positions.at[:,ids,:].set(
+        xp.where(changed[:,:,None],centers,previous))
+
+
 def slot_indices(xp,cx,cy):
     """Each slot's GLOBAL coordinates for a 3x3 window around cell (cx,cy)."""
     xs=[];ys=[]

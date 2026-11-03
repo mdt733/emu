@@ -168,8 +168,10 @@ Measure and keep separate:
 5. **Eval and viewer**: separate small held-out worlds and browser
    rendering; never combine their wall time with the GPU rollout.
 
-v5045 first experiment replaces **18 sequential prism mocap scatter
-updates** at birth/recycle with **one batched scatter**. The second
+v5045 replaces **18 prism mocap scatters and nine source-height
+tile scatters** at birth/recycle with one batched scatter per group.
+The source-tile updates are JIT-tested against their original scalar
+versions, as are the physical prism mocap updates. The second
 experiment removes nine inactive legacy-box bodies from prism physics,
 avoids their redundant pose and rotation calculations, and uses the
 real vertical prism footprint for safe recycling. Unit tests compare

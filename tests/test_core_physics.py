@@ -15,6 +15,7 @@ import mujoco
 from emu.carpet_prism_mjx import (batch_update_prism_mocaps, PRISM_COUNT,
                                   PRISMS_PER_TILE, PRISM_GEOM_NAMES)
 from emu.terrain_carpet_mjx import (
+    update_tile_mocaps,
     feet_clear_of_abandoned_prisms, add_carpet_geoms,
     TILE_SIZE_Z_M, ray_surface, supported_tile_foot_pairs,
     VISIT_HISTORY, unseen_tile, note_confirmed_tile)
@@ -85,6 +86,25 @@ def test_batched_mocaps_match_old_birth_and_recycling():
         fast=jax.jit(lambda p,c,m:batch_update_prism_mocaps(
             jnp,p,ids,c,m))(original,centers,changed)
         np.testing.assert_array_equal(np.asarray(old),np.asarray(fast))
+        # Source-height hfields use nine mocaps rather than 18. These
+        # noncontact samples still drive EVERY ray and prism-top vertex.
+        source_ids=ids[:9]
+        old_tiles=original
+        for i,mocap in enumerate(source_ids):
+            old_tiles=old_tiles.at[:,mocap,:].set(jnp.where(
+                changed[:,i,None],centers[:,i,:],old_tiles[:,mocap,:]))
+        fresh_tiles=update_tile_mocaps(
+            jnp,original,source_ids,centers,changed)
+        np.testing.assert_array_equal(
+            np.asarray(old_tiles),np.asarray(fresh_tiles))
+        compiled_tiles=jax.jit(lambda p,c,m:update_tile_mocaps(
+            jnp,p,source_ids,c,m))(original,centers,changed)
+        np.testing.assert_array_equal(
+            np.asarray(old_tiles),np.asarray(compiled_tiles))
+        if active:
+            direct=update_tile_mocaps(jnp,original,source_ids,centers)
+            np.testing.assert_array_equal(
+                np.asarray(old_tiles),np.asarray(direct))
 
 
 def test_prism_model_has_no_inactive_box_bodies_at_all():

@@ -44,6 +44,7 @@ from .capability_focus import (focus_indices, diamond_commands,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
 from .terrain_carpet_mjx import (
+    update_tile_mocaps,
     add_carpet_geoms, BODY_NAMES as CARPET_BODY_NAMES,
     GEOM_NAMES as CARPET_GEOM_NAMES, TILE_COUNT as CARPET_TILE_COUNT,
     TILE_M as CARPET_TILE_M, PROFILE_HALF as CARPET_PROFILE_HALF,
@@ -2908,8 +2909,8 @@ class EmuMJXEnv(TaskSampler):
                     self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
             pos=pos.at[:,old,:].set(
                 jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
-        for i,mocap in enumerate(self.carpet_mocap_ids):
-            pos=pos.at[:,mocap,:].set(centers[:,i,:])
+        pos=update_tile_mocaps(
+            jnp,pos,self.carpet_mocap_ids,centers)
         quat=data.mocap_quat
         if not self.terrain_carpet_prisms:
             solid_pos,solid_quat=carpet_solid_box_poses(jnp,centers,heights)
@@ -2989,15 +2990,12 @@ class EmuMJXEnv(TaskSampler):
         old_cx,old_cy=state.carpet_center[:,0],state.carpet_center[:,1]
         from .terrain_carpet_mjx import slot_indices
         old_x,old_y=slot_indices(jnp,old_cx,old_cy)
-        for i,mocap in enumerate(self.carpet_mocap_ids):
-            changed=(move & ((indices[:,i,0]!=old_x[:,i]) |
-                            (indices[:,i,1]!=old_y[:,i])))
-            pos=pos.at[:,mocap,:].set(
-                jnp.where(changed[:,None],centers[:,i,:],pos[:,mocap,:]))
+        change=move[:,None] & jnp.any(
+            indices!=jnp.stack((old_x,old_y),axis=-1),axis=-1)
+        pos=update_tile_mocaps(
+            jnp,pos,self.carpet_mocap_ids,centers,change)
         if self.terrain_carpet_prisms:
             physical_centres=centers.at[:,:,2].add(.5*CARPET_TILE_M)
-            change=move[:,None] & jnp.any(
-                indices!=jnp.stack((old_x,old_y),axis=-1),axis=-1)
             pos=batch_update_prism_mocaps(
                 jnp,pos,self.carpet_prism_mocap_ids,physical_centres,change)
         q=data.mocap_quat
