@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# New experiments supersede their previous compile-heavy CPU acceptance runs.
+# The same branch on push and PR shares a group; only the newest SHA matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   prism-physics:
     runs-on: ubuntu-latest
