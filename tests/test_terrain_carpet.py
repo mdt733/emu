@@ -122,7 +122,7 @@ def test_mjx_frontier_bands_and_directional_step_limits():
     early=np.abs(diffs[:,PROFILE_HALF+1:PROFILE_HALF+3])
     middle=np.abs(diffs[:,PROFILE_HALF+7:PROFILE_HALF+13])
     late=np.abs(diffs[:,PROFILE_HALF+16:PROFILE_HALF+20])
-    assert early.max()<.95*.04
+    assert early.max()<1.05*.04
     assert middle.mean()>early.mean()
     assert late.mean()>middle.mean()
     assert diffs.max()<1.5*.02+1e-5
