@@ -1505,43 +1505,10 @@ class EmuMJXEnv(TaskSampler):
         ep_command_quality_sum = state.ep_command_quality_sum + tracking_frame * (
             .50 + .50*jnp.clip(metrics['support'],0.,1.)) * (
             1. - jnp.clip(metrics['bad_contact'],0.,1.))
-        # G4 examiner/teacher: evidence comes exclusively from actual
-        # root travel AND far-side MJX foot contacts. No privileged terrain
-        # height or approach position is ever passed to the actor.
-        terrain_crossed=(state.terrain_crossed |
-            academy['ordinary_step_new'])
-        terrain_active=(state.specialist_active &
-            (state.focus_id==STEP) & ~state.academy_active &
-            (jnp.abs(academy['height_m'])>.0015))
-        # Near/easy support evidence uses the actual signed step size.
-        # Ascents and descents are independently measured against their OWN
-        # learned frontier. Late 150%-challenge lips cannot fake promotion.
-        academy_up_ref=params[P.academy_height_up_m]
-        academy_down_ref=params[P.academy_height_down_m]
-        academy_ref=jnp.where(academy['height_m']>0.,academy_up_ref,academy_down_ref)
-        academy_ref=jnp.where(
-            jnp.isfinite(params[P.terrain_fixed_height_m]),
-            jnp.abs(params[P.terrain_fixed_height_m]),academy_ref)
-        academy_relative_height=(jnp.abs(academy['height_m']) /
-                                 jnp.maximum(academy_ref,.001))
-        academy_near=((academy_relative_height>=.78) &
-                      (academy_relative_height<=1.05))
-        academy_easy=((academy_relative_height>=.36) &
-                      (academy_relative_height<.68))
-        # A rolling carpet can contain MANY verified crossings in ONE
-        # ordinary STEP episode. Do not reuse the historical single-lip
-        # terrain_crossed high-water gate: it would pay only the first lip
-        # of the course and starve ordinary STEP before 60M.
-        terrain_active=terrain_active & ~state.academy_active
-        terrain_cross_new=academy['ordinary_step_new']
-        terrain_up=terrain_active & (academy['height_m']>0.)
-        terrain_down=terrain_active & (academy['height_m']<0.)
-        # Step severity is measured from physical shared-edge contacts,
-        # never the teacher's requested lip height or a retired slab.
-        physical_height=jnp.abs(academy['height_m'])
-        ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
-        step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
-        step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
+        # Real prisms credit each new supported lip, not only the first
+        # crossing of a rolling-carpet episode.
+        terrain_crossed = state.terrain_crossed | academy['ordinary_step_new']
+        terrain_cross_new = academy['ordinary_step_new']
         reward=reward+10.0*terrain_cross_new.astype(jnp.float32)
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
         reward=reward+academy['reward']
@@ -1631,6 +1598,67 @@ class EmuMJXEnv(TaskSampler):
         )
         new_state = self.jax.tree_util.tree_map(choose, reset_state, stepped)
         obs = self.obs(new_state)
+        # Telemetry is a read-only projection of physical facts and the
+        # pre-reset episode state. It never affects PPO reward or actuation.
+        out_metrics = self._step_report(
+            state, stepped, data, params, metrics, terms, academy,
+            timeout=timeout, terminal_fail=terminal_fail, done=done,
+            transition_active=transition_active,
+            cmd_resampled=cmd_resampled, fall_payment=fall_payment)
+        return StepOut(
+            new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
+            # Defense in depth: the rollback above is the real fix for
+            # physics divergence specifically, this is just insurance in
+            # case some other numeric path ever goes non-finite -- cheap,
+            # and guarantees NaN can never reach a PPO batch/gradient from
+            # this function.
+            {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
+        )
+
+    def _step_report(self, state: EnvState, stepped: EnvState, data, params,
+                     metrics, terms, academy, *, timeout, terminal_fail, done,
+                     transition_active, cmd_resampled, fall_payment):
+        """Report physically measured episode/terrain evidence, not rewards.
+
+        Runs on JAX arrays as part of the existing jit. `stepped` contains
+        accumulated values from the frame *before* auto-reset; using the
+        masked `new_state` would misclassify terminating episodes.
+        """
+        jnp = self.jnp
+        ep_len = stepped.ep_len
+        ep_return = stepped.ep_return
+        ep_vx_sum = stepped.ep_vx_sum
+        ep_cmd_vx_sum = stepped.ep_cmd_vx_sum
+        ep_bad_sum = stepped.ep_bad_sum
+        ep_support_sum = stepped.ep_support_sum
+        ep_command_quality_sum = stepped.ep_command_quality_sum
+        terrain_crossed = stepped.terrain_crossed
+        terrain_active=(state.specialist_active &
+            (state.focus_id==STEP) & ~state.academy_active &
+            (jnp.abs(academy['height_m'])>.0015))
+        # Near/easy support evidence uses the actual signed step size.
+        # Ascents and descents are independently measured against their OWN
+        # learned frontier. Late 150%-challenge lips cannot fake promotion.
+        academy_up_ref=params[P.academy_height_up_m]
+        academy_down_ref=params[P.academy_height_down_m]
+        academy_ref=jnp.where(academy['height_m']>0.,academy_up_ref,academy_down_ref)
+        academy_ref=jnp.where(
+            jnp.isfinite(params[P.terrain_fixed_height_m]),
+            jnp.abs(params[P.terrain_fixed_height_m]),academy_ref)
+        academy_relative_height=(jnp.abs(academy['height_m']) /
+                                 jnp.maximum(academy_ref,.001))
+        academy_near=((academy_relative_height>=.78) &
+                      (academy_relative_height<=1.05))
+        academy_easy=((academy_relative_height>=.36) &
+                      (academy_relative_height<.68))
+        terrain_up=terrain_active & (academy['height_m']>0.)
+        terrain_down=terrain_active & (academy['height_m']<0.)
+        # Step severity is measured from physical shared-edge contacts,
+        # never the teacher's requested lip height or a retired slab.
+        physical_height=jnp.abs(academy['height_m'])
+        ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+        step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
+        step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
         denom = jnp.maximum(ep_len, 1.0)
         # 5. Report independent facts, splitting ramping from steady holding.
         ramping = transition_active.astype(jnp.float32)
@@ -1819,15 +1847,7 @@ class EmuMJXEnv(TaskSampler):
             'episode_bad_contact': ep_bad_sum / denom,
             'episode_support': ep_support_sum / denom,
         }
-        return StepOut(
-            new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
-            # Defense in depth: the rollback above is the real fix for
-            # physics divergence specifically, this is just insurance in
-            # case some other numeric path ever goes non-finite -- cheap,
-            # and guarantees NaN can never reach a PPO batch/gradient from
-            # this function.
-            {k: jnp.nan_to_num(v) for k, v in out_metrics.items()},
-        )
+        return out_metrics
 
     # ---- Physics and the actuators' actual delivered forces ----
     def _simulate_physics(self, state: EnvState, action, params) -> PhysicalFrame:
