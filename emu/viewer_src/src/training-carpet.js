@@ -65,15 +65,16 @@ export function trainingLimits(data){
   const ordinary=as(row.terrain_height_m,0,0,.25);
   const academyUp=as(row.academy_height_up_m,ordinary,0,.25);
   const academyDown=as(row.academy_height_down_m,ordinary,0,.25);
-  // MJX _carpet_birth: ordinary STEP uses max(terrain, Academy) on each
-  // sign, whereas an Academy-selected birth uses its separate frontiers.
-  // Show the Academy representative only after that allocation is active.
-  const inAcademy=cfg.academy_stream===true &&
-    step>=as(cfg.academy_intro_steps,60_000_000,0,1e12);
-  const stepUpM=as(raw.step_up_m,
-    inAcademy?academyUp:Math.max(ordinary,academyUp),0,.25);
-  const stepDownM=as(raw.step_down_m,
-    inAcademy?academyDown:Math.max(ordinary,academyDown),0,.25);
+  // A STEP birth is not automatically an Academy birth at 60M.
+  // _carpet_birth selects these PER EPISODE using academy_active:
+  // ordinary STEP picks max(general terrain, Academy signed frontiers),
+  // while the four-lip Academy uses its own independent UP/DOWN caps.
+  // Keep BOTH so a spectator can explicitly inspect either cohort.
+  const ordinaryStepUpM=as(raw.step_up_m,Math.max(ordinary,academyUp),0,.25);
+  const ordinaryStepDownM=as(raw.step_down_m,Math.max(ordinary,academyDown),0,.25);
+  const academyStepUpM=as(raw.academy_step_up_m,academyUp,0,.25);
+  const academyStepDownM=as(raw.academy_step_down_m,academyDown,0,.25);
+  const stepUpM=ordinaryStepUpM,stepDownM=ordinaryStepDownM;
   const reportedTransition=raw.slope_transition_deg??row.terrain_slope_transition_frontier_deg;
   const transitionMeasured=reportedTransition!=null&&reportedTransition!==''&&Number.isFinite(Number(reportedTransition));
   // The cap is a CONFIGURED physical geometry bound, not a newly
@@ -85,6 +86,9 @@ export function trainingLimits(data){
     :Math.min(3,slopeDeg*.5);
   const seed=as(data.terrain_preview?.seed??cfg.seed??data.seed,735,0,2147483647);
   return {seed:Math.floor(seed),slopeDeg,transitionDeg,stepUpM,stepDownM,
+    ordinaryStepUpM,ordinaryStepDownM,academyStepUpM,academyStepDownM,
+    academyEligible:cfg.academy_stream===true &&
+      step>=as(cfg.academy_intro_steps,60_000_000,0,1e12),
     // Actual global teacher-frontier targets. These ARE NOT achieved gait
     // velocities and do not imply every specialist gets maximum difficulty.
     vxHi:as(row.frontier_vx_hi,.06,0,3),
