@@ -6,7 +6,7 @@ source-pinned v5044 large run was stopped. Its saved checkpoints belong to
 that old source SHA and must never resume on v5045. `main` and the released
 browser champion remain untouched.
 
-## Skeleton ⇄ actual files ⇄ retired code — living checklist
+## Live file ownership and retirement checklist
 
 **Census:** 4 November 2026; [v5044 source tree](https://github.com/mdt733/emu/tree/a2f59bb31bec049204b60a3eb86500b100db039f)
 compared with the complete (not truncated) [v5045 tree at `c4e3c739`](https://github.com/mdt733/emu/tree/c4e3c739938bf3e5cc6e2d51bef42b9776c47cee).
