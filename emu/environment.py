@@ -1216,19 +1216,26 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('Academy course episode time must be 700..1500 frames')
         self.academy_course_episode_frames=int(academy_course_episode_frames)
         self.terrain_pair_seed = int(seed)
-        self.mj_model = (
-            mujoco.MjModel.from_xml_string(
-                (add_carpet_geoms(add_unified_terrain(
-                    self.robot_xml,False),prisms=self.terrain_carpet_prisms)
-                 if self.terrain_carpet else
-                 add_unified_terrain(self.robot_xml,self.academy_stream)))
-            if self.unified_capability_focus else
-            mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
-            if self.terrain_step_max_m > 0 else
-            mujoco.MjModel.from_xml_path(self.robot_xml)
-        )
+        # Current prism worlds need neither historical two-slab mocap body.
+        # Start directly with robot.xml; add_carpet_geoms disables the old
+        # static floor and creates ONLY the source hfields and real prisms.
+        if self.terrain_carpet_prisms:
+            self.mj_model=mujoco.MjModel.from_xml_string(
+                add_carpet_geoms(self.robot_xml,prisms=True))
+        else:
+            self.mj_model = (
+                mujoco.MjModel.from_xml_string(
+                    (add_carpet_geoms(add_unified_terrain(
+                        self.robot_xml,False),prisms=False)
+                     if self.terrain_carpet else
+                     add_unified_terrain(self.robot_xml,self.academy_stream)))
+                if self.unified_capability_focus else
+                mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
+                if self.terrain_step_max_m > 0 else
+                mujoco.MjModel.from_xml_path(self.robot_xml)
+            )
         self.unified_ground_mocap_id = -1
-        if self.unified_capability_focus:
+        if self.unified_capability_focus and not self.terrain_carpet_prisms:
             if ((self.observation_schema != OBS_SCHEMA_TERRAIN and
                  not self.physical_exam_legacy_actor) or self.terrain_step_max_m <= 0):
                 raise ValueError('unified terrain requires terrain_360 or explicit exam-only 232 baseline')
@@ -1241,7 +1248,7 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_step_geom_id = -1
         self.academy_platform_mocap_ids=()
         self.academy_platform_geom_ids=()
-        if self.terrain_step_max_m:
+        if self.terrain_step_max_m and not self.terrain_carpet_prisms:
             platform_body = mujoco.mj_name2id(
                 self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
             self.terrain_step_mocap_id = int(self.mj_model.body_mocapid[platform_body])
@@ -2905,10 +2912,11 @@ class EmuMJXEnv(TaskSampler):
             jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope,
             transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
-        for old in (self.unified_ground_mocap_id,
-                    self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
-            pos=pos.at[:,old,:].set(
-                jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
+        if not self.terrain_carpet_prisms:
+            for old in (self.unified_ground_mocap_id,
+                        self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
+                pos=pos.at[:,old,:].set(
+                    jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
         quat=data.mocap_quat

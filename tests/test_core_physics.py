@@ -150,6 +150,21 @@ def test_prism_model_has_no_inactive_box_bodies_at_all():
     assert not any(n.startswith('carpet_solid_geom_') for n in names)
     assert len([n for n in names if n in PRISM_GEOM_NAMES])==PRISM_COUNT
     assert model.nhfield==9  # four source-height values per tile, inert
+    # Current actual robot source must not secretly reinstate two enormous
+    # inactive 64m slabs in the prism collision topology.
+    from pathlib import Path
+    robot=Path(__file__).resolve().parents[1]/'emu'/'robot.xml'
+    actual=mujoco.MjModel.from_xml_string(
+        add_carpet_geoms(str(robot),prisms=True))
+    assert mujoco.mj_name2id(actual,mujoco.mjtObj.mjOBJ_BODY,'unified_ground')<0
+    assert mujoco.mj_name2id(
+        actual,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')<0
+    floor=mujoco.mj_name2id(actual,mujoco.mjtObj.mjOBJ_GEOM,'floor')
+    assert floor>=0 and actual.geom_contype[floor]==0
+    assert len([mujoco.mj_id2name(actual,mujoco.mjtObj.mjOBJ_GEOM,i)
+               for i in range(actual.ngeom)
+               if (mujoco.mj_id2name(actual,mujoco.mjtObj.mjOBJ_GEOM,i)
+                   or '').startswith('carpet_prism_')])==18
 
 
 def test_true_prism_footprint_blocks_sidewall_not_far_foot():

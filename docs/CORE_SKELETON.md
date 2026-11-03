@@ -263,3 +263,14 @@ It has been removed along with its two main-viewer links and extra Vite
 entry point. The real integrated viewer's Field and Training Carpet
 modes remain, with their collision-preview caveat. The exact old Prism
 Lab lives in the preserved v5044 Git history.
+
+## v5045 — direct prism-only MJX model construction
+
+The true-prism branch now constructs physics **directly from robot.xml**:
+`add_carpet_geoms(robot.xml, prisms=True)`. The original static floor
+is retained by name for diagnostics but filtered from contact. It no longer
+first constructs two **64-metre historical unified slabs** merely to
+bury their mocap bodies 30 metres below every new prism episode.
+Current prism births do not touch any historical slab IDs. The 18 convex
+prisms and nine noncontact vertex-sample hfields remain; saved v5044
+checkpoints must not be resumed with this new model topology.
