@@ -122,6 +122,12 @@ def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     assert call["terrain_carpet"] is True
     assert call["terrain_carpet_prisms"] is True
     assert call["observation_schema"] == OBS_SCHEMA_TERRAIN
+    # A frozen exam may never fall back to old nine-box or slab contact
+    # because it happens to request a flat lesson.
+    from dataclasses import replace
+    with pytest.raises(ValueError, match="real unified prism world"):
+        evaluate._world(replace(cfg, terrain_carpet_prisms=False),
+                        seed_offset=0, limits=(.60, -.20, .22, 1.50))
 
 
 def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
