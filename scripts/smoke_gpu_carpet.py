@@ -1,4 +1,4 @@
-"""v5041 GPU trainer gate: nine real tilted-box MJX surfaces, per-world
+"""v5041/v5043 GPU trainer gate: real 9-box or opt-in 18-prism MJX, per-world
 streaming state, real 4x4 ToF and a genuine PPO gradient update.
 
 Does NOT claim learned locomotion; CPU smoke is not 2048 GPU acceptance.
@@ -8,6 +8,16 @@ import argparse
 import json
 import os
 import time
+
+
+def physics_report_fields(*, prisms: bool) -> dict:
+    """Report actual enabled colliders, never the dormant nine-box assets."""
+    return dict(
+        physics=("eighteen-dynamic-convex-triangular-prisms" if prisms
+                 else "nine-solid-tilted-boxes"),
+        active_collision_geoms=18 if prisms else 9,
+        terrain_carpet_prisms=bool(prisms),
+    )
 
 
 def main():
@@ -243,7 +253,7 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
-          physics="nine-solid-tilted-boxes",tiles=TILE_COUNT,
+          **physics_report_fields(prisms=a.prisms),tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
           **(dict(ppo_parameter_delta=max_param_delta,
                   ppo_actor_delta=max_actor_delta,
