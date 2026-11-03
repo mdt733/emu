@@ -149,6 +149,16 @@ def one_run_config(args) -> TrainingConfig:
         not math.isfinite(height_cap) or not .003<=height_cap<=.25 or
         not 700<=course_frames<=1500):
         raise ValueError('streaming Academy requires unified terrain_360 and a valid age/share/height contract')
+    # Only the single policy / real prism carpet is executable in v5045.
+    # Prior foundation, 232-input and nine-box lineages are source-pinned
+    # to their historical Git commits; do not accept fake --plan recipes.
+    if not (unified and terrain_actor and terrain_carpet and carpet_prisms
+            and academy_stream and args.profile == 'sim2real'
+            and not sensor_actor and grade == 0. and terrain_radius == 0.):
+        raise ValueError(
+            "v5045 prism-only training requires --profile sim2real "
+            "--terrain-actor --unified-capabilities --terrain-carpet "
+            "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
                                        OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
