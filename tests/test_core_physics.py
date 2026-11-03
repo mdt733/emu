@@ -155,7 +155,7 @@ def test_prism_model_has_no_inactive_box_bodies_at_all():
     from pathlib import Path
     robot=Path(__file__).resolve().parents[1]/'emu'/'robot.xml'
     actual=mujoco.MjModel.from_xml_string(
-        add_carpet_geoms(str(robot),prisms=True))
+        add_carpet_geoms(robot.read_text(encoding='utf-8'),prisms=True))
     assert mujoco.mj_name2id(actual,mujoco.mjtObj.mjOBJ_BODY,'unified_ground')<0
     assert mujoco.mj_name2id(
         actual,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')<0

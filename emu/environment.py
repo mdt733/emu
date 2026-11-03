@@ -1221,7 +1221,9 @@ class EmuMJXEnv(TaskSampler):
         # static floor and creates ONLY the source hfields and real prisms.
         if self.terrain_carpet_prisms:
             self.mj_model=mujoco.MjModel.from_xml_string(
-                add_carpet_geoms(self.robot_xml,prisms=True))
+                add_carpet_geoms(ET.tostring(
+                    ET.parse(self.robot_xml).getroot(),encoding='unicode'),
+                    prisms=True))
         else:
             self.mj_model = (
                 mujoco.MjModel.from_xml_string(
