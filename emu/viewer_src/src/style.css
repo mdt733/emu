@@ -588,3 +588,19 @@ body[data-world="carpet"] .nav-hud {display:none !important;}
 .settings-drawer .control-row {gap:11px;}
 .settings-drawer #carpetPanel {order:0;}
 .settings-drawer #viewPreferences {margin-top:3px;}
+
+/* Concrete provenance of the ACTUAL MuJoCo 3×3 geometry at tiny
+   teaching frontiers. This does not exaggerate collisions. */
+.carpet-evidence {
+  white-space:pre-wrap;
+  padding:12px;border-radius:12px;
+  background:rgba(5,25,29,.8);
+  border:1px solid rgba(138,210,186,.32);
+  color:#cfefe2;
+  font:10.5px/1.78 ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+}
+#carpetDifficultyMode,#carpetStepTrack {width:100%;font-size:11px;line-height:1.35;}
+.telemetry .terrain-assigned {grid-column:1 / -1;
+  padding:8px 0 6px;border-top:1px solid rgba(146,205,175,.22);}
+.telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
