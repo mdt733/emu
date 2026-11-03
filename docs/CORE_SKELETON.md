@@ -67,6 +67,46 @@ deterministic 18-prism terrain generation to the viewer and proving
 replay parity. That is a future feature, not something a cleanup can
 pretend already exists.
 
+## One shared evidence-driven training loop
+
+This is the intended operational interpretation of the v5044/v5045 code,
+not six simulators or six competing networks:
+
+1. **Host curriculum** (`training.py` + `curriculum.py`) reads the global
+   step count and previously completed episode evidence. Through the 20M
+   foundation, ordinary gait tasks take priority; the following 10M gradually
+   activates specialist attention. This *time schedule* governs who teaches,
+   not which physical frontiers have been earned.
+2. **New episode birth** (`capability_focus.py` +
+   `environment._focus_for_birth`) samples a teacher role from the six
+   configured probabilities and an independent specialist-activation draw.
+   An athletic retention rehearsal may override the difficult lesson. Neither
+   role ID nor exact terrain parameters are privileged actor observations.
+3. **One procedural environment** (`terrain_carpet_mjx.py` +
+   `carpet_prism_mjx.py`) uses the sampled role and independently earned
+   slope/up/down limits to generate the same kind of 3x3 true-prism contact
+   window for every robot. CONTROL gets mild difficulty; STEP and SLOPE
+   concentrate their own frontier while retaining easier exposure to others.
+   The carpet recycles around the moving robot, not at arbitrary episode time.
+4. **One PPO** consumes 360 deployable observation values and the same six
+   servo action channels regardless of teacher role. Rewards use measured
+   physics; role weighting only changes lesson focus, never the network.
+5. **Aggregate evidence** (`results.py` and `training.py`) flows back to
+   the saved governor after each PPO rollout. Its command sectors, physical
+   slope directions, supported up/down lip windows and regime recovery
+   decisions have distinct evidence thresholds, promotion and retreat rules.
+   The next births sample the updated limits. KL/collapse monitoring can veto
+   expansion, not counterfeit physical achievement.
+
+**Clarification:** this is not yet a single differentiable N-dimensional
+“capability map” driving every challenge. The checkpointed governor has
+several complementary limit/window controllers, alongside the optional
+command-neighbourhood `CapabilityField` teaching packet. Mechanical shaft
+work in J/m is measured, and CONTROL has a small effort cost, but no single
+adaptive efficiency frontier graduates like up/down steps. Such a controller
+would require its own measured physical competence evidence, not a guessed
+schedule or energy-only success threshold.
+
 ## Lean runtime: keep
 
 | Mandatory module | Why it exists |
@@ -112,10 +152,10 @@ their heavier operations. They must not be dropped on a size guess.
 
 ## Legacy, not automatically dead
 
-- `environment.py` still supports older 220/232-input policies,
-  legacy step platforms and non-carpet terrain paths. The v5044 prism
-  mode does NOT use their active collision surfaces, but existing
-  training/source and frozen-policy reproducibility depend on them.
+- The v5045 `EmuMJXEnv` constructor now **rejects** old 220/232
+  actors, slab scenes and non-prism terrain. Old experiments are recoverable
+  only from their historical source commits, not runnable against the new
+  constructor. Do not claim backward-compatible physical exam execution.
 - **Prism-only collision scene no longer creates the nine old box
   bodies at all.** Tile recycling uses a conservative test against
   each *actual* half-metre prism square in XY, expanded by each foot's
@@ -150,6 +190,20 @@ optimize based on synchronized GPU measurements.
 | P3 | Retire obsolete box/slab paths **from the prism-only runtime** after replacing recycler guard with prism-true clearance | 4cm and 40cm walls, diagonal contacts, first-life support, safe 3×3 recycling |
 | P4 | Consolidate CLI run/export/viewer boundaries; split UI/WebGL physics from policy/schema | fixed exported actor byte/field parity, browser sensor parity, champion showcase regression |
 | P5 | Archive tested-unused modules and redundant old docs; delete only proven unreachable code | affected tests green, release/legacy path comparison and documented rollback |
+
+## Physical examiner migration is an open blocker
+
+The **current** model is prism-only, but the historical CLI entrypoints
+`emu evaluate`, `emu directional-exam` and `emu capability-exam`
+still contain slab-based environment construction or two-slab scoring
+assumptions. They are **not yet accepted as valid prism exams**; a
+successful build of their Python modules is not proof they work. Keep
+the genuine raw-prism contact scorer in `scripts/exam_prism_course.py`,
+the actual MJX prism probe and `evaluation.evaluate_fixed` as separate
+pieces of the validation path. Before v5045 becomes release-ready,
+port or explicitly retire these old CLI examiner paths and prove the
+replacement on real frozen-policy trajectories. Never mislabel old
+slab pass rates as 18-prism results.
 
 ## Performance programme (no invented speedup claims)
 
@@ -263,6 +317,17 @@ It has been removed along with its two main-viewer links and extra Vite
 entry point. The real integrated viewer's Field and Training Carpet
 modes remain, with their collision-preview caveat. The exact old Prism
 Lab lives in the preserved v5044 Git history.
+
+## v5045 — runtime-only slab scoring removal
+
+The prism-only `environment.py` no longer carries dead floor/upper-slab
+step-height evidence or the averaged nine-box slope fallback. On-prism
+events use signed, supported shared-edge crossings; slope evidence is
+sampled from the physical triangle containing the root. The PPO frozen
+trajectory packer also drops its unreachable two-slab return path,
+while the GPU smoke test checks the static floor directly rather than
+accidentally indexing `geom_contype[-1]`. The frozen v5044 trainer remains
+on its original SHA.
 
 ## v5045 — direct prism-only MJX model construction
 
