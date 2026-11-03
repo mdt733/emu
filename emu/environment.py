@@ -184,37 +184,37 @@ class EnvState(NamedTuple):
     push_steps_left: Any
     # The v5016 opt-in sensor queue persists independent acquisition and
     # delivery timing. Legacy policies leave this at None.
-    sensor_state: Any = None
-    velocity_i_integral: Any = None  # two controller axes, not actor inputs
-    raw_velocity_command: Any = None  # true operator request
+    sensor_state: Any
+    velocity_i_integral: Any  # two controller axes, not actor inputs
+    raw_velocity_command: Any  # true operator request
     # NEW v5030 reward-only rolling 25-frame history (never actor input).
     # This is a fresh source/checkpoint shape: no cross-SHA resume.
-    vx_reward_history: Any = None
-    cmd_vx_reward_history: Any = None
-    vx_reward_count: Any = None
+    vx_reward_history: Any
+    cmd_vx_reward_history: Any
+    vx_reward_count: Any
     # Teacher-only rolling three-platform progress; lip count is unbounded.
-    academy_active: Any = None
-    academy_lip_index: Any = None
-    academy_streak: Any = None
-    academy_crossings: Any = None
-    academy_up_crossings: Any = None
-    academy_down_crossings: Any = None
-    academy_foothold_seen: Any = None
+    academy_active: Any
+    academy_lip_index: Any
+    academy_streak: Any
+    academy_crossings: Any
+    academy_up_crossings: Any
+    academy_down_crossings: Any
+    academy_foothold_seen: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
-    academy_approach_seen: Any = None
+    academy_approach_seen: Any
     # v5041 physics-only rolling tile state. All nine mutable colliders
     # belong to this same PPO world batch, not a second simulator.
-    carpet_hfields: Any = None
-    carpet_center: Any = None
-    carpet_seed: Any = None
-    carpet_xprofile: Any = None
-    carpet_yprofile: Any = None
-    carpet_up: Any = None
-    carpet_down: Any = None
-    carpet_slope: Any = None
-    carpet_confirmed: Any = None
-    carpet_seen_cells: Any = None  # teacher anti-rocking: last 64 confirmed positions
-    carpet_seen_write: Any = None
+    carpet_hfields: Any
+    carpet_center: Any
+    carpet_seed: Any
+    carpet_xprofile: Any
+    carpet_yprofile: Any
+    carpet_up: Any
+    carpet_down: Any
+    carpet_slope: Any
+    carpet_confirmed: Any
+    carpet_seen_cells: Any  # teacher anti-rocking: last 64 confirmed positions
+    carpet_seen_write: Any
 
 
 class SensorSample(NamedTuple):
