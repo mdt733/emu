@@ -29,7 +29,7 @@ def test_big_run_is_140m_true_prisms_six_specialists(tmp_path):
     assert args[args.index("--academy-max-share") + 1] == ".50"
     assert "--resume" not in args
     assert "--plan" not in args
-    assert "v5044-prism-140m-coldstart" in EXPECTED_BRANCH
+    assert EXPECTED_BRANCH == "feature/v5045-core-skeleton-audit"
 
 
 def test_start_resume_check_and_plan_share_exact_physics(tmp_path):
