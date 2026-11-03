@@ -186,9 +186,11 @@ viewer, showcase publisher, physics probes and diagnostics stay separate.
 - `scripts/smoke_step_course.py`, `scripts/probe_carpet_hfield.py`:
   old slab and hfield spikes. The current probe validates 18 real
   six-vertex prism meshes, physical walls, actor reset and stepping.
-- `emu/viewer_src/src/training-carpet.js` old raster-heightfield
-  generator: removed, with a fail-closed assertion that browser carpet
-  must have actual collision solids.
+- `emu/viewer_src/src/training-carpet.js` is **retained** as the browser's
+  metrics CSV parser and representative role/frontier adapter. Its
+  `training-solid-carpet.js` companion still builds illustrative nine-box
+  MuJoCo terrain, **not** the GPU trainer's 18 moving convex prisms.
+  The old *MJX training* nine-box collision path is what was removed.
 - `scripts/smoke_unified_focus.py` and old box/hfield probes: removed;
   the active single-policy lifecycle and prism physics probes replace
   them. Their old source remains in Git history.
