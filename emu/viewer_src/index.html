@@ -95,12 +95,27 @@
           </label>
           <p id="carpetContext" class="subtle">Representative training-world challenge, not a replay of a particular GPU environment.</p>
           <label class="viewer-checkbox"><input id="carpetMatch" type="checkbox" checked /> Follow live specialist values</label>
+          <label>Physical difficulty preview
+            <select id="carpetDifficultyMode">
+              <option value="assignment" selected>Actual specialist assignment (role × exposure)</option>
+              <option value="frontier">Global frontier maximum (viewer challenge, not actual assignment)</option>
+            </select>
+          </label>
+          <label id="carpetStepTrackRow">STEP birth type
+            <select id="carpetStepTrack">
+              <option value="ordinary" selected>Ordinary STEP · general step frontier</option>
+              <option value="academy">Academy STEP · independent signed lips</option>
+            </select>
+          </label>
+          <div id="carpetPhysicalEvidence" class="carpet-evidence" aria-live="polite">
+            Waiting for the latest training frontiers.
+          </div>
           <div id="carpetTuning" class="tuning-group">
             <div class="tuning-heading"><b>Terrain</b><small>Specialist-scaled assignments</small></div>
-            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".1"></label>
-            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" min="0" max="15" step=".1"></label>
-            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" min="0" max="150" step="1"></label>
-            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" min="0" max="150" step="1"></label>
+            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".01"></label>
+            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" min="0" max="15" step=".01"></label>
+            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" min="0" max="150" step=".025"></label>
+            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" min="0" max="150" step=".025"></label>
             <div class="tuning-heading"><b>Commands</b><small>Preview requests bounded by policy limits</small></div>
             <label class="tuning-row">Forward speed <output id="tuneForwardOut">—</output><input id="tuneForward" type="range" min="0" max="1.5" step=".01"></label>
             <label class="tuning-row">Reverse speed <output id="tuneReverseOut">—</output><input id="tuneReverse" type="range" min="0" max=".8" step=".01"></label>
