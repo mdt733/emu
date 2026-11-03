@@ -31,18 +31,20 @@ const row=(stepHeight=.004)=>trainingLimits({
   }
 });
 
-test('110M console frontier 4mm at 15% exposure is 0.6mm REAL STEP birth',()=>{
+test('110M frontier 4mm at 15% exposure means 15% of births see full STEP severity',()=>{
   const b=row(),l=specialistLesson(b,'step');
   assert.equal(b.ordinaryStepUpM,.004);
   assert.equal(b.academyStepUpM,.001);
-  near(l.terrain.stepUpM,.004*.15);
-  near(l.terrain.stepDownM,.004*.15);
-  near(l.terrain.slopeDeg,.7*.5*.03);
-  near(roleSliders(b,'step').up,.6);
-  near(roleSliders(b,'step').slope,.0105);
+  near(l.terrain.stepUpM,.004);
+  near(l.terrain.stepDownM,.004);
+  near(l.terrain.slopeDeg,.7*.5);
+  near(l.terrain.stepExposureRate,.15);
+  near(l.terrain.slopeExposureRate,.03);
+  near(roleSliders(b,'step').up,4);
+  near(roleSliders(b,'step').slope,.35);
   const actual=createSolidCarpet(b,'step');
-  near(actual.limits.stepUpM,.0006);
-  near(actual.limits.slopeDeg,.0105);
+  near(actual.limits.stepUpM,.004);
+  near(actual.limits.slopeDeg,.35);
   assert.equal(actual.tiles.length,9);
 });
 
@@ -52,12 +54,15 @@ test('Academy is an episode assignment, not automatic for ALL STEP worlds at 110
   near(b.stepUpM,.004);
   near(b.ordinaryStepUpM,.004);
   near(b.academyStepUpM,.001);
-  const academy={...b,stepUpM:b.academyStepUpM,stepDownM:b.academyStepDownM};
-  near(specialistLesson(academy,'step').terrain.stepUpM,.00015);
-  near(specialistLesson(academy,'step').terrain.stepDownM,.0003);
+  const academy={...b,stepTrack:'academy',
+    stepUpM:b.academyStepUpM,stepDownM:b.academyStepDownM};
+  near(specialistLesson(b,'step').terrain.stepUpM,.004);
+  near(specialistLesson(academy,'step').terrain.stepUpM,.001);
+  near(specialistLesson(academy,'step').terrain.stepDownM,.002);
+  near(specialistLesson({...academy,stepExposure:0},'step').terrain.stepUpM,.001);
 });
 
-test('viewer frontier challenge bypasses exposure ONLY when explicitly selected',()=>{
+test('viewer global-frontier preview bypasses specialist scaling when explicitly selected',()=>{
   const b=row();
   const challenge={
     ...b,previewOverride:{terrain:{
@@ -68,7 +73,7 @@ test('viewer frontier challenge bypasses exposure ONLY when explicitly selected'
   const lesson=specialistLesson(challenge,'step');
   near(lesson.terrain.stepUpM,.004);
   near(lesson.terrain.slopeDeg,.7);
-  near(specialistLesson(b,'step').terrain.stepUpM,.0006);
+  near(specialistLesson(b,'step').terrain.stepUpM,.004);
 });
 
 test('auto-refresh sees sub-mm step growth and hundredth-degree slope growth',()=>{
@@ -76,10 +81,14 @@ test('auto-refresh sees sub-mm step growth and hundredth-degree slope growth',()
   const b=specialistLesson(row(.005),'step');
   assert.notEqual(carpetGeometrySignature(a,'ordinary'),
                   carpetGeometrySignature(b,'ordinary'),
-                  'Old 2mm quantisation hid 0.6 vs 0.75mm role physics');
-  const steep=specialistLesson({...row(),slopeExposure:.05},'step');
+                  'The viewer must rebuild when the earned STEP frontier changes');
+  const steep=specialistLesson({...row(),slopeDeg:1.2},'step');
   assert.notEqual(carpetGeometrySignature(a,'ordinary'),
                   carpetGeometrySignature(steep,'ordinary'));
+  const differentRate=specialistLesson({...row(),slopeExposure:.05},'step');
+  assert.equal(carpetGeometrySignature(a,'ordinary'),
+               carpetGeometrySignature(differentRate,'ordinary'),
+               'Probability changes must not resize already-exposed terrain');
   assert.notEqual(carpetGeometrySignature(a,'ordinary'),
                   carpetGeometrySignature(a,'academy'),
                   'Academy versus ordinary birthplace must force a reset');

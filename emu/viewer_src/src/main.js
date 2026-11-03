@@ -446,6 +446,7 @@ function carpetSourceLimits(){
   const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
   const academy=carpetStepTrack.value==='academy'&&role==='step';
   return {...carpetDifficulty,
+    stepTrack:academy?'academy':'ordinary',
     stepUpM:academy
       ?carpetDifficulty.academyStepUpM??carpetDifficulty.stepUpM
       :carpetDifficulty.ordinaryStepUpM??carpetDifficulty.stepUpM,
@@ -536,7 +537,7 @@ function renderCarpetValues(){
     `${lesson.terrain.slopeDeg.toFixed(2)}° · +${(lesson.terrain.stepUpM*1000).toFixed(2)}/−${(lesson.terrain.stepDownM*1000).toFixed(2)} mm`;
   $('carpetPhysicalEvidence').textContent=[
     `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${activeStepTrack==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
-    `PHYSICAL SEVERITY GATE · slope ×${fmt(slopeExposure*100,1)}% · steps ×${fmt(stepExposure*100,1)}%`,
+    `BIRTH EXPOSURE · slope ${fmt(slopeExposure*100,1)}% of ordinary births · steps ${fmt(stepExposure*100,1)}% of ordinary births; Academy has its own allocation`,
     `SELECTED ${lesson.role.toUpperCase()} · source birth ${fmt(sourceRole.slope)}° · +${fmt(sourceRole.up,3)}/−${fmt(sourceRole.down,3)} mm`,
     `VIEWER COLLIDERS · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
     activeStepTrack==='academy'&&!frontier.academyEligible
@@ -544,14 +545,14 @@ function renderCarpetValues(){
       :carpetDifficultyMode.value==='frontier'
       ?'FRONTIER DEMO — unscaled source ceilings, NOT the sampled GPU physical assignment.'
       :carpetMatch.checked
-        ?'Live-follow assignment. Tile heights also vary by direction and seeded position.'
+        ?'Representative EXPOSED birth; source RNG chooses which real worlds get terrain. Tile heights still vary by direction and seed.'
         :'CUSTOM VIEWER ONLY — this does not change the running trainer.'
   ].join('\n');
   $('tuneOrigin').textContent=!carpetMatch.checked
     ?`CUSTOM ${lesson.role.toUpperCase()} · Reset sliders restores selected source preview.`
     :carpetDifficultyMode.value==='frontier'
       ?'Unscaled source maximum; this is a diagnostic challenge, NOT the GPU sampling distribution.'
-      :`Role × exposure: slope ${sRatio}% · upward lip ${tRatio}% of source frontier. At low exposure, physical steps can be far below the console ceiling.`;
+      :`Exposed ${lesson.role.toUpperCase()} birth: slope ${sRatio}% · upward lip ${tRatio}% of source frontier. Unexposed births are flat; exposure does not reduce height.`;
   carpetValues.textContent=[
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,

@@ -1,5 +1,16 @@
 # EMU — active engineering handover
 
+**3 November 2026 · v5041 140M terrain investigation:** A 140.05M
+continuation learned a solid flat foundation but never received enough
+real slope/step severity to generate curriculum evidence. The nine-box
+`role_envelope` erroneously multiplied the 0.15 *birth probabilities*
+into physical obstacle amplitudes (0.7°→0.1°, 3mm→0.45mm); the early
+profile halved already subthreshold steps. Experimental repair branch:
+`feature/v5041-carpet-exposure-unlock`; see
+[the 140M postmortem](docs/V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md).
+Do **not** resume old source-pinned checkpoints in place or claim 10°
+competence without a fresh physical exam.
+
 **31 October 2026 · New baseline: v5032 Pinnacle 260M**
 
 The owner elected to promote the completed v5032 360-input

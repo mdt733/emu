@@ -48,17 +48,25 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
     return {...p,slopeDeg:0,transitionDeg:0,stepUpM:0,stepDownM:0,
       role:'standing',stage:'foundation'};
   }
-  // Trainer applies the geometric transition cap to the already
-  // role-scaled slope, NOT a second role-specific multiplier to the cap.
+  // Show a representative EXPOSED birth. Exposure is a per-world
+  // probability in the GPU sampler, not an obstacle-height multiplier.
+  // This viewer does not replay which of 2048 worlds received terrain.
+  const stage=carpetLearningStage(limits);
+  const slopeRate=clamp(Number(limits.slopeExposure??1),0,1);
+  const stepRate=clamp(Number(limits.stepExposure??1),0,1);
+  // The UI selects ORDINARY vs ACADEMY before projecting this envelope.
+  // Do not silently replace the ordinary STEP track just because 60M passed.
+  const academyBirth=(role==='step'&&stage==='multi-lip'&&
+    limits.stepTrack==='academy');
+  const stepUp=p.stepUpM,stepDown=p.stepDownM;
   return {
     ...p,
-    // Match GPU role_envelope's extra exposure multiplier. This is a
-    // curriculum BIRTH target, not an estimate of demonstrated skill.
-    slopeDeg:p.slopeDeg*Math.max(0,Math.min(1,Number(limits.slopeExposure??1))),
-    stepUpM:p.stepUpM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
-    stepDownM:p.stepDownM*Math.max(0,Math.min(1,Number(limits.stepExposure??1))),
+    slopeDeg:slopeRate>0?p.slopeDeg:0,
+    stepUpM:(stepRate>0||academyBirth)?stepUp:0,
+    stepDownM:(stepRate>0||academyBirth)?stepDown:0,
+    slopeExposureRate:slopeRate,stepExposureRate:stepRate,
     transitionDeg:Number(limits.transitionDeg??3),
-    role,stage:carpetLearningStage(limits),
+    role,stage,
     // Explicit viewer-only specialist overrides are physical difficulty
     // AFTER curriculum/role scaling. This is never fed to the trainer.
     ...(limits.previewOverride?.terrain||{})};
@@ -67,7 +75,7 @@ export function terrainRoleEnvelope(limits=CARPET_DEFAULT,requested='auto'){
 function directionalProfiles(seed,up,down){
   let x=0,y=0;const X=[],Y=[];
   for(let k=-PROFILE_HALF;k<PROFILE_HALF;k++){
-    const difficulty=.5+Math.min(1,Math.abs(k)/14);
+    const difficulty=.95+.55*Math.min(1,Math.abs(k)/14);
     const sx=(hash(k,0,seed,101)<.5?.90*up:-.90*down)*
       (.75+.25*hash(k,0,seed,102))*difficulty;
     const smaller=Math.min(up,down);

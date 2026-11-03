@@ -56,67 +56,51 @@ and the viewer has a separate chooser for each. The browser runs ONE
 deterministic representative birth. It's not an exact copy of any
 random GPU environment, and achieved skill requires independent exams.
 
-### 110M investigation: why 0.7° / 4 mm can look flat
+### 140M postmortem: restore actual birth exposure and observable lessons
 
-The console's `slope=≤0.7°(0%)` and
-`step≤0.4cm(15%)` do NOT mean every training world has
-0.7° grade and 4 mm steps. The percentage printed after
-**slope** is the physically slanted-world fraction observed in the
-rollout. The percentage after **step** is the teacher's
-`terrain_exposure` scalar: an actual per-birth geometric multiplier
-on the carpet, not simply a count of STEP-specialist worlds.
+The original 110M viewer investigation accurately described the
+**then-buggy** generator, not the intended curriculum. On the completed
+source-pinned 140M run, the console reported `slope=≤0.7°(0%)`
+and `step≤0.4cm(15%)`, but
+`terrain_carpet_mjx.role_envelope()` multiplied the earned slope/step
+frontiers by their 0.15 exposure scalars. That reduced a selected
+0.7° SLOPE birth to about 0.105° and a 4mm STEP birth to 0.6mm
+before the half-height spawn profile shrank nearby lips even further.
+This placed almost all terrain below the teacher's detection/evidence
+bands. The user-uploaded 140M metrics show no qualifying slope or
+step lessons despite successful flat-ground learning.
 
-Specifically `environment._carpet_birth()` applies
-`terrain_carpet_mjx.role_envelope()`:
-`actual_slope_deg = slope_max_deg × slope_role_factor × slope_exposure`
-and
-`actual_step_up_m = signed_step_frontier × step_role_factor × terrain_exposure`.
-For example, with a 4 mm frontier, 15% terrain exposure and a focused
-STEP role (step factor 1.0), the **physical reference step is 0.600 mm**.
-The directional seed profile then generates local steps of varying
-height around that bound. A SLOPE role has its own factors; its actual
-grade depends on the *separate* `slope_exposure` frontier value, NOT
-necessarily the observed 0% slanted-world occupancy.
+**Experimental correction:** on
+`feature/v5041-carpet-exposure-unlock`, ordinary
+`slope_exposure` and `terrain_exposure` now select the *probability*
+of a new episode having that type of terrain, never its height.
+For example, 15% ordinary STEP exposure means about 15% of ordinary
+STEP births are assigned their full specialist-scaled 4mm frontier.
+Dedicated Academy births use their separately earned up/down frontiers
+regardless of ordinary exposure, and the near-spawn X-profile now
+begins at 0.95× rather than 0.5×. Unexposed worlds stay flat in
+that dimension. This distinction matches the earlier two-slab semantics
+while preserving deterministic nine-solid-box physics.
 
-There were TWO browser bugs and one misleading projection:
+The browser represents **one conditional exposed birth**, not the
+randomly chosen subset of the 2,048 training worlds. Its first
+specialist selector still applies the focus-specific amplitude.
+The **Ordinary STEP / Academy STEP** chooser remains independent: the
+viewer only uses Academy step frontiers when Academy is selected,
+not automatically once 60M has passed. The on-screen telemetry now
+labels **birth probability**, effective exposed grade and signed
+physical lips separately.
 
-1. Auto-follow rounded physical STEP heights to **2mm** and grade to
-   **0.5°** when choosing whether to rebuild the browser MuJoCo world.
-   Consequently a growing 0.1–0.6mm source assignment could remain
-   stuck on its *earlier* physical geometry. The new
-   `carpet-refresh.js` compares **0.025mm** and **0.01°**
-   physical role-envelope increments, including which signed STEP
-   stream is shown.
-2. Viewer STEP height sliders were stepped in whole **1mm**, so a
-   legitimate **0.600mm** applied difficulty was displayed as zero or
-   rounded to the wrong value. They now resolve **0.025mm**, with
-   three decimals in millimetres; grade uses hundredths of a degree.
-3. At 60M+ the viewer treated every STEP birth as Academy, but
-   `_carpet_birth` uses the actual `academy_active` **per-episode**
-   assignment. **Ordinary STEP** gets signed
-   `max(terrain_height_m,academy_height_{up/down}_m)`, while an
-   **Academy STEP** receives only the independent Academy limits.
-   The new selector exposes BOTH streams.
+The previous browser fixes remain important and unchanged: actual
+geometry auto-refresh compares **0.025mm** step and **0.01°** grade
+increments, slider displays resolve **0.025mm**, and physical
+difficulty overrides produce a clearly labelled viewer-only
+challenge. A representative viewer is not an independent frozen
+physical exam, and the source-pinned old 140M results have not
+magically gained 10° slope or uphill STEP competence.
 
-The top of Carpet Settings now states all four quantities:
-**global frontier**, **severity exposure**, **specialist physical
-birth**, and **actual browser colliders**, including signed UP/DOWN
-heights and physical grade. A compact physical readout also appears
-in the gait HUD when Settings is closed. No visually exaggerated
-geometry is passed off as real training.
-
-Use **Physical difficulty preview** to switch between the default
-**Actual specialist assignment** and an explicitly diagnostic
-**Global frontier maximum**. The latter removes the role/exposure
-scaling (e.g. shows a full 4mm step and 0.7° grade), without changing
-the trainer. Moving any individual slider still makes a local,
-viewer-only custom challenge.
-
-The independent `tests/carpet-live-geometry.test.mjs` test reproduces
-a 110M source snapshot, both STEP streams, precise refresh comparisons
-and physical geometry. This fixes viewer diagnostics **only**; the
-active source-pinned 140M GPU run and its zero/low slope/step
-achievements are unchanged.
+See [v5041 140M postmortem](V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md)
+for the source-level diagnosis, test plan and checkpoint guardrails.
 
 ### Real browser shoves and arrows
 

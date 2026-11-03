@@ -97,7 +97,7 @@ def hash_float(xp,i,j,seed,salt):
             /xp.float32(4294967296.))
 
 def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
-                  step_down_m, academy, slope_exposure, step_exposure):
+                  step_down_m, academy, slope_exposure, step_exposure, seeds):
     """Shared generator; one actor, six specialist-specific teacher limits.
 
     Foundation/athletic worlds remain essentially flat, then all specialist
@@ -117,16 +117,30 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     step_factor=xp.where(specialist,step_factor,.06)
     slope_factor=xp.where(athletic>.5,slope_factor*.10,slope_factor)
     step_factor=xp.where(athletic>.5,step_factor*.10,step_factor)
-    slope=xp.maximum(0.,slope_deg)*slope_factor*xp.clip(slope_exposure,0.,1.)
-    up=xp.maximum(0.,step_up_m)*step_factor*xp.clip(step_exposure,0.,1.)
-    down=xp.maximum(0.,step_down_m)*step_factor*xp.clip(step_exposure,0.,1.)
+    # Exposure is the fraction of new EPISODE births given real terrain,
+    # not a multiplier on the terrain height/grade. Scaling both exposure
+    # and severity made the 140M v5041 run invisible to its own teacher:
+    # 0.7 deg * .15 was below the slope evidence bands; 3mm * .15
+    # was below the 1.5mm lip classifier. Preserve deterministic JAX
+    # generation with two independent per-world salted birth draws.
+    slope_on=(hash_float(xp,0,0,seeds,151) <
+              xp.clip(slope_exposure,0.,1.))
+    step_on=(hash_float(xp,0,0,seeds,152) <
+             xp.clip(step_exposure,0.,1.))
+    # The dedicated Academy is its OWN allocated STEP birth cohort.
+    # It must receive the earned lip even if ordinary step exposure
+    # is low; otherwise 50% Academy occupancy buys zero usable lessons.
+    step_on=step_on | academy
+    slope=xp.where(slope_on,xp.maximum(0.,slope_deg)*slope_factor,0.)
+    up=xp.where(step_on,xp.maximum(0.,step_up_m)*step_factor,0.)
+    down=xp.where(step_on,xp.maximum(0.,step_down_m)*step_factor,0.)
     return slope,up,down
 
 def make_profiles(xp,seeds,up,down):
     """Exact per-world directional step limits on mostly independent strips.
 
     The +/-X direction independently draws UP/DOWN under an early-to-late
-    0.5x→1.5x physical challenge schedule, with 90% of the directional
+    0.95x→1.5x physical challenge schedule, with 90% of the directional
     frontier as the base amplitude. The +/-Y component uses 18% of the
     smaller frontier; per-tile jitter uses 5%. The final stretch may exceed
     the mastered frontier by design (but never grows without bounds).
@@ -137,11 +151,11 @@ def make_profiles(xp,seeds,up,down):
     seed=seeds[:,None]
     hx=hash_float(xp,idx,0,seed,101)
     ax=hash_float(xp,idx,0,seed,102)
-    # Intentionally start at 50% demonstrated ability near the spawn and
-    # reach 150% in the farther tiles. Global coordinates make challenges
-    # immutable when revisited; advancing the episode age never edits a
-    # platform while the bird is standing on it.
-    challenge=.5+xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
+    # Seed lips must be physically detectable: a 3mm Academy frontier
+    # scaled to 50% produced sub-1.5mm encounters, which the real-contact
+    # teacher correctly rejects. Start at 95% and reach 150% by tile 14.
+    # Global coordinates keep revisits immutable throughout the episode.
+    challenge=.95+.55*xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
     signed_x=xp.where(hx<.5,.90*up[:,None],
                        -.90*down[:,None])*(.75+.25*ax)*challenge
     hy=hash_float(xp,0,idx,seed,103)
