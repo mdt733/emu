@@ -28,14 +28,7 @@ import math
 import xml.etree.ElementTree as ET
 import numpy as np
 
-from .domain_randomization import (
-    DomainRandomizationConfig, build_batched_model, doctrine_dict,
-    MAX_SLOPE_DEG, GROUND_FRICTION_FRAC, FOOT_FRICTION_FRAC,
-    BODY_MASS_GLOBAL_FRAC, BODY_MASS_LOCAL_FRAC,
-    JOINT_DAMPING_FRAC, JOINT_FRICTIONLOSS_FRAC, JOINT_ARMATURE_FRAC,
-    ACTUATOR_KP_FRAC, ACTUATOR_TORQUE_FRAC, SERVO_ZERO_MAX_DEG,
-    GRAVITY_MAG_FRAC,
-)
+from .domain_randomization import DomainRandomizationConfig, build_batched_model
 from .rewards import (training_reward, apply_early_fall_penalty,
                       REWARD_ONLY_METRICS)
 from .capability_focus import (focus_indices, diamond_commands,
@@ -62,9 +55,9 @@ from .directional import (fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
 )
 from .contracts import (
-    SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS, BASE_OBS_DIM,
-    BASE_OBS_FIELDS, HISTORY_LEN, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR,
-    OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG, TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
+    SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS,
+    HISTORY_LEN, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG,
+    TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
     TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P,
     PHASE_RATE_MAX_HZ, PITCH_CMD_MAX_RAD, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
     FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE,
@@ -80,9 +73,9 @@ from .contracts import (
 # flex Hall sensors, optical-flow/ToF velocity estimation, command/controller
 # state. Reward/evaluation may still use perfect MuJoCo truth.
 #
-# The exact 55-channel order is the shared BASE_OBS_FIELDS contract.
-# Fixed-size history used to model target-delivery latency. The buffer shape is
-# independent of the configured latency so JIT shapes stay stable.
+# Channel order is fixed by the 360-input terrain sensor observation contract.
+# A fixed-size four-frame history models measurement and actuation latency;
+# its JIT shape cannot vary between training and the frozen examiner.
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
 TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
@@ -139,14 +132,6 @@ STEADY_RESILIENCE_BORROW_FRAC = 0.15
 #     softening the tracking exponential's sharpness overall -- real room
 #     to deviate for balance recovery without the tracking term collapsing
 #     toward zero the moment a push lands.
-
-# Opt-in G3 platform. These are collision dimensions, NOT a terrain teacher.
-# Episode height/direction/yaw live in mjx.Data.mocap_pos/mocap_quat, which
-# can change at reset without rebuilding the shared model or JIT structure.
-TERRAIN_PLATFORM_HALF_LENGTH_M = 0.90
-TERRAIN_PLATFORM_HALF_WIDTH_M = 0.48
-TERRAIN_PLATFORM_HALF_DEPTH_M = 0.15
-TERRAIN_PLATFORM_EDGE_X_M = 0.25
 
 
 class EnvState(NamedTuple):
@@ -947,7 +932,7 @@ class EmuMJXEnv(TaskSampler):
                  attitude_profile: str = 'v5014', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
                  contact_slope_deg: float = 0.0,
-                 observation_schema: str = OBS_SCHEMA_LEGACY,
+                 observation_schema: str = OBS_SCHEMA_TERRAIN,
                  tof_period_frames: int = 2,
                  flow_period_frames: int = 1,
                  tof_delay_frames: int = 1,
