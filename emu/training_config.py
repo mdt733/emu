@@ -290,19 +290,6 @@ def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, re
     )
 
 
-def foundation_config(*, run_dir: Path, seed: int, device: str, envs: int, resume: Path | None = None) -> TrainingConfig:
-    return replace(
-        TrainingConfig(), **_runtime(run_dir=run_dir, steps=FOUNDATION_STEPS, seed=seed, device=device, envs=envs, resume=resume),
-        difficulty_base_step=0.0014,
-        vx_hi_max=0.40, vx_lo_min=-0.12, vy_max_mps=0.14, yaw_max_rad_s=0.90,
-        phase_speed_gain=0.75, regime_command_frac=0.60,
-        push_max_force_n=0.70,
-        cloud_probes_per_eval=0, cloud_final_probes=0,
-        capability_field_mode="shadow", allow_rollback=False,
-        field_influence_start_steps=10_000_000, field_influence_full_steps=FOUNDATION_STEPS,
-    )
-
-
 def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: str, envs: int,
                   resume: Path | None) -> TrainingConfig:
     if mode not in {"shadow", "graph"}:
