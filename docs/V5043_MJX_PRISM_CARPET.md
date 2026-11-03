@@ -59,6 +59,34 @@ The separate training CLI accepts `--terrain-carpet --carpet-prisms` together. N
 4. Read-only frozen-policy forward/reverse/cross-slope and up/down step exams; distinguish supported motion from simply surviving
 5. Verify teacher attempt evidence persists long enough to promote the STEP specialists (the old transient end-of-episode evidence issue remains a separate open problem)
 
+## Observed user RTX 4060 Ti GPU acceptance — 3 November 2026
+
+User ran code at source SHA `7f4814aa2a9290e36432d9a86dcc67e47e203787` using
+MuJoCo/MJX 3.17.0, JAX 0.12.0.1, CUDA and the 8 GB RTX 4060 Ti:
+
+- `--device cuda --worlds 128 --frames 2 --ppo --prisms` **PASS**:
+  18 actual dynamic prism top collision geoms, sensor/collider top difference
+  **0.000 mm**, recycling safety and finite 360-input observations, successful
+  actor gradient update (maximum actor parameter change **5.0008e-5**).
+  Initial PPO update with compilation: **110.19 seconds**, 256 world-steps.
+- `--device cuda --worlds 2048 --frames 2 --ppo --full-update --prisms`
+  **PASS**: same contact, recycler, sensor and finiteness checks, one genuine
+  **65,536-world-step** full PPO update with actor change **0.00149668**,
+  initial update including compilation **128.19 seconds**. Peak GPU bytes
+  in use **1,359,206,656 (1.36 GB decimal)**; peak memory pool
+  **2,145,386,496 bytes (2.15 GB)**, allocation limit
+  **6,440,353,792 bytes**. These numbers show large headroom on this machine.
+- The original smoke script emitted an **incorrect final summary label**
+  `"physics": "nine-solid-tilted-boxes"` despite successfully asserting the
+  18 enabled prism geoms. This was a **reporting bug only**; fixed in a
+  later branch commit, now with a label regression test.
+- 128.19 s includes full JIT compilation and **must not be divided into
+  65,536 to claim steady-state FPS**. The next bounded measurement is
+  `--benchmark-updates 3` at 2048 worlds, yielding two synchronized
+  post-compile PPO update timings. This saves no checkpoints.
+- Independent frozen-policy walking and real multi-lip crossing exams
+  remain required; one full PPO update does not establish learning quality.
+
 ## Run a trained robot on the real prisms — frozen read-only exam
 
 The `scripts/exam_step_course.py` examiner now supports `--carpet --prisms`.
