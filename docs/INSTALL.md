@@ -193,10 +193,10 @@ git rev-parse HEAD
 python -m pip freeze > "$HOME/robot_lab/emu-python-packages.txt"
 python -m emu.cli train --help
 python scripts/verify_showcase_release.py
-python -m emu.cli capability-exam \
-  --policy showcase/champion.emupolicy \
-  --output "$HOME/robot_lab/emu_exams/pinnacle_260m" \
-  --device cpu --quick
+# The previous source-pinned two-slab physical examiner was retired.
+# View the released champion in the browser, or use its historical Git
+# source to reproduce the old frozen physical baseline.
+python -m emu.cli viewer showcase/champion.emupolicy --no-open
 ```
 
 This reads the checked-in **trained 360-input policy**. It
