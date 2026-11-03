@@ -55,9 +55,7 @@ from .terrain_carpet_mjx import (
     signed_height_over_support as carpet_signed_support,
     supported_tile_foot_pairs as carpet_top_foot_pairs,
     shares_physical_edge as carpet_shared_edge,
-    SOLID_BODY_NAMES as CARPET_SOLID_BODY_NAMES,
-    SOLID_GEOM_NAMES as CARPET_SOLID_GEOM_NAMES,
-    solid_box_poses as carpet_solid_box_poses)
+)
 from .carpet_prism_mjx import (
     batch_update_prism_mocaps,
     PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PRISM_DEPTH_M, PrismMeshBuilder)
@@ -1117,47 +1115,34 @@ class EmuMJXEnv(TaskSampler):
         self.carpet_prism_mocap_ids=()
         self.carpet_prism_geom_ids=()
         self.carpet_prism_builder=None
-        if self.terrain_carpet:
-            self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
-                mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
-                for n in CARPET_BODY_NAMES)
-            self.carpet_geom_ids=tuple(int(mujoco.mj_name2id(
-                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
-                for n in CARPET_GEOM_NAMES)
-            if (any(v<0 for v in self.carpet_mocap_ids)
-                or any(v<0 for v in self.carpet_geom_ids)):
-                raise RuntimeError('Missing nine independent source tile samples')
-            if not self.terrain_carpet_prisms:
-                self.carpet_solid_mocap_ids=tuple(int(self.mj_model.body_mocapid[
-                    mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
-                    for n in CARPET_SOLID_BODY_NAMES)
-                self.carpet_solid_geom_ids=tuple(int(mujoco.mj_name2id(
-                    self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
-                    for n in CARPET_SOLID_GEOM_NAMES)
-                if (any(v<0 for v in self.carpet_solid_mocap_ids)
-                    or any(v<0 for v in self.carpet_solid_geom_ids)
-                    or len(set(self.carpet_solid_mocap_ids))!=CARPET_TILE_COUNT):
-                    raise RuntimeError('Missing nine legacy box colliders')
-            if self.terrain_carpet_prisms:
-                self.carpet_prism_mocap_ids=tuple(int(
-                    self.mj_model.body_mocapid[self.mujoco.mj_name2id(
-                        self.mj_model,self.mujoco.mjtObj.mjOBJ_BODY,name)])
-                    for name in PRISM_BODY_NAMES)
-                self.carpet_prism_geom_ids=tuple(int(self.mujoco.mj_name2id(
-                    self.mj_model,self.mujoco.mjtObj.mjOBJ_GEOM,name))
-                    for name in PRISM_GEOM_NAMES)
-                if (len(self.carpet_prism_mocap_ids)!=PRISM_COUNT or
-                    any(v<0 for v in (*self.carpet_prism_mocap_ids,
-                                       *self.carpet_prism_geom_ids))):
-                    raise RuntimeError('18 moving convex prism geoms missing')
-                if any(self.mj_model.geom_contype[g]!=4
-                       for g in self.carpet_prism_geom_ids):
-                    raise RuntimeError('Prisms must be physical bit-4 colliders')
-                if self.carpet_solid_geom_ids or self.carpet_solid_mocap_ids:
-                    raise RuntimeError('Prism training must not allocate legacy solid boxes')
-            assert self.mj_model.nhfield==CARPET_TILE_COUNT, self.mj_model.nhfield
-            assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
-            assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
+        self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
+            for n in CARPET_BODY_NAMES)
+        self.carpet_geom_ids=tuple(int(mujoco.mj_name2id(
+            self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
+            for n in CARPET_GEOM_NAMES)
+        if (any(v<0 for v in self.carpet_mocap_ids)
+            or any(v<0 for v in self.carpet_geom_ids)):
+            raise RuntimeError('Missing nine independent source tile samples')
+        self.carpet_prism_mocap_ids=tuple(int(
+            self.mj_model.body_mocapid[self.mujoco.mj_name2id(
+                self.mj_model,self.mujoco.mjtObj.mjOBJ_BODY,name)])
+            for name in PRISM_BODY_NAMES)
+        self.carpet_prism_geom_ids=tuple(int(self.mujoco.mj_name2id(
+            self.mj_model,self.mujoco.mjtObj.mjOBJ_GEOM,name))
+            for name in PRISM_GEOM_NAMES)
+        if (len(self.carpet_prism_mocap_ids)!=PRISM_COUNT or
+            any(v<0 for v in (*self.carpet_prism_mocap_ids,
+                               *self.carpet_prism_geom_ids))):
+            raise RuntimeError('18 moving convex prism geoms missing')
+        if any(self.mj_model.geom_contype[g]!=4
+               for g in self.carpet_prism_geom_ids):
+            raise RuntimeError('Prisms must be physical bit-4 colliders')
+        if self.carpet_solid_geom_ids or self.carpet_solid_mocap_ids:
+            raise RuntimeError('Prism training must not allocate legacy solid boxes')
+        assert self.mj_model.nhfield==CARPET_TILE_COUNT,self.mj_model.nhfield
+        assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
+        assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
         self.mj_model.opt.timestep = SIM_DT
         # A static real plane and per-world real contact-domain models
         # share the same floor geom and forward-kinematics path. Both require
@@ -1196,34 +1181,31 @@ class EmuMJXEnv(TaskSampler):
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
         self.mjx_model_template = mjx.put_model(self.mj_model)
-        if self.terrain_carpet_prisms:
-            self.carpet_prism_builder=PrismMeshBuilder(
-                self.mj_model,self.mjx_model_template,self.carpet_prism_geom_ids)
+        self.carpet_prism_builder=PrismMeshBuilder(
+            self.mj_model,self.mjx_model_template,self.carpet_prism_geom_ids)
         self.ids = self._resolve_ids()
         self.mjx_model, self.model_in_axes, self.domain_info = build_batched_model(
             self.mjx_model_template, ids=self.ids, num_envs=self.num_envs, seed=int(seed),
             config=self.domain_config)
-        if self.terrain_carpet:
-            h=self.mjx_model_template.hfield_data
-            if h.shape!=(CARPET_TILE_COUNT*4,):
-                raise RuntimeError(f'2-triangle carpet hfield has wrong storage: {h.shape}')
-            self.mjx_model=self.mjx_model.tree_replace({
-                'hfield_data':jnp.broadcast_to(h,(self.num_envs,h.shape[0]))})
-            axes=(self.model_in_axes if self.model_in_axes is not None else
-                  jax.tree_util.tree_map(lambda _:None,self.mjx_model_template))
-            self.model_in_axes=axes.tree_replace({'hfield_data':0})
-            if self.terrain_carpet_prisms:
-                builder=self.carpet_prism_builder
-                mesh=self.mjx_model._impl.mesh_convex
-                batch=builder.batch_template(jnp,self.num_envs)
-                merged=tuple(batch[i] if any(
-                    m['mesh_id']==i for m in builder.meta) else mesh[i]
-                    for i in range(len(mesh)))
-                self.mjx_model=self.mjx_model.replace(
-                    _impl=self.mjx_model._impl.replace(mesh_convex=merged))
-                self.model_in_axes=self.model_in_axes.replace(
-                    _impl=self.model_in_axes._impl.replace(
-                        mesh_convex=builder.in_axes(self.mjx_model_template)))
+        h=self.mjx_model_template.hfield_data
+        if h.shape!=(CARPET_TILE_COUNT*4,):
+            raise RuntimeError(f'2-triangle carpet hfield has wrong storage: {h.shape}')
+        self.mjx_model=self.mjx_model.tree_replace({
+            'hfield_data':jnp.broadcast_to(h,(self.num_envs,h.shape[0]))})
+        axes=(self.model_in_axes if self.model_in_axes is not None else
+              jax.tree_util.tree_map(lambda _:None,self.mjx_model_template))
+        self.model_in_axes=axes.tree_replace({'hfield_data':0})
+        builder=self.carpet_prism_builder
+        mesh=self.mjx_model._impl.mesh_convex
+        batch=builder.batch_template(jnp,self.num_envs)
+        merged=tuple(batch[i] if any(
+            m['mesh_id']==i for m in builder.meta) else mesh[i]
+            for i in range(len(mesh)))
+        self.mjx_model=self.mjx_model.replace(
+            _impl=self.mjx_model._impl.replace(mesh_convex=merged))
+        self.model_in_axes=self.model_in_axes.replace(
+            _impl=self.model_in_axes._impl.replace(
+                mesh_convex=builder.in_axes(self.mjx_model_template)))
         gravity_unit = self.domain_info.get('gravity_unit_world')
         self.gravity_unit_world = (
             gravity_unit if gravity_unit is not None
@@ -2442,10 +2424,9 @@ class EmuMJXEnv(TaskSampler):
     def _carpet_dynamic_model(self,heights):
         """Rebuild convex prism vertices/normals per environment, fixed topology."""
         model=self.mjx_model.tree_replace({'hfield_data':heights})
-        if self.terrain_carpet_prisms:
-            meshes=self.carpet_prism_builder.deform(
-                self.jnp,heights,self.mjx_model_template._impl.mesh_convex)
-            model=model.replace(_impl=model._impl.replace(mesh_convex=meshes))
+        meshes=self.carpet_prism_builder.deform(
+            self.jnp,heights,self.mjx_model_template._impl.mesh_convex)
+        model=model.replace(_impl=model._impl.replace(mesh_convex=meshes))
         return model
 
     def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
@@ -2482,20 +2463,12 @@ class EmuMJXEnv(TaskSampler):
         pos=data.mocap_pos
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
-        quat=data.mocap_quat
-        if not self.terrain_carpet_prisms:
-            solid_pos,solid_quat=carpet_solid_box_poses(jnp,centers,heights)
-            for i,mocap in enumerate(self.carpet_solid_mocap_ids):
-                pos=pos.at[:,mocap,:].set(solid_pos[:,i,:])
-                quat=quat.at[:,mocap,:].set(solid_quat[:,i,:])
-        if self.terrain_carpet_prisms:
-            # Two physical half-tile prisms share one tile centre. Use
-            # a single batched scatter instead of 18 independent updates.
-            prism_z=centers.at[:,:,2].add(.5*CARPET_TILE_M)
-            pos=batch_update_prism_mocaps(
-                jnp,pos,self.carpet_prism_mocap_ids,prism_z,
-                jnp.ones((self.num_envs,CARPET_TILE_COUNT),dtype=jnp.bool_))
-        data=data.replace(mocap_pos=pos,mocap_quat=quat)
+        # Two physical half-tile prisms share one tile centre.
+        prism_z=centers.at[:,:,2].add(.5*CARPET_TILE_M)
+        pos=batch_update_prism_mocaps(
+            jnp,pos,self.carpet_prism_mocap_ids,prism_z,
+            jnp.ones((self.num_envs,CARPET_TILE_COUNT),dtype=jnp.bool_))
+        data=data.replace(mocap_pos=pos)
         top=carpet_sample_surface(jnp,data,self.carpet_mocap_ids,
                   heights,data.qpos[:,:3][:,None,:])[:,0]
         top=jnp.where(jnp.isfinite(top),top,0.)
@@ -2525,26 +2498,15 @@ class EmuMJXEnv(TaskSampler):
         # a ball-foot centre can be inside the NEW 3x3 footprint while
         # its 18mm sphere still touches an abandoned solid-box overhang.
         # Use the actual rotated collider AABBs as a conservative exclusion.
-        from .terrain_carpet_mjx import (
-            feet_clear_of_abandoned_solids, feet_clear_of_abandoned_prisms)
+        from .terrain_carpet_mjx import feet_clear_of_abandoned_prisms
         feet_xy=data.xpos[:,self.foot_bodies,:2]
         foot_cell=jnp.floor(feet_xy/CARPET_TILE_M).astype(jnp.int32)
         foot_inside_new_window=jnp.all(
             jnp.abs(foot_cell-desired[:,None,:])<=1,axis=(1,2))
         foot_geom_ids=np.asarray(self.ids['foot_geoms'],dtype=np.int32)
         foot_radii=jnp.asarray(self.mj_model.geom_size[foot_geom_ids,0])
-        if self.terrain_carpet_prisms:
-            foot_safe=foot_inside_new_window&feet_clear_of_abandoned_prisms(
-                jnp,state.carpet_center,desired,feet_xy,foot_radii)
-        else:
-            solid_ids=list(self.carpet_solid_geom_ids)
-            box_centres=data.geom_xpos[:,solid_ids,:2]
-            box_rotations=data.geom_xmat[:,solid_ids,:].reshape(
-                (self.num_envs,CARPET_TILE_COUNT,3,3))
-            box_half_sizes=jnp.asarray(self.mj_model.geom_size[solid_ids,:3])
-            foot_safe=foot_inside_new_window&feet_clear_of_abandoned_solids(
-                jnp,state.carpet_center,desired,feet_xy,foot_radii,
-                box_centres,box_rotations,box_half_sizes)
+        foot_safe=foot_inside_new_window&feet_clear_of_abandoned_prisms(
+            jnp,state.carpet_center,desired,feet_xy,foot_radii)
         # Jumping two full 50cm tiles within a 20ms control frame is
         # physically implausible. Refuse to teleport colliders in that case.
         near=jnp.all(jnp.abs(desired-state.carpet_center)<=1,axis=1)
@@ -2565,24 +2527,11 @@ class EmuMJXEnv(TaskSampler):
             indices!=jnp.stack((old_x,old_y),axis=-1),axis=-1)
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers,change)
-        if self.terrain_carpet_prisms:
-            physical_centres=centers.at[:,:,2].add(.5*CARPET_TILE_M)
-            pos=batch_update_prism_mocaps(
-                jnp,pos,self.carpet_prism_mocap_ids,physical_centres,change)
-        q=data.mocap_quat
-        if not self.terrain_carpet_prisms:
-            # Legacy nine-box path retained only until its benchmark
-            # and geometry tests have been retired separately.
-            solids,quats=carpet_solid_box_poses(jnp,centers,hfields)
-            for i,mocap in enumerate(self.carpet_solid_mocap_ids):
-                changed=(move & ((indices[:,i,0]!=old_x[:,i])
-                                 |(indices[:,i,1]!=old_y[:,i])))
-                pos=pos.at[:,mocap,:].set(
-                    jnp.where(changed[:,None],solids[:,i,:],pos[:,mocap,:]))
-                q=q.at[:,mocap,:].set(
-                    jnp.where(changed[:,None],quats[:,i,:],q[:,mocap,:]))
+        physical_centres=centers.at[:,:,2].add(.5*CARPET_TILE_M)
+        pos=batch_update_prism_mocaps(
+            jnp,pos,self.carpet_prism_mocap_ids,physical_centres,change)
         hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
-        return data.replace(mocap_pos=pos,mocap_quat=q),hfield,new_center
+        return data.replace(mocap_pos=pos),hfield,new_center
 
     def _reset_with_keys(self, keys, params, carryover_qvel=None):
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
@@ -2908,10 +2857,8 @@ class EmuMJXEnv(TaskSampler):
             self.mj_model.geom_size[list(foot_geoms),0])[None,:])
         physical_foot_top=self._carpet_real_top_height(
             data,foot_xyz,state.carpet_hfields)
-        tile_geoms=(tuple(self.carpet_prism_geom_ids[2*i:2*i+2]
-                          for i in range(CARPET_TILE_COUNT))
-                    if self.terrain_carpet_prisms else
-                    tuple((g,) for g in self.carpet_solid_geom_ids))
+        tile_geoms=tuple(self.carpet_prism_geom_ids[2*i:2*i+2]
+                         for i in range(CARPET_TILE_COUNT))
         top_contacts_by_tile=jnp.stack(tuple(
             jnp.any(jnp.stack(tuple(
                 carpet_top_foot_pairs(
