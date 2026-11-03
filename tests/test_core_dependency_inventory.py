@@ -28,7 +28,11 @@ def test_inventory_preserves_actual_train_to_physics_and_actor_route():
     report = inventory(REPO_ROOT)
     assert report["backend_module_count"] >= 24
     assert report["backend_python_lines"] >= 15000
-    assert report["documentation_pages"] >= 20
+    # This is a trim exercise: 28 historical docs were deliberately removed.
+    # Check the active index survives, not an arbitrary old doc count.
+    assert report["documentation_pages"] >= 10
+    assert (REPO_ROOT / "docs" / "CORE_SKELETON.md").is_file()
+    assert (REPO_ROOT / "docs" / "V5044_PRISM_140M_COLDSTART.md").is_file()
     assert set(STAGES) == {"run","physics","learning","exam","viewer"}
     assert "environment" in report["stage_reachable"]["learning"]
     assert "ppo" in report["stage_reachable"]["learning"]
