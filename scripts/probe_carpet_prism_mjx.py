@@ -79,6 +79,10 @@ def run_probe(worlds=4, frames=2):
 
     seam=sphere_contact(0.)
     step=sphere_contact(.04)
+    # Stress physical skirt depth: a high tile must still have a real side
+    # collider BELOW its top, not open air at lower terrain elevation.
+    # 40cm here probes geometry integrity, NOT an earned 40cm STEP frontier.
+    deep_step=sphere_contact(.40)
     env=EmuMJXEnv(str(ROBOT_XML),num_envs=worlds,seed=735,
                   max_episode_steps=700,terrain_step_max_m=.08,
                   observation_schema=OBS_SCHEMA_TERRAIN,
@@ -176,6 +180,7 @@ def run_probe(worlds=4, frames=2):
     print(json.dumps(dict(status="PASS",backend=jax.default_backend(),
         worlds=worlds,frames=frames,convex_prisms=PRISM_COUNT,
         flat_seam=seam,physical_4cm_riser=step,
+        deep_sidewall_40cm_geometry_only=deep_step,
         full_emu_360_actor=True,
         physical_vertex_max_error_mm=round(max_vertex_error*1000,6),
         max_unwanted_edge_wedge_mm=round(max_edge_wedge*1000,6)),indent=2),flush=True)
