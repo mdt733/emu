@@ -10,75 +10,61 @@ export function decodeF32(blob) {
   const expected = blob.shape.reduce((a, b) => a * b, 1);
   if (bytes.byteLength !== expected * 4) throw new Error(`Float blob byte size mismatch: got ${bytes.byteLength}, expected ${expected * 4}`);
   const src = new Float32Array(bytes.buffer);
-  // .emupolicy schema 1 is little-endian. All mainstream browsers we target
+  // Current .emupolicy float blobs are little-endian. Browsers we target
   // are little-endian; use DataView fallback if that ever stops being true.
   return new Float32Array(src);
 }
 
 export function parsePolicy(text) {
-  const p = JSON.parse(text);
-  if (p.format !== 'emu-policy' || ![1, 2, 3].includes(p.schema)) throw new Error(`Unsupported policy format/schema: ${p.format}/${p.schema}`);
-  if (!p.policy || !p.observation || !p.control || typeof p.robot_xml !== 'string') throw new Error('Policy bundle is missing required sections');
-  if (p.policy.action_dim !== 6) throw new Error(`Expected 6 actions, got ${p.policy.action_dim}`);
-  const isSensor = p.schema === 2 || p.schema === 3;
-  const isTerrain = p.schema === 3;
-  const base = isTerrain ? 90 : isSensor ? 58 : 55;
-  if (p.policy.history_len !== 4 || p.policy.base_obs_dim !== base || p.policy.obs_dim !== base * 4) {
-    throw new Error(`Viewer policy observation mismatch: expected ${base}×4, bundle says ${p.policy.base_obs_dim}×${p.policy.history_len}=${p.policy.obs_dim}`);
+  // v5045 only loads the ACTUAL current 360-input array-only actor.
+  // Old 220/232-input bundles remain recoverable from historical Git.
+  const b=JSON.parse(text);
+  if(b.format!=='emu-policy'||b.schema!==3)
+    throw Error('Only schema-3 360-input policies are supported in this viewer');
+  if(!b.policy||!b.observation||!b.control||typeof b.robot_xml!=='string')
+    throw Error('Policy bundle is missing required sections');
+  const a=b.policy,c=b.observation.sensor_contract;
+  if(a.action_dim!==6||a.history_len!==4||a.base_obs_dim!==90||a.obs_dim!==360)
+    throw Error('Viewer requires the six-servo 360-input four-frame actor contract');
+  if(!Array.isArray(a.layers)||a.layers.length!==3)
+    throw Error('Viewer requires a three-layer actor');
+  const f=b.observation.base_fields;
+  if(!Array.isArray(f)||f.length!==90||
+     JSON.stringify(f.slice(55,58))!==JSON.stringify([
+       'ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence'
+     ]))
+    throw Error('Invalid 360-input observation fields');
+  if(b.source?.checkpoint_schema!==9||
+     !c||c.schema!=='terrain_360'||
+     c.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2'||
+     c.history_len!==4||c.action_dim!==6||
+     JSON.stringify(c.base_fields)!==JSON.stringify(f)||
+     c.tripod_mounts_body_m!==undefined||
+     c.tripod_beams_body!==undefined||
+     c.tof_range_limits_m!==undefined||
+     c.array_ground_estimator!=='weighted_4x4_plane_residual_8mm_v1'||
+     c.array_ground_max_fit_residual_m!==.008||
+     c.array_ground_min_valid_cells!==6)
+    throw Error('Invalid schema-9 array-only 360-input contract');
+  const settings=c.settings||{};
+  for(const key of ['tof_period_frames','flow_period_frames',
+    'tof_delay_frames','flow_delay_frames','tof_dropout_prob',
+    'flow_dropout_prob','gyro_bias_std_rad_s','sensor_noise_scale']){
+    if(!Number.isFinite(settings[key]))
+      throw Error('Invalid sensor setting: '+key);
   }
-  if (!Array.isArray(p.policy.layers) || p.policy.layers.length !== 3) throw new Error('Viewer requires a 3-layer actor');
-  if (!Array.isArray(p.observation.base_fields) || p.observation.base_fields.length !== base) throw new Error('Invalid base observation field contract');
-  if (isSensor) {
-    const c = p.observation.sensor_contract;
-    const arrayOnly = isTerrain && c?.sensor_model_revision ===
-      'forward_tof4x4_array_plane_fit_no_tripod_2';
-    if (!c || c.schema !== (isTerrain ? 'terrain_360' : 'sim2real_232') ||
-        c.sensor_model_revision !== (isTerrain ? (
-          arrayOnly?'forward_tof4x4_array_plane_fit_no_tripod_2':
-          'forward_tof4x4_real_plane_box_foot_1') : 'tripod_tof_flow_async_v1') ||
-        c.history_len !== 4 || c.action_dim !== 6 ||
-        JSON.stringify(c.base_fields) !== JSON.stringify(p.observation.base_fields) ||
-        JSON.stringify(p.observation.base_fields.slice(55,58)) !== JSON.stringify([
-          'ground_forward_grade_rad', 'ground_sideways_grade_rad', 'ground_visibility_confidence'
-        ])) throw new Error('Unsupported v5016 sensor observation model');
-    const settings = c.settings || {};
-    for(const field of ['tof_period_frames','flow_period_frames','tof_delay_frames','flow_delay_frames',
-                        'tof_dropout_prob','flow_dropout_prob','gyro_bias_std_rad_s','sensor_noise_scale']) {
-      if (!Number.isFinite(settings[field])) throw new Error(`Invalid sensor setting: ${field}`);
-    }
-    if (arrayOnly) {
-      if (c.tripod_mounts_body_m !== undefined ||
-          c.tripod_beams_body !== undefined ||
-          c.tof_range_limits_m !== undefined ||
-          c.array_ground_estimator !== 'weighted_4x4_plane_residual_8mm_v1' ||
-          c.array_ground_max_fit_residual_m !== .008 ||
-          c.array_ground_min_valid_cells !== 6)
-        throw new Error('Invalid array-only terrain sensor identity');
-    } else if (c.tof_range_limits_m?.[0] !== .035 || c.tof_range_limits_m?.[1] !== .6 ||
-        JSON.stringify(c.tripod_mounts_body_m) !== JSON.stringify([[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]]) ||
-        JSON.stringify(c.tripod_beams_body) !== JSON.stringify([[0,0,-1],[0,0,-1],[0,0,-1]])) {
-      throw new Error('Unsupported tripod ToF extrinsics');
-    }
-    if (isTerrain) {
-      if (p.source?.checkpoint_schema !== 9 ||
-          JSON.stringify(c.tof4x4_mount_body_m) !== JSON.stringify([0,0,0]) ||
-          JSON.stringify(c.tof4x4_pitch_from_horizontal_deg) !== JSON.stringify([40,60,80,100]) ||
-          JSON.stringify(c.tof4x4_yaw_deg) !== JSON.stringify([-22.5,-7.5,7.5,22.5]) ||
-          JSON.stringify(c.tof4x4_range_limits_m) !== JSON.stringify([.04,1.5]) ||
-          c.tof4x4_occlusion !== 'nearest ray-sphere foot hit masks terrain return' ||
-          c.tof4x4_validity !== 'one bit per cell, delayed, zero on dropout' ||
-          !p.observation.base_fields.slice(58,74).every((name,i)=>
-            name === `tof4x4_range_${Math.floor(i/4)}${i%4}_m`) ||
-          !p.observation.base_fields.slice(74,90).every((name,i)=>
-            name === `tof4x4_valid_${Math.floor(i/4)}${i%4}`))
-        throw new Error('Unsupported schema-9 360-input physical ToF contract');
-    } else if (p.source?.checkpoint_schema !== 8) {
-      throw new Error('Schema-8 sensor checkpoint required');
-    }
-  } else if ([8,9].includes(p.source?.checkpoint_schema)) {
-    throw new Error('Sensor actor cannot be rendered by legacy schema-1 viewer');
-  }
-  return p;
+  if(JSON.stringify(c.tof4x4_mount_body_m)!==JSON.stringify([0,0,0])||
+     JSON.stringify(c.tof4x4_pitch_from_horizontal_deg)!==JSON.stringify([40,60,80,100])||
+     JSON.stringify(c.tof4x4_yaw_deg)!==JSON.stringify([-22.5,-7.5,7.5,22.5])||
+     JSON.stringify(c.tof4x4_range_limits_m)!==JSON.stringify([.04,1.5])||
+     c.tof4x4_occlusion!=='nearest ray-sphere foot hit masks terrain return'||
+     c.tof4x4_validity!=='one bit per cell, delayed, zero on dropout'||
+     !f.slice(58,74).every((name,i)=>name===
+       `tof4x4_range_${Math.floor(i/4)}${i%4}_m`)||
+     !f.slice(74,90).every((name,i)=>name===
+       `tof4x4_valid_${Math.floor(i/4)}${i%4}`))
+    throw Error('Invalid schema-9 4x4 physical range contract');
+  return b;
 }
 
 class DenseLayer {

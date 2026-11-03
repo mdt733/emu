@@ -5,7 +5,6 @@ import {fileURLToPath} from 'node:url';
 import {parsePolicy} from '../src/policy.js';
 import {parseShowcaseManifest} from '../src/showcase.js';
 import {withTerrain,generateTerrainPark,surfaceSlope,surfaceLabGradient,PARK_CHALLENGE_PRESETS} from '../src/terrain.js';
-import {SensorObserver} from '../src/sensor.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {commandStickPositions,DemoHandoff} from '../src/demo-handoff.js';
@@ -22,63 +21,11 @@ const origin={x:0,y:0,heading:0,vx:0,vy:0};
 const sourceText=path=>readFileSync(fileURLToPath(new URL(path,import.meta.url)),'utf8');
 
 // 1. A public viewer must reject bad policy/manifest contracts.
-test('policy loading preserves schema-2 sensor contracts and safe local assets',()=>{
-  const c={
-    schema:'sim2real_232',sensor_model_revision:'tripod_tof_flow_async_v1',
-    history_len:4,action_dim:6,
-    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
-    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
-    tof_range_limits_m:[.035,.6],
-    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
-      tof_dropout_prob:.01,flow_dropout_prob:.02,gyro_bias_std_rad_s:.015,sensor_noise_scale:1.5}
-  };
-  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
-    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
-  c.base_fields=fields;
-  const bundle={format:'emu-policy',schema:2,
-    policy:{action_dim:6,history_len:4,base_obs_dim:58,obs_dim:232,layers:[{},{},{}]},
-    source:{checkpoint_schema:8},robot_xml:'<mujoco/>',
-    observation:{base_fields:fields,sensor_contract:c},control:{}};
-  assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,232);
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,schema:1})));
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    observation:{...bundle.observation,
-      sensor_contract:{...c,sensor_model_revision:'unknown'}}})),/Unsupported v5016 sensor/);
+test('portable showcase manifest is path-safe even with only 360 input policies',()=>{
   const manifest={schema:1,mode:'showcase',trained:true,
     policy:'policies/champion.emupolicy'};
   assert.equal(parseShowcaseManifest(manifest).trained,true);
   assert.throws(()=>parseShowcaseManifest({...manifest,policy:'../secret'}));
-});
-
-test('schema-9 360 policy uses exact 4x4 terrain contract',()=>{
-  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
-    ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
-  for(let i=0;i<16;i++)fields.push(`tof4x4_range_${Math.floor(i/4)}${i%4}_m`);
-  for(let i=0;i<16;i++)fields.push(`tof4x4_valid_${Math.floor(i/4)}${i%4}`);
-  const c={
-    schema:'terrain_360',sensor_model_revision:'forward_tof4x4_real_plane_box_foot_1',
-    history_len:4,action_dim:6,base_fields:fields,
-    tripod_mounts_body_m:[[.035,-.05,-.025],[.035,.05,-.025],[-.04,0,-.025]],
-    tripod_beams_body:[[0,0,-1],[0,0,-1],[0,0,-1]],
-    tof_range_limits_m:[.035,.6],
-    tof4x4_mount_body_m:[0,0,0],
-    tof4x4_pitch_from_horizontal_deg:[40,60,80,100],
-    tof4x4_yaw_deg:[-22.5,-7.5,7.5,22.5],
-    tof4x4_range_limits_m:[.04,1.5],
-    tof4x4_occlusion:'nearest ray-sphere foot hit masks terrain return',
-    tof4x4_validity:'one bit per cell, delayed, zero on dropout',
-    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
-      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}
-  };
-  const bundle={format:'emu-policy',schema:3,source:{checkpoint_schema:9},
-    robot_xml:'<mujoco/>',policy:{action_dim:6,history_len:4,base_obs_dim:90,
-      obs_dim:360,layers:[{},{},{}]},observation:{base_fields:fields,sensor_contract:c},control:{}};
-  assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,360);
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    observation:{...bundle.observation,sensor_contract:{...c,
-      tof4x4_pitch_from_horizontal_deg:[30,60,80,100]}}})),/schema-9/);
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    source:{checkpoint_schema:8}})),/schema-9/);
 });
 
 test('array-only 360 terrain policy keeps legacy actors separate and derives ground from rays',()=>{
@@ -100,6 +47,12 @@ test('array-only 360 terrain policy keeps legacy actors separate and derives gro
     robot_xml:'<mujoco/>',policy:{action_dim:6,history_len:4,base_obs_dim:90,
       obs_dim:360,layers:[{},{},{}]},observation:{base_fields:fields,sensor_contract:c},control:{}};
   assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,360);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,schema:2})),/schema-3/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    source:{checkpoint_schema:8}})),/schema-9/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{...bundle.observation,sensor_contract:{...c,
+      sensor_model_revision:'tripod_tof_flow_async_v1'}}})),/array-only/);
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
     observation:{...bundle.observation,sensor_contract:{...c,
       tripod_mounts_body_m:[[0,0,0]]}}})),/array-only/);
@@ -280,26 +233,6 @@ test('all graduated crest and step-down joints retain continuous physical suppor
 
 
 // 3. Realistic sensor timing is part of the trained actor interface.
-test('delayed ToF/flow emulation retains reading time and dropout confidence',()=>{
-  const c={schema:'sim2real_232',
-    settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
-      tof_dropout_prob:0,flow_dropout_prob:0,gyro_bias_std_rad_s:0,sensor_noise_scale:0}};
-  const p=v=>({torso:[0,0,.26],R:[1,0,0,0,1,0,0,0,1],
-    vbody:[v,0,0],gyro:[0,0,0],heightAt:()=>0});
-  const sensor=new SensorObserver(c);
-  sensor.reset(p(0),false);
-  sensor.advance(p(.15),false);
-  assert.ok(Math.abs(sensor.read([0,0,-1]).velocity[0])<1e-8);
-  sensor.advance(p(.15),false);
-  assert.ok(sensor.read([0,0,-1]).velocity[0]>.14);
-  assert.ok(sensor.read([0,0,-1]).groundConfidence>0);
-  const lost=new SensorObserver({...c,settings:{...c.settings,
-    tof_period_frames:1,flow_period_frames:1,tof_dropout_prob:1,flow_dropout_prob:1}});
-  lost.reset(p(0),false);
-  lost.advance(p(.1),true);lost.advance(p(.1),true);
-  assert.equal(lost.read([0,0,-1]).velocityConfidence,0);
-});
-
 // 4. The operator's four taught commands and heading setpoint stay intact.
 test('manual axes and heading hold obey the trained command envelope',()=>{
   assert.equal(joystickToCommands(1,0,0,0,limits).vy,-limits.vy_abs);

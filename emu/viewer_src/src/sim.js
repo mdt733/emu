@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver, ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
 import { sampleEpisodeCadence } from './cadence.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
@@ -177,14 +177,10 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.arraySensor = bundle.schema===3 &&
-      bundle.observation.sensor_contract?.sensor_model_revision===
-        'forward_tof4x4_array_plane_fit_no_tripod_2'
-      ? new ArrayFlowObserver(bundle.observation.sensor_contract) : null;
-    this.sensorObserver = [2,3].includes(bundle.schema) && !this.arraySensor
-      ? new SensorObserver(bundle.observation.sensor_contract) : null;
-    this.terrainObserver = bundle.schema === 3
-      ? new TerrainActorObserver(bundle.observation.sensor_contract) : null;
+    // Policy parser has already verified schema-3 array-only semantics.
+    // There is no 232 tripod observer or synthetic fallback.
+    this.arraySensor=new ArrayFlowObserver(bundle.observation.sensor_contract);
+    this.terrainObserver=new TerrainActorObserver(bundle.observation.sensor_contract);
     this.fallenFor = 0;
     this.controlFrames = 0; // visible proof of live policy inference
     this.motorTravelRad = 0; // integrated actuated joint movement (rad)
@@ -750,10 +746,9 @@ export class EmuBrowserSim {
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
-    if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
-    if (this.terrainObserver) this.terrainObserver.reset(
+    this.terrainObserver.reset(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
-    if (this.arraySensor) this.arraySensor.reset(
+    this.arraySensor.reset(
       this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
@@ -1037,10 +1032,9 @@ export class EmuBrowserSim {
     }
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
-    if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
-    if (this.terrainObserver) this.terrainObserver.advance(
+    this.terrainObserver.advance(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
-    if (this.arraySensor) this.arraySensor.advance(
+    this.arraySensor.advance(
       this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
@@ -1134,14 +1128,11 @@ export class EmuBrowserSim {
     const noisyGravity=[
       grav[0]+ns*.008*n0,grav[1]+ns*.008*n1,grav[2]-ns*.004*n0
     ];
-    const sensor = this.arraySensor
-      ? this.arraySensor.read(noisyGravity,this.terrainObserver.read())
-      : this.sensorObserver?.read(noisyGravity);
-    if (sensor) {
-      base[3]=sensor.gyro[0];
-      base[4]=sensor.gyro[1];
-      base[5]=sensor.gyro[2];
-    }
+    const sensor=this.arraySensor.read(
+      noisyGravity,this.terrainObserver.read());
+    base[3]=sensor.gyro[0];
+    base[4]=sensor.gyro[1];
+    base[5]=sensor.gyro[2];
 
     for (let i = 0; i < 6; i++) base[k++] = qpos[this.actQpos[i]] + ns*0.0015*n0;
     for (let i = 0; i < 6; i++) base[k++] = qvel[this.actQvel[i]] + ns*0.015*n1;
@@ -1156,10 +1147,10 @@ export class EmuBrowserSim {
       base[k++] = rel[0]; base[k++] = rel[1]; base[k++] = rel[2];
     }
 
-    base[k++] = sensor ? sensor.velocity[0] : bodyVel[0] + ns*0.018*n0;
-    base[k++] = sensor ? sensor.velocity[1] : bodyVel[1] + ns*0.018*n1;
-    base[k++] = sensor ? sensor.depth : tz + ns*0.0025*n1;
-    base[k++] = sensor ? sensor.velocityConfidence : clamp(1 - 0.18*ns, 0.2, 1.0);
+    base[k++] = sensor.velocity[0];
+    base[k++] = sensor.velocity[1];
+    base[k++] = sensor.depth;
+    base[k++] = sensor.velocityConfidence;
 
     base[k++] = this.command.vx;
     base[k++] = this.command.vy;
@@ -1180,16 +1171,12 @@ export class EmuBrowserSim {
     base[k++] = clamp(Math.abs(sf0) / 0.10, 0, 1.5);
     base[k++] = clamp(Math.abs(sf1) / 0.10, 0, 1.5);
 
-    if (sensor) {
-      base[k++] = sensor.forwardGrade;
-      base[k++] = sensor.sideGrade;
-      base[k++] = sensor.groundConfidence;
-    }
-    if (this.terrainObserver) {
-      const grid=this.terrainObserver.read();
-      for(const range of grid.ranges) base[k++]=range;
-      for(const valid of grid.valid) base[k++]=valid?1:0;
-    }
+    base[k++] = sensor.forwardGrade;
+    base[k++] = sensor.sideGrade;
+    base[k++] = sensor.groundConfidence;
+    const grid=this.terrainObserver.read();
+    for(const range of grid.ranges) base[k++]=range;
+    for(const valid of grid.valid) base[k++]=valid?1:0;
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
   }
