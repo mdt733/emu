@@ -37,7 +37,7 @@ from .domain_randomization import (
     GRAVITY_MAG_FRAC,
 )
 from .rewards import (training_reward, apply_early_fall_penalty,
-                      verified_support_elevation_credit, REWARD_ONLY_METRICS)
+                      REWARD_ONLY_METRICS)
 from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL,
@@ -2919,7 +2919,7 @@ class EmuMJXEnv(TaskSampler):
         # 3. Servo/spring diagnostics: measured mechanical proxies, NOT
         # payments. PPO currently penalises action changes and joint-limit
         # pressure instead of direct torque, shaft power or electrical usage.
-        # Passive telemetry only. It never enters the deployable 220-input
+        # Passive telemetry only. It never enters the deployable 360-input
         # observation or the scalar PPO reward.
         servo_effort = servo_effort_metrics(
             jnp, data.actuator_force[:, :ACTION_DIM],
