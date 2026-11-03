@@ -134,8 +134,12 @@ def test_batched_mocaps_match_old_birth_and_recycling():
     compiled_surface=jax.jit(lambda p,h,q:sample_surface(
         jnp,SimpleNamespace(mocap_pos=p),source_ids,h,q))(
             original,samples,query)
-    np.testing.assert_array_equal(
-        np.asarray(old_surface),np.asarray(compiled_surface))
+    # XLA may fuse triangle interpolation multiply-adds, introducing
+    # <0.12 micrometre roundoff vs the sequential eager reference.
+    # This is numerical equivalence, not a change in physical geometry.
+    np.testing.assert_allclose(
+        np.asarray(old_surface),np.asarray(compiled_surface),
+        rtol=0,atol=2e-7)
 
 
 def test_prism_model_has_no_inactive_box_bodies_at_all():
