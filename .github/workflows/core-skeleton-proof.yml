@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# Only test the newest commit; do not run ten identical expensive MJX
+# probes concurrently while a cleanup PR is being amended.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   core-and-physics:
     runs-on: ubuntu-latest
