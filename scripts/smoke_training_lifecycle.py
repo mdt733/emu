@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Bounded GPU acceptance: PPO → checkpoint → resume → exported actor.
 
-Pass --unified for the NEW 360-input actor, or --unified --carpet for
-the v5041 boxes or v5044 true prisms. Guarded to TWO PPO updates.
+v5045 accepts only --unified --carpet --prisms and performs exactly
+TWO PPO updates in 18 real true-prism terrain worlds.
 First/continue/verify use independent fresh directories outside Git;
 source hashes and old checkpoints are protected. No overnight unlock.
 """
@@ -27,7 +27,7 @@ os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
 from emu.contracts import source_repo_root
 from emu.checkpoint_io import git_provenance, run_training
-from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config, training_sensor_contract
+from emu.training_config import ROLLOUT_STEPS, TrainingConfig, training_sensor_contract
 
 SEED = 733
 ENVS = 8
@@ -41,27 +41,20 @@ def configs(root: Path, *, unified: bool = False, carpet: bool = False,
     # lifecycle recipes live at their source-pinned Git commits.
     if not (unified and carpet and prisms):
         raise ValueError("v5045 acceptance requires --unified --carpet --prisms")
-    if unified:
-        # The EXACT public unified configuration, only with bounded total
-        # steps. Never duplicate the profile by reconstructing handpicked
-        # training defaults in the smoke script.
-        from types import SimpleNamespace
-        from emu.run import one_run_config
-        first = one_run_config(SimpleNamespace(
-            profile="sim2real", run_dir=str(root / "first"),
-            steps=updates, envs=envs, seed=seed, device="cuda",
-            terrain_actor=True, unified_capabilities=True,
-            terrain_step_max_m=.08 if carpet else .04,
-            terrain_carpet=carpet, carpet_prisms=prisms, academy_stream=carpet,
-            terrain_lesson='coherent-careful' if carpet else 'mixed',
-            growth_recipe='main-mature' if carpet else 'legacy',
-            force_program='gentle' if carpet else 'aggressive'))
-    else:
-        first = replace(
-            foundation_config(run_dir=root / "first", seed=seed,
-                              device="cuda", envs=envs),
-            steps=updates, attitude_profile="v5015",
-            pitch_command_max_deg=8.0)
+    # The exact public prism configuration, only with bounded total
+    # steps. Never duplicate the profile by reconstructing handpicked
+    # training defaults in the smoke script.
+    from types import SimpleNamespace
+    from emu.run import one_run_config
+    first = one_run_config(SimpleNamespace(
+        profile="sim2real", run_dir=str(root / "first"),
+        steps=updates, envs=envs, seed=seed, device="cuda",
+        terrain_actor=True, unified_capabilities=True,
+        terrain_step_max_m=.08 if carpet else .04,
+        terrain_carpet=carpet, carpet_prisms=prisms, academy_stream=carpet,
+        terrain_lesson='coherent-careful' if carpet else 'mixed',
+        growth_recipe='main-mature' if carpet else 'legacy',
+        force_program='gentle' if carpet else 'aggressive'))
     second = replace(first, run_dir=str(root / "continued"),
                      resume=str((root / "first/checkpoints/final.pkl").resolve()),
                      steps=2 * updates)
@@ -130,16 +123,6 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def fixed_exam_exists(run_dir: Path, step: int) -> None:
-    file = run_dir / "fixed_eval.csv"
-    with file.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    if not rows or int(float(rows[-1]["step"])) != step:
-        raise RuntimeError(f"no fixed evaluation for step {step:,} in {file}")
-    if not (run_dir / "checkpoints/best.pkl").is_file():
-        raise RuntimeError(f"fixed evaluation did not save best.pkl in {run_dir}")
-
-
 PHYSICAL_DIAGNOSTICS = (
     'servo_shaft_abs_power_w', 'servo_shaft_drive_power_w',
     'servo_shaft_brake_power_w', 'servo_over_rated_frac',
@@ -181,12 +164,9 @@ def first_stage(root: Path, *, unified: bool = False,
     print(f"Acceptance stage 1: one PPO update ({updates} steps), {envs} MJX worlds", flush=True)
     run_training(first, provenance=provenance)
     checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
-    if not unified:
-        fixed_exam_exists(root / "first", updates)
     physical_telemetry_exists(root / "first")
-    print("PASS stage 1: bounded PPO, physical metrics and valid checkpoint "
-          "(independent walking exam not claimed)" if unified else
-          "PASS stage 1: trained checkpoint and read-only held-out exam", flush=True)
+    print("PASS stage 1: bounded prism PPO, physical metrics and valid checkpoint "
+          "(walking ability not claimed)", flush=True)
 
 
 def continue_stage(root: Path, *, unified: bool = False,
@@ -209,8 +189,6 @@ def continue_stage(root: Path, *, unified: bool = False,
     if digest(parent) != parent_hash:
         raise RuntimeError("the parent checkpoint changed during continuation")
     checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
-    if not unified:
-        fixed_exam_exists(root / "continued", 2 * updates)
     physical_telemetry_exists(root / "continued")
     print("PASS stage 2: fresh continuation from untouched validated ancestor", flush=True)
 
@@ -227,8 +205,6 @@ def verify_stage(root: Path, *, unified: bool = False,
     p1 = checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
     p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
     for folder, step in (("first", updates), ("continued", 2 * updates)):
-        if not unified:
-            fixed_exam_exists(root / folder, step)
         physical_telemetry_exists(root / folder)
     run_meta = json.loads((root / "continued/run_meta.json").read_text(encoding="utf-8"))
     if int(run_meta.get("resumed_from_step") or -1) != updates:
@@ -296,18 +272,16 @@ def main() -> None:
     parser.add_argument("--unified", action="store_true",
                         help="bounded 360-input unified acceptance; NEVER starts a campaign")
     parser.add_argument("--carpet", action="store_true",
-                        help="test actual v5041 9-box terrain physics; requires --unified")
+                        help="required: one streaming prism carpet")
     parser.add_argument("--prisms", action="store_true",
-                        help="test 18 true moving convex-prism collisions; requires --unified --carpet")
+                        help="required: 18 true convex-prism colliders")
     parser.add_argument("--seed", type=int, default=SEED,
                         help="source-pinned learner seed; same on all three stages")
     parser.add_argument("--envs", type=int, default=ENVS,
                         help="8 default, or 12/2048 with --unified")
     args = parser.parse_args()
-    if args.carpet and not args.unified:
-        parser.error("--carpet requires --unified")
-    if args.prisms and not (args.carpet and args.unified):
-        parser.error("--prisms requires --unified --carpet")
+    if not (args.unified and args.carpet and args.prisms):
+        parser.error("v5045 acceptance requires --unified --carpet --prisms")
     if not 0 <= args.seed < 2**31:
         parser.error("--seed must be a nonnegative signed 32-bit integer")
     if args.unified:
