@@ -183,9 +183,11 @@ stopped voluntarily; its checkpoints remain source-pinned and must
 24-test suite, and real MJX collision/recycling probes.
 
 The matched v5044 reference was **7,492 post-JIT world-steps/s**
-on RTX 4060 Ti at 2,048 GPU worlds. There is **no new v5045 speed
-measurement yet**; smaller Python source alone does not prove faster
-physics. The true-prism frozen-policy `emu prism-exam` reports raw
+on RTX 4060 Ti at 2,048 GPU worlds. The first v5045
+full-PPO 2,048-world benchmark measured **7,536 world-steps/s**,
+essentially matching the old 7,492 reference (+0.6% on two steady
+updates), and about 1.82 GB peak GPU memory. Smaller source alone
+does not make collision physics faster. The true-prism frozen-policy `emu prism-exam` reports raw
 supported crossings and *actual* procedural terrain exposure. It
 does not recreate the old two-slab fixed matrix.
 
