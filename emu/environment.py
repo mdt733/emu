@@ -61,12 +61,6 @@ from .terrain_carpet_mjx import (
 from .carpet_prism_mjx import (
     batch_update_prism_mocaps,
     PRISM_COUNT, PRISM_BODY_NAMES, PRISM_GEOM_NAMES, PRISM_DEPTH_M, PrismMeshBuilder)
-from .step_academy_world import (
-    ACADEMY_PLATFORMS, ACADEMY_INTERVAL_M, ACADEMY_EDGE_X_M,
-    ACADEMY_PLATFORM_HALF_LENGTH_M, ACADEMY_PLATFORM_HALF_WIDTH_M,
-    ACADEMY_PLATFORM_HALF_DEPTH_M, ACADEMY_PLATFORM_NAMES,
-    ACADEMY_PLATFORM_GEOMS, ACADEMY_MAX_EDGE_YAW_DEG,
-    ACADEMY_BURIED_FLOOR_Z_M, signed_lip_height, initial_heights)
 from .directional import (simulate_tripod_ranges, fit_tripod_ground,
                           fit_forward_array_ground,
                           simulate_downward_optical_flow, estimate_flow_velocity,
@@ -159,121 +153,6 @@ TERRAIN_PLATFORM_HALF_DEPTH_M = 0.15
 TERRAIN_PLATFORM_EDGE_X_M = 0.25
 
 
-def add_episode_platform(robot_xml: str) -> str:
-    """Augment the existing robot model with one finite collision platform.
-
-    A mocap body's real geom is moved only at episode boundaries.  It has
-    no degrees of freedom and introduces no hidden channels to the policy.
-    The on-disk robot.xml and default training configuration are untouched.
-    """
-    root = ET.parse(robot_xml).getroot()
-    world = root.find('worldbody')
-    if world is None:
-        raise ValueError('robot.xml has no worldbody')
-    # CRITICAL: a MuJoCo ground *plane* is an infinite half-space.
-    # A platform buried BELOW it is not "out of contact": without
-    # collision filtering the plane/box pair is deeply interpenetrating,
-    # even in an episode where the terrain is disabled. That static pair
-    # must never consume constraint/contact slots or perturb normal gait.
-    #
-    # Bit 1 = floor, bit 2 = terrain. Existing collision-enabled
-    # robot geoms (feet and torso) can touch BOTH support types, but
-    # passive non-contacting shin/thigh rods remain non-contacting.
-    # Mask original robot geoms ONLY in this opt-in compiled model;
-    # the on-disk robot and flat champion physics stay untouched.
-    for geom_name in ('torso_box', 'r_foot_ball', 'l_foot_ball'):
-        contact_geom = root.find(f".//geom[@name='{geom_name}']")
-        if contact_geom is None:
-            raise ValueError(f'missing robot contact geom {geom_name}')
-        contact_geom.set('contype', '3')
-        contact_geom.set('conaffinity', '3')
-    platform = ET.SubElement(world, 'body', {
-        'name': 'episode_terrain_platform', 'mocap': 'true',
-        'pos': '0 0 -1',
-    })
-    ET.SubElement(platform, 'geom', {
-        'name': 'episode_terrain_surface', 'type': 'box',
-        'size': f'{TERRAIN_PLATFORM_HALF_LENGTH_M} {TERRAIN_PLATFORM_HALF_WIDTH_M} {TERRAIN_PLATFORM_HALF_DEPTH_M}',
-        'contype': '2', 'conaffinity': '2',
-        'friction': '1.5 0.005 0.0001', 'rgba': '0.65 0.50 0.24 1',
-    })
-    return ET.tostring(root, encoding='unicode')
-
-
-# Unified terrain is a pair of adjacent *solid* convex slabs. Their tops
-# exactly coincide when step height is zero, and differ by h along the common
-# surface normal when a real step is active. Two boxes avoid six open mesh
-# triangles being convex-hulled into a phantom ramp by MuJoCo.
-# Keep 700-frame 14s high-speed walking on real support, not off a 4m edge.
-# Each box is still a single solid collider; the upper box remains dormant
-# for flat births and the exact same sharp step survives at the common lip.
-# This gives >=32m ahead from flat centre (2.0m/s * 14s + margin).
-UNIFIED_SLAB_HALF_LENGTH_M = 32.0
-UNIFIED_SLAB_HALF_WIDTH_M = 16.0
-UNIFIED_SLAB_HALF_DEPTH_M = .25
-
-
-def add_unified_terrain(robot_xml: str, academy_stream: bool = False) -> str:
-    """Replace the infinite floor with movable lower + higher solid slabs.
-
-    The old XML/main is NEVER modified. Floor and platform are two mocap
-    collision boxes, not mesh-triangle soup. Distinct contact bits permit
-    feet/torso vs either slab, while excluding slab-slab self contacts.
-    Their poses are sampled per episode through mjx.Data, with NO per-episode
-    model rebuild and no privileged actor-input channels.
-    """
-    if not isinstance(academy_stream,bool):
-        raise ValueError('academy_stream must be a boolean')
-    root=ET.parse(robot_xml).getroot()
-    world=root.find('worldbody')
-    if world is None:
-        raise ValueError('robot.xml requires worldbody')
-    floor=world.find("geom[@name='floor']")
-    if floor is None or floor.get('type') != 'plane':
-        raise ValueError('unified physical terrain expects named plane floor')
-    # Preserve original floor's contact friction and appearance.
-    friction=floor.get('friction','1.5 0.005 0.0001')
-    rgba=floor.get('rgba','0.2 0.25 0.3 1')
-    world.remove(floor)
-    for geom_name in ('torso_box','r_foot_ball','l_foot_ball'):
-        geom=root.find(f".//geom[@name='{geom_name}']")
-        if geom is None:
-            raise ValueError(f'missing contact geometry {geom_name}')
-        geom.set('contype','3')
-        geom.set('conaffinity','7' if academy_stream else '3')
-    size=(f'{UNIFIED_SLAB_HALF_LENGTH_M} {UNIFIED_SLAB_HALF_WIDTH_M} '
-          f'{UNIFIED_SLAB_HALF_DEPTH_M}')
-    ground=ET.SubElement(world,'body',dict(name='unified_ground',mocap='true',
-                                            pos='0 0 -0.25'))
-    ET.SubElement(ground,'geom',dict(name='floor',type='box',size=size,
-                                     contype='1',conaffinity='1',
-                                     friction=friction,rgba=rgba))
-    elevated=ET.SubElement(world,'body',dict(name='episode_terrain_platform',
-                                              mocap='true',pos='0 0 -2'))
-    ET.SubElement(elevated,'geom',dict(name='episode_terrain_surface',
-                                      type='box',size=size,
-                                      contype='2',conaffinity='2',
-                                      friction=friction,rgba='0.65 0.50 0.24 1'))
-    if academy_stream:
-        # Three short, fixed-topology colliders are recycled in a ring.
-        # The two original long slabs stay dormant during Academy births.
-        # Bit 4 lets robot feet touch any of the three, but no slab-slab pair.
-        size_mid=(f'{ACADEMY_PLATFORM_HALF_LENGTH_M} '
-                  f'{ACADEMY_PLATFORM_HALF_WIDTH_M} '
-                  f'{ACADEMY_PLATFORM_HALF_DEPTH_M}')
-        for i,(body_name,geom_name) in enumerate(
-                zip(ACADEMY_PLATFORM_NAMES,ACADEMY_PLATFORM_GEOMS)):
-            body=ET.SubElement(world,'body',dict(
-                name=body_name,mocap='true',pos=f'0 0 {-2.0-i*.3}'))
-            ET.SubElement(body,'geom',dict(
-                name=geom_name,type='box',size=size_mid,
-                contype='4',conaffinity='0',friction=friction,
-                rgba='0.42 0.65 0.54 1'))
-    return ET.tostring(root,encoding='unicode')
-
-
-# Persistent batched physics and measured sensor packets. These are shared
-# across reset, PPO rollout, real terrain evaluation and observation assembly.
 class EnvState(NamedTuple):
     data: Any
     hist: Any
@@ -1119,6 +998,14 @@ class EmuMJXEnv(TaskSampler):
         import jax.numpy as jnp
         import mujoco
         from mujoco import mjx
+        # The active simulator has ONE real 360-input, 18-prism topology.
+        # Historical 220/232, box, finite-step and three-slab experiments
+        # are preserved in Git, not executable compatibility branches.
+        if not (terrain_carpet_prisms and terrain_carpet and
+                unified_capability_focus and observation_schema==OBS_SCHEMA_TERRAIN):
+            raise ValueError('Current EMU requires unified terrain_360 and true MJX prisms')
+        if physical_exam_legacy_actor or verified_ascent_reallocation>0.:
+            raise ValueError('Retired slab-only exam/reward modes are unavailable')
 
         self.jax = jax
         self.jnp = jnp
@@ -1216,59 +1103,16 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('Academy course episode time must be 700..1500 frames')
         self.academy_course_episode_frames=int(academy_course_episode_frames)
         self.terrain_pair_seed = int(seed)
-        # Current prism worlds need neither historical two-slab mocap body.
-        # Start directly with robot.xml; add_carpet_geoms disables the old
-        # static floor and creates ONLY the source hfields and real prisms.
-        if self.terrain_carpet_prisms:
-            self.mj_model=mujoco.MjModel.from_xml_string(
-                add_carpet_geoms(ET.tostring(
-                    ET.parse(self.robot_xml).getroot(),encoding='unicode'),
-                    prisms=True))
-        else:
-            self.mj_model = (
-                mujoco.MjModel.from_xml_string(
-                    (add_carpet_geoms(add_unified_terrain(
-                        self.robot_xml,False),prisms=False)
-                     if self.terrain_carpet else
-                     add_unified_terrain(self.robot_xml,self.academy_stream)))
-                if self.unified_capability_focus else
-                mujoco.MjModel.from_xml_string(add_episode_platform(self.robot_xml))
-                if self.terrain_step_max_m > 0 else
-                mujoco.MjModel.from_xml_path(self.robot_xml)
-            )
-        self.unified_ground_mocap_id = -1
-        if self.unified_capability_focus and not self.terrain_carpet_prisms:
-            if ((self.observation_schema != OBS_SCHEMA_TERRAIN and
-                 not self.physical_exam_legacy_actor) or self.terrain_step_max_m <= 0):
-                raise ValueError('unified terrain requires terrain_360 or explicit exam-only 232 baseline')
-            ground_body=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,
-                                          'unified_ground')
-            self.unified_ground_mocap_id=int(self.mj_model.body_mocapid[ground_body])
-            if self.unified_ground_mocap_id < 0:
-                raise RuntimeError('unified ground must have a real movable mocap body')
-        self.terrain_step_mocap_id = -1
-        self.terrain_step_geom_id = -1
+        # No buried 64m slabs, separate finite platforms or legacy boxes.
+        self.mj_model=mujoco.MjModel.from_xml_string(
+            add_carpet_geoms(ET.tostring(
+                ET.parse(self.robot_xml).getroot(),encoding='unicode'),
+                prisms=True))
+        self.unified_ground_mocap_id=-1
+        self.terrain_step_mocap_id=-1
+        self.terrain_step_geom_id=-1
         self.academy_platform_mocap_ids=()
         self.academy_platform_geom_ids=()
-        if self.terrain_step_max_m and not self.terrain_carpet_prisms:
-            platform_body = mujoco.mj_name2id(
-                self.mj_model, mujoco.mjtObj.mjOBJ_BODY, 'episode_terrain_platform')
-            self.terrain_step_mocap_id = int(self.mj_model.body_mocapid[platform_body])
-            self.terrain_step_geom_id = mujoco.mj_name2id(
-                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')
-            if self.terrain_step_mocap_id < 0:
-                raise RuntimeError('physical episode terrain requires a mocap body')
-        if self.academy_stream and not self.terrain_carpet:
-            self.academy_platform_mocap_ids=tuple(int(
-                self.mj_model.body_mocapid[mujoco.mj_name2id(
-                    self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
-                for n in ACADEMY_PLATFORM_NAMES)
-            self.academy_platform_geom_ids=tuple(int(mujoco.mj_name2id(
-                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,n))
-                for n in ACADEMY_PLATFORM_GEOMS)
-            if (any(x<0 for x in self.academy_platform_mocap_ids)
-                or any(x<0 for x in self.academy_platform_geom_ids)):
-                raise RuntimeError('Missing real Academy platform body or geom')
         self.carpet_mocap_ids=()
         self.carpet_geom_ids=()
         self.carpet_solid_mocap_ids=()
@@ -1950,16 +1794,8 @@ class EmuMJXEnv(TaskSampler):
         base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
-        # On a verified fully-clear crossing, recycle only the trailing
-        # collision slab. Never mutate the geometry used to classify this
-        # frame's contacts or sensor measurements.
-        if self.terrain_carpet:
-            data,carpet_hfields,carpet_center=self._carpet_recycle(state,data)
-        else:
-            data = self._recycle_academy_platform(
-                state,data,academy,physics.next_keys,params)
-            carpet_hfields=None
-            carpet_center=None
+        # Recycle the physical prism tiles only after both feet clear.
+        data,carpet_hfields,carpet_center=self._carpet_recycle(state,data)
         # carryover_qvel is this step's own (already divergence-safe)
         # qvel -- see the docstring on _reset_with_keys.
         reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
@@ -2639,240 +2475,22 @@ class EmuMJXEnv(TaskSampler):
         return task,active
 
     # ---- Teacher-only physical terrain placement at episode birth ----
-    def _unified_terrain(self, data, keys, params,
-                         focus_id=None, specialist_active=None,
-                         athletic_rehearsal=None):
-        """Solid pair of independently sampled inclined contact surfaces.
-
-        Local top faces share n, tangent e/w; the discontinuity is along
-        their common normal. Both slabs always exist in model topology.
-        A dormant upper slab is buried and the lower slab spans the world;
-        non-dormant upper/lower slabs abut exactly at the sharp lip.
-        Changing ONLY mocap_pos/quat at reset keeps JAX compilation fixed.
-        """
-        jax,jnp=self.jax,self.jnp
-        def draw(key):
-            ks=jax.random.split(jax.random.fold_in(key,50245),6)
-            return jnp.stack([jax.random.uniform(ks[i],()) for i in range(6)])
-        u=jax.vmap(draw)(keys)
-        focus=self.focus_id if focus_id is None else focus_id
-        focused=(self._specialist_enabled(keys,params,focus)
-                 if specialist_active is None else specialist_active)
-        step_dose=jnp.where(focused & (focus==STEP),4.0,.25)
-        slope_dose=jnp.where(focused & (focus==SLOPE),4.0,.25)
-        # A retained-skill CONTROL episode has the SAME flat environment
-        # across the P2 mixed/coherent arms. Otherwise E-D would also
-        # change retention physics and confound the terrain comparison.
-        if self.retention_share>0.:
-            flat_rehearsal=focused & (focus==CONTROL)
-            step_dose=jnp.where(flat_rehearsal,0.,step_dose)
-            slope_dose=jnp.where(flat_rehearsal,0.,slope_dose)
-        if self.terrain_lesson in ('coherent','coherent-direct','coherent-careful'):
-            # One coherent obstacle/grade mission at a time; retention
-            # worlds rehearse on genuinely flat terrain.
-            step_dose=jnp.where(focused & ((focus==SLOPE)|(focus==CONTROL)),
-                                0.,step_dose)
-            slope_dose=jnp.where(focused & ((focus==STEP)|(focus==CONTROL)),
-                                 0.,slope_dose)
-        # The governor may seed gentle physical severity on the exact 20M
-        # boundary; the host-owned fade ensures the NEXT worlds do not
-        # instantly get 15% obstacle births before gait has transitioned.
-        mix=jnp.clip(params[P.specialist_mix],0.,1.)
-        step_p=jnp.minimum(1.0,params[P.terrain_exposure]*step_dose*mix)
-        slope_p=jnp.minimum(1.0,params[P.slope_exposure]*slope_dose*mix)
-        if athletic_rehearsal is not None:
-            # This cohort gets an uninterrupted flat running lane.
-            # Read-only fixed geometry overrides still win below.
-            rehearsal=athletic_rehearsal>.5
-            step_p=jnp.where(rehearsal,0.,step_p)
-            slope_p=jnp.where(rehearsal,0.,slope_p)
-        has_fixed_height=jnp.isfinite(params[P.terrain_fixed_height_m])
-        step_active=jnp.where(
-            has_fixed_height,params[P.terrain_fixed_height_m]>1e-6,
-            (u[:,0]<step_p)&(params[P.terrain_height_m]>1e-6))
-        slope_active=(u[:,1]<slope_p) & (params[P.slope_max_deg]>1e-6)
-        # Severity, not just episode frequency, is reduced in worlds
-        # assigned another speciality. Fixed examiner overrides remain
-        # exact physical fixtures regardless of the teacher focus.
-        slope_strength=jnp.where(focused & (focus==SLOPE),1.0,
-                       jnp.where(focused & (focus==CONTROL),
-                                 CONTROL_STRENGTH,NONFOCUS_STRENGTH))
-        slope_mag=(.30+.70*u[:,2])*params[P.slope_max_deg]*slope_strength
-        slope_rad=jnp.deg2rad(jnp.where(slope_active,slope_mag,0.))
-        # Azimuth 0,180deg: longitudinal uphill/downhill. 90,270deg:
-        # sideways camber. Explicit pitch/roll overrides serve the
-        # reproducible CPU/held-out examiner and do not alter actor inputs.
-        azimuth=2.*jnp.pi*u[:,3]
-        fixed=jnp.isfinite(params[P.terrain_pitch_deg]) & jnp.isfinite(
-            params[P.terrain_roll_deg])
-        gx=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_pitch_deg])),
-                     jnp.tan(slope_rad)*jnp.cos(azimuth))
-        gy=jnp.where(fixed,jnp.tan(jnp.deg2rad(params[P.terrain_roll_deg])),
-                     jnp.tan(slope_rad)*jnp.sin(azimuth))
-        normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
-        normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
-        # Shortest quaternion taking world +Z into physical support normal.
-        qt=jnp.stack((1.+normal[:,2],-normal[:,1],normal[:,0],
-                      jnp.zeros_like(gx)),axis=1)
-        qt=qt/jnp.linalg.norm(qt,axis=1,keepdims=True)
-        edge_yaw=jnp.where(jnp.isfinite(params[P.terrain_edge_angle_deg]),
-                           jnp.deg2rad(params[P.terrain_edge_angle_deg]),
-                           (u[:,4]-.5)*.70)
-        qy=jnp.stack((jnp.cos(edge_yaw/2),jnp.zeros_like(gx),
-                      jnp.zeros_like(gx),jnp.sin(edge_yaw/2)),axis=1)
-        q=self._quat_mul(qt,qy)
-        qw,qx,qyy,qz=q[:,0],q[:,1],q[:,2],q[:,3]
-        direction=jnp.stack((1.-2.*(qyy*qyy+qz*qz),
-                             2.*(qx*qyy+qw*qz),
-                             2.*(qx*qz-qw*qyy)),axis=1)
-        edge=jnp.stack((jnp.full_like(gx,TERRAIN_PLATFORM_EDGE_X_M),
-                        jnp.zeros_like(gx),
-                        gx*TERRAIN_PLATFORM_EDGE_X_M),axis=1)
-        # Up: left lower / right upper; down: left upper / right lower.
-        down=(self.env_index.astype(jnp.int32)%2)==1
-        side=jnp.where(down,-1.,1.)[:,None]
-        L=UNIFIED_SLAB_HALF_LENGTH_M
-        D=UNIFIED_SLAB_HALF_DEPTH_M
-        floor_active=edge-side*L*direction-D*normal
-        floor_dormant=-D*normal
-        floor_pos=jnp.where(step_active[:,None],floor_active,floor_dormant)
-        ceiling=jnp.clip(params[P.terrain_height_m],0.,self.terrain_step_max_m)
-        # Height is the physical normal displacement, not an impossible
-        # world-vertical offset that would force the two faces to overlap.
-        step_strength=jnp.where(focused & (focus==STEP),1.0,
-                      jnp.where(focused & (focus==CONTROL),
-                                CONTROL_STRENGTH,NONFOCUS_STRENGTH))
-        height=jnp.where(has_fixed_height,
-                         params[P.terrain_fixed_height_m],
-                         ceiling*(.30+.70*u[:,5])*step_strength)
-        upper_pos=edge+side*L*direction+(height[:,None]-D)*normal
-        buried=jnp.asarray((0.,0.,-2.),dtype=jnp.float32)
-        upper_pos=jnp.where(step_active[:,None],upper_pos,buried)
-        floor_i=self.unified_ground_mocap_id
-        upper_i=self.terrain_step_mocap_id
-        return data.replace(
-            mocap_pos=data.mocap_pos.at[:,floor_i,:].set(floor_pos).at[:,upper_i,:].set(upper_pos),
-            mocap_quat=data.mocap_quat.at[:,floor_i,:].set(q).at[:,upper_i,:].set(q),
-            qpos=data.qpos.at[:,2].add(
-                jnp.where(step_active & down,height*normal[:,2],0.))
-        )
-
     def _academy_course(self, data, keys, params, focus_id,
                         specialist_active, athletic_rehearsal, birth_root_z):
-        """Birth three actual supports; recycle their roles during physics.
+        """Assign a real prism STEP cohort; old three-slab bodies are gone.
 
-        Sign draws are independent Bernoulli choices, not a shuffled pattern.
-        The original two long slabs are parked twenty metres below Academy
-        worlds, preserving their ordinary physics for every other world.
+        Preserve the original salted 8-draw RNG assignment for reproducible
+        Academy birth fractions, but no longer create unused platform poses.
         """
         jnp,jax=self.jnp,self.jax
-        inactive=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         if not self.academy_stream:
-            return data,inactive
+            return data,jnp.zeros((self.num_envs,),dtype=jnp.bool_)
         u=jax.vmap(lambda k:jax.random.uniform(
             jax.random.fold_in(k,5040),(8,),dtype=jnp.float32))(keys)
         active=(specialist_active & (focus_id==STEP) &
                 (athletic_rehearsal<.5) &
                 (u[:,0]<params[P.academy_episode_probability]))
-        if self.terrain_carpet:
-            # The same Academy *birth selection* drives the nine-tile
-            # environment. Do not compile or manipulate the retired three
-            # long Academy slabs: they have no collision role in this mode.
-            return data,active
-        yaw=(u[:,5]*2.-1.)*jnp.deg2rad(ACADEMY_MAX_EDGE_YAW_DEG)
-        angle_override=params[P.terrain_edge_angle_deg]
-        yaw=jnp.where(jnp.isfinite(angle_override),
-                      jnp.deg2rad(angle_override),yaw)
-        ca,sa=jnp.cos(yaw),jnp.sin(yaw)
-        q=jnp.stack((jnp.cos(yaw/2),jnp.zeros_like(yaw),
-                     jnp.zeros_like(yaw),jnp.sin(yaw/2)),axis=1)
-        fixed=params[P.terrain_fixed_height_m]
-        has_fixed=jnp.isfinite(fixed)
-        # Only frozen exams use deterministic signs, so the same starting
-        # physical cases are reproducible. Training draws both signs freely.
-        first=jnp.where(has_fixed,
-            jnp.where((self.env_index%2)==0,1.,-1.),
-            jnp.where(u[:,1]<.5,1.,-1.))
-        second=jnp.where(has_fixed,
-            jnp.where((self.env_index%4)<2,-1.,1.),
-            jnp.where(u[:,2]<.5,1.,-1.))
-        fixed_h=jnp.maximum(.0015,jnp.abs(fixed))
-        up=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_up_m])
-        down=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_down_m])
-        rise0=jnp.where(has_fixed,first*fixed_h,
-            signed_lip_height(jnp,first,u[:,3],up,down))
-        rise1=jnp.where(has_fixed,second*fixed_h,
-            signed_lip_height(jnp,second,u[:,4],up,down))
-        levels=initial_heights(jnp,jnp.stack((rise0,rise1),axis=1))
-        pos=data.mocap_pos
-        quat=data.mocap_quat
-        # Disabled original slabs cannot leak contact or phantom ToF returns.
-        buried=jnp.asarray((0.,0.,ACADEMY_BURIED_FLOOR_Z_M),
-                           dtype=jnp.float32)
-        for mocap in (self.unified_ground_mocap_id,
-                      self.terrain_step_mocap_id):
-            pos=pos.at[:,mocap,:].set(
-                jnp.where(active[:,None],buried,pos[:,mocap,:]))
-        # Same 3 collision boxes are recycled forever. No additional geoms
-        # or re-JIT after individual course transitions.
-        for i,mocap in enumerate(self.academy_platform_mocap_ids):
-            x=i*ACADEMY_INTERVAL_M
-            centre=jnp.stack((x*ca,x*sa,
-                      levels[:,i]-ACADEMY_PLATFORM_HALF_DEPTH_M),axis=1)
-            dormant=jnp.asarray((0.,0.,-2.-i*.3),dtype=jnp.float32)
-            centre=jnp.where(active[:,None],centre,dormant)
-            pos=pos.at[:,mocap,:].set(centre)
-            identity=jnp.asarray((1.,0.,0.,0.),dtype=jnp.float32)
-            quat=quat.at[:,mocap,:].set(jnp.where(active[:,None],q,identity))
-        data=data.replace(mocap_pos=pos,mocap_quat=quat,
-            qpos=data.qpos.at[:,2].set(
-                jnp.where(active,birth_root_z,data.qpos[:,2])))
         return data,active
-
-    def _recycle_academy_platform(self, state, data, academy, keys, params):
-        """Move a cleared trailing slab past the look-ahead slab, per world.
-
-        Called only after a five-frame real supported crossing, both feet
-        fully beyond the old lip, and no remaining old-slab foot contact.
-        The move happens after this frame's contacts and sensor sample; MJX
-        recomputes kinematics before the next simulated frame.
-        """
-        if not self.academy_stream:
-            return data
-        jnp,jax=self.jnp,self.jax
-        move=academy['cross_new']
-        count=state.academy_lip_index
-        slot=jnp.mod(count,ACADEMY_PLATFORMS)
-        far_slot=jnp.mod(count+2,ACADEMY_PLATFORMS)
-        old_pos=jnp.stack(tuple(
-            data.mocap_pos[:,m,:] for m in self.academy_platform_mocap_ids),axis=1)
-        far_pos=jnp.take_along_axis(old_pos,far_slot[:,None,None],
-                                   axis=1)[:,0,:]
-        sample=jax.vmap(lambda k:jax.random.uniform(
-            jax.random.fold_in(k,5043),(2,),dtype=jnp.float32))(keys)
-        direction=jnp.where(sample[:,0]<.5,1.,-1.)
-        fixed=params[P.terrain_fixed_height_m]
-        has_fixed=jnp.isfinite(fixed)
-        up=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_up_m])
-        down=jnp.minimum(self.academy_height_cap_m,params[P.academy_height_down_m])
-        progress=(state.ep_len+1)/self.academy_course_episode_frames
-        rise=jnp.where(has_fixed,
-            direction*jnp.maximum(.0015,jnp.abs(fixed)),
-            signed_lip_height(jnp,direction,sample[:,1],up,down,progress))
-        # The course yaw is fixed within one episode; both adjacent faces
-        # remain flush. Independent direction and size draws never repeat
-        # a prescribed up/down pattern.
-        q=data.mocap_quat[:,self.academy_platform_mocap_ids[0],:]
-        ca=1.-2.*q[:,3]**2
-        sa=2.*q[:,0]*q[:,3]
-        x=(count+3)*ACADEMY_INTERVAL_M
-        centre=jnp.stack((x*ca,x*sa,far_pos[:,2]+rise),axis=1)
-        pos=data.mocap_pos
-        for i,mocap in enumerate(self.academy_platform_mocap_ids):
-            chosen=move & (slot==i)
-            pos=pos.at[:,mocap,:].set(
-                jnp.where(chosen[:,None],centre,pos[:,mocap,:]))
-        return data.replace(mocap_pos=pos)
 
     def _carpet_dynamic_model(self,heights):
         """Rebuild convex prism vertices/normals per environment, fixed topology."""
@@ -2915,11 +2533,6 @@ class EmuMJXEnv(TaskSampler):
             jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope,
             transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
-        if not self.terrain_carpet_prisms:
-            for old in (self.unified_ground_mocap_id,
-                        self.terrain_step_mocap_id,*self.academy_platform_mocap_ids):
-                pos=pos.at[:,old,:].set(
-                    jnp.asarray([0.,0.,-30.],dtype=jnp.float32))
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
         quat=data.mocap_quat
@@ -3024,71 +2637,6 @@ class EmuMJXEnv(TaskSampler):
         hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
         return data.replace(mocap_pos=pos,mocap_quat=q),hfield,new_center
 
-    def _episode_terrain(self, data, keys, params,
-                         focus_id=None, specialist_active=None,
-                         athletic_rehearsal=None):
-        """Sample real episode terrain with an exactly flat dormant state.
-
-        A zero terrain exposure or height buries the *same* physical box
-        below the ground. Up/down pairs, height and edge angle only matter
-        for exposed worlds. The task parameters affect geometry through the
-        actual MJX reset, not an actor-visible difficulty label.
-        """
-        if self.terrain_step_mocap_id < 0:
-            return data
-        if self.unified_capability_focus:
-            return self._unified_terrain(
-                data,keys,params,focus_id=focus_id,
-                specialist_active=specialist_active,
-                athletic_rehearsal=athletic_rehearsal)
-        jax, jnp = self.jax, self.jnp
-        k = jax.vmap(lambda x: jax.random.fold_in(x, 5023))(keys)
-        def choose(key):
-            kh, ka, ke = jax.random.split(key, 3)
-            magnitude = 0.3 + 0.7*jax.random.uniform(kh, ())
-            angle = jax.random.uniform(ka, (), minval=-0.35, maxval=0.35)
-            selection_u = jax.random.uniform(ke, ())
-            return magnitude, angle, selection_u
-        magnitude, angle, selection_u = jax.vmap(choose)(k)
-        probability=params[P.terrain_exposure]
-        selected = selection_u < probability
-        if self.paired_terrain_heights:
-            # Independent frozen exam only. Each adjacent UP/DOWN pair has
-            # identical real height AND edge yaw. Live curriculum keeps
-            # its per-episode severity sampling unchanged.
-            pair_index = jnp.arange(self.num_envs, dtype=jnp.int32)//2
-            pair_keys = jax.vmap(lambda x: jax.random.fold_in(
-                jax.random.PRNGKey(self.terrain_pair_seed), x))(pair_index)
-            magnitude = .3 + .7*jax.vmap(
-                lambda x: jax.random.uniform(x, ()))(pair_keys)
-            angle = jax.vmap(lambda x: jax.random.uniform(
-                jax.random.fold_in(x, 19), (), minval=-.35, maxval=.35))(pair_keys)
-        ceiling = jnp.clip(params[P.terrain_height_m], 0.0, self.terrain_step_max_m)
-        active = selected & (ceiling > 1e-6)
-        height = jnp.where(active, ceiling * magnitude, 0.0)
-        # Stratified even/odd up/down worlds in the exposed subset, so a
-        # small batch with 100% exposure still sees both physical types.
-        down = (self.env_index.astype(jnp.int32) % 2) == 1
-        ca, sa = jnp.cos(angle), jnp.sin(angle)
-        side = jnp.where(down, -1.0, 1.0)
-        mid_x = TERRAIN_PLATFORM_EDGE_X_M + side*TERRAIN_PLATFORM_HALF_LENGTH_M*ca
-        mid_y = side*TERRAIN_PLATFORM_HALF_LENGTH_M*sa
-        center = jnp.stack((
-            mid_x, mid_y, height - TERRAIN_PLATFORM_HALF_DEPTH_M), axis=1)
-        # No ghost contacts or ray returns during the first 20M flat steps:
-        # absent terrain remains buried ~85cm below the real contact plane.
-        buried = jnp.asarray([0.0, 0.0, -1.0], dtype=jnp.float32)
-        center = jnp.where(active[:, None], center, buried)
-        zeros = jnp.zeros_like(angle)
-        yaw_quat = jnp.stack((jnp.cos(angle/2), zeros, zeros,
-                              jnp.sin(angle/2)), axis=1)
-        idx = self.terrain_step_mocap_id
-        return data.replace(
-            mocap_pos=data.mocap_pos.at[:, idx, :].set(center),
-            mocap_quat=data.mocap_quat.at[:, idx, :].set(yaw_quat),
-            qpos=data.qpos.at[:, 2].add(jnp.where(active & down, height, 0.0)),
-        )
-
     def _reset_with_keys(self, keys, params, carryover_qvel=None):
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
@@ -3118,16 +2666,6 @@ class EmuMJXEnv(TaskSampler):
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
         birth_root_z=data.qpos[:,2]
-        if not self.terrain_carpet:
-            # Legacy two-slab/reset-only geometry has NO collision role
-            # in a procedural carpet world. Previously the full teacher
-            # RNG and 64m slab deformation executed on every prism reset,
-            # only to be parked and overwritten in _carpet_birth below.
-            # Skip that dead computation in the compiled prism path.
-            data = self._episode_terrain(
-                data, keys, params, focus_id, specialist_active,
-                task[:,T.athletic_rehearsal] if self.unified_capability_focus
-                else None)
         data,academy_active=self._academy_course(
             data,keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal],birth_root_z)
