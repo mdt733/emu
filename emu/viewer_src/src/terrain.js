@@ -355,7 +355,12 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
-  if(mode==='carpet'&&park?.physics==='nine-solid-boxes'){
+  if(mode==='carpet'){
+    // Old procedural hfield-carpet preview has been deleted. The new
+    // prism-trained actor MUST get actual browser solid contacts, not
+    // silently switch to a heightfield with rounded-off vertical lips.
+    if(park?.physics!=='nine-solid-boxes')
+      throw Error('Carpet requires explicit real browser solid-box contacts');
     const noFloor=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
     if(noFloor===robotXml)throw Error('Carpet requires source robot ground plane');
     return noFloor.replace('</worldbody>',solidCarpetXml(park)+'\n</worldbody>');

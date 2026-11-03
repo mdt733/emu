@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {generateTerrainPark,withTerrain,surfaceSlope} from '../src/terrain.js';
-import {CARPET_DEFAULT,carpetRoleLimits,generateTrainingCarpet,parseCarpetMetrics,trainingLimits} from '../src/training-carpet.js';
+import {withTerrain} from '../src/terrain.js';
+import {carpetRoleLimits,parseCarpetMetrics,trainingLimits} from '../src/training-carpet.js';
 
 test('real EMU CSV exporter events containing commas survive input parsing',()=>{
   const data=parseCarpetMetrics(
@@ -17,32 +17,6 @@ test('real EMU CSV exporter events containing commas survive input parsing',()=>
   assert.equal(frontier.transitionMeasured,false);
   assert.equal(data.latest_metrics.academy_event,'up:expand,down:collect');
 });
-test('standing uses unchanged physical engine without accidental obstacles',()=>{
-  const carpet=generateTrainingCarpet(CARPET_DEFAULT,'standing',{trees:false});
-  assert.equal(carpet.features.length,0);
-  assert.ok(carpet.heights.every(v=>v===0));
-  assert.equal(carpet.sampleHeight(0,0),0);
-  assert.ok(carpet.preview);
-});
-test('new carpet is separate from original eight-feature park',()=>{
-  const carpet=generateTrainingCarpet({...CARPET_DEFAULT,seed:761},'step',{trees:true});
-  const original=generateTerrainPark({features:true,trees:true});
-  assert.equal(original.features.length,8);
-  assert.equal(carpet.features.length,0);
-  assert.ok(carpet.trees.length>0);
-  assert.equal(carpet.resolution,177);
-  assert.equal(carpet.tileSizeM,.5);
-  assert.ok(carpet.heights.some(x=>x>0));
-  assert.ok(Math.abs(carpet.sampleHeight(0,0))<.02);
-  const xml='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="50 50 .1"/></worldbody></mujoco>';
-  const ground=withTerrain(xml,'carpet',{park:carpet});
-  assert.match(ground,/name="viewer_park_ground" type="hfield"/);
-  assert.match(ground,/name="viewer_tree_trunk_/);
-  assert.doesNotMatch(ground,/park_feature_crest/);
-  assert.match(ground,/name="viewer_park_hfield"/);
-  const uphill=surfaceSlope('carpet',carpet,1.1,.5,0);
-  assert.equal(uphill.supported,true);
-});
 test('specialist roles use shared generated collision but distinct limits',()=>{
   const b={seed:735,slopeDeg:8,transitionDeg:3,stepUpM:.02,stepDownM:.04};
   const up=carpetRoleLimits(b,'slope'),steps=carpetRoleLimits(b,'step');
@@ -51,9 +25,7 @@ test('specialist roles use shared generated collision but distinct limits',()=>{
   assert.equal(steps.stepUpM,.02);
   assert.equal(steps.stepDownM,.04);
   assert.throws(()=>carpetRoleLimits(b,'unknown'),/Unknown/);
-  const a=generateTrainingCarpet(b,'slope',{trees:false}),
-        c=generateTrainingCarpet(b,'step',{trees:false});
-  assert.notDeepEqual(Array.from(a.heights.slice(5000,5200)),Array.from(c.heights.slice(5000,5200)));
+
 });
 test('viewer integrates carpet into real MuJoCo, not detached lab',()=>{
   const source=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
@@ -69,4 +41,9 @@ test('viewer integrates carpet into real MuJoCo, not detached lab',()=>{
   assert.match(ui,/id="carpetImport"/);
   assert.match(ui,/id="carpetApply"/);
   assert.match(main,/\/api\/live\/terrain/);
+});
+test('retired heightfield carpet fails closed: only 9 real browser contact solids',()=>{
+  const xml='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="50 50 .1"/></worldbody></mujoco>';
+  assert.throws(()=>withTerrain(xml,'carpet',{park:{mode:'carpet',
+     physics:'hfield',heights:new Float32Array(9)}}),/Carpet requires explicit real browser solid-box contacts/);
 });

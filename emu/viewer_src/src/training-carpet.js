@@ -1,6 +1,5 @@
 // v5041 Training Carpet: same browser MuJoCo heightfield and grass renderer
 // as Terrain Park, different seeded curriculum-driven surface. Park unchanged.
-import { generateTerrainPark, PARK_RADIUS_M } from './terrain.js';
 
 export const CARPET_ROLES = Object.freeze(['standing','command','resilience','slope','step','transition','control']);
 export const CARPET_TILE_M = .5;
@@ -8,15 +7,6 @@ export const CARPET_DEFAULT = Object.freeze({
   seed:735,slopeDeg:5,transitionDeg:2,stepUpM:.012,stepDownM:.016
 });
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
-
-function hash(i,j,seed,salt=0){
-  let h=(Math.imul(i,374761393)+Math.imul(j,668265263)+
-         Math.imul(seed,1442695041)+Math.imul(salt,1274126177))|0;
-  h=Math.imul(h^(h>>>13),1274126177);
-  return ((h^(h>>>16))>>>0)/4294967296;
-}
-
 function csvFields(line){
   // Python's csv.DictWriter quotes arbitrary per-role events, which may
   // contain commas. Honor RFC4180 quotes and doubled literal quotes.
@@ -133,63 +123,3 @@ export function carpetRoleLimits(b=CARPET_DEFAULT,role='step'){
     frequency};
 }
 
-function smoothHeight(x,y,p){
-  if(p.slopeDeg<=0)return 0;
-  const slope=Math.tan(p.slopeDeg*Math.PI/180);
-  const corner=Math.tan(p.transitionDeg*Math.PI/180);
-  const f=.89,a=hash(0,0,p.seed,31)*Math.PI*2;
-  const q1=hash(0,0,p.seed,32)*Math.PI*2;
-  const q2=hash(0,0,p.seed,33)*Math.PI*2;
-  const q3=hash(0,0,p.seed,34)*Math.PI*2;
-  const amp=Math.min(slope*.37/f,corner*.68/(CARPET_TILE_M*f*f*2.1));
-  return slope*.47*(Math.cos(a)*x+Math.sin(a)*y)+
-    amp*(.72*Math.sin(f*x+q1)*Math.cos(.73*f*y+q2)+
-         .28*Math.sin(.49*f*x+.83*f*y+q3));
-}
-function offset(i,j,p){
-  const cap=Math.min(p.stepUpM,p.stepDownM);
-  if(cap<=0||hash(i,j,p.seed,41)>=p.frequency)return 0;
-  return (hash(i,j,p.seed,43)<.5?-1:1)*cap*(.22+.28*hash(i,j,p.seed,42));
-}
-function heightAt(x,y,p){
-  const ix=Math.floor(x/CARPET_TILE_M),iy=Math.floor(y/CARPET_TILE_M);
-  // Honest limited-resolution step approximation for browser hfield.
-  // Tile faces carry different offsets; contact edges are rasterized
-  // into finite triangles, not infinite vertical faces.
-  const fade=smooth((Math.hypot(x,y)-.65)/.9);
-  return fade*(smoothHeight(x,y,p)+offset(ix,iy,p));
-}
-
-export function generateTrainingCarpet(base=CARPET_DEFAULT,role='step',{
-  radius=PARK_RADIUS_M,resolution=177,trees=true
-}={}){
-  if(resolution<33||resolution>257||resolution%2===0)throw Error('Invalid carpet grid size');
-  const limits=carpetRoleLimits(base,role);
-  const heights=new Float32Array(resolution*resolution);
-  const cell=2*radius/(resolution-1);
-  let lowest=Infinity,highest=-Infinity;
-  for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++){
-    const z=heightAt(-radius+i*cell,-radius+j*cell,limits);
-    heights[j*resolution+i]=z;
-    lowest=Math.min(lowest,z);highest=Math.max(highest,z);
-  }
-  // MuJoCo normalizes heightfield samples to [0,1]. Keep the *actual*
-  // original world heights by moving the hfield geom to lowest instead.
-  for(let i=0;i<heights.length;i++)heights[i]-=lowest;
-  const maxHeight=Math.max(.001,highest-lowest);
-  const sampleHeight=(x,y)=>{
-    const fx=clamp((x+radius)/cell,0,resolution-1.00001);
-    const fy=clamp((y+radius)/cell,0,resolution-1.00001);
-    const i=Math.floor(fx),j=Math.floor(fy),u=fx-i,v=fy-j;
-    const a=heights[j*resolution+i],b=heights[j*resolution+i+1];
-    const c=heights[(j+1)*resolution+i],d=heights[(j+1)*resolution+i+1];
-    return lowest+a*(1-u)*(1-v)+b*u*(1-v)+c*(1-u)*v+d*u*v;
-  };
-  const scenery=trees?generateTerrainPark({maxDegrees:1,seed:limits.seed,
-    trees:true,features:false}):null;
-  const treelist=(scenery?.trees||[]).map(t=>({...t,z:sampleHeight(t.x,t.y)}));
-  return {mode:'carpet',radius,resolution,cell,heights,maxHeight,
-    collisionOffsetZ:lowest,trees:treelist,features:[],sampleHeight,
-    limits,role,seed:limits.seed,flatRadius:.65,challengeLevel:'training',
-    tileSizeM:CARPET_TILE_M,preview:true};
-}
