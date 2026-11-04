@@ -241,9 +241,7 @@ def test_true_prism_footprint_blocks_sidewall_not_far_foot():
                             jnp.asarray(feet))),expected)
 
 
-@pytest.mark.parametrize("slope_deg,transition_deg",[
-    (.7,3.), (3.,3.), (8.,3.), (15.,3.), (15.,1.), (10.,.5)])
-def test_both_physical_triangle_normals_respect_curriculum(
+def _check_both_physical_triangle_normals_respect_curriculum(
         slope_deg,transition_deg):
     import jax.numpy as jnp
     from emu.terrain_carpet_mjx import (
@@ -310,6 +308,15 @@ def test_both_physical_triangle_normals_respect_curriculum(
     assert np.max(np.abs(dy))<3e-5
 
 
+def test_both_physical_triangle_normals_respect_curriculum():
+    # Keep all six slope/crease envelopes in one physical-invariant test.
+    # These variants are not six independent tests.
+    for slope_deg, transition_deg in (
+            (.7,3.), (3.,3.), (8.,3.), (15.,3.), (15.,1.), (10.,.5)):
+        _check_both_physical_triangle_normals_respect_curriculum(
+            slope_deg, transition_deg)
+
+
 def test_signed_x_and_y_lips_are_seeded_but_physically_detectable():
     import jax.numpy as jnp
     from emu.terrain_carpet_mjx import make_profiles,PROFILE_HALF
@@ -326,13 +333,20 @@ def test_signed_x_and_y_lips_are_seeded_but_physically_detectable():
         assert np.max(np.abs(near))<.004
 
 
-@pytest.mark.parametrize("rise,axis,up,down",[
-    (.02,0,1,0),(-.035,0,0,1),(.003,1,1,0),(-.02,1,0,1)])
-def test_real_top_supported_crossing_in_both_axes(rise,axis,up,down):
+def _check_real_top_supported_crossing_in_both_axes(rise,axis,up,down):
     t=trace(rise=rise,axis=axis)
     result=score_prism_crossings(t)
     assert (result["up"],result["down"],result["total"])==(up,down,1)
     assert result["worlds"][0]["independently_supported_lips"][0]["frame"]==6
+
+
+def test_real_top_supported_crossing_in_both_axes():
+    # Exercise all four signed/directional physical crossings together.
+    for rise, axis, up, down in (
+            (.02,0,1,0), (-.035,0,0,1),
+            (.003,1,1,0), (-.02,1,0,1)):
+        _check_real_top_supported_crossing_in_both_axes(
+            rise, axis, up, down)
 
 
 def test_unphysical_side_contact_cannot_earn_lip():
