@@ -61,6 +61,8 @@ def _memory_counters(device):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--worlds",type=int,default=4)
+    p.add_argument("--seed",type=int,default=735,
+                   help="fixed seed for matched GPU solver/physics A/B")
     p.add_argument("--device",choices=("cpu","cuda","gpu"),default="cpu")
     p.add_argument("--frames",type=int,default=2)
     p.add_argument("--ppo",action="store_true")
@@ -92,6 +94,7 @@ def main():
     if not a.prisms:
         p.error("The active EMU simulator is prism-only; pass --prisms")
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
+    if not 0 <= a.seed < 2**31:p.error("--seed must be 0..2147483647")
     if a.reset_forward_capacity<0:p.error("--reset-forward-capacity must be >=0")
     if (a.solver_iterations is not None and
             not 1<=a.solver_iterations<=100):
@@ -153,7 +156,7 @@ def main():
               f"ls_iterations={option.get('ls_iterations','default')} "
               "(benchmark only; original XML unchanged)",flush=True)
     env=EmuMJXEnv(
-        robot_xml_path,num_envs=a.worlds,seed=735,max_episode_steps=700,
+        robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_lesson="coherent-careful",
         academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
@@ -286,7 +289,7 @@ def main():
     print(f"physics PASS: {a.frames} frames in {a.worlds} worlds",flush=True)
     if a.ppo:
         from emu.ppo import make_trainer
-        trainer=make_trainer(env,seed=735,lr=2e-4,
+        trainer=make_trainer(env,seed=a.seed,lr=2e-4,
              rollout=32 if a.full_update else 2,
              epochs=4 if a.full_update else 1,
              minibatches=8 if a.full_update else 1)
@@ -326,6 +329,7 @@ def main():
         # real four-epoch PPO, synchronized before reading each elapsed time.
         # This mode never writes a checkpoint or launches an overnight run.
         steady_update_times=[]
+        physics_summary={}
         if a.benchmark_updates>1:
             last=updated
             final_steady_metrics=None
@@ -352,6 +356,21 @@ def main():
                   "(synchronized; no checkpoint)",flush=True)
             # This mask is already retained for curriculum scoring;
             # analyse it AFTER timing so host transfer cannot skew FPS.
+            # Sampled physical diagnostics from the LAST 32-frame PPO
+            # rollout. These are initial-policy smoke distributions, not a
+            # frozen competent gait exam. Transfer AFTER timing only.
+            physics_keys=(
+                "episode_fell", "episode_done", "support", "bad_contact",
+                "exam_stance_slip_proxy", "virtual_nonfoot_strike",
+                "fall_virtual_contact", "vx", "cmd_vx", "servo_shaft_abs_power_w",
+                "academy_cross_new", "terrain_cross_new")
+            sampled={k:final_steady_metrics[k] for k in physics_keys
+                     if k in final_steady_metrics}
+            sample_host=jax.device_get(sampled)
+            physics_summary={f"mean_{k}":float(np.mean(np.asarray(v)))
+                             for k,v in sample_host.items()}
+            print("PHYSICAL SNAPSHOT (last PPO rollout, untrained policy): "
+                  +json.dumps(physics_summary,sort_keys=True),flush=True)
             deaths=np.asarray(jax.device_get(
                 jnp.sum(final_steady_metrics["episode_done"]>.5,axis=1)))
             cap=env.reset_forward_capacity
@@ -494,7 +513,10 @@ def main():
             stats=dev.memory_stats() or {}
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
-    print(json.dumps(dict(status="PASS",worlds=a.worlds,
+    print(json.dumps(dict(status="PASS",worlds=a.worlds,seed=a.seed,
+          solver_iterations=int(getattr(env.mj_model.opt,"iterations",-1)),
+          solver_ls_iterations=int(getattr(env.mj_model.opt,"ls_iterations",-1)),
+          **(dict(physics_summary=physics_summary) if a.ppo else {}),
           feet_only_contacts=env.feet_only_contacts,
           contact_slots_per_world=ncon,
           constraint_rows_per_world=nefc,
