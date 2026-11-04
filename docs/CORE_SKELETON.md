@@ -47,8 +47,7 @@ geometry in the deployable sensor observations.
 | Hardware/system diagnosis | `doctor.py` |
 
 The physical robot is `emu/robot.xml`; the browser lives in
-`emu/viewer_src/`. The [read-only source-ownership inventory]
-(../scripts/audit_core_dependencies.py) checks that all 25 modules
+`emu/viewer_src/`. The [read-only source-ownership inventory](../scripts/audit_core_dependencies.py) checks that all 25 modules
 have exactly one declared owner and no retired imports reappear. Run
 it to get live counts, instead of trusting an old numbered file list:
 
@@ -133,8 +132,7 @@ source commits but intentionally **absent from this future-main
 preparation branch**. The v5045-only duplicate CI workflow and
 obsolete runbook are likewise retired.
 
-The detailed original [v5045 cleanup audit]
-(https://github.com/mdt733/emu/blob/feature/v5045-core-skeleton-audit/docs/CORE_SKELETON.md)
+The detailed original [v5045 cleanup audit](https://github.com/mdt733/emu/blob/feature/v5045-core-skeleton-audit/docs/CORE_SKELETON.md)
 remains in Git history, including its deleted-file accounting.
 Current architecture should be understandable without importing
 the historical experiment scaffolding.
