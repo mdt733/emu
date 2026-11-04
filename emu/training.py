@@ -99,6 +99,7 @@ def env_kwargs_from_args(args) -> dict:
         retention_share=args.retention_share,
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
+        stillness_birth_frac=args.stillness_birth_frac,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
