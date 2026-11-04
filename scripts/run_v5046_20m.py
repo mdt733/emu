@@ -68,7 +68,7 @@ def main() -> int:
     p.add_argument("--solver-iterations", type=int, default=2)
     p.add_argument("--solver-ls-iterations", type=int, default=4)
     p.add_argument("--run-dir", default="",
-                   help="default ~/emu_runs/v5046_20m_s<seed>_solver<N>_ls<N>")
+                   help="default ~/emu-data/runs/v5046_20m_s<seed>_solver<N>_ls<N>")
     p.add_argument("--no-gpu-gate", action="store_true",
                    help="skip pre-training 2048-world PPO smoke (start only, riskier)")
     a = p.parse_args()
@@ -78,7 +78,7 @@ def main() -> int:
             1 <= a.solver_ls_iterations <= 100):
         p.error("both solver limits must be 1..100")
     root = (Path(a.run_dir) if a.run_dir else
-            Path("~/emu_runs") / (
+            Path("~/emu-data/runs") / (
                 f"v5046_20m_s{a.seed}_solver{a.solver_iterations}_"
                 f"ls{a.solver_ls_iterations}"))
     root = root.expanduser().resolve()
