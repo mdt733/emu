@@ -1,64 +1,83 @@
-# EMU — fresh install and recovery (Windows 11 / WSL2 Ubuntu / NVIDIA)
+# EMU — clean Windows 11 / WSL2 installation and recovery
 
-**Reviewed: 4 November 2026.** This is the maintained rebuild procedure.
-The new **`main`** baseline is the completed 360-input,
-260,046,848-step Pinnacle. The previous 232-input actor is
-preserved at commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
-For the current policy and held-out results, see
-[the release card](V5032_PINNACLE_RELEASE.md). The old
-[cold-start runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) is now history.
+**Updated 5 November 2026 for v5046.** This is the one maintained
+installation guide. Installing never launches training, replaces the
+released `main` policy or rewrites an existing checkpoint.
+For the current six-servo GPU trainer, use an explicitly chosen feature
+branch; `main` remains the preserved 260M showcase champion.
 
-No step below launches training or replaces the released policy.
-Never install into, change, pull, or overwrite an **active** training
-checkout or virtual environment. Fresh machine setup uses a NEW directory,
-a NEW local `.venv` and results stored OUTSIDE Git.
+## 0. BEFORE wiping an old WSL distro
 
-[Project overview](../README.md) ·
-[Current handover](../HANDOVER.md) ·
-[Release rules](RELEASE_READINESS.md) ·
-[Official JAX installation guide](https://docs.jax.dev/en/latest/installation.html) ·
-[NVIDIA CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/)
+GitHub contains the source, **not** a trained checkpoint or your
+20M-run metrics. The uploaded `results_bundle(20261104-201906).zip`
+contains measurements and configuration **but not the neural policy
+optimizer checkpoint**. Back up the entire run directory first:
 
-## 1. Windows host — GPU and WSL
+- `~/emu_runs/v5046_20m_s735_solver2_ls4/`
+  (especially `checkpoints/final.pkl`, `training_config.json`,
+  `run_meta.json`, `metrics.csv`, `fixed_eval.csv`,
+  `console.log`, any exported `.emupolicy` and saved reports).
+- Any other `~/emu_runs/`, `~/robot_lab/emu_runs/`, `~/emu_gpu_audit/`,
+  custom run roots, local uncommitted code, private credentials and
+  non-EMU projects (e.g. Micromouse Lab, Meadow).
+- If WSL hosts your Tailscale/SSH remote access, that installation and
+  service will also be lost, even if the Windows Tailscale client survives.
 
-1. Install a current NVIDIA **Windows** display driver that supports CUDA
-   on WSL2. For JAX CUDA 13, NVIDIA/JAX document a driver **580+**
-   requirement; verify the current JAX/driver guidance when rebuilding.
-   The RTX 4060 Ti used for EMU supports CUDA 13.
-2. In **administrator PowerShell**, install/update WSL2 and Ubuntu:
+**Safest backup:** Windows PowerShell, after **stopping training**:
 
-   ```powershell
-   wsl --install -d Ubuntu
-   wsl --update
-   wsl --list --verbose
-   nvidia-smi
-   ```
+```powershell
+wsl --list --verbose
+$dest = Join-Path $env:USERPROFILE "Downloads\EMU-WSL-backup"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+wsl --shutdown
+wsl --export Ubuntu (Join-Path $dest "Ubuntu-before-reset.tar")
+Get-Item (Join-Path $dest "Ubuntu-before-reset.tar") |
+    Select-Object FullName, Length
+```
 
-   Restart Windows if requested. Confirm Ubuntu is WSL **version 2**.
-   Configure the Ubuntu username and password on its first launch.
-3. Enter Ubuntu with `wsl -d Ubuntu` and check:
+This creates a separate full Ubuntu export with the old run files,
+environments, code and configuration. Ensure the TAR is nonzero,
+there is enough disk space, and copy important checkpoints separately
+to a safe location if practical. Do not delete or unregister Ubuntu
+until the archive has been verified and the run directory is recoverable.
+`wsl --unregister Ubuntu` **permanently destroys** that distro's files.
+If you deliberately reset, run it as a separate, explicit action only
+after backing up.
 
-   ```bash
-   uname -m
-   nvidia-smi || /usr/lib/wsl/lib/nvidia-smi
-   ```
+## 1. Windows: GPU driver and fresh Ubuntu
 
-   Expect `x86_64` and a visible NVIDIA GPU. A `CUDA Version` reported by
-   `nvidia-smi` is the driver's *capability*, not proof that JAX has been
-   installed. **Do not install a Linux NVIDIA display driver in WSL**,
-   or install a generic `cuda-drivers` meta-package: WSL uses the driver
-   supplied by Windows. With JAX's pip-installed CUDA wheels you
-   ordinarily need **no separate Linux CUDA toolkit**.
+Use an up-to-date NVIDIA **Windows** driver compatible with WSL2,
+not a Linux display driver installed inside Ubuntu. For JAX's pip
+CUDA 13 wheels, upstream JAX presently calls for NVIDIA driver
+version **580 or newer**. The RTX 4060 Ti supports the CUDA 13
+architecture requirement (SM 7.5+).
 
-## 2. Ubuntu — Git, Python 3.13 and Node 24
+```powershell
+# After your deliberate Ubuntu reset; do not unregister if backups
+# or another important WSL project have not been secured.
+wsl --install -d Ubuntu
+wsl --update
+wsl --list --verbose
+nvidia-smi
+```
 
-Use the Linux filesystem (for example `~/emu-research`), not `/mnt/c`,
-for a high-throughput MJX checkout or results.
+Complete Ubuntu's username/password initial setup, then in Ubuntu:
 
-Ubuntu 24.04 ordinarily ships Python 3.12, whereas `pyproject.toml`
-requires **Python 3.13+**. This reproducible route installs a user-local
-Python 3.13 without replacing Ubuntu's system Python. On a system that
-already has working `python3.13`, skip the `pipx`/`uv` bootstrap.
+```bash
+uname -m
+nvidia-smi || /usr/lib/wsl/lib/nvidia-smi
+```
+
+Expect `x86_64`, WSL version 2 and an RTX 4060 Ti visible
+inside WSL. **Never install Linux `nvidia-driver`, `cuda-drivers`
+or generic driver meta-packages in WSL**. Pip CUDA wheels normally
+need no additional Ubuntu CUDA toolkit.
+
+## 2. Ubuntu: ONE Python, ONE EMU checkout, ONE venv
+
+Ubuntu versions differ in bundled Python; the repo requires
+**Python 3.13+**. Use `uv` to install user-local 3.13 rather than
+changing Ubuntu's system Python.
 
 ```bash
 sudo apt-get update
@@ -68,192 +87,137 @@ export PATH="$HOME/.local/bin:$PATH"
 pipx install uv
 uv python install 3.13
 python3.13 --version
-```
 
-`uv` fetches a supported Python 3.13 distribution. Do not replace
-`/usr/bin/python3` or use `--break-system-packages`. Python 3.13
-installation can alternatively be provided by your distribution; the
-version check above is what matters.
-
-The repo pins the viewer's Node major version in `.nvmrc` (**24**).
-The setup script can install user-local Node via nvm automatically;
-there is no need to install Node manually here.
-
-## 3. Clone the source, install CUDA JAX and all test tools
-
-This example checks out the **current v5045 draft feature branch** to
-exercise the lean true-prism trainer. For the *published 260M release*
-use `--branch main` instead and its original source-pinned checks;
-the feature-branch prism scripts need not exist in the frozen main tree.
-For the public viewer alone, see [CPU-only setup](PLAYGROUND.md).
-Never resume a main/v5044 optimizer checkpoint under the new source.
-
-```bash
-git clone --single-branch --branch feature/v5045-core-skeleton-audit \
-  https://github.com/mdt733/emu.git "$HOME/emu-research"
-cd "$HOME/emu-research"
+# Current experiment checkout. Swap only the branch when a new
+# source-pinned promotion candidate is explicitly approved.
+git clone --single-branch \
+  --branch experiment/v5046-75cm-four-tile-midpoint \
+  https://github.com/mdt733/emu.git "$HOME/emu"
+cd "$HOME/emu"
 git branch --show-current
 git rev-parse HEAD
 
-# Creates this checkout's .venv; installs JAX CUDA 13 + EMU + pytest,
-# installs Node 24, builds the viewer and runs CPU/browser tests.
+# Existing, maintained installer: local .venv, pip CUDA 13 JAX,
+# EMU + pytest, Node 24 via nvm, viewer and core/browser checks.
 bash scripts/setup_wsl.sh --cuda13 --install-node --check
-
-source .venv/bin/activate
-python --version
-python -m pytest --version
+source "$HOME/emu/.venv/bin/activate"
 ```
 
-**Important:** The historical 260M launcher's CPU preflight used `pytest`.
-`setup_wsl.sh --cuda13` installs `.[dev]` on this source branch even
-without `--check`; `--check` additionally runs the Python and browser
-suites. Always use a **new environment** for a new source-pinned training
-campaign; never switch an active trainer's editable install.
+The install script never starts PPO or changes Git refs, and does
+not need you to download a ZIP. It reads `pyproject.toml` and the
+committed viewer lockfile. Use the Linux filesystem (`~/emu`),
+**not `/mnt/c`**, for high-throughput simulations.
 
-If you choose to install manually instead of using the setup script:
-
-```bash
-cd "$HOME/emu-research"
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install "jax[cuda13]"
-python -m pip install -e ".[dev]"
-```
-
-The manual path is **training only**: building the browser viewer requires
-Node 24 and the locked dependencies in `emu/viewer_src/package-lock.json`.
-Do not mix the manual path with the script in an existing running venv.
-
-## 4. Verify the actual GPU backend — not just a successful pip install
+### Verify the exact accelerator, not merely `nvidia-smi`
 
 ```bash
-cd "$HOME/emu-research"
+cd "$HOME/emu"
 source .venv/bin/activate
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 python -m pip check
-
 python - <<'PY'
-import sys
-import jax
-import mujoco
-import mujoco.mjx
-import optax
-import pytest
-print("Python:", sys.version.split()[0])
-print("JAX:", jax.__version__)
-print("MuJoCo:", mujoco.__version__)
-print("Available JAX devices:", jax.devices())
-print("GPU devices:", jax.devices("gpu"))
-assert jax.devices("gpu"), "CUDA installation is NOT working"
+import jax, mujoco
+print("JAX:", jax.__version__, "MuJoCo:", mujoco.__version__)
+print("GPU:", jax.devices("gpu"))
+assert len(jax.devices("gpu")) >= 1
 PY
-
-emu doctor --require-gpu
+emu doctor --require-gpu --no-mjx-smoke
 python -m pytest -q tests
 ```
 
-The command `jax.devices("gpu")` must show a CUDA device; merely seeing
-`gpu` in `nvidia-smi` or having `jax` import successfully is insufficient.
+The v5046 development branch has **21 core pytest cases**, not 34.
+The old 34-arm solver study was temporary research; its runner was
+retired on the separate cleanup PR, retaining only measured findings.
+There are also browser checks and one real-physics acceptance probe.
+Do not disable these tests to shorten ordinary setup. They are separate
+from costly first-use JAX compilation and frozen evaluation.
 
-**Acceptance checks, no training campaign:** on this v5045 branch,
-first exercise the real CPU MJX 18-prism contacts, then the matched
-2,048-world **CUDA full-PPO** preflight. The latter compiles and
-executes real gradients, consumes significant GPU memory, and must
-not compete with an active 8GB GPU training job.
+## 3. Prepare the next source-pinned training run
 
-```bash
-python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
-python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
-  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms
-```
-
-For a completely new v5045 study, run the bounded
-[checkpoint first/continue/verify and exported frozen actor
-prism exam](V5045_LEAN_PRISM_RUNBOOK.md) on this **exact same source
-SHA** before any 140M cold start. The old `smoke_unified_focus.py`,
-`tests/test_v5031_verified_ascent.py` and
-`--verified-ascent-reallocation` belong to archived v5044 history,
-not the current branch.
-
-This proves the source can execute on the machine; it does **not**
-prove that a new random policy can walk or that the trained checkpoint
-is valid. The [completed Pinnacle campaign](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) required
-separate CPU and 2048-world CUDA preflights under its exact source
-SHA before it permitted training. A *future* campaign must do
-the same using its own validated source and resolved configuration.
-
-## 5. Examine the released baseline (training is not the setup default)
+Do not create a second Python virtualenv named `emu-graduation` or
+install an editable EMU package from a different checkout. The script
+`scripts/smoke_gpu_carpet.py` verifies the import source path to
+prevent the mixed-source error seen during v5046.
 
 ```bash
-mkdir -p "$HOME/robot_lab/emu_runs"
-cd "$HOME/emu-research"
+cd "$HOME/emu"
+source .venv/bin/activate
 git status --short
 git rev-parse HEAD
-python -m pip freeze > "$HOME/robot_lab/emu-python-packages.txt"
-python -m emu.cli train --help
-python scripts/verify_showcase_release.py
-# The previous source-pinned two-slab physical examiner was retired.
-# View the released champion in the browser, or use its historical Git
-# source to reproduce the old frozen physical baseline.
-python -m emu.cli viewer showcase/champion.emupolicy --no-open
+
+# This command checks 2,048 CUDA worlds and a genuine full PPO update,
+# but does not save a policy or start continuous training.
+PYTHONPATH="$PWD" python scripts/smoke_gpu_carpet.py \
+  --device cuda --worlds 2048 --frames 2 --ppo \
+  --full-update --benchmark-updates 2 --prisms \
+  --solver-iterations 2 --solver-ls-iterations 4
 ```
 
-This reads the checked-in **trained 360-input policy**. It
-does not use your GPU to train anything or assume the full
-optimizer checkpoint is present. To reproduce the original
-260M policy's *training*, consult the exact source SHA and
-[historical runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) and use
-an independent run root. **Never run the old cold-start
-launcher casually from a later `main` checkout.**
-Do not run competing 2048-world GPU campaigns on 8GB VRAM.
-
-All live checkpoints and exam results belong under
-`~/robot_lab/emu_runs/`, **outside** the Git checkout. Keep:
-the exact training SHA, run manifest, installed Python package
-versions, seed, accepted GPU preflight, complete checkpoints,
-normalization/optimizer/curriculum state, exported actors, and physical
-exam protocols. The checkpoint files **are not stored in GitHub**.
-Back them up separately if you want to migrate a trained bird.
-
-Do not modify a checkout after starting a source-pinned run.
-For code/report changes, use another Git branch and separate working tree.
-
-## 6. Viewer, remote SSH and power management (optional)
-
-The public `main`-lineage demo is deliberately protected. In the
-installed checkout, after `emu viewer-build` (setup does this already):
+For **v5046's original 20M experimental recipe** only, while the
+chosen branch remains `experiment/v5046-75cm-four-tile-midpoint`:
 
 ```bash
-emu viewer showcase/champion.emupolicy --no-open
+PYTHONPATH="$PWD" python scripts/run_v5046_20m.py plan
+
+# Only for a NEW, EMPTY run directory — this starts real training:
+PYTHONPATH="$PWD" python -u scripts/run_v5046_20m.py start
 ```
 
-Open `http://127.0.0.1:8765/` locally. Use
-[the playground guide](PLAYGROUND.md) for a viewer-only installation
-without training dependencies.
+Its default output is `~/emu_runs/v5046_20m_s735_solver2_ls4/`.
+Do not run `start` again if that folder exists. Use
+`scripts/run_v5046_20m.py resume` only with the **same source
+SHA and saved training configuration**. The 20M archive from
+5 November was already completed: to inspect the trained bird,
+**restore its original `final.pkl` and run artifacts** instead of
+launching another 20M over the same directory.
 
-For remote unattended training via Tailscale SSH, use a persistent
-terminal session such as GNU Screen (`sudo apt-get install screen`,
-`screen -S emu`, detach with Ctrl+A then D, resume with
-`screen -D -RR emu`). Keep Windows awake, not asleep or powered off.
-The SSH/Tailscale service and Ubuntu distro must remain reachable;
-Screen does not survive a host reboot, though an interrupted run may
-be checkpoint-resumable with the exact original SHA.
+A **future replacement-main run** should receive a freshly pinned
+branch, recipe and run directory, with installation and acceptance
+commands written alongside that run. Treat this 20M launcher as an
+experiment, not as the general-purpose 140M or final release recipe.
 
-## 7. Quick troubleshooting
+## 4. Recovery, viewer and clean project layout
 
-| Symptom | Interpretation / remedy |
-|---|---|
-| `No module named pytest` | Wrong/incomplete venv. Activate this checkout's `.venv` and run `python -m pip install -e ".[dev]"`. |
-| `No module named emu` | Activate the right environment and run `python -m pip install -e ".[dev]"` from the checkout. |
-| `python3.13: command not found` | Ensure `~/.local/bin` is on `PATH`; use `uv python install 3.13` or your distribution's 3.13 package. |
-| JAX has CPU only / `jax.devices("gpu")` fails | Confirm Windows GPU driver, WSL2, `nvidia-smi` inside WSL, `jax[cuda13]` and driver compatibility. Avoid overriding pip CUDA libraries with `LD_LIBRARY_PATH`. |
-| CUDA / XLA out of memory on 8 GB | Ensure no concurrent GPU runs, use `XLA_PYTHON_CLIENT_PREALLOCATE=false`, and respect source-specific 2048-world preflights. Do not quietly halve world count in a matched A/B study. |
-| Git error: not a repository | `cd` into the actual checked-out EMU directory, not `~`. |
-| Manifest / source SHA mismatch | Stop. Never rewrite an ancestor SHA, bypass hashes or delete a manifest to force continuation. |
-| No checkpoints on the new PC | Git stores *code*, not the learned neural policy. Restore backed-up run directories or cold-start using the original campaign contract. |
+Suggested new WSL layout (one canonical location for each kind):
 
-**Authoritative future references:** [JAX NVIDIA installation](https://docs.jax.dev/en/latest/installation.html),
-[NVIDIA WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/),
-[uv Python management](https://docs.astral.sh/uv/guides/install-python/).
-Package versions and CUDA driver requirements may change; prefer
-these upstream sources when provisioning a new machine.
+```text
+~/emu/                     # one Git checkout + .venv (installed once)
+~/emu_runs/<unique-run>/   # training configs, snapshots, final.pkl, metrics
+~/emu_audit/               # temporary GPU research data, not trainer source
+```
+
+The repo's own `scripts/setup_wsl.sh` also installs Node 24 and
+builds the viewer. After activation:
+
+```bash
+emu viewer showcase/champion.emupolicy --no-open --port 8765
+# Open http://127.0.0.1:8765/ in Windows.
+```
+
+Use the checked-in `main` champion only as an unchanged baseline.
+A `.pkl` checkpoint includes learned weights, normalizer, optimizer
+and curriculum state; an `.emupolicy` is an inference export.
+Never treat Git clone or a results CSV as a checkpoint backup.
+
+For a reproducible restore, save `git rev-parse HEAD`,
+`python -m pip freeze`, the exact run folder and the installer flags
+in an external backup. Pin external package versions for a long
+campaign once its preflight has passed. Don't modify or `git pull`
+the checkout while that campaign is running; create another branch
+or clone for parallel engineering work.
+
+Troubleshooting:
+- `No module named emu` / wrong source: activate `~/emu/.venv`,
+  use `PYTHONPATH="$PWD"` and confirm Git SHA; never mix shared venvs.
+- CUDA JAX unavailable: check driver, WSL2, `jax[cuda13]` and
+  `LD_LIBRARY_PATH` (it can override pip's CUDA libraries).
+- GPU OOM: no competing 2,048-world run on the 8 GB card;
+  use `XLA_PYTHON_CLIENT_PREALLOCATE=false`.
+- Checkpoint source mismatch: preserve the original checkout
+  and configuration; do not delete the manifest or force a resume.
+- Missing saved policy: restore backed-up `final.pkl`; Git alone
+  cannot recreate learned weights.
+
+References: [JAX installation](https://docs.jax.dev/en/latest/installation.html),
+[NVIDIA's CUDA-on-WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/),
+[uv Python installation](https://docs.astral.sh/uv/guides/install-python/).
