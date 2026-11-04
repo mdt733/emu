@@ -295,6 +295,28 @@ def main() -> int:
     manifest = output / "state.json"
     if manifest.exists():
         state = json.loads(manifest.read_text(encoding="utf-8"))
+        # A preflight that fails before ANY GPU arm cannot pollute A/B
+        # results. It is safe to retry it after a script bug fix while
+        # preserving that log and explicitly recording the old source SHA.
+        if (state.get("source_sha") != head
+                and not state.get("results")
+                and state.get("plan") == plan
+                and state.get("updates") == updates
+                and state.get("python") == sys.executable):
+            previous = state["source_sha"]
+            old_log = output / "preflight.log"
+            if old_log.exists():
+                archived_log = output / ("preflight_failed_" +
+                                         previous[:12] + ".log")
+                old_log.replace(archived_log)
+            state.setdefault("failed_preflight_source_shas", []).append(
+                previous)
+            state.update(source_sha=head, branch=branch,
+                         started_utc=now(), preflight_status="NOT_RUN")
+            atomic_json(manifest, state)
+            print("MIGRATED preflight-only manifest from " + previous[:12] +
+                  " to " + head[:12] +
+                  "; no GPU runs or results were mixed.", flush=True)
         if (state.get("source_sha") != head or
                 state.get("plan") != plan or
                 state.get("updates") != updates or
