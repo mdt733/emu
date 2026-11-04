@@ -136,7 +136,6 @@ def main():
     solver_xml_tmp=None
     if a.solver_iterations is not None or a.solver_ls_iterations is not None:
         import tempfile
-        from pathlib import Path
         from xml.etree import ElementTree as ET
         solver_xml_tmp=tempfile.TemporaryDirectory(prefix="emu_solver_ab_")
         source=ET.parse(ROBOT_XML)
@@ -364,7 +363,6 @@ def main():
                   f"fallback_frames={np.sum(deaths>cap) if cap else 32}/32",
                   flush=True)
         if a.gpu_audit_dir:
-            from pathlib import Path
             out_dir=Path(a.gpu_audit_dir).expanduser().resolve()
             out_dir.mkdir(parents=True,exist_ok=True)
             dev=jax.devices("gpu")[0]
