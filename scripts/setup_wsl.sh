@@ -108,7 +108,7 @@ fi
 printf '\nEMU setup complete (%s). No training was started.\n' "$([[ "$VIEWER_ONLY" == 1 ]] && echo viewer-only || echo full)"
 printf 'Viewer: source .venv/bin/activate && emu viewer showcase/champion.emupolicy --no-open\n'
 printf 'Open http://127.0.0.1:8765/ in your browser.\n'
-printf 'Focused physical terrain proof: python -m emu.terrain_spike --worlds 2\n'
+printf 'Current physical prism proof (CPU): JAX_PLATFORMS=cpu PYTHONPATH="$PWD" python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2\n'
 if ((CUDA13)); then
   printf 'GPU acceptance is separate: emu doctor --require-gpu and the experiment-specific 2048 CUDA PPO smoke\n'
   python -m pytest --version
