@@ -122,7 +122,7 @@ print("GPU:", jax.devices("gpu"))
 assert len(jax.devices("gpu")) >= 1
 PY
 emu doctor --require-gpu --no-mjx-smoke
-python -m pytest -q tests
+# The --check installation step already ran the core and browser tests.
 ```
 
 The v5046 development branch has **21 core pytest cases**, not 34.
