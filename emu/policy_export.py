@@ -413,6 +413,10 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             # Missing keys in historical bundles preserve old semantics.
             "terrain_carpet": bool(run_cfg.get('terrain_carpet', False)),
             "terrain_carpet_prisms": bool(run_cfg.get('terrain_carpet_prisms', False)),
+            # Physical solver identity must travel WITH the frozen actor;
+            # the independent exam must not silently revert to XML defaults.
+            "solver_iterations": run_cfg.get('solver_iterations'),
+            "solver_ls_iterations": run_cfg.get('solver_ls_iterations'),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
