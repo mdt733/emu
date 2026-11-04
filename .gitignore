@@ -10,7 +10,7 @@ __pycache__/
 .DS_Store
 
 # EMU heavyweight training artefacts must never enter normal Git history.
-# The normal ladder writes these OUTSIDE the repository to ../emu_runs/<VERSION>/.
+# Canonical runs live outside source at ~/emu-data/runs/<study>-s<seed>/.
 **/checkpoints/
 **/rung_runs/
 *.pkl
