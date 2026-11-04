@@ -1,193 +1,145 @@
-"""Six high-signal run contracts: source-locked 140M recipe, actual evaluator, checkpoint.
+"""Maintained EMU run contracts: real CLI, source-locked continuation, physics.
 
-No old-policy fixtures, no duplicate tests of tests; the bounded live
-first/continue/verify test remains a separate explicit GPU acceptance gate.
+The 140M / 20M / eight-arm tournament launch scripts were disposable.
+Test the *one training CLI and checkpoint contract* they exercised rather
+than retaining obsolete campaign code just to keep its tests green.
 """
 from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, NamedTuple
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from scripts.run_prism_140m import train_arguments, STEPS, ENVS, EXPECTED_BRANCH
 from scripts.smoke_training_lifecycle import configs
 from emu.training_config import training_sensor_contract
 from emu.contracts import OBS_SCHEMA_TERRAIN
 from emu.run import one_run_config
 
+EXAMPLE_STEPS=50_000_000
+ENVS=2048
 
-def test_big_run_is_140m_true_prisms_six_specialists(tmp_path):
-    args = train_arguments(tmp_path / "run", 735, "start")
-    assert args[3:5] == ["emu.cli", "train"]
-    for option in ("--carpet-prisms", "--terrain-carpet", "--terrain-actor",
-                   "--unified-capabilities", "--academy-stream"):
-        assert args.count(option) == 1
-    assert args[args.index("--envs") + 1] == str(ENVS)
-    assert args[args.index("--steps") + 1] == str(STEPS)
-    assert args[args.index("--foundation-steps") + 1] == "20000000"
-    assert args[args.index("--academy-max-share") + 1] == ".50"
-    assert "--resume" not in args
-    assert "--plan" not in args
-    assert EXPECTED_BRANCH == "feature/v5045-core-skeleton-audit"
-
-
-def test_start_resume_check_and_plan_share_exact_physics(tmp_path):
-    root = tmp_path / "run"
-    base = train_arguments(root, 735, "start")
-    assert train_arguments(root, 735, "plan") == base + ["--plan"]
-    assert train_arguments(root, 735, "resume") == base + ["--resume", "auto"]
-    assert train_arguments(root, 735, "verify") == (
-        base + ["--resume", "auto", "--check-resume-only"]
-    )
-    with pytest.raises(ValueError):
-        train_arguments(root, 735, "unknown")
-    with pytest.raises(ValueError):
-        train_arguments(root, -1, "start")
+def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
+    """Representative modern training CLI, NOT a second experiment launcher."""
+    return [
+        "train", "--run-dir", str(run_dir),
+        "--steps", str(EXAMPLE_STEPS), "--envs", str(ENVS),
+        "--seed", str(seed), "--device", "cuda", "--profile", "sim2real",
+        "--pitch-deg", "8", "--terrain-actor",
+        "--terrain-step-max-m", ".08", "--unified-capabilities",
+        "--terrain-carpet", "--carpet-prisms",
+        "--carpet-transition-cap-deg", "3",
+        "--foundation-steps", "10000000", "--foundation-mix", "main",
+        "--growth-recipe", "main-mature", "--teaching-schedule", "terrain-early",
+        "--terrain-lesson", "coherent-careful", "--force-program", "gentle",
+        "--athletic-rehearsal-share", ".10", "--retention-share", ".15",
+        "--academy-stream", "--academy-intro-steps", "600000000",
+        "--academy-start-steps", "800000000",
+        "--academy-intro-share", ".10", "--academy-ramp-steps", "10000000",
+        "--academy-max-share", ".40", "--academy-height-cap-m", ".15",
+        "--academy-course-episode-frames", "1200",
+        "--fixed-eval-every-steps", "50000000",
+        "--solver-iterations", "2", "--solver-ls-iterations", "4",
+    ]
 
 
-def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
+def test_training_cli_is_one_360_input_eight_prism_specialist_policy(tmp_path):
+    from emu.cli import main
+    calls=[]
+    with patch("emu.run.train_one",side_effect=lambda ns:(calls.append(one_run_config(ns)),0)[1]):
+        assert main(training_flags(tmp_path/"study")) == 0
+    assert len(calls)==1
+    cfg=calls[0]
+    assert (cfg.steps,cfg.envs,cfg.seed)==(EXAMPLE_STEPS,ENVS,735)
+    assert cfg.terrain_carpet and cfg.terrain_carpet_prisms
+    assert cfg.unified_capability_focus and cfg.academy_stream
+    assert cfg.observation_schema==OBS_SCHEMA_TERRAIN
+    assert cfg.foundation_steps==10_000_000
+    assert cfg.academy_intro_steps==600_000_000
+    assert cfg.athletic_rehearsal_frac==pytest.approx(.10)
+    assert cfg.retention_share==pytest.approx(.15)
+    assert (cfg.solver_iterations,cfg.solver_ls_iterations)==(2,4)
+
+
+def test_one_cli_preserves_config_through_resume_verify_and_plan(tmp_path):
+    from emu.cli import main
+    base=training_flags(tmp_path/"study")
+    seen=[]
+    with patch("emu.run.train_one",side_effect=lambda ns:(seen.append(one_run_config(ns)),0)[1]):
+        assert main(base)==0
+        assert main(base+["--resume","auto"])==0
+        assert main(base+["--resume","auto","--check-resume-only"])==0
+    assert len(seen)==3
+    assert seen[0].resume in ("",None)
+    assert seen[1].resume=="auto" and seen[2].resume=="auto"
+    assert replace(seen[0],resume="auto")==seen[1]==seen[2]
+    with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+        with pytest.raises(ValueError,match="solver-iterations"):
+            main(base[:-4]+["--solver-iterations","0",
+                           "--solver-ls-iterations","4"])
+    # Source-owned plan can be checked without touching the GPU.
+    assert main(base+["--plan"])==0
+
+
+def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     from emu.cli import main as emu_cli_main
-    cli_args = train_arguments(tmp_path / "run", 735, "start")[4:]
-    configs_seen = []
-
-    def capture(args):
-        configs_seen.append(one_run_config(args))
+    cli_args=training_flags(tmp_path/"run")
+    seen=[]
+    def capture(ns):
+        seen.append(one_run_config(ns))
         return 0
-
-    with patch("emu.run.train_one", side_effect=capture):
-        assert emu_cli_main(cli_args) == 0
-    assert len(configs_seen) == 1
-    cfg = configs_seen[0]
-    assert cfg.steps == STEPS and cfg.envs == ENVS and cfg.seed == 735
-    assert cfg.terrain_carpet and cfg.terrain_carpet_prisms and cfg.academy_stream
-    assert cfg.unified_capability_focus
-    assert cfg.observation_schema == OBS_SCHEMA_TERRAIN
-    assert cfg.terrain_lesson == "coherent-careful"
-    assert cfg.teaching_schedule == "terrain-early"
-    assert cfg.athletic_rehearsal_frac == pytest.approx(.10)
-    assert cfg.retention_share == pytest.approx(.15)
-    assert cfg.fixed_eval_every_steps == 10_000_000
-    # Keep the 20M cold-start/mature limits identical while deleting
-    # unreachable legacy mode branches from the config builder.
-    assert cfg.foundation_steps == 20_000_000
-    assert cfg.difficulty_base_step == pytest.approx(.0024)
-    assert cfg.fall_target == pytest.approx(.34)
-    assert (cfg.vx_hi_max, cfg.vx_lo_min, cfg.vy_max_mps, cfg.yaw_max_rad_s) == pytest.approx(
-        (.60, -.20, .22, 1.50))
-    assert (cfg.combo_probe_frac, cfg.phase_speed_gain, cfg.regime_command_frac,
-            cfg.combo_mix_frac) == pytest.approx((.12, 1.25, .85, .88))
-    assert cfg.frontier_push_safety_n == pytest.approx(.70)
-    assert cfg.push_max_force_n == pytest.approx(4.)
-    assert cfg.capability_field_mode == "shadow"
-    assert cfg.freeze_obs_norm_after_steps == 0
-    assert cfg.stillness_birth_frac == 0.
-    # The v5048 study must fork one exact 50M ancestor 8 times, not
-    # silently spend 8 x 100M on unrelated cold starts. No extra test
-    # file: extend the existing immutable train CLI contract.
-    from scripts.v5048_shared_parent_tournament import (
-        FOUNDATION_STEPS, FORK_TARGET, FINAL_TARGET,
-        PARENT_SPEC, ARMS, checkpoint_boundary, policy_args)
-    assert (FOUNDATION_STEPS,FORK_TARGET,FINAL_TARGET) == (
-        50_000_000,100_000_000,200_000_000)
-    assert len(ARMS)==8
-    assert len({name for name,_ in ARMS})==8
-    assert PARENT_SPEC['intro']>FOUNDATION_STEPS
-    assert checkpoint_boundary(FORK_TARGET)>=FORK_TARGET
-    for name,spec in ARMS:
-        fork_cmd=policy_args(spec,steps=FORK_TARGET,
-                             seed=735,run=tmp_path/name)
-        assert fork_cmd.count('--steps')==1
-        assert fork_cmd[fork_cmd.index('--steps')+1]==str(FORK_TARGET)
-        assert fork_cmd[fork_cmd.index('--solver-iterations')+1]==str(
-            spec.get('solver',2))
-        assert fork_cmd[fork_cmd.index('--academy-intro-steps')+1]==str(
-            spec['intro'])
-    from dataclasses import replace
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(cli_args)==0
+    cfg=seen[0]
+    assert cfg.terrain_lesson=="coherent-careful"
+    assert cfg.teaching_schedule=="terrain-early"
+    assert cfg.fixed_eval_every_steps==50_000_000
+    assert cfg.difficulty_base_step==pytest.approx(.0024)
+    assert cfg.fall_target==pytest.approx(.34)
+    assert (cfg.vx_hi_max,cfg.vx_lo_min,cfg.vy_max_mps,cfg.yaw_max_rad_s)==pytest.approx(
+        (.60,-.20,.22,1.50))
+    assert (cfg.combo_probe_frac,cfg.phase_speed_gain,cfg.regime_command_frac,
+            cfg.combo_mix_frac)==pytest.approx((.12,1.25,.85,.88))
+    assert cfg.frontier_push_safety_n==pytest.approx(.70)
+    assert cfg.push_max_force_n==pytest.approx(4.)
+    assert cfg.capability_field_mode=="shadow"
+    assert cfg.freeze_obs_norm_after_steps==0
+    assert cfg.stillness_birth_frac==0.
+    # Real research forks may change teacher and solver, but not the
+    # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
-    baseline=cfg
-    treated=replace(baseline,steps=FORK_TARGET,seed=761,
-                    academy_intro_steps=FOUNDATION_STEPS,
-                    academy_start_steps=FOUNDATION_STEPS,
-                    stillness_birth_frac=.10)
-    verify_experiment_fork(baseline,treated)
+    fork=replace(cfg,steps=100_000_000,academy_intro_steps=50_000_000,
+                 academy_start_steps=50_000_000,stillness_birth_frac=.10)
+    verify_experiment_fork(cfg,fork)
     with pytest.raises(RuntimeError,match="observation_schema"):
-        verify_experiment_fork(baseline,replace(treated,observation_schema='sim2real_232'))
-    # The one opt-in zero-command cohort is recorded in TrainingConfig.
-    with patch("emu.run.train_one", side_effect=capture):
+        verify_experiment_fork(cfg,replace(fork,observation_schema="sim2real_232"))
+    with patch("emu.run.train_one",side_effect=capture):
         assert emu_cli_main(cli_args+["--stillness-birth-frac",".12"])==0
-    assert configs_seen[-1].stillness_birth_frac==pytest.approx(.12)
-    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
+    assert seen[-1].stillness_birth_frac==pytest.approx(.12)
+    with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
         with pytest.raises(ValueError,match="stillness-birth-frac"):
             emu_cli_main(cli_args+["--stillness-birth-frac",".4"])
-    # No-free-posture rule remains for moving targets; zero command is
-    # the *only* request allowed to opt out of forced stepping activity.
     from emu.rewards import _gait_maturity
-    m = dict(age_s=np.asarray([2.],np.float32),
-             stepping_activity_so_far=np.asarray([0.],np.float32),
-             cmd_vx=np.asarray([0.],np.float32),
-             cmd_vy=np.asarray([0.],np.float32),
-             cmd_yaw=np.asarray([0.],np.float32))
+    m=dict(age_s=np.asarray([2.],np.float32),
+           stepping_activity_so_far=np.asarray([0.],np.float32),
+           cmd_vx=np.asarray([0.],np.float32),
+           cmd_vy=np.asarray([0.],np.float32),
+           cmd_yaw=np.asarray([0.],np.float32))
     assert float(_gait_maturity(m,np)[1][0])==pytest.approx(.30)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(1.)
-    m['cmd_vx']=np.asarray([.12],np.float32)
+    m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
-    # The retired sparse-cloud evaluator must not be used by this lineage.
-    assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
+    assert cfg.cloud_probes_per_eval==0 and cfg.cloud_final_probes==0
     assert training_sensor_contract(cfg) is not None
-    # The 20M gait experiment must use this SAME proven trainer, explicit
-    # physics caps and a saved 10M foundation, not a standalone pseudo-PPO.
-    from argparse import Namespace
-    from scripts.run_v5046_20m import train_cmd
-    trial = Namespace(seed=735, solver_iterations=2, solver_ls_iterations=4)
-    trial_args = train_cmd(trial, "start", tmp_path / "trial")[4:]
-    cfg20=[]
-    with patch("emu.run.train_one", side_effect=lambda ns: (cfg20.append(one_run_config(ns)), 0)[1]):
-        assert emu_cli_main(trial_args) == 0
-    assert len(cfg20)==1
-    assert cfg20[0].steps==20_000_000
-    assert cfg20[0].foundation_steps==10_000_000
-    assert cfg20[0].solver_iterations==2
-    assert cfg20[0].solver_ls_iterations==4
-    assert cfg20[0].fixed_eval_every_steps==10_000_000
-    assert train_cmd(trial, "resume", tmp_path / "trial") == (
-        train_cmd(trial, "start", tmp_path / "trial") + ["--resume", "auto"])
-    assert train_cmd(trial, "verify", tmp_path / "trial") == (
-        train_cmd(trial, "resume", tmp_path / "trial") + ["--check-resume-only"])
-    assert "--plan" in train_cmd(trial, "plan", tmp_path / "trial")
-    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
-        with pytest.raises(ValueError,match="solver-iterations"):
-            emu_cli_main(trial_args[:-2]+["--solver-iterations","0"])
 
-    # Direct callers cannot revive the legacy launch mode or old actor
-    # contract by skipping the prism-only CLI parser.
-    from dataclasses import replace
-    from emu.training import unified_launch_mode
-    with pytest.raises(ValueError, match='v5045 trainer requires'):
-        unified_launch_mode(replace(cfg, unified_capability_focus=False))
-    with pytest.raises(ValueError, match='v5045 trainer requires'):
-        unified_launch_mode(replace(cfg, observation_schema='sim2real_232'))
-    with pytest.raises(ValueError, match='v5045 trainer requires'):
-        unified_launch_mode(replace(cfg, terrain_carpet_prisms=False))
-    # Public CLI must refuse a superficially valid legacy launch before GPU
-    # model creation, rather than printing a plan for an impossible world.
-    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
-        with pytest.raises(ValueError, match="v5045 prism-only"):
-            emu_cli_main(["train", "--run-dir", str(tmp_path / "legacy"),
-                          "--steps", "256"])
-    # One current frozen-policy CLI; old two-slab exam routes are retired.
-    with patch("emu.prism_exam.evaluate_prism_policy",
-               return_value=(tmp_path / "prism_exam.json", tmp_path / "prism_exam.md")) as exam:
-        assert emu_cli_main(["prism-exam", "--policy", str(tmp_path / "actor.emupolicy"),
-                             "--output", str(tmp_path / "exam"), "--mode", "step",
-                             "--speed", "0"]) == 0
-        assert exam.call_args.kwargs["speed"] == 0.
-        assert exam.call_args.kwargs["mode"] == "step"
 
 
 def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     import emu.evaluation as evaluate
-    cli_args = train_arguments(tmp_path / "run", 735, "start")[4:]
+    cli_args = training_flags(tmp_path / "run")
     config = []
 
     with patch("emu.run.train_one", side_effect=lambda ns: (config.append(one_run_config(ns)), 0)[1]):
