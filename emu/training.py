@@ -246,7 +246,7 @@ def train(args: TrainingConfig) -> int:
         'reset_forward_capacity': env.reset_forward_capacity,
         'ngeom': int(env.mj_model.ngeom),
         'padded_contacts_per_world': int(
-            env._make_batched_data()._impl.contact.geom1.shape[1]),
+            env.mjx.make_data(env.mjx_model_template)._impl.contact.geom1.shape[0]),
     }
     write_json(run_dir / 'run_meta.json', meta)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
