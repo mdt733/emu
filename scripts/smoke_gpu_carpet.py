@@ -8,6 +8,15 @@ import argparse
 import json
 import os
 import time
+import sys
+from pathlib import Path
+
+# Executing "python scripts/smoke_gpu_carpet.py" puts scripts/ first on
+# sys.path, NOT necessarily the repository root.  A shared venv may contain
+# an editable install of another EMU checkout, causing a deceptively mixed
+# script/environment pair.  Always use the source next to THIS script.
+_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_SOURCE_ROOT))
 
 
 def physics_report_fields() -> dict:
@@ -108,6 +117,15 @@ def main():
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
     from emu.terrain_carpet_mjx import TILE_COUNT, TILE_M, validate_prism_only_geoms
+    import emu.environment as environment_module
+    imported_path = Path(environment_module.__file__).resolve()
+    intended_path = (_SOURCE_ROOT / "emu" / "environment.py").resolve()
+    if imported_path != intended_path:
+        raise RuntimeError(
+            "EMU source mismatch: launcher is in " + str(_SOURCE_ROOT) +
+            " but emu.environment was imported from " + str(imported_path) +
+            "; aborting to protect benchmark validity")
+    print(f"EMU SOURCE: {imported_path}", flush=True)
 
     if a.device in ("cuda","gpu") and jax.default_backend()!="gpu":
         raise RuntimeError("Expected a CUDA-capable GPU")
