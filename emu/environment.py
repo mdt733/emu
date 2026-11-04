@@ -560,7 +560,7 @@ class TaskSampler:
             # sharing one across quantities.
             # Keep split arity stable so deleting a dead task feature does not
             # reshuffle unrelated stochastic streams under the same seed.
-            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, _reserved, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
+            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, k_stillness, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
             u = jax.random.uniform(k_regime, ())
             regime = jnp.sum(u > regime_cdf).astype(jnp.float32)
             # Full-envelope rehearsal preserves the proven athletic distribution
@@ -689,6 +689,19 @@ class TaskSampler:
             step_height = jnp.where(is_athletic, 0.012, step_height)
             resilience_task = jnp.where(is_athletic, 0.0, resilience_task)
 
+            # A true near-zero command is a first-class, explicit research
+            # birth cohort: same actor, physics and sensor channels. Keep
+            # a fresh RNG key, no new JAX state/optimizer, and leave all
+            # other cohorts/athletic rehearsal untouched when fraction=0.
+            is_still = ((jax.random.uniform(k_stillness, ()) < self.stillness_birth_frac)
+                        & (regime < .5) & ~is_athletic)
+            vx = jnp.where(is_still, 0., vx)
+            vy = jnp.where(is_still, 0., vy)
+            yaw = jnp.where(is_still, 0., yaw)
+            height = jnp.where(is_still, 0., height)
+            pitch = jnp.where(is_still, 0., pitch)
+            roll = jnp.where(is_still, 0., roll)
+            resilience_task = jnp.where(is_still, 0., resilience_task)
             # Capability-atlas command probes use exact physical commands,
             # bypassing random envelope sampling without changing the actor.
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
@@ -943,6 +956,7 @@ class EmuMJXEnv(TaskSampler):
                  retention_share: float = 0.0,
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
+                 stillness_birth_frac: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -975,6 +989,9 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(motor_guidance_weight) or not 0.0 <= motor_guidance_weight <= 0.10:
             raise ValueError('motor_guidance_weight must be in [0, 0.10]')
         self.motor_guidance_weight = float(motor_guidance_weight)
+        if not np.isfinite(stillness_birth_frac) or not 0. <= stillness_birth_frac <= .25:
+            raise ValueError("stillness_birth_frac must be in [0,0.25]")
+        self.stillness_birth_frac = float(stillness_birth_frac)
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1491,6 +1508,7 @@ class EmuMJXEnv(TaskSampler):
             xp=jnp,
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
+            allow_zero_command_balance=self.stillness_birth_frac > 0.,
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
