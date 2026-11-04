@@ -948,7 +948,8 @@ class EmuMJXEnv(TaskSampler):
                  carpet_transition_cap_deg: float = 3.0,
                  terrain_carpet_prisms: bool = False,
                  academy_height_cap_m: float = 0.150,
-                 academy_course_episode_frames: int = 1200):
+                 academy_course_episode_frames: int = 1200,
+                 reset_forward_capacity: int = 128):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1012,6 +1013,12 @@ class EmuMJXEnv(TaskSampler):
         self.attitude_profile = attitude_profile
         self.pitch_limit_rad = float(np.deg2rad(pitch_command_max_deg))
         self.num_envs = int(num_envs)
+        # A compact batch of terminated worlds needs the full MJX forward
+        # solve. Everybody else reuses the already-stepped physical state.
+        # 0 opts into the old full-width reference implementation for A/B.
+        if type(reset_forward_capacity) is not int or reset_forward_capacity < 0:
+            raise ValueError('reset_forward_capacity must be a non-negative int')
+        self.reset_forward_capacity = min(reset_forward_capacity, self.num_envs)
         self.unified_capability_focus = bool(unified_capability_focus)
         self.focus_id = jnp.asarray(focus_indices(self.num_envs))
         self.max_episode_steps = int(max_episode_steps)
@@ -1519,7 +1526,9 @@ class EmuMJXEnv(TaskSampler):
         data,carpet_hfields,carpet_center=self._carpet_recycle(state,data)
         # carryover_qvel is this step's own (already divergence-safe)
         # qvel -- see the docstring on _reset_with_keys.
-        reset_state = self._reset_with_keys(physics.reset_keys, params, carryover_qvel=data.qvel)
+        reset_state = self._reset_with_keys(
+            physics.reset_keys, params, carryover_qvel=data.qvel,
+            reset_mask=done)
 
         def choose(reset_val, step_val):
             if hasattr(step_val, 'shape') and len(step_val.shape) > 0 and step_val.shape[0] == self.num_envs:
@@ -2367,7 +2376,56 @@ class EmuMJXEnv(TaskSampler):
         hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
         return data.replace(mocap_pos=pos),hfield,new_center
 
-    def _reset_with_keys(self, keys, params, carryover_qvel=None):
+    def _forward_reset_data(self, model, data, reset_mask):
+        """Full-accuracy MJX forward, only for worlds actually terminating.
+
+        At every control step the old code ran an entire 2048-world
+        mjx.forward (and an expensive 14-DoF constraint solve) just to
+        throw away almost every row with jnp.where(done,...). Here all
+        reset sampling remains bit-for-bit unchanged; only the expensive
+        *forward* runs on a compact fixed-size batch of completed worlds.
+
+        Compaction uses a fixed JAX shape to avoid re-JIT on varying falls.
+        If the number of deaths exceeds capacity, take the original full
+        physics path, exactly (no dropped resets, no dead-world shortage).
+        Model leaves with in_axes=0 are packed alongside each world's data,
+        so domain-randomized actuator and mass physics remain per-world.
+        A scalar lax.cond (not a vmapped one) genuinely skips the full
+        solve. The 0 setting restores the old reference path for A/B.
+        """
+        if reset_mask is None or self.reset_forward_capacity == 0:
+            return self.forward_batched(model, data)
+        jax,jnp=self.jax,self.jnp
+        cap=self.reset_forward_capacity
+        count=jnp.sum(reset_mask.astype(jnp.int32))
+
+        def packed(_):
+            indices=jnp.nonzero(reset_mask,size=cap,fill_value=0)[0]
+            # Inactive padded indices may repeat zero. Their values are
+            # discarded by the final episode-done selection; active rows
+            # are unique and receive precisely their own MJX model leaves.
+            partial_model=jax.tree_util.tree_map(
+                lambda leaf,axis: jnp.take(leaf,indices,axis=0)
+                if axis == 0 else leaf,
+                model,self.model_in_axes,
+                is_leaf=lambda x: x is None)
+            partial_data=jax.tree_util.tree_map(
+                lambda leaf: jnp.take(leaf,indices,axis=0),data)
+            forwarded=self.forward_batched(partial_model,partial_data)
+            return jax.tree_util.tree_map(
+                lambda original,small: original.at[indices].set(small),
+                data,forwarded)
+
+        def some_reset(_):
+            return jax.lax.cond(
+                count<=cap,packed,
+                lambda _:self.forward_batched(model,data),operand=None)
+
+        return jax.lax.cond(
+            count>0,some_reset,lambda _:data,operand=None)
+
+    def _reset_with_keys(self, keys, params, carryover_qvel=None,
+                         reset_mask=None):
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
         # final qvel (already rolled back to finite by _step_impl's
@@ -2406,7 +2464,7 @@ class EmuMJXEnv(TaskSampler):
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
         dynamic_model=self._carpet_dynamic_model(carpet['carpet_hfields'])
-        data = self.forward_batched(dynamic_model, data)
+        data = self._forward_reset_data(dynamic_model, data, reset_mask)
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
