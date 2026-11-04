@@ -43,6 +43,9 @@ Independent exam results NEVER feed back into its teaching.
 3. **Do not duplicate experiments.** The finished 260M launcher is kept at the original Git SHA, not
    executed from active `scripts/`. New training starts with `emu train`.
    The large old A/B launchers are retained at their Git commits.
+   The former v5045 140M, v5046 20M and v5048 eight-fork scripts are
+   removed from the future-main cleanup branch; the running v5048
+   experiment remains unchanged at its original source SHA.
 4. **Fix the real bug first.** A historical v5031-era attempt
    trained with `verified_ascent_reallocation=0.0` despite
    its manifest requesting 3.0. That option is now retired. Future commands must prove
@@ -91,11 +94,17 @@ Avoid new permanent docs for every small experiment. A
 stranger should have ONE clear answer to *what is current*
 and *which file owns it*. Remove replaced implementations in the
 same change; never keep duplicate experimental launchers in active code.
+The maintenance workflow is: **hypothesis → temporary runner →
+measurements → issue/release findings → delete runner**. Never delete
+the measurements when retiring the experiment.
 `bash scripts/check.sh` is quick by default, including the source
 ownership inventory and current-document links; `--full` runs the
-18 maintained Python and six browser contracts. The complete
+maintained Python and browser contracts. The complete
 [tree-to-skeleton checklist](CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)
 records current owners, retired files and outstanding physical gates.
+Code promotion to `main` is separate from selecting a replacement
+inference actor. Both require explicit review; an ordinary `main`
+merge must not silently publish a new GitHub Pages champion.
 
 ## Preserved historical incident
 
