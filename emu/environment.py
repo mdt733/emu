@@ -1095,9 +1095,11 @@ class EmuMJXEnv(TaskSampler):
             mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)
             for n in ('r_shin_lower','l_shin_lower')],dtype=jnp.int32)
         if self.feet_only_contacts:
+            floor_geom=mujoco.mj_name2id(
+                self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
             if any(self.mj_model.geom_contype[g] or
                    self.mj_model.geom_conaffinity[g]
-                   for g in (torso_geom,self.ids['floor_geom'])):
+                   for g in (torso_geom,floor_geom)):
                 raise RuntimeError('Only the feet may collide with the carpet')
         assert self.mj_model.nhfield==CARPET_TILE_COUNT,self.mj_model.nhfield
         assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
