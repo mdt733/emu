@@ -10,7 +10,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 import numpy as np
-from .contracts import seed_root, VERSION
+from .contracts import seed_root, run_base, VERSION
 from .capability_field import FIELD_VERSION
 
 # Local read-only capability-field viewer, separate from the trained actor feed.
@@ -143,12 +143,12 @@ def field_main(argv=None):
     group = ap.add_mutually_exclusive_group()
     group.add_argument('--run-dir', default='', help='watch one exact run directory')
     group.add_argument('--run-root', default='', help='auto-follow newest field under <run-root>')
-    ap.add_argument('--seed', type=int, default=733)
+    ap.add_argument('--seed', type=int, default=None)
     ap.add_argument('--port', type=int, default=8765)
     args = ap.parse_args(argv)
 
     exact = Path(args.run_dir).expanduser().resolve() if args.run_dir else None
-    root = Path(args.run_root).expanduser().resolve() if args.run_root else seed_root(args.seed)
+    root = Path(args.run_root).expanduser().resolve() if args.run_root else (seed_root(args.seed) if args.seed is not None else run_base())
 
     def find_npz():
         if exact is not None:
