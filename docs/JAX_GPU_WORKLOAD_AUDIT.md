@@ -296,3 +296,52 @@ than other HLO shape or compilation differences.
 `aacf27efcabd86fe9ba7316da13b05a32f22e256`.
 Training source and existing checkpoint lineages remain
 unchanged by this report.
+
+---
+
+## Beyond collision reduction: targeted JAX/MJX speed opportunities (4 Nov 2026)
+
+This is a **source-based experiment queue**, not a speedup claim. Profiling
+on the 8-prism 2,048-world RTX 4060 Ti showed physics at 77.25% of the
+32-frame control scan and a second solver-like post-physics loop at 17.16%.
+Any percentage attributed to a proposed optimisation is unmeasured until an
+unprofiled, source-locked, GPU-idle A/B.
+
+| Priority | Candidate and exact code path | Expected payoff / risk | Acceptance |
+|---|---|---|---|
+| P0 | **Compact the entire episode birth**, not just `mjx.forward`: `environment.py:_step_impl -> _reset_with_keys` still constructs 2,048 worlds of RNG, task selection, prism generation and initial ToF even when only a handful of worlds terminate. Existing `_forward_reset_data` only compacts the solve. | Potentially high; substantial shape/seed complexity. Avoid per-world `vmap(cond)` because it generally lowers to selects. | Compare all reset fields for mixed/no/all/overflow masks; preserve episode RNG, model randomisation and exact timeout bootstrap. Select fixed compaction capacity from observed death-count distribution. |
+| P1 | **Tune Newton solver and linesearch caps**: `robot.xml:<option>` has no explicit `iterations` or `ls_iterations`; benchmark-only `smoke_gpu_carpet.py --solver-iterations N --solver-ls-iterations N` creates a temporary XML, never alters production. | Potentially high; physics-sensitive. The MJX-JAX documentation explicitly recommends tuning these down. | Match baseline vs caps 4/4, 2/2 and, if stable, 1/1; compare solver errors, contact penetration, real 4cm step/sidewall and physical exam before any training default changes. |
+| P2 | **Cap padded contact candidates**: `environment.py` builds a full MJX prism scene; `mjx.Data` previously padded 51 contacts and 218 constraints/world in the torso-contact variant. Investigate explicit MJX `max_contact_points`/`max_geom_pairs` and how much feet-only actually shrinks those shapes. | High if the padded solver still dominates; risky at seam double-support. | 2 feet × adjacent top/side faces, oblique crossings, diagonal corner and deepest drop must all receive real forces without truncation. Never conflate geometrically possible contacts with average active contacts. |
+| P3 | **Analytic ToF ray–triangle intersection**: `terrain_carpet_mjx.py:ray_surface` does *three* ray/height fixed-point iterations across all four tiles and 17 rays. Each tile already has exactly two planes: intersect both analytically, enforce triangle barycentric membership, then check existing four physical sidewalls. | Moderate / low risk if a frozen numerical reference and occlusion tests pass. | Same 360-channel range/validity and foot self-occlusion, including near-parallel rays, 15cm walls and triangle diagonals. Benchmark separately from physics. |
+| P4 | **Acquire delayed ToF only when due**: `environment.py:_advance_sensor_state` executes the full `_sensor_sample` every frame before masking stale rays; default ToF period is two frames. | Moderate; an ordinary vectorised `where` does not prevent sampling. | Pack due worlds into fixed-size cohorts, or exploit deterministic sensor-phase buckets without changing independent per-world timing. Keep gyro/flow freshness and delayed/dropout semantics exact. |
+| P5 | **Eliminate duplicate PPO bootstrap observations**: `ppo.py:rollout_once` retains both `traj['obs']` and `traj['bootstrap_obs']`, roughly 90 MiB each for 2,048×32×360 fp32, then passes bootstrap through a second critic MLP. | Moderate memory win; throughput uncertain. | Use next-state values where valid, and separately compute *pre-reset* timeout bootstrap and the final transition. Preserve GAE masks exactly; benchmark against current batched GEMM, which may be faster than per-frame critic calls. |
+| P6 | **Reduce 192-channel rollout telemetry**: `ppo.py:train_update` returns all per-frame metrics; recent audit measured 48 MiB logical metrics. Accumulate sufficient statistics for host reports and leave per-frame details only for fields whose timing is essential. | Moderate transfer/memory win, small physics-clock win. | Numeric parity for all curriculum promotions, per-sign lip evidence and fall/energy statistics. Don't silently change learning data, or assume the host is the bottleneck. |
+| P7 | **Identify launch-heavy HLO reductions**: current trace has 52,450 `input_reduce_fusion_2` calls and ~41,800 CUDA graph launch events. Source locations might trace to solver, collision or repeated small reductions. Compare compiled HLO and source maps; inspect dense Jacobian choice, `eulerdamp` and CUDA graphs. | Potentially significant, but HLO names alone are NOT root-cause attribution. | Get source-mapped kernel traces and compare one variable per build, with exact same profiler settings and unprofiled steady timings. |
+| P8 | **Lower physics substep count only as a deliberate model change**: `contracts.py` defines 4×5ms per 20ms control frame; `environment.py:_simulate_physics` calls MJX four times. A 2×10ms alternative could halve step calls but changes contact integration and spring stability. | Largest possible direct work reduction, also highest risk to trained dynamics. | New experimental lineage, revalidated servo damping, impact behavior, discrete steps, physical exams and fresh policy training. No checkpoint interchange. |
+| P9 | **Compiler and engine alternatives**: A/B MuJoCo's documented `XLA_FLAGS=--xla_gpu_triton_gemm_any=true` and evaluate MJX-Warp in a separate compatibility spike. | Flag is cheap; Warp may be faster for constraints but changes backend and must support per-world deforming convex prism meshes. | Do not assume Warp works just because plain MJX-Warp supports meshes; prove the current batched deformations and model randomisation first. |
+
+**Recommended order:** First benchmark the already-built compact-forward and feet-only
+switches to establish their separate actual benefit. Next sweep solver caps (P1)
+because the experiment is now easy and benchmark-only. Then try reducing
+contact candidates (P2), followed by fully sparse births (P0). Sensor/rollout
+optimisations are worth doing, but source+trace say most time currently lives in
+physics and the reset path. Save P8 and Warp for controlled experimental branches.
+
+**Solver-only benchmark (no training changes):**
+
+```bash
+source ~/emu-graduation/.venv/bin/activate
+# Run sequentially with GPU idle, on the SAME PR-35 SHA.
+python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
+  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms
+python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
+  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms \
+  --solver-iterations 4 --solver-ls-iterations 4
+python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
+  --frames 2 --ppo --full-update --benchmark-updates 3 --prisms \
+  --solver-iterations 2 --solver-ls-iterations 2
+```
+
+Only use the steady-state timed updates after the compile/warm-up call;
+a nominal solver speed win that breaks real contacts or increases falls is
+not an improvement. Benchmark-only temporary XML is deleted at script exit.
