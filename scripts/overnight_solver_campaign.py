@@ -263,7 +263,7 @@ def main() -> int:
     if dirty:
         parser.error("tracked source files are modified; commit/stash "
                      "before benchmarking to preserve source identity")
-    if not branch.startswith(("experiment/", "feature/")):
+    if not args.dry_run and not branch.startswith(("experiment/", "feature/")):
         parser.error("refusing to run the experiment on main")
     plan = cases(args.preset, seeds)
     output = Path(args.output).expanduser().resolve()
