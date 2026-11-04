@@ -369,15 +369,59 @@ RTX 4060 Ti 8GB, shared WSL virtual environment.
 | Overflow fallback frames | 2 / 32 sampled frames |
 | Contact/recycle/reset/small physical and full PPO gates | PASS |
 
-**Interpretation:** This is a very promising *measured* throughput result.
-It is NOT a measured gain from changing solver iterations alone. The
-earlier 18-prism 7,362 steps/s baseline used a different geometry/contact
-and reset topology. Next run the identical command **without** solver flags
-on the same code and GPU, then independently compare compact reset
-capacity 128 versus 192 (sample p95 exceeds 128, causing full-batch
-fallback on 2/32 frames). A speed win is provisional until real step
-contact penetration, solver accuracy and longer frozen-policy exams pass.
-Do not claim 96k steps/s for ordinary training without these checks.
+**Interpretation:** The initial 96k result above was measured with solver caps 4/4. The subsequent matched default-solver A/B immediately below identifies a large solver-related speedup. The earlier 18-prism baseline remains an unmatched configuration and must not be used for attribution. Experimentally compare compact reset capacity 128 versus 192 after validating the faster solver's physical accuracy. Do not claim 96k steps/s for ordinary training without these checks.
+
+
+### Matched same-checkout solver A/B (4 Nov 2026)
+
+The operator ran both commands on the same v5046 checkout, GPU and smoke
+configuration, changing **only** the benchmark XML solver caps (4/4 vs the
+unmodified MuJoCo defaults). The 4/4 result was recorded above; the
+subsequent default-solver run completed successfully.
+
+| Metric | Defaults | 4/4 caps |
+|---|---:|---:|
+| Steady post-compile update (65,536 world-steps) | **2.031 s** | **0.682 s** |
+| Synchronized steady world-steps/s | **32,267.0** | **96,150.4** |
+| First update, includes compilation (not throughput) | 79.572 s | 77.604 s |
+| Feet-only padded contact slots/world | 17 | 17 |
+| Constraint rows/world | 82 | 82 |
+| Allocator peak bytes in use | 1,088,438,272 | 1,088,438,272 |
+| Mean reset births/control frame | 65.66 | 65.62 |
+| Reset birth p95, max | 127, 143 | 130, 147 |
+| 128-cap full-batch reset fallback | 1 / 32 frames | 2 / 32 frames |
+| Physical geometry/reset/recycle/2-frame smoke, PPO update | PASS | PASS |
+
+**Effect:** 96,150.4 / 32,267.0 = **2.98x measured steady
+throughput**, or ~66.4% less measured time per update, under this exact
+benchmark. Because the source and contact topology are the same, this is
+strong evidence that reducing **solver and linesearch iteration limits
+together** causes the gain. The two caps were changed together, so this
+does NOT tell us which of them mattered most. Reset-count fluctuations
+are small but not identical, and the steady-state figures average only
+two iterations each, so repeat if exact precision matters.
+
+**Physical quality is NOT certified:** the solver can be faster by
+stopping before fully resolving contact impulses, penetration,
+frictional support or actuator constraints. The smoke confirms only
+finite trajectories and parameter movement; it does not certify
+frozen-policy gait fidelity or stable multi-step traversals. Before
+moving 4/4 to production:
+1. Sweep (default, 8/8, 4/4, 2/2), then isolate solver vs linesearch
+   caps if worthwhile. Record matched steady full-update timing.
+2. Hold initial world/seed/action sequence fixed and compare torso
+   height, foot penetration, contact impulses, support/sidewall contact,
+   solver error and falling, at 0/4/15/40 cm signed steps.
+3. Run longer frozen-policy physical exams for sustained locomotion,
+   slopes and signed steps, with repeated sample seeds.
+4. Only after passing the above consider a **new explicit training
+   physics recipe** and full cold-start campaign. Never silently resume
+   an older solver-physics checkpoint under changed integration.
+
+The active training recipe and original `robot.xml` remain unchanged.
+This result is benchmark-only and does not establish 96k steps/s in
+long running `emu train` (logging, governor, evaluation and checkpoint
+overheads differ).
 
 ### Four-hfield collision alternative (proposed, not implemented)
 
