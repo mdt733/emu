@@ -448,8 +448,27 @@ def main():
     for label,spec in ARMS:
         print(f"  {label}: {spec}",flush=True)
         if args.mode=="plan":
-            print("    "+" ".join(policy_args(spec,steps=EXPLORER_STEPS,
-                             seed=735,run=run_dir(label,735))[4:] + ["--plan"]))
+            cmd=policy_args(spec,steps=EXPLORER_STEPS,
+                            seed=735,run=run_dir(label,735))+["--plan"]
+            # Actual CLI resolves the real TrainerConfig contract before
+            # CUDA work. Catch unsupported flags / wrong active teachers
+            # NOW, not 12 minutes into the overnight campaign.
+            probe=subprocess.run(cmd,cwd=ROOT,text=True,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT,timeout=60)
+            if probe.returncode:
+                print(probe.stdout,flush=True)
+                raise RuntimeError(f"Preflight CLI recipe invalid for {label}")
+            config=json.loads(probe.stdout[
+                probe.stdout.index("{"):probe.stdout.rindex("}")+1])
+            if (config.get("steps")!=EXPLORER_STEPS or config.get("envs")!=2048
+                or config.get("solver_iterations")!=spec.get("solver",2)
+                or config.get("solver_ls_iterations")!=4
+                or abs(config.get("stillness_birth_frac",0.)
+                       -spec.get("stillness",0.))>1e-7
+                or config.get("academy_intro_steps")!=spec["intro"]):
+                raise RuntimeError(f"Resolved CLI config differs from {label} plan")
+            print(f"    real CLI config PASS; run-dir {run_dir(label,735)}")
     print(f"Exam schedule: {len(EXAMS)} modes x {len(SEEDS)} seeds x up to 9 policies")
     print(f"All run-owned data: {RUNS}; only experiment cache: {SCRATCH}")
     if args.mode=="plan":
