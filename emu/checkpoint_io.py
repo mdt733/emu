@@ -663,21 +663,60 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
     # "Traceback" line. Keep a small bounded diagnostic tail while still
     # writing the FULL uncropped output to the canonical run console.log.
     from collections import deque
+    from threading import Event, Thread
     error_tail = deque(maxlen=40)
+    # The child may block inside JAX compilation without producing a newline.
+    # Heartbeat reports only wall-clock silence; no JAX or learner calls.
+    stop_heartbeat = Event()
+    last_child_output = [time.monotonic()]
+    phase = ["initializing Python/MuJoCo/MJX worlds"]
+
+    def heartbeat() -> None:
+        while not stop_heartbeat.wait(30.0):
+            quiet = time.monotonic() - last_child_output[0]
+            if quiet >= 30.0:
+                print(f"{LOG} working: {phase[0]} "
+                      f"({quiet:.0f}s since trainer output; full details in console.log)",
+                      flush=True)
+
     with (run_dir / "console.log").open("a", encoding="utf-8") as log:
-        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
         assert proc.stdout is not None
-        for line in proc.stdout:
-            log.write(line); log.flush()
-            t = line.strip()
-            if t:
-                error_tail.append(t)
-            if (t.startswith(LOG + " step=") or
-                    t.startswith(LOG + "   lessons ") or
-                    "fixed-eval step=" in t or "AUTO-RECOVERY" in t or
-                    "training complete" in t or "Traceback" in t):
-                print("    " + t[:350], flush=True)
-        rc = proc.wait()
+        worker = Thread(target=heartbeat, daemon=True, name="emu-trainer-heartbeat")
+        worker.start()
+        try:
+            for line in proc.stdout:
+                log.write(line); log.flush()
+                t = line.strip()
+                if t:
+                    last_child_output[0] = time.monotonic()
+                    error_tail.append(t)
+                    if "compiling MJX/JAX update" in t:
+                        phase[0] = "first full PPO JAX compilation"
+                    elif "fixed-eval" in t:
+                        phase[0] = "frozen MJX physical examination"
+                    elif "compile+first_update=" in t or t.startswith(LOG + " step="):
+                        phase[0] = "steady PPO training"
+                if (t.startswith(LOG + " step=") or
+                        t.startswith(LOG + "   lessons ") or
+                        t.startswith(LOG + "   speed ") or
+                        t.startswith(LOG + " training start ") or
+                        t.startswith(LOG + " one cold-start ") or
+                        t.startswith(LOG + " obs_dim=") or
+                        t.startswith(LOG + " compiling MJX/JAX update") or
+                        t.startswith(LOG + " compile+first_update=") or
+                        t.startswith(LOG + " fixed-eval ") or
+                        t.startswith(LOG + " PPO TARGET REACHED") or
+                        t.startswith(LOG + " final ") or
+                        t.startswith(LOG + " WARNING:") or
+                        "AUTO-RECOVERY" in t or
+                        "training complete" in t or "Traceback" in t):
+                    print("    " + t[:400], flush=True)
+            rc = proc.wait()
+        finally:
+            stop_heartbeat.set()
+            worker.join(timeout=1.0)
     if rc:
         print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)
         for line in error_tail:

@@ -758,6 +758,21 @@ def train(args: TrainingConfig) -> int:
             print(format_line(version, total_steps, float(np.mean(recent_rewards)),
                               row, report, train_fps, wall_fps, nan_grad_skips),
                   flush=True)
+            # No new synchronization: reuse existing cumulative PerfBook timers.
+            # The console's primary fps includes first-use JIT; this separates
+            # compiled full-PPO rate from host reporting/metrics overhead.
+            if perf.enabled and measured_train_steps > 0:
+                print(
+                    f"{LOG_PREFIX}   speed steady_full_ppo={train_fps:.0f}/s "
+                    f"wall_since_start={wall_fps:.0f}/s "
+                    f"cumulative_s(ppo/transfer/summary/field/governor/norm)="
+                    f"{perf.total.get('train_update',0.):.1f}/"
+                    f"{perf.total.get('host_metric_transfer',0.):.1f}/"
+                    f"{perf.total.get('host_rollout_summary',0.):.1f}/"
+                    f"{perf.total.get('capability_field_update',0.):.1f}/"
+                    f"{perf.total.get('governor_and_params',0.):.1f}/"
+                    f"{perf.total.get('obs_norm_and_sync',0.):.1f}",
+                    flush=True)
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
