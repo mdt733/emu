@@ -174,31 +174,40 @@ A `.pkl` holds optimizer, normalizer and curriculum state;
 an `.emupolicy` is an inference-only actor with a sensor
 contract. Full checkpoints are not in Git; keep external backups.
 
-## Current development (5 November 2026)
+## Current development — engineering promotion preparation
 
-**v5046** on draft [PR #35](https://github.com/mdt733/emu/pull/35)
-uses four recycled 75 cm tiles, eight actual convex triangular-prism
-colliders, one six-specialist 360-input policy and 2,048 GPU worlds.
-A 34-arm solver experiment found 119,662 steady full-PPO steps/s
-with the experimental **2 Newton / 4 linesearch** limits versus
-31,974 with unchanged defaults. The stronger contact/physics checks
-have **not** certified 2/4 as a hardware-faithful default.
+The current GPU experiment is **v5048**, pinned to original source
+`088a29be47f624be9e2c322c504ec98049b3f9bf` on
+[draft PR #38](https://github.com/mdt733/emu/pull/38).
+It is training **one 50M-step foundation**, then eight matched
+**50M-step continuations of the SAME checkpoint**, selecting the
+best physically evaluated policy for **another 100M steps**.
+The proposed 550M total is a research plan, **not a completed
+200M gait or proven stair-climbing result**.
 
-The first continuous 20M cold-start (seed 735) completed at 20.054M
-steps with 2.1% latest training fall fraction, 0.094 m/s measured
-mean forward speed and a +0.530 held-out broad score, up from
--0.089 at 10M. Core/stress30/dynamic50/combo70 physical panels
-survived 350 frames, but verified vertical-step successes remain
-zero and the champion's speed/control are not yet matched.
-[**Measured results and promotion gates**](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
+The new runtime has four recycled **75cm** squares, each with two
+actual convex triangular-prism colliders (**eight** in all),
+six specialist teaching cohorts and one 360-input neural policy.
+A v5046 34-arm solver investigation measured steady throughput
+of **31,974 world-steps/s** at reference solver settings versus
+**119,662 world-steps/s** with experimental Newton/linesearch 2/4
+on an RTX 4060 Ti. The 2/4 physics fidelity still requires
+contact/penetration and CUDA reset-parity assessment.
+[Measured engineering results](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
-The disposable 34-arm research harness has been removed in
-draft [cleanup PR #36](https://github.com/mdt733/emu/pull/36);
-only its measurements survive. The maintained core has **21 Python
-tests**, with a ceiling of 24, plus browser and real-physics checks.
-We keep a source-pinned training checkout intact until its run is
-finished, and keep the published `main` champion protected.
-[**Clean WSL installation + checkpoint backup**](docs/INSTALL.md).
+The separate
+[future-main release-prep branch](https://github.com/mdt733/emu/tree/release/v5049-main-promotion-prep)
+retains the production CLI and tests while removing disposable
+v5045/46/48 experiment launchers, stale historical runbooks and
+duplicate workflow code. **It does not modify the running v5048
+source**, and its cleanup is not an actor training continuation.
+
+We plan **two explicit approvals**: upgrade the engineering
+architecture after fresh CI/CUDA verification, and *separately*
+consider replacing the published 260M champion after independent
+cross-seed physical gait exams and browser proof. Until both
+have been evaluated, `main` and the approved public actor
+remain unchanged. [Promotion gates and rollback](docs/RELEASE_READINESS.md).
 
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md) ·
