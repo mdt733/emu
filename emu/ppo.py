@@ -681,7 +681,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                                     chosen[:,3]-chosen[:,2])
             gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
                                     chosen[:,3]-chosen[:,1])
-            normal=jnp.stack((-gx,-gy,jnp.ones_like(gx)),axis=1)
+            # Height corner differences span 0.75m, not one metre.
+            # The normal needs real rise/run for independent slope exams.
+            normal=jnp.stack((-gx/TILE_M,-gy/TILE_M,
+                              jnp.ones_like(gx)),axis=1)
             floor_normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
             top=env._carpet_real_top_height(
                 data,data.qpos[:,:3][:,None,:],es.carpet_hfields)[:,0]
