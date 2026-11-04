@@ -56,7 +56,7 @@ from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
     summarize_rollout, augment_rollout_row,
-    ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
+    ensure_run_dir, write_json, read_csv_rows, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
     write_capability_field_artifacts,
 )
@@ -509,7 +509,7 @@ def train(args: TrainingConfig) -> int:
     last_save = resumed_step
     last_snapshot = resumed_step
     last_seen_nan_skips = [0]  # mutable box so the log block above can update it
-    previous_rows=read_metrics_csv(run_dir / 'metrics.csv')
+    previous_rows=read_csv_rows(run_dir / 'metrics.csv')
     rollback_count=(int(float(previous_rows[-1].get('rollback_count',0)))
                     if previous_rows else 0)
     # Canonical rollback candidate: never overwrite a stronger existing
@@ -535,7 +535,7 @@ def train(args: TrainingConfig) -> int:
     # Held-out evaluation state is reporting/artifact state only; it never feeds
     # PPO, curriculum, health or capability-field updates.
     latest_eval = initial_eval_metrics()
-    fixed_history = read_metrics_csv(run_dir / 'fixed_eval.csv')
+    fixed_history = read_csv_rows(run_dir / 'fixed_eval.csv')
     last_eval_step = int(float(fixed_history[-1]['step'])) if fixed_history else resumed_step
     if fixed_history:
         for key in latest_eval:

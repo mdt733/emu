@@ -305,19 +305,7 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, meta: dict[str, An
             pass
     return timing
 
-
-def find_newest_valid_snapshot(checkpoints_dir: Path) -> Path | None:
-    for candidate in sorted(checkpoints_dir.glob('snapshot_step_*.pkl'), reverse=True):
-        try:
-            load_checkpoint(candidate, validate=True)
-            return candidate
-        except Exception:
-            continue
-    return None
-
-
 # Resume discovery
-from pathlib import Path
 
 
 def resume_candidates(run_dir: Path) -> list[Path]:
@@ -354,26 +342,13 @@ def find_valid_resume(run_dir: Path, *,
     return None
 
 
-def find_evaluation(root: Path) -> Path | None:
-    """Best policy checkpoint for read-only viewing/evaluation across experiment arms."""
-    candidates: list[tuple[int, float, Path]] = []
-    for run in ("graph", "shadow", "foundation20"):
-        ck = Path(root) / run / "checkpoints"
-        for priority, name in enumerate(("final.pkl", "best.pkl", "latest.pkl")):
-            path = ck / name
-            if path.exists():
-                candidates.append((priority, -path.stat().st_mtime, path))
-    return min(candidates, key=lambda item: (item[0], item[1]))[2] if candidates else None
-
-
 # Exact run boundaries, validated checkpoint handoffs, recovery and subprocess launch.
 import os
 import shutil
 import subprocess
 import sys
 import uuid
-from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 from dataclasses import dataclass
 
 from .contracts import VERSION, source_repo_root
@@ -388,10 +363,6 @@ def update_boundary_at_or_after(target_steps: int, envs: int) -> int:
         raise ValueError(f"invalid PPO batch size: envs={envs} rollout={ROLLOUT_STEPS}")
     target = int(target_steps)
     return ((target + batch - 1) // batch) * batch
-
-
-def foundation_handoff_step(envs: int) -> int:
-    return update_boundary_at_or_after(FOUNDATION_STEPS, envs)
 
 
 def checkpoint_step(path: Path, *,
@@ -655,13 +626,6 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
         final = promote_checkpoint(resume, run_dir / 'checkpoints' / 'final.pkl')
         return final, None, expected
     return None, resume, expected
-
-
-def resolve_foundation_handoff(foundation: Path, *, envs: int) -> tuple[Path | None, Path | None, int]:
-    """Foundation-specific name for the shared-ancestor completion contract."""
-    return resolve_target_checkpoint(
-        foundation, target_steps=FOUNDATION_STEPS, envs=envs, label='foundation'
-    )
 
 
 def git_provenance() -> dict[str, Any]:

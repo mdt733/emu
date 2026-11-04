@@ -202,10 +202,6 @@ def append_metrics_csv(path: Path, row: dict[str, Any]) -> None:
         w.writerow(row)
 
 
-def read_metrics_csv(path: Path) -> list[dict[str, str]]:
-    return read_csv_rows(path)
-
-
 def _fmt_len(v: float) -> str:
     # sentinel -1.0 from masked_mean means "no episodes of this kind this rollout".
     return '-' if v < 0 else f"{v:.0f}"
