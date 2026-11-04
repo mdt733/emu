@@ -78,6 +78,8 @@ def main(argv=None) -> int:
                    help='v5029: 0..0.5 of unified growth births keep full-speed flat steady gait; default inherits profile')
     q.add_argument('--temporal-vx-reward-share',type=float,default=0.,
                    help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
+    q.add_argument('--stillness-birth-frac',type=float,default=0.,
+                   help='v5047 research: 0..0.25 true 0-vx/vy/yaw command births, with safe zero-command posture credit')
     q.add_argument('--retention-share',type=float,default=0.0,
                    help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
     q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',
