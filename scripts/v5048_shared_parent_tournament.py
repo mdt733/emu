@@ -585,13 +585,17 @@ def main():
         p.error("Worlds=16 is source-pinned: change requires a fresh source/plan")
     source_sha=git("rev-parse","HEAD")
     branch=git("branch","--show-current")
-    # The source-linked CLI plan is only meaningful on the actual v5047
-    # branch. A single-branch WSL clone can contain a manually fetched
-    # script yet remain checked out at v5046; fail BEFORE printing PASS.
-    if args.mode in ("plan","run") and branch != EXPECTED_BRANCH:
+    # On a real workstation, the public plan must fail on an old
+    # single-branch checkout (the previous campaign printed false PASS
+    # from v5046). GitHub Actions checks PR merge commits with a
+    # detached HEAD: permit ONLY its no-GPU plan, never actual running.
+    ci_detached=(args.mode=="plan" and not branch and
+                 os.environ.get("GITHUB_ACTIONS")=="true" and
+                 os.environ.get("GITHUB_REPOSITORY")=="mdt733/emu")
+    if args.mode in ("plan","run") and branch != EXPECTED_BRANCH and not ci_detached:
         p.error(f"{args.mode} requires {EXPECTED_BRANCH}; currently "
                 f"{branch or 'detached'} at {source_sha[:12]}. "
-                "A --single-branch clone first needs: git remote "
+                "Single-branch WSL clones first need: git remote "
                 "set-branches --add origin "+EXPECTED_BRANCH+
                 " ; git fetch origin ; git switch --track origin/"+EXPECTED_BRANCH)
     plan_identity=hashlib.sha256(json.dumps(
