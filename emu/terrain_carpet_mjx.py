@@ -1,6 +1,6 @@
 """Current true-prism MJX terrain generator.
 
-Nine 50cm tiles carry four exact height samples each, as non-contact
+Four 75cm tiles carry four exact height samples each, as non-contact
 MuJoCo hfields. Each tile's two real convex triangular-prism meshes
 provide the ONLY physical terrain collisions. All six specialists use
 the same generator, collider and ToF source. Legacy nine-box geometry
@@ -10,11 +10,12 @@ from __future__ import annotations
 import math
 import xml.etree.ElementTree as ET
 
-TILE_M=0.50
+TILE_M=0.75
 TILE_HALF_M=TILE_M/2
 TILE_SIZE_Z_M=.50
 TILE_BASE_M=.14
-TILE_COUNT=9
+TILE_WINDOW_SIDE=2
+TILE_COUNT=TILE_WINDOW_SIDE**2
 VISIT_HISTORY=64
 PROFILE_HALF=128
 PROFILE_SIZE=PROFILE_HALF*2
@@ -36,7 +37,7 @@ def add_carpet_geoms(xml: str, *, prisms: bool = True) -> str:
     floor=world.find("geom[@name='floor']")
     if floor is None:
         raise ValueError('Current prism world requires original robot floor')
-    # A plane would create phantom support past the generated 3x3
+    # A plane would create phantom support past the rolling 2x2
     # footprint. Keep the named floor only for structural ID consistency.
     floor.set('contype','0')
     floor.set('conaffinity','0')
@@ -260,13 +261,36 @@ def update_tile_mocaps(xp, positions, mocap_ids, centers, changed=None):
         xp.where(changed[:,:,None],centers,previous))
 
 
+def midpoint_anchor(xp, root_xy):
+    """Lower-left GLOBAL tile index of the 2x2 window for each robot.
+
+    At the centre of its current 75cm square, load the next square
+    in that direction (independently for X/Y). The current square
+    remains present in all four quadrants. From the torso centre,
+    the nearest unloaded boundary is at least TILE_M/2 = 37.5cm
+    away, exceeding the normal ~30cm horizontal ToF footprint.
+    This is a logical switch; the abandoned solid still needs a
+    real foot-clearance check before moving.
+    """
+    u=root_xy/TILE_M
+    cell=xp.floor(u).astype(xp.int32)
+    half=u-cell.astype(xp.float32)
+    return cell+xp.where(half>=.5,0,-1).astype(xp.int32)
+
+
 def slot_indices(xp,cx,cy):
-    """Each slot's GLOBAL coordinates for a 3x3 window around cell (cx,cy)."""
+    """Stable modulo-two prism slots, keyed to 2x2 lower-left anchor.
+
+    The same global tile retains the same slot while crossing any
+    number of window boundaries; only a retired row/column moves.
+    """
     xs=[];ys=[]
     for i in range(TILE_COUNT):
-        sx=i%3;sy=i//3
-        xs.append(cx+xp.mod(sx-xp.mod(cx,3)+1,3)-1)
-        ys.append(cy+xp.mod(sy-xp.mod(cy,3)+1,3)-1)
+        sx=i%TILE_WINDOW_SIDE;sy=i//TILE_WINDOW_SIDE
+        xs.append(cx+xp.mod(sx-xp.mod(cx,TILE_WINDOW_SIDE),
+                            TILE_WINDOW_SIDE))
+        ys.append(cy+xp.mod(sy-xp.mod(cy,TILE_WINDOW_SIDE),
+                            TILE_WINDOW_SIDE))
     return xp.stack(xs,axis=1),xp.stack(ys,axis=1)
 
 def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
@@ -361,10 +385,10 @@ def feet_clear_of_abandoned_prisms(
         clearance_m=.004):
     """Recycle only when every sphere-foot clears abandoned REAL prisms.
 
-    A prism's two triangles exactly cover a 0.50m square in XY; their
+    A prism's two triangles exactly cover a TILE_M square in XY; their
     shared and exterior walls are vertical, including the sheared bottom.
-    The tile's true projected XY AABB is therefore its global half-metre
-    square, with no rotation/box overhang. Add foot radius and 4mm
+    The tile's projected XY AABB matches that square exactly, with
+    no rotation/box overhang. Add foot radius and 4mm
     conservative safety distance. Ignore altitude deliberately:
     a full-XY-foot-clear test cannot teleport a possible support, even
     at a sharp stair corner. This guard is for PRISMS only.

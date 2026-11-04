@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import numpy as np
 
-TILE_M = .50
+from .terrain_carpet_mjx import TILE_M, TILE_COUNT
+from .carpet_prism_mjx import PRISM_COUNT
 
 
 def first_episode_mask(done):
@@ -359,7 +360,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             seed=seed, worlds=worlds, horizon=horizon, device=jax.default_backend(),
             requested_vx_mps=speed, requested_grade_frontier_deg=grade_deg if has_grade else 0.,
             requested_lip_frontier_cm=lip_cm if has_step else 0.,
-            actual_collision="18 convex prism meshes / nine 50cm source tiles",
+            actual_collision=f"{PRISM_COUNT} convex prism meshes / {TILE_COUNT} {TILE_M*100:g}cm source tiles",
             sensor="360-input array-only 4x4 ToF",
             no_optimizer_or_curriculum_updates=True,
             deterministic_seed=True,

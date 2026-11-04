@@ -39,7 +39,9 @@ from .terrain_carpet_mjx import (
     update_tile_mocaps, validate_prism_only_geoms,
     add_carpet_geoms, BODY_NAMES as CARPET_BODY_NAMES,
     GEOM_NAMES as CARPET_GEOM_NAMES, TILE_COUNT as CARPET_TILE_COUNT,
-    TILE_M as CARPET_TILE_M, PROFILE_HALF as CARPET_PROFILE_HALF,
+    TILE_M as CARPET_TILE_M, TILE_SIZE_Z_M as CARPET_SIZE_Z_M,
+    midpoint_anchor as carpet_midpoint_anchor,
+    PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
@@ -951,7 +953,7 @@ class EmuMJXEnv(TaskSampler):
         import jax.numpy as jnp
         import mujoco
         from mujoco import mjx
-        # The active simulator has ONE real 360-input, 18-prism topology.
+        # The active simulator has ONE real 360-input, eight-prism topology.
         # Historical 220/232, box, finite-step and three-slab experiments
         # are preserved in Git, not executable compatibility branches.
         if not (terrain_carpet_prisms and terrain_carpet and
@@ -2286,14 +2288,15 @@ class EmuMJXEnv(TaskSampler):
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+        window=carpet_midpoint_anchor(jnp,data.qpos[:,:2])
         centers,heights,_=carpet_generate_window(
-            jnp,xy[:,0],xy[:,1],seeds,xprof,yprof,up,down,slope,
+            jnp,window[:,0],window[:,1],seeds,xprof,yprof,up,down,slope,
             transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
         # Two physical half-tile prisms share one tile centre.
-        prism_z=centers.at[:,:,2].add(.5*CARPET_TILE_M)
+        prism_z=centers.at[:,:,2].add(.5*CARPET_SIZE_Z_M)
         pos=batch_update_prism_mocaps(
             jnp,pos,self.carpet_prism_mocap_ids,prism_z,
             jnp.ones((self.num_envs,CARPET_TILE_COUNT),dtype=jnp.bool_))
@@ -2306,7 +2309,7 @@ class EmuMJXEnv(TaskSampler):
                          -(2**30),dtype=jnp.int32)
         visited=visited.at[:,0,:].set(xy)
         return data,dict(
-            carpet_hfields=heights,carpet_center=xy,carpet_seed=seeds,
+            carpet_hfields=heights,carpet_center=window,carpet_seed=seeds,
             carpet_xprofile=xprof,carpet_yprofile=yprof,
             carpet_up=up,carpet_down=down,carpet_slope=slope,
             carpet_confirmed=xy,
@@ -2314,30 +2317,32 @@ class EmuMJXEnv(TaskSampler):
             carpet_seen_write=jnp.ones((self.num_envs,),dtype=jnp.int32))
 
     def _carpet_recycle(self,state,data):
-        """Recycle only tiles not touched by either foot, one world at a time.
+        """Midpoint-driven 2x2 window: recycle only foot-clear prisms.
 
-        As EMU enters a new global cell, the desired nine slots retain their
-        3x3 coordinates by a stable mod-3 mapping. Move the abandoned row,
-        column or corner ONLY if neither foot occupies any abandoned cell.
-        Both current and next support can be used during an actual transfer.
+        The requested neighbour switches at the robot's halfway point in
+        each 75cm tile, not at the terrain edge. The CURRENT tile always
+        remains; both feet must clear any outgoing square's actual solid
+        footprint before its two prism halves move together. Oscillating
+        near a midpoint only reassigns distant empty tiles.
         """
         jnp=self.jnp
-        desired=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+        desired=carpet_midpoint_anchor(jnp,data.qpos[:,:2])
         # The old cell-only guard missed a subtle but real collision:
-        # a ball-foot centre can be inside the NEW 3x3 footprint while
+        # a ball-foot centre can be inside the NEW 2x2 footprint while
         # its 18mm sphere still touches an abandoned prism overhang.
         # Use the actual rotated collider AABBs as a conservative exclusion.
         from .terrain_carpet_mjx import feet_clear_of_abandoned_prisms
         feet_xy=data.xpos[:,self.foot_bodies,:2]
         foot_cell=jnp.floor(feet_xy/CARPET_TILE_M).astype(jnp.int32)
         foot_inside_new_window=jnp.all(
-            jnp.abs(foot_cell-desired[:,None,:])<=1,axis=(1,2))
+            (foot_cell>=desired[:,None,:]) &
+            (foot_cell<=desired[:,None,:]+1),axis=(1,2))
         foot_geom_ids=np.asarray(self.ids['foot_geoms'],dtype=np.int32)
         foot_radii=jnp.asarray(self.mj_model.geom_size[foot_geom_ids,0])
         foot_safe=foot_inside_new_window&feet_clear_of_abandoned_prisms(
             jnp,state.carpet_center,desired,feet_xy,foot_radii)
-        # Jumping two full 50cm tiles within a 20ms control frame is
-        # physically implausible. Refuse to teleport colliders in that case.
+        # A controller should never jump two full 75cm tiles in 20ms.
+        # Refuse such a teleport even if neither foot is detected.
         near=jnp.all(jnp.abs(desired-state.carpet_center)<=1,axis=1)
         move=foot_safe&near&jnp.any(desired!=state.carpet_center,axis=1)
         new_center=jnp.where(move[:,None],desired,state.carpet_center)
@@ -2347,8 +2352,8 @@ class EmuMJXEnv(TaskSampler):
             state.carpet_up,state.carpet_down,state.carpet_slope,
             transition_limit_deg=self.carpet_transition_cap_deg)
         pos=data.mocap_pos
-        # Identical slot geometry for every world; only the slots no
-        # longer in the 3x3 window are moved. No platform under a foot moves.
+        # Identical slot geometry for every world; only retired 2x2
+        # row/column slots move. Never move support under a foot.
         old_cx,old_cy=state.carpet_center[:,0],state.carpet_center[:,1]
         from .terrain_carpet_mjx import slot_indices
         old_x,old_y=slot_indices(jnp,old_cx,old_cy)
@@ -2356,7 +2361,7 @@ class EmuMJXEnv(TaskSampler):
             indices!=jnp.stack((old_x,old_y),axis=-1),axis=-1)
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers,change)
-        physical_centres=centers.at[:,:,2].add(.5*CARPET_TILE_M)
+        physical_centres=centers.at[:,:,2].add(.5*CARPET_SIZE_Z_M)
         pos=batch_update_prism_mocaps(
             jnp,pos,self.carpet_prism_mocap_ids,physical_centres,change)
         hfield=jnp.where(move[:,None],hfields,state.carpet_hfields)
@@ -2665,7 +2670,7 @@ class EmuMJXEnv(TaskSampler):
     def _carpet_events(self,state,data,metrics,done):
         """Genuine supported tile-to-tile crossings, separately for UP/DOWN.
 
-        Every role can cross the 3x3 world. STEP focus receives evidence
+        Every role can cross the rolling 2x2 world. STEP focus receives evidence
         only when an actual lip exists; no expert privileged geometry enters
         neural observations. Five consecutive post-lip top contacts are
         required, not just a coordinate change or the robot being airborne.
@@ -2685,7 +2690,7 @@ class EmuMJXEnv(TaskSampler):
         mocaps=jnp.stack(tuple(data.mocap_pos[:,m,:]
                                 for m in self.carpet_mocap_ids),axis=1)
         # The physical height of the shared discontinuity, not the rise
-        # of the slope over the 50cm span: compare BOTH sides at the edge.
+        # of the slope over the TILE_M span: compare BOTH sides at the edge.
         before=jnp.take_along_axis(height_map,
              previous_slot[:,None,None],axis=1)[:,0,:]
         after=jnp.take_along_axis(height_map,

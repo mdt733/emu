@@ -1,6 +1,6 @@
 """Opt-in v5043 per-world convex triangular-prism collision geometry for MJX-JAX.
 
-Each 50 cm tile has two *independent* convex meshes. We shear their top AND
+Each 75 cm tile has two *independent* convex meshes. We shear their top AND
 buried bottom in vertical Z, so top triangles meet at exact shared vertices,
 side faces remain vertical, and the number of geoms / vertices never changes.
 
@@ -29,8 +29,8 @@ def batch_update_prism_mocaps(jnp, positions, mocap_ids, tile_centers, tile_chan
     """Update both prisms of each tile with ONE indexed scatter.
 
     positions: [world, mocap, xyz]
-    tile_centers: [world, 9, xyz] (already offset to prism reference Z)
-    tile_changed: [world, 9] bool. No disjoint old-foot cell may move.
+    tile_centers: [world, TILE_COUNT, xyz] (already offset to prism reference Z)
+    tile_changed: [world, TILE_COUNT] bool. No disjoint old-foot cell may move.
     This is deliberately identical to the old 18 sequential .at[].set()
     updates; it changes neither geometry nor the contact-clearance guard.
     """
@@ -189,9 +189,9 @@ class PrismMeshBuilder:
         return tuple(result)
 
     def deform(self, jnp, heights, base_meshes):
-        """Per-world 4-corner normalized hfield samples -> 18 exact solids.
+        """Per-world 4-corner normalized hfield samples -> eight exact solids.
 
-        heights [world, 36] uses (a,b,c,d) per square and the same diagonal
+        heights [world, TILE_COUNT*4] uses (a,b,c,d) per square and the same diagonal
         as sample_surface. Shapes and topology never change after initial JIT.
         """
         world_count=heights.shape[0]
