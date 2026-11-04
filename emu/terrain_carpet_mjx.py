@@ -22,8 +22,14 @@ PROFILE_SIZE=PROFILE_HALF*2
 BODY_NAMES=tuple(f"carpet_tile_body_{i}" for i in range(TILE_COUNT))
 GEOM_NAMES=tuple(f"carpet_tile_geom_{i}" for i in range(TILE_COUNT))
 HFIELD_NAMES=tuple(f"carpet_tile_hfield_{i}" for i in range(TILE_COUNT))
-def add_carpet_geoms(xml: str, *, prisms: bool = True) -> str:
-    """Add only exact physical prisms and noncontact vertex sample hfields."""
+def add_carpet_geoms(xml: str, *, prisms: bool = True,
+                     feet_only_contacts: bool = False) -> str:
+    """Add exact physical prisms; optionally exclude torso from contact solve.
+
+    A torso box without contacts still supplies exactly its old mass and
+    inertia.  Knee/thigh/shin rods are already noncontacting in robot.xml.
+    Their proximity is measured geometrically by the EMU environment.
+    """
     if not prisms:
         raise ValueError('This EMU version supports real prism contacts only')
     root=ET.fromstring(xml)
@@ -45,8 +51,12 @@ def add_carpet_geoms(xml: str, *, prisms: bool = True) -> str:
         geom=root.find(f".//geom[@name='{name}']")
         if geom is None:
             raise ValueError(f'Missing physical robot contact geom {name}')
-        affinity=int(geom.get('conaffinity','1'))
-        geom.set('conaffinity',str(affinity|4))
+        if name=='torso_box' and feet_only_contacts:
+            geom.set('contype','0')
+            geom.set('conaffinity','0')
+        else:
+            affinity=int(geom.get('conaffinity','1'))
+            geom.set('conaffinity',str(affinity|4))
     for i in range(TILE_COUNT):
         ET.SubElement(asset,'hfield',dict(
             name=HFIELD_NAMES[i],nrow='2',ncol='2',
