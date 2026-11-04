@@ -18,6 +18,7 @@ import statistics
 import subprocess
 import sys
 import time
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE = ROOT / "scripts" / "smoke_gpu_carpet.py"
@@ -350,9 +351,16 @@ def main() -> int:
                 return 2
     passes = sum(r["status"] == "PASS"
                  for r in state["results"].values())
+    # Leave one easy-to-upload archive as well as the resumable raw data.
+    archive = output / "overnight_results.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=6) as bundle:
+        for file in sorted(output.rglob("*")):
+            if file.is_file() and file != archive and not file.name.endswith(".tmp"):
+                bundle.write(file, file.relative_to(output))
     print(f"COMPLETE: {passes}/{len(plan)} passed; "
-          f"results: {output/'SUMMARY.md'} and {output/'results.csv'}",
-          flush=True)
+          f"results: {output/'SUMMARY.md'}, {output/'results.csv'} "
+          f"and upload-ready {archive}", flush=True)
     return 0 if passes == len(plan) else 1
 
 
