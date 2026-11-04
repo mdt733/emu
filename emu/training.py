@@ -237,6 +237,18 @@ def train(args: TrainingConfig) -> int:
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
                     max_episode_steps=MAX_EPISODE_STEPS,
                     **env_kwargs_from_args(args))
+    # A physics topology change is NOT an observation-contract change.
+    # Record the actual compiled model so resumed policies and physical
+    # fixed-evaluation reports cannot silently confuse the old torso-contact
+    # world with the new two-ball-foot-only world.
+    meta['mjx_physics'] = {
+        'feet_only_contacts': env.feet_only_contacts,
+        'reset_forward_capacity': env.reset_forward_capacity,
+        'ngeom': int(env.mj_model.ngeom),
+        'padded_contacts_per_world': int(
+            env._make_batched_data()._impl.contact.geom1.shape[1]),
+    }
+    write_json(run_dir / 'run_meta.json', meta)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
