@@ -465,7 +465,34 @@ def resume_training_lineage(
         src_recovery = src_ckpt_dir / 'recovery.pkl'
         dst_recovery = dst_ckpt_dir / 'recovery.pkl'
         if src_recovery.exists() and not dst_recovery.exists():
-            active_source = source_provenance_from_env().get('git_commit')
+            # A research fork inherits the *selected final.pkl* on purpose.
+            # Its ancestral recovery.pkl was earned with the PRE-FORK
+            # Academy/reward/solver curriculum. Rewinding a changed teacher
+            # to that older recipe would silently contaminate the treatment.
+            # Only share a rollback candidate if all substantive recipe
+            # fields match; runtime path, seed, target age are not teacher
+            # changes. Same-run power-loss recovery is unaffected.
+            from dataclasses import asdict
+            from .training_config import TrainingConfig
+            source_cfg = src_ckpt_dir.parent / 'training_config.json'
+            destination_cfg = run_dir / 'training_config.json'
+            matching_recipe = False
+            if source_cfg.is_file() and destination_cfg.is_file():
+                try:
+                    source_fields=asdict(TrainingConfig.load(source_cfg))
+                    target_fields=asdict(TrainingConfig.load(destination_cfg))
+                    for ignored in ('run_dir','steps','seed','device','resume'):
+                        source_fields.pop(ignored,None)
+                        target_fields.pop(ignored,None)
+                    matching_recipe=(source_fields==target_fields)
+                except (OSError,ValueError,TypeError) as exc:
+                    print(f"{LOG} fork recovery recipe validation failed: "
+                          f"{exc}; will not inherit rollback",flush=True)
+            if not matching_recipe:
+                print(f"{LOG} research fork changes physical/teacher recipe; "
+                      "ancestor recovery.pkl NOT inherited",flush=True)
+            active_source = (source_provenance_from_env().get('git_commit')
+                             if matching_recipe else None)
             ancestor_source = ((resumed_payload['meta'].get('source_provenance') or {})
                                .get('git_commit'))
             if not active_source or ancestor_source != active_source:
