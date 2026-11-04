@@ -492,6 +492,7 @@ def report(state):
     lines = [
         "# v5048 shared-parent 50M + 8x50M + 100M research", "",
         f"Source SHA: `{state['source_sha']}`",
+        f"Shared 50M parent SHA256: `{state.get('parent_sha256') or 'not trained yet'}`",
         f"Started: {state['started']}; last update: {utc_now()}",
         f"Training jobs: {len(state['trained'])}; frozen exam panels: {len(state['exams'])}",
         f"Total unique training steps planned: {(FOUNDATION_STEPS+len(ARMS)*(FORK_TARGET-FOUNDATION_STEPS)+(FINAL_TARGET-FORK_TARGET)):,}",
@@ -565,7 +566,8 @@ def archive(state):
             for p in sorted(folder.rglob("*")):
                 if not p.is_file():
                     continue
-                if p.name in included or p.name=="prism_exam.json":
+                if (p.name in included or p.name=="prism_exam.json"
+                        or p.suffix==".emupolicy"):
                     z.write(p,p.relative_to(RUNS))
     os.replace(temp,zpath)
     print(f"UPLOAD-READY (NO checkpoint): {zpath}",flush=True)
