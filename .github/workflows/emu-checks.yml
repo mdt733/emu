@@ -33,7 +33,10 @@ jobs:
         run: |
           python -m compileall -q emu scripts tests
           python scripts/verify_showcase_release.py
-          python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
+          if ! python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json; then
+            python -c 'import json; j=json.load(open("/tmp/emu-core-inventory.json")); print("OWNERSHIP:",j["ownership_errors"]); print("IMPORTS:",j["missing_emu_module_imports"]); print("BAD DOC LINKS:",j["broken_markdown_links"])'
+            exit 1
+          fi
           emu doctor --no-require-gpu --no-mjx-smoke
           python -m emu.cli train --help > /dev/null
           python -m emu.cli prism-exam --help > /dev/null
