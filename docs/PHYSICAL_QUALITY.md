@@ -139,7 +139,7 @@ fixture**, and these procedural results must not be compared to old
 two-slab fixed-angle pass rates as though they were identical exams.
 
 For installation, the frozen-actor validation gate and new v5045
-usage, see [the current runbook](V5045_LEAN_PRISM_RUNBOOK.md).
+usage, see [the current physical release gates](RELEASE_READINESS.md).
 The shipped 260M public champion must retain its original,
 source-specific physical baseline; do not fabricate matched prism results.
 
