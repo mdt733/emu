@@ -31,8 +31,7 @@ Get-Item (Join-Path $dest "Ubuntu-before-reset.tar")
 Verify any export you intend to rely on before unregistering a distro.
 Deleting WSL also removes Linux-side SSH/Tailscale and unrelated
 project files; there is no automatic restoration from Git.
-The old v5046 study paths remain in their [original handover]
-(https://github.com/mdt733/emu/blob/experiment/v5046-75cm-four-tile-midpoint/HANDOVER.md),
+The old v5046 study paths remain in their [original handover](https://github.com/mdt733/emu/blob/experiment/v5046-75cm-four-tile-midpoint/HANDOVER.md),
 not in the current run convention.
 
 ## 1. Windows: GPU driver and fresh Ubuntu
