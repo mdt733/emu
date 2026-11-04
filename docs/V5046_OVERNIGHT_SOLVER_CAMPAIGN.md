@@ -55,10 +55,14 @@ the explicit torso-contact arm.
 
 ## What is checked
 
-1. Before the sweep: real four-world eight-prism geometry/contact/40cm
-   sidewall, recycling and masked reset physical acceptance.
-2. Each GPU arm: true terrain geometry, real 2,048-world reset and recycling,
-   two-frame physical step, 360-channel observations, finite real actor update.
+1. Before the sweep: **CPU** four-world eight-prism geometry/contact/40cm
+   sidewall, recycling and masked reset physical acceptance (same backend
+   as the passing GitHub CI). The optional detailed four-world gate gave an
+   unexplained assertion on the operator's GPU; this is explicitly not
+   treated as GPU parity evidence.
+2. Each GPU arm: **CUDA** terrain geometry, real 2,048-world reset and
+   recycling, two-frame physical step, 360-channel observations and a
+   finite real actor update. A CPU preflight pass never bypasses these.
 3. Each arm's last 32-frame PPO rollout: after timing, save mean fall, support,
    bad-contact, slip, virtual-strike, command/actual speed, energy and step
    indicators, plus padding/constraint sizes and reset-mask occupancy.
@@ -82,9 +86,11 @@ Files in `~/emu_gpu_audit/v5046_solver_overnight/`:
 - `overnight_results.zip` — automatically packages all completed results and logs for a single upload after the last arm.
 
 A later rerun of the **same command in the same checkout** skips successful
-arms and resumes failures/missing arms. If source SHA, seed selection, number
-of updates, or executable differs, it deliberately refuses to combine
-incomparable evidence. Choose a new `--output` directory for a new campaign.
+arms and resumes failures/missing arms. If only the preflight ran and failed
+before any GPU arm, a new source SHA can safely restart it, archiving the
+failed preflight log and recording both SHAs. Once even one GPU arm has
+run, source SHA, seed selection, number of updates and Python executable must
+match to resume. Choose a new `--output` directory for a new campaign.
 
 If the preflight fails, it does not launch the expensive GPU sweep.
 Three consecutive failed GPU arms stop the run rather than accumulating
