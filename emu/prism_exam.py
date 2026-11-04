@@ -307,7 +307,11 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
     done = np.asarray(measured["done"], dtype=bool)
     fell = np.asarray(measured["fell"], dtype=bool)
-    support = np.asarray(measured["carpet_raw_contact_pairs"], dtype=bool).any(axis=(2, 3))
+    raw_pairs = np.asarray(measured["carpet_raw_contact_pairs"], dtype=bool)
+    vertical = np.asarray(measured["carpet_contact_vertical"], dtype=float)
+    support_feet = (raw_pairs & (vertical >= .70)).any(axis=2)  # [T,W,2]
+    support = raw_pairs.any(axis=(2, 3))
+    foot_xyz = np.asarray(measured["foot_xyz"], dtype=float)
     power = np.asarray(measured["servo_shaft_drive_power_w"], dtype=float)
     normals = np.asarray(measured["floor_normal_world"], dtype=float)
     grades = np.rad2deg(np.arccos(np.clip(normals[:, :, 2], -1., 1.)))
@@ -331,6 +335,31 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         progress = float(delta[0]*np.cos(yaw[start,w]) +
                          delta[1]*np.sin(yaw[start,w]))
         work = float(np.sum(np.maximum(0., power[:stop, w])) * dt)
+        # Two frames of air followed by two frames of valid TOP contact.
+        # Debounce contact chatter; count footfalls, not nominal policy phase.
+        # Stride is distance between successive touchdown positions of the
+        # SAME foot projected onto the observed heading. This is a gait
+        # diagnostic, not a target rhythm or evidence of dynamic running.
+        footfalls = 0
+        same_foot_strides = []
+        valid_foot_contact = support_feet[start:stop, w, :]
+        for foot_index in range(2):
+            prior_xy = None
+            for ti in range(3, len(valid_foot_contact)):
+                if (bool(valid_foot_contact[ti, foot_index]) and
+                    bool(valid_foot_contact[ti-1, foot_index]) and
+                    not bool(valid_foot_contact[ti-2, foot_index]) and
+                    not bool(valid_foot_contact[ti-3, foot_index])):
+                    footfalls += 1
+                    fi = start+ti
+                    xy_now = foot_xyz[fi,w,foot_index,:2]
+                    if prior_xy is not None:
+                        along = (xy_now-prior_xy) @ np.array([
+                            np.cos(yaw[fi,w]),np.sin(yaw[fi,w])])
+                        if np.isfinite(along):
+                            same_foot_strides.append(float(along))
+                    prior_xy = xy_now
+        gait_time = max(dt,(stop-start)*dt)
         own = independent["worlds"][w]
         rows.append(dict(
             world=w, survived=bool(not np.any(fell[:stop, w]) and stop == horizon),
@@ -346,6 +375,11 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             actual_grade_max_deg=float(np.max(grades[:stop, w])),
             drive_work_j=work,
             path_distance_m=travelled,
+            net_xy_drift_m=float(np.linalg.norm(xy[stop-1,w]-xy[start,w])),
+            physical_footfalls=footfalls,
+            footfall_rate_hz=footfalls/gait_time,
+            same_foot_stride_mean_m=(float(np.mean(same_foot_strides))
+                                     if same_foot_strides else None),
             directed_progress_m=progress,
             shaft_drive_j_per_progress_m=(work/progress if progress > .02 else None),
             verified_up=int(own["independent_up"]),
@@ -393,7 +427,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         f"Command: +{speed:.2f} m/s | requested grade frontier: {grade_deg if has_grade else 0.}°"
         f" | requested lip frontier: {lip_cm if has_step else 0.} cm", "",
         "These are procedural **teacher targets**, NOT imposed fixed-angle slabs.",
+        f"Exam solver iterations/linesearch: **{env.mj_model.opt.iterations}/{env.mj_model.opt.ls_iterations}** (export provenance).",
         "All crossings use raw physical prism-foot contacts and five supported frames.",
+        "0 m/s trials report world-frame drift, not zero-cost static posture.",
         "A zero crossing count is zero demonstrated crossings, not a failed attempted fixture.", "",
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
         f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
@@ -416,6 +452,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     lines += [
         "", "*Mechanical positive shaft work divided by actual forward directed progress;"
         " not battery energy, and omitted when travel is below 2 cm.",
+        "Per-world net XY drift, footfall rate and same-foot stride length are in `prism_exam.json`.",
+        "Footfalls require two frames airborne then two frames supported; stride requires two same-foot contacts.",
         "Per-world measured support and signed lip geometry are in `prism_exam.json`.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
         " from procedural difficulty alone.",
