@@ -1,29 +1,23 @@
 # EMU — clean Windows 11 / WSL2 installation and recovery
 
-**Updated 5 November 2026 for v5046.** This is the one maintained
-installation guide. Installing never launches training, replaces the
-released `main` policy or rewrites an existing checkpoint.
-For the current six-servo GPU trainer, use an explicitly chosen feature
-branch; `main` remains the preserved 260M showcase champion.
+This is the **single maintained Windows 11 / WSL2 setup guide**.
+It describes a future-main-ready installation, not a source-pinned
+experiment launcher. Installing never starts PPO, changes the current
+public actor, or overwrites an existing run. Until a separate release
+decision is approved, `main` still ships the 260M Pinnacle actor.
+Use the exact experiment branch/SHA only for an already-approved
+research run; never switch that checkout mid-training.
 
-## 0. BEFORE wiping an old WSL distro
+## 0. Before wiping a WSL distro (optional, your decision)
 
-GitHub contains the source, **not** a trained checkpoint or your
-20M-run metrics. The uploaded `results_bundle(20261104-201906).zip`
-contains measurements and configuration **but not the neural policy
-optimizer checkpoint**. Back up the entire run directory first:
+GitHub preserves source, history and public `.emupolicy` actors;
+it **does not** contain the private optimiser/curriculum `final.pkl`
+checkpoint. If an experiment is disposable, there is no need to keep
+its checkpoint. Preserve any results you care about first, especially
+`~/emu-data/runs/` summaries, exams, config and source SHA.
 
-- `~/emu_runs/v5046_20m_s735_solver2_ls4/`
-  (especially `checkpoints/final.pkl`, `training_config.json`,
-  `run_meta.json`, `metrics.csv`, `fixed_eval.csv`,
-  `console.log`, any exported `.emupolicy` and saved reports).
-- Any other `~/emu_runs/`, `~/robot_lab/emu_runs/`, `~/emu_gpu_audit/`,
-  custom run roots, local uncommitted code, private credentials and
-  non-EMU projects (e.g. Micromouse Lab, Meadow).
-- If WSL hosts your Tailscale/SSH remote access, that installation and
-  service will also be lost, even if the Windows Tailscale client survives.
-
-**Safest backup:** Windows PowerShell, after **stopping training**:
+If you want a full safety export, run in Windows PowerShell **only
+after training and WSL services are stopped**:
 
 ```powershell
 wsl --list --verbose
@@ -31,18 +25,15 @@ $dest = Join-Path $env:USERPROFILE "Downloads\EMU-WSL-backup"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 wsl --shutdown
 wsl --export Ubuntu (Join-Path $dest "Ubuntu-before-reset.tar")
-Get-Item (Join-Path $dest "Ubuntu-before-reset.tar") |
-    Select-Object FullName, Length
+Get-Item (Join-Path $dest "Ubuntu-before-reset.tar")
 ```
 
-This creates a separate full Ubuntu export with the old run files,
-environments, code and configuration. Ensure the TAR is nonzero,
-there is enough disk space, and copy important checkpoints separately
-to a safe location if practical. Do not delete or unregister Ubuntu
-until the archive has been verified and the run directory is recoverable.
-`wsl --unregister Ubuntu` **permanently destroys** that distro's files.
-If you deliberately reset, run it as a separate, explicit action only
-after backing up.
+Verify any export you intend to rely on before unregistering a distro.
+Deleting WSL also removes Linux-side SSH/Tailscale and unrelated
+project files; there is no automatic restoration from Git.
+The old v5046 study paths remain in their [original handover]
+(https://github.com/mdt733/emu/blob/experiment/v5046-75cm-four-tile-midpoint/HANDOVER.md),
+not in the current run convention.
 
 ## 1. Windows: GPU driver and fresh Ubuntu
 
@@ -88,11 +79,9 @@ pipx install uv
 uv python install 3.13
 python3.13 --version
 
-# Current experiment checkout. Swap only the branch when a new
-# source-pinned promotion candidate is explicitly approved.
-git clone --single-branch \
-  --branch experiment/v5046-75cm-four-tile-midpoint \
-  https://github.com/mdt733/emu.git "$HOME/emu"
+# Clone all normal remote branches: no more --single-branch tracking
+# surprises when we deliberately switch between experiment and release.
+git clone https://github.com/mdt733/emu.git "$HOME/emu"
 cd "$HOME/emu"
 git branch --show-current
 git rev-parse HEAD
@@ -125,12 +114,11 @@ emu doctor --require-gpu --no-mjx-smoke
 # The --check installation step already ran the core and browser tests.
 ```
 
-The v5046 development branch has **21 core pytest cases**, not 34.
-The old 34-arm solver study was temporary research; its runner was
-retired on the separate cleanup PR, retaining only measured findings.
-There are also browser checks and one real-physics acceptance probe.
-Do not disable these tests to shorten ordinary setup. They are separate
-from costly first-use JAX compilation and frozen evaluation.
+The maintained tests check physics, source/provenance, checkpoint
+contracts and the browser. The old 34-arm, 140M, 20M and shared-parent
+campaign scripts are **not production dependencies**; each original
+recipe remains recoverable at its research Git SHA. GPU compilation and
+frozen physical examinations are separate from ordinary Python checks.
 
 ## 3. Prepare the next source-pinned training run
 
@@ -153,31 +141,25 @@ PYTHONPATH="$PWD" python scripts/smoke_gpu_carpet.py \
   --solver-iterations 2 --solver-ls-iterations 4
 ```
 
-For **v5046's original 20M experimental recipe** only, while the
-chosen branch remains `experiment/v5046-75cm-four-tile-midpoint`:
+### The stable training and examination CLI
 
 ```bash
-PYTHONPATH="$PWD" python scripts/run_v5046_20m.py plan
-
-# Only for a NEW, EMPTY run directory — this starts real training:
-PYTHONPATH="$PWD" python -u scripts/run_v5046_20m.py start
+emu train --help
+emu prism-exam --help
+emu export-policy --help
+bash scripts/check.sh --full
 ```
 
-In this maintenance branch its default output is
-`~/emu-data/runs/v5046_20m_s735_solver2_ls4/`.
-The original source-pinned 20M run used `~/emu_runs/`; its recorded
-path remains historical evidence rather than a template for new runs.
-Do not run `start` again if that folder exists. Use
-`scripts/run_v5046_20m.py resume` only with the **same source
-SHA and saved training configuration**. The 20M archive from
-5 November was already completed: to inspect the trained bird,
-**restore its original `final.pkl` and run artifacts** instead of
-launching another 20M over the same directory.
+The production training entry point is `emu train` and the original
+checkpoint safety contract lives in `emu/run.py`. To reproduce a
+source-pinned experiment (including the v5048 shared-parent 50M/fork
+tournament), check out **its original recorded Git SHA**, use its
+committed run recipe, and keep its original source/config for every
+resume. Do not treat a temporary launcher from an older research
+commit as a permanent production script.
 
-A **future replacement-main run** should receive a freshly pinned
-branch, recipe and run directory, with installation and acceptance
-commands written alongside that run. Treat this 20M launcher as an
-experiment, not as the general-purpose 140M or final release recipe.
+The deployment/release review is documented in
+[RELEASE_READINESS](RELEASE_READINESS.md), separately from training.
 
 ## 4. Recovery, viewer and clean project layout
 
@@ -212,11 +194,11 @@ the existing CLI, and let training own its contents:
 ```bash
 cd ~/emu
 source .venv/bin/activate
-RUN="$HOME/emu-data/runs/v5047-early-lips-s735"
-# Substitute an approved source-pinned recipe, then append:
-# emu train --run-dir "$RUN" ... --plan
-# emu train --run-dir "$RUN" ...   # start once; resume uses same path + SHA
-# emu report --root "$RUN"        # reports and evidence alongside that run
+RUN="$HOME/emu-data/runs/<study>-s735"
+# Substitute the exact approved source-pinned CLI recipe:
+# emu train --run-dir "$RUN" <approved settings> --plan
+# emu train --run-dir "$RUN" <approved settings>
+# emu report --root "$RUN"        # evidence alongside its original run
 ```
 
 No `~/robot_lab/emu_runs/`, `~/emu-graduation/`, `~/emu_runs/`,
