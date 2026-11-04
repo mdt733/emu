@@ -70,6 +70,11 @@ def main():
     p.add_argument("--reset-forward-capacity",type=int,default=128,metavar="N",
                    help="fixed-size exact MJX forward batch for episode resets; "
                         "0 uses the original all-world reference for matched A/B")
+    p.add_argument("--solver-iterations",type=int,default=None,metavar="N",
+                   help="benchmark-only: override MuJoCo Newton solver iteration cap; "
+                        "normal training recipe stays unchanged")
+    p.add_argument("--solver-ls-iterations",type=int,default=None,metavar="N",
+                   help="benchmark-only: override MuJoCo solver linesearch iteration cap")
     p.add_argument("--gpu-audit-dir",default=None,metavar="DIR",
                    help="opt-in: capture XProf GPU kernel trace, JAX live "
                         "allocations, XLA buffer analysis and full rollout "
@@ -79,6 +84,12 @@ def main():
         p.error("The active EMU simulator is prism-only; pass --prisms")
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
     if a.reset_forward_capacity<0:p.error("--reset-forward-capacity must be >=0")
+    if (a.solver_iterations is not None and
+            not 1<=a.solver_iterations<=100):
+        p.error("--solver-iterations must be 1..100")
+    if (a.solver_ls_iterations is not None and
+            not 1<=a.solver_ls_iterations<=100):
+        p.error("--solver-ls-iterations must be 1..100")
     if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
         p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
     if (not 1<=a.benchmark_updates<=8 or
@@ -100,8 +111,32 @@ def main():
 
     if a.device in ("cuda","gpu") and jax.default_backend()!="gpu":
         raise RuntimeError("Expected a CUDA-capable GPU")
+    # Keep the production robot.xml untouched.  MuJoCo compiles options
+    # into MJX at construction, so a benchmark-only temporary XML is the
+    # smallest honest A/B control (and cannot mutate saved training runs).
+    robot_xml_path=str(ROBOT_XML)
+    solver_xml_tmp=None
+    if a.solver_iterations is not None or a.solver_ls_iterations is not None:
+        import tempfile
+        from pathlib import Path
+        from xml.etree import ElementTree as ET
+        solver_xml_tmp=tempfile.TemporaryDirectory(prefix="emu_solver_ab_")
+        source=ET.parse(ROBOT_XML)
+        option=source.getroot().find("option")
+        if option is None:
+            raise RuntimeError("Robot XML is missing the MuJoCo option element")
+        if a.solver_iterations is not None:
+            option.set("iterations",str(a.solver_iterations))
+        if a.solver_ls_iterations is not None:
+            option.set("ls_iterations",str(a.solver_ls_iterations))
+        probe_xml=Path(solver_xml_tmp.name)/"robot.xml"
+        source.write(probe_xml,encoding="utf-8",xml_declaration=True)
+        robot_xml_path=str(probe_xml)
+        print(f"SOLVER A/B: iterations={option.get('iterations','default')} "
+              f"ls_iterations={option.get('ls_iterations','default')} "
+              "(benchmark only; original XML unchanged)",flush=True)
     env=EmuMJXEnv(
-        str(ROBOT_XML),num_envs=a.worlds,seed=735,max_episode_steps=700,
+        robot_xml_path,num_envs=a.worlds,seed=735,max_episode_steps=700,
         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_lesson="coherent-careful",
         academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
