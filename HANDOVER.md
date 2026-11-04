@@ -143,9 +143,13 @@ remote branch or require a second Python environment:
 ```bash
 cd ~/emu
 git status --short
-git fetch origin \
-  experiment/v5047-pinnacle-stairs-gaits:refs/remotes/origin/experiment/v5047-pinnacle-stairs-gaits
+# Single-branch clones only track v5046. Add v5047 to origin's fetch
+# configuration BEFORE switching, or --track will reject the fetched ref.
+git remote set-branches --add origin experiment/v5047-pinnacle-stairs-gaits
+git fetch origin
 git switch --track origin/experiment/v5047-pinnacle-stairs-gaits
+git branch --show-current
+git rev-parse --short HEAD
 source .venv/bin/activate
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 python -m pip check
