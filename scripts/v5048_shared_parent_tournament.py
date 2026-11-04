@@ -241,50 +241,89 @@ def lifecycle_acceptance(sha, state, env):
     atomic(SCRATCH/"state.json",state)
 
 
-def run_train(label, spec, steps, seed, sha, state, env):
-    key = f"{label}_s{seed}_{steps}"
-    folder = run_dir(label, seed)
-    checkpoint = folder / "checkpoints" / "final.pkl"
+def run_train(label, spec, steps, seed, sha, state, env, *,
+              parent=None, parent_hash=None):
+    """Cold foundation, SAME-SHA parent fork, or validated same-run extension.
+
+    Parent is immutable. An interrupted child resumes its own checkpoint,
+    never restarts the original 50M checkpoint under a nonempty run path.
+    """
+    key=f"{label}_s{seed}_{steps}"
+    folder=run_dir(label,seed)
+    checkpoint=folder/"checkpoints"/"final.pkl"
+    if parent is not None:
+        parent=Path(parent).resolve()
+        if not parent.is_file() or parent.name!="final.pkl":
+            raise RuntimeError("Research fork parent must be saved final.pkl")
+        if not parent_hash:
+            raise RuntimeError("Fork requires immutable 50M parent SHA256")
+        digest=hashlib.sha256(parent.read_bytes()).hexdigest()
+        if digest!=parent_hash:
+            raise RuntimeError("The shared 50M ancestor changed: refuse fork")
     if key in state["trained"]:
         if not checkpoint.is_file():
-            raise RuntimeError(f"manifest said trained but checkpoint missing: {checkpoint}")
+            raise RuntimeError(f"Recorded stage but final checkpoint missing: {checkpoint}")
+        prior=state["trained"][key]
+        if parent_hash is not None and prior.get("parent_sha256")!=parent_hash:
+            raise RuntimeError("Fork manifest differs from the declared ancestor")
         return folder
-    folder.parent.mkdir(parents=True, exist_ok=True)
-    base = policy_args(spec, steps=steps, seed=seed, run=folder)
+    folder.parent.mkdir(parents=True,exist_ok=True)
+    base=policy_args(spec,steps=steps,seed=seed,run=folder)
     if folder.exists() and any(folder.iterdir()):
-        if not (folder / "training_config.json").is_file():
-            raise RuntimeError(
-                f"Nonempty run dir without validated config: {folder}")
-        print(f"RESUME {key} from existing same-SHA checkpoints", flush=True)
-        cmd = base + ["--resume", "auto"]
+        if not (folder/"training_config.json").is_file():
+            raise RuntimeError(f"Nonempty foreign run directory: {folder}")
+        cmd=base+["--resume","auto"]
+        print(f"RESUME/EXTEND {key} using own validated checkpoint",flush=True)
+    elif parent is not None:
+        cmd=base+["--resume",str(parent)]
+        print(f"NEW MATCHED FORK {key} from immutable {parent_hash[:12]}",flush=True)
+        # Before GPU investment, validate parent shape/schema and explicit
+        # fork compatibility with the actual CLI. --plan alone isn't enough.
+        check=cmd+["--check-resume-only"]
+        if process(check,SCRATCH/"logs"/(key+"_fork_gate.log"),env,echo=False):
+            raise RuntimeError(f"Physical/actor checkpoint parent gate failed: {key}")
     else:
-        print(f"NEW COLD-START {key}", flush=True)
-        cmd = base
-    begun = time.monotonic()
-    result = process(cmd, SCRATCH / "logs" / (key+".log"), env)
-    if result:
-        raise RuntimeError(f"Train failed {key} (code {result}); partial run kept")
+        cmd=base
+        print(f"NEW 50M FOUNDATION {key}",flush=True)
+    begun=time.monotonic()
+    code=process(cmd,SCRATCH/"logs"/(key+".log"),env)
+    if code:
+        raise RuntimeError(f"Training failed for {key}: exit={code}. "
+                           "Preserved all checkpoints for same-SHA resume.")
     if not checkpoint.is_file():
-        raise RuntimeError(f"No final checkpoint after training: {checkpoint}")
-    config = json.loads((folder / "training_config.json").read_text())
-    provenance = json.loads((folder / "run_meta.json").read_text())
-    got = (provenance.get("source_provenance") or {}).get("git_commit")
-    if got != sha or config.get("steps") != steps or config.get("seed") != seed:
-        raise RuntimeError(f"Wrong physical lineage in {folder}: {got}")
-    metrics = read_last_csv(folder / "metrics.csv")
-    state["trained"][key] = {
-        "folder": str(folder), "seconds": round(time.monotonic()-begun,2),
-        "step": int(float(metrics["step"])),
-        "fall_rate": float(metrics["fall_rate"]),
-        "vx": float(metrics["vx_mean"]),
-        "academy_up": float(metrics.get("academy_up_crossings") or 0.),
-        "academy_down": float(metrics.get("academy_down_crossings") or 0.),
-        "academy_attempts_up": float(metrics.get("academy_near_attempts_up") or 0.),
-        "academy_attempts_down": float(metrics.get("academy_near_attempts_down") or 0.),
-        "training_fps": float(metrics.get("train_steps_per_sec") or 0.),
-        "config_sha": hashlib.sha256((folder / "training_config.json").read_bytes()).hexdigest(),
+        raise RuntimeError(f"No final.pkl for completed {key}")
+    config=json.loads((folder/"training_config.json").read_text())
+    meta=json.loads((folder/"run_meta.json").read_text())
+    source=(meta.get("source_provenance") or {}).get("git_commit")
+    last=read_last_csv(folder/"metrics.csv")
+    achieved=int(float(last["step"]))
+    if (source!=sha or config.get("steps")!=steps or
+            config.get("seed")!=seed or achieved<steps):
+        raise RuntimeError(f"Run/source/step mismatched at {key}: "
+                           f"source={source}, step={achieved}, target={steps}")
+    if parent is not None:
+        # A 100M fork must actually inherit that 50M checkpoint, rather
+        # than accidentally cold-start with the desired research flags.
+        ancestor_step=meta.get("ancestor_checkpoint_step")
+        ancestor_source=meta.get("ancestor_checkpoint_source")
+        if ancestor_source!=sha or not (FOUNDATION_STEPS<=int(ancestor_step or 0)<steps):
+            raise RuntimeError(f"Fork source/step provenance mismatch: {key}")
+        if hashlib.sha256(parent.read_bytes()).hexdigest()!=parent_hash:
+            raise RuntimeError("Parent modified while child was training")
+    state["trained"][key]={
+        "folder":str(folder),"seconds":round(time.monotonic()-begun,2),
+        "step":achieved,"fall_rate":float(last["fall_rate"]),
+        "vx":float(last["vx_mean"]),
+        "academy_up":float(last.get("academy_up_crossings") or 0.),
+        "academy_down":float(last.get("academy_down_crossings") or 0.),
+        "academy_attempts_up":float(last.get("academy_near_attempts_up") or 0.),
+        "academy_attempts_down":float(last.get("academy_near_attempts_down") or 0.),
+        "training_fps":float(last.get("train_steps_per_sec") or 0.),
+        "parent_sha256":parent_hash,
+        "config_sha256":hashlib.sha256(
+            (folder/"training_config.json").read_bytes()).hexdigest(),
     }
-    atomic(SCRATCH / "state.json", state)
+    atomic(SCRATCH/"state.json",state)
     return folder
 
 
