@@ -69,7 +69,7 @@ not a source-pinned, controlled learning-curve measurement:
 |---|---|
 | **~0–5M** | Discovery period: generally falls; even standing on flat ground is not yet reliably learned. |
 | **~5M** | First signs of learning to **stand on boring, flat ground**; not proof of reliable balance, gait or terrain skills. |
-| **~20M** | Still **barely standing** in historical early-foundation observations. The 20M curriculum foundation cutoff is a **recipe boundary**, not a pass certificate for walking. |
+| **~20M** | The v5046 source-pinned 20M trial now shows reliable **low-speed** held-out survival and ~0.094 m/s achieved mean forward speed; this is not yet champion-equivalent or verified step-climbing. Earlier generations learned more slowly. |
 | **~40M** | Early, **infant-like gait development** rather than mature controlled walking. |
 | **Later** | Meaningful speed, directional control, slopes and supported step crossing must be verified on **frozen physical exams** at the same source, sensor contract and seed. |
 
@@ -174,33 +174,31 @@ A `.pkl` holds optimizer, normalizer and curriculum state;
 an `.emupolicy` is an inference-only actor with a sensor
 contract. Full checkpoints are not in Git; keep external backups.
 
-## Current development (3 November 2026)
+## Current development (5 November 2026)
 
-**v5045** is the new 18-prism single-policy, six-specialist, one-carpet
-codebase on draft PR #34. The previous v5044 140M user experiment was
-stopped voluntarily; its checkpoints remain source-pinned and must
-**not** be resumed with new model topology. There is now one maintained
-24-test suite, and real MJX collision/recycling probes.
+**v5046** on draft [PR #35](https://github.com/mdt733/emu/pull/35)
+uses four recycled 75 cm tiles, eight actual convex triangular-prism
+colliders, one six-specialist 360-input policy and 2,048 GPU worlds.
+A 34-arm solver experiment found 119,662 steady full-PPO steps/s
+with the experimental **2 Newton / 4 linesearch** limits versus
+31,974 with unchanged defaults. The stronger contact/physics checks
+have **not** certified 2/4 as a hardware-faithful default.
 
-The matched v5044 reference was **7,492 post-JIT world-steps/s**
-on RTX 4060 Ti at 2,048 GPU worlds. The first v5045
-full-PPO 2,048-world benchmark measured **7,536 world-steps/s**,
-essentially matching the old 7,492 reference (+0.6% on two steady
-updates), and about 1.82 GB peak GPU memory. Smaller source alone
-does not make collision physics faster. The true-prism frozen-policy `emu prism-exam` reports raw
-supported crossings and *actual* procedural terrain exposure. It
-does not recreate the old two-slab fixed matrix.
+The first continuous 20M cold-start (seed 735) completed at 20.054M
+steps with 2.1% latest training fall fraction, 0.094 m/s measured
+mean forward speed and a +0.530 held-out broad score, up from
+-0.089 at 10M. Core/stress30/dynamic50/combo70 physical panels
+survived 350 frames, but verified vertical-step successes remain
+zero and the champion's speed/control are not yet matched.
+[**Measured results and promotion gates**](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
-- [**v5045 lean-prism GPU acceptance, benchmark and new-run guide**](docs/V5045_LEAN_PRISM_RUNBOOK.md)
-- [**v5044 historical 140M training source and runbook**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5044_PRISM_140M_COLDSTART.md)
-- [**v5043 real collision and physics proof**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5043_MJX_PRISM_CARPET.md)
-- [**Five-stage source skeleton and retirement plan**](docs/CORE_SKELETON.md)
-
-The published `showcase/champion.emupolicy` and `main`
-continue to preserve the independently released 260M baseline.
-Its browser MuJoCo/WASM playground is a **second physical simulation**
-with representative terrain, not a pixel-perfect replay of one of
-the GPU training worlds.
+The disposable 34-arm research harness has been removed in
+draft [cleanup PR #36](https://github.com/mdt733/emu/pull/36);
+only its measurements survive. The maintained core has **21 Python
+tests**, with a ceiling of 24, plus browser and real-physics checks.
+We keep a source-pinned training checkout intact until its run is
+finished, and keep the published `main` champion protected.
+[**Clean WSL installation + checkpoint backup**](docs/INSTALL.md).
 
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md) ·
