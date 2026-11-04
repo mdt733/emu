@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .contracts import VERSION, seed_root
+from .contracts import VERSION, seed_root, run_base
 from .doctor import doctor
 
 
@@ -16,7 +16,7 @@ def main(argv=None) -> int:
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
-    q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=733); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
+    q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=None,help='legacy explicit seed subfolder'); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts')
     q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True)
     q.add_argument('--no-mjx-smoke',action='store_true')
@@ -123,11 +123,13 @@ def main(argv=None) -> int:
         from .capability_viewer import field_main as view
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
-        else: av += ['--run-root',str(Path(args.run_root).expanduser() if args.run_root else seed_root(args.seed))]
+        elif args.run_root: av += ['--run-root',str(Path(args.run_root).expanduser())]
+        elif args.seed is not None: av += ['--run-root',str(seed_root(args.seed))]
+        else: av += ['--run-root',str(run_base())]
         return int(view(av) or 0)
     if args.cmd=='posture-report':
         from .results import posture_report
-        return posture_report(Path(args.root) if args.root else Path.home()/'robot_lab'/'emu_runs')
+        return posture_report(Path(args.root).expanduser() if args.root else run_base())
     if args.cmd=='prism-exam':
         from .prism_exam import evaluate_prism_policy
         paths=evaluate_prism_policy(
@@ -154,8 +156,12 @@ def main(argv=None) -> int:
         return build()
     if args.cmd=='viewer':
         from .viewer_server import serve
+        if args.live and not args.root:
+            raise ValueError('Live viewer needs --root /path/to/exact/run; no historical default folder')
         pol=Path(args.policy) if args.policy else None
-        return serve(port=args.port,policy=pol,live_root=(Path(args.root).expanduser() if args.root else Path.home()/'robot_lab'/'emu_runs'/'v5015_lab1') if args.live else None,open_browser=not args.no_open)
+        return serve(port=args.port,policy=pol,
+                     live_root=Path(args.root).expanduser() if args.live else None,
+                     open_browser=not args.no_open)
     return 2
 
 
