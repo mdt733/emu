@@ -161,6 +161,15 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
         TrainingConfig.load(cfg_path)
     with pytest.raises(ValueError,match="prisms"):
         configs(tmp_path, unified=True, carpet=True, envs=8, seed=735)
+    # Old synthetic terrain randomization is not an alternative collider.
+    from emu.domain_randomization import DomainRandomizationConfig
+    manufacturing = DomainRandomizationConfig(
+        enabled=True, robot_radius=.6, hardware_radius=.6).normalized()
+    assert manufacturing.robot_radius == .6 and manufacturing.hardware_radius == .6
+    assert not hasattr(manufacturing, 'terrain_radius')
+    assert not hasattr(first, 'domain_terrain_radius')
+    with pytest.raises(TypeError):
+        DomainRandomizationConfig(terrain_radius=.3)
     with pytest.raises(ValueError):
         configs(tmp_path, prisms=True, envs=8, seed=735)
 

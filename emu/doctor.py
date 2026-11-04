@@ -62,7 +62,7 @@ def doctor(args) -> int:
             # Geometry comes only from the prism carpet. Randomize robot
             # inertia, friction and hardware; do not rotate a retired plane.
             cfg=DomainRandomizationConfig(
-                enabled=True,robot_radius=.6,terrain_radius=0.,hardware_radius=.6)
+                enabled=True,robot_radius=.6,hardware_radius=.6)
             e=EmuMJXEnv(str(ROBOT_XML),num_envs=8,seed=5014,max_episode_steps=700,
                         terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
                         unified_capability_focus=True,academy_stream=True,

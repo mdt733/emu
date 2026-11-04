@@ -926,7 +926,6 @@ class EmuMJXEnv(TaskSampler):
                  domain_config: DomainRandomizationConfig | None = None,
                  attitude_profile: str = 'v5015', pitch_command_max_deg: float = 8.0214,
                  motor_guidance_weight: float = 0.0,
-                 contact_slope_deg: float = 0.0,
                  observation_schema: str = OBS_SCHEMA_TERRAIN,
                  tof_period_frames: int = 2,
                  flow_period_frames: int = 1,
@@ -1079,9 +1078,6 @@ class EmuMJXEnv(TaskSampler):
         # rotated-floor or tilted-gravity teaching world. Robot/servo
         # manufacturing randomization may still use batched model leaves.
         self.domain_config = (domain_config or DomainRandomizationConfig()).normalized()
-        if contact_slope_deg != 0.0 or self.domain_config.terrain_radius > 0.0:
-            raise ValueError(
-                'Prism terrain samples its own physical slopes; disable model-level plane inclines')
         # Performance hint from MJX docs: keep contacts explicit/simple. The XML
         # owns the complete robot physics, including actuated-joint armature and
         # Coulomb friction; thin thigh/shin rods are deliberately non-contacting.
@@ -1118,11 +1114,9 @@ class EmuMJXEnv(TaskSampler):
         )
         # The underlying floor is flat. Actual slopes come from the 18
         # prism contacts; no synthetic gravity/plane incline is substituted.
-        sampled_normal = self.domain_info.get('contact_normal_world')
-        self.floor_normal_world = (
-            sampled_normal if sampled_normal is not None
-            else jnp.tile(jnp.asarray([[0., 0., 1.]], dtype=jnp.float32),
-                          (self.num_envs, 1)))
+        self.floor_normal_world = jnp.tile(
+            jnp.asarray([[0., 0., 1.]], dtype=jnp.float32),
+            (self.num_envs, 1))
         self.key0 = jax.random.PRNGKey(int(seed))
 
         # Per-instance versions of a few module-level profile defaults

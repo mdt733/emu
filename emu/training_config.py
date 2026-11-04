@@ -144,14 +144,10 @@ class TrainingConfig:
     combo_mix_frac: float = 0.0
     combo_probe_frac: float = 0.08
 
-    # v5014 hidden domain envelope.  All defaults are OFF so every existing
-    # v5013 profile remains mechanically identical unless a new experiment
-    # explicitly enables domain randomisation.  The actor never observes these
-    # radii; they only control the distribution of physical models/worlds.
+    # Optional robot/hardware manufacturing variation. Real prisms, not a
+    # tilted plane or synthesized gravity, always own terrain geometry.
     domain_randomization: bool = False
     domain_robot_radius: float = 0.0
-    domain_terrain_radius: float = 0.0
-    domain_terrain_mode: str = 'gravity'  # opt-in 'contact' for genuine varied floor normals
     domain_hardware_radius: float = 0.0
 
     # v5016 opt-in motor-effort teaching hypothesis (NOT hardware truth).
@@ -159,10 +155,6 @@ class TrainingConfig:
     # less for repeated nominal overload and gross shaft-motion effort.
     # Compare only against a matched no-guidance branch after physics exams.
     motor_guidance_weight: float = 0.0
-
-    # Opt-in real contact incline, uniform across all training worlds.
-    # The historical tilted-gravity terrain randomizer remains separate.
-    contact_slope_deg: float = 0.0
 
     # G4 opt-in: allocate a fixed-topology finite platform from episode zero,
     # but keep it physically buried throughout the flat foundation. Exposure

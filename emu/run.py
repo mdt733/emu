@@ -176,8 +176,7 @@ def one_run_config(args) -> TrainingConfig:
                    # governor may later earn real larger pushes.
                    push_max_force_n=4.0, capability_field_mode='shadow',
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
-                   contact_slope_deg=0.0,domain_randomization=False,
-                   domain_terrain_radius=0.0, domain_terrain_mode='gravity')
+                   domain_randomization=False)
 
 
 def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig,
