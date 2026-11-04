@@ -82,6 +82,37 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.capability_field_mode == "shadow"
     assert cfg.freeze_obs_norm_after_steps == 0
     assert cfg.stillness_birth_frac == 0.
+    # The v5048 study must fork one exact 50M ancestor 8 times, not
+    # silently spend 8 x 100M on unrelated cold starts. No extra test
+    # file: extend the existing immutable train CLI contract.
+    from scripts.v5048_shared_parent_tournament import (
+        FOUNDATION_STEPS, FORK_TARGET, FINAL_TARGET,
+        PARENT_SPEC, ARMS, checkpoint_boundary, policy_args)
+    assert (FOUNDATION_STEPS,FORK_TARGET,FINAL_TARGET) == (
+        50_000_000,100_000_000,200_000_000)
+    assert len(ARMS)==8
+    assert len({name for name,_ in ARMS})==8
+    assert PARENT_SPEC['intro']>FOUNDATION_STEPS
+    assert checkpoint_boundary(FORK_TARGET)>=FORK_TARGET
+    for name,spec in ARMS:
+        fork_cmd=policy_args(spec,steps=FORK_TARGET,
+                             seed=735,run=tmp_path/name)
+        assert fork_cmd.count('--steps')==1
+        assert fork_cmd[fork_cmd.index('--steps')+1]==str(FORK_TARGET)
+        assert fork_cmd[fork_cmd.index('--solver-iterations')+1]==str(
+            spec.get('solver',2))
+        assert fork_cmd[fork_cmd.index('--academy-intro-steps')+1]==str(
+            spec['intro'])
+    from dataclasses import replace
+    from emu.run import verify_experiment_fork
+    baseline=cfg
+    treated=replace(baseline,steps=FORK_TARGET,seed=761,
+                    academy_intro_steps=FOUNDATION_STEPS,
+                    academy_start_steps=FOUNDATION_STEPS,
+                    stillness_birth_frac=.10)
+    verify_experiment_fork(baseline,treated)
+    with pytest.raises(RuntimeError,match="observation_schema"):
+        verify_experiment_fork(baseline,replace(treated,observation_schema='sim2real_232'))
     # The one opt-in zero-command cohort is recorded in TrainingConfig.
     with patch("emu.run.train_one", side_effect=capture):
         assert emu_cli_main(cli_args+["--stillness-birth-frac",".12"])==0
