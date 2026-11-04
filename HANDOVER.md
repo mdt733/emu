@@ -94,6 +94,84 @@ be discarded by user choice if training anew.
 The detailed unanswered backlog is [GitHub issue #17](https://github.com/mdt733/emu/issues/17).
 The 260M reference measurements are [here](docs/V5032_PINNACLE_RELEASE.md).
 
+## First training bracket: same physics, earlier Academy
+
+Do **one controlled change first**, not a new reward system. The 20M
+trial used Academy introduction at 60M, so it did not test concentrated
+repeat-lip learning. Compare two fresh, seeded 40M policies (same source,
+same actor, same 2/4 solver, same curriculum and physical settings):
+
+| Arm | Academy intro | Increase begins | Full 40% share | Hypothesis |
+|---|---:|---:|---:|---|
+| Control | 60M | 80M | never before 40M | ordinary mixed-terrain learning |
+| Early-lips | 11M | 16M | 28M | many true signed repeated-lip attempts |
+
+Both use 10M ordinary walking foundation, 3mm+ emerging physical
+frontiers, terrain-early six-specialist focus, 10% flat athletic
+rehearsal, 15% useful CONTROL retention and fixed physical exams at
+20M and final 40M. **Only Academy timing differs between arms.**
+Because contact support and locomotion physics have not changed, this
+is a learning hypothesis, not a claim of valid stair skill.
+
+An exact plan can be composed using the maintained CLI, **without a
+permanent runner script** (same Bash array used for both arms):
+
+```bash
+cd ~/emu
+source .venv/bin/activate
+export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+base=(
+  --steps 40000000 --envs 2048 --seed 735 --device cuda --profile sim2real
+  --pitch-deg 8 --terrain-actor --terrain-step-max-m .08
+  --unified-capabilities --terrain-carpet --carpet-prisms
+  --carpet-transition-cap-deg 3 --foundation-steps 10000000
+  --foundation-mix main --growth-recipe main-mature
+  --teaching-schedule terrain-early --terrain-lesson coherent-careful
+  --force-program gentle --athletic-rehearsal-share .10
+  --retention-share .15 --academy-stream --academy-intro-share .10
+  --academy-max-share .40 --academy-ramp-steps 12000000
+  --academy-height-cap-m .15 --academy-course-episode-frames 1200
+  --fixed-eval-every-steps 20000000
+  --solver-iterations 2 --solver-ls-iterations 4
+)
+control="$HOME/emu-data/runs/v5047-lips-control-s735"
+early="$HOME/emu-data/runs/v5047-lips-early-s735"
+emu train --run-dir "$control" "${base[@]}" \
+  --academy-intro-steps 60000000 --academy-start-steps 80000000 --plan
+emu train --run-dir "$early" "${base[@]}" \
+  --academy-intro-steps 11000000 --academy-start-steps 16000000 --plan
+```
+
+After source/CLI/GPU acceptance, **remove only `--plan`** on each
+command to run them **sequentially** (never in parallel on 8GB).
+This preliminary study uses the experimental solver 2/4; validate
+physical accuracy before hardware-fidelity claims. Both full runs
+publish independent physical evaluations and their complete metrics
+inside their respective run directories. A same-source interrupted
+run uses the same exact flags plus `--resume auto` after inspecting
+the stored checkpoint; do not overwrite or reinitialise a run root.
+
+**Primary endpoint:** sustained physical support after a real
+3mm–3cm upstep or downstep, *movement beyond the lip*, commanded
+forward progress and yaw/path control. Record the rate and number of
+**eligible step approaches**, not just the successes. Preserve
+flat speed, survival and shaft efficiency. **Secondary:** look for
+crouch/loading and far-foot transfer traces. If both arms have zero
+eligible contacts, investigate exposure/sensors before changing reward.
+If many approaches stall at the face, test crouch allowance as the
+**next isolated intervention**. If steps succeed but heading drifts,
+prioritise control before more step difficulty.
+
+For zero-command balance, current `rewards.py` intentionally reduces
+posture/contact credit after one second of too little stepping. A
+future control-arm experiment can remove that step-activity requirement
+**only at genuinely near-zero requested vx/vy/yaw**, retaining
+fall/slip/height constraints. For faster long strides, first measure
+cadence versus stride length and then separately test the already
+available temporal vx tracking and athletic rehearsal allocation.
+Do not combine all three reward/teacher changes before attribution.
+
 ## Run hygiene and release rules
 
 ```text
