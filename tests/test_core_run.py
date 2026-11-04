@@ -84,6 +84,30 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     # The retired sparse-cloud evaluator must not be used by this lineage.
     assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
     assert training_sensor_contract(cfg) is not None
+    # The 20M gait experiment must use this SAME proven trainer, explicit
+    # physics caps and a saved 10M foundation, not a standalone pseudo-PPO.
+    from argparse import Namespace
+    from scripts.run_v5046_20m import train_cmd
+    trial = Namespace(seed=735, solver_iterations=2, solver_ls_iterations=4)
+    trial_args = train_cmd(trial, "start", tmp_path / "trial")[4:]
+    cfg20=[]
+    with patch("emu.run.train_one", side_effect=lambda ns: (cfg20.append(one_run_config(ns)), 0)[1]):
+        assert emu_cli_main(trial_args) == 0
+    assert len(cfg20)==1
+    assert cfg20[0].steps==20_000_000
+    assert cfg20[0].foundation_steps==10_000_000
+    assert cfg20[0].solver_iterations==2
+    assert cfg20[0].solver_ls_iterations==4
+    assert cfg20[0].fixed_eval_every_steps==10_000_000
+    assert train_cmd(trial, "resume", tmp_path / "trial") == (
+        train_cmd(trial, "start", tmp_path / "trial") + ["--resume", "auto"])
+    assert train_cmd(trial, "verify", tmp_path / "trial") == (
+        train_cmd(trial, "resume", tmp_path / "trial") + ["--check-resume-only"])
+    assert "--plan" in train_cmd(trial, "plan", tmp_path / "trial")
+    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
+        with pytest.raises(ValueError,match="solver-iterations"):
+            emu_cli_main(trial_args[:-2]+["--solver-iterations","0"])
+
     # Direct callers cannot revive the legacy launch mode or old actor
     # contract by skipping the prism-only CLI parser.
     from dataclasses import replace
@@ -132,6 +156,13 @@ def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     assert call["terrain_carpet"] is True
     assert call["terrain_carpet_prisms"] is True
     assert call["observation_schema"] == OBS_SCHEMA_TERRAIN
+    assert call["solver_iterations"] is None
+    assert call["solver_ls_iterations"] is None
+    # Frozen panels must use the trainer's experimental physics cap.
+    evaluate._world(replace(cfg, solver_iterations=2, solver_ls_iterations=4),
+                    seed_offset=0, limits=(.60,-.20,.22,1.50))
+    assert call["solver_iterations"] == 2
+    assert call["solver_ls_iterations"] == 4
     # A frozen exam may never fall back to old nine-box or slab contact
     # because it happens to request a flat lesson.
     from dataclasses import replace
