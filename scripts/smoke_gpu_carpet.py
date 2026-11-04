@@ -1,4 +1,4 @@
-"""v5045 GPU trainer gate: one 18-prism MJX model, per-world
+"""v5045 GPU trainer gate: one eight-prism MJX model, per-world
 streaming state, real 4x4 ToF and a genuine PPO gradient update.
 
 Does NOT claim learned locomotion; CPU smoke is not 2048 GPU acceptance.
@@ -13,8 +13,8 @@ import time
 def physics_report_fields() -> dict:
     """Report the only active collision topology."""
     return dict(
-        physics="eighteen-dynamic-convex-triangular-prisms",
-        active_collision_geoms=18,
+        physics="eight-dynamic-convex-triangular-prisms",
+        active_collision_geoms=8,
         terrain_carpet_prisms=True,
     )
 
@@ -53,7 +53,7 @@ def main():
     import numpy as np
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
-    from emu.terrain_carpet_mjx import TILE_COUNT, validate_prism_only_geoms
+    from emu.terrain_carpet_mjx import TILE_COUNT, TILE_M, validate_prism_only_geoms
 
     if a.device in ("cuda","gpu") and jax.default_backend()!="gpu":
         raise RuntimeError("Expected a CUDA-capable GPU")
@@ -74,13 +74,13 @@ def main():
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
-        raise RuntimeError("Expected exactly nine inactive source hfields")
+        raise RuntimeError("Expected exactly four inactive source hfields")
     validate_prism_only_geoms(__import__('mujoco'),env.mj_model)
     if np.any(env.mj_model.geom_contype[np.asarray(
             env.carpet_geom_ids,dtype=np.int32)]!=0):
         raise RuntimeError("Source heightfield skirts must not collide")
-    if len(env.carpet_prism_geom_ids)!=18:
-        raise RuntimeError("Expected exactly 18 physical prism geoms")
+    if len(env.carpet_prism_geom_ids)!=8:
+        raise RuntimeError("Expected exactly eight physical prism geoms")
     if np.any(env.mj_model.geom_contype[list(env.carpet_prism_geom_ids)]!=4):
         raise RuntimeError("Prism bit-4 contacts are not enabled")
     if env.mj_model.geom_contype[env.ids["floor_geom"]] != 0:
@@ -112,21 +112,21 @@ def main():
           f"within {float(np.max(gap))*1000:.3f}mm",flush=True)
     tile_positions=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(env.carpet_mocap_ids),:]))
-    if tile_positions.shape!=(a.worlds,9,3):
+    if tile_positions.shape!=(a.worlds,TILE_COUNT,3):
         raise RuntimeError("Missing independently positioned tiles")
     physical_ids=env.carpet_prism_mocap_ids
     solid_pos=np.asarray(jax.device_get(state.data.mocap_pos[
         :,list(physical_ids),:]))
-    if solid_pos.shape!=(a.worlds,18,3) or not np.isfinite(solid_pos).all():
+    if solid_pos.shape!=(a.worlds,8,3) or not np.isfinite(solid_pos).all():
         raise RuntimeError("Invalid per-world physical collision tile poses")
-    print("reset PASS: 18 convex prisms, distinct per-world 360-input JAX physics",
+    print("reset PASS: 8 convex prisms, distinct per-world 360-input JAX physics",
           flush=True)
-    # One robot crossing into a neighbouring 50cm tile must recycle only
+    # One robot crossing into a 75cm tile midpoint must recycle only
     # abandoned slots. If a rear foot still occupies an abandoned tile,
     # the whole window must remain unchanged.
     old=state.carpet_center
     desired=old+jnp.asarray([1,0],dtype=jnp.int32)[None,:]
-    root_xy=(desired.astype(jnp.float32)+.5)*.5
+    root_xy=(desired.astype(jnp.float32)+.75)*TILE_M
     fake_q=state.data.qpos.at[:,0:2].set(root_xy)
     foot_xpos=state.data.xpos.at[:,env.foot_bodies,0:2].set(
         jnp.broadcast_to(root_xy[:,None,:],(a.worlds,2,2)))
@@ -134,7 +134,7 @@ def main():
     relocated,new_h,new_c=env._carpet_recycle(state,safe_data)
     if not np.array_equal(np.asarray(jax.device_get(new_c)),
                           np.asarray(jax.device_get(desired))):
-        raise RuntimeError("Safe 50cm passage did not advance the tile ring")
+        raise RuntimeError("Safe midpoint passage did not advance the tile ring")
     before=np.asarray(jax.device_get(
         safe_data.mocap_pos[:,list(env.carpet_mocap_ids),:]))
     after=np.asarray(jax.device_get(
@@ -146,7 +146,7 @@ def main():
     if not np.any(np.abs(solid_after-solid_pos)>.3):
         raise RuntimeError("Abandoned real prism collision tiles did not recycle")
     trailing=((old-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
-               ).astype(jnp.float32)+.5)*.5
+               ).astype(jnp.float32)+.5)*TILE_M
     blocked_data=safe_data.replace(xpos=state.data.xpos.at[
         :,env.foot_bodies,0:2].set(
         jnp.broadcast_to(trailing[:,None,:],(a.worlds,2,2))))
@@ -163,7 +163,7 @@ def main():
     # A spherical foot may still touch an outgoing solid even when its
     # CENTRE has entered the new tile cell. The old integer-cell test
     # incorrectly recycled such a tile, potentially teleporting support.
-    seam_x=(desired[:,0].astype(jnp.float32)-1.)*.5+.020
+    seam_x=desired[:,0].astype(jnp.float32)*TILE_M+.020
     edge_feet=jnp.broadcast_to(root_xy[:,None,:],(a.worlds,2,2))
     edge_feet=edge_feet.at[:,0,0].set(seam_x)
     edge_data=safe_data.replace(xpos=safe_data.xpos.at[

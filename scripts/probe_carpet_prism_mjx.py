@@ -19,7 +19,7 @@ def run_probe(worlds=4, frames=2):
         PRISM_GEOM_NAMES, PrismMeshBuilder)
     from emu.contracts import ROBOT_XML, OBS_SCHEMA_TERRAIN
     from emu.environment import EmuMJXEnv
-    from emu.terrain_carpet_mjx import validate_prism_only_geoms
+    from emu.terrain_carpet_mjx import (validate_prism_only_geoms, TILE_COUNT, TILE_M, TILE_HALF_M, TILE_SIZE_Z_M)
 
     def sphere_contact(rise):
         root=ET.fromstring('''<mujoco model="prism_sphere_exam">
@@ -38,7 +38,7 @@ def run_probe(worlds=4, frames=2):
                   for name in PRISM_BODY_NAMES]
         template=mjx.put_model(model)
         builder=PrismMeshBuilder(model,template,geom_ids)
-        h=jnp.full((1,9*4),.5,dtype=jnp.float32)
+        h=jnp.full((1,TILE_COUNT*4),.5,dtype=jnp.float32)
         meshes=builder.deform(jnp,h,template._impl.mesh_convex)
         # Probe a single MJX scene, strip the optional leading world axis.
         meshes=tuple(m.replace(
@@ -51,9 +51,9 @@ def run_probe(worlds=4, frames=2):
         poses=np.zeros((model.nmocap,3),dtype=np.float32)
         poses[:,2]=-40.
         for k in (0,1):
-            poses[mids[k]]=[-.25,0.,0.]
+            poses[mids[k]]=[-TILE_HALF_M,0.,0.]
         for k in (2,3):
-            poses[mids[k]]=[+.25,0.,rise]
+            poses[mids[k]]=[+TILE_HALF_M,0.,rise]
         data=mjx.make_data(template).replace(
             qpos=jnp.asarray([-.016,0.,.018,1.,0.,0.,0.]),
             mocap_pos=jnp.asarray(poses))
@@ -108,7 +108,7 @@ def run_probe(worlds=4, frames=2):
         state.data,state.data.qpos[:,:3][:,None,:],
         state.carpet_hfields)
     assert np.isfinite(np.asarray(jax.device_get(surface))).all()
-    # Validate that EACH of the 18 deformed MJX convex collision meshes
+    # Validate that EACH of the eight deformed MJX convex collision meshes
     # has top corners exactly equal to the source 2x2 height samples.
     # A 3mm training lip cannot tolerate an 8mm fitted-box discrepancy.
     live=env._carpet_dynamic_model(state.carpet_hfields)
@@ -118,13 +118,13 @@ def run_probe(worlds=4, frames=2):
     mocap=np.asarray(jax.device_get(state.data.mocap_pos))
     max_vertex_error=0.
     for w in range(worlds):
-        for tile in range(9):
+        for tile in range(TILE_COUNT):
             original=mocap[w,env.carpet_mocap_ids[tile]]
             centre=original[:2]
             target_xy=np.array([
-                centre+[-.25,-.25],centre+[.25,-.25],
-                centre+[-.25,.25],centre+[.25,.25]])
-            target_z=original[2]+hf[w,4*tile:4*tile+4]*.5
+                centre+[-TILE_HALF_M,-TILE_HALF_M],centre+[TILE_HALF_M,-TILE_HALF_M],
+                centre+[-TILE_HALF_M,TILE_HALF_M],centre+[TILE_HALF_M,TILE_HALF_M]])
+            target_z=original[2]+hf[w,4*tile:4*tile+4]*TILE_SIZE_Z_M
             cloud=[]
             for tri in (2*tile,2*tile+1):
                 geom=env.carpet_prism_geom_ids[tri]
@@ -157,15 +157,15 @@ def run_probe(worlds=4, frames=2):
     gridy=np.asarray(jax.device_get(ys))
     max_edge_wedge=0.
     for w in range(worlds):
-        bycell={(int(gridx[w,t]),int(gridy[w,t])):t for t in range(9)}
+        bycell={(int(gridx[w,t]),int(gridy[w,t])):t for t in range(TILE_COUNT)}
         for (i,j),a in bycell.items():
-            az=mocap[w,env.carpet_mocap_ids[a],2]+hf[w,4*a:4*a+4]*.5
+            az=mocap[w,env.carpet_mocap_ids[a],2]+hf[w,4*a:4*a+4]*TILE_SIZE_Z_M
             for di,dj,ia,ib in ((1,0,(1,3),(0,2)),
                                 (0,1,(2,3),(0,1))):
                 b=bycell.get((i+di,j+dj))
                 if b is None:
                     continue
-                bz=mocap[w,env.carpet_mocap_ids[b],2]+hf[w,4*b:4*b+4]*.5
+                bz=mocap[w,env.carpet_mocap_ids[b],2]+hf[w,4*b:4*b+4]*TILE_SIZE_Z_M
                 edge_delta=np.asarray([az[ia[0]]-bz[ib[0]],
                                        az[ia[1]]-bz[ib[1]]])
                 wedge=abs(edge_delta[0]-edge_delta[1])
@@ -173,12 +173,12 @@ def run_probe(worlds=4, frames=2):
                 if wedge>3e-5:
                     raise AssertionError(
                         f"Unexpected tilted seam across {i,j}->{i+di,j+dj}")
-    # REAL modulo-three recycling: six prisms from the outgoing row
-    # must move as three inseparable top-triangle pairs. Moving retired
+    # REAL modulo-two recycling: four prisms from the outgoing column
+    # must move as two inseparable top-triangle pairs. Moving retired
     # non-contacting boxes alone is not a valid physics proof.
     old_centers=state.carpet_center
     desired=old_centers+jnp.asarray([1,0],dtype=jnp.int32)[None,:]
-    shifted_root=(desired.astype(jnp.float32)+.5)*.5
+    shifted_root=(desired.astype(jnp.float32)+.75)*TILE_M
     fake_qpos=state.data.qpos.at[:,:2].set(shifted_root)
     feet_new=jnp.broadcast_to(shifted_root[:,None,:],(worlds,2,2))
     fake_data=state.data.replace(
@@ -196,15 +196,15 @@ def run_probe(worlds=4, frames=2):
     changed=np.any(np.abs(moved_pos-before_pos)>1e-5,axis=2)
     if not np.array_equal(changed[:,0::2],changed[:,1::2]):
         raise AssertionError("Two physical prism halves recycled independently")
-    if not np.all(changed.sum(axis=1)==6):
-        raise AssertionError("Expected exactly 3 retired tiles x 2 prisms")
+    if not np.all(changed.sum(axis=1)==4):
+        raise AssertionError("Expected exactly 2 retired tiles x 2 prisms")
     moved_samples=np.asarray(jax.device_get(moved.mocap_pos[:,source_ids,:]))
-    wanted=moved_samples+np.asarray([0.,0.,.25],dtype=np.float32)
+    wanted=moved_samples+np.asarray([0.,0.,.5*TILE_SIZE_Z_M],dtype=np.float32)
     np.testing.assert_allclose(moved_pos[:,0::2,:],wanted,rtol=0,atol=2e-5)
     np.testing.assert_allclose(moved_pos[:,1::2,:],wanted,rtol=0,atol=2e-5)
     # One foot still resting on the retired row must veto the move.
     trailing=((old_centers-jnp.asarray([1,0],dtype=jnp.int32)[None,:]
-              ).astype(jnp.float32)+.5)*.5
+              ).astype(jnp.float32)+.5)*TILE_M
     feet_old=feet_new.at[:,0,:].set(trailing)
     blocked_data=fake_data.replace(
         xpos=fake_data.xpos.at[:,env.foot_bodies,:2].set(feet_old))
@@ -245,7 +245,7 @@ def run_probe(worlds=4, frames=2):
         worlds=worlds,frames=frames,convex_prisms=PRISM_COUNT,
         flat_seam=seam,physical_4cm_riser=step,
         deep_sidewall_40cm_geometry_only=deep_step,
-        safe_recycle_prisms_moved_per_world=6,
+        safe_recycle_prisms_moved_per_world=4,
         blocked_recycle_under_foot=True,
         full_emu_360_actor=True,
         physical_vertex_max_error_mm=round(max_vertex_error*1000,6),
