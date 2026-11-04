@@ -233,18 +233,45 @@ def run_probe(worlds=4, frames=2):
         selected=np.asarray(chosen,dtype=bool)
         actual=compact_jit(live,state.data,jnp.asarray(selected))
         reference=state.data if mode=="no_death" else full
-        actual_leaves=jax.tree_util.tree_leaves(jax.device_get(actual))
-        expected_leaves=jax.tree_util.tree_leaves(jax.device_get(reference))
+        actual_leaves,_=jax.tree_util.tree_flatten_with_path(
+            jax.device_get(actual))
+        expected_leaves,_=jax.tree_util.tree_flatten_with_path(
+            jax.device_get(reference))
         assert len(actual_leaves)==len(expected_leaves)
-        for i,(got,want) in enumerate(zip(actual_leaves,expected_leaves)):
+        for i,((path,got),(expected_path,want)) in enumerate(
+                zip(actual_leaves,expected_leaves)):
+            # A raw 'leaf 13' error hid a CUDA-only 0.28mm-scale
+            # discrepancy in compact vs full reset-forward. Report the
+            # physical field name and numeric scale without changing the
+            # acceptance tolerance or the production physics.
+            field=jax.tree_util.keystr(path) or "<root>"
+            assert path==expected_path,(
+                f"Reset-forward {mode} field order mismatch "
+                f"actual={field}, expected={jax.tree_util.keystr(expected_path)}")
             got=np.asarray(got)
             want=np.asarray(want)
-            assert got.shape==want.shape,(mode,i,got.shape,want.shape)
-            np.testing.assert_allclose(
-                got[selected] if mode!="no_death" else got,
-                want[selected] if mode!="no_death" else want,
-                rtol=2e-4,atol=2e-5,equal_nan=True,
-                err_msg=f"Reset-forward {mode} leaf {i} disagrees")
+            assert got.shape==want.shape,(
+                f"Reset-forward {mode} {field} leaf {i} "
+                f"shapes: {got.shape} vs {want.shape}")
+            checked_got=got[selected] if mode!="no_death" else got
+            checked_want=want[selected] if mode!="no_death" else want
+            try:
+                np.testing.assert_allclose(
+                    checked_got,checked_want,
+                    rtol=2e-4,atol=2e-5,equal_nan=True,
+                    err_msg=f"Reset-forward {mode} field={field} leaf={i} disagrees")
+            except AssertionError as ex:
+                difference=np.abs(checked_got-checked_want)
+                max_abs=float(np.nanmax(difference))
+                scaled=difference/np.maximum(np.abs(checked_want),1e-6)
+                max_scaled=float(np.nanmax(scaled))
+                raise AssertionError(
+                    f"CUDA RESET PARITY FAILURE: mode={mode} field={field} "
+                    f"leaf={i} max_abs={max_abs:.9g} "
+                    f"max_relative_safeguarded={max_scaled:.9g}; "
+                    "strict tolerances rtol=2e-4 atol=2e-5. "
+                    "Do not dismiss until physical units are identified.\n"
+                    +str(ex)) from ex
     env.reset_forward_capacity=original_capacity
     print("reset-forward PASS: no-death bypass, compact model/data "
           "parity and overflow fallback",flush=True)
