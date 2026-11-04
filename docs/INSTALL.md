@@ -163,7 +163,10 @@ PYTHONPATH="$PWD" python scripts/run_v5046_20m.py plan
 PYTHONPATH="$PWD" python -u scripts/run_v5046_20m.py start
 ```
 
-Its default output is `~/emu_runs/v5046_20m_s735_solver2_ls4/`.
+In this maintenance branch its default output is
+`~/emu-data/runs/v5046_20m_s735_solver2_ls4/`.
+The original source-pinned 20M run used `~/emu_runs/`; its recorded
+path remains historical evidence rather than a template for new runs.
 Do not run `start` again if that folder exists. Use
 `scripts/run_v5046_20m.py resume` only with the **same source
 SHA and saved training configuration**. The 20M archive from
@@ -178,13 +181,48 @@ experiment, not as the general-purpose 140M or final release recipe.
 
 ## 4. Recovery, viewer and clean project layout
 
-Suggested new WSL layout (one canonical location for each kind):
+**Canonical v5046+ layout (three types of paths, two home-level roots):**
 
 ```text
-~/emu/                     # one Git checkout + .venv (installed once)
-~/emu_runs/<unique-run>/   # training configs, snapshots, final.pkl, metrics
-~/emu_audit/               # temporary GPU research data, not trainer source
+~/emu/                           # ONE Git checkout and its .venv; no run data
+~/emu-data/
+    runs/
+        <study>-s<seed>/          # ONE directory owns ALL of a training run:
+            training_config.json # source-pinned experiment settings
+            run_meta.json        # Git SHA and physical model identity
+            console.log          # one training transcript
+            metrics.csv          # training progress
+            fixed_eval.csv       # held-out physical assessment
+            results.md           # generated summary in the same directory
+            checkpoints/
+                final.pkl        # only if you choose to retain the actor
+    scratch/                      # throw-away GPU sweeps; can delete in bulk
 ```
+
+A run identifier is a **specific immutable experiment recipe**, for example
+`v5047-early-lips-s735` or `v5047-early-lips-control-s735`.
+Never put the Git branch name, a second virtualenv or arbitrary `results/`
+folder inside the run root. Existing `emu train --run-dir`,
+`emu report --root` and `emu prism-exam --output` accept explicit paths;
+**all run-owned files, exports and exams should remain in that run directory**.
+
+For a new experiment, create no directory manually; pass a fresh path to
+the existing CLI, and let training own its contents:
+
+```bash
+cd ~/emu
+source .venv/bin/activate
+RUN="$HOME/emu-data/runs/v5047-early-lips-s735"
+# Substitute an approved source-pinned recipe, then append:
+# emu train --run-dir "$RUN" ... --plan
+# emu train --run-dir "$RUN" ...   # start once; resume uses same path + SHA
+# emu report --root "$RUN"        # reports and evidence alongside that run
+```
+
+No `~/robot_lab/emu_runs/`, `~/emu-graduation/`, `~/emu_runs/`,
+`~/emu_gpu_audit/` or separate `overnight_results` roots for future
+campaigns. Historical folders are not automatically migrated or deleted;
+those paths still belong to their original source-pinned runs.
 
 The repo's own `scripts/setup_wsl.sh` also installs Node 24 and
 builds the viewer. After activation:
