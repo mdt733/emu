@@ -217,6 +217,38 @@ def run_probe(worlds=4, frames=2):
         blocked.mocap_pos[:,prism_ids,:])),before_pos),(
         "Prism collider teleported away under an outgoing foot")
 
+    # Compact reset must preserve all MJX forward-derived values for
+    # finished worlds and fall back to the full batch on overflow.
+    full=env.forward_batched(live,state.data)
+    original_capacity=env.reset_forward_capacity
+    env.reset_forward_capacity=2
+    compact_jit=jax.jit(
+        lambda model,data,mask:env._forward_reset_data(model,data,mask))
+    masks=(
+        ("no_death",[False]*worlds),
+        ("packed",[True,False,True,False]+[False]*(worlds-4)),
+        ("overflow",[True,True,True,False]+[False]*(worlds-4)),
+    )
+    for mode,chosen in masks:
+        selected=np.asarray(chosen,dtype=bool)
+        actual=compact_jit(live,state.data,jnp.asarray(selected))
+        reference=state.data if mode=="no_death" else full
+        actual_leaves=jax.tree_util.tree_leaves(jax.device_get(actual))
+        expected_leaves=jax.tree_util.tree_leaves(jax.device_get(reference))
+        assert len(actual_leaves)==len(expected_leaves)
+        for i,(got,want) in enumerate(zip(actual_leaves,expected_leaves)):
+            got=np.asarray(got)
+            want=np.asarray(want)
+            assert got.shape==want.shape,(mode,i,got.shape,want.shape)
+            np.testing.assert_allclose(
+                got[selected] if mode!="no_death" else got,
+                want[selected] if mode!="no_death" else want,
+                rtol=2e-4,atol=2e-5,equal_nan=True,
+                err_msg=f"Reset-forward {mode} leaf {i} disagrees")
+    env.reset_forward_capacity=original_capacity
+    print("reset-forward PASS: no-death bypass, compact model/data "
+          "parity and overflow fallback",flush=True)
+
     params=env.params_array(settings)
     # This same physical smoke must catch telemetry/report regressions:
     # PPO's governor reads episode and terrain evidence every frame.
