@@ -576,41 +576,65 @@ def main():
                 "set-branches --add origin "+EXPECTED_BRANCH+
                 " ; git fetch origin ; git switch --track origin/"+EXPECTED_BRANCH)
     plan_identity=hashlib.sha256(json.dumps(
-        {"source":source_sha,"arms":ARMS,"exams":EXAMS,
-         "steps":[EXPLORER_STEPS,FINAL_STEPS,REPLICA_STEPS],
+        {"source":source_sha,"parent":PARENT_SPEC,"arms":ARMS,"exams":EXAMS,
+         "steps":[FOUNDATION_STEPS,FORK_TARGET,FINAL_TARGET],
          "worlds":WORLDS,"horizon":HORIZON,"seeds":SEEDS},
         sort_keys=True).encode()).hexdigest()
-    print(f"EMU v5047 | source={source_sha} branch={branch}",flush=True)
-    print(f"Budget: {args.hours:g}h (soft), seven 100M arms + 300M + 200M "
-          f"= {(len(ARMS)*EXPLORER_STEPS+FINAL_STEPS+REPLICA_STEPS):,} world-steps",
+    planned=FOUNDATION_STEPS+len(ARMS)*(FORK_TARGET-FOUNDATION_STEPS)+(
+        FINAL_TARGET-FORK_TARGET)
+    print(f"EMU v5048 | source={source_sha} branch={branch}",flush=True)
+    print(f"Budget: {args.hours:g}h soft, 50M shared foundation + "
+          f"8 x 50M forks + winner +100M = {planned:,} unique world-steps",
           flush=True)
+    print(f"Parent: 50M on seed 735 with no special Academy introduction")
     for label,spec in ARMS:
-        print(f"  {label}: {spec}",flush=True)
-        if args.mode=="plan":
-            cmd=policy_args(spec,steps=EXPLORER_STEPS,
-                            seed=735,run=run_dir(label,735))+["--plan"]
-            # Actual CLI resolves the real TrainerConfig contract before
-            # CUDA work. Catch unsupported flags / wrong active teachers
-            # NOW, not 12 minutes into the overnight campaign.
-            probe=subprocess.run(cmd,cwd=ROOT,text=True,
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT,timeout=60)
-            if probe.returncode:
-                print(probe.stdout,flush=True)
-                raise RuntimeError(f"Preflight CLI recipe invalid for {label}")
-            config=json.loads(probe.stdout[
-                probe.stdout.index("{"):probe.stdout.rindex("}")+1])
-            if (config.get("steps")!=EXPLORER_STEPS or config.get("envs")!=2048
-                or config.get("solver_iterations")!=spec.get("solver",2)
-                or config.get("solver_ls_iterations")!=4
-                or abs(config.get("stillness_birth_frac",0.)
-                       -spec.get("stillness",0.))>1e-7
-                or config.get("academy_intro_steps")!=spec["intro"]):
-                raise RuntimeError(f"Resolved CLI config differs from {label} plan")
-            print(f"    real CLI config PASS; run-dir {run_dir(label,735)}")
-    print(f"Exam schedule: {len(EXAMS)} modes x {len(SEEDS)} seeds x up to 9 policies")
+        print(f"  {label}: 50M->100M from SAME final.pkl, changes {spec}")
+    print(f"Finalist: winning 100M run extends IN PLACE to 200M")
+    print(f"Exam schedule: 8 protocols x 2 seeds x 8 arms, "
+          "then 8 x 2 for finalist; 4 foundation baseline protocols")
     print(f"All run-owned data: {RUNS}; only experiment cache: {SCRATCH}")
     if args.mode=="plan":
+        # A real CLI --plan is run for EVERY child and the original
+        # parent, before even creating run directories or touching GPU.
+        cases=[("foundation",PARENT_SPEC,FOUNDATION_STEPS)]+[
+            (name,spec,FORK_TARGET) for name,spec in ARMS]
+        for label,spec,target in cases:
+            cmd=policy_args(spec,steps=target,seed=735,run=run_dir(label,735))
+            check=subprocess.run(cmd+["--plan"],cwd=ROOT,text=True,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT,timeout=90)
+            if check.returncode:
+                print(check.stdout,flush=True)
+                raise RuntimeError(f"Invalid v5048 resolved CLI config for {label}")
+            resolved=json.loads(check.stdout[
+                check.stdout.index("{"):check.stdout.rindex("}")+1])
+            expected={
+                "steps":target,"envs":2048,"seed":735,
+                "solver_iterations":spec.get("solver",2),
+                "solver_ls_iterations":4,
+                "academy_intro_steps":spec["intro"],
+                "academy_start_steps":spec["start"],
+                "stillness_birth_frac":spec.get("stillness",0.),
+                "science_step_promotion_mm":spec.get("step_mm",0.),
+                "science_step_retreat_mm":spec.get("retreat_mm",0.),
+                "science_step_min_attempts":spec.get("attempts",4),
+                "temporal_vx_reward_share":spec.get("temporal",0.),
+                "athletic_rehearsal_frac":spec.get("athletic",.10),
+                "academy_max_share":spec.get("academy_share",.40)}
+            for key,wanted in expected.items():
+                got=resolved.get(key)
+                if isinstance(wanted,float):
+                    valid=isinstance(got,(float,int)) and abs(got-wanted)<1e-6
+                else:
+                    valid=(got==wanted)
+                if not valid:
+                    raise RuntimeError(f"{label} real CLI config {key} "
+                                       f"got {got!r}, expected {wanted!r}")
+            print(f"  ACTUAL --plan PASS: {label}, parent/fork "
+                  f"target {target:,}, exact solver/teacher/sensor contract",
+                  flush=True)
+        print("STAGE ORDER: 50M foundation; eight matched 50M research forks;"
+              " frozen exams; same-run winner extension +100M",flush=True)
         return 0
     if args.mode=="run":
         if git("status","--porcelain","--untracked-files=no"):
@@ -660,40 +684,78 @@ def main():
             st["smoke"]="PASS";atomic(manifest,st)
         if st.get("acceptance")!="PASS":
             lifecycle_acceptance(source_sha,st,env)
+        parent_key=f"foundation_s735_{FOUNDATION_STEPS}"
+        if parent_key not in st["trained"] and not has_budget(900):
+            print("SOFT DEADLINE before 50M foundation; nothing destroyed",
+                  flush=True)
+            return 0
+        parent_folder=run_train("foundation",PARENT_SPEC,FOUNDATION_STEPS,
+                                735,source_sha,st,env)
+        parent_path=parent_folder/"checkpoints"/"final.pkl"
+        parent_hash=hashlib.sha256(parent_path.read_bytes()).hexdigest()
+        old_hash=st.get("parent_sha256")
+        if old_hash and old_hash!=parent_hash:
+            raise RuntimeError("Shared 50M parent final.pkl changed on disk")
+        st["parent_sha256"]=parent_hash
+        st["parent_path"]=str(parent_path)
+        atomic(manifest,st)
+        if not st.get("foundation_exam"):
+            actor=export_actor(parent_folder,source_sha,PARENT_SPEC,
+                               FOUNDATION_STEPS,st,env)
+            # Four quick baselines, one seed; the main eight arms are
+            # independently checked on both held-out seeds.
+            basic=tuple(e for e in EXAMS if e[0] in (
+                "still","cruise","step_2cm","slope_8deg"))
+            get_exams("foundation",735,PARENT_SPEC,parent_folder,actor,
+                      source_sha,FOUNDATION_STEPS,st,env,
+                      cases=basic,exam_seeds=(SEEDS[0],))
+            st["foundation_exam"]=True
+            atomic(manifest,st)
+            report(st);archive(st)
         for label,spec in ARMS:
-            key=f"{label}_s735_{EXPLORER_STEPS}"
-            if key not in st["trained"] and not has_budget(1800):
-                print("SOFT DEADLINE before next training arm; resume later.",flush=True)
+            key=f"{label}_s735_{FORK_TARGET}"
+            if key not in st["trained"] and not has_budget(900):
+                print("SOFT DEADLINE before next 50M fork; preserved "
+                      "every finished branch and 50M parent",flush=True)
                 break
-            folder=run_train(label,spec,EXPLORER_STEPS,735,source_sha,st,env)
-            actor=export_actor(folder,source_sha,spec,EXPLORER_STEPS,st,env)
+            folder=run_train(label,spec,FORK_TARGET,735,source_sha,st,env,
+                             parent=parent_path,parent_hash=parent_hash)
+            actor=export_actor(folder,source_sha,spec,FORK_TARGET,st,env)
             exams=get_exams(label,735,spec,folder,actor,source_sha,
-                            EXPLORER_STEPS,st,env)
+                            FORK_TARGET,st,env)
             st["scored"][label]=score(exams)
             atomic(manifest,st);report(st);archive(st)
-        if len(st["scored"]) != len(ARMS):
-            print("Incomplete matched bracket; NOT selecting a winner.",flush=True)
+        if any(label not in st["scored"] for label,_ in ARMS):
+            print("Incomplete paired fork bracket; NOT choosing winner.",
+                  flush=True)
+            report(st);archive(st)
             return 0
         if st["choice"] is None:
-            st["choice"]=choose(st["scored"])
+            st["choice"]=choose({
+                label:st["scored"][label] for label,_ in ARMS})
             atomic(manifest,st)
-            print(f"Predeclared held-out physical choice: {st['choice']}",flush=True)
-        winning_spec=dict(dict(ARMS)[st["choice"]])
-        for label,seed,steps in (("candidate",735,FINAL_STEPS),
-                                 ("replica",761,REPLICA_STEPS)):
-            name=f"{label}-{st['choice']}"
-            key=f"{name}_s{seed}_{steps}"
-            if key not in st["trained"] and not has_budget(3600):
-                print("SOFT DEADLINE before next optional finalist run; "
-                      "preserving all results.",flush=True)
-                break
-            folder=run_train(name,winning_spec,steps,seed,source_sha,st,env)
-            actor=export_actor(folder,source_sha,winning_spec,steps,st,env)
-            result=get_exams(name,seed,winning_spec,folder,actor,source_sha,
-                             steps,st,env)
-            st["scored"][name]=score(result)
-            atomic(manifest,st);report(st);archive(st)
-        print(f"COMPLETED AVAILABLE ARMS: {len(st['trained'])}; "
+            print(f"Best predeclared held-out physical fork: "
+                  f"{st['choice']}",flush=True)
+        winning_spec=dict(ARMS)[st["choice"]]
+        key=f"{st['choice']}_s735_{FINAL_TARGET}"
+        if key not in st["trained"] and not has_budget(1500):
+            print("SOFT DEADLINE: all 8 matched 100M checkpoints retained; "
+                  "winner can resume/extend with same source",flush=True)
+            report(st);archive(st)
+            return 0
+        # The user requested +100M ON TOP of the winning 100M policy,
+        # not a freshly initialised, unrelated actor. The trainer only
+        # allows same-source target extensions of fully completed runs,
+        # requiring identical configuration except target step count.
+        folder=run_train(st["choice"],winning_spec,FINAL_TARGET,735,
+                         source_sha,st,env)
+        actor=export_actor(folder,source_sha,winning_spec,
+                           FINAL_TARGET,st,env)
+        full_exam=get_exams(st["choice"],735,winning_spec,folder,actor,
+                            source_sha,FINAL_TARGET,st,env)
+        st["scored"][st["choice"]+"_200M"]=score(full_exam)
+        atomic(manifest,st);report(st);archive(st)
+        print(f"COMPLETED TRAINING STAGES: {len(st['trained'])}; "
               f"elapsed {time.monotonic()-begun:.1f}s; "
               f"summary {SCRATCH/'SUMMARY.md'}",flush=True)
         return 0
