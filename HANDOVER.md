@@ -195,3 +195,16 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - Enhanced exact-head CI with `emu doctor --domain-smoke` to actually
   run optional manufacturing-noise MJX alongside the independent real
   prism contact probe. Until green, this branch stays research-only.
+
+## 4 November — live startup feedback and candidate ToF GPU optimization
+
+- Preserve the user's source-locked `45c86fad` foundation without pulling
+  these branch commits mid-training.
+- Fixed the console launcher hiding the trainer's startup/JIT milestones:
+  forward important phases and a 30s quiet-output heartbeat. Every ten
+  PPO updates a new timing line separates steady full-update throughput
+  from startup-inclusive wall rate and existing host overhead counters.
+- Batch the nine existing physical-triangle/signed-riser ToF source
+  evaluations. Original sequential logic is frozen in one numerical
+  regression test. Requires exact-head physical CI and GPU A/B to assess
+  whether this actually improves steady FPS and compilation.

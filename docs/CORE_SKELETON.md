@@ -587,3 +587,34 @@ slope metadata removes dead complexity, **not actual prism collisions**.
 A current-source doctor `--domain-smoke` on 8 randomized CPU MJX worlds
 is now required by branch CI as well as the ordinary four-world prism
 probe. Treat physical correctness as unproven until this new CI passes.
+
+### 4 November: prioritize performance, not a misleading startup FPS
+
+On the owner's source `45c86fad` (which must never be silently
+resumed under this new branch head) the first 3.28M training
+steps reached ~7.9k world-steps/s *between consecutive reports*;
+the cumulative 3–6k FPS includes JAX first-use compilation.
+By 5.24M the policy reached 477-frame lives, so the immediate
+work is performance measurement, not gait debugging.
+
+The runner had been hiding the trainer's own training-start and JIT
+compilation notices. We now forward the startup stages and print a
+parent-side 30-second heartbeat during silent first compilation. A
+compact `speed` line separates post-JIT full-PPO throughput from
+cumulative startup-inclusive FPS and shows six existing read-only
+`PerfBook` timers. This adds no JAX synchronizations.
+
+**ToF candidate:** `terrain_carpet_mjx.ray_surface` previously unrolled
+9 sequential tile evaluations, each with 3 intersection refinements and
+4 sidewall tests. It now vectorizes those 9 tiles into one
+[world,tile,ray] JAX calculation, keeping the same real triangular-top
+and vertical-wall intersection formula and the same 360-channel actor
+contract. The existing 15cm uphill-wall test plus a new exact old-source
+oracle compare JIT and sequential calculations across 3 worlds and
+16 rays with/without buried-prism depth.
+
+This can reduce JAX compile work and *may* improve full-PPO throughput;
+it may also add GPU register/memory pressure. It is **not** a confirmed
+speed gain until the same 2,048-world full-update benchmark is repeated.
+Robot physics, collision meshes, reward, optimizer and policy input
+semantics are unchanged by this targeted source change.

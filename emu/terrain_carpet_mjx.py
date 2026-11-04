@@ -306,63 +306,55 @@ def sample_surface(xp,data,mocap_ids,hfield_data,points):
 
 def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
                 prism_bottom_depth_m=None):
-    """Slant range against both real triangles in every 50cm tile.
+    """All nine physical source tiles in one batched slant-ray program.
 
-    Iterative ray-plane intersections use the same planar interpolation as
-    sample_surface. Only finite ray distances inside a tile are admitted.
-    The old two-slab ray never leaks its buried ground into 360 observations.
+    Array axes are [world,tile,ray]. The exact three surface iterations,
+    two triangular tops and four vertical sidewalls are unchanged.
+    A frozen sequential oracle tests numerical parity before GPU trials.
     """
-    nearest=xp.full(rays.shape[:2],xp.inf,dtype=xp.float32)
-    vertical=rays[:,:,2]
+    if len(mocap_ids)!=TILE_COUNT:
+        raise ValueError('Expected nine physical source tiles')
+    pos=data.mocap_pos[:,xp.asarray(mocap_ids,dtype=xp.int32),:]
+    samples=hfield_data.reshape((hfield_data.shape[0],TILE_COUNT,4))
+    vertical=rays[:,None,:,2]
     safe=xp.where(xp.abs(vertical)>1e-6,vertical,-1.)
-    for i,mocap in enumerate(mocap_ids):
-        pos=data.mocap_pos[:,mocap,:]
-        sample=hfield_data[:,i*4:i*4+4]
-        middle=pos[:,2]+TILE_SIZE_Z_M*xp.mean(sample,axis=1)
-        t=(middle[:,None]-origin[:,None,2])/safe
-        for _ in range(3):
-            u=(origin[:,None,0]+t*rays[:,:,0]-pos[:,None,0]+TILE_HALF_M)/TILE_M
-            v=(origin[:,None,1]+t*rays[:,:,1]-pos[:,None,1]+TILE_HALF_M)/TILE_M
-            a,b,c,d=[sample[:,k,None] for k in range(4)]
-            near=a*(1.-u-v)+b*u+c*v
-            far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
-            height=pos[:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
-            t=(height-origin[:,None,2])/safe
-        inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
-        good=inside&(t>0.)&(rays[:,:,2]<-.05)
-        nearest=xp.minimum(nearest,xp.where(good,t,xp.inf))
+    middle=pos[:,:,2]+TILE_SIZE_Z_M*xp.mean(samples,axis=-1)
+    t=(middle[:,:,None]-origin[:,None,None,2])/safe
+    a,b,c,d=[samples[:,:,k,None] for k in range(4)]
+    for _ in range(3):
+        u=(origin[:,None,None,0]+t*rays[:,None,:,0]-pos[:,:,None,0]+TILE_HALF_M)/TILE_M
+        v=(origin[:,None,None,1]+t*rays[:,None,:,1]-pos[:,:,None,1]+TILE_HALF_M)/TILE_M
+        near=a*(1.-u-v)+b*u+c*v
+        far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
+        height=pos[:,:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
+        t=(height-origin[:,None,None,2])/safe
+    inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
+    good=inside&(t>0.)&(vertical<-.05)
+    nearest=xp.where(good,t,xp.inf)
+    # The actual prisms have outer risers: no upper-step blindness.
+    for axis,other,edges in ((0,1,((0,2),(1,3))),
+                             (1,0,((0,1),(2,3)))):
+        direction=rays[:,None,:,axis]
+        safe_dir=xp.where(xp.abs(direction)>1e-7,direction,1.)
+        other_dir=rays[:,None,:,other]
+        for side,(lo,hi) in enumerate(edges):
+            edge_pos=pos[:,:,axis]+(-TILE_HALF_M if side==0 else TILE_HALF_M)
+            tt=(edge_pos[:,:,None]-origin[:,None,None,axis])/safe_dir
+            other_at=origin[:,None,None,other]+tt*other_dir
+            fraction=(other_at-pos[:,:,None,other]+TILE_HALF_M)/TILE_M
+            z_at=origin[:,None,None,2]+tt*vertical
+            z_top=pos[:,:,None,2]+TILE_SIZE_Z_M*(
+                  samples[:,:,lo,None]*(1.-fraction)
+                  +samples[:,:,hi,None]*fraction)
+            z_bottom=(z_top-prism_bottom_depth_m if
+                      prism_bottom_depth_m is not None else
+                      pos[:,:,None,2]-TILE_BASE_M)
+            hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
+                 fraction>=0.)&(fraction<=1.)&(
+                 z_at<=z_top)&(z_at>=z_bottom)
+            nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
+    return xp.min(nearest,axis=1)
 
-        # A two-triangle MuJoCo hfield is a solid height volume with
-        # vertical *outer side walls*. Omitting those sides would let the
-        # 4x4 ToF miss precisely the uphill riser the feet collide with.
-        # This matches the SAME samples and base thickness as MJX, not a
-        # separate privileged ray obstacle. Two x-faces and two y-faces.
-        for axis,other,edges in ((0,1,((0,2),(1,3))),
-                                 (1,0,((0,1),(2,3)))):
-            direction=rays[:,:,axis]
-            safe_dir=xp.where(xp.abs(direction)>1e-7,direction,1.)
-            other_dir=rays[:,:,other]
-            for side,(lo,hi) in enumerate(edges):
-                edge_pos=pos[:,axis]+(-TILE_HALF_M if side==0 else TILE_HALF_M)
-                tt=(edge_pos[:,None]-origin[:,None,axis])/safe_dir
-                other_at=origin[:,None,other]+tt*other_dir
-                fraction=(other_at-pos[:,None,other]+TILE_HALF_M)/TILE_M
-                z_at=origin[:,None,2]+tt*rays[:,:,2]
-                z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
-                      sample[:,lo,None]*(1.-fraction)
-                      +sample[:,hi,None]*fraction)
-                # v5043 prisms have a sheared lower triangle by the configured prism depth
-                # below each top vertex. The old heightfield base used a
-                # different constant Z and would expose phantom sidewalls
-                # below the actual prism collision body.
-                z_bottom=(z_top-prism_bottom_depth_m if
-                          prism_bottom_depth_m is not None else
-                          pos[:,None,2]-TILE_BASE_M)
-                hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
-                    fraction>=0.)&(fraction<=1.)&(
-                    z_at<=z_top)&(z_at>=z_bottom)
-                nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
-    return nearest
 
 def feet_clear_of_abandoned_prisms(
         xp, old_center, new_center, foot_xy, foot_radii,

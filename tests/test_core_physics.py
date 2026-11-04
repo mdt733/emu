@@ -281,6 +281,101 @@ def test_unphysical_side_contact_cannot_earn_lip():
     assert score_prism_crossings(t)["total"]==0
 
 
+
+def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
+    """Keep a source-frozen sequential ray oracle for exactly this GPU optimization."""
+    from emu.terrain_carpet_mjx import TILE_M,TILE_HALF_M,TILE_BASE_M,TILE_COUNT
+    def old_rays(xp,data,mocap_ids,hfield_data,origin,rays,*,
+                    prism_bottom_depth_m=None):
+        """Slant range against both real triangles in every 50cm tile.
+    
+        Iterative ray-plane intersections use the same planar interpolation as
+        sample_surface. Only finite ray distances inside a tile are admitted.
+        The old two-slab ray never leaks its buried ground into 360 observations.
+        """
+        nearest=xp.full(rays.shape[:2],xp.inf,dtype=xp.float32)
+        vertical=rays[:,:,2]
+        safe=xp.where(xp.abs(vertical)>1e-6,vertical,-1.)
+        for i,mocap in enumerate(mocap_ids):
+            pos=data.mocap_pos[:,mocap,:]
+            sample=hfield_data[:,i*4:i*4+4]
+            middle=pos[:,2]+TILE_SIZE_Z_M*xp.mean(sample,axis=1)
+            t=(middle[:,None]-origin[:,None,2])/safe
+            for _ in range(3):
+                u=(origin[:,None,0]+t*rays[:,:,0]-pos[:,None,0]+TILE_HALF_M)/TILE_M
+                v=(origin[:,None,1]+t*rays[:,:,1]-pos[:,None,1]+TILE_HALF_M)/TILE_M
+                a,b,c,d=[sample[:,k,None] for k in range(4)]
+                near=a*(1.-u-v)+b*u+c*v
+                far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
+                height=pos[:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
+                t=(height-origin[:,None,2])/safe
+            inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
+            good=inside&(t>0.)&(rays[:,:,2]<-.05)
+            nearest=xp.minimum(nearest,xp.where(good,t,xp.inf))
+    
+            # A two-triangle MuJoCo hfield is a solid height volume with
+            # vertical *outer side walls*. Omitting those sides would let the
+            # 4x4 ToF miss precisely the uphill riser the feet collide with.
+            # This matches the SAME samples and base thickness as MJX, not a
+            # separate privileged ray obstacle. Two x-faces and two y-faces.
+            for axis,other,edges in ((0,1,((0,2),(1,3))),
+                                     (1,0,((0,1),(2,3)))):
+                direction=rays[:,:,axis]
+                safe_dir=xp.where(xp.abs(direction)>1e-7,direction,1.)
+                other_dir=rays[:,:,other]
+                for side,(lo,hi) in enumerate(edges):
+                    edge_pos=pos[:,axis]+(-TILE_HALF_M if side==0 else TILE_HALF_M)
+                    tt=(edge_pos[:,None]-origin[:,None,axis])/safe_dir
+                    other_at=origin[:,None,other]+tt*other_dir
+                    fraction=(other_at-pos[:,None,other]+TILE_HALF_M)/TILE_M
+                    z_at=origin[:,None,2]+tt*rays[:,:,2]
+                    z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
+                          sample[:,lo,None]*(1.-fraction)
+                          +sample[:,hi,None]*fraction)
+                    # v5043 prisms have a sheared lower triangle by the configured prism depth
+                    # below each top vertex. The old heightfield base used a
+                    # different constant Z and would expose phantom sidewalls
+                    # below the actual prism collision body.
+                    z_bottom=(z_top-prism_bottom_depth_m if
+                              prism_bottom_depth_m is not None else
+                              pos[:,None,2]-TILE_BASE_M)
+                    hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
+                        fraction>=0.)&(fraction<=1.)&(
+                        z_at<=z_top)&(z_at>=z_bottom)
+                    nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
+        return nearest
+    
+    rng=np.random.default_rng(1701)
+    worlds=3
+    positions=np.zeros((worlds,9,3),dtype=np.float32)
+    for tile in range(9):
+        positions[:,tile,0]=(tile%3-1)*.5
+        positions[:,tile,1]=(tile//3-1)*.5
+    positions[:,:,2]=rng.uniform(-.12,.13,(worlds,9)).astype(np.float32)
+    heights=jnp.asarray(rng.uniform(.15,.85,(worlds,36)),dtype=jnp.float32)
+    origin=jnp.asarray([[.02,-.08,.18],[-.12,.04,.15],[.17,.17,.25]],dtype=jnp.float32)
+    pitch=np.deg2rad([40,60,80,100])
+    yaw=np.deg2rad([-22.5,-7.5,7.5,22.5])
+    beam=np.asarray([[np.cos(p)*np.cos(y),np.cos(p)*np.sin(y),-np.sin(p)]
+                     for p in pitch for y in yaw],dtype=np.float32)
+    rays=jnp.broadcast_to(jnp.asarray(beam),(worlds,16,3))
+    points=jnp.asarray(positions)
+    ids=tuple(range(9))
+    for bottom in (None,.65):
+        expected=np.asarray(old_rays(jnp,SimpleNamespace(mocap_pos=points),
+                                     ids,heights,origin,rays,
+                                     prism_bottom_depth_m=bottom))
+        new=jax.jit(lambda p,h,o,ray:ray_surface(
+            jnp,SimpleNamespace(mocap_pos=p),ids,h,o,ray,
+            prism_bottom_depth_m=bottom))
+        actual=np.asarray(new(points,heights,origin,rays))
+        assert actual.shape==(worlds,16)
+        np.testing.assert_array_equal(np.isfinite(actual),np.isfinite(expected))
+        finite=np.isfinite(expected)
+        np.testing.assert_allclose(actual[finite],expected[finite],
+                                   rtol=0,atol=5e-6)
+
+
 def test_tof_sees_real_15cm_vertical_uphill_wall():
     data,samples=fixture()
     origin=jnp.asarray([[-.15,0.,.07]],dtype=jnp.float32)
