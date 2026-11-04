@@ -208,3 +208,13 @@ reconciles every surviving module with its job and identifies open gates. The hi
   evaluations. Original sequential logic is frozen in one numerical
   regression test. Requires exact-head physical CI and GPU A/B to assess
   whether this actually improves steady FPS and compilation.
+
+## 4 November — one 17-ray physical sensor pass
+
+- Fused sixteen terrain ToF rays and the separate downward
+  optical-flow height ray, previously two separate nine-tile
+  intersection traversals, into one batched call. Preserve the
+  360-input actor contract and physical footprint/sidewall behavior.
+- Added numerical parity checks against independent 16+1 ray
+  calculations. Source-locked running 45c foundation remains
+  unchanged; optimized source must pass CPU CI and GPU A/B.

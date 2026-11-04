@@ -618,3 +618,17 @@ it may also add GPU register/memory pressure. It is **not** a confirmed
 speed gain until the same 2,048-world full-update benchmark is repeated.
 Robot physics, collision meshes, reward, optimizer and policy input
 semantics are unchanged by this targeted source change.
+
+### 4 November: one physical sensor pass for forward ToF and downward flow
+
+The previous sensor source evaluated `carpet_ray_surface` twice per
+control-frame acquisition: 16 forward ToF beams then the one downward
+optical-flow-height ray, rebuilding the same nine tile top/sidewall
+intersection graph. The current candidate evaluates all 17 physical
+rays together and returns exactly the original 16 ToF channels plus
+one separately gated flow-height ray. Surface formulas, optical-flow
+noise, ToF occlusion, actor observation layout, collisions and reward
+remain unchanged. Extend the fixed old-source ray parity test to
+compare a JIT-compiled fused 17-ray call against independent 16+1
+calls at two prism-depth settings. This is a **GPU full-PPO hypothesis**
+requiring the owner's own 2048-world benchmark before any speed claim.

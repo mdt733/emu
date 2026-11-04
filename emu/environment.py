@@ -2482,8 +2482,12 @@ class EmuMJXEnv(TaskSampler):
         body_ang = jnp.einsum('nij,nj->ni', RT, data.qvel[:, 3:6])
         return projected_gravity, body_vel, body_ang
 
-    def _terrain_4x4_ranges(self, data, errors_m=None, carpet_heights=None):
-        """16 exact prism surface/slant rays with real foot occlusion."""
+    def _terrain_4x4_ranges(self, data, errors_m=None, carpet_heights=None,
+                            *, include_downward_depth=False):
+        """16 ToF rays, optionally fused with a downward optical-flow ray.
+
+        The 17th ray is never exposed as an actor ToF channel.
+        """
         jnp = self.jnp
         beam_dirs = jnp.asarray([
             [math.cos(math.radians(p))*math.cos(math.radians(y)),
@@ -2496,9 +2500,15 @@ class EmuMJXEnv(TaskSampler):
         ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
         # The same two physical triangles and vertical prism sidewall
         # used by MJX contacts. Never substitute a box or infinite plane.
-        terrain_t=carpet_ray_surface(
+        # Both sensors sample identical physical prisms. Intersect 16+1
+        # rays once rather than recreating nine tile/wall intersections
+        # separately for the optical-flow height sensor.
+        surface_rays=(jnp.concatenate([ray,(-R[:,:,2])[:,None,:]],axis=1)
+                      if include_downward_depth else ray)
+        all_t=carpet_ray_surface(
             jnp,data,self.carpet_mocap_ids,carpet_heights,
-            origin,ray,prism_bottom_depth_m=PRISM_DEPTH_M)
+            origin,surface_rays,prism_bottom_depth_m=PRISM_DEPTH_M)
+        terrain_t=all_t[:,:16] if include_downward_depth else all_t
         foot_ids = jnp.asarray(self.ids['foot_geoms'],dtype=jnp.int32)
         foot_centres = data.geom_xpos[:,foot_ids,:]
         diff = origin[:,None,:]-foot_centres
@@ -2513,9 +2523,11 @@ class EmuMJXEnv(TaskSampler):
         valid = ((terrain_t>=TERRAIN_TOF_MIN_M)&(terrain_t<=TERRAIN_TOF_MAX_M)&
                  (occlusion_t>=terrain_t))
         result = terrain_t+(errors_m if errors_m is not None else 0.)
-        return (jnp.where(valid,jnp.clip(result,TERRAIN_TOF_MIN_M,
-                                        TERRAIN_TOF_MAX_M),0.).astype(jnp.float32),
-                valid)
+        four=jnp.where(valid,jnp.clip(result,TERRAIN_TOF_MIN_M,
+                                      TERRAIN_TOF_MAX_M),0.).astype(jnp.float32)
+        if include_downward_depth:
+            return four,valid,all_t[:,16]
+        return four,valid
 
     def _sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):
         """Array-only sensor: 4x4 ranges, optical flow and gyro, NO tripod.
@@ -2531,15 +2543,9 @@ class EmuMJXEnv(TaskSampler):
             jax.random.fold_in(k,5016),(8,),dtype=jnp.float32))(keys)
         four_noise=jax.vmap(lambda k:jax.random.normal(
             jax.random.fold_in(k,5024),(16,),dtype=jnp.float32))(keys)
-        four,valid=self._terrain_4x4_ranges(
+        four,valid,depth=self._terrain_4x4_ranges(
             data,errors_m=scale[:,None]*.002*four_noise,
-            carpet_heights=carpet_heights)
-        R=self._rotation_body_to_world(data)
-        torso=data.xpos[:,self.torso_id,:]
-        down=(-R[:,:,2])[:,None,:]
-        depth=carpet_ray_surface(
-            jnp,data,self.carpet_mocap_ids,carpet_heights,
-            torso,down,prism_bottom_depth_m=PRISM_DEPTH_M)[:,0]
+            carpet_heights=carpet_heights,include_downward_depth=True)
         depth=jnp.where(jnp.isfinite(depth)&(depth>=.035)&(depth<=.60),
                         depth,0.)
         _,vbody,_=self._body_packets(data)

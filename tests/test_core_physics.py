@@ -374,6 +374,25 @@ def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
         finite=np.isfinite(expected)
         np.testing.assert_allclose(actual[finite],expected[finite],
                                    rtol=0,atol=5e-6)
+        # Fusing the sixteen ToF beams with the downward flow-height
+        # beam must preserve both sets of ray intersections.
+        down=jnp.broadcast_to(jnp.asarray([[[0.,0.,-1.]]],dtype=jnp.float32),
+                              (worlds,1,3))
+        combined=jnp.concatenate([rays,down],axis=1)
+        fused=np.asarray(jax.jit(lambda p,h,o,ray:ray_surface(
+            jnp,SimpleNamespace(mocap_pos=p),ids,h,o,ray,
+            prism_bottom_depth_m=bottom))(points,heights,origin,combined))
+        original_depth=np.asarray(ray_surface(
+            jnp,SimpleNamespace(mocap_pos=points),ids,heights,
+            origin,down,prism_bottom_depth_m=bottom))
+        assert fused.shape==(worlds,17)
+        np.testing.assert_array_equal(np.isfinite(fused[:,:16]),np.isfinite(actual))
+        np.testing.assert_array_equal(np.isfinite(fused[:,16:]),np.isfinite(original_depth))
+        np.testing.assert_allclose(fused[:,:16][finite],actual[finite],
+                                   rtol=0,atol=5e-6)
+        valid_depth=np.isfinite(original_depth)
+        np.testing.assert_allclose(fused[:,16:][valid_depth],
+                                   original_depth[valid_depth],rtol=0,atol=5e-6)
 
 
 def test_tof_sees_real_15cm_vertical_uphill_wall():
