@@ -79,6 +79,7 @@ Files in `~/emu_gpu_audit/v5046_solver_overnight/`:
 - `results.csv` — one row per attempted arm, physical diagnostics included.
 - `SUMMARY.md` — continuously refreshed ranking, same-seed speed ratios.
 - `preflight.log` — physical preflight output.
+- `overnight_results.zip` — automatically packages all completed results and logs for a single upload after the last arm.
 
 A later rerun of the **same command in the same checkout** skips successful
 arms and resumes failures/missing arms. If source SHA, seed selection, number
