@@ -159,6 +159,7 @@ def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     assert call["solver_iterations"] is None
     assert call["solver_ls_iterations"] is None
     # Frozen panels must use the trainer's experimental physics cap.
+    from dataclasses import replace
     evaluate._world(replace(cfg, solver_iterations=2, solver_ls_iterations=4),
                     seed_offset=0, limits=(.60,-.20,.22,1.50))
     assert call["solver_iterations"] == 2
