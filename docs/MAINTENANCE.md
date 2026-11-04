@@ -5,7 +5,9 @@ training-source commit `9b11bbe596aea7201d29a6beb2d192922f8e2e9a`.
 The previous 232-input public policy remains recoverable at
 `2ec9e9db0a816c658131311129ef89ec7a595a12`.
 Future work is prioritised in [issue #17](https://github.com/mdt733/emu/issues/17);
-the 24-arm v5033 branch is **paused**.
+the 24-arm v5033 branch is **paused**. The v5046 34-arm benchmark
+campaign completed, and its temporary runner is removed on PR #36;
+the 21 actual core pytest cases remain.
 
 ## One owner per concept
 
@@ -58,6 +60,20 @@ Independent exam results NEVER feed back into its teaching.
    validated browser build, explicit owner decision, and a
    tested old-actor rollback source. GitHub Pages deployment
    is intentionally separate from a `main` merge.
+
+## Canonical workspace and outputs
+
+One Git checkout `~/emu/` owns source plus `.venv`, never trained data.
+All new training, checkpoint recovery, physical exams, reports and exports
+belong together under `~/emu-data/runs/<study>-s<seed>/`.
+Short-lived GPU A/B outputs go under `~/emu-data/scratch/`;
+**do not invent extra run, result, artifact or work roots**.
+The `--run-dir` argument in `emu train` and `--root` in `emu report`
+refer to the same run directory. The absolute run path and exact Git
+SHA are printed and stored; a run is never silently migrated between
+roots. No wrapper per experiment unless the CLI genuinely cannot
+express the physical recipe. The one-source setup and backup guide is
+[INSTALL](INSTALL.md).
 
 ## Documentation ownership
 
