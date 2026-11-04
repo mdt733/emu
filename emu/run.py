@@ -33,6 +33,12 @@ def one_run_config(args) -> TrainingConfig:
     cfg = prism_base_config(run_dir=run_dir, steps=args.steps,
                             seed=args.seed, device=args.device, envs=args.envs,
                             resume=None)
+    solver_iterations=getattr(args,"solver_iterations",None)
+    solver_ls_iterations=getattr(args,"solver_ls_iterations",None)
+    for key,value in (("solver_iterations",solver_iterations),
+                      ("solver_ls_iterations",solver_ls_iterations)):
+        if value is not None and (type(value) is not int or not 1<=value<=100):
+            raise ValueError(f"--{key.replace('_','-')} requires integer 1..100")
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
@@ -130,6 +136,8 @@ def one_run_config(args) -> TrainingConfig:
             "--terrain-actor --unified-capabilities --terrain-carpet "
             "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   solver_iterations=solver_iterations,
+                   solver_ls_iterations=solver_ls_iterations,
                    observation_schema=OBS_SCHEMA_TERRAIN,
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
