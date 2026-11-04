@@ -126,6 +126,9 @@ class TrainingConfig:
     run_dir: str = ""
     resume: str = ""
     observation_schema: str = OBS_SCHEMA_LEGACY  # opt in to 232 or G5 360 actor
+    # Source-pinned experimental physics: None keeps robot.xml defaults.
+    solver_iterations: int | None = None
+    solver_ls_iterations: int | None = None
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only an explicitly versioned experiment changes them. Rollout length,
