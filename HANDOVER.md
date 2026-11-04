@@ -59,8 +59,7 @@ using the reference solver, and **119,662** with experimental 2/4.
 The one 20.054M continuous 2/4 cold-start reached ~**0.094m/s**
 achieved mean forward speed, final training rollout fall 2.1%,
 and +0.530 held-out broad score, but **zero supported signed lips**
-in its independent procedures. [Full measured results and caveats]
-(docs/V5046_OVERNIGHT_RESULTS_20261105.md).
+in its independent procedures. [Full measured results and caveats](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
 Solver 2/4 is still a **research physics choice**: foot penetration,
 virtual torso/leg strikes and a measured CUDA packed/full reset
@@ -91,8 +90,7 @@ Record policy/checkpoint/source hashes and prove the browser can
 replay the exact 360-input sensor contract. The owner must separately
 approve a new public policy and Pages deployment.
 
-[Complete release gates and current evidence intake]
-(docs/RELEASE_READINESS.md) ·
+[Complete release gates and current evidence intake](docs/RELEASE_READINESS.md) ·
 [260M independent physical baseline](docs/PHYSICAL_BASELINE_260M.md) ·
 [Old champion release card](docs/V5032_PINNACLE_RELEASE.md) ·
 [Open gait/step hypotheses](https://github.com/mdt733/emu/issues/17).
