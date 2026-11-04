@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only static import inventory for EMU's five-stage core skeleton.
+"""Read-only static import and documentation-link inventory for EMU's core.
 
 This is an evidence aid, NOT a delete-unused-code oracle. Dynamic imports,
 CLI dispatch, JAX tracing and browser/Node imports require manual review.
@@ -10,9 +10,12 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
+from urllib.parse import unquote
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 
 # Keep this short on purpose: one explicit owner for each Python runtime
 # module. The matching checklist is in docs/CORE_SKELETON.md.
@@ -172,6 +175,7 @@ def inventory(root: Path = REPO_ROOT) -> dict:
         "stage_reachable": stage_reachability,
         "static_unlinked_manual_review_only": review_only,
         "missing_emu_module_imports": broken_imports,
+        "broken_markdown_links": broken_markdown_links(root),
         "owned_backend_groups": {
             group: list(names) for group, names in OWNED_BACKEND.items()
         },
@@ -182,6 +186,28 @@ def inventory(root: Path = REPO_ROOT) -> dict:
             "are NOT proof of removable code."
         ),
     }
+
+
+def broken_markdown_links(root: Path = REPO_ROOT) -> list[tuple[str,str]]:
+    errors=[]
+    for doc in sorted(root.rglob("*.md")):
+        if ".venv" in doc.parts or "node_modules" in doc.parts or ".git" in doc.parts:
+            continue
+        source=doc.read_text(encoding="utf-8")
+        for match in MARKDOWN_LINK.finditer(source):
+            raw=match.group(1).strip().strip("<>")
+            if not raw or raw.startswith("#") or re.match(
+                    r"^[A-Za-z][\w+.-]*:",raw):
+                continue
+            target=unquote(raw.split("#",1)[0].split("?",1)[0])
+            if not target:
+                continue
+            file=(doc.parent/target).resolve()
+            if not file.is_file():
+                errors.append((
+                    doc.relative_to(root).as_posix(),raw))
+    return errors
+
 
 
 def markdown(data: dict) -> str:
@@ -208,6 +234,8 @@ def markdown(data: dict) -> str:
                 json.dumps(data["ownership_errors"], sort_keys=True),
                 "", "## Deleted-module imports (must be empty)", "",
                 json.dumps(data["missing_emu_module_imports"], sort_keys=True),
+                "", "## Broken local Markdown links (must be empty)", "",
+                json.dumps(data["broken_markdown_links"], sort_keys=True),
                 "", "## Manual-review candidates only", "",
                 ", ".join(data["static_unlinked_manual_review_only"]) or "None.",
                 "", "**Caveat:** " + data["limitations"]])
@@ -222,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(data, sort_keys=True, indent=2) if args.json
           else markdown(data), end="")
     return int(bool(data["missing_emu_module_imports"]) or
+               bool(data["broken_markdown_links"]) or
                any(data["ownership_errors"].values()))
 
 

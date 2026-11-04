@@ -160,3 +160,9 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - No network, PPO, reward, GPU terrain or released-champion behaviour was
   removed. The latest head still requires CI and same-SHA GPU/physics
   acceptance; file-count savings are not a performance claim.
+
+- The separate `check_current_docs.py` has been consolidated into the
+  core static dependency audit. `scripts/check.sh` and GitHub CI still
+  fail on broken local Markdown links, with one fewer script to maintain.
+  Live inventory: **90 tracked files**; relative to pinned v5044,
+  **89 retired paths and 13 added paths**.

@@ -35,7 +35,6 @@ jobs:
         run: |
           python -m compileall -q emu scripts tests
           python scripts/verify_showcase_release.py
-          python scripts/check_current_docs.py
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
       - name: 18 essential Python contracts (no historical fixture suite)
         run: |
@@ -54,7 +53,7 @@ jobs:
       - name: Locked browser dependencies
         working-directory: emu/viewer_src
         run: npm ci
-      - name: Six essential browser contracts
+      - name: Seven essential browser contracts
         working-directory: emu/viewer_src
         run: npm test
       - name: Build MuJoCo/WASM browser viewer
