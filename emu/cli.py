@@ -80,6 +80,12 @@ def main(argv=None) -> int:
                    help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
     q.add_argument('--stillness-birth-frac',type=float,default=0.,
                    help='v5047 research: 0..0.25 true 0-vx/vy/yaw command births, with safe zero-command posture credit')
+    q.add_argument('--science-step-promotion-mm',type=float,default=0.,
+                   help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
+    q.add_argument('--science-step-retreat-mm',type=float,default=0.,
+                   help='v5047 frontier A/B: fixed step retreat mm, 0 uses 0.82x rule')
+    q.add_argument('--science-step-min-attempts',type=int,default=4,
+                   help='v5047 frontier A/B: actual signed near/easy attempts in 4..32')
     q.add_argument('--retention-share',type=float,default=0.0,
                    help='0..0.4 of focused births reserved for dynamic old-skill rehearsal')
     q.add_argument('--terrain-lesson',choices=('mixed','coherent','coherent-direct','coherent-careful'),default='mixed',
