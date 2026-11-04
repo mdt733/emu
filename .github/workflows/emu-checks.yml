@@ -36,6 +36,10 @@ jobs:
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
           emu doctor --no-require-gpu --no-mjx-smoke
           python scripts/run_prism_140m.py plan > /dev/null
+          python scripts/v5047_pinnacle_tournament.py plan > /tmp/v5047-plan.txt
+          grep -q '1,200,000,000 world-steps' /tmp/v5047-plan.txt
+          grep -q 'zero_balance' /tmp/v5047-plan.txt
+          grep -q 'solver4_control' /tmp/v5047-plan.txt
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
