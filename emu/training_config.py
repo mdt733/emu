@@ -178,6 +178,8 @@ class TrainingConfig:
     retention_share: float = 0.0  # dynamic core rehearsal, NOT static survival
     terrain_lesson: str = 'mixed'  # coherent STEP/SLOPE tasks are an isolated treatment
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
+    # v5047 one isolated slow-balance teaching hypothesis; 0 keeps old sampler.
+    stillness_birth_frac: float = 0.0
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
