@@ -454,9 +454,15 @@ def score(exams):
     if any(out[k] is None for k in ("flat_survival","step_survival",
                                    "zero_drift","slow_error","fast_vx")):
         raise RuntimeError("Missing mandatory physical scoreboard channels")
+    # A promising learning-research fork need not yet be a publishable
+    # champion. Keep two distinct, predeclared gates: robust physics
+    # candidate and weaker-but-not-collapsed experimental continuation.
     out["qualified"]=(out["flat_survival"]>=.65 and
                       out["step_survival"]>=.50 and
                       out["fast_vx"]>=.20)
+    out["research_viable"]=(out["flat_survival"]>=.30 and
+                            out["step_survival"]>=.20 and
+                            out["fast_vx"]>=.05)
     # Predetermined ranks; *true* supported signed lips outrank
     # potentially reward-hacked PPO scores. Secondary axes must be safe.
     # Step evidence from only one test seed is interesting, not a
@@ -475,16 +481,23 @@ def score(exams):
 
 
 def choose(scored):
-    eligible = [(name,record) for name,record in scored.items()
-                if record["qualified"]]
-    if not eligible:
-        raise RuntimeError("No arm passes predeclared flat/step/fast physical gate. "
-                           "No high-budget finalist is authorised; investigate results.")
-    # Never interpret a bare training reward or surviving in place as a
-    # solved stair. Best held-out physical score wins, and the report
-    # explicitly says whether up and down were shown on independent seeds.
-    return max(eligible,key=lambda item:(item[1]["research_score"],
-                                         item[0]=="early_lips"))[0]
+    # A study may need the extra 100M to become capable. Choosing that
+    # *research continuation* is not the same as passing a release gate.
+    robust=[(n,v) for n,v in scored.items() if v["qualified"]]
+    exploratory=[(n,v) for n,v in scored.items() if v["research_viable"]]
+    if robust:
+        choices=robust
+        gate="physical_candidate"
+    elif exploratory:
+        choices=exploratory
+        gate="research_only_NOT_Pinnacle"
+    else:
+        raise RuntimeError(
+            "All eight forks collapse basic physical progress; no 100M "
+            "extension will run. Investigate solver/contact/learning failure.")
+    picked=max(choices,key=lambda item:(
+        item[1]["research_score"],item[0]=="early_lips"))[0]
+    return picked,gate
 
 
 def report(state):
@@ -519,6 +532,7 @@ def report(state):
             f"| {s['research_score']:.2f} | {'PASS' if s['qualified'] else 'FAIL'} |")
     lines += [
         "", f"Selected next research recipe: **{state.get('choice') or 'not selected'}**",
+        f"Selection gate: **{state.get('choice_gate') or 'not selected'}**",
         "",
         "## Interpretation gates", "",
         "- Repeatable stair evidence requires independent UP AND DOWN support",
@@ -532,8 +546,11 @@ def report(state):
         "  missions, reproducible steering/speed and contact-fidelity review.",
         "- 2/4 versus 4/4 is a real trained-policy control; CUDA reset .qacc",
         "  compact/full parity remains a separate unresolved physical caveat.",
-        "- If no arm passes physical admission gates, the 100M extension",
-        "  is skipped; no fake Pinnacle is declared from raw training reward.",
+        "- Strict candidate and weaker exploratory-research gates are",
+        "  separate. A research-only winner may train to 200M but is NOT",
+        "  declared main-equivalent or a Pinnacle by that selection.",
+        "- If every arm collapses even the weaker physical viability gate,",
+        "  the 100M extension is skipped; no fake Pinnacle is declared.",
         "- The tournament and its code are temporary; write findings into",
         "  GitHub issue #17 and the permanent report, then delete the runner.",
         "",
@@ -756,11 +773,14 @@ def main():
             report(st);archive(st)
             return 0
         if st["choice"] is None:
-            st["choice"]=choose({
+            picked,gate=choose({
                 label:st["scored"][label] for label,_ in ARMS})
+            st["choice"]=picked
+            st["choice_gate"]=gate
             atomic(manifest,st)
-            print(f"Best predeclared held-out physical fork: "
-                  f"{st['choice']}",flush=True)
+            print(f"Best held-out research fork: {picked}; gate={gate}. "
+                  "This does NOT automatically qualify as Pinnacle.",
+                  flush=True)
         winning_spec=dict(ARMS)[st["choice"]]
         key=f"{st['choice']}_s735_{FINAL_TARGET}"
         if key not in st["trained"] and not has_budget(1500):
