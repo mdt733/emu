@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, experiment/v5046-75cm-four-tile-midpoint, maintenance/v5046-prune-sweep-and-promotion-gates, experiment/v5047-pinnacle-stairs-gaits, experiment/v5048-shared-parent-pinnacle]
   push:
-    branches: [main, experiment/v5046-75cm-four-tile-midpoint]
+    branches: [main, experiment/v5046-75cm-four-tile-midpoint, release/v5049-main-promotion-prep]
   workflow_dispatch:
 
 permissions:
@@ -35,12 +35,13 @@ jobs:
           python scripts/verify_showcase_release.py
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
           emu doctor --no-require-gpu --no-mjx-smoke
-          python scripts/run_prism_140m.py plan > /dev/null
-          python scripts/v5048_shared_parent_tournament.py plan > /tmp/v5048-plan.txt
-          grep -q '550,000,000 unique world-steps' /tmp/v5048-plan.txt
-          grep -q 'ACTUAL --plan PASS: foundation' /tmp/v5048-plan.txt
-          grep -q 'ACTUAL --plan PASS: zero_balance' /tmp/v5048-plan.txt
-          grep -q 'ACTUAL --plan PASS: solver4_control' /tmp/v5048-plan.txt
+          python -m emu.cli train --help > /dev/null
+          python -m emu.cli prism-exam --help > /dev/null
+          # Experiment wrappers are intentionally retired in the future
+          # main tree. Test the stable public CLI and physical contracts.
+          test ! -e scripts/run_prism_140m.py
+          test ! -e scripts/run_v5046_20m.py
+          test ! -e scripts/v5048_shared_parent_tournament.py
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
