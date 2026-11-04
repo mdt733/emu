@@ -949,7 +949,8 @@ class EmuMJXEnv(TaskSampler):
                  terrain_carpet_prisms: bool = False,
                  academy_height_cap_m: float = 0.150,
                  academy_course_episode_frames: int = 1200,
-                 reset_forward_capacity: int = 128):
+                 reset_forward_capacity: int = 128,
+                 feet_only_contacts: bool = True):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1019,6 +1020,9 @@ class EmuMJXEnv(TaskSampler):
         if type(reset_forward_capacity) is not int or reset_forward_capacity < 0:
             raise ValueError('reset_forward_capacity must be a non-negative int')
         self.reset_forward_capacity = min(reset_forward_capacity, self.num_envs)
+        if type(feet_only_contacts) is not bool:
+            raise ValueError('feet_only_contacts must be bool')
+        self.feet_only_contacts = feet_only_contacts
         self.unified_capability_focus = bool(unified_capability_focus)
         self.focus_id = jnp.asarray(focus_indices(self.num_envs))
         self.max_episode_steps = int(max_episode_steps)
@@ -1054,7 +1058,7 @@ class EmuMJXEnv(TaskSampler):
         self.mj_model=mujoco.MjModel.from_xml_string(
             add_carpet_geoms(ET.tostring(
                 ET.parse(self.robot_xml).getroot(),encoding='unicode'),
-                prisms=True))
+                prisms=True,feet_only_contacts=self.feet_only_contacts))
         self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
             mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
             for n in CARPET_BODY_NAMES)
@@ -1079,6 +1083,22 @@ class EmuMJXEnv(TaskSampler):
                for g in self.carpet_prism_geom_ids):
             raise RuntimeError('Prisms must be physical bit-4 colliders')
         validate_prism_only_geoms(self.mujoco, self.mj_model)
+        # Only two 18mm ball feet may produce real terrain contact in
+        # the reduced solver. The torso still has its physical mass/inertia,
+        # but non-foot ground strikes are diagnosed geometrically below.
+        torso_geom=mujoco.mj_name2id(
+            self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
+        self.torso_geom=torso_geom
+        self.torso_half_extents=jnp.asarray(
+            self.mj_model.geom_size[torso_geom,:3],dtype=jnp.float32)
+        self.shin_lower_bodies=jnp.asarray([
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)
+            for n in ('r_shin_lower','l_shin_lower')],dtype=jnp.int32)
+        if self.feet_only_contacts:
+            if any(self.mj_model.geom_contype[g] or
+                   self.mj_model.geom_conaffinity[g]
+                   for g in (torso_geom,self.ids['floor_geom'])):
+                raise RuntimeError('Only the feet may collide with the carpet')
         assert self.mj_model.nhfield==CARPET_TILE_COUNT,self.mj_model.nhfield
         assert list(self.mj_model.hfield_nrow)==[2]*CARPET_TILE_COUNT
         assert list(self.mj_model.hfield_ncol)==[2]*CARPET_TILE_COUNT
@@ -2883,11 +2903,51 @@ class EmuMJXEnv(TaskSampler):
         pitch_err = body_pitch - task[:, T.pitch]
         roll_err = body_roll - task[:, T.roll]
         foot_pos = data.xpos[:, self.foot_bodies, :]
-        # Height means clearance above the actual contact plane, not world Z.
-        # Otherwise a robot walking uphill appears higher and its grounded
-        # uphill foot can be incorrectly rewarded as a swing foot.
-        height = self._support_signed_heights(data,data.xpos[:,self.torso_id:self.torso_id+1,:],carpet_heights)[:,0]
-        foot_ground_distance = self._support_signed_heights(data,foot_pos,carpet_heights)
+        # Height means clearance above the actual terrain, not world Z.
+        # Batch the repeated terrain queries. For the new foot-only solver,
+        # additionally sample the actual lowest oriented torso-box corner,
+        # knees, thigh rods and two shin sections. This is a *failure
+        # sentinel*, never a fake load-bearing contact force.
+        bad_body_pos=data.xpos[:,self.bad_bodies,:]
+        if self.feet_only_contacts:
+            mat=data.geom_xmat[:,self.torso_geom,:].reshape(
+                (self.num_envs,3,3))
+            lowest_local=-jnp.sign(mat[:,2,:])*self.torso_half_extents
+            torso_low=data.geom_xpos[:,self.torso_geom,:]+jnp.einsum(
+                'nij,nj->ni',mat,lowest_local)
+            knees=bad_body_pos[:,3:5,:]
+            shin_middle=data.xpos[:,self.shin_lower_bodies,:]
+            thigh_mid=.5*(bad_body_pos[:,1:3,:]+knees)
+            shin_low_mid=.5*(shin_middle+foot_pos)
+            extra=jnp.concatenate((
+                torso_low[:,None,:],thigh_mid,shin_middle,shin_low_mid),
+                axis=1)
+            # One 14-point query is cheaper than repeated 1/2/5/7-point
+            # queries, using exactly the live four-triangle-prism surfaces.
+            signed=self._support_signed_heights(
+                data,jnp.concatenate((bad_body_pos,foot_pos,extra),axis=1),
+                carpet_heights)
+            bad_z=signed[:,:5]
+            foot_ground_distance=signed[:,5:7]
+            virtual_z=signed[:,7:]
+            # The non-contacting leg rods have an 8mm physical radius.
+            # Leave an 18mm deep-penetration margin for fast stepping and
+            # steep risers before declaring an unrecoverable hardware strike.
+            leg_z=jnp.concatenate(
+                (bad_z[:,3:5],virtual_z[:,1:]),axis=1)-.008
+            virtual_clearance=jnp.minimum(
+                virtual_z[:,0],jnp.min(leg_z,axis=1))
+            virtual_strike=virtual_clearance<-.005
+            virtual_hard=virtual_clearance<-.020
+        else:
+            bad_z=self._support_signed_heights(
+                data,bad_body_pos,carpet_heights)
+            foot_ground_distance=self._support_signed_heights(
+                data,foot_pos,carpet_heights)
+            virtual_clearance=jnp.ones((self.num_envs,),dtype=jnp.float32)
+            virtual_strike=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+            virtual_hard=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
+        height=bad_z[:,0]
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
@@ -2914,7 +2974,6 @@ class EmuMJXEnv(TaskSampler):
         # ground; it is NOT a verified load-bearing contact impulse.
         foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
-        bad_z = self._support_signed_heights(data,data.xpos[:,self.bad_bodies,:],carpet_heights)
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
         # only actual height/tilt/rate collapse may terminate. Body-low
@@ -2923,6 +2982,11 @@ class EmuMJXEnv(TaskSampler):
         body_low_soft = jnp.any(bad_z[:, 1:] < SOFT_BODY_LOW_Z, axis=1).astype(jnp.float32)
         low_height_soft = (height < 0.130).astype(jnp.float32)
         bad_contact = jnp.maximum(BODY_LOW_REWARD_WEIGHT * body_low_soft, low_height_soft)
+        if self.feet_only_contacts:
+            # Penalise real geometric intrusion into the solid even when
+            # the knee/thigh/torso is not permitted to produce an MJX impulse.
+            bad_contact=jnp.maximum(
+                bad_contact,jnp.where(virtual_strike,.80,0.))
         swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
@@ -2955,6 +3019,8 @@ class EmuMJXEnv(TaskSampler):
         # Do not terminate on the body-low proxy in fast seed training.
         terminal = jnp.logical_or(terminal, fall_roll_rate)
         terminal = jnp.logical_or(terminal, fall_pitch_rate)
+        if self.feet_only_contacts:
+            terminal=jnp.logical_or(terminal,virtual_hard)
         s_phase = jnp.sin(phase)
         r_expected = jnp.maximum(0.0, s_phase)
         l_expected = jnp.maximum(0.0, -s_phase)
@@ -2973,6 +3039,9 @@ class EmuMJXEnv(TaskSampler):
             'fall_tilt': fall_tilt.astype(jnp.float32),
             'fall_roll_rate': fall_roll_rate.astype(jnp.float32),
             'fall_pitch_rate': fall_pitch_rate.astype(jnp.float32),
+            'fall_virtual_contact':virtual_hard.astype(jnp.float32),
+            'virtual_nonfoot_strike':virtual_strike.astype(jnp.float32),
+            'virtual_nonfoot_clearance_m':virtual_clearance,
             'regime_steady': (task[:, T.regime] < 0.5).astype(jnp.float32),
             'regime_transition': jnp.logical_and(task[:, T.regime] > 0.5, task[:, T.regime] < 1.5).astype(jnp.float32),
             'regime_resilience': (task[:, T.regime] > 1.5).astype(jnp.float32),
