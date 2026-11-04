@@ -345,3 +345,67 @@ python scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 \
 Only use the steady-state timed updates after the compile/warm-up call;
 a nominal solver speed win that breaks real contacts or increases falls is
 not an improvement. Benchmark-only temporary XML is deleted at script exit.
+
+---
+
+## Owner GPU result: foot-only, four-iteration solver (4 Nov 2026)
+
+Source: owner console, v5046 PR #35 GPU smoke with
+`--device cuda --worlds 2048 --frames 2 --ppo --full-update
+--benchmark-updates 3 --prisms --solver-iterations 4 --solver-ls-iterations 4`.
+Commit code lineage before this documentation edit: `5da003c`.
+RTX 4060 Ti 8GB, shared WSL virtual environment.
+
+| Observed metric | Value |
+|---|---:|
+| First update including compilation | 77.604 s |
+| Two post-compile updates, mean | **0.682 s / 65,536 world-steps** |
+| Synchronized steady throughput | **96,150.4 world-steps/s** |
+| Feet-only padded contacts per world | 17 |
+| Feet-only constraint rows per world | 82 |
+| Peak bytes in use | 1,088,438,272 |
+| Episode deaths per 20 ms control frame | mean 65.62, p95 130, max 147 |
+| Compact reset capacity | 128 worlds |
+| Overflow fallback frames | 2 / 32 sampled frames |
+| Contact/recycle/reset/small physical and full PPO gates | PASS |
+
+**Interpretation:** This is a very promising *measured* throughput result.
+It is NOT a measured gain from changing solver iterations alone. The
+earlier 18-prism 7,362 steps/s baseline used a different geometry/contact
+and reset topology. Next run the identical command **without** solver flags
+on the same code and GPU, then independently compare compact reset
+capacity 128 versus 192 (sample p95 exceeds 128, causing full-batch
+fallback on 2/32 frames). A speed win is provisional until real step
+contact penetration, solver accuracy and longer frozen-policy exams pass.
+Do not claim 96k steps/s for ordinary training without these checks.
+
+### Four-hfield collision alternative (proposed, not implemented)
+
+The four 75cm 2×2 per-world `HFIELD` assets ALREADY exist as
+noncontact source data, providing exactly the same eight top-surface
+triangles currently represented by eight custom convex prisms. The
+runtime already passes batched `hfield_data` into the MJX model. A
+**separate experimental collider mode** could make these four existing
+hfield geoms physically active, exclude the prism geoms entirely, and
+remove the per-step `PrismMeshBuilder.deform` path.
+
+A continuous single hfield cannot represent an abrupt step without a
+steep finite slope or duplicated horizontal coordinates. But **four
+separate solid hfields can make literal boundary sidewalls**, including
+signed risers, with no artificial 85-degree top ramp. The fourth hfield
+asset dimension (base thickness) must be sized to accommodate the largest
+allowed up/down offsets (current source hfields use 0.14m, while prism
+solids extend 0.65m below their tops). Confirm that MJX-JAX permits
+independently located / dynamically updated world-attached hfields with
+exact collision on this installed MuJoCo version; do not infer from the
+fact that the current noncontact hfield assets compile.
+
+**High-risk parity cases:** 0cm seam (no wedge / phantom edge),
+3mm-4cm and 15cm signed risers in both axes, 40cm high lip,
+30cm ToF preview, sidewall blocking, two-feet cross-tile support, oblique
+corner and protected tile recycling. For A/B, keep exactly the same
+four 75cm footprints and per-world heights, solver iteration cap
+4/4, 2048 worlds, 32 frames, 4 PPO epochs, 8 minibatches and
+sequential synchronized steady timings. Compare padded contact and
+constraint counts as well as FPS. Do not silently swap the existing
+prism physics/checkpoint lineage while profiling.
