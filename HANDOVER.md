@@ -218,3 +218,18 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - Added numerical parity checks against independent 16+1 ray
   calculations. Source-locked running 45c foundation remains
   unchanged; optimized source must pass CPU CI and GPU A/B.
+
+## 4 November — optional GPU physics-vs-gradients profiling
+
+- Current full 8.29-second `train_update` contains both 32 MJX
+  frames and four PPO gradient epochs. Claims that gradients are
+  negligible remain hypotheses until measured.
+- `scripts/smoke_gpu_carpet.py --profile-rollout` now measures
+  original full-PPO throughput, followed by separately compiled
+  exact 32-frame rollout; 1 cold + 2 synchronized steady samples.
+  Independent JIT graph means ratio is diagnostic, not additive.
+- No effect on actual training, checkpoints or actor.
+  Do not run concurrently with user's 45c source-pinned training.
+- Current XML already has noncontact thigh/shin rods and disabled
+  plane; true prism contact remains permitted for torso and feet.
+  Lowering colliders or contact caps must be separately gated.

@@ -31,6 +31,9 @@ def main():
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
                         "after the first compilation; no checkpoint")
+    p.add_argument("--profile-rollout",action="store_true",
+                   help="independently time the exact 32-frame training rollout "
+                        "without PPO gradients; requires >=3 full updates")
     a=p.parse_args()
     if not a.prisms:
         p.error("The active EMU simulator is prism-only; pass --prisms")
@@ -40,6 +43,8 @@ def main():
     if (not 1<=a.benchmark_updates<=8 or
             (a.benchmark_updates>1 and not a.full_update)):
         p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
+    if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
+        p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if a.device=="gpu" else a.device)
@@ -241,6 +246,43 @@ def main():
                   f"mean={steady_seconds/(a.benchmark_updates-1):.3f}s/update; "
                   f"throughput={steady_fps:,.0f} world-steps/s "
                   "(synchronized; no checkpoint)",flush=True)
+        if a.profile_rollout:
+            # Separate JIT: same 32-frame rollout with actor inference,
+            # real prism MJX physics, sensors, reward and next-state value
+            # bootstrap, but NO GAE/optimizer epochs. Materializing all
+            # output leaves is deliberate: timing only nxt.obs could
+            # otherwise dead-code-eliminate reward/sensor diagnostics.
+            # The JIT boundary prevents an exact additive split:
+            # report this as independent evidence, not "physics = X%".
+            rollout_state=last
+            rollout_times=[]
+            for i in range(3):
+                t_rollout=time.perf_counter()
+                rollout_state,traj,next_values=trainer["benchmark_rollout"](
+                    rollout_state,packet,jnp.zeros((360,),dtype=jnp.float32),
+                    jnp.ones((360,),dtype=jnp.float32))
+                jax.block_until_ready((rollout_state,traj,next_values))
+                seconds=time.perf_counter()-t_rollout
+                if i==0:
+                    print("separate rollout-only first use "
+                          f"(includes JIT)={seconds:.2f}s",flush=True)
+                else:
+                    rollout_times.append(seconds)
+            rollout_mean=sum(rollout_times)/len(rollout_times)
+            full_mean=sum(steady_update_times)/len(steady_update_times)
+            print("ROLLOUT-ONLY PROFILE: "
+                  f"policy+MJX+sensor+reward+bootstrap={rollout_mean:.3f}s "
+                  f"for {first_update_world_steps:,} steps; "
+                  f"full_PPO={full_mean:.3f}s/update; "
+                  f"rollout/full={rollout_mean/full_mean:.1%} "
+                  "(separate JIT, not an additive decomposition)",flush=True)
+            print(json.dumps(dict(stage="rollout_only_profile",
+                full_update_seconds_mean=round(full_mean,4),
+                standalone_rollout_seconds_mean=round(rollout_mean,4),
+                standalone_rollout_world_steps_per_second=round(
+                    first_update_world_steps/rollout_mean,1),
+                standalone_rollout_over_full_ratio=round(
+                    rollout_mean/full_mean,4))),flush=True)
         if a.full_update:
             dev=jax.devices("gpu")[0]
             stats=dev.memory_stats() or {}

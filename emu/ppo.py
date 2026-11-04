@@ -901,6 +901,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     return {
         'make_initial_state': make_initial_state,
         'train_update': train_update,
+        # Only the opt-in full-GPU diagnostic compiles this entry point.
+        # Exact actor/action/physics/sensors/telemetry and bootstrap
+        # from the training rollout; no policy-gradient epochs.
+        'benchmark_rollout': jax.jit(rollout_once),
         'evaluate_summary': evaluate_summary,
         'evaluate_trace': evaluate_trace,
         'obs_dim': obs_dim,

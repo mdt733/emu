@@ -632,3 +632,30 @@ remain unchanged. Extend the fixed old-source ray parity test to
 compare a JIT-compiled fused 17-ray call against independent 16+1
 calls at two prism-depth settings. This is a **GPU full-PPO hypothesis**
 requiring the owner's own 2048-world benchmark before any speed claim.
+
+### 4 November: separate GPU rollout timing from PPO gradients
+
+The owner's 9.83M-step source-pinned profile measured 149
+full PPO updates totaling 1234.81s, or 8.29s per 65,536
+world-steps. This identifies the compiled `train_update`
+call as the dominant measured cost, **not yet** the share of
+physics versus four-epoch PPO gradients inside that call.
+
+`scripts/smoke_gpu_carpet.py --profile-rollout` is an optional
+follow-on after the existing CUDA `--full-update --ppo
+--benchmark-updates 3` benchmark. It compiles and times
+the **exact training rollout**: 32 frames of policy inference,
+MJX physics, 360-input sensors, reward, telemetry and
+value bootstrapping, with no GAE/gradient epochs. It
+synchronizes every returned on-device tree leaf so the JIT
+cannot omit supposedly unobserved sensor/reward work.
+The first rollout call is compilation and excluded from
+the two steady measured calls.
+
+The independent JIT boundary forces materialization of
+rollout arrays that might remain fused inside `train_update`.
+Treat the ratio as a *diagnostic indicator*, not a mathematically
+additive physics/gradient split. No normal-training path,
+PPO algorithm, checkpoint or physical model is changed.
+Run this source after existing GPU training finishes, and
+compare separately pinned commits.
