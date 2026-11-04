@@ -113,6 +113,8 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         # physics, even when its requested terrain exposure is zero.
         unified_capability_focus=True, terrain_carpet=True,
         terrain_carpet_prisms=True,
+        solver_iterations=config.solver_iterations,
+        solver_ls_iterations=config.solver_ls_iterations,
         carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
