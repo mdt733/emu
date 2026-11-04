@@ -2,7 +2,7 @@ name: EMU source and browser checks
 
 on:
   pull_request:
-    branches: [main, experiment/v5046-75cm-four-tile-midpoint, maintenance/v5046-prune-sweep-and-promotion-gates, experiment/v5047-pinnacle-stairs-gaits]
+    branches: [main, experiment/v5046-75cm-four-tile-midpoint, maintenance/v5046-prune-sweep-and-promotion-gates, experiment/v5047-pinnacle-stairs-gaits, experiment/v5048-shared-parent-pinnacle]
   push:
     branches: [main, experiment/v5046-75cm-four-tile-midpoint]
   workflow_dispatch:
@@ -36,10 +36,11 @@ jobs:
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
           emu doctor --no-require-gpu --no-mjx-smoke
           python scripts/run_prism_140m.py plan > /dev/null
-          python scripts/v5047_pinnacle_tournament.py plan > /tmp/v5047-plan.txt
-          grep -q '1,200,000,000 world-steps' /tmp/v5047-plan.txt
-          grep -q 'zero_balance' /tmp/v5047-plan.txt
-          grep -q 'solver4_control' /tmp/v5047-plan.txt
+          python scripts/v5048_shared_parent_tournament.py plan > /tmp/v5048-plan.txt
+          grep -q '550,000,000 unique world-steps' /tmp/v5048-plan.txt
+          grep -q 'ACTUAL --plan PASS: foundation' /tmp/v5048-plan.txt
+          grep -q 'ACTUAL --plan PASS: zero_balance' /tmp/v5048-plan.txt
+          grep -q 'ACTUAL --plan PASS: solver4_control' /tmp/v5048-plan.txt
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
