@@ -100,7 +100,7 @@ the measurements when retiring the experiment.
 `bash scripts/check.sh` is quick by default, including the source
 ownership inventory and current-document links; `--full` runs the
 maintained Python and browser contracts. The complete
-[tree-to-skeleton checklist](CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)
+[live ownership map](CORE_SKELETON.md#owners-of-the-25-live-python-modules)
 records current owners, retired files and outstanding physical gates.
 Code promotion to `main` is separate from selecting a replacement
 inference actor. Both require explicit review; an ordinary `main`
