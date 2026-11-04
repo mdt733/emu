@@ -1185,7 +1185,7 @@ def posture_report(root: Path) -> int:
     files = ([root] if root.is_file() and root.name == 'metrics.csv' else
              sorted(root.rglob('metrics.csv')) if root.is_dir() else [])
     if not files:
-        print(f'No metrics.csv under {root}. Try ~/robot_lab/emu_runs or --root /path/to/run.')
+        print(f'No metrics.csv under {root}. Try ~/emu-data/runs or --root /path/to/run.')
         return 1
     found = 0
     for file in files:
@@ -1218,7 +1218,7 @@ def posture_report(root: Path) -> int:
 
 def posture_main(argv=None):
     p = argparse.ArgumentParser(description='Read-only posture-height review for old EMU training runs')
-    p.add_argument('--root', type=Path, default=Path.home() / 'robot_lab' / 'emu_runs')
+    p.add_argument('--root', type=Path, default=Path.home() / 'emu-data' / 'runs')
     return posture_report(p.parse_args(argv).root)
 
 
