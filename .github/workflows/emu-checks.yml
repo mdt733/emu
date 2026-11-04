@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, experiment/v5046-75cm-four-tile-midpoint]
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
           emu doctor --no-require-gpu --no-mjx-smoke
           python scripts/run_prism_140m.py plan > /dev/null
           python -m pytest -q tests
-      - name: Actual 18-prism CPU MJX contacts, sidewalls, mesh and robot
+      - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
 
   browser:
