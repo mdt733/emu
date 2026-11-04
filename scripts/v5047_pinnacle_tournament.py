@@ -516,6 +516,15 @@ def main():
         p.error("Worlds=16 is source-pinned: change requires a fresh source/plan")
     source_sha=git("rev-parse","HEAD")
     branch=git("branch","--show-current")
+    # The source-linked CLI plan is only meaningful on the actual v5047
+    # branch. A single-branch WSL clone can contain a manually fetched
+    # script yet remain checked out at v5046; fail BEFORE printing PASS.
+    if args.mode in ("plan","run") and branch != EXPECTED_BRANCH:
+        p.error(f"{args.mode} requires {EXPECTED_BRANCH}; currently "
+                f"{branch or 'detached'} at {source_sha[:12]}. "
+                "A --single-branch clone first needs: git remote "
+                "set-branches --add origin "+EXPECTED_BRANCH+
+                " ; git fetch origin ; git switch --track origin/"+EXPECTED_BRANCH)
     plan_identity=hashlib.sha256(json.dumps(
         {"source":source_sha,"arms":ARMS,"exams":EXAMS,
          "steps":[EXPLORER_STEPS,FINAL_STEPS,REPLICA_STEPS],
@@ -554,8 +563,6 @@ def main():
     if args.mode=="plan":
         return 0
     if args.mode=="run":
-        if branch != EXPECTED_BRANCH:
-            p.error(f"Must run from {EXPECTED_BRANCH}, not {branch or 'detached'}")
         if git("status","--porcelain","--untracked-files=no"):
             p.error("Tracked Git source dirty: preserve immutable training source")
         if ROOT != Path.home()/"emu":
