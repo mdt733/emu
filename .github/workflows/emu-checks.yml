@@ -32,6 +32,8 @@ jobs:
       - name: Syntax, public actor and CLI contract
         run: |
           python -m compileall -q emu scripts tests
+          python scripts/overnight_solver_campaign.py --preset quick --dry-run > /tmp/v5046-overnight-plan.txt
+          grep -q 'solver4_ls4' /tmp/v5046-overnight-plan.txt
           python scripts/verify_showcase_release.py
           python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
           emu doctor --no-require-gpu --no-mjx-smoke
