@@ -68,14 +68,21 @@ def test_one_cli_preserves_config_through_resume_verify_and_plan(tmp_path):
     from emu.cli import main
     base=training_flags(tmp_path/"study")
     seen=[]
-    with patch("emu.run.train_one",side_effect=lambda ns:(seen.append(one_run_config(ns)),0)[1]):
+    def capture(ns):
+        # Resume is an operator action, not a permanent physical
+        # TrainingConfig field. Preserve source/physics config between
+        # calls, but assert the runtime *requested* proper recovery.
+        seen.append((ns.resume,ns.check_resume_only,one_run_config(ns)))
+        return 0
+    with patch("emu.run.train_one",side_effect=capture):
         assert main(base)==0
         assert main(base+["--resume","auto"])==0
         assert main(base+["--resume","auto","--check-resume-only"])==0
     assert len(seen)==3
-    assert seen[0].resume in ("",None)
-    assert seen[1].resume=="auto" and seen[2].resume=="auto"
-    assert replace(seen[0],resume="auto")==seen[1]==seen[2]
+    assert seen[0][0] in ("",None)
+    assert seen[1][0]==seen[2][0]=="auto"
+    assert not seen[0][1] and not seen[1][1] and seen[2][1]
+    assert seen[0][2]==seen[1][2]==seen[2][2]
     with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
         with pytest.raises(ValueError,match="solver-iterations"):
             main(base[:-4]+["--solver-iterations","0",
@@ -161,13 +168,14 @@ def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     assert call["terrain_carpet"] is True
     assert call["terrain_carpet_prisms"] is True
     assert call["observation_schema"] == OBS_SCHEMA_TERRAIN
-    assert call["solver_iterations"] is None
-    assert call["solver_ls_iterations"] is None
-    # Frozen panels must use the trainer's experimental physics cap.
-    from dataclasses import replace
-    evaluate._world(replace(cfg, solver_iterations=2, solver_ls_iterations=4),
-                    seed_offset=0, limits=(.60,-.20,.22,1.50))
     assert call["solver_iterations"] == 2
+    assert call["solver_ls_iterations"] == 4
+    # Frozen panels must use the actor's actual trained physics,
+    # including a changed 4/4 treatment rather than XML defaults.
+    from dataclasses import replace
+    evaluate._world(replace(cfg, solver_iterations=4, solver_ls_iterations=4),
+                    seed_offset=0, limits=(.60,-.20,.22,1.50))
+    assert call["solver_iterations"] == 4
     assert call["solver_ls_iterations"] == 4
     # A frozen exam may never fall back to old nine-box or slab contact
     # because it happens to request a flat lesson.
