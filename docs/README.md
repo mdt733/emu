@@ -1,35 +1,45 @@
-# EMU documentation — active core only
+# EMU documentation — one current path
 
-**Current code, not a chronological research scrapbook.**
+Start with [README](../README.md) for the robot,
+[CORE_SKELETON](CORE_SKELETON.md) for which module owns each concept,
+[INSTALL](INSTALL.md) for the single clean WSL checkout and
+[HANDOVER](../HANDOVER.md) for the latest training/promotion state.
 
-1. [**Current core skeleton and live-file retirement checklist**](CORE_SKELETON.md#live-file-ownership-and-retirement-checklist) — one owner per module, clear open gates.
-2. [**v5045 lean-prism training and GPU acceptance**](V5045_LEAN_PRISM_RUNBOOK.md).
-3. [**v5044 historical 140M recipe**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5044_PRISM_140M_COLDSTART.md) and [**v5043 real-prism baseline**](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5043_MJX_PRISM_CARPET.md).
-4. [**Latest engineering handover**](../HANDOVER.md).
-5. [**Windows/WSL installation**](INSTALL.md).
-
-## Current reference
-
-| File | Why it stays |
+| Need | Maintained reference |
 |---|---|
-| [v5041 exposure postmortem](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5041_140M_TERRAIN_EXPOSURE_POSTMORTEM.md) | Prevents the exposure-probability × difficulty bug recurring |
-| [Six-specialist curriculum](UNIFIED_CAPABILITY_GROWTH.md) | Teaches the one actor through six focus cohorts |
-| [Physical quality](PHYSICAL_QUALITY.md) / [capability dimensions](CAPABILITY_DIMENSIONS.md) | Measurable locomotion and resilience criteria |
-| [v5032 released 260M reference](V5032_PINNACLE_RELEASE.md) / [physical baseline](PHYSICAL_BASELINE_260M.md) | Public baseline against which the new policy must be judged |
-| [Release readiness](RELEASE_READINESS.md) | Requires independent supported crossings, command tracking, survival |
-| [Protected playground](PLAYGROUND.md) / [graduated park](VIEWER_GRADUATED_PARK.md) | Current 360-input browser deployment and diagnostics |
-| [Maintenance](MAINTENANCE.md) | Source identity, branch and checkpoint safety |
+| How the one 360-input actor learns and how the eight-prism world works | [Live ownership / physics skeleton](CORE_SKELETON.md) |
+| How to install, check CUDA, store runs and recover them | [WSL installation](INSTALL.md) |
+| Which research knob and curriculum owns real steps / speed / balance | [Unified capability growth](UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](CAPABILITY_DIMENSIONS.md) |
+| How to judge commanded movement and signed contacts | [Physical quality](PHYSICAL_QUALITY.md) · [Independent 260M baseline](PHYSICAL_BASELINE_260M.md) |
+| Release approvals, rollback and promotion into main | [Release readiness](RELEASE_READINESS.md) · [260M Pinnacle release](V5032_PINNACLE_RELEASE.md) |
+| GPU contact and speed tradeoffs already measured | [v5046 solver study](V5046_OVERNIGHT_RESULTS_20261105.md) · [Solver and foot contact](V5046_FOOT_CONTACT_OPTIMIZATION.md) · [GPU audit](JAX_GPU_WORKLOAD_AUDIT.md) |
+| Browser/WASM, park and protected publishing | [Playground](PLAYGROUND.md) · [Graduated park](VIEWER_GRADUATED_PARK.md) |
+| Engineering and experiment clean-up policy | [Maintenance](MAINTENANCE.md) · [Issue #17](https://github.com/mdt733/emu/issues/17) |
 
-## Old experiments
+## Current 50M → eight forks → 200M research
 
-**Removed from this branch deliberately.** No historical experiment,
-three-platform curriculum, old paper geometry design or 50KB handover
-needs to live in the working tree. They remain in the exact immutable
-[pre-cleanup v5044 Git tree](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/history/README.md),
-along with its [full handover](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md),
-[historical architecture](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/ARCHITECTURE.md)
-and [older nine-box trainer instructions](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/V5041_GPU_CARPET_TRAINING.md).
+The v5048 campaign is source-pinned to
+[its original experimental branch](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle).
+Its shared 50M ancestor, eight matched 50M child continuations, physical
+exams and final 100M winner extension are **research**, not evidence of
+a successor until measured. The future-main release-prep branch
+intentionally **omits** its temporary launcher so the final architecture
+doesn't retain another experimental harness. To examine or resume that
+run, use the **original experiment SHA and run directory**.
 
-Use the original source SHA and full archived checkpoint to reproduce
-a historical result. Never use the cleaned source to interpret an old
-optimizer state by shape coincidence.
+The frozen published 260M policy is unchanged while research runs.
+Do not assume a CPU code check proves an 8GB CUDA training/exam pass,
+and do not publish or merge a new actor without explicit release review.
+
+## Historical files
+
+Old v5045 140M / v5046 20M / v5048 eight-arm launchers, retired
+workflows, earlier field geometries and research notebooks remain
+recoverable at their **immutable original Git commits**. They do not
+need to be in active `scripts/` or duplicated into a growing
+`docs/history/` folder.
+
+For the original detailed v5045 file census and pruned code, see
+[the earlier cleanup commit](https://github.com/mdt733/emu/blob/feature/v5045-core-skeleton-audit/docs/CORE_SKELETON.md).
+For experiments, consult the issue and source-pinned result cards,
+not an old runbook presented as today's recommended launch.
