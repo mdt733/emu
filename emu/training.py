@@ -102,6 +102,8 @@ def env_kwargs_from_args(args) -> dict:
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
+        solver_iterations=args.solver_iterations,
+        solver_ls_iterations=args.solver_ls_iterations,
         carpet_transition_cap_deg=args.carpet_transition_cap_deg,
         academy_height_cap_m=args.academy_height_cap_m,
         academy_course_episode_frames=args.academy_course_episode_frames,
@@ -244,6 +246,8 @@ def train(args: TrainingConfig) -> int:
     meta['mjx_physics'] = {
         'feet_only_contacts': env.feet_only_contacts,
         'reset_forward_capacity': env.reset_forward_capacity,
+        'solver_iterations': int(env.mj_model.opt.iterations),
+        'solver_ls_iterations': int(env.mj_model.opt.ls_iterations),
         'ngeom': int(env.mj_model.ngeom),
         'padded_contacts_per_world': int(
             env.mjx.make_data(env.mjx_model_template)._impl.contact.geom1.shape[0]),
