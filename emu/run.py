@@ -59,6 +59,13 @@ def one_run_config(args) -> TrainingConfig:
     stillness_birth_frac=float(getattr(args,'stillness_birth_frac',0.))
     if not (math.isfinite(stillness_birth_frac) and 0. <= stillness_birth_frac <= .25):
         raise ValueError('--stillness-birth-frac must be in [0,0.25]')
+    science_promotion=float(getattr(args,'science_step_promotion_mm',0.))
+    science_retreat=float(getattr(args,'science_step_retreat_mm',0.))
+    science_attempts=getattr(args,'science_step_min_attempts',4)
+    if (not math.isfinite(science_promotion) or not 0.<=science_promotion<=10.
+        or not math.isfinite(science_retreat) or not 0.<=science_retreat<=10.
+        or type(science_attempts) is not int or not 4<=science_attempts<=32):
+        raise ValueError('step frontier science requires 0..10mm and 4..32 attempts')
     if (not math.isfinite(temporal_share) or not 0.<=temporal_share<=1.0
             or (temporal_share>0. and not unified)):
         raise ValueError('--temporal-vx-reward-share requires unified actor and 0..1')
@@ -160,6 +167,9 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    stillness_birth_frac=stillness_birth_frac,
+                   science_step_promotion_mm=science_promotion,
+                   science_step_retreat_mm=science_retreat,
+                   science_step_min_attempts=science_attempts,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
