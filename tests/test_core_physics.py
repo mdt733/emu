@@ -1,6 +1,6 @@
 """Eleven physical invariants: actual prism triangles, sensors, contacts and evidence.
 
-This verifies the *real 18-prism world*, not the old 9-box placeholder.
+This verifies the *real eight-prism world*, not the old 9-box placeholder.
 A 4-world MJX physical trajectory probe is run separately in CI.
 """
 from __future__ import annotations
@@ -17,7 +17,8 @@ from emu.carpet_prism_mjx import (batch_update_prism_mocaps, PRISM_COUNT,
 from emu.terrain_carpet_mjx import (
     update_tile_mocaps,
     feet_clear_of_abandoned_prisms, add_carpet_geoms,
-    TILE_SIZE_Z_M, ray_surface, supported_tile_foot_pairs,
+    TILE_SIZE_Z_M, TILE_M, TILE_COUNT, TILE_WINDOW_SIDE,
+    midpoint_anchor, slot_indices, ray_surface, supported_tile_foot_pairs,
     VISIT_HISTORY, unseen_tile, note_confirmed_tile)
 from emu.prism_exam import score_prism_crossings
 
@@ -33,16 +34,16 @@ def foot_guard(old, new, feet, radii=(.018,.018)):
 def trace(*, rise=.02, axis=0, frames=12):
     cells=np.zeros((frames,1,2),dtype=np.int32)
     cells[2:,0,axis]=1
-    z=np.zeros((frames,1,9,4),dtype=np.float64)
-    z[:,:,axis==1 and 3 or 1,:]=rise
-    pair=np.zeros((frames,1,18,2),dtype=bool)
-    normal=np.zeros((frames,1,18,2),dtype=np.float64)
+    z=np.zeros((frames,1,TILE_COUNT,4),dtype=np.float64)
+    z[:,:,axis==1 and 2 or 1,:]=rise
+    pair=np.zeros((frames,1,PRISM_COUNT,2),dtype=bool)
+    normal=np.zeros((frames,1,PRISM_COUNT,2),dtype=np.float64)
     foot=np.zeros((frames,1,2,3),dtype=np.float64)
-    foot[:,:,0,:]=[.25,.25,.020]
-    foot[:,:,1,:]=[.30,.30,.020]
-    index=3 if axis==1 else 1
+    foot[:,:,0,:]=[TILE_M/2,TILE_M/2,.020]
+    foot[:,:,1,:]=[TILE_M*.60,TILE_M*.60,.020]
+    index=2 if axis==1 else 1
     for t in range(2,frames):
-        foot[t,0,0,:]=[.25+(axis==0)*.50,.25+(axis==1)*.50,rise+.020]
+        foot[t,0,0,:]=[TILE_M/2+(axis==0)*TILE_M,TILE_M/2+(axis==1)*TILE_M,rise+.020]
         pair[t,0,2*index,0]=True
         normal[t,0,2*index,0]=.96
     return dict(carpet_root_cell=cells,carpet_prism_corner_z=z,
@@ -53,11 +54,11 @@ def trace(*, rise=.02, axis=0, frames=12):
 
 
 def fixture():
-    positions=np.zeros((1,9,3),np.float32)
+    positions=np.zeros((1,TILE_COUNT,3),np.float32)
     positions[:,:,:]=[0.,0.,-30.]
-    positions[0,0]=[-.25,0.,-TILE_SIZE_Z_M*.5]
-    positions[0,1]=[+.25,0.,.15-TILE_SIZE_Z_M*.5]
-    samples=np.full((1,36),.5,dtype=np.float32)
+    positions[0,0]=[-TILE_M*.5,0.,-TILE_SIZE_Z_M*.5]
+    positions[0,1]=[+TILE_M*.5,0.,.15-TILE_SIZE_Z_M*.5]
+    samples=np.full((1,TILE_COUNT*4),.5,dtype=np.float32)
     return SimpleNamespace(mocap_pos=jnp.asarray(positions)),jnp.asarray(samples)
 
 
@@ -74,8 +75,8 @@ def test_batched_mocaps_match_old_birth_and_recycling():
 
     for active in (True,False):
         changed=jnp.asarray(
-            np.ones((worlds,9),bool) if active else
-            (rng.uniform(size=(worlds,9))>.5))
+            np.ones((worlds,TILE_COUNT),bool) if active else
+            (rng.uniform(size=(worlds,TILE_COUNT))>.5))
         old=original
         for i,m in enumerate(ids):
             tile=i//PRISMS_PER_TILE
@@ -86,9 +87,9 @@ def test_batched_mocaps_match_old_birth_and_recycling():
         fast=jax.jit(lambda p,c,m:batch_update_prism_mocaps(
             jnp,p,ids,c,m))(original,centers,changed)
         np.testing.assert_array_equal(np.asarray(old),np.asarray(fast))
-        # Source-height hfields use nine mocaps rather than 18. These
+        # Source-height hfields use four mocaps rather than eight. These
         # noncontact samples still drive EVERY ray and prism-top vertex.
-        source_ids=ids[:9]
+        source_ids=ids[:TILE_COUNT]
         old_tiles=original
         for i,mocap in enumerate(source_ids):
             old_tiles=old_tiles.at[:,mocap,:].set(jnp.where(
@@ -107,12 +108,12 @@ def test_batched_mocaps_match_old_birth_and_recycling():
                 np.asarray(old_tiles),np.asarray(direct))
 
 
-    # This is also where the same nine source tile heights become every
-    # foot-support sample. Prove the vectorised nine-tile calculation
+    # This is also where the same four source tile heights become every
+    # foot-support sample. Prove the vectorised four-tile calculation
     # reproduces the previous sequential support-height calculation.
     from emu.terrain_carpet_mjx import (
         sample_surface, TILE_HALF_M, TILE_M, TILE_SIZE_Z_M)
-    source_ids=ids[:9]
+    source_ids=ids[:TILE_COUNT]
     samples=jnp.asarray(rng.uniform(.1,.9,(worlds,36)),dtype=jnp.float32)
     query=original[:,source_ids,:]+jnp.asarray(
         [.06,-.04,.10],dtype=jnp.float32)[None,None,:]
@@ -152,24 +153,49 @@ def test_prism_model_has_no_inactive_box_bodies_at_all():
            for i in range(model.ngeom)]
     assert not any((n or '').startswith('carpet_solid_geom_') for n in names)
     assert len([n for n in names if n in PRISM_GEOM_NAMES])==PRISM_COUNT
-    assert model.nhfield==9  # noncontact source vertex samples
+    assert model.nhfield==TILE_COUNT  # noncontact source vertex samples
     assert mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,'unified_ground')<0
     assert mujoco.mj_name2id(
         model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')<0
     floor=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
     assert floor>=0 and model.geom_contype[floor]==0
-    assert model.nmocap>=27  # nine noncontact source samples + 18 prisms
+    assert model.nmocap>=TILE_COUNT+PRISM_COUNT
     with pytest.raises(ValueError,match='real prism contacts only'):
         add_carpet_geoms(robot.read_text(encoding='utf-8'),prisms=False)
+
+
+def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
+    """All torso positions are >=37.5cm from an unloaded XY boundary."""
+    fractions=np.asarray([0.,.001,.24,.499,.5,.501,.77,.9999])
+    points=np.asarray([[(c+f)*TILE_M,(d+g)*TILE_M]
+        for c in (-2,-1,0,1) for d in (-2,-1,0,1)
+        for f in fractions for g in fractions],dtype=np.float32)
+    anchors=np.asarray(midpoint_anchor(jnp,jnp.asarray(points)))
+    clearance=np.minimum(points-anchors*TILE_M,
+                         (anchors+TILE_WINDOW_SIDE)*TILE_M-points)
+    assert clearance.min()>=TILE_M*.5-2e-5
+    assert clearance.min()>.30
+    x,y=slot_indices(jnp,jnp.asarray(anchors[:,0]),jnp.asarray(anchors[:,1]))
+    cells=np.stack((np.asarray(x),np.asarray(y)),axis=2)
+    present=np.floor(points/TILE_M).astype(np.int32)
+    assert np.all(np.any(np.all(cells==present[:,None,:],axis=2),axis=1))
+    p=lambda x,y:np.asarray(midpoint_anchor(jnp,jnp.asarray([[x*TILE_M,y*TILE_M]])))
+    old=p(.499,.499)
+    sx,sy=slot_indices(jnp,jnp.asarray(old[:,0]),jnp.asarray(old[:,1]))
+    for root,expected in ((p(.501,.499),2),(p(.501,.501),3)):
+        tx,ty=slot_indices(jnp,jnp.asarray(root[:,0]),jnp.asarray(root[:,1]))
+        changed=(np.asarray(tx)!=np.asarray(sx))|(np.asarray(ty)!=np.asarray(sy))
+        assert int(changed.sum())==expected
+    np.testing.assert_array_equal(p(.499,.499),old)
 
 
 def test_true_prism_footprint_blocks_sidewall_not_far_foot():
     old=[[0,0],[0,0],[0,0]]
     new=[[1,0],[1,0],[1,1]]
     feet=[
-        [[.018,.25],[.75,.25]],  # 18mm foot overlaps x=0 wall
-        [[.040,.25],[.75,.25]],  # 40mm foot is outside all old squares
-        [[-.01,-.01],[.75,.75]], # diagonal abandoned corner touch
+        [[TILE_M+.018,TILE_M*.5],[TILE_M*1.5,TILE_M*.5]],  # 18mm foot overlaps x=0 wall
+        [[TILE_M+.040,TILE_M*.5],[TILE_M*1.5,TILE_M*.5]],  # 40mm foot is outside all old squares
+        [[TILE_M+.01,TILE_M+.01],[TILE_M*1.5,TILE_M*1.5]], # diagonal abandoned corner touch
     ]
     expected=[False,True,False]
     np.testing.assert_array_equal(
@@ -347,12 +373,12 @@ def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
     
     rng=np.random.default_rng(1701)
     worlds=3
-    positions=np.zeros((worlds,9,3),dtype=np.float32)
-    for tile in range(9):
-        positions[:,tile,0]=(tile%3-1)*.5
-        positions[:,tile,1]=(tile//3-1)*.5
-    positions[:,:,2]=rng.uniform(-.12,.13,(worlds,9)).astype(np.float32)
-    heights=jnp.asarray(rng.uniform(.15,.85,(worlds,36)),dtype=jnp.float32)
+    positions=np.zeros((worlds,TILE_COUNT,3),dtype=np.float32)
+    for tile in range(TILE_COUNT):
+        positions[:,tile,0]=(tile%TILE_WINDOW_SIDE-.5)*TILE_M
+        positions[:,tile,1]=(tile//TILE_WINDOW_SIDE-.5)*TILE_M
+    positions[:,:,2]=rng.uniform(-.12,.13,(worlds,TILE_COUNT)).astype(np.float32)
+    heights=jnp.asarray(rng.uniform(.15,.85,(worlds,TILE_COUNT*4)),dtype=jnp.float32)
     origin=jnp.asarray([[.02,-.08,.18],[-.12,.04,.15],[.17,.17,.25]],dtype=jnp.float32)
     pitch=np.deg2rad([40,60,80,100])
     yaw=np.deg2rad([-22.5,-7.5,7.5,22.5])
@@ -360,7 +386,7 @@ def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
                      for p in pitch for y in yaw],dtype=np.float32)
     rays=jnp.broadcast_to(jnp.asarray(beam),(worlds,16,3))
     points=jnp.asarray(positions)
-    ids=tuple(range(9))
+    ids=tuple(range(TILE_COUNT))
     for bottom in (None,.65):
         expected=np.asarray(old_rays(jnp,SimpleNamespace(mocap_pos=points),
                                      ids,heights,origin,rays,
@@ -399,7 +425,7 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
     data,samples=fixture()
     origin=jnp.asarray([[-.15,0.,.07]],dtype=jnp.float32)
     rays=jnp.asarray([[[1.,0.,-.05]]],dtype=jnp.float32)
-    t=np.asarray(ray_surface(jnp,data,tuple(range(9)),samples,origin,rays))
+    t=np.asarray(ray_surface(jnp,data,tuple(range(TILE_COUNT)),samples,origin,rays))
     # Lower top is at zero, so the slant line reaches the uphill
     # vertical side at x=0 before it could touch the upper top.
     assert t.shape==(1,1)
