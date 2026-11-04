@@ -102,6 +102,10 @@ def command(arm: dict, updates: int) -> list[str]:
 
 def run_to_log(cmd: list[str], log_file: Path, env: dict) -> tuple[int, dict | None]:
     last_json = None
+    # Preserve a short failure tail in the console so a bare AssertionError
+    # never requires a second trip to the host to discover its file/line.
+    from collections import deque
+    tail = deque(maxlen=48)
     with log_file.open("w", encoding="utf-8", buffering=1) as log:
         log.write("$ " + " ".join(cmd) + "\n")
         log.flush()
@@ -111,6 +115,7 @@ def run_to_log(cmd: list[str], log_file: Path, env: dict) -> tuple[int, dict | N
             assert process.stdout is not None
             for line in process.stdout:
                 log.write(line)
+                tail.append(line.rstrip("\n"))
                 stripped = line.strip()
                 if stripped.startswith("{"):
                     try:
@@ -132,6 +137,12 @@ def run_to_log(cmd: list[str], log_file: Path, env: dict) -> tuple[int, dict | N
                         or "out of memory" in stripped.lower()):
                     print("  " + stripped[:500], flush=True)
             code = process.wait()
+    if code != 0:
+        print(f"FAILED COMMAND: {log_file} (exit code {code})", flush=True)
+        print("---- last 48 log lines ----", flush=True)
+        for item in tail:
+            print(item, flush=True)
+        print("---- end failure tail ----", flush=True)
     return code, last_json
 
 
@@ -302,11 +313,21 @@ def main() -> int:
     env["PYTHONUNBUFFERED"] = "1"
     env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
     if not args.skip_preflight and state["preflight_status"] != "PASS":
-        print("PREFLIGHT: real 4-world prism/contact/recycle/reset gate",
+        # The detailed 4-world prism geometry preflight is deliberately CPU:
+        # that is the same backend used by the passing branch CI. It is NOT
+        # evidence that GPU-contact behavior is identical! Every solver arm
+        # still runs 2,048-world real CUDA geometry, reset, recycler, physics
+        # and PPO checks; that gate is NEVER bypassed by a CPU preflight.
+        cpu_env = dict(env)
+        cpu_env["JAX_PLATFORMS"] = "cpu"
+        cpu_env["JAX_PLATFORM_NAME"] = "cpu"
+        print("PREFLIGHT: CPU 4-world real prism/contact/recycle/reset "
+              "geometry gate (same backend as passing CI). "
+              "Full CUDA physics gate remains enabled on EVERY arm.",
               flush=True)
         code, _ = run_to_log(
             [sys.executable, "-u", str(PROBE), "--worlds", "4",
-             "--frames", "2"], output / "preflight.log", env)
+             "--frames", "2"], output / "preflight.log", cpu_env)
         state["preflight_status"] = "PASS" if code == 0 else "FAIL"
         atomic_json(manifest, state)
         if code != 0:
@@ -334,6 +355,9 @@ def main() -> int:
                       log=filename, returncode=code)
         if result is not None:
             record.update(result)
+        # A JSON PASS printed before an eventual nonzero process exit is
+        # not a complete arm. Never allow the payload to overwrite failure.
+        record["status"] = "PASS" if code == 0 and result is not None else "FAIL"
         state["results"][key] = record
         atomic_json(manifest, state)
         render(state, output)
