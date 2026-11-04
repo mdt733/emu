@@ -94,113 +94,137 @@ be discarded by user choice if training anew.
 The detailed unanswered backlog is [GitHub issue #17](https://github.com/mdt733/emu/issues/17).
 The 260M reference measurements are [here](docs/V5032_PINNACLE_RELEASE.md).
 
-## Live v5047 promotion tournament (temporary, then delete runner)
+## v5048 — shared-parent Pinnacle development tournament
 
-[Draft PR #37](https://github.com/mdt733/emu/pull/37) is stacked
-on the clean PR #36. New **one-optimizer** research includes the same
-2,048 CUDA worlds, 360 actor inputs, four recycled 75cm terrain tiles,
-eight true convex-prism colliders, 10M genuine walking foundation and
-constant 10% fast / 15% CONTROL rehearsal except when explicitly tested.
+The aborted v5047 **independent cold-start** tournament is retired
+because it was not the requested experiment and its physical examiner
+retained a stale **9×50cm** reshape. The new [draft PR #38](https://github.com/mdt733/emu/pull/38) fixes the frozen observer to use
+**4×75cm** actual prism source tiles (including correct rise/run
+normals). The previous v5047 CUDA gate stopped BEFORE any 100M policy
+training, so it produced no reusable walking checkpoint. Its old
+temporary script was removed on this branch.
 
-The disposable `scripts/v5047_pinnacle_tournament.py` runs **seven
-independent 100M-step cold-start arms** from identical ancestry:
+### One ancestor, eight controlled forks, one continued winner
 
-| Arm | One hypothesis relative to `early_lips` |
+| Stage | Cumulative age | Unique simulation work | Physical purpose |
+|---|---:|---:|---|
+| Cold foundation (seed 735) | 50M | **50M** | Learn one coherent basic walker and normalizer on the full four-tile carpet |
+| Eight independent treatment forks | 100M each | **8×50M** | All inherit the **same immutable 50M final.pkl** actor, optimizer, normalizer, curriculum, health and capability field |
+| Winning fork grows | 200M total | **+100M** | Continue the **same** best 100M checkpoint and training run, not another fresh cold-start |
+| **Total** | — | **550M real world-steps** | One shared-PPO trunk, eight matched research comparisons, one ambitious Pinnacle candidate |
+
+The one-predetermined-change A/B bracket:
+
+| Arm | Change after 50M |
 |---|---|
-| `no_academy` | Control: no concentrated Academy exposure in 100M |
-| `early_lips` | Actual multi-lip course born after ~11M, 40% by ~28M |
-| `precise_frontier` | ±1mm progression/retreat with 12 real signed attempts |
-| `zero_balance` | 10% true zero-vx/vy/yaw steady births; posture credit without artificial stepping requirement **only** for zero commands |
-| `temporal_speed` | 50% rolling 0.5s vx tracking blend |
-| `fast_rehearsal` | 30% high-speed rehearsal instead of 10% |
-| `solver4_control` | 4/4 solver rather than 2/4, for trained-policy physics consistency |
+| `no_academy` | Control: continue normal mixed-world training without dedicated Academy |
+| `early_lips` | Activate true signed repeated-lip Academy immediately at the 50M fork; ramp to 40% by ~60M |
+| `precise_frontier` | Same Academy plus 1mm signed promotion/retreat increments and 12 evidence attempts |
+| `zero_balance` | Same Academy plus 10% true zero-vx/vy/yaw steady births and safe zero-command posture credit |
+| `temporal_speed` | Same Academy plus 50% rolling 0.5-second forward-command reward blend |
+| `fast_rehearsal` | Same Academy plus 30% rather than 10% fast-command rehearsal |
+| `heavy_academy` | Same Academy plus 65% rather than 40% eventual dedicated step births |
+| `solver4_control` | Same Academy but Newton/linesearch solver **4/4** instead of **2/4** for the 50M research fork |
 
-Each policy undergoes **16 independent physical exam protocols**
-(two fixed held-out seeds × eight terrain/command cases) with 16
-worlds and a 500-control-frame horizon: still (0m/s), slow .06, cruise
-.20, fast .70, signed .5cm/2cm/3cm lips, and 8° incline. The frozen
-exam reads only raw foot-solid contacts, measured world heading,
-footfall timing, stride length and achieved speed. `prism-exam` now
-inherits the actor's exact 2/4 or 4/4 solver **from the export**.
-An eligible contender requires held-out flat and step survival and
-actual forward movement, not raw training reward.
+All other physical terrain, observation/history structure, PPO, reward
+and specialist curriculum stay identical. A single source SHA and seed
+pin all eight parent-trained policies; solver4 is deliberately labeled
+an explicit post-fork physical change, and never silently substitutes
+one physics mode in another checkpoint or independent examination.
 
-An objective-reported finalist starts **fresh at 300M** with the
-winning source-pinned teacher hypothesis, and a **200M different-seed**
-replication is attempted if wall time allows. Total potential
-**1.2 billion world-steps**, up to 144 frozen exams. A 9h
-soft wall-clock budget is enforced **between arms**; an already
-running training/exam isn't killed or left with a silently truncated
-checkpoint. Actual duration depends on JAX compilation/physics.
-No automatic merge or champion release.
+At 100M, each frozen actor receives eight independent real-physical
+commands/terrain modes on TWO held-out seeds and 16 GPU worlds:
+0m/s stillness, .06 slow, .20 cruise, .70 fast, signed .5cm/2cm/3cm
+up/down steps and 8° grade. Each mode is 500 control frames.
+The original 50M policy gets four selected baseline protocols.
+After winning-branch extension to 200M, repeat all eight two-seed
+frozen exams. **148 planned independent physical exam invocations**,
+counting the four foundation checks, all 128 fork checks and the final
+16; these are not 148 permanent pytest files.
 
-### After the current fresh WSL installation
+The independent examiner accepts only **real top-prism contacts**
+with sustained supported foot placement and actual signed terrain
+transition; it records command error, gait cadence, stride length,
+stillness drift, survival, power and heading. Training reward and
+curriculum counters do NOT grant stair mastery. Step results are
+downweighted if only one held-out seed crosses. A predeclared
+flat-survival / step-survival / actual-fast-motion gate determines
+whether any fork qualifies for the extra 100M. If all fail, it
+**stops honestly** and reports the failure instead of fabricating a
+Pinnacle.
 
-The install guide originally checked out v5046 with `--single-branch`.
-Use this explicit fetch once; it won't depend on having fetched every
-remote branch or require a second Python environment:
+### Exact clean-WSL launch, one checkout / one virtualenv
+
+After the current source-pinned v5047 experiment has stopped, switch
+the existing `~/emu` checkout. Because the initial Ubuntu clone was
+`--single-branch`, explicitly add the new remote tracking ref first:
 
 ```bash
 cd ~/emu
-git status --short
-# Single-branch clones only track v5046. Add v5047 to origin's fetch
-# configuration BEFORE switching, or --track will reject the fetched ref.
-git remote set-branches --add origin experiment/v5047-pinnacle-stairs-gaits
+git status --short    # must show no uncommitted tracked edits
+git remote set-branches --add origin experiment/v5048-shared-parent-pinnacle
 git fetch origin
-git switch --track origin/experiment/v5047-pinnacle-stairs-gaits
+git switch --track origin/experiment/v5048-shared-parent-pinnacle
 git branch --show-current
 git rev-parse --short HEAD
 source .venv/bin/activate
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-python -m pip check
 
-# Plans resolve all seven real CLI configs and do ZERO GPU work.
-PYTHONPATH="$PWD" python scripts/v5047_pinnacle_tournament.py plan
+# No training, no GPU and no folders: resolves/validates all 9 real
+# CLI stage recipes, 50M parent and eight 100M fork targets.
+PYTHONPATH="$PWD" python scripts/v5048_shared_parent_tournament.py plan
 
-# After plan + exact SHA CI and 2,048-world CUDA acceptance,
-# foreground nine-hour soft-budget tournament, one CUDA process at a time:
-PYTHONPATH="$PWD" python -u scripts/v5047_pinnacle_tournament.py run --hours 9
+# Only AFTER the matching PR GitHub CI is green:
+PYTHONPATH="$PWD" python -u scripts/v5048_shared_parent_tournament.py run --hours 9
 ```
 
-If `git status --short` is nonempty with tracked edits, commit/stash
-rather than switching over active work. The local `.venv` is editable
-from this same checkout; it does **not** need a second JAX download
-after the existing CUDA installation. If pip dependencies were changed
-then rerun the maintained installation from this new SHA.
+The runner gates the first 50M with a real 2,048-world CUDA PPO
+update, then tiny CUDA checkpoint→actor-export→100-frame independent
+exam lifecycles for 2/4, 4/4 and the new zero-command sampler.
+The latter specifically detects the previously failing four-tile
+frozen-policy reshape **before spending GPU-hours on a foundation**.
+It checks each external research parent's exact checkpoint SHA256
+and same-source actor/sensor compatibility using the trainer's
+existing `--check-resume-only` path before running a child.
+Changed-teacher forks do not inherit the parent's old rollback policy.
+A missing checkpoint from an interrupted *first compilation* is
+safely retried from the original immutable ancestor, while
+completed/partial children use their own validated `--resume auto`.
+The script never kills a running PPO update when its nine-hour
+soft budget expires; it checks between stages and can resume only
+on the identical source/recipe fingerprint.
 
-Outputs are strictly canonical:
-`~/emu-data/runs/v5047-<arm>-s<seed>/` for run-owned
-checkpoints/metrics/exams/exports and
-`~/emu-data/scratch/v5047-pinnacle-tournament/` for the
-temporary manifest, logs, continuous `SUMMARY.md`, and an
-upload-ready **`results_bundle.zip` without enormous `.pkl` files**.
-Reissue the identical `run --hours 9` against **the same Git commit**
-to resume an interrupted campaign; don't pull or merge mid-run.
-If `status` is desired: `python scripts/v5047_pinnacle_tournament.py status`.
+Everything under two established home-level roots:
 
-### What would earn a new Pinnacle?
+```text
+~/emu/                                   # source + one .venv
+~/emu-data/runs/v5048-foundation-s735/  # 50M immutable parent final.pkl
+~/emu-data/runs/v5048-<arm>-s735/       # all training checkpoints,
+                                          # step_100M/200M actor exports,
+                                          # exact physical exams and reports
+~/emu-data/scratch/v5048-shared-parent/  # temporary harness state, logs,
+                                          # scoreboard and results_bundle.zip
+```
 
-Not a high PPO reward or 120k GPU steps/s by itself. We want
-stable two-foot slow progress and near-zero commanded drift; high-speed
-gait with real stride-length, speed, steering and bounded effort;
-**repeated up AND down supported signed lips on independent seeds**;
-preserved slopes, turn control and recovery. A promising result can
-become a replacement-main candidate if the trained actor is roughly
-champion-equivalent and the 75cm carpet/faster trainer are measurably
-better. The old champion remains frozen and available for rollback.
+`status` reads already completed evidence:
 
-**Explicit release hold:** 2/4 solver penetration and CUDA compact/full
-`.qacc` acceleration mismatch still require investigation before
-claiming hardware-faithful dynamics. The original main actor uses a
-historical training world, so comparing its old physical exam with
-v5047 requires a clearly documented equivalent-mission bridge.
-Final merge/publish needs explicit user approval.
+```bash
+cd ~/emu
+python scripts/v5048_shared_parent_tournament.py status
+```
 
-**Cleanup contract:** this one experimental runner is deleted after
-the results are analysed and committed as concise permanent findings
-in issue #17 / HANDOVER. Keep any successful general-purpose
-sampler/reward/exam improvement; discard one-off tournament
-orchestration and its extra state.
+The upload-ready `results_bundle.zip` contains **metrics, metadata,
+frozen examiner JSON, and summary**, intentionally NOT giant
+`final.pkl` blobs. If a genuine 200M contender emerges, compare its
+actual gait/command/control/steering to the preserved Pinnacle on
+equivalent physical missions before promoting the engineering
+architecture to `main`. The 2/4 acceleration-parity issue still
+needs bounding. Do **not** automatically merge any branch.
+
+**Cleanup obligation:** once measured, remove
+`scripts/v5048_shared_parent_tournament.py`, save its findings in
+issue #17 and the current report, and keep only working trainer,
+examiner, checkpoint and compact tests. The old v5047 study script
+has already been deleted on this branch.
 
 ## Run hygiene and release rules
 
