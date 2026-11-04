@@ -67,7 +67,7 @@ def validate_prism_only_geoms(mujoco, model) -> None:
 
     The old flags were always empty tuples, so they could never detect an
     accidentally reintroduced collider. Compare actual geom names instead:
-    nine noncolliding source samplers and eighteen physical prisms, nothing
+    four noncolliding source samplers and eight physical prisms, nothing
     else in the terrain/Academy namespace.
     """
     from .carpet_prism_mjx import PRISM_GEOM_NAMES
@@ -245,14 +245,14 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
     return position,values
 
 def update_tile_mocaps(xp, positions, mocap_ids, centers, changed=None):
-    """Move the nine source-height tiles with ONE indexed JAX scatter.
+    """Move the four source-height tiles with ONE indexed JAX scatter.
 
     The hfield tiles are noncontact samples used by the ray synthesizer
     and the convex-prism mesh builder. Both birth (all slots) and recycle
     (changed slots only) retain exactly the old per-world positions.
     """
     if len(mocap_ids)!=TILE_COUNT or len(set(mocap_ids))!=TILE_COUNT:
-        raise ValueError('Expected exactly nine distinct source tile mocaps')
+        raise ValueError('Expected exactly four distinct source tile mocaps')
     ids=xp.asarray(mocap_ids,dtype=xp.int32)
     if changed is None:
         return positions.at[:,ids,:].set(centers)
@@ -308,14 +308,14 @@ def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
             xp.stack((xi,yi),axis=2))
 
 def sample_surface(xp,data,mocap_ids,hfield_data,points):
-    """All nine exact two-triangle top surfaces in ONE array calculation.
+    """All four exact two-triangle top surfaces in ONE array calculation.
 
     Same physical world, sensor/teacher contract and missing-footprint
-    behaviour as the former nine sequential tile checks. This reduces
+    behaviour as the former sequential tile checks. This reduces
     compiled graph repetition; its effect on actual GPU FPS must be measured.
     """
     if len(mocap_ids)!=TILE_COUNT:
-        raise ValueError('Expected nine source tile mocap IDs')
+        raise ValueError('Expected four source tile mocap IDs')
     positions=data.mocap_pos[:,xp.asarray(mocap_ids,dtype=xp.int32),:]
     source=hfield_data.reshape((hfield_data.shape[0],TILE_COUNT,4))
     # Shapes: [world,tile,point] and [world,tile,1].
@@ -330,14 +330,14 @@ def sample_surface(xp,data,mocap_ids,hfield_data,points):
 
 def ray_surface(xp,data,mocap_ids,hfield_data,origin,rays,*,
                 prism_bottom_depth_m=None):
-    """All nine physical source tiles in one batched slant-ray program.
+    """All four physical source tiles in one batched slant-ray program.
 
     Array axes are [world,tile,ray]. The exact three surface iterations,
     two triangular tops and four vertical sidewalls are unchanged.
     A frozen sequential oracle tests numerical parity before GPU trials.
     """
     if len(mocap_ids)!=TILE_COUNT:
-        raise ValueError('Expected nine physical source tiles')
+        raise ValueError('Expected four physical source tiles')
     pos=data.mocap_pos[:,xp.asarray(mocap_ids,dtype=xp.int32),:]
     samples=hfield_data.reshape((hfield_data.shape[0],TILE_COUNT,4))
     vertical=rays[:,None,:,2]

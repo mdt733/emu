@@ -31,7 +31,7 @@ def score_prism_crossings(frames, *, required_frames=5):
 
     Expected arrays are PRE-step MJX observations, consistently time-aligned:
       carpet_root_cell            [time, world, 2] (global integer cells)
-      carpet_prism_corner_z       [time, world, 9, 4] (metres, physical XY corners)
+      carpet_prism_corner_z       [time, world, TILE_COUNT, 4] (metres, physical XY corners)
       carpet_raw_contact_pairs    [time, world, PRISM_COUNT, 2]
       carpet_contact_vertical     [time, world, PRISM_COUNT, 2] (abs normal Z, real MJX)
       foot_xyz                    [time, world, 2, 3] (sphere centres)

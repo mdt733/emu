@@ -204,7 +204,7 @@ class EnvState(NamedTuple):
     academy_foothold_seen: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
-    # v5041 physics-only rolling tile state. All nine mutable colliders
+    # v5041 physics-only rolling tile state. All four mutable tiles
     # belong to this same PPO world batch, not a second simulator.
     carpet_hfields: Any
     carpet_center: Any
@@ -1056,7 +1056,7 @@ class EmuMJXEnv(TaskSampler):
             for n in CARPET_GEOM_NAMES)
         if (any(v<0 for v in self.carpet_mocap_ids)
             or any(v<0 for v in self.carpet_geom_ids)):
-            raise RuntimeError('Missing nine independent source tile samples')
+            raise RuntimeError('Missing four independent source tile samples')
         self.carpet_prism_mocap_ids=tuple(int(
             self.mj_model.body_mocapid[self.mujoco.mj_name2id(
                 self.mj_model,self.mujoco.mjtObj.mjOBJ_BODY,name)])
@@ -1067,7 +1067,7 @@ class EmuMJXEnv(TaskSampler):
         if (len(self.carpet_prism_mocap_ids)!=PRISM_COUNT or
             any(v<0 for v in (*self.carpet_prism_mocap_ids,
                                *self.carpet_prism_geom_ids))):
-            raise RuntimeError('18 moving convex prism geoms missing')
+            raise RuntimeError('8 moving convex prism geoms missing')
         if any(self.mj_model.geom_contype[g]!=4
                for g in self.carpet_prism_geom_ids):
             raise RuntimeError('Prisms must be physical bit-4 colliders')
@@ -1114,7 +1114,7 @@ class EmuMJXEnv(TaskSampler):
             gravity_unit if gravity_unit is not None
             else jnp.tile(jnp.asarray([[0.0, 0.0, -1.0]], dtype=jnp.float32), (self.num_envs, 1))
         )
-        # The underlying floor is flat. Actual slopes come from the 18
+        # The underlying floor is flat. Actual slopes come from the eight
         # prism contacts; no synthetic gravity/plane incline is substituted.
         self.floor_normal_world = jnp.tile(
             jnp.asarray([[0., 0., 1.]], dtype=jnp.float32),
@@ -1658,13 +1658,13 @@ class EmuMJXEnv(TaskSampler):
         # Do not average a fictitious quadrilateral or inspect a retired slab.
         cx=jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32)
         cy=jnp.floor(data.qpos[:,1]/CARPET_TILE_M).astype(jnp.int32)
-        slot=jnp.mod(cx,3)+3*jnp.mod(cy,3)
-        hv=state.carpet_hfields.reshape((self.num_envs,9,4))
+        slot=jnp.mod(cx,2)+2*jnp.mod(cy,2)
+        hv=state.carpet_hfields.reshape((self.num_envs,CARPET_TILE_COUNT,4))
         h=jnp.take_along_axis(hv,slot[:,None,None],axis=1)[:,0,:]
         u=data.qpos[:,0]/CARPET_TILE_M-cx.astype(jnp.float32)
         v=data.qpos[:,1]/CARPET_TILE_M-cy.astype(jnp.float32)
-        gx=jnp.where(u+v<=1.,h[:,1]-h[:,0],h[:,3]-h[:,2])
-        gy=jnp.where(u+v<=1.,h[:,2]-h[:,0],h[:,3]-h[:,1])
+        gx=jnp.where(u+v<=1.,h[:,1]-h[:,0],h[:,3]-h[:,2])*CARPET_SIZE_Z_M/CARPET_TILE_M
+        gy=jnp.where(u+v<=1.,h[:,2]-h[:,0],h[:,3]-h[:,1])*CARPET_SIZE_Z_M/CARPET_TILE_M
         physical_slope=jnp.rad2deg(jnp.arctan(jnp.sqrt(gx*gx+gy*gy)))
         slope_role=state.specialist_active & (state.focus_id==SLOPE)
         # Smaller-than-seed incline lessons remain meaningful retreat
@@ -2262,7 +2262,7 @@ class EmuMJXEnv(TaskSampler):
 
     def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
                       task,birth_root_z,academy_active):
-        """The same nine real triangles-pair colliders for ALL six roles.
+        """The same four real triangle-pair tiles for ALL six roles.
 
         A foundation episode has zero terrain difficulty. Every specialist
         reads the *same* generated physics, with different frontiers from
@@ -2506,7 +2506,7 @@ class EmuMJXEnv(TaskSampler):
         # The same two physical triangles and vertical prism sidewall
         # used by MJX contacts. Never substitute a box or infinite plane.
         # Both sensors sample identical physical prisms. Intersect 16+1
-        # rays once rather than recreating nine tile/wall intersections
+        # rays once rather than recreating four tile/wall intersections
         # separately for the optical-flow height sensor.
         surface_rays=(jnp.concatenate([ray,(-R[:,:,2])[:,None,:]],axis=1)
                       if include_downward_depth else ray)
@@ -2684,9 +2684,9 @@ class EmuMJXEnv(TaskSampler):
         moved=jnp.any(delta!=0,axis=1)
         near=jnp.all(jnp.abs(delta)<=1,axis=1)
         shared_lip=carpet_shared_edge(jnp,previous,root)
-        target_slot=jnp.mod(root[:,0],3)+3*jnp.mod(root[:,1],3)
-        previous_slot=jnp.mod(previous[:,0],3)+3*jnp.mod(previous[:,1],3)
-        height_map=state.carpet_hfields.reshape((self.num_envs,9,4))
+        target_slot=jnp.mod(root[:,0],2)+2*jnp.mod(root[:,1],2)
+        previous_slot=jnp.mod(previous[:,0],2)+2*jnp.mod(previous[:,1],2)
+        height_map=state.carpet_hfields.reshape((self.num_envs,CARPET_TILE_COUNT,4))
         mocaps=jnp.stack(tuple(data.mocap_pos[:,m,:]
                                 for m in self.carpet_mocap_ids),axis=1)
         # The physical height of the shared discontinuity, not the rise
@@ -2716,7 +2716,7 @@ class EmuMJXEnv(TaskSampler):
             jnp.where(y_pos,.5*(after[:,0]+after[:,1]),
                              .5*(after[:,2]+after[:,3])))
         rise=(pos_after[:,2]-pos_before[:,2]+
-              .5*(newedge-oldedge))
+              CARPET_SIZE_Z_M*(newedge-oldedge))
         # Sidewall collision is not a supported *top* foothold. Require
         # the SAME foot's MJX contact normal to face upward, its sphere
         # bottom to match the target tile's actual triangle elevation,

@@ -31,11 +31,11 @@ def batch_update_prism_mocaps(jnp, positions, mocap_ids, tile_centers, tile_chan
     positions: [world, mocap, xyz]
     tile_centers: [world, TILE_COUNT, xyz] (already offset to prism reference Z)
     tile_changed: [world, TILE_COUNT] bool. No disjoint old-foot cell may move.
-    This is deliberately identical to the old 18 sequential .at[].set()
+    This is deliberately identical to the old sequential .at[].set()
     updates; it changes neither geometry nor the contact-clearance guard.
     """
     if len(mocap_ids) != PRISM_COUNT or len(set(mocap_ids)) != PRISM_COUNT:
-        raise ValueError("prism mocap IDs must be 18 distinct bodies")
+        raise ValueError("prism mocap IDs must be eight distinct bodies")
     ids = jnp.asarray(mocap_ids, dtype=jnp.int32)
     tile = jnp.arange(PRISM_COUNT, dtype=jnp.int32) // PRISMS_PER_TILE
     previous = positions[:, ids, :]
@@ -54,7 +54,7 @@ def _local_triangle(triangle):
 
 
 def prism_mesh_xml(root, *, active: bool):
-    """Add 18 unique six-vertex, five-face convex prism mesh geoms.
+    """Add eight unique six-vertex, five-face convex prism mesh geoms.
 
     Unique mesh asset IDs are essential: MJX's runtime collision templates
     live in Model._impl.mesh_convex indexed by mesh dataid.
@@ -109,7 +109,7 @@ class PrismMeshBuilder:
         self.templates = tuple(template._impl.mesh_convex)
         self.ids = tuple(int(g) for g in geom_ids)
         if len(self.ids) != PRISM_COUNT:
-            raise ValueError("Expected 18 independent triangular prism geoms")
+            raise ValueError("Expected eight independent triangular prism geoms")
         self.meta = []
         used = set()
         for k, gid in enumerate(self.ids):

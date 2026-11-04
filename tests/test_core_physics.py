@@ -114,10 +114,10 @@ def test_batched_mocaps_match_old_birth_and_recycling():
     from emu.terrain_carpet_mjx import (
         sample_surface, TILE_HALF_M, TILE_M, TILE_SIZE_Z_M)
     source_ids=ids[:TILE_COUNT]
-    samples=jnp.asarray(rng.uniform(.1,.9,(worlds,36)),dtype=jnp.float32)
+    samples=jnp.asarray(rng.uniform(.1,.9,(worlds,TILE_COUNT*4)),dtype=jnp.float32)
     query=original[:,source_ids,:]+jnp.asarray(
         [.06,-.04,.10],dtype=jnp.float32)[None,None,:]
-    old_surface=jnp.full((worlds,9),-jnp.inf,dtype=jnp.float32)
+    old_surface=jnp.full((worlds,TILE_COUNT),-jnp.inf,dtype=jnp.float32)
     for i,mocap in enumerate(source_ids):
         p=original[:,mocap,:]
         u=(query[:,:,0]-p[:,None,0]+TILE_HALF_M)/TILE_M
@@ -313,7 +313,7 @@ def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
     from emu.terrain_carpet_mjx import TILE_M,TILE_HALF_M,TILE_BASE_M,TILE_COUNT
     def old_rays(xp,data,mocap_ids,hfield_data,origin,rays,*,
                     prism_bottom_depth_m=None):
-        """Slant range against both real triangles in every 50cm tile.
+        """Slant range against both real triangles in every 75cm tile.
     
         Iterative ray-plane intersections use the same planar interpolation as
         sample_surface. Only finite ray distances inside a tile are admitted.
