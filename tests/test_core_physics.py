@@ -164,6 +164,40 @@ def test_prism_model_has_no_inactive_box_bodies_at_all():
         add_carpet_geoms(robot.read_text(encoding='utf-8'),prisms=False)
 
 
+def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
+    """Remove solver contact PAIRS, not the 300g chassis or its inertia."""
+    from pathlib import Path
+    from mujoco import mjx
+    source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
+    reference=mujoco.MjModel.from_xml_string(
+        add_carpet_geoms(source,feet_only_contacts=False))
+    light=mujoco.MjModel.from_xml_string(
+        add_carpet_geoms(source,feet_only_contacts=True))
+    np.testing.assert_array_equal(light.body_mass,reference.body_mass)
+    np.testing.assert_array_equal(light.body_inertia,reference.body_inertia)
+    np.testing.assert_array_equal(light.geom_size,reference.geom_size)
+    for name in ('torso_box','floor','r_thigh_rod','l_thigh_rod',
+                 'r_shin_upper','l_shin_upper',
+                 'r_shin_lower_rod','l_shin_lower_rod'):
+        geom=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_GEOM,name)
+        assert geom>=0
+        assert light.geom_contype[geom]==0
+        assert light.geom_conaffinity[geom]==0
+    torso=mujoco.mj_name2id(reference,mujoco.mjtObj.mjOBJ_GEOM,
+                           'torso_box')
+    assert reference.geom_contype[torso]!=0
+    for name in ('r_foot_ball','l_foot_ball'):
+        geom=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_GEOM,name)
+        assert light.geom_contype[geom]!=0
+        assert light.geom_conaffinity[geom]&4
+    # Actual MJX padded solver shape must shrink as well; merely
+    # removing an XML contact flag is not sufficient evidence.
+    old=mjx.make_data(mjx.put_model(reference))
+    new=mjx.make_data(mjx.put_model(light))
+    assert new._impl.contact.geom1.shape[0]<old._impl.contact.geom1.shape[0]
+    assert new._impl.efc_J.shape[0]<old._impl.efc_J.shape[0]
+
+
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
     """All torso positions are >=37.5cm from an unloaded XY boundary."""
     fractions=np.asarray([0.,.001,.24,.499,.5,.501,.77,.9999])
