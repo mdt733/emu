@@ -41,6 +41,10 @@ def main(argv=None) -> int:
     q.add_argument('--no-bundle',action='store_true')
     q=sub.add_parser('train',help='one source-pinned 360-input prism training lineage')
     q.add_argument('--run-dir',required=True,help='unique experiment directory OUTSIDE source checkout')
+    q.add_argument('--solver-iterations',type=int,default=None,
+                   help='EXPERIMENTAL: exact MuJoCo solver iterations; default uses unchanged robot.xml')
+    q.add_argument('--solver-ls-iterations',type=int,default=None,
+                   help='EXPERIMENTAL: exact MuJoCo linesearch cap; default uses unchanged robot.xml')
     q.add_argument('--steps',type=int,required=True,help='absolute target environment steps')
     q.add_argument('--envs',type=int,default=2048)
     q.add_argument('--seed',type=int,default=733)
