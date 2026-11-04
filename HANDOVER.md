@@ -233,3 +233,24 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - Current XML already has noncontact thigh/shin rods and disabled
   plane; true prism contact remains permitted for torso and feet.
   Lowering colliders or contact caps must be separately gated.
+
+## 4 November — v5046 midpoint four-tile experiment (draft PR #35)
+
+- Owner's CUDA 2048-world profile on `65bc3df2` measured
+  full 8.9096s/update, standalone 32-frame no-gradient rollout
+  8.3314s (93.5% diagnostic ratio, not additive attribution).
+- On **separate** branch
+  `experiment/v5046-75cm-four-tile-midpoint`: 4×75cm
+  rolling tiles, 8 true convex mesh prism colliders rather
+  than 9×50cm / 18 colliders. Both have 1.5m×1.5m footprint.
+- Tile neighbourhood swaps per-axis at each tile **midpoint**,
+  mod-2 stable global slot IDs, with real sphere-foot
+  clearance guard. 2×2 keeps current tile while swapping
+  neighbours, including reversals and diagonal switches.
+- Corrected old coincidence `TILE_M==TILE_SIZE_Z_M==.5`:
+  physical mesh Z-offset, actual gradient/slope evidence,
+  edge height, examiner slot maps.
+- Tests, full MJX physics and GPU A/B are launch gates,
+  not a measured speedup yet. High-step downhill shallow
+  ToF may exceed 37.5cm, so sensor validity needs explicit
+  inspection. Preserve prior branch and finished 20M.

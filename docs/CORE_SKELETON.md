@@ -659,3 +659,38 @@ additive physics/gradient split. No normal-training path,
 PPO algorithm, checkpoint or physical model is changed.
 Run this source after existing GPU training finishes, and
 compare separately pinned commits.
+
+### v5046 research branch: 75cm midpoint four-tile carpet, not yet proven
+
+A **separate experimental branch** `experiment/v5046-75cm-four-tile-midpoint`
+implements four 75cm tiles with eight actual convex triangular-prism
+colliders. It is not a change to the source-pinned foundation run,
+nor a valid checkpoint resume of v5045; use new run directories and
+new policy lineage.
+
+At each axis, compute the torso's current global tile, then select
+the 2×2 window on the far side of that tile's **midpoint** (relative
+coordinate 0.5). Global tile coordinates use fixed mod-2 slot
+assignments. A reversal changes only the retired row or column;
+the current support tile remains. Recycling still requires clearance
+for both physical 18mm sphere feet plus 4mm margin, including
+sidewall and corner overlap. One diagonal midpoint switch may
+retire three squares. Never re-target supporting prisms.
+
+Tile XY width is now 0.75m while the normalized vertex-data
+vertical scale remains 0.50m. Prism mocap Z offset, physical slope
+estimates and edge-step evidence **must use the correct scale**
+independently. Both scales equalled .50m in the old world, masking
+the coupling.
+
+Geometric coverage: for a root within any generated 75cm tile,
+the midpoint-biased 2×2 window has at least 37.5cm axis-wise
+margin from that root to an absent tile. That covers nominal
+30cm forward ToF hits, but **not automatically** an extreme
+40-degree shallow beam over a high downhill lip or a controller
+foot that is exceptionally far from the torso. Validate sensor
+validity and physical guard-delayed recycling before launch.
+The user GPU must A/B this branch against source
+`65bc3df2` on equal hardware; no speedup is claimed from
+the collider-count reduction alone. Four square tiles give fewer
+step transitions per metre than the old nine 50cm tiles.

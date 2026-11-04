@@ -102,7 +102,7 @@ def run_probe(worlds=4, frames=2):
     assert len(env.carpet_prism_geom_ids)==PRISM_COUNT
     validate_prism_only_geoms(mujoco,env.mj_model)
     hf=np.asarray(jax.device_get(state.carpet_hfields))
-    assert np.isfinite(hf).all() and hf.shape==(worlds,36)
+    assert np.isfinite(hf).all() and hf.shape==(worlds,TILE_COUNT*4)
     assert np.isfinite(np.asarray(jax.device_get(obs))).all()
     surface=env._carpet_real_top_height(
         state.data,state.data.qpos[:,:3][:,None,:],

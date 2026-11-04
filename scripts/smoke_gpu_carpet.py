@@ -93,8 +93,8 @@ def main():
     if state.carpet_seen_write.shape!=(a.worlds,):
         raise RuntimeError("Per-world visit write pointer missing")
     heights=np.asarray(jax.device_get(state.carpet_hfields))
-    if heights.shape!=(a.worlds,36) or not np.isfinite(heights).all():
-        raise RuntimeError("Per-world hfield geometry must be finite [E,36]")
+    if heights.shape!=(a.worlds,TILE_COUNT*4) or not np.isfinite(heights).all():
+        raise RuntimeError("Per-world source hfield geometry must be finite [E,4*TILE_COUNT]")
     if np.max(np.abs(heights-np.mean(heights,axis=1,keepdims=True)))<1e-4:
         raise RuntimeError("Terrain must contain genuine changing triangles")
     if not np.all(np.isfinite(np.asarray(jax.device_get(obs)))):
