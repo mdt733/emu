@@ -85,8 +85,9 @@ python scripts/smoke_gpu_carpet.py \
 The new optional `--gpu-audit-dir` prints/stores:
 - `gpu_allocation_audit.json`: every JAX array group's
   logical shapes, sizes, 16 largest leaves, real count
-  and byte totals for `mjx.Data`, model, optimizer,
-  rollout and telemetry.
+  and byte totals for `mjx.Data`, the padded contact buffer,
+  model, optimizer, rollout and telemetry; the report includes
+  `contact_capacity_per_world` and actual MuJoCo model counts.
 - `xla_compiled_full_ppo_memory`: XLA's compiled
   argument, output, scratch/temp and alias budget. The
   lowered executable's compilation **may add another

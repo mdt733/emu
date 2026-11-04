@@ -296,6 +296,17 @@ def main():
                 "tiles":TILE_COUNT,"active_prisms":len(env.carpet_prism_geom_ids),
                 "environment":_gpu_tree_bytes("mjx_model",env.mjx_model),
                 "mjx_data":_gpu_tree_bytes("mjx_data",last.env_state.data),
+                # Static contact slots (NOT active contacts) are central to
+                # the 18-vs-8-prism hypothesis. Ask the actual installed
+                # MJX model, never derive capacity from geom counts.
+                "mjx_contact":_gpu_tree_bytes(
+                    "mjx_contact",last.env_state.data._impl.contact),
+                "contact_capacity_per_world":int(
+                    last.env_state.data._impl.contact.geom1.shape[1]),
+                "physical_mujoco_model_counts":{
+                    key:int(getattr(env.mj_model,key))
+                    for key in ("nq","nv","nbody","ngeom","nu","nmocap")
+                    if hasattr(env.mj_model,key)},
                 "env_state_excluding_mjx_data":_gpu_tree_bytes(
                     "env_state_excluding_mjx_data",
                     last.env_state._replace(data=None)),
