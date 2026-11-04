@@ -56,6 +56,9 @@ def one_run_config(args) -> TrainingConfig:
                     else .10 if growth_recipe=='main-mature' else 0.0)
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
     temporal_share=float(getattr(args,'temporal_vx_reward_share',0.))
+    stillness_birth_frac=float(getattr(args,'stillness_birth_frac',0.))
+    if not (math.isfinite(stillness_birth_frac) and 0. <= stillness_birth_frac <= .25):
+        raise ValueError('--stillness-birth-frac must be in [0,0.25]')
     if (not math.isfinite(temporal_share) or not 0.<=temporal_share<=1.0
             or (temporal_share>0. and not unified)):
         raise ValueError('--temporal-vx-reward-share requires unified actor and 0..1')
@@ -156,6 +159,7 @@ def one_run_config(args) -> TrainingConfig:
                    academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
+                   stillness_birth_frac=stillness_birth_frac,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
