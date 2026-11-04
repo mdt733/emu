@@ -59,11 +59,11 @@ def main(argv=None) -> int:
                    help='maximum signed procedural-prism step frontier, up to 0.08m')
     q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
     q.add_argument('--terrain-carpet',action='store_true',
-                   help='required: one endless procedural 3x3 prism source carpet')
+                   help='required: rolling 2x2 window of four 75cm procedural source tiles')
     q.add_argument('--carpet-prisms',action='store_true',
-                   help='required: 18 real convex-prism MJX contact solids (GPU preflight required)')
+                   help='required: eight true convex triangular-prism MJX colliders (GPU gate required)')
     q.add_argument('--carpet-transition-cap-deg',type=float,default=3.0,
-                   help='maximum smoothly varying local slope-angle change between 50cm tiles')
+                   help='maximum local slope-angle change between 75cm tiles')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
