@@ -267,15 +267,17 @@ def main():
         steady_update_times=[]
         if a.benchmark_updates>1:
             last=updated
+            final_steady_metrics=None
             for i in range(1,a.benchmark_updates):
                 start_steady=time.perf_counter()
-                nxt,_,_,_,_=trainer["train_update"](
+                nxt,steady_metrics,_,_,_=trainer["train_update"](
                     last,packet,jnp.zeros((360,),dtype=jnp.float32),
                     jnp.ones((360,),dtype=jnp.float32),
                     jnp.asarray(.25,jnp.float32))
                 jax.block_until_ready((nxt.obs,nxt.params["pi"][-1]["w"]))
                 steady_update_times.append(time.perf_counter()-start_steady)
                 last=nxt
+                final_steady_metrics=steady_metrics
             # Keep output meaningful if a later PPO update blows up.
             if not bool(np.asarray(jax.device_get(
                     jnp.all(jnp.isfinite(last.params["pi"][-1]["w"]))))):
@@ -287,6 +289,18 @@ def main():
                   f"mean={steady_seconds/(a.benchmark_updates-1):.3f}s/update; "
                   f"throughput={steady_fps:,.0f} world-steps/s "
                   "(synchronized; no checkpoint)",flush=True)
+            # This mask is already retained for curriculum scoring;
+            # analyse it AFTER timing so host transfer cannot skew FPS.
+            deaths=np.asarray(jax.device_get(
+                jnp.sum(final_steady_metrics["episode_done"]>.5,axis=1)))
+            cap=env.reset_forward_capacity
+            print("RESET BATCH STATS: "
+                  f"mean={np.mean(deaths):.2f}/frame "
+                  f"p95={np.percentile(deaths,95):.0f} "
+                  f"max={np.max(deaths):.0f} "
+                  f"capacity={cap} "
+                  f"fallback_frames={np.sum(deaths>cap) if cap else 32}/32",
+                  flush=True)
         if a.gpu_audit_dir:
             from pathlib import Path
             out_dir=Path(a.gpu_audit_dir).expanduser().resolve()
