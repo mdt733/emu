@@ -53,7 +53,8 @@ RESILIENCE_TOLERANCE_MULT = 3.0
 RESILIENCE_TRACKING_RELIEF = 0.5
 
 def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
-                    motor_guidance_per_world=None, temporal_vx=None):
+                    motor_guidance_per_world=None, temporal_vx=None,
+                    allow_zero_command_balance=False):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -69,7 +70,8 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(m, jnp)
-    locomotion_maturity, stepping_gate = _gait_maturity(m, jnp)
+    locomotion_maturity, stepping_gate = _gait_maturity(
+        m, jnp, allow_zero_command_balance=allow_zero_command_balance)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
     terms = {
@@ -206,7 +208,7 @@ def _physical_qualities(m, jnp):
             swing_clearance, servo_smoothness, joint_safety)
 
 
-def _gait_maturity(m, jnp):
+def _gait_maturity(m, jnp, *, allow_zero_command_balance=False):
     """Reduce free rewards for long periods without observable foot activity."""
     # Every regime practises moving; don't reward endless balancing.
     locomotion_maturity = jnp.clip((m['age_s'] - 0.20) / 0.45, 0.0, 1.0)
@@ -215,6 +217,15 @@ def _gait_maturity(m, jnp):
     stepping_factor = jnp.clip(m['stepping_activity_so_far'] / STEPPING_ACTIVITY_TARGET, 0.0, 1.0)
     # A 30% floor avoids a hard failure cliff once the grace period expires.
     stepping_gate = jnp.where(m['age_s'] > STEPPING_GATE_GRACE_S, 0.30 + 0.70 * stepping_factor, 1.0)
+    if allow_zero_command_balance:
+        # This is NOT a bonus for standing still while told to walk.
+        # Only near-zero command on ALL three axes lifts the arbitrary
+        # episode-long stepping-activity payment gate. Fall, contact,
+        # torso, slip, velocity, height and joint safeguards remain.
+        zero_request = ((jnp.abs(m['cmd_vx']) <= .02) &
+                        (jnp.abs(m['cmd_vy']) <= .02) &
+                        (jnp.abs(m['cmd_yaw']) <= .05))
+        stepping_gate = jnp.where(zero_request, 1.0, stepping_gate)
     return locomotion_maturity, stepping_gate
 
 
