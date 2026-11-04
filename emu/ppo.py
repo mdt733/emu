@@ -651,6 +651,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         noise = jax.random.normal(sensor_key,(horizon,env.num_envs))*jnp.asarray(gyro_noise)
         bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
         limit = env.yaw_max_rad_s
+        # The live v5046+ world is a 2x2 window of 75cm tiles, NOT the
+        # retired nine 50cm slabs. Share this single terrain ownership
+        # contract with the physical independent scorer.
+        from .terrain_carpet_mjx import TILE_M, TILE_COUNT, TILE_WINDOW_SIDE
 
         def record_state(es):
             data=es.data
@@ -665,13 +669,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                                   data.contact.geom2,data.contact.dist,
                                   int(g),foot_geoms)
                 for g in prisms),axis=1),axis=1)
-            tile=jnp.floor(data.qpos[:,:2]/.50).astype(jnp.int32)
-            slot=jnp.mod(tile[:,0],3)+3*jnp.mod(tile[:,1],3)
-            h=es.carpet_hfields.reshape((env.num_envs,9,4))
+            tile=jnp.floor(data.qpos[:,:2]/TILE_M).astype(jnp.int32)
+            slot=(jnp.mod(tile[:,0],TILE_WINDOW_SIDE)
+                  +TILE_WINDOW_SIDE*jnp.mod(tile[:,1],TILE_WINDOW_SIDE))
+            h=es.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
             chosen=jnp.take_along_axis(
                 h,slot[:,None,None],axis=1)[:,0,:]
-            u=(data.qpos[:,0]/.50-tile[:,0].astype(jnp.float32))
-            v=(data.qpos[:,1]/.50-tile[:,1].astype(jnp.float32))
+            u=(data.qpos[:,0]/TILE_M-tile[:,0].astype(jnp.float32))
+            v=(data.qpos[:,1]/TILE_M-tile[:,1].astype(jnp.float32))
             gx=jnp.where(u+v<=1.,chosen[:,1]-chosen[:,0],
                                     chosen[:,3]-chosen[:,2])
             gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
@@ -823,14 +828,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     "carpet_raw_contact_pairs":carpet_pairs,
                     "carpet_contact_vertical":jnp.stack(contact_vertical,axis=1),
                     "carpet_root_cell":jnp.floor(
-                        es.data.qpos[:,:2]/.50).astype(jnp.int32),
+                        es.data.qpos[:,:2]/TILE_M).astype(jnp.int32),
                     "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
                     "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
                         (env.num_envs,len(solids),3,3)),
                 })
                 # PRE-step world-space vertex evidence for the independent
                 # prism scorer, time-aligned with raw MJX contact pairs.
-                corner=es.carpet_hfields.reshape((env.num_envs,9,4))
+                corner=es.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
                 tile_z=es.data.mocap_pos[:,list(env.carpet_mocap_ids),2]
                 sample["carpet_prism_corner_z"]=tile_z[:,:,None]+.5*corner
             if env.academy_stream:
