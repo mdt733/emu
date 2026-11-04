@@ -167,11 +167,17 @@ def read_last_csv(path):
     return rows[-1]
 
 
-def checked_actor(actor, sha, spec, step):
+def checkpoint_boundary(step, envs=2048):
+    batch=envs*32
+    return (int(step)+batch-1)//batch*batch
+
+
+def checked_actor(actor, sha, spec, step, *, envs=2048):
     data = json.loads(actor.read_text(encoding="utf-8"))
     source = data.get("source", {})
     physics = data.get("training", {})
-    if (source.get("git_commit") != sha or source.get("step") < step or
+    if (source.get("git_commit") != sha or
+            source.get("step") != checkpoint_boundary(step,envs) or
             physics.get("terrain_carpet_prisms") is not True or
             physics.get("solver_iterations") != spec.get("solver", 2) or
             physics.get("solver_ls_iterations") != 4 or
@@ -216,7 +222,7 @@ def lifecycle_acceptance(sha, state, env):
                  str(checkpoint),str(actor)]
             if process(cmd,SCRATCH/"logs"/(key+"_export.log"),env,echo=False):
                 raise RuntimeError(f"Acceptance actor export failed: {key}")
-        checked_actor(actor,sha,spec,512)
+        checked_actor(actor,sha,spec,512,envs=8)
         out=folder/"frozen_exam"
         physical=out/"prism_exam.json"
         if not physical.exists():
@@ -272,8 +278,21 @@ def run_train(label, spec, steps, seed, sha, state, env, *,
     if folder.exists() and any(folder.iterdir()):
         if not (folder/"training_config.json").is_file():
             raise RuntimeError(f"Nonempty foreign run directory: {folder}")
-        cmd=base+["--resume","auto"]
-        print(f"RESUME/EXTEND {key} using own validated checkpoint",flush=True)
+        # If first-use compilation failed BEFORE any checkpoint existed,
+        # there is nothing to auto-resume. Retry the exact original
+        # parent (or cold foundation) only when no training row was saved.
+        own_ckpt=folder/"checkpoints"
+        any_ckpt=own_ckpt.is_dir() and any(own_ckpt.glob("*.pkl"))
+        if any_ckpt:
+            cmd=base+["--resume","auto"]
+            print(f"RESUME/EXTEND {key} using own checkpoint",flush=True)
+        else:
+            metrics_path=folder/"metrics.csv"
+            if metrics_path.exists() and metrics_path.stat().st_size>0:
+                raise RuntimeError(f"Nonempty metrics without checkpoint: {folder}")
+            cmd=base+(["--resume",str(parent)] if parent is not None else [])
+            print(f"RETRY pre-checkpoint failure for {key} "
+                  "(same source/recipe, no learned updates)",flush=True)
     elif parent is not None:
         cmd=base+["--resume",str(parent)]
         print(f"NEW MATCHED FORK {key} from immutable {parent_hash[:12]}",flush=True)
@@ -362,7 +381,7 @@ def get_exams(label, seed, spec, folder, actor, sha, steps, state, env,
             source = json.loads(actor.read_text())["source"]
             if (data.get("schema") != "emu_prism_frozen_exam_v1" or
                     data.get("source_training_sha") != sha or
-                    data.get("source_step") < steps or
+                    data.get("source_step") != checkpoint_boundary(steps) or
                     data.get("source_actor_sha256") != actor_hash or
                     protocol.get("seed") != exam_seed or
                     protocol.get("worlds") != WORLDS or
