@@ -81,6 +81,26 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     assert cfg.push_max_force_n == pytest.approx(4.)
     assert cfg.capability_field_mode == "shadow"
     assert cfg.freeze_obs_norm_after_steps == 0
+    assert cfg.stillness_birth_frac == 0.
+    # The one opt-in zero-command cohort is recorded in TrainingConfig.
+    with patch("emu.run.train_one", side_effect=capture):
+        assert emu_cli_main(cli_args+["--stillness-birth-frac",".12"])==0
+    assert configs_seen[-1].stillness_birth_frac==pytest.approx(.12)
+    with patch("emu.run.train_one", side_effect=lambda ns: one_run_config(ns)):
+        with pytest.raises(ValueError,match="stillness-birth-frac"):
+            emu_cli_main(cli_args+["--stillness-birth-frac",".4"])
+    # No-free-posture rule remains for moving targets; zero command is
+    # the *only* request allowed to opt out of forced stepping activity.
+    from emu.rewards import _gait_maturity
+    m = dict(age_s=np.asarray([2.],np.float32),
+             stepping_activity_so_far=np.asarray([0.],np.float32),
+             cmd_vx=np.asarray([0.],np.float32),
+             cmd_vy=np.asarray([0.],np.float32),
+             cmd_yaw=np.asarray([0.],np.float32))
+    assert float(_gait_maturity(m,np)[1][0])==pytest.approx(.30)
+    assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(1.)
+    m['cmd_vx']=np.asarray([.12],np.float32)
+    assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     # The retired sparse-cloud evaluator must not be used by this lineage.
     assert cfg.cloud_probes_per_eval == 0 and cfg.cloud_final_probes == 0
     assert training_sensor_contract(cfg) is not None
@@ -128,7 +148,9 @@ def test_actual_cli_parses_to_one_immutable_prism_recipe(tmp_path):
     with patch("emu.prism_exam.evaluate_prism_policy",
                return_value=(tmp_path / "prism_exam.json", tmp_path / "prism_exam.md")) as exam:
         assert emu_cli_main(["prism-exam", "--policy", str(tmp_path / "actor.emupolicy"),
-                             "--output", str(tmp_path / "exam"), "--mode", "step"]) == 0
+                             "--output", str(tmp_path / "exam"), "--mode", "step",
+                             "--speed", "0"]) == 0
+        assert exam.call_args.kwargs["speed"] == 0.
         assert exam.call_args.kwargs["mode"] == "step"
 
 
