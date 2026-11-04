@@ -2,7 +2,7 @@ name: EMU source and browser checks
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, experiment/v5046-75cm-four-tile-midpoint]
   push:
     branches: [main, experiment/v5046-75cm-four-tile-midpoint]
   workflow_dispatch:
