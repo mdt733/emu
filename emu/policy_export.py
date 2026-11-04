@@ -417,6 +417,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             # the independent exam must not silently revert to XML defaults.
             "solver_iterations": run_cfg.get('solver_iterations'),
             "solver_ls_iterations": run_cfg.get('solver_ls_iterations'),
+            "stillness_birth_frac": _scalar(run_cfg, "stillness_birth_frac", 0.),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
