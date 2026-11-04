@@ -12,9 +12,9 @@ browser champion remain untouched.
 compared with the current draft PR #34 tree. The first complete
 [census at `c4e3c739`](https://github.com/mdt733/emu/tree/c4e3c739938bf3e5cc6e2d51bef42b9776c47cee)
 had 102 files. Further browser-helper consolidation, historical-doc
-retirement and one redundant ignore file leave **90 tracked files:
-89 paths retired and 13 new paths** relative to v5044. That is 76
-fewer tracked files, not 89 fewer *features*. Historical research stays
+retirement and one redundant ignore file leave **89 tracked files:
+90 paths retired and 13 new paths** relative to v5044. That is 77
+fewer tracked files, not 90 fewer *features*. Historical research stays
 accessible at the pinned old SHA. The 886 KB
 `showcase/champion.emupolicy` is a binary/encoded actor artifact,
 not readable source. Verify its hash and manifest with
@@ -42,32 +42,32 @@ assembled from real sensor and command data, not privileged teacher
 geometry. The browser's nine-box *illustration* is not one of the
 eighteen real MJX collision prisms.
 
-### 2. Every remaining supporting file group — 65/65
+### 2. Every remaining supporting file group — 64/64
 
 | Status | Current folder or files | Count | Why retained |
 |---|---|---:|---|
 | [x] | `emu/viewer_src/src/`: 17 JavaScript modules + `style.css` | 18 | Local MuJoCo/WASM viewer: actor, sensors, physics, controls, navigation and representative terrain; **not** a GPU trainer |
 | [x] | `emu/viewer_src/` build files, notices, one browser test | 6 | Reproducible `npm ci`, build and seven browser contracts |
-| [x] | `scripts/`: launch (1), physical/GPU/lifecycle probes (3), release/static checks (5), WSL setup (2) | 11 | One production campaign; explicit acceptance and guarded deployment |
+| [x] | `scripts/`: launch (1), physical/GPU/lifecycle probes (3), release/static checks (4), WSL setup (2) | 10 | One production campaign; explicit acceptance and guarded deployment |
 | [x] | `tests/test_core_{run,physics,delivery}.py` | 3 | 18 focused Python contracts; no archived test matrix |
 | [x] | `.github/workflows/`: `core-skeleton-proof.yml`, `emu-checks.yml`, `emu-playground.yml` | 3 | Branch physics checks, protected main checks and approved publishing |
 | [x] | `docs/`: 13 Markdown files + one architecture diagram | 14 | Current skeleton/runbook/installation plus clearly dated physical baselines |
 | [x] | `showcase/`: `champion.emupolicy`, `deployment_request.json`, `release_approval.json` | 3 | Protected released 260M actor and approved release identity |
 | [x] | Root metadata, `emu/VERSION` and `emu/robot.xml` | 7 | `README.md`, `HANDOVER.md`, `pyproject.toml`, `.gitignore`, `.nvmrc`, version, robot model |
-| | **Total, including 25 engine modules** | **90** | No unassigned tracked category at this census |
+| | **Total, including 25 engine modules** | **89** | No unassigned tracked category at this census |
 
-### 3. What was actually cleared away — 89/89
+### 3. What was actually cleared away — 90/90
 
 | Status | Retired paths compared with v5044 | Count | Replacement or reason |
 |---|---|---:|---|
 | [x] | Engine: `capability_cloud.py`, `physical_exam.py`, `physical_quality.py`, `step_academy_world.py`, `terrain_carpet.py`, `terrain_spike.py` | 6 | One prism physics engine, current governor, `prism_exam.py` |
-| [x] | Scripts: eight retired experiments plus redundant `check_current_docs.py` (merged into the core static audit) | 9 | Current runbook, three explicit smoke/lifecycle/physics scripts and immutable old research |
+| [x] | Scripts: eight retired experiments plus `check_current_docs.py` and `verify_showcase_dist.py` (merged into their live validators) | 10 | Current runbook, three explicit smoke/lifecycle/physics scripts and immutable old research |
 | [x] | Viewer: old Prism Lab (4), seven obsolete tests and eight merged micro-helper files | 19 | Integrated viewer and `essential.test.mjs` |
 | [x] | Old Python tests, including `conftest.py` and 20 research fixture/test files | 21 | Three maintained core test files + real MJX contact probe |
 | [x] | Superseded box/hfield/prism workflow YAML files | 3 | One complete branch proof workflow |
 | [x] | Historical/duplicated `docs/` pages and `docs/history/` files | 30 | Current docs reference historical commits instead of carrying experiments as active code |
 | [x] | Redundant `emu/viewer_src/.gitignore` (root patterns cover all three entries) | 1 | Root `.gitignore` owns viewer build exclusions |
-| | **Total removed paths** | **89** | Contents can be recovered from source-pinned v5044 |
+| | **Total removed paths** | **90** | Contents can be recovered from source-pinned v5044 |
 
 **Not deleted:** `training-carpet.js` and
 `training-solid-carpet.js` are still required by the *browser*
@@ -88,7 +88,7 @@ checkpoint provenance, genuine signed terrain crossing tests, all
 - [x] Core static import inventory, current local Markdown links,
   18 Python contracts, 7 browser contracts and source-locked champion
   checks. Last confirmed fully green branch SHA before this continuation:
-  `ab9a52a6` ([CI](https://github.com/mdt733/emu/actions/runs/41740744834)).
+  `e9183c3` ([CI](https://github.com/mdt733/emu/actions/runs/41743799822)).
   Subsequent cleanup commits require their own complete rerun.
 - [x] Actual 4-world MJX prism contact, 360-input reset/step,
   safe recycle and essential telemetry probe at that last green SHA.
@@ -548,3 +548,23 @@ removed. These code deletions are not evidence of a GPU throughput gain.
 **Open gate:** the latest head requires full branch CI, same-source CUDA
 PPO/checkpoint lifecycle and an exported frozen-actor true-prism exam.
 Do not start or resume a 140M campaign on prior checkpoint/source SHAs.
+
+### One release validator, one active snapshot chain
+
+The redundant source and release pathways were checked against live imports,
+CLI dispatch and GitHub Pages workflows. Removed four uncalled historical
+`checkpoint_io.py` helpers (legacy graph/shadow checkpoint selector,
+snapshot-finder alias, and two staged-foundation handoff functions).
+The current rotating snapshot writer, `find_valid_resume`, same-source
+continuation, rollback recovery and exact-geometry checks were **not**
+removed. `results.read_metrics_csv` was a one-line wrapper; its only
+consumers now use the original `read_csv_rows` directly.
+
+The public asset checker and built-site checker now share
+`scripts/verify_showcase_release.py`: ordinary invocation verifies
+`showcase/release_approval.json` and its champion actor;
+`--verify-dist --expect-source-commit SHA` verifies the generated
+static HTML, policy payload, manifest, committed approval and WASM asset.
+The existing main-only Pages deployment remains owner-approved; the
+v5045 branch CI now runs the full *build + verify-dist* sequence without
+deploying. No new test file or release authority was introduced.

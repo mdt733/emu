@@ -56,6 +56,10 @@ jobs:
       - name: Seven essential browser contracts
         working-directory: emu/viewer_src
         run: npm test
+      - name: Stage source-pinned approved champion
+        run: python3 scripts/prepare_showcase.py --source-commit "$GITHUB_SHA"
       - name: Build MuJoCo/WASM browser viewer
         working-directory: emu/viewer_src
         run: npm run build
+      - name: Validate built browser, trained actor and WASM payload
+        run: python3 scripts/verify_showcase_release.py --verify-dist --expect-source-commit "$GITHUB_SHA"

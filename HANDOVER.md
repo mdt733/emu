@@ -166,3 +166,19 @@ reconciles every surviving module with its job and identifies open gates. The hi
   fail on broken local Markdown links, with one fewer script to maintain.
   Live inventory: **90 tracked files**; relative to pinned v5044,
   **89 retired paths and 13 added paths**.
+
+## 4 November — stop maintaining duplicate checkpoint/release entry points
+
+- Removed uncalled historical `checkpoint_io` selectors and separate
+  staged-foundation helpers; kept rotating current-schema snapshots,
+  validated resume and source-pinned rollback. Removed duplicate CSV read
+  alias in favour of `read_csv_rows`.
+- Folded the 52-line `verify_showcase_dist.py` into
+  `verify_showcase_release.py --verify-dist`. Both the protected Pages
+  publishing workflow and the main integration workflow use the shared
+  release check. Branch CI now actually stages, builds and validates
+  the approved actor + WASM assets on the branch before calling browser
+  delivery green.
+- Current complete inventory: **89 tracked files**, **90 retired paths
+  and 13 newly created paths** relative to source-pinned v5044. Core
+  physics, six-specialist teaching and `main` champion remain unchanged.
