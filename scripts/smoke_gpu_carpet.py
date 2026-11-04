@@ -64,6 +64,9 @@ def main():
     p.add_argument("--profile-rollout",action="store_true",
                    help="independently time the exact 32-frame training rollout "
                         "without PPO gradients; requires >=3 full updates")
+    p.add_argument("--reset-forward-capacity",type=int,default=128,metavar="N",
+                   help="fixed-size exact MJX forward batch for episode resets; "
+                        "0 uses the original all-world reference for matched A/B")
     p.add_argument("--gpu-audit-dir",default=None,metavar="DIR",
                    help="opt-in: capture XProf GPU kernel trace, JAX live "
                         "allocations, XLA buffer analysis and full rollout "
@@ -72,6 +75,7 @@ def main():
     if not a.prisms:
         p.error("The active EMU simulator is prism-only; pass --prisms")
     if a.worlds<4 or not 1<=a.frames<=20:p.error("Need >=4 worlds, 1..20 frames")
+    if a.reset_forward_capacity<0:p.error("--reset-forward-capacity must be >=0")
     if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
         p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
     if (not 1<=a.benchmark_updates<=8 or
@@ -99,7 +103,8 @@ def main():
         unified_capability_focus=True,terrain_lesson="coherent-careful",
         academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
         terrain_carpet_prisms=True,
-        attitude_profile='v5015',pitch_command_max_deg=8.0)
+        attitude_profile='v5015',pitch_command_max_deg=8.0,
+        reset_forward_capacity=a.reset_forward_capacity)
     params=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                 slope_max_deg=8.,terrain_height_m=.02,
                 academy_height_up_m=.02,academy_height_down_m=.03,
@@ -293,6 +298,7 @@ def main():
                 "jax_version":jax.__version__,
                 "backend":jax.default_backend(),
                 "worlds":a.worlds,"rollout_frames":32,
+                "reset_forward_capacity":env.reset_forward_capacity,
                 "tiles":TILE_COUNT,"active_prisms":len(env.carpet_prism_geom_ids),
                 "environment":_gpu_tree_bytes("mjx_model",env.mjx_model),
                 "mjx_data":_gpu_tree_bytes("mjx_data",last.env_state.data),
@@ -412,6 +418,7 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
+          reset_forward_capacity=env.reset_forward_capacity,
           **physics_report_fields(),tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
           **(dict(ppo_parameter_delta=max_param_delta,
