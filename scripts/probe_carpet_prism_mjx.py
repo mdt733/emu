@@ -249,7 +249,30 @@ def run_probe(worlds=4, frames=2):
     print("reset-forward PASS: no-death bypass, compact model/data "
           "parity and overflow fallback",flush=True)
 
+    assert env.feet_only_contacts
+    # Sentinel checks physical terrain against knee pose rather than
+    # introducing even one more (expensive) non-foot contact constraint.
     params=env.params_array(settings)
+    idle_action=jnp.zeros((worlds,6),dtype=jnp.float32)
+    m=env._metrics(state.data,state.task,idle_action,state.prev_action,
+                   state.phase,state.prev_foot_pos,
+                   carpet_heights=state.carpet_hfields)
+    assert np.isfinite(np.asarray(jax.device_get(
+        m['virtual_nonfoot_clearance_m']))).all()
+    knee=int(np.asarray(jax.device_get(env.bad_bodies[3])))
+    query=state.data.xpos[:,knee:knee+1,:]
+    top=env._carpet_real_top_height(state.data,query,state.carpet_hfields)
+    assert np.isfinite(np.asarray(jax.device_get(top))).all()
+    fake_pose=state.data.xpos.at[:,knee,2].set(top[:,0]-.06)
+    struck=env._metrics(state.data.replace(xpos=fake_pose),state.task,
+                        idle_action,state.prev_action,state.phase,
+                        state.prev_foot_pos,carpet_heights=state.carpet_hfields)
+    assert np.all(np.asarray(jax.device_get(
+        struck['fall_virtual_contact']))>.5),(
+        "Deep knee penetration must terminate despite no MJX knee collider")
+    print("virtual-strike PASS: real terrain, knee penetration -> fall",
+          flush=True)
+
     # This same physical smoke must catch telemetry/report regressions:
     # PPO's governor reads episode and terrain evidence every frame.
     # No additional test world or PPO update is required.
@@ -259,6 +282,7 @@ def run_probe(worlds=4, frames=2):
         'terrain_cross_new', 'academy_cross_new',
         'slope_episode_attempt_uphill', 'terrain_episode_success_up',
         'exam_stance_slip_proxy', 'reward_command_tracking',
+        'fall_virtual_contact','virtual_nonfoot_strike',
     )
     for _ in range(frames):
         out=env.step(state,jnp.zeros((worlds,6),dtype=jnp.float32),params)
