@@ -950,7 +950,9 @@ class EmuMJXEnv(TaskSampler):
                  academy_height_cap_m: float = 0.150,
                  academy_course_episode_frames: int = 1200,
                  reset_forward_capacity: int = 128,
-                 feet_only_contacts: bool = True):
+                 feet_only_contacts: bool = True,
+                 solver_iterations: int | None = None,
+                 solver_ls_iterations: int | None = None):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1054,11 +1056,26 @@ class EmuMJXEnv(TaskSampler):
             not 700<=academy_course_episode_frames<=1500):
             raise ValueError('Academy course episode time must be 700..1500 frames')
         self.academy_course_episode_frames=int(academy_course_episode_frames)
-        # No buried 64m slabs, separate finite platforms or legacy boxes.
+        # Solver caps are part of the physical training identity. This
+        # experimental branch lets a run opt in explicitly, without changing
+        # robot.xml or the default physics of existing source checkouts.
+        # The same override is passed to all held-out exam worlds.
+        for name,value in (("solver_iterations",solver_iterations),
+                           ("solver_ls_iterations",solver_ls_iterations)):
+            if value is not None and (type(value) is not int or not 1<=value<=100):
+                raise ValueError(f"{name} must be None or integer 1..100")
+        source_xml=ET.parse(self.robot_xml).getroot()
+        if solver_iterations is not None or solver_ls_iterations is not None:
+            option=source_xml.find("option")
+            if option is None:
+                option=ET.SubElement(source_xml,"option")
+            if solver_iterations is not None:
+                option.set("iterations",str(solver_iterations))
+            if solver_ls_iterations is not None:
+                option.set("ls_iterations",str(solver_ls_iterations))
         self.mj_model=mujoco.MjModel.from_xml_string(
-            add_carpet_geoms(ET.tostring(
-                ET.parse(self.robot_xml).getroot(),encoding='unicode'),
-                prisms=True,feet_only_contacts=self.feet_only_contacts))
+            add_carpet_geoms(ET.tostring(source_xml,encoding='unicode'),
+                             prisms=True,feet_only_contacts=self.feet_only_contacts))
         self.carpet_mocap_ids=tuple(int(self.mj_model.body_mocapid[
             mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_BODY,n)])
             for n in CARPET_BODY_NAMES)
