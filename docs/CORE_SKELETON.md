@@ -568,3 +568,22 @@ static HTML, policy payload, manifest, committed approval and WASM asset.
 The existing main-only Pages deployment remains owner-approved; the
 v5045 branch CI now runs the full *build + verify-dist* sequence without
 deploying. No new test file or release authority was introduced.
+
+### Fixed real-prism terrain and optional manufacturing variation
+
+In v5045 `domain_randomization.py` no longer contains the two unreachable
+tilted-gravity or rotated-ground-plane terrain models. The geometry,
+floor normal and contact gradients are always those of the true sampled
+convex prisms. `TrainingConfig`, the training/environment constructors
+and `doctor` no longer carry a phantom `domain_terrain_radius`,
+`domain_terrain_mode` or `contact_slope_deg` switch.
+
+Optional mass/inertia, gravity-*magnitude*, joint and servo variation
+is retained. Its seed, 18-key split, robot/hardware key indices and
+physical bounds are kept unchanged, avoiding silent reseeding.
+In the old prism-compatible configuration terrain radius was always
+zero; removing its duplicate `geom_friction` batched model leaf and
+slope metadata removes dead complexity, **not actual prism collisions**.
+A current-source doctor `--domain-smoke` on 8 randomized CPU MJX worlds
+is now required by branch CI as well as the ordinary four-world prism
+probe. Treat physical correctness as unproven until this new CI passes.

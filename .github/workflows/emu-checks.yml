@@ -33,6 +33,7 @@ jobs:
         run: |
           python -m compileall -q emu scripts tests
           python scripts/verify_showcase_release.py
+          python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json
           emu doctor --no-require-gpu --no-mjx-smoke
           python scripts/run_prism_140m.py plan > /dev/null
           python -m pytest -q tests

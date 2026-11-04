@@ -182,3 +182,16 @@ reconciles every surviving module with its job and identifies open gates. The hi
 - Current complete inventory: **89 tracked files**, **90 retired paths
   and 13 newly created paths** relative to source-pinned v5044. Core
   physics, six-specialist teaching and `main` champion remain unchanged.
+
+## 4 November — remove inactive fake terrain physics
+
+- Dropped 99 lines from `domain_randomization.py` and corresponding
+  expired constructor/config parameters. Rotated-plane inclines and
+  tilted-gravity approximations could not be selected in the
+  v5045 prism environment anyway.
+- Preserved optional randomized mass, gravity magnitude, joints and
+  actuator variation with unchanged robot/hardware RNG-key assignments.
+  The real 18-prism collision mesh is still the terrain source.
+- Enhanced exact-head CI with `emu doctor --domain-smoke` to actually
+  run optional manufacturing-noise MJX alongside the independent real
+  prism contact probe. Until green, this branch stays research-only.
