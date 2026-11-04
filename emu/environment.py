@@ -2941,15 +2941,20 @@ class EmuMJXEnv(TaskSampler):
                 virtual_z[:,0],jnp.min(leg_z,axis=1))
             virtual_strike=virtual_clearance<-.005
             virtual_hard=virtual_clearance<-.020
+            height=bad_z[:,0]
         else:
-            bad_z=self._support_signed_heights(
-                data,bad_body_pos,carpet_heights)
+            # Exact original multi-query topology for meaningful A/B
+            # against the 8-prism torso-contact GPU reference.
+            height=self._support_signed_heights(
+                data,data.xpos[:,self.torso_id:self.torso_id+1,:],
+                carpet_heights)[:,0]
             foot_ground_distance=self._support_signed_heights(
                 data,foot_pos,carpet_heights)
+            bad_z=self._support_signed_heights(
+                data,bad_body_pos,carpet_heights)
             virtual_clearance=jnp.ones((self.num_envs,),dtype=jnp.float32)
             virtual_strike=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
             virtual_hard=jnp.zeros((self.num_envs,),dtype=jnp.bool_)
-        height=bad_z[:,0]
         foot_mid = jnp.mean(foot_pos, axis=1)
         torso_pos = data.xpos[:, self.torso_id, :]
         torso_to_feet = torso_pos - foot_mid
