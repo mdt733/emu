@@ -281,6 +281,7 @@ def get_exams(label, seed, spec, folder, actor, sha, steps, state, env):
 
 def score(exams):
     vals = {"supported_up":0, "supported_down":0,
+            "up_seeds":set(), "down_seeds":set(),
             "step_worlds":0,"flat_survival":[], "step_survival":[],
             "slope_survival":[], "zero_drift":[], "slow_error":[],
             "fast_vx":[], "fast_stride":[], "fast_footfall":[],
@@ -288,8 +289,12 @@ def score(exams):
     for name, seed, item in exams:
         rows = item["worlds"]
         if name.startswith("step_"):
-            vals["supported_up"]+=item["measured"]["signed_supported_up"]
-            vals["supported_down"]+=item["measured"]["signed_supported_down"]
+            ups=item["measured"]["signed_supported_up"]
+            downs=item["measured"]["signed_supported_down"]
+            vals["supported_up"]+=ups
+            vals["supported_down"]+=downs
+            if ups: vals["up_seeds"].add(seed)
+            if downs: vals["down_seeds"].add(seed)
             vals["step_worlds"]+=len(rows)
         for row in rows:
             survived=float(bool(row["survived"]))
@@ -315,6 +320,11 @@ def score(exams):
                     vals["fast_yaw_bias"].append(abs(row["yaw_bias_rad_s"]))
     avg=lambda name:(statistics.mean(vals[name]) if vals[name] else None)
     out={k:vals[k] for k in ("supported_up","supported_down","step_worlds")}
+    out["up_exam_seeds"]=len(vals["up_seeds"])
+    out["down_exam_seeds"]=len(vals["down_seeds"])
+    out["both_signed_replicated"]=(
+        out["up_exam_seeds"]==len(SEEDS) and
+        out["down_exam_seeds"]==len(SEEDS))
     out.update({k:avg(k) for k in ("flat_survival","step_survival",
                                   "slope_survival","zero_drift","slow_error",
                                   "cruise_error","fast_vx","fast_stride",
@@ -327,8 +337,13 @@ def score(exams):
                       out["fast_vx"]>=.20)
     # Predetermined ranks; *true* supported signed lips outrank
     # potentially reward-hacked PPO scores. Secondary axes must be safe.
+    # Step evidence from only one test seed is interesting, not a
+    # mastered stair claim; half-credit such events in selection.
+    step_evidence=(out["supported_up"]+out["supported_down"])
+    if not out["both_signed_replicated"]:
+        step_evidence=min(3.,.5*step_evidence)
     out["research_score"]=round(
-        8*min(12,out["supported_up"]+out["supported_down"])
+        8*min(12,step_evidence)
         +20*out["flat_survival"]+12*out["step_survival"]
         +8*(out["slope_survival"] or 0)
         +5*min(.8,max(0.,out["fast_vx"]))
@@ -364,13 +379,14 @@ def report(state):
         "raw-physical frozen exams with matched held-out seeds, never PPO",
         "training reward or Academy's internal success flags.",
         "",
-        "| Arm | True supported up/down | Flat survival | Step survival | 0cmd drift m | Fast vx m/s | Fast stride m | Footfall Hz | Score | Gate |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Arm | True up/down | Exam seeds up/down | Flat survival | Step survival | 0cmd drift m | Fast vx m/s | Fast stride m | Footfall Hz | Score | General gate |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     fmt=lambda x:"—" if x is None else f"{x:.3f}"
     for label, s in scored.items():
         lines.append(
             f"| {label} | {s['supported_up']}/{s['supported_down']} "
+            f"| {s['up_exam_seeds']}/{s['down_exam_seeds']} "
             f"| {fmt(s['flat_survival'])} | {fmt(s['step_survival'])} "
             f"| {fmt(s['zero_drift'])} | {fmt(s['fast_vx'])} "
             f"| {fmt(s['fast_stride'])} | {fmt(s['fast_footfall'])} "
@@ -379,6 +395,8 @@ def report(state):
         "", f"Selected next research recipe: **{state.get('choice') or 'not selected'}**",
         "",
         "## Interpretation gates", "",
+        "- Repeatable stair evidence requires independent UP AND DOWN support",
+        "  on both exam seeds (up/down exam seed counts are listed above).",
         "- Zero observed signed lips is zero demonstrated true steps, NOT proof",
         "  that the policy ever approached a sufficiently high edge.",
         "- Mean step/slope survival alone is not evidence of locomotion.",
