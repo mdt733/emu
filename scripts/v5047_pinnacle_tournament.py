@@ -80,14 +80,14 @@ def atomic(path, obj):
     os.replace(temp, path)
 
 
-def policy_args(spec, *, steps, seed, run):
+def policy_args(spec, *, steps, seed, run, envs=2048):
     # Same exact source-pinned PPO/world/teacher/reward recipe for each arm
     # except the named study switch. 2/4 is research physics, not a
     # replacement for robot.xml. CLI resolves and validates all flags.
     solver = spec.get("solver", PHYSICS["solver"])
     opts = [
         "--run-dir", str(run), "--steps", str(steps),
-        "--envs", "2048", "--seed", str(seed), "--device", "cuda",
+        "--envs", str(envs), "--seed", str(seed), "--device", "cuda",
         "--profile", "sim2real", "--pitch-deg", "8",
         "--terrain-actor", "--terrain-step-max-m", ".08",
         "--unified-capabilities", "--terrain-carpet", "--carpet-prisms",
@@ -176,6 +176,63 @@ def checked_actor(actor, sha, spec, step):
         raise RuntimeError(
             f"Export does not match source, target step or solver: {actor}")
     return data
+
+
+def lifecycle_acceptance(sha, state, env):
+    """Small real checkpoint/export/exam contract, BEFORE the 1.2B study.
+
+    Validates both Newton 2/4 and 4/4 across actual checkpoint,
+    training_config, exported policy metadata and a CUDA frozen physics
+    trace. A tiny policy need not walk. Deliberately no extra full suite.
+    """
+    for solver in (2,4):
+        key=f"solver{solver}_ls4"
+        folder=SCRATCH/"acceptance"/key
+        spec={"intro":11_000_000,"start":16_000_000,"solver":solver}
+        checkpoint=folder/"checkpoints"/"final.pkl"
+        acceptance_env=dict(env)
+        acceptance_env["EMU_UNIFIED_ACCEPTANCE"]="bounded-ppo-lifecycle"
+        if not checkpoint.is_file():
+            if folder.exists() and any(folder.iterdir()):
+                if not (folder/"training_config.json").is_file():
+                    raise RuntimeError(f"Acceptance dir nonempty: {folder}")
+                resume=["--resume","auto"]
+            else:
+                resume=[]
+            cmd=policy_args(spec,steps=512,seed=735,run=folder,envs=8)+resume
+            print(f"ACTUAL 2-UPDATE CUDA CHECKPOINT GATE: {key}",flush=True)
+            if process(cmd,SCRATCH/"logs"/(key+"_lifecycle.log"),
+                       acceptance_env):
+                raise RuntimeError(f"CUDA checkpoint lifecycle failed: {key}")
+        actor=folder/"tiny.emupolicy"
+        if not actor.exists():
+            cmd=[sys.executable,"-u","-m","emu.cli","export-policy",
+                 str(checkpoint),str(actor)]
+            if process(cmd,SCRATCH/"logs"/(key+"_export.log"),env,echo=False):
+                raise RuntimeError(f"Acceptance actor export failed: {key}")
+        checked_actor(actor,sha,spec,512)
+        out=folder/"frozen_exam"
+        physical=out/"prism_exam.json"
+        if not physical.exists():
+            cmd=exam_cmd(actor,out,"flat","flat",.10,0.,0.,1701)
+            # Keep the acceptance bounded: the actual tournament exams
+            # later use 16 worlds x 500 frames on both held-out seeds.
+            cmd[cmd.index("--worlds")+1]="2"
+            cmd[cmd.index("--horizon")+1]="100"
+            if process(cmd,SCRATCH/"logs"/(key+"_frozen.log"),
+                       env,echo=False):
+                raise RuntimeError(f"CUDA actor physics exam failed: {key}")
+        exam=json.loads(physical.read_text(encoding="utf-8"))
+        protocol=exam.get("protocol") or {}
+        if (exam.get("source_training_sha")!=sha or
+            protocol.get("compiled_solver_iterations")!=solver or
+            protocol.get("compiled_solver_ls_iterations")!=4 or
+            protocol.get("worlds")!=2 or protocol.get("horizon")!=100):
+            raise RuntimeError(f"Frozen solver physics mismatch in {key}")
+        print(f"CUDA source/solver/checkpoint/export/exam gate PASS: {key}",
+              flush=True)
+    state["acceptance"]="PASS"
+    atomic(SCRATCH/"state.json",state)
 
 
 def run_train(label, spec, steps, seed, sha, state, env):
@@ -516,7 +573,7 @@ def main():
     else:
         st={"source_sha":source_sha,"fingerprint":plan_identity,
             "started":utc_now(),"trained":{},"exams":{},"scored":{},
-            "choice":None,"smoke":"NOT_RUN"}
+            "choice":None,"smoke":"NOT_RUN","acceptance":"NOT_RUN"}
         atomic(manifest,st)
     env=dict(os.environ)
     env["PYTHONPATH"]=str(ROOT)+(
@@ -539,6 +596,8 @@ def main():
             if process(smoke,SCRATCH/"gpu_gate.log",env):
                 raise RuntimeError("CUDA 2048-world real PPO preflight failed")
             st["smoke"]="PASS";atomic(manifest,st)
+        if st.get("acceptance")!="PASS":
+            lifecycle_acceptance(source_sha,st,env)
         for label,spec in ARMS:
             key=f"{label}_s735_{EXPLORER_STEPS}"
             if key not in st["trained"] and not has_budget(1800):
