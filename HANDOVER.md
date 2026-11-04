@@ -94,83 +94,109 @@ be discarded by user choice if training anew.
 The detailed unanswered backlog is [GitHub issue #17](https://github.com/mdt733/emu/issues/17).
 The 260M reference measurements are [here](docs/V5032_PINNACLE_RELEASE.md).
 
-## First training bracket: same physics, earlier Academy
+## Live v5047 promotion tournament (temporary, then delete runner)
 
-Do **one controlled change first**, not a new reward system. The 20M
-trial used Academy introduction at 60M, so it did not test concentrated
-repeat-lip learning. Compare two fresh, seeded 40M policies (same source,
-same actor, same 2/4 solver, same curriculum and physical settings):
+[Draft PR #37](https://github.com/mdt733/emu/pull/37) is stacked
+on the clean PR #36. New **one-optimizer** research includes the same
+2,048 CUDA worlds, 360 actor inputs, four recycled 75cm terrain tiles,
+eight true convex-prism colliders, 10M genuine walking foundation and
+constant 10% fast / 15% CONTROL rehearsal except when explicitly tested.
 
-| Arm | Academy intro | Increase begins | Full 40% share | Hypothesis |
-|---|---:|---:|---:|---|
-| Control | 60M | 80M | never before 40M | ordinary mixed-terrain learning |
-| Early-lips | 11M | 16M | 28M | many true signed repeated-lip attempts |
+The disposable `scripts/v5047_pinnacle_tournament.py` runs **seven
+independent 100M-step cold-start arms** from identical ancestry:
 
-Both use 10M ordinary walking foundation, 3mm+ emerging physical
-frontiers, terrain-early six-specialist focus, 10% flat athletic
-rehearsal, 15% useful CONTROL retention and fixed physical exams at
-20M and final 40M. **Only Academy timing differs between arms.**
-Because contact support and locomotion physics have not changed, this
-is a learning hypothesis, not a claim of valid stair skill.
+| Arm | One hypothesis relative to `early_lips` |
+|---|---|
+| `no_academy` | Control: no concentrated Academy exposure in 100M |
+| `early_lips` | Actual multi-lip course born after ~11M, 40% by ~28M |
+| `precise_frontier` | ±1mm progression/retreat with 12 real signed attempts |
+| `zero_balance` | 10% true zero-vx/vy/yaw steady births; posture credit without artificial stepping requirement **only** for zero commands |
+| `temporal_speed` | 50% rolling 0.5s vx tracking blend |
+| `fast_rehearsal` | 30% high-speed rehearsal instead of 10% |
+| `solver4_control` | 4/4 solver rather than 2/4, for trained-policy physics consistency |
 
-An exact plan can be composed using the maintained CLI, **without a
-permanent runner script** (same Bash array used for both arms):
+Each policy undergoes **16 independent physical exam protocols**
+(two fixed held-out seeds × eight terrain/command cases) with 16
+worlds and a 500-control-frame horizon: still (0m/s), slow .06, cruise
+.20, fast .70, signed .5cm/2cm/3cm lips, and 8° incline. The frozen
+exam reads only raw foot-solid contacts, measured world heading,
+footfall timing, stride length and achieved speed. `prism-exam` now
+inherits the actor's exact 2/4 or 4/4 solver **from the export**.
+An eligible contender requires held-out flat and step survival and
+actual forward movement, not raw training reward.
+
+An objective-reported finalist starts **fresh at 300M** with the
+winning source-pinned teacher hypothesis, and a **200M different-seed**
+replication is attempted if wall time allows. Total potential
+**1.2 billion world-steps**, up to 144 frozen exams. A 9h
+soft wall-clock budget is enforced **between arms**; an already
+running training/exam isn't killed or left with a silently truncated
+checkpoint. Actual duration depends on JAX compilation/physics.
+No automatic merge or champion release.
+
+### After the current fresh WSL installation
+
+The install guide originally checked out v5046 with `--single-branch`.
+Use this explicit fetch once; it won't depend on having fetched every
+remote branch or require a second Python environment:
 
 ```bash
 cd ~/emu
+git status --short
+git fetch origin \
+  experiment/v5047-pinnacle-stairs-gaits:refs/remotes/origin/experiment/v5047-pinnacle-stairs-gaits
+git switch --track origin/experiment/v5047-pinnacle-stairs-gaits
 source .venv/bin/activate
-export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
-base=(
-  --steps 40000000 --envs 2048 --seed 735 --device cuda --profile sim2real
-  --pitch-deg 8 --terrain-actor --terrain-step-max-m .08
-  --unified-capabilities --terrain-carpet --carpet-prisms
-  --carpet-transition-cap-deg 3 --foundation-steps 10000000
-  --foundation-mix main --growth-recipe main-mature
-  --teaching-schedule terrain-early --terrain-lesson coherent-careful
-  --force-program gentle --athletic-rehearsal-share .10
-  --retention-share .15 --academy-stream --academy-intro-share .10
-  --academy-max-share .40 --academy-ramp-steps 12000000
-  --academy-height-cap-m .15 --academy-course-episode-frames 1200
-  --fixed-eval-every-steps 20000000
-  --solver-iterations 2 --solver-ls-iterations 4
-)
-control="$HOME/emu-data/runs/v5047-lips-control-s735"
-early="$HOME/emu-data/runs/v5047-lips-early-s735"
-emu train --run-dir "$control" "${base[@]}" \
-  --academy-intro-steps 60000000 --academy-start-steps 80000000 --plan
-emu train --run-dir "$early" "${base[@]}" \
-  --academy-intro-steps 11000000 --academy-start-steps 16000000 --plan
+python -m pip check
+
+# Plans resolve all seven real CLI configs and do ZERO GPU work.
+PYTHONPATH="$PWD" python scripts/v5047_pinnacle_tournament.py plan
+
+# After plan + exact SHA CI and 2,048-world CUDA acceptance,
+# foreground nine-hour soft-budget tournament, one CUDA process at a time:
+PYTHONPATH="$PWD" python -u scripts/v5047_pinnacle_tournament.py run --hours 9
 ```
 
-After source/CLI/GPU acceptance, **remove only `--plan`** on each
-command to run them **sequentially** (never in parallel on 8GB).
-This preliminary study uses the experimental solver 2/4; validate
-physical accuracy before hardware-fidelity claims. Both full runs
-publish independent physical evaluations and their complete metrics
-inside their respective run directories. A same-source interrupted
-run uses the same exact flags plus `--resume auto` after inspecting
-the stored checkpoint; do not overwrite or reinitialise a run root.
+If `git status --short` is nonempty with tracked edits, commit/stash
+rather than switching over active work. The local `.venv` is editable
+from this same checkout; it does **not** need a second JAX download
+after the existing CUDA installation. If pip dependencies were changed
+then rerun the maintained installation from this new SHA.
 
-**Primary endpoint:** sustained physical support after a real
-3mm–3cm upstep or downstep, *movement beyond the lip*, commanded
-forward progress and yaw/path control. Record the rate and number of
-**eligible step approaches**, not just the successes. Preserve
-flat speed, survival and shaft efficiency. **Secondary:** look for
-crouch/loading and far-foot transfer traces. If both arms have zero
-eligible contacts, investigate exposure/sensors before changing reward.
-If many approaches stall at the face, test crouch allowance as the
-**next isolated intervention**. If steps succeed but heading drifts,
-prioritise control before more step difficulty.
+Outputs are strictly canonical:
+`~/emu-data/runs/v5047-<arm>-s<seed>/` for run-owned
+checkpoints/metrics/exams/exports and
+`~/emu-data/scratch/v5047-pinnacle-tournament/` for the
+temporary manifest, logs, continuous `SUMMARY.md`, and an
+upload-ready **`results_bundle.zip` without enormous `.pkl` files**.
+Reissue the identical `run --hours 9` against **the same Git commit**
+to resume an interrupted campaign; don't pull or merge mid-run.
+If `status` is desired: `python scripts/v5047_pinnacle_tournament.py status`.
 
-For zero-command balance, current `rewards.py` intentionally reduces
-posture/contact credit after one second of too little stepping. A
-future control-arm experiment can remove that step-activity requirement
-**only at genuinely near-zero requested vx/vy/yaw**, retaining
-fall/slip/height constraints. For faster long strides, first measure
-cadence versus stride length and then separately test the already
-available temporal vx tracking and athletic rehearsal allocation.
-Do not combine all three reward/teacher changes before attribution.
+### What would earn a new Pinnacle?
+
+Not a high PPO reward or 120k GPU steps/s by itself. We want
+stable two-foot slow progress and near-zero commanded drift; high-speed
+gait with real stride-length, speed, steering and bounded effort;
+**repeated up AND down supported signed lips on independent seeds**;
+preserved slopes, turn control and recovery. A promising result can
+become a replacement-main candidate if the trained actor is roughly
+champion-equivalent and the 75cm carpet/faster trainer are measurably
+better. The old champion remains frozen and available for rollback.
+
+**Explicit release hold:** 2/4 solver penetration and CUDA compact/full
+`.qacc` acceleration mismatch still require investigation before
+claiming hardware-faithful dynamics. The original main actor uses a
+historical training world, so comparing its old physical exam with
+v5047 requires a clearly documented equivalent-mission bridge.
+Final merge/publish needs explicit user approval.
+
+**Cleanup contract:** this one experimental runner is deleted after
+the results are analysed and committed as concise permanent findings
+in issue #17 / HANDOVER. Keep any successful general-purpose
+sampler/reward/exam improvement; discard one-off tournament
+orchestration and its extra state.
 
 ## Run hygiene and release rules
 
