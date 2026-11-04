@@ -19,6 +19,36 @@ def physics_report_fields() -> dict:
     )
 
 
+def _gpu_tree_bytes(name, tree):
+    """Logical JAX array inventory; never copies data from the accelerator.
+
+    This is NOT an allocator/peak report: XLA may reuse buffers or
+    compile constants into executables. It distinguishes retained
+    JAX GPU arrays from host metadata so they aren't double-counted.
+    """
+    import jax
+    import numpy as np
+    items=[]
+    for path,leaf in jax.tree_util.tree_flatten_with_path(tree)[0]:
+        if not isinstance(leaf,jax.Array):
+            continue
+        size=int(np.prod(leaf.shape))*int(np.dtype(leaf.dtype).itemsize)
+        items.append(dict(path=jax.tree_util.keystr(path),
+                          shape=list(leaf.shape),dtype=str(leaf.dtype),
+                          logical_bytes=size))
+    items.sort(key=lambda item:item['logical_bytes'],reverse=True)
+    return dict(group=name,arrays=len(items),
+                logical_bytes=sum(item['logical_bytes'] for item in items),
+                top_arrays=items[:16])
+
+
+def _memory_counters(device):
+    """Allocator snapshot, not bytes allocated per physics frame."""
+    return {str(k):int(v) for k,v in (device.memory_stats() or {}).items()
+            if isinstance(v,(int,float))}
+
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--worlds",type=int,default=4)
@@ -34,6 +64,10 @@ def main():
     p.add_argument("--profile-rollout",action="store_true",
                    help="independently time the exact 32-frame training rollout "
                         "without PPO gradients; requires >=3 full updates")
+    p.add_argument("--gpu-audit-dir",default=None,metavar="DIR",
+                   help="opt-in: capture XProf GPU kernel trace, JAX live "
+                        "allocations, XLA buffer analysis and full rollout "
+                        "array shapes in DIR; requires --profile-rollout")
     a=p.parse_args()
     if not a.prisms:
         p.error("The active EMU simulator is prism-only; pass --prisms")
@@ -45,6 +79,8 @@ def main():
         p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
+    if a.gpu_audit_dir and not a.profile_rollout:
+        p.error("--gpu-audit-dir requires --profile-rollout and full 2048/1024-world PPO")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if a.device=="gpu" else a.device)
@@ -246,6 +282,42 @@ def main():
                   f"mean={steady_seconds/(a.benchmark_updates-1):.3f}s/update; "
                   f"throughput={steady_fps:,.0f} world-steps/s "
                   "(synchronized; no checkpoint)",flush=True)
+        if a.gpu_audit_dir:
+            from pathlib import Path
+            out_dir=Path(a.gpu_audit_dir).expanduser().resolve()
+            out_dir.mkdir(parents=True,exist_ok=True)
+            dev=jax.devices("gpu")[0]
+            audit={
+                "explanation":"Array totals describe logical trees, NOT "
+                              "simultaneously live VRAM or per-step transfers.",
+                "jax_version":jax.__version__,
+                "backend":jax.default_backend(),
+                "worlds":a.worlds,"rollout_frames":32,
+                "tiles":TILE_COUNT,"active_prisms":len(env.carpet_prism_geom_ids),
+                "environment":_gpu_tree_bytes("mjx_model",env.mjx_model),
+                "mjx_data":_gpu_tree_bytes("mjx_data",last.env_state.data),
+                "env_state_excluding_mjx_data":_gpu_tree_bytes(
+                    "env_state_excluding_mjx_data",
+                    last.env_state._replace(data=None)),
+                "network_weights":_gpu_tree_bytes("network_weights",last.params),
+                "adam_and_optax_state":_gpu_tree_bytes("adam_and_optax_state",last.opt_state),
+                "live_allocator_after_full_ppo":_memory_counters(dev),
+            }
+            # Pprof shows resident arrays/executables when the fully
+            # synchronized update has completed. It is not a peak view.
+            jax.profiler.save_device_memory_profile(
+                str(out_dir/"device_after_full_ppo.pprof"))
+            print("GPU AUDIT: tracing ONE extra steady full PPO update "
+                  "(profiler overhead excluded from throughput figures)...",
+                  flush=True)
+            with jax.profiler.trace(str(out_dir/"xprof")):
+                traced,_,_,_,_=trainer["train_update"](
+                    last,packet,jnp.zeros((360,),dtype=jnp.float32),
+                    jnp.ones((360,),dtype=jnp.float32),
+                    jnp.asarray(.25,jnp.float32))
+                jax.block_until_ready(traced)
+            last=traced
+            audit["live_allocator_after_trace"]=_memory_counters(dev)
         if a.profile_rollout:
             # Separate JIT: same 32-frame rollout with actor inference,
             # real prism MJX physics, sensors, reward and next-state value
@@ -283,6 +355,46 @@ def main():
                     first_update_world_steps/rollout_mean,1),
                 standalone_rollout_over_full_ratio=round(
                     rollout_mean/full_mean,4))),flush=True)
+            if a.gpu_audit_dir:
+                audit["rollout_outputs"]=_gpu_tree_bytes("all_rollout_outputs",
+                                                        (traj,next_values))
+                audit["rollout_metrics"]=_gpu_tree_bytes(
+                    "rollout_metrics",traj["metrics"])
+                audit["rollout_observations"]=_gpu_tree_bytes(
+                    "rollout_observations",traj["obs"])
+                audit["rollout_bootstrap_observations"]=_gpu_tree_bytes(
+                    "rollout_bootstrap_observations",traj["bootstrap_obs"])
+                audit["allocator_with_materialized_rollout"]=_memory_counters(dev)
+                jax.profiler.save_device_memory_profile(
+                    str(out_dir/"device_with_rollout_outputs.pprof"))
+                # Ask XLA for its compiled buffer-assignment budget, which
+                # includes temp allocations invisible in Python JAX trees.
+                # This lower/compile may incur an ADDITIONAL JIT compile.
+                executable=trainer["train_update"].lower(
+                    last,packet,jnp.zeros((360,),dtype=jnp.float32),
+                    jnp.ones((360,),dtype=jnp.float32),
+                    jnp.asarray(.25,jnp.float32)).compile()
+                mem=executable.memory_analysis()
+                audit["xla_compiled_full_ppo_memory"]=(
+                    {key:int(getattr(mem,key)) for key in (
+                        "argument_size_in_bytes","output_size_in_bytes",
+                        "temp_size_in_bytes","alias_size_in_bytes",
+                        "generated_code_size_in_bytes")
+                     if getattr(mem,key,None) is not None}
+                    if mem is not None else None)
+                audit["allocator_after_compiler_report"]=_memory_counters(dev)
+                (out_dir/"gpu_allocation_audit.json").write_text(
+                    json.dumps(audit,indent=2)+"\n",encoding="utf-8")
+                print("GPU AUDIT artifacts:",str(out_dir),flush=True)
+                print("GPU AUDIT summary:",json.dumps({
+                    "worlds":a.worlds,
+                    "mjx_data_logical_bytes":audit["mjx_data"]["logical_bytes"],
+                    "rollout_metrics_count":audit["rollout_metrics"]["arrays"],
+                    "rollout_metrics_bytes":audit["rollout_metrics"]["logical_bytes"],
+                    "rollout_outputs_logical_bytes":audit["rollout_outputs"]["logical_bytes"],
+                    "xla_full_ppo_memory":audit["xla_compiled_full_ppo_memory"],
+                    "allocator_after_full_ppo":audit["live_allocator_after_full_ppo"]
+                }),flush=True)
         if a.full_update:
             dev=jax.devices("gpu")[0]
             stats=dev.memory_stats() or {}
