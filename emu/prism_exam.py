@@ -212,7 +212,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     if (type(worlds) is not int or not 2 <= worlds <= 32 or
             type(horizon) is not int or not 100 <= horizon <= 650 or
             mode not in ("flat", "slope", "step", "mixed") or
-            not 0.04 <= speed <= 1.50 or
+            not 0. <= speed <= 1.50 or
             not 0. <= grade_deg <= 15. or
             not 0. <= lip_cm <= 8. or
             not all(math.isfinite(x) for x in (speed, grade_deg, lip_cm))):
