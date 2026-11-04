@@ -32,13 +32,13 @@ def score_prism_crossings(frames, *, required_frames=5):
     Expected arrays are PRE-step MJX observations, consistently time-aligned:
       carpet_root_cell            [time, world, 2] (global integer cells)
       carpet_prism_corner_z       [time, world, 9, 4] (metres, physical XY corners)
-      carpet_raw_contact_pairs    [time, world, 18, 2]
-      carpet_contact_vertical     [time, world, 18, 2] (abs normal Z, real MJX)
+      carpet_raw_contact_pairs    [time, world, PRISM_COUNT, 2]
+      carpet_contact_vertical     [time, world, PRISM_COUNT, 2] (abs normal Z, real MJX)
       foot_xyz                    [time, world, 2, 3] (sphere centres)
       initial_foot_radii_m        [2]
       done, fell                  [time, world]
 
-    The source heights are independently compared against the 18 *physical*
+    The source heights are independently compared against the PRISM_COUNT *physical*
     convex-mesh corner positions in the prism acceptance probe; reward flags
     are never used as scoring inputs.
     """
@@ -55,9 +55,9 @@ def score_prism_crossings(frames, *, required_frames=5):
         raise ValueError("Prism trace needs [time, worlds, 2] root cells")
     time, worlds, _ = cells.shape
     shapes = {
-        "carpet_prism_corner_z": (time, worlds, 9, 4),
-        "carpet_raw_contact_pairs": (time, worlds, 18, 2),
-        "carpet_contact_vertical": (time, worlds, 18, 2),
+        "carpet_prism_corner_z": (time, worlds, TILE_COUNT, 4),
+        "carpet_raw_contact_pairs": (time, worlds, PRISM_COUNT, 2),
+        "carpet_contact_vertical": (time, worlds, PRISM_COUNT, 2),
         "foot_xyz": (time, worlds, 2, 3),
         "done": (time, worlds),
         "fell": (time, worlds),
@@ -81,7 +81,7 @@ def score_prism_crossings(frames, *, required_frames=5):
     valid = first_episode_mask(done)
 
     def slot(cell):
-        return int(cell[0] % 3 + 3 * (cell[1] % 3))
+        return int(cell[0] % 2 + 2 * (cell[1] % 2))
 
     def triangle_height(t, w, cell, xy):
         x = float(xy[0] / TILE_M - cell[0])
