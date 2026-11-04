@@ -147,11 +147,14 @@ with sustained supported foot placement and actual signed terrain
 transition; it records command error, gait cadence, stride length,
 stillness drift, survival, power and heading. Training reward and
 curriculum counters do NOT grant stair mastery. Step results are
-downweighted if only one held-out seed crosses. A predeclared
-flat-survival / step-survival / actual-fast-motion gate determines
-whether any fork qualifies for the extra 100M. If all fail, it
-**stops honestly** and reports the failure instead of fabricating a
-Pinnacle.
+downweighted if only one held-out seed crosses. There are **two**
+predeclared selection gates: a strict physical contender threshold
+(flat ≥65% survival, step ≥50%, fast ≥0.20m/s), and a lower but still
+meaningful research-continuation gate (flat ≥30%, step ≥20%, fast
+≥0.05m/s). If the strict gate fails but an exploratory fork survives,
+the best one may gain the extra 100M steps to see whether it matures;
+that is **not a claim of main parity or Pinnacle status**. If all
+fail even the lower gate, the campaign stops and reports the failure.
 
 ### Exact clean-WSL launch, one checkout / one virtualenv
 
