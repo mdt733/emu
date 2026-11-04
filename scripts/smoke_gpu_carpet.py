@@ -64,6 +64,9 @@ def main():
     p.add_argument("--profile-rollout",action="store_true",
                    help="independently time the exact 32-frame training rollout "
                         "without PPO gradients; requires >=3 full updates")
+    p.add_argument("--torso-contacts",action="store_true",
+                   help="A/B control: restore physical torso-vs-prism contacts "
+                        "and disable the geometric non-foot strike sentinel")
     p.add_argument("--reset-forward-capacity",type=int,default=128,metavar="N",
                    help="fixed-size exact MJX forward batch for episode resets; "
                         "0 uses the original all-world reference for matched A/B")
@@ -104,7 +107,8 @@ def main():
         academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
         terrain_carpet_prisms=True,
         attitude_profile='v5015',pitch_command_max_deg=8.0,
-        reset_forward_capacity=a.reset_forward_capacity)
+        reset_forward_capacity=a.reset_forward_capacity,
+        feet_only_contacts=not a.torso_contacts)
     params=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                 slope_max_deg=8.,terrain_height_m=.02,
                 academy_height_up_m=.02,academy_height_down_m=.03,
@@ -114,6 +118,11 @@ def main():
     state,obs=env.reset(params)
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
+    ncon=int(state.data._impl.contact.geom1.shape[1])
+    nefc=int(state.data._impl.efc_J.shape[1])
+    print(f"CONTACT SOLVER: feet_only={env.feet_only_contacts} "
+          f"padded_contact_slots_per_world={ncon} "
+          f"constraint_rows_per_world={nefc}",flush=True)
     if len(env.carpet_geom_ids)!=TILE_COUNT or env.mj_model.nhfield!=TILE_COUNT:
         raise RuntimeError("Expected exactly four inactive source hfields")
     validate_prism_only_geoms(__import__('mujoco'),env.mj_model)
@@ -313,6 +322,9 @@ def main():
                 "backend":jax.default_backend(),
                 "worlds":a.worlds,"rollout_frames":32,
                 "reset_forward_capacity":env.reset_forward_capacity,
+                "feet_only_contacts":env.feet_only_contacts,
+                "contact_slots_per_world":ncon,
+                "constraint_rows_per_world":nefc,
                 "tiles":TILE_COUNT,"active_prisms":len(env.carpet_prism_geom_ids),
                 "environment":_gpu_tree_bytes("mjx_model",env.mjx_model),
                 "mjx_data":_gpu_tree_bytes("mjx_data",last.env_state.data),
@@ -432,6 +444,9 @@ def main():
             print("GPU memory:",{k:v for k,v in stats.items()
                 if "peak" in k or "limit" in k},flush=True)
     print(json.dumps(dict(status="PASS",worlds=a.worlds,
+          feet_only_contacts=env.feet_only_contacts,
+          contact_slots_per_world=ncon,
+          constraint_rows_per_world=nefc,
           reset_forward_capacity=env.reset_forward_capacity,
           **physics_report_fields(),tiles=TILE_COUNT,
           finite_actor=True,ppo=a.ppo,full_update=a.full_update,
