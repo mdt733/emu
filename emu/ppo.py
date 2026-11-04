@@ -654,7 +654,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # The live v5046+ world is a 2x2 window of 75cm tiles, NOT the
         # retired nine 50cm slabs. Share this single terrain ownership
         # contract with the physical independent scorer.
-        from .terrain_carpet_mjx import TILE_M, TILE_COUNT, TILE_WINDOW_SIDE
+        from .terrain_carpet_mjx import (
+            TILE_M, TILE_COUNT, TILE_WINDOW_SIDE, TILE_SIZE_Z_M)
 
         def record_state(es):
             data=es.data
@@ -681,9 +682,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                                     chosen[:,3]-chosen[:,2])
             gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
                                     chosen[:,3]-chosen[:,1])
-            # Height corner differences span 0.75m, not one metre.
-            # The normal needs real rise/run for independent slope exams.
-            normal=jnp.stack((-gx/TILE_M,-gy/TILE_M,
+            # hfield samples are scaled by 0.50m on the actual prism
+            # surface. Divide that real rise by the 0.75m tile width:
+            # normalized hfield deltas alone would double the grade.
+            gradient_scale=TILE_SIZE_Z_M/TILE_M
+            normal=jnp.stack((-gx*gradient_scale,-gy*gradient_scale,
                               jnp.ones_like(gx)),axis=1)
             floor_normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
             top=env._carpet_real_top_height(
