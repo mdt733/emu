@@ -1,256 +1,116 @@
-# EMU engineering handover — lean prism v5045
+# EMU engineering handover — v5046, 5 November 2026
 
-**4 November 2026.** The earlier v5044 140M experiment was manually
-stopped; its source commit and checkpoints remain historical. New work
-lives only in draft PR #34 on `feature/v5045-core-skeleton-audit`.
-`main` and the published 260M champion are unchanged.
+**Current source:** `mdt733/emu`, draft [PR #35](https://github.com/mdt733/emu/pull/35),
+branch `experiment/v5046-75cm-four-tile-midpoint`.
+[PR #36](https://github.com/mdt733/emu/pull/36) is a **separate draft
+cleanup** stacked on #35; do not advance source-pinned experiment
+checkouts without starting a new run lineage. The released 260M
+360-input Pinnacle remains in `main`, unchanged.
 
-## One current model
+The [historical v5045 cleanup handover](https://github.com/mdt733/emu/blob/97d419d48340173dad8af3e477b1c3ee333cd02e/HANDOVER.md)
+and older Git commits retain the per-file archaeology; this handover
+only describes the live system and next scientific decisions.
 
-- Six-servo dynamically unstable EMU; **one** 360-input 4×4-ToF
-  array-only actor, critic and PPO optimizer, 2,048-world GPU target.
-- **One** 3×3 infinite logical carpet: 18 physically colliding
-  triangular prisms, nine noncolliding 2×2 vertex samples, no old
-  two-slab/nine-box/three-platform collision bodies.
-- First 20M: cold ordinary walking. 20–30M: gradual six-specialist
-  exposure. Afterward the governor updates physical command, slope,
-  up/down step, recovery and transition frontiers from completed
-  episode evidence, not the calendar.
-- STEP Academy is another birth cohort in that same carpet and PPO;
-  the CONTROL role practices useful low-cost walking, not zero-motion
-  energy farming. Teacher geometry never becomes policy input.
+## Current runnable skeleton
 
-## Cleanup completed
+- **One six-servo biped**, one PPO actor/critic, 360 input channels from
+  sensor and command history (4×4 ToF, IMU, flow and proprioception).
+  Six specialists are *birth cohorts*, not six policies.
+- **One rolling 2×2 carpet of four 75cm tiles**, each two exact
+  convex triangular-prism colliders = eight true physical contact solids.
+  No legacy slab/box colliders. Terrain geometry and policy inputs
+  remain distinct.
+- **One source-verified trainer**: `emu train` → `emu/training.py`,
+  `emu/environment.py`, `emu/curriculum.py`, `emu/rewards.py`;
+  `emu/evaluation.py` and `emu/prism_exam.py` are the independent
+  examiners; `emu/checkpoint_io.py` owns checkpoint integrity.
+- Solver iterations/linesearch are **explicit opt-in** saved training
+  physics. `robot.xml` and `main` remain unchanged.
+- **21 focused Python tests**, browser checks and actual MJX geometry
+  acceptance. The 34-arm solver sweep was temporary experimental
+  infrastructure; its code is removed in PR #36, results retained.
 
-- Over **23k deleted lines** vs frozen v5044, the historic tests reduced
-  to 18 Python and six browser maintained contracts. Historic science
-  stays in old Git SHAs rather than runtime compatibility branches.
-- `environment.py` is prism-only; zero extra slab/box bodies.
-  `ppo.py` no longer emits old slab and box exam traces.
-- Obsolete physical exam, physical-quality, old commands and duplicate
-  prism scorer retired. `emu prism-exam` runs one frozen
-  true-prism actor and scores raw supported signed up/down crossings,
-  actual terrain exposure, velocity, survival and shaft work.
-- `policy_export.py`, `viewer_server.py` and
-  `capability_viewer.py` separate actor, local HTTP and field UI.
+## What has actually been measured
 
-## Current release/launch gates
+### 34-arm speed study, two seeds, RTX 4060 Ti 8GB
 
-1. GitHub 24-test + browser-build + four-world MJX physical probe **must
-   pass on the exact final source SHA**.
-2. On the RTX 4060 Ti, repeat the matched **2,048-world, 3-update
-   full-PPO benchmark**. Old prism reference: 7,492 world-steps/s
-   after JIT. First measured v5045 GPU benchmark: **7,536.1
-world-steps/s** on two steady 2,048-world updates (+0.6%; not a
-statistically convincing speedup), peak 1,818,866,944 device bytes.
-Next required: exact-source 8-world checkpoint/resume/export and
-frozen-actor true-prism exam smoke.
-3. Same-source CUDA two-update `first/continue/verify` checkpoint,
-   normalizer, optimizer and exported actor acceptance.
-4. Only then start a **new empty** 140M run root. Never resume old
-   v5044 state with v5045 code. Frozen-policy real-prism examination
-   later validates walking, not the mere presence of PPO gradients.
+Default MuJoCo solver 100/50: **31,974** steady full-PPO world-steps/s.
+4/4: **89,921**; 2/4: **119,662**; 1/1: **162,930**
+but the last has unacceptable early contact/gait warning signals.
+The 2/4 setting is a *research candidate*, not yet signed-off
+contact/step physics. Re-enabling torso collision cut 4/4
+throughput by 43%; the resulting feet-only physical approximation
+requires virtual-strike safety exams. Reset batch cap 128 stays
+because the 192/256 speed results were inconsistent across seeds.
 
-**[New v5045 runbook](docs/V5045_LEAN_PRISM_RUNBOOK.md)** has exact
-install, check, benchmark, lifecycle and launch commands.
-**[Core source skeleton and live 102-file ownership/retirement checklist](docs/CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)**
-reconciles every surviving module with its job and identifies open gates. The historical full handover remains
-[at the pinned v5044 commit](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/HANDOVER.md).
+On the operator's CUDA GPU, compact/full reset `mjx.forward`
+disagreed in `.qacc` by up to 0.01096 in the diagnostic;
+CPU preflight passed. **Do not loosen tolerances** until later-step
+contact and trajectory consequences are examined.
+[Measurements and caveats](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
-## 4 November — make the physical control frame understandable
+### First 20M continuous 2/4 learning test
 
-- `EnvState` was **59 fields, now 52**. The retired single-slab
-  approach counters and ascent peaks never changed in real-prism training;
-  they no longer occupy an MJX state. Reset populates fields by name and
-  per-frame updates use `state._replace(...)` with named live changes,
-  rather than counting 59 positional constructor arguments.
-- The only supported `params_array` always packs the full terrain/six-role
-  teacher packet. Frozen exams and the trainer both construct the real
-  18-prism model; `evaluation._world` rejects other geometry before JIT.
-- The environment has no alternate rotated-ground plane, tripod/220-input
-  sensor contract, or dead standalone finite-step platform dimensions.
-  Robot and hardware model randomization are preserved. Exact 4×4 ToF
-  acquisition, servo delivery, physical prism contacts and supported
-  terrain events remain the active simulation.
-- Removed the inactive v5031 single-lip careful-approach/crouch reward
-  and unused offline counterfactual ascent diagnostics from `rewards.py`.
-  The actual verified-prism crossing payment and the optional 25-frame
-  forward tracking blend remain. Retired config fields were removed from
-  `training.py` and `training_config.py`; this is a **new source-locked
-  checkpoint lineage** and old branch checkpoints cannot be resumed.
-- The 438-line `_step_impl` is now about 224 lines. Its reporting dictionary
-  and physical slope/STEP episode grading moved into `_step_report`,
-  which reads the pre-auto-reset episode accumulator and the same physical
-  contact facts. A byte-for-byte comparison confirms the 8,032-character
-  reporting dictionary and reward invocation were preserved.
-- The existing four-world prism probe now requires finite, world-shaped
-  rewards, episodes, signed-step, slope and stance evidence. Two more
-  never-set Academy flags were removed; state construction now requires
-  all 52 fields, without optional None defaults.
-- Remaining large concepts: `_step_report` still collects substantial
-  telemetry, `curriculum.py` still has a long
-  evidence governor, and `results.py` still records legacy metric names.
-  Consolidate only with fresh physical equivalence proof; do not change
-  reward economics or teacher thresholds as part of cosmetic refactoring.
-- On any latest commit, require core Python/JS and 4-world MJX CI green,
-  then same-SHA CUDA first/continue/verify plus exported frozen-actor
-  prism examination **before** starting a fresh 140M run.
+At 20,054,016 world-steps (seed 735): latest rollout falls **2.1%**,
+achieved vx **0.094 m/s** vs commanded **0.119 m/s**,
+held-out score **+0.530** (from -0.089 at 10M).
+Core/stress30/dynamic50/combo70 independent 350-frame panels
+survived 100%; **no verified up/down terrain lip successes**.
+This is evidence of a robust slow learner, not yet parity with
+the champion's speed, yaw/heading authority or stair crossing.
 
-## 4 November — tree-to-skeleton reconciliation
+Steady PPO was around 119k world-steps/s; setup compilation and
+independent frozen evaluations dominated wall time. Do not replace
+`main` on training success alone. The policy's full `final.pkl`
+was **not** present in the uploaded measurement bundle, and can
+be discarded by user choice if training anew.
 
-- [Live file ownership and retirement checklist](docs/CORE_SKELETON.md#live-file-ownership-and-retirement-checklist)
-  compares the complete `c4e3c739` tree to historical v5044:
-  **102 retained tracked paths**, **76 removed**, **12 newly created**,
-  net **64 fewer files**. Every one of the **25 surviving Python engine
-  modules** has an explicit owner; 77 support files are classified.
-  Six retired Python engines, eight scripts, 21 Python test files,
-  11 browser files, three workflows and 27 historical documents are
-  accounted for. This is an inventory, not an assertion that every
-  function has had a deep physical equivalence review.
-- `scripts/audit_core_dependencies.py` now fails the usual fast CI if
-  an unknown Python engine module appears, a required skeleton owner
-  disappears or a retired engine module returns. `scripts/check.sh`
-  also checks the current docs links, without adding new test files.
-- The maintained install guide now checks out the correct v5045 branch
-  and runs `probe_carpet_prism_mjx.py` and `smoke_gpu_carpet.py`, not
-  the deleted v5031 tests or `smoke_unified_focus.py`. Maintenance
-  points to `prism_exam.py`, not the removed `physical_exam.py`.
-- Removed the phantom `--verified-ascent-reallocation` switch and the
-  unsupported 232-input/rotated-plane CLI flags; removed the matching
-  dead guard branches from `run.py`. The single 360-input prism source
-  and legitimate training experiment controls remain. Historic programs
-  still live in their own Git commits and are not source-compatible.
-- The latest edited source must pass fresh Python/browser and real-prism
-  CI, then source-matched CUDA lifecycle and frozen-policy examination.
-  **Do not infer new GPU performance from line or file counts.**
+## Next actions, in order
 
-## 4 November — further checkpoint and PPO cleanup
+1. **Current clean WSL install:** use [the canonical INSTALL guide](docs/INSTALL.md).
+   One checkout `~/emu` with local `.venv`, data under
+   `~/emu-data/runs/<study>-s<seed>/`, disposable audits under
+   `~/emu-data/scratch/`. No extra roots, no zip-unpacking into source.
+2. **Step discovery study:** start from the same valid 10M foundation,
+   move streaming Academy introduction from 60M to near the end of the
+   foundation, keep real signed lips starting ~3–5mm and ample control
+   rehearsal. First establish genuine foot-on-upper-surface support,
+   continued forward progress and safe downstep placement. Reward
+   reallocation is a *second independent hypothesis*, not combined
+   blindly with changed curriculum.
+3. **Slow and zero command tests:** record world-frame drift, commanded
+   vx/vy/yaw versus actual, duty cycle, support and shaft J/m; distinguish
+   standing stabilisation and small deliberate corrective steps.
+4. **Fast gait study:** measure stride length, cadence, speed, swing
+   clearance, torque and heading control. Only after baseline profiling
+   investigate temporal velocity tracking, changed rehearsal dose or
+   relaxed crouch-to-release when they address an observed failure.
+5. **Promotion:** compare a frozen contender with the `main` champion
+   on same physical missions. Engineering throughput and terrain
+   maintainability **count** even if speed only matches; maintain
+   physics fidelity, steering and supported step control. Merge only
+   after explicit user approval. Keep PR #35 and PR #36 draft meanwhile.
 
-- The governor accepts only the exact current checkpoint evidence layout:
-  no v5040 pooled step-success migrations, no fabricated missing Academy
-  records and no command/slope windows silently filled from defaults.
-  The existing core-run test now rejects incomplete state and checks
-  near/easy signed STEP graduation and retreat.
-- Deleted the non-unified STEP governor and the already-disabled
-  generic command/combo growth loop. The active six-specialist controller
-  remains the only command-frontier owner; physical up/down verification
-  and current growth/retreat thresholds are retained.
-- Removed three orphaned PPO exam kernels. Current frozen evaluation still
-  uses `evaluate_summary`; the actual prism policy examiner still uses
-  `evaluate_trace`. No active optimizer, actor or critic logic changed.
-- Removed the retired rotated-plane/tilted-gravity console slope reporting
-  fallback. The learner reports its real prism slope and exposure only.
-- All changes are on draft PR #34. The final SHA requires complete CI,
-  the owner's exact-source CUDA PPO/checkpoint/export acceptance and a
-  frozen actor exam before beginning a new 140M lineage.
+The detailed unanswered backlog is [GitHub issue #17](https://github.com/mdt733/emu/issues/17).
+The 260M reference measurements are [here](docs/V5032_PINNACLE_RELEASE.md).
 
-## 4 November — file-count pruning
+## Run hygiene and release rules
 
-- Whole-tree inventory reduced from 102 to **91 tracked files**,
-  keeping all 25 backend owner modules and the three core Python tests.
-- Removed seven browser files net: folded the seeded navigation RNG into
-  navigation; auto/manual stick handoff into controls; preview sliders
-  and geometry signature into training inspector; grouped viewer-only
-  attitude, cadence, chase-camera and shove maths in `sim-math.js`.
-  The existing browser suite also checks the combined helper imports.
-- The redundant viewer-specific `.gitignore` is gone because root ignores
-  all its patterns. The three research-era v5041/v5043/v5044 documents
-  now have pinned source-history links from the current documentation
-  index and root README; active v5045 procedures remain local.
-- No network, PPO, reward, GPU terrain or released-champion behaviour was
-  removed. The latest head still requires CI and same-SHA GPU/physics
-  acceptance; file-count savings are not a performance claim.
+```text
+~/emu/                            Git source + single .venv
+~/emu-data/runs/<study>-s<seed>/   run_meta, config, console, metrics,
+                                   fixed exams, reports and checkpoints
+~/emu-data/scratch/               throw-away A/B experiment output
+```
 
-- The separate `check_current_docs.py` has been consolidated into the
-  core static dependency audit. `scripts/check.sh` and GitHub CI still
-  fail on broken local Markdown links, with one fewer script to maintain.
-  Live inventory: **90 tracked files**; relative to pinned v5044,
-  **89 retired paths and 13 added paths**.
+For real training, require a new empty run directory, a clean Git SHA,
+one `emu train --run-dir <absolute path> --plan` then the matching
+approved training command. `--resume auto` uses **the exact original
+source** and unchanged config. Do not `git pull` mid-run. Export
+a browser `.emupolicy` alongside the originating run when needed.
 
-## 4 November — stop maintaining duplicate checkpoint/release entry points
-
-- Removed uncalled historical `checkpoint_io` selectors and separate
-  staged-foundation helpers; kept rotating current-schema snapshots,
-  validated resume and source-pinned rollback. Removed duplicate CSV read
-  alias in favour of `read_csv_rows`.
-- Folded the 52-line `verify_showcase_dist.py` into
-  `verify_showcase_release.py --verify-dist`. Both the protected Pages
-  publishing workflow and the main integration workflow use the shared
-  release check. Branch CI now actually stages, builds and validates
-  the approved actor + WASM assets on the branch before calling browser
-  delivery green.
-- Current complete inventory: **89 tracked files**, **90 retired paths
-  and 13 newly created paths** relative to source-pinned v5044. Core
-  physics, six-specialist teaching and `main` champion remain unchanged.
-
-## 4 November — remove inactive fake terrain physics
-
-- Dropped 99 lines from `domain_randomization.py` and corresponding
-  expired constructor/config parameters. Rotated-plane inclines and
-  tilted-gravity approximations could not be selected in the
-  v5045 prism environment anyway.
-- Preserved optional randomized mass, gravity magnitude, joints and
-  actuator variation with unchanged robot/hardware RNG-key assignments.
-  The real 18-prism collision mesh is still the terrain source.
-- Enhanced exact-head CI with `emu doctor --domain-smoke` to actually
-  run optional manufacturing-noise MJX alongside the independent real
-  prism contact probe. Until green, this branch stays research-only.
-
-## 4 November — live startup feedback and candidate ToF GPU optimization
-
-- Preserve the user's source-locked `45c86fad` foundation without pulling
-  these branch commits mid-training.
-- Fixed the console launcher hiding the trainer's startup/JIT milestones:
-  forward important phases and a 30s quiet-output heartbeat. Every ten
-  PPO updates a new timing line separates steady full-update throughput
-  from startup-inclusive wall rate and existing host overhead counters.
-- Batch the nine existing physical-triangle/signed-riser ToF source
-  evaluations. Original sequential logic is frozen in one numerical
-  regression test. Requires exact-head physical CI and GPU A/B to assess
-  whether this actually improves steady FPS and compilation.
-
-## 4 November — one 17-ray physical sensor pass
-
-- Fused sixteen terrain ToF rays and the separate downward
-  optical-flow height ray, previously two separate nine-tile
-  intersection traversals, into one batched call. Preserve the
-  360-input actor contract and physical footprint/sidewall behavior.
-- Added numerical parity checks against independent 16+1 ray
-  calculations. Source-locked running 45c foundation remains
-  unchanged; optimized source must pass CPU CI and GPU A/B.
-
-## 4 November — optional GPU physics-vs-gradients profiling
-
-- Current full 8.29-second `train_update` contains both 32 MJX
-  frames and four PPO gradient epochs. Claims that gradients are
-  negligible remain hypotheses until measured.
-- `scripts/smoke_gpu_carpet.py --profile-rollout` now measures
-  original full-PPO throughput, followed by separately compiled
-  exact 32-frame rollout; 1 cold + 2 synchronized steady samples.
-  Independent JIT graph means ratio is diagnostic, not additive.
-- No effect on actual training, checkpoints or actor.
-  Do not run concurrently with user's 45c source-pinned training.
-- Current XML already has noncontact thigh/shin rods and disabled
-  plane; true prism contact remains permitted for torso and feet.
-  Lowering colliders or contact caps must be separately gated.
-
-## 4 November — v5046 midpoint four-tile experiment (draft PR #35)
-
-- Owner's CUDA 2048-world profile on `65bc3df2` measured
-  full 8.9096s/update, standalone 32-frame no-gradient rollout
-  8.3314s (93.5% diagnostic ratio, not additive attribution).
-- On **separate** branch
-  `experiment/v5046-75cm-four-tile-midpoint`: 4×75cm
-  rolling tiles, 8 true convex mesh prism colliders rather
-  than 9×50cm / 18 colliders. Both have 1.5m×1.5m footprint.
-- Tile neighbourhood swaps per-axis at each tile **midpoint**,
-  mod-2 stable global slot IDs, with real sphere-foot
-  clearance guard. 2×2 keeps current tile while swapping
-  neighbours, including reversals and diagonal switches.
-- Corrected old coincidence `TILE_M==TILE_SIZE_Z_M==.5`:
-  physical mesh Z-offset, actual gradient/slope evidence,
-  edge height, examiner slot maps.
-- Tests, full MJX physics and GPU A/B are launch gates,
-  not a measured speedup yet. High-step downhill shallow
-  ToF may exceed 37.5cm, so sensor validity needs explicit
-  inspection. Preserve prior branch and finished 20M.
+**No more one-off launcher libraries.** The CLI owns training, the
+current evaluator owns physical evidence, and completed research
+is a concise result under the existing report/issue rather than
+another permanent script. Full maintenance rules:
+[docs/MAINTENANCE.md](docs/MAINTENANCE.md).
