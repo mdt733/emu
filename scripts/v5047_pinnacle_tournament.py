@@ -172,7 +172,9 @@ def checked_actor(actor, sha, spec, step):
     if (source.get("git_commit") != sha or source.get("step") < step or
             physics.get("terrain_carpet_prisms") is not True or
             physics.get("solver_iterations") != spec.get("solver", 2) or
-            physics.get("solver_ls_iterations") != 4):
+            physics.get("solver_ls_iterations") != 4 or
+            abs(physics.get("stillness_birth_frac",0.)
+                -spec.get("stillness",0.)) > 1e-7):
         raise RuntimeError(
             f"Export does not match source, target step or solver: {actor}")
     return data
@@ -185,10 +187,13 @@ def lifecycle_acceptance(sha, state, env):
     training_config, exported policy metadata and a CUDA frozen physics
     trace. A tiny policy need not walk. Deliberately no extra full suite.
     """
-    for solver in (2,4):
-        key=f"solver{solver}_ls4"
+    for key, spec in (
+            ("solver2_ls4",{"intro":11_000_000,"start":16_000_000,"solver":2}),
+            ("solver4_ls4",{"intro":11_000_000,"start":16_000_000,"solver":4}),
+            ("stillness_10pct",{"intro":11_000_000,"start":16_000_000,
+                                "solver":2,"stillness":.10})):
+        solver=spec["solver"]
         folder=SCRATCH/"acceptance"/key
-        spec={"intro":11_000_000,"start":16_000_000,"solver":solver}
         checkpoint=folder/"checkpoints"/"final.pkl"
         acceptance_env=dict(env)
         acceptance_env["EMU_UNIFIED_ACCEPTANCE"]="bounded-ppo-lifecycle"
