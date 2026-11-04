@@ -560,7 +560,7 @@ class TaskSampler:
             # sharing one across quantities.
             # Keep split arity stable so deleting a dead task feature does not
             # reshuffle unrelated stochastic streams under the same seed.
-            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, k_stillness, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
+            k_regime, k_vx, k_vy, k_yaw, k_height, k_pitch, k_roll, k_step, k_phase, _reserved, k_athletic, k_combo, k_axis, k_radius, k_field_use, k_field_pick = jax.random.split(k, 16)
             u = jax.random.uniform(k_regime, ())
             regime = jnp.sum(u > regime_cdf).astype(jnp.float32)
             # Full-envelope rehearsal preserves the proven athletic distribution
@@ -689,19 +689,9 @@ class TaskSampler:
             step_height = jnp.where(is_athletic, 0.012, step_height)
             resilience_task = jnp.where(is_athletic, 0.0, resilience_task)
 
-            # A true near-zero command is a first-class, explicit research
-            # birth cohort: same actor, physics and sensor channels. Keep
-            # a fresh RNG key, no new JAX state/optimizer, and leave all
-            # other cohorts/athletic rehearsal untouched when fraction=0.
-            is_still = ((jax.random.uniform(k_stillness, ()) < self.stillness_birth_frac)
-                        & (regime < .5) & ~is_athletic)
-            vx = jnp.where(is_still, 0., vx)
-            vy = jnp.where(is_still, 0., vy)
-            yaw = jnp.where(is_still, 0., yaw)
-            height = jnp.where(is_still, 0., height)
-            pitch = jnp.where(is_still, 0., pitch)
-            roll = jnp.where(is_still, 0., roll)
-            resilience_task = jnp.where(is_still, 0., resilience_task)
+            # Zero-command research births are reserved AFTER specialist
+            # task assignment in _reset_with_keys. Here STEP/CONTROL command
+            # rewriting would otherwise silently erase sampled stillness.
             # Capability-atlas command probes use exact physical commands,
             # bypassing random envelope sampling without changing the actor.
             vx = jnp.where(jnp.isfinite(params[P.probe_cmd_vx]), params[P.probe_cmd_vx], vx)
@@ -2502,6 +2492,25 @@ class EmuMJXEnv(TaskSampler):
         focus_id = self._focus_for_birth(keys, params)
         task, specialist_active = self._specialist_task(
             task, keys, params, focus_id)
+        if self.stillness_birth_frac > 0.:
+            # Reserve real zero-command episodes AFTER Academy/coherent
+            # STEP and CONTROL command rewriting. The earlier placement
+            # inside _sample_task was erased by _specialist_task in most
+            # worlds. This is ONE optional 10% birth cohort, not a second
+            # policy or a privileged observation input. It takes practice
+            # away from other cohorts by the requested fraction.
+            still_keys=jax.vmap(
+                lambda key:jax.random.fold_in(key,504801))(keys)
+            still_draw=jax.vmap(
+                lambda key:jax.random.uniform(key,()))(still_keys)
+            still=(still_draw < self.stillness_birth_frac) & (
+                task[:,T.athletic_rehearsal] < .5)
+            for col in (T.vx,T.vy,T.yaw,T.height,T.pitch,T.roll,
+                        T.resilience,T.birth_resilience_d,T.field_taught):
+                task=task.at[:,col].set(jnp.where(still,0.,task[:,col]))
+            task=task.at[:,T.regime].set(jnp.where(still,0.,task[:,T.regime]))
+            focus_id=jnp.where(still,CONTROL,focus_id)
+            specialist_active=jnp.where(still,False,specialist_active)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
