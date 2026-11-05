@@ -9,7 +9,8 @@ thousands of parallel MuJoCo/MJX physics worlds.
 
 [**Open the EMU playground**](https://mdt733.github.io/emu/) ·
 [**Run-to-viewer core skeleton**](docs/CORE_SKELETON.md) ·
-[**260M Pinnacle measurements**](docs/V5032_PINNACLE_RELEASE.md) ·
+[**200M released policy / measured limitations**](docs/V5048_SHARED_PARENT_RESULTS_20261105.md) ·
+[**Original 260M Pinnacle baseline**](docs/V5032_PINNACLE_RELEASE.md) ·
 [**Fresh installation**](docs/INSTALL.md) ·
 [**Current handover**](HANDOVER.md)
 
@@ -174,7 +175,7 @@ A `.pkl` holds optimizer, normalizer and curriculum state;
 an `.emupolicy` is an inference-only actor with a sensor
 contract. Full checkpoints are not in Git; keep external backups.
 
-## Current development — engineering promotion preparation
+## Current development — v5048 200M software release
 
 The **v5048 GPU experiment has completed 550M unique steps**,
 pinned to original training SHA
@@ -204,20 +205,19 @@ on an RTX 4060 Ti. The 2/4 physics fidelity still requires
 contact/penetration and CUDA reset-parity assessment.
 [Measured engineering results](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
-The separate
-[future-main release-prep branch](https://github.com/mdt733/emu/tree/release/v5049-main-promotion-prep)
-retains the production CLI and tests while removing disposable
-v5045/46/48 experiment launchers, stale historical runbooks and
-duplicate workflow code. **It does not rewrite v5048's original
-source or training checkpoint**, and its cleanup is not an actor
-training continuation.
-
-We plan **two explicit approvals**: upgrade the engineering
-architecture after fresh CI/CUDA verification, and *separately*
-consider replacing the published 260M champion after independent
-cross-seed physical gait exams and browser proof. Until both
-have been evaluated, `main` and the approved public actor
-remain unchanged. [Promotion gates and rollback](docs/RELEASE_READINESS.md).
+The cleaned engineering architecture entered `main` through
+[PR #39](https://github.com/mdt733/emu/pull/39). The owner also
+tested the exported v5048 temporal-speed 200M policy in the viewer
+and approved it as a **software-playground milestone** through
+[PR #40](https://github.com/mdt733/emu/pull/40).
+That decision does not claim matched-v5032 speed/steering mastery,
+a full actual 3cm ascent, quiet standing or validated hardware
+physics. The previous 260M released policy is retained in Git
+history for rollback. The final training `final.pkl` was not in
+the evidence archive: the release approval explicitly records
+this and pins the actual exported actor, training source, sensor
+and 148-panel examination archive instead.
+[Release provenance and limitations](docs/RELEASE_READINESS.md).
 
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md) ·
