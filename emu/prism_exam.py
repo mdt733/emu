@@ -303,6 +303,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
+    # v5051: independent physical post-contact mission, not a reward counter.
+    from .step_autopsy import inspect_missions
+    autopsy = inspect_missions(measured)
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
     done = np.asarray(measured["done"], dtype=bool)
@@ -413,6 +416,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         ),
         elapsed_wall_seconds=round(time.perf_counter()-begun, 2),
         worlds=rows,
+        mission_autopsy=autopsy,
     )
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "prism_exam.json"
@@ -433,6 +437,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "A zero crossing count is zero demonstrated crossings, not a failed attempted fixture.", "",
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
         f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
+        f"v5051 post-contact completed missions: **{autopsy['completed_missions']}/{autopsy['eligible_supported_contacts']}** eligible supported contacts",
+        "Not a fixed-height obstacle or full eight-stage climb certification; detection, riser clearance and load transfer remain unmeasured.", "",
         "| World | Survived | Mean vx | vx MAE | Actual mean grade | Up | Down | Shaft J/m* |",
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
     ]
