@@ -18,6 +18,8 @@ This is a **mechanism investigation**, not a new champion release. The public 20
 | 5 | Perception too late / ignored | 4×4 ToF from torso, pitch rows 40/60/80/100°, yaw columns ±7.5/±22.5°, default 2-frame acquisition and 1-frame delay at 50Hz. Rays may be forward, nearly downward or rearward depending on pitch. Sensor availability does **not** establish learned use. | Same seeds and physical terrain, frozen actor with original vs raw terrain channels ablated; record measured detection-distance and action changes. |
 | 6 | Hard mechanical constraints | Six position servos, 18mm spherical feet, spring hip/knee support. Thin thigh/shin collision geoms are **disabled** in the fast solver; a virtual penetration sentinel checks some strikes but does not supply full hardware contact reaction. Current source does **not** prove 3cm dynamic feasibility on real hardware. | Actual MuJoCo-supported swing workspace + constrained dynamics, riser/sentinel checks, 2/4 vs 4/4 parity before training. |
 
+**200M champion provenance verified, not guessed:** the approved `showcase/champion.emupolicy` contains `source.step=200015872`, `source.git_commit=088a29be47f624be9e2c322c504ec98049b3f9bf`, `training.solver_iterations=2`, `training.solver_ls_iterations=4`, and **`training.stillness_birth_frac=0`**. The approved 200M policy therefore did not train with the optional zero-command birth or its reward-gate exception. The release manifest explicitly says its resumable `final.pkl` checkpoint has **not** been provided.
+
 The gait proxy threshold deserves special attention. With a 12mm target swing and one lifted foot, a *sustained* roughly **2.2mm** foot-height increase beyond nominal contact makes per-frame `step_evidence≈0.15`. The episode mean still matters, so this is **not** a claim that one 2.2mm twitch alone clears the gate. Nonetheless, this demonstrates that the gate asks for activity, not useful horizontal travel or tall riser clearance.
 
 **Important counterevidence against a simple clock-lock story:** the v5048 frozen 200M exam measured about **8.5 detected footfalls/s across both feet at zero request**, far faster than a 0.85–1.2Hz full clock cycle. The clock may bias posture and alternation, but it does not directly command every touchdown at that cadence.
@@ -47,9 +49,9 @@ Regression tests cover a completed course, a one-foot contact, heading failure, 
 
 ## Evidence gates, in order
 
-**A. Baseline and falsification, zero PPO training.** Run four matched frozen exams (normal, phase channels hidden, terrain channels hidden, both hidden) for zero/slow and step commands, identical seeds and solver, plus a held-out fast panel. Compare the original and ablated actor's footfalls, drift, support, actual supported heights, verified post-lip continuation, yaw and falls. An ablation is an out-of-distribution input intervention; strong effect establishes sensitivity, not automatically causation of the trained strategy. Weak effect only shows insensitivity under that exam, not that the sensor is unnecessary generally.
+**A. Baseline and falsification, zero PPO training.** Run five matched frozen exams (normal, phase frozen at valid sin=0/cos=1, phase reference rotated +180° without changing phase cadence, terrain channels hidden, both frozen/hidden) for zero/slow and step commands, identical seeds and solver, plus a held-out fast panel. Compare the original and ablated actor's footfalls, drift, support, actual supported heights, verified post-lip continuation, yaw and falls. An ablation is an out-of-distribution input intervention; strong effect establishes sensitivity, not automatically causation of the trained strategy. Weak effect only shows insensitivity under that exam, not that the sensor is unnecessary generally.
 
-**B. Mechanical feasibility.** Build and run MJX/MuJoCo dynamics and constrained supported-foot tests for specified actual risers. Report joint targets, measured servo torque/speed saturation, COM position, spring potential-energy history and failed collision/virtual-sentinel conditions. If 3cm is unattainable at the actual motors, don't spend 300M PPO steps trying to discover it.
+**B. Mechanical feasibility.** `python scripts/probe_stair_kinematics.py --output ~/emu-data/scratch/v5051-static-reach.json` now performs a static, read-only MuJoCo FK scan with the other foot in floor contact, both legs independently, and actual 1/2/2.5/3/3.5/4cm clearances. This checks a *necessary geometric* condition only. Next build and run MJX/MuJoCo **dynamics** and constrained supported-foot tests for specified actual risers. Report joint targets, measured servo torque/speed saturation, COM position, spring potential-energy history and failed collision/virtual-sentinel conditions. If 3cm is unattainable at the actual motors, don't spend 300M PPO steps trying to discover it.
 
 **C. Physical approach autopsy.** Add eligible-approach and attempt accounting on real observed walls, including geometry, lead foot riser clearance, upper landing, body transfer, rear-foot lift and completed 50cm. Keep all denominators and body-/foot-contact evidence separate. Avoid changing the old support rule while benchmarking.
 
@@ -70,6 +72,8 @@ git status --short
 bash scripts/setup_wsl.sh --cuda13 --install-node --check
 source .venv/bin/activate
 emu doctor --require-gpu
+python scripts/probe_stair_kinematics.py \
+  --output ~/emu-data/scratch/v5051-static-reach.json
 
 mkdir -p ~/emu-data/runs/v5051-baselines-s1701
 emu prism-exam \
@@ -82,6 +86,11 @@ emu prism-exam \
   --output ~/emu-data/runs/v5051-baselines-s1701/step-phase-hidden \
   --worlds 16 --horizon 650 --seed 1701 --device cuda \
   --mode step --speed 0.12 --lip-cm 3 --phase-ablation
+emu prism-exam \
+  --policy showcase/champion.emupolicy \
+  --output ~/emu-data/runs/v5051-baselines-s1701/step-phase-rotated \
+  --worlds 16 --horizon 650 --seed 1701 --device cuda \
+  --mode step --speed 0.12 --lip-cm 3 --phase-offset-deg 180
 emu prism-exam \
   --policy showcase/champion.emupolicy \
   --output ~/emu-data/runs/v5051-baselines-s1701/step-tof-hidden \
