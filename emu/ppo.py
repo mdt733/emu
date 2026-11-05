@@ -607,7 +607,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
-                       gyro_delay_frames=0):
+                       gyro_delay_frames=0, terrain_sensor_ablation=False,
+                       phase_input_ablation=False, phase_offset_deg=0.):
         """Read-only matched course exam with explicit time-varying commands.
 
         The operator schedule drives reset, policy observation and the
@@ -618,6 +619,35 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         """
         kp = float(heading_kp)
         delay = int(gyro_delay_frames)
+        # Research-only counterfactual on the SAME frozen actor and physical
+        # run. Hide the terrain-facing observation channels from the policy,
+        # but leave the physical sensor state and optical-flow estimator intact.
+        # The latter still uses ToF-derived depth, so this is a terrain-channel
+        # ablation, NOT a claim to eliminate all ToF information everywhere.
+        if type(terrain_sensor_ablation) is not bool or type(phase_input_ablation) is not bool:
+            raise ValueError('observation ablation switches must be bool')
+        import math
+        offset_deg = float(phase_offset_deg)
+        if not math.isfinite(offset_deg) or not -360. <= offset_deg <= 360.:
+            raise ValueError('phase_offset_deg must be finite and within +/-360')
+        if phase_input_ablation and offset_deg != 0.:
+            raise ValueError('Choose phase freeze OR offset, not both')
+        terrain_sensor_cols = ()
+        phase_sin_col = BASE_OBS_FIELDS.index('phase_sin')
+        phase_cos_col = BASE_OBS_FIELDS.index('phase_cos')
+        phase_sin_offset = math.sin(math.radians(offset_deg))
+        phase_cos_offset = math.cos(math.radians(offset_deg))
+        if terrain_sensor_ablation:
+            from .contracts import (TERRAIN_OBS_FIELDS, TERRAIN_RANGE_FIELDS,
+                                    TERRAIN_VALID_FIELDS)
+            if env.base_obs_dim != len(TERRAIN_OBS_FIELDS):
+                raise ValueError('terrain sensor ablation requires terrain_360')
+            names = (TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FIELDS +
+                     ('tof_height', 'ground_forward_grade_rad',
+                      'ground_sideways_grade_rad', 'ground_visibility_confidence'))
+            terrain_sensor_cols = jnp.asarray(
+                [TERRAIN_OBS_FIELDS.index(name) for name in names],
+                dtype=jnp.int32)
         if not 0. <= kp <= 2. or not 0 <= delay <= 5:
             raise ValueError('invalid heading gain or sensor delay')
         if command_schedule is not None:
@@ -747,7 +777,26 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
-            policy_obs=hist.reshape((env.num_envs, obs_dim))
+            policy_hist = hist
+            if terrain_sensor_ablation:
+                # Apply to ALL history frames, otherwise older 4x90 samples
+                # still hand the actor terrain data for up to 60ms.
+                policy_hist = hist.at[:, :, terrain_sensor_cols].set(0.)
+            if phase_input_ablation:
+                # Freeze at an ON-MANIFOLD unit-circle phase (sin=0,cos=1),
+                # not impossible sin=cos=0. The physical clock continues.
+                policy_hist = policy_hist.at[:, :, phase_sin_col].set(0.)
+                policy_hist = policy_hist.at[:, :, phase_cos_col].set(1.)
+            elif offset_deg != 0.:
+                # Preserve each history frame's cadence and unit circle;
+                # rotate only the actor's absolute phase reference.
+                old_sin = policy_hist[:, :, phase_sin_col]
+                old_cos = policy_hist[:, :, phase_cos_col]
+                policy_hist = policy_hist.at[:, :, phase_sin_col].set(
+                    old_sin * phase_cos_offset + old_cos * phase_sin_offset)
+                policy_hist = policy_hist.at[:, :, phase_cos_col].set(
+                    old_cos * phase_cos_offset - old_sin * phase_sin_offset)
+            policy_obs=policy_hist.reshape((env.num_envs, obs_dim))
             # Frozen exams need only the actor, never a value network or
             # optimiser. This permits identical evaluation of exported .emupolicy
             # actors and full schema-7 checkpoints through ONE MJX trace path.
@@ -907,7 +956,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
-    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
+    # Exam-only ablation booleans/offset change the traced policy-input path;
+    # they MUST be static or a frozen GPU exam raises TracerBoolConversionError.
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11,12,13,14))
 
     return {
         'make_initial_state': make_initial_state,

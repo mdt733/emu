@@ -36,6 +36,12 @@ def main(argv=None) -> int:
     q.add_argument('--mode',choices=('flat','slope','step','mixed'),default='mixed')
     q.add_argument('--grade-deg',type=float,default=3.,help='requested slope frontier, not a fixed fixture')
     q.add_argument('--lip-cm',type=float,default=1.,help='requested signed-step frontier, not a fixed fixture')
+    q.add_argument('--tof-ablation',action='store_true',
+                   help='hide 4x4 terrain channels from the frozen policy; sensors still run physically')
+    q.add_argument('--phase-ablation',action='store_true',
+                   help='freeze actor phase at sin=0/cos=1, leaving physical clock unchanged')
+    q.add_argument('--phase-offset-deg',type=float,default=0.,
+                   help='rotate actor sine/cosine phase only by a fixed angle; preserves clock cadence')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -144,7 +150,10 @@ def main(argv=None) -> int:
             policy=args.policy, output=args.output, worlds=args.worlds,
             horizon=args.horizon, speed=args.speed, seed=args.seed,
             device=args.device, mode=args.mode,
-            grade_deg=args.grade_deg, lip_cm=args.lip_cm)
+            grade_deg=args.grade_deg, lip_cm=args.lip_cm,
+            tof_ablation=args.tof_ablation,
+            phase_ablation=args.phase_ablation,
+            phase_offset_deg=args.phase_offset_deg)
         for path in paths:
             print(path)
         return 0

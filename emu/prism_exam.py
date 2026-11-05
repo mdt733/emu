@@ -5,6 +5,7 @@ when determining an independently supported physical traversal.
 """
 from __future__ import annotations
 
+import math
 import numpy as np
 
 from .terrain_carpet_mjx import TILE_M, TILE_COUNT
@@ -130,6 +131,7 @@ def score_prism_crossings(frames, *, required_frames=5):
                 candidate, streak = target, 0
             target_slot = slot(target)
             supported = False
+            lead_foot = None
             for f in range(2):
                 # Two triangles per tile, each a REAL convex MJX collider.
                 contact_ok = any(
@@ -143,6 +145,7 @@ def score_prism_crossings(frames, *, required_frames=5):
                 if inside and abs(
                     feet[t, w, f, 2] - radii[f] - surface) <= .009:
                     supported = True
+                    lead_foot = f
                     break
             if not supported or fell[t, w]:
                 streak = 0
@@ -159,7 +162,8 @@ def score_prism_crossings(frames, *, required_frames=5):
             if abs(rise) > .0015:
                 observed.append(dict(
                     from_cell=list(confirmed), to_cell=list(target),
-                    signed_height_cm=round(rise * 100., 4), frame=t))
+                    signed_height_cm=round(rise * 100., 4), frame=t,
+                    leading_foot=int(lead_foot)))
             else:
                 smooth += 1
             confirmed = target
@@ -178,15 +182,194 @@ def score_prism_crossings(frames, *, required_frames=5):
         worlds=per_world)
 
 
+# Post-lip mission evidence remains owned by the single physical examiner.
+def _surface_at(tops, tile, xy, tile_m):
+    """Real two-triangle prism top within an exact global source tile."""
+    u, v = (np.asarray(xy) / tile_m - np.asarray(tile, dtype=float))
+    if min(u, v) < -.001 or max(u, v) > 1.001:
+        return None
+    slot = int(tile[0] % 2 + 2 * (tile[1] % 2))
+    a, b, c, d = tops[slot]
+    if u + v <= 1.:
+        return float(a * (1. - u - v) + b * u + c * v)
+    return float(d * (u + v - 1.) + b * (1. - v) + c * (1. - u))
+
+
+def score_post_lip_missions(frames, crossings, *,
+                            tile_m=.75, advance_m=.50,
+                            heading_tolerance_deg=30.,
+                            lateral_tolerance_m=.25,
+                            trailing_support_frames=3):
+    """Examine recovery/continued travel AFTER independent upper support.
+
+    Results are per *observed supported crossing*, not per approached wall.
+    A complete event needs the OTHER foot to obtain sustained valid top
+    support on the destination physical tile, followed by >= advance_m
+    directed travel with acceptable heading and lateral deviation, before
+    a fall/timeout. No future time steps after the first episode count.
+    Only positive operator-forward trials qualify as course certificates.
+    """
+    xy = np.asarray(frames["position_xy"], dtype=float)
+    yaw = np.asarray(frames["heading_rad"], dtype=float)
+    feet = np.asarray(frames["foot_xyz"], dtype=float)
+    tops = np.asarray(frames["carpet_prism_corner_z"], dtype=float)
+    pairs = np.asarray(frames["carpet_raw_contact_pairs"], dtype=bool)
+    vertical = np.asarray(frames["carpet_contact_vertical"], dtype=float)
+    radii = np.asarray(frames["initial_foot_radii_m"], dtype=float)
+    done = np.asarray(frames["done"], dtype=bool)
+    fell = np.asarray(frames["fell"], dtype=bool)
+    t_count, worlds, _ = xy.shape
+    if (xy.shape != (t_count, worlds, 2)
+            or yaw.shape != (t_count, worlds)
+            or feet.shape != (t_count, worlds, 2, 3)
+            or tops.shape != (t_count, worlds, 4, 4)
+            or pairs.shape != (t_count, worlds, 8, 2)
+            or vertical.shape != pairs.shape
+            or radii.shape != (2,)
+            or done.shape != (t_count, worlds)
+            or fell.shape != done.shape
+            or len(crossings["worlds"]) != worlds):
+        raise ValueError("Incompatible physical prism mission trace shapes")
+    if not (np.isfinite(xy).all() and np.isfinite(yaw).all()
+            and np.isfinite(feet).all() and np.isfinite(tops).all()
+            and np.isfinite(vertical).all() and np.isfinite(radii).all()):
+        raise ValueError("Nonfinite physical mission trace")
+    if not (tile_m > 0 and advance_m > 0 and
+            0 < heading_tolerance_deg <= 180 and lateral_tolerance_m > 0
+            and 1 <= trailing_support_frames <= 20):
+        raise ValueError("Invalid physical mission thresholds")
+
+    earlier_done = np.concatenate(
+        (np.zeros((1, worlds), dtype=np.int32),
+         np.cumsum(done[:-1], axis=0)), axis=0)
+    first_life = earlier_done == 0
+    reports = []
+    for w in range(worlds):
+        # All ordinary panels request constant forward speed and zero yaw.
+        # Record the initial BODY heading as the intended world direction;
+        # this is conservative if the actor turns off-course before a lip.
+        ref = float(yaw[0, w])
+        forward = np.array([math.cos(ref), math.sin(ref)])
+        sideways = np.array([-forward[1], forward[0]])
+        world_events = []
+        for crossing in crossings["worlds"][w]["independently_supported_lips"]:
+            t0 = int(crossing["frame"])
+            lead = int(crossing["leading_foot"])
+            if not (0 <= t0 < t_count and lead in (0, 1)):
+                raise ValueError("Invalid crossing frame or leading foot")
+            other = 1 - lead
+            tile = tuple(int(x) for x in crossing["to_cell"])
+            slot = int(tile[0] % 2 + 2 * (tile[1] % 2))
+            streak = 0
+            recovered_at = None
+            completed_at = None
+            progressed_at = None
+            max_directed = 0.
+            ending_heading_error = None
+            ending_lateral = None
+            last_t = t0
+            for t in range(t0, t_count):
+                if not first_life[t, w] or fell[t, w]:
+                    break
+                last_t = t
+                # Recycled prisms reuse slot numbers. Require the other
+                # sphere to lie above the EXACT destination global tile.
+                surface = _surface_at(tops[t, w], tile,
+                                      feet[t, w, other, :2], tile_m)
+                top_contact = (surface is not None and
+                    abs(float(feet[t, w, other, 2] - radii[other] - surface)) <= .009 and
+                    any(pairs[t, w, 2 * slot + tri, other] and
+                        vertical[t, w, 2 * slot + tri, other] >= .70
+                        for tri in (0, 1)))
+                streak = streak + 1 if top_contact else 0
+                if streak >= trailing_support_frames and recovered_at is None:
+                    recovered_at = t
+                offset = xy[t, w] - xy[t0, w]
+                progress = float(offset @ forward)
+                max_directed = max(max_directed, progress)
+                if progress < advance_m or progressed_at is not None:
+                    continue
+                progressed_at = t
+                heading_error = abs(math.degrees(math.atan2(
+                    math.sin(float(yaw[t, w]) - ref),
+                    math.cos(float(yaw[t, w]) - ref))))
+                lateral = abs(float(offset @ sideways))
+                ending_heading_error = round(heading_error, 3)
+                ending_lateral = round(lateral, 4)
+                # A recovery after progress is permitted only if a LATER
+                # frame still demonstrates controlled forward progress.
+                if (recovered_at is not None and recovered_at <= t and
+                    heading_error <= heading_tolerance_deg and
+                    lateral <= lateral_tolerance_m):
+                    completed_at = t
+                    break
+            if completed_at is None and recovered_at is not None:
+                # If the rear foot landed only AFTER passing the distance
+                # mark, allow later qualifying frames to complete the mission.
+                for t in range(recovered_at, last_t + 1):
+                    offset = xy[t, w] - xy[t0, w]
+                    progress = float(offset @ forward)
+                    heading_error = abs(math.degrees(math.atan2(
+                        math.sin(float(yaw[t, w]) - ref),
+                        math.cos(float(yaw[t, w]) - ref))))
+                    lateral = abs(float(offset @ sideways))
+                    if (progress >= advance_m and
+                        heading_error <= heading_tolerance_deg and
+                        lateral <= lateral_tolerance_m):
+                        completed_at = t
+                        ending_heading_error = round(heading_error, 3)
+                        ending_lateral = round(lateral, 4)
+                        break
+            fell_after = bool(np.any(fell[t0:last_t + 2, w]))
+            if completed_at is not None:
+                outcome = "complete_controlled_50cm"
+            elif fell_after:
+                outcome = "fell_after_upper_support"
+            elif recovered_at is None:
+                outcome = "upper_support_without_trailing_recovery"
+            elif max_directed < advance_m:
+                outcome = "trailing_recovered_without_50cm_progress"
+            else:
+                outcome = "distance_reached_but_path_control_failed"
+            world_events.append({
+                **crossing,
+                "trailing_foot": other,
+                "trailing_support_frame": recovered_at,
+                "first_50cm_frame": progressed_at,
+                "controlled_completion_frame": completed_at,
+                "max_directed_progress_m": round(max_directed, 4),
+                "heading_error_at_first_50cm_deg": ending_heading_error,
+                "lateral_error_at_first_50cm_m": ending_lateral,
+                "fell_after_upper_support": fell_after,
+                "outcome": outcome,
+            })
+        reports.append({"world": w, "supported_event_count": len(world_events),
+                        "completed": sum(x["controlled_completion_frame"] is not None
+                                         for x in world_events),
+                        "missions": world_events})
+    return {
+        "thresholds": {"directed_progress_m": advance_m,
+                       "heading_error_deg": heading_tolerance_deg,
+                       "lateral_error_m": lateral_tolerance_m,
+                       "trailing_top_support_frames": trailing_support_frames},
+        "supported_events": sum(x["supported_event_count"] for x in reports),
+        "completed": sum(x["completed"] for x in reports),
+        "worlds": reports,
+    }
+
+
 def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                           speed=.12, seed=1701, device="cpu", mode="mixed",
-                          grade_deg=3., lip_cm=1.):
+                          grade_deg=3., lip_cm=1., tof_ablation=False,
+                          phase_ablation=False, phase_offset_deg=0.):
     """Independent frozen 360-input actor on the same physical prism topology.
 
     Unlike the retired two-slab matrix, terrain is procedurally sampled here:
     requested frontiers are *teacher settings*, and observed geometry/crossings
     are always reported separately. No PPO updates or lesson promotion.
     """
+    if type(tof_ablation) is not bool or type(phase_ablation) is not bool:
+        raise ValueError("observation ablations must be boolean")
     import hashlib
     import json
     import math
@@ -300,9 +483,13 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         params, task,
         jnp.asarray(norm["mean"]), jnp.asarray(norm["std"]),
         jax.random.PRNGKey(seed), horizon, 0.,
-        jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
+        jnp.asarray([speed, 0., 0.], dtype=jnp.float32),
+        terrain_sensor_ablation=tof_ablation,
+        phase_input_ablation=phase_ablation,
+        phase_offset_deg=phase_offset_deg)
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
+    missions = score_post_lip_missions(measured, independent)
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
     done = np.asarray(measured["done"], dtype=bool)
@@ -361,6 +548,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                     prior_xy = xy_now
         gait_time = max(dt,(stop-start)*dt)
         own = independent["worlds"][w]
+        course = missions["worlds"][w]
         rows.append(dict(
             world=w, survived=bool(not np.any(fell[:stop, w]) and stop == horizon),
             completed_frames=stop,
@@ -385,6 +573,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             verified_up=int(own["independent_up"]),
             verified_down=int(own["independent_down"]),
             supported_lips=own["independently_supported_lips"],
+            completed_post_lip_50cm=int(course["completed"]),
+            post_lip_missions=course["missions"],
         ))
     manifest = dict(
         schema="emu_prism_frozen_exam_v1",
@@ -401,6 +591,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             requested_lip_frontier_cm=lip_cm if has_step else 0.,
             actual_collision=f"{PRISM_COUNT} convex prism meshes / {TILE_COUNT} {TILE_M*100:g}cm source tiles",
             sensor="360-input array-only 4x4 ToF",
+            terrain_observation_ablation=tof_ablation,
+            phase_observation_ablation=phase_ablation,
+            phase_observation_offset_deg=float(phase_offset_deg),
             no_optimizer_or_curriculum_updates=True,
             deterministic_seed=True,
         ),
@@ -409,6 +602,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             signed_supported_up=independent["up"],
             signed_supported_down=independent["down"],
             total_supported_lips=independent["total"],
+            complete_post_lip_50cm=missions["completed"],
+            post_lip_mission_thresholds=missions["thresholds"],
             note="Procedural terrain: measured grades/lips, not requested frontiers, are evidence.",
         ),
         elapsed_wall_seconds=round(time.perf_counter()-begun, 2),
@@ -422,6 +617,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     lines = [
         "# Frozen-policy true-prism examination", "",
         f"Actor SHA-256: `{actor['artifact_sha256']}`",
+        f"Terrain-channel ablation (raw rays, validity, fit and depth): **{tof_ablation}**",
+        f"Phase sine/cosine frozen to a valid constant: **{phase_ablation}**",
+        f"Phase input rotation: **{phase_offset_deg}°**",
         f"Source training commit: `{actor['source'].get('git_commit')}`",
         f"Mode: **{mode}** | worlds: {worlds} | horizon: {horizon}",
         f"Command: +{speed:.2f} m/s | requested grade frontier: {grade_deg if has_grade else 0.}°"
@@ -432,7 +630,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "0 m/s trials report world-frame drift, not zero-cost static posture.",
         "A zero crossing count is zero demonstrated crossings, not a failed attempted fixture.", "",
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
-        f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
+        f"Independently supported up/down: **{independent['up']}/{independent['down']}**",
+        f"Completed independently certified post-lip 50cm missions: **{missions['completed']}/{missions['supported_events']} supported events**", "",
         "| World | Survived | Mean vx | vx MAE | Actual mean grade | Up | Down | Shaft J/m* |",
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
     ]
@@ -455,6 +654,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "Per-world net XY drift, footfall rate and same-foot stride length are in `prism_exam.json`.",
         "Footfalls require two frames airborne then two frames supported; stride requires two same-foot contacts.",
         "Per-world measured support and signed lip geometry are in `prism_exam.json`.",
+        "Post-lip missions require sustained OTHER-foot support, 50cm forward travel, heading within 30° and lateral error <=25cm.",
+        "These are completion fractions of physically supported crossings, NOT eligible-approach success rates.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
         " from procedural difficulty alone.",
     ]
