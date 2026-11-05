@@ -119,6 +119,15 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=config.terrain_step_max_m,
+        science_gate_mode=config.science_gate_mode,
+        science_phase_lowcmd_scale=config.science_phase_lowcmd_scale,
+        science_phase_sync_strength=config.science_phase_sync_strength,
+        science_crouch_allowance_m=config.science_crouch_allowance_m,
+        science_stride_efficiency_weight=config.science_stride_efficiency_weight,
+        science_supported_cross_bonus=config.science_supported_cross_bonus,
+        science_foothold_bonus=config.science_foothold_bonus,
+        science_bilateral_support_bonus=config.science_bilateral_support_bonus,
+        science_sensor_teacher_bonus=config.science_sensor_teacher_bonus,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
     from .training_config import training_sensor_contract
