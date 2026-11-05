@@ -16,7 +16,53 @@ measured fast dynamic locomotion approaching the incumbent's ~1m/s
 **requested** forward-speed envelope, plus supported terrain crossing,
 resilience and efficient control.
 
-## v5049 staged migration — preserve the champion
+## v5048 200M browser milestone — approved with explicit limitations
+
+On 5 November 2026 the operator inspected the exported
+`v5048-temporal_speed-s735` 200,015,872-step actor in the local
+browser and explicitly approved it for `main` and the public
+playground. The eight-prism engineering was merged independently
+as [PR #39](https://github.com/mdt733/emu/pull/39), producing
+`6bbcdd1`, before the actor release on
+[PR #40](https://github.com/mdt733/emu/pull/40).
+
+The approved **inference-only** artifact is schema 3, 360 inputs,
+six actuator targets, source training SHA `088a29b`, actor SHA256
+`29219e34e149159df1d050281903c79752d665fa13dcafe303bafcc45bfbdce1`,
+Git blob `020bd17ab0efa84d97b68c7a4f43b759097bdfbb`
+and exported file SHA256
+`36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6`.
+The exact independently submitted 148-panel research evidence
+bundle has SHA256
+`7071c8a8742cf3e5dd053e0d8affb9ecef10f0e9f3a8cde87f376adcdea7a541`.
+
+**Provenance exception (explicit, not fabricated):** the original
+200M `final.pkl` bytes and checkpoint SHA256 were **not** included
+in the operator's archive. Approval schema 2 therefore records
+`checkpoint_sha256: null` and `checkpoint_archive_status:
+not_provided`, strictly verifies the source/actor/sensor/export
+and examination archive hashes, and documents an
+`owner-reviewed-inference-only` approval. Existing schema-1
+checkpoint-archived approvals remain unchanged and strict.
+This is a software-demo release, **not** a guarantee that the
+training optimiser can be resumed or identical hardware behaviour
+reproduced from the saved inference artifact.
+
+**Still unproven:** a full measured 3.0cm stair ascent, sustained
+post-lip headed progress, quiet zero-command stance, 0.7m/s
+tracking accuracy at fast speed, direct equivalent-mission parity
+against the 260M reference, and CUDA compact/full `.qacc`
+solver2/4 physical fidelity. These remain *scientific and
+hardware-readiness backlog items*, not reasons to mislabel the
+owner-approved browser milestone.
+
+The previous v5032 approved policy and release files are preserved
+at main Git SHA `4e3e1f45b98945c9729aab4d5c68d9ee122a6876`
+for straightforward rollback. The Pages workflow pins the new
+approved actor and viewer Git blobs and will refuse mismatched
+unreviewed deployment requests.
+
+## Historical staged promotion checklist — preserve the champion
 
 The **source upgrade** and **new policy release** are two independent
 review/approval decisions. The v5048 50M parent + eight 50M

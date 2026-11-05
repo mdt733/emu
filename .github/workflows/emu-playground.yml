@@ -46,6 +46,10 @@ jobs:
               "v5032-pinnacle-260M": (
                   "45f189367d51ad56dd57726b67e13be08b80bfae",
                   "145475fa287b03ed6a60fd74cd8c6ef59c487d13"),
+              # Explicitly owner-reviewed, source-verified 200M inference actor.
+              "v5048-temporal-speed-200M": (
+                  "020bd17ab0efa84d97b68c7a4f43b759097bdfbb",
+                  "8c78f1650efc76e96ee249f42f9f6496e6f2fe68"),
           }
           assert r["release"] in pinned, "Unknown owner-approved release"
           policy_blob,viewer_blob = pinned[r["release"]]

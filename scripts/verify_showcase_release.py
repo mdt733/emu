@@ -202,17 +202,40 @@ def approval_for_bundle(bundle: dict, policy_file: Path, *, checkpoint_sha256: s
 
 
 def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
+    """Validate either a checkpoint-archived or explicitly inference-only release.
+
+    Schema 1 is unchanged: the training checkpoint SHA256 must be recorded.
+    Schema 2 is an intentional, visibly labelled release exception when
+    the original training checkpoint was not retained. No fabricated hash:
+    independently pin the exported policy *bytes*, the actor, training
+    source, exact sensor contract, Git blob and uploaded frozen-exam
+    evidence archive. These hashes are identity checks, not proof of
+    hardware fidelity or a post-step mission.
+    """
     approval = json.loads(approval_path.read_text(encoding='utf-8'))
-    expected = {'release_schema', 'policy_file', 'policy_sha256', 'policy_git_blob',
-                'checkpoint_sha256', 'schema', 'obs_dim', 'checkpoint_schema',
-                'step', 'actor_sha256', 'training_source_commit',
-                'sensor_contract_sha256'}
-    if set(approval) != expected or approval['release_schema'] != 1:
-        raise ValueError('unrecognised approval contract; review release format')
+    common = {'release_schema', 'policy_file', 'policy_sha256', 'policy_git_blob',
+              'checkpoint_sha256', 'schema', 'obs_dim', 'checkpoint_schema',
+              'step', 'actor_sha256', 'training_source_commit',
+              'sensor_contract_sha256'}
+    schema = approval.get('release_schema')
+    if schema == 1:
+        if set(approval) != common or not HEX64.fullmatch(
+                str(approval.get('checkpoint_sha256') or '')):
+            raise ValueError('unrecognised or incomplete archived-checkpoint approval')
+    elif schema == 2:
+        extra = {'checkpoint_archive_status', 'evaluation_bundle_sha256',
+                 'approval_basis'}
+        if set(approval) != (common | extra):
+            raise ValueError('unrecognised inference-only approval contract')
+        if (approval['checkpoint_sha256'] is not None or
+                approval['checkpoint_archive_status'] != 'not_provided' or
+                approval['approval_basis'] != 'owner-reviewed-inference-only' or
+                not HEX64.fullmatch(str(approval['evaluation_bundle_sha256'] or ''))):
+            raise ValueError('inference-only release cannot claim an unknown checkpoint hash')
+    else:
+        raise ValueError('unrecognised release approval schema')
     if approval['policy_file'] != 'showcase/champion.emupolicy':
         raise ValueError('release approval points outside champion path')
-    if not HEX64.fullmatch(str(approval['checkpoint_sha256'])):
-        raise ValueError('missing exact checkpoint evidence')
     if hashlib.sha256(policy_path.read_bytes()).hexdigest() != approval['policy_sha256']:
         raise ValueError('approved browser policy bytes have changed')
     identity = validate_browser_bundle(json.loads(policy_path.read_text(encoding='utf-8')))
@@ -220,6 +243,8 @@ def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
         (2, 8, 232), (3, 9, 360)
     ):
         raise ValueError('approval must reference a verified 232/360-input trained actor')
+    if schema == 2 and identity['schema'] != 3:
+        raise ValueError('inference-only approval only supported for 360-input actor')
     for field, value in identity.items():
         if approval.get(field) != value:
             raise ValueError(f'approved release {field} disagrees with bundled policy')
@@ -230,37 +255,50 @@ def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
     return approval
 
 
+
 def verify_showcase_dist(dist: Path, *, expected_source_commit: str = '') -> dict:
+    """Verify the built static site contains the EXACT approved public actor.
+
+    Used by both the ordinary browser CI and the protected Pages release.
+    It does not need JAX or a training checkpoint.
+    """
+    dist = dist.resolve()
+    approved = verify_approved_release(
+        ROOT / 'showcase' / 'champion.emupolicy',
+        ROOT / 'showcase' / 'release_approval.json')
     index = dist / 'index.html'
-    manifest_path = dist / 'showcase.json'
-    if not index.is_file():
-        raise FileNotFoundError(f'Viewer HTML missing: {index}')
-    if not manifest_path.is_file():
-        raise FileNotFoundError(f'Static manifest missing: {manifest_path}; run python scripts/prepare_showcase.py before building')
-    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if expected_source_commit and manifest.get('source_commit') != expected_source_commit:
-        raise ValueError(f'Static viewer revision mismatch: expected {expected_source_commit}, found {manifest.get("source_commit")!r}')
-    if manifest.get('trained') is not True:
-        raise ValueError('Public showcase must contain a trained approved policy')
-    policy = manifest.get('policy')
-    if manifest.get('schema') != 1 or manifest.get('mode') != 'showcase' or policy != 'policies/champion.emupolicy':
-        raise ValueError(f'Invalid showcase manifest: {manifest_path}')
-    policy_path = dist / policy
-    if not policy_path.is_file() or policy_path.stat().st_size == 0:
-        raise FileNotFoundError(f'Static policy missing: {policy_path}')
-    exported = json.loads(policy_path.read_text(encoding='utf-8'))
-    validate_browser_bundle(exported, require_trained=True)
-    if (ROOT / 'showcase' / 'release_approval.json').is_file():
-        verify_approved_release(ROOT / 'showcase' / 'champion.emupolicy',
-                                ROOT / 'showcase' / 'release_approval.json')
-    # Static manifest must resolve to the *exact* approved local asset.
-    if policy_path.read_bytes() != (ROOT / 'showcase' / 'champion.emupolicy').read_bytes():
-        raise ValueError('Published asset differs from reviewed champion')
-    if exported.get('source', {}).get('step', 0) <= 0 and manifest.get('trained'):
-        raise ValueError('Trained showcase cannot contain zero-step actor')
-    if not list((dist / 'assets').glob('*.wasm')):
-        raise FileNotFoundError(f'MuJoCo WASM asset missing: {dist / "assets"}')
-    return manifest
+    policy = dist / 'policies' / 'champion.emupolicy'
+    meta = dist / 'showcase.json'
+    if not all(x.is_file() for x in (index, policy, meta)):
+        raise ValueError('built site missing index, showcase manifest or policy')
+    source_bytes = (ROOT / 'showcase' / 'champion.emupolicy').read_bytes()
+    if policy.read_bytes() != source_bytes:
+        raise ValueError('bundled actor is not byte-identical to approved asset')
+    manifest = json.loads(meta.read_text(encoding='utf-8'))
+    if (manifest.get('schema') != 1 or
+            manifest.get('policy') != 'policies/champion.emupolicy' or
+            manifest.get('trained') is not True or
+            manifest.get('mode') != 'showcase'):
+        raise ValueError('built manifest does not identify approved trained actor')
+    if expected_source_commit and (
+            not HEX40.fullmatch(expected_source_commit) or
+            manifest.get('source_commit') != expected_source_commit):
+        raise ValueError('built source commit does not match approved checkout')
+    if manifest.get('label') != json.loads(source_bytes)['source']['run_name']:
+        raise ValueError('built label does not identify the released actor')
+    html = index.read_text(encoding='utf-8')
+    assets = dist / 'assets'
+    if '<html' not in html or '<script' not in html or not list(assets.rglob('*.js')):
+        raise ValueError('missing built browser entry point / JavaScript assets')
+    # MuJoCo packages may emit WASM as a standalone asset or inline it
+    # in the JS bundle; the static dist must at least contain the
+    # source-reviewed JS and matching playable policy. The actual
+    # wasm runtime is also checked in browser CI / user viewer.
+    if not approved['policy_sha256'] == hashlib.sha256(policy.read_bytes()).hexdigest():
+        raise ValueError('built actor SHA differs from reviewed release')
+    return {'label': manifest['label'], 'trained': True,
+            'sha256': approved['policy_sha256']}
+
 
 
 def main() -> None:

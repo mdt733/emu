@@ -325,3 +325,34 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
     with pytest.raises(ValueError):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
+
+
+def test_public_200m_release_has_explicit_inference_only_provenance(tmp_path):
+    """Accept source+actor+sensor+exam-evidence hashes, never fake final.pkl."""
+    import json
+    from scripts.verify_showcase_release import verify_approved_release
+    root=Path(__file__).resolve().parents[1]
+    path=root/"showcase"/"champion.emupolicy"
+    approval_path=root/"showcase"/"release_approval.json"
+    approved=verify_approved_release(path,approval_path)
+    assert approved["release_schema"]==2
+    assert approved["checkpoint_sha256"] is None
+    assert approved["checkpoint_archive_status"]=="not_provided"
+    assert approved["approval_basis"]=="owner-reviewed-inference-only"
+    assert approved["step"]==200015872
+    assert approved["obs_dim"]==360
+    assert approved["policy_sha256"]=="36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6"
+    assert len(approved["evaluation_bundle_sha256"])==64
+
+    for change in (
+        {"checkpoint_sha256":"0"*64},
+        {"approval_basis":"unreviewed"},
+        {"evaluation_bundle_sha256":""},
+        {"policy_sha256":"0"*64},
+        {"training_source_commit":"0"*40},
+    ):
+        damaged={**approved,**change}
+        place=tmp_path/"tampered-approval.json"
+        place.write_text(json.dumps(damaged),encoding="utf-8")
+        with pytest.raises(ValueError):
+            verify_approved_release(path,place)
