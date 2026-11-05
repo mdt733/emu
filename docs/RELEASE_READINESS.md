@@ -19,17 +19,20 @@ resilience and efficient control.
 ## v5049 staged migration — preserve the champion
 
 The **source upgrade** and **new policy release** are two independent
-review/approval decisions. The v5048 50M foundation + eight matched
-50M forks + 100M winner extension remains a **running experiment**
-at its exact source SHA `088a29be47f624be9e2c322c504ec98049b3f9bf`.
-This document does **not** claim its 200M actor exists, can climb
-steps, or is already eligible to replace `main`.
+review/approval decisions. The v5048 50M parent + eight 50M
+forks + 100M winner extension **completed 550M unique steps and
+148 real independent GPU exam panels** on source SHA
+`088a29be47f624be9e2c322c504ec98049b3f9bf`.
+A **200,015,872-step** candidate export exists, but it has NOT
+demonstrated controlled full-3cm climbing or v5032 main parity.
+[Full measured findings](V5048_SHARED_PARENT_RESULTS_20261105.md).
 
 ### Gate A — merge the improved ENGINEERING without replacing the actor
 
-- [ ] Finish analysis of the v5048 experiment **on its original Git SHA**.
-  Keep source and run paths frozen throughout training; the future-main
-  cleanup branch is a **different** source version.
+- [x] Analyse the complete 550M shared-parent tournament **on its
+  original source SHA**; record 148 independent panels, actor hashes,
+  actual lip heights and score saturation in the [permanent result card](V5048_SHARED_PARENT_RESULTS_20261105.md). The future-main
+  cleanup source is a **different** version.
 - [ ] Review the complete `main` → new-source diff: eight exact
   collision prisms across four 75cm tiles, GPU/MJX contact changes,
   sensor contract, PPO curriculum, checks, browser, CLI, install and
@@ -66,16 +69,19 @@ interpret them as trained on the new terrain.
 
 ### Gate B — qualify and deliberately publish a NEW Pinnacle actor
 
-- [ ] Receive actual v5048 `results_bundle.zip`, frozen independent
-  `prism_exam.json` files, `training_config.json`,
-  `run_meta.json`, detailed physical exam plots/traces, and a
-  completed **200M** inference-only `.emupolicy` candidate.
-  If 200M was not reached, report the actual age rather than
-  labelling a 100M policy as 200M.
-- [ ] Verify its exact **training-source Git SHA**, seed, measured
-  cumulative step clock, checkpoint SHA256, actor/export SHA256,
-  360-input shape and sensor timing/normalizer before comparing.
-  The cleanup commit is NOT the actor's original training SHA.
+- [x] Receive original v5048 `results_bundle.zip` with **148
+  `prism_exam.json` panels**, training config, source run manifests
+  and actual **200,015,872-step** `.emupolicy` export.
+  This archive does **not** contain the trained `final.pkl`
+  checkpoint or a matched v5032 physical exam. Detailed post-step
+  heading/path traces remain a separate outstanding requirement.
+- [ ] Verify its full **training-source provenance**, including
+  original `088a29be...` SHA, seed 735, age 200,015,872,
+  original checkpoint hash (not in uploaded bundle), sensor
+  timing/normalizer and 360-input interpretation. The exported
+  `.emupolicy` file SHA256 has been checked independently:
+  `36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6`.
+  The cleanup commit is NOT the actor's training SHA.
 - [ ] Compare against the 260M released baseline using matched
   task **intent, physical difficulty, command schedule, durations,
   episode counting and mission criteria**, rather than naïvely
@@ -120,9 +126,9 @@ engineering upgrade has no value.
 | Approved incumbent | v5032 260,046,848 steps; exported policy SHA256 `ef929c0220c38e5519391320e5f0629a200e1ef37a5808086f6383cfb63f7ec8` |
 | Incumbent original training SHA | `9b11bbe596aea7201d29a6beb2d192922f8e2e9a` |
 | v5048 source pinned for currently running tournament | `088a29be47f624be9e2c322c504ec98049b3f9bf` |
-| v5048 candidate policy and step | **Pending actual run output** |
-| Cross-seed supported steps and heading-controlled missions | **Pending independent physical evidence** |
-| Exact source / exported actor / checkpoint SHA256 | **Pending contender** |
+| v5048 candidate policy and step | **Temporal-speed 200,015,872 steps**, exported actor file SHA256 `36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6` |
+| Cross-seed supported steps and heading-controlled missions | Five-frame foot-supported actual ≥2cm UP **16/32 worlds**, ≥2.5cm UP **5/32** on nominal-3cm procedural challenge; **no full 3cm** claim; post-step heading mission **not tested** |
+| Exact source / exported actor / checkpoint SHA256 | Source and exported actor SHA256 verified; original complete final.pkl SHA256 **not in bundle** |
 | Gate A code merge | **Not approved or merged** |
 | Gate B public actor change | **Not approved or merged** |
 | GitHub Pages publication | **Not requested** |
