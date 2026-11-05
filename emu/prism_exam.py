@@ -180,7 +180,7 @@ def score_prism_crossings(frames, *, required_frames=5):
 
 def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                           speed=.12, seed=1701, device="cpu", mode="mixed",
-                          grade_deg=3., lip_cm=1.):
+                          grade_deg=3., lip_cm=1., phase_probe="normal", tof_probe="normal"):
     """Independent frozen 360-input actor on the same physical prism topology.
 
     Unlike the retired two-slab matrix, terrain is procedurally sampled here:
@@ -222,6 +222,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     if mode in ("step", "mixed") and lip_cm <= 0.:
         raise ValueError("step/mixed exam requires a positive lip")
 
+    if phase_probe not in ("normal","hold","invert","random") or tof_probe not in ("normal","mask"):
+        raise ValueError("Invalid frozen-policy observation intervention")
     params, norm, actor = load_exported_actor_for_exam(policy)
     if (actor["observation_schema"] != OBS_SCHEMA_TERRAIN or
             not actor["array_only"] or
@@ -300,7 +302,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         params, task,
         jnp.asarray(norm["mean"]), jnp.asarray(norm["std"]),
         jax.random.PRNGKey(seed), horizon, 0.,
-        jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
+        jnp.asarray([speed, 0., 0.], dtype=jnp.float32),
+        phase_probe=phase_probe,tof_probe=tof_probe)
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
     # v5051: independent physical post-contact mission, not a reward counter.
@@ -405,6 +408,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             actual_collision=f"{PRISM_COUNT} convex prism meshes / {TILE_COUNT} {TILE_M*100:g}cm source tiles",
             sensor="360-input array-only 4x4 ToF",
             no_optimizer_or_curriculum_updates=True,
+            phase_probe=phase_probe,tof_probe=tof_probe,
+            probe_is_input_only=True,
             deterministic_seed=True,
         ),
         measured=dict(
