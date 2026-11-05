@@ -311,6 +311,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     autopsy = inspect_missions(measured)
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
+    phase = np.asarray(measured["policy_phase_rad"], dtype=float)
     done = np.asarray(measured["done"], dtype=bool)
     fell = np.asarray(measured["fell"], dtype=bool)
     raw_pairs = np.asarray(measured["carpet_raw_contact_pairs"], dtype=bool)
@@ -348,6 +349,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         # diagnostic, not a target rhythm or evidence of dynamic running.
         footfalls = 0
         same_foot_strides = []
+        aligned_touchdown_phases = []
         valid_foot_contact = support_feet[start:stop, w, :]
         for foot_index in range(2):
             prior_xy = None
@@ -358,6 +360,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                     not bool(valid_foot_contact[ti-3, foot_index])):
                     footfalls += 1
                     fi = start+ti
+                    aligned_touchdown_phases.append(phase[fi,w] + (np.pi if foot_index == 1 else 0.))
                     xy_now = foot_xyz[fi,w,foot_index,:2]
                     if prior_xy is not None:
                         along = (xy_now-prior_xy) @ np.array([
@@ -384,6 +387,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             net_xy_drift_m=float(np.linalg.norm(xy[stop-1,w]-xy[start,w])),
             physical_footfalls=footfalls,
             footfall_rate_hz=footfalls/gait_time,
+            phase_locking_strength=(float(np.abs(np.mean(np.exp(
+                1j*np.asarray(aligned_touchdown_phases)))))
+                if len(aligned_touchdown_phases)>=3 else None),
             same_foot_stride_mean_m=(float(np.mean(same_foot_strides))
                                      if same_foot_strides else None),
             directed_progress_m=progress,
