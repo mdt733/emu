@@ -282,83 +282,144 @@ def export_and_examine(root,arm,seeds,device,worlds):
 
 
 def compile_report(root,only):
+    """One honest 6-capability report, not an opaque test/score tournament.
+
+    Four fixed retention guards provide steering/transition/recovery;
+    six separate actor-only terrain scenarios provide stillness, speed,
+    physical slopes and measured step missions. A *touch* is not a climb.
+    """
     rows=[]
+    known={spec[0] for spec in PHYSICAL_PANELS}
+    protocol_file=root/"physical_exam_protocol.json"
+    standard=json.loads(protocol_file.read_text()) if protocol_file.is_file() else {}
     for arm in only:
         directory=root/"arms"/arm.name
-        config=directory/"training_config.json"
         final=directory/"checkpoints"/"final.pkl"
-        if not config.is_file() or not final.is_file():
+        if not (directory/"training_config.json").is_file() or not final.is_file():
             continue
-        reports=list((root/"exams"/arm.name).glob("*/prism_exam.json"))
-        world=[]
-        up20=up25=down20=missions=contacts=0
-        for f in sorted(reports):
+        physical={}
+        for f in sorted((root/"exams"/arm.name).glob("*/prism_exam.json")):
+            label=f.parent.name.split("-",1)[1]
+            if label not in known:
+                raise RuntimeError(f"Unknown physical panel {label} in {f}")
             d=json.loads(f.read_text())
-            protocol=d["protocol"]
-            mode="step" if protocol["requested_lip_frontier_cm"]>0 else "flat"
-            for w in d["worlds"]:
-                world.append((mode,protocol["requested_vx_mps"],w))
-                if mode=="step":
-                    for e in w["supported_lips"]:
-                        h=float(e["signed_height_cm"])
-                        up20+=h>=2.
-                        up25+=h>=2.5
-                        down20+=h<=-2.
-            a=d.get("mission_autopsy") or {}
-            missions+=a.get("completed_missions",0)
-            contacts+=a.get("eligible_supported_contacts",0)
-        def avg(mode,speed,field):
-            x=[float(w[field]) for m,v,w in world if m==mode and v==speed
-               and w.get(field) is not None]
-            return round(sum(x)/len(x),4) if x else None
-        rows.append(dict(arm=arm.name,hypothesis=arm.hypothesis,
-                         source_training=source_sha(),
-                         parent_sha256=(json.loads((root/"parent_identity.json").read_text())
-                                        ["sha256"] if (root/"parent_identity.json").exists()
-                                        else None),
-                         supported_up_ge_2cm=up20,supported_up_ge_2_5cm=up25,
-                         supported_down_ge_2cm=down20,
-                         supported_contact_events=contacts,
-                         completed_post_contact_missions=missions,
-                         fast_vx=avg("flat",.70,"achieved_vx_mps"),
-                         fast_survival_fraction=avg("flat",.70,"survived"),
-                         still_footfalls_hz=avg("flat",0.,"footfall_rate_hz"),
-                         still_drift_m=avg("flat",0.,"net_xy_drift_m"),
-                         fast_stride_m=avg("flat",.70,"same_foot_stride_mean_m"),
-                         exams=len(reports)))
+            if (d["protocol"]["worlds"]!=standard.get("worlds") or
+                    d["protocol"]["horizon"]!=standard.get("horizon")):
+                raise RuntimeError(f"Physical panel changed worlds/horizon: {f}")
+            physical.setdefault(label,[]).append(d)
+        def measured(label,key):
+            values=[float(w[key]) for d in physical.get(label,[])
+                    for w in d["worlds"] if w.get(key) is not None]
+            return round(sum(values)/len(values),4) if values else None
+        def survived(label):
+            worlds=[w for d in physical.get(label,[]) for w in d["worlds"]]
+            return f"{sum(bool(w['survived']) for w in worlds)}/{len(worlds)}" if worlds else None
+        # Count signed *measured* heights from real top contacts, never
+        # requested teacher frontiers. World-incidence is separate from
+        # raw transition event count and from completed stair missions.
+        steps=[d for label in ("step_3cm","step_4cm")
+               for d in physical.get(label,[])]
+        lips=[float(e["signed_height_cm"])
+              for d in steps for w in d["worlds"]
+              for e in w["supported_lips"]]
+        contacts=sum(d["mission_autopsy"]["eligible_supported_contacts"]
+                     for d in steps)
+        missions=sum(d["mission_autopsy"]["completed_missions"] for d in steps)
+        fixed={}
+        fixed_file=directory/"fixed_eval.csv"
+        if fixed_file.is_file():
+            with fixed_file.open(newline="",encoding="utf-8") as fh:
+                records=list(csv.DictReader(fh))
+            if records:
+                fixed=records[-1]
+        def value(key):
+            try:
+                v=float(fixed.get(key,"nan"))
+                return round(v,4) if v==v and abs(v)<1e10 else None
+            except (ValueError,TypeError):
+                return None
+        rows.append(dict(
+            arm=arm.name,hypothesis=arm.hypothesis,
+            parent_sha256=(json.loads((root/"parent_identity.json").read_text())
+                           ["sha256"] if (root/"parent_identity.json").exists() else None),
+            physical_panels=sum(len(v) for v in physical.values()),
+            physical_seed_count=len({f.parent.name.split("-")[0]
+                                     for f in (root/"exams"/arm.name).glob("*/prism_exam.json")}),
+            still_footfalls_hz=measured("standing","footfall_rate_hz"),
+            still_drift_m=measured("standing","net_xy_drift_m"),
+            still_survival=survived("standing"),
+            slow_vx=measured("slow_walk","achieved_vx_mps"),
+            fast_vx=measured("fast_walk","achieved_vx_mps"),
+            fast_survival=survived("fast_walk"),
+            fast_stride_m=measured("fast_walk","same_foot_stride_mean_m"),
+            steering_yaw_mae=value("eval_combo70_yaw_mae"),
+            steering_survival=value("eval_combo70_survival"),
+            recovery_survival=value("eval_resilience75_survival"),
+            transition_survival=value("eval_dynamic80_survival"),
+            slope_actual_peak_deg=measured("slope","actual_grade_max_deg"),
+            slope_vx=measured("slope","achieved_vx_mps"),
+            slope_survival=survived("slope"),
+            supported_up_ge_2cm=sum(h>=2.0 for h in lips),
+            supported_up_ge_2_5cm=sum(h>=2.5 for h in lips),
+            supported_down_ge_2cm=sum(h<=-2.0 for h in lips),
+            completed_post_contact_missions=missions,
+            eligible_supported_contacts=contacts,
+            post_contact_completion_pct=(round(100*missions/contacts,1)
+                                         if contacts else None),
+        ))
+    def fmt(x):
+        return "—" if x is None else str(x)
     out=root/"SCIENCE_RESULTS.md"
-    lines=["# v5051 60M shared foundation → 120M PPO arms","",
-           "Counts are observed *supported contact events*, not exposure-"
-           "normalised stair success. Nominal lip is a teacher frontier, "
-           "not the measured step. Mission follows five-frame bilateral "
-           "support and >50cm controlled progress; load transfer/clearance "
-           "are still not measured. Each arm is one PPO seed and 2 held-out "
-           "simulation seeds, NOT 2 independent PPO seeds.",
-           "","| Arm | ≥2cm up | ≥2.5cm up | ≥2cm down | Completed post-lip | "
-           "Fast vx | Fast survival | Still footfalls/s | Still drift m | Exams |",
-           "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    lines=[
+        "# EMU capability screen — shared 60M → 120M PPO arms","",
+        "All rows are *measured* physical evidence from independent frozen actors.",
+        "The four in-training fixed panels are locomotion retention guards; "
+        "the six post-training scenarios measure stillness, slow/fast speed, "
+        "slopes and signed lip encounters. One held-out environment seed is "
+        "a **screen, not a replicated learning result**. Each arm uses one "
+        "PPO training seed. Do not rank by training reward.",
+        "",
+        "The step count is distinct signed-height **contact events**; "
+        "complete missions require verified bilateral support followed by "
+        "50cm of controlled progress. Completion/contact is conditional on "
+        "first reaching real upper support and is NOT opportunity-normalised "
+        "stair success. Requested 3/4cm refers to generator sampling, "
+        "never an actual measured obstacle of that size.","",
+        "| Arm | Stand feet/s | Stand drift m | Slow vx | Fast vx | Fast survival | "
+        "Steering yaw error | Recovery survival | Slope max measured ° | "
+        "Slope survival | ≥2cm UP | ≥2.5cm UP | ≥2cm DOWN | "
+        "Completed/contact | Physical panels |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
     for row in rows:
-        def f(v):
-            return "—" if v is None else str(v)
         lines.append(
-            f"| {row['arm']} | {row['supported_up_ge_2cm']} | "
-            f"{row['supported_up_ge_2_5cm']} | {row['supported_down_ge_2cm']} | "
+            f"| {row['arm']} | {fmt(row['still_footfalls_hz'])} | "
+            f"{fmt(row['still_drift_m'])} | {fmt(row['slow_vx'])} | "
+            f"{fmt(row['fast_vx'])} | {fmt(row['fast_survival'])} | "
+            f"{fmt(row['steering_yaw_mae'])} | "
+            f"{fmt(row['recovery_survival'])} | "
+            f"{fmt(row['slope_actual_peak_deg'])} | "
+            f"{fmt(row['slope_survival'])} | "
+            f"{row['supported_up_ge_2cm']} | "
+            f"{row['supported_up_ge_2_5cm']} | "
+            f"{row['supported_down_ge_2cm']} | "
             f"{row['completed_post_contact_missions']}/"
-            f"{row['supported_contact_events']} | "
-            f"{f(row['fast_vx'])} | {f(row['fast_survival_fraction'])} | "
-            f"{f(row['still_footfalls_hz'])} | {f(row['still_drift_m'])} | "
-            f"{row['exams']} |")
-    lines+=["","## Review rule","",
-            "Do NOT choose the largest training reward or a composite with "
-            "saturated step credit. Prefer Pareto non-regression: genuine "
-            "completed post-lip missions, hard signed-height contact evidence, "
-            "speed, survival, stillness, commanded heading and mechanical "
-            "work. If all arms have zero completed post-lip missions, no arm "
-            "has demonstrated stair mastery; request fixed-height actor exams "
-            "and more seeds before picking a successor."]
-    out.write_text("\n".join(lines)+"\n")
+            f"{row['eligible_supported_contacts']} | "
+            f"{row['physical_panels']} |")
+    lines+=["","## What can justify promotion?","",
+            "Demand non-regression in basic dynamic walking, steering, recovery, "
+            "quiet balance and *actual measured* grades. For stairs, demand "
+            "greater signed height plus authentic complete post-contact missions. "
+            "If nothing completes the post-contact mission, no arm is a "
+            "demonstrated stair-climbing solution. Re-examine promising "
+            "arms and the unchanged control on additional held-out environment "
+            "seeds AND independent PPO training seeds. A separate exact-height "
+            "fixed-wall actor exam remains necessary to certify a specified "
+            "2/3/4cm obstacle.",""]
+    out.write_text("\n".join(lines),encoding="utf-8")
     (root/"SCIENCE_RESULTS.json").write_text(
-        json.dumps(dict(arms=rows),indent=2,allow_nan=False)+"\n")
+        json.dumps(dict(protocol=standard,arms=rows),indent=2,allow_nan=False)+"\n",
+        encoding="utf-8")
     print(f"Report: {out}",flush=True)
 
 
