@@ -232,8 +232,9 @@ def export_and_examine(root,arm,seed,device,worlds):
             report=directory/"prism_exam.json"
             if report.is_file():
                 found=json.loads(report.read_text())
-                if found.get("source_actor_sha256")!=json.loads(
-                        exported.read_text())["source"]["actor_sha256"]:
+                # Prism examiner records the whole exported artifact
+                # SHA256, not the separately embedded network-weights hash.
+                if found.get("source_actor_sha256")!=digest(exported):
                     raise RuntimeError(f"Frozen exam actor changed: {report}")
                 continue
             if directory.exists():
