@@ -125,6 +125,7 @@ def test_swing(model,wall_id,height,side,pitch,knee,*,settle=15,frames=150):
                 upper_contact_streak_frames=best_streak,
                 verified_upper_placement=(best_streak>=5),
                 riser_side_collision_frames=riser_contact_frames,
+                completed_frames=t+1,
                 max_servo_torque_nm=round(peak_torque,4),fell=bool(fell))
 
 
