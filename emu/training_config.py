@@ -180,6 +180,17 @@ class TrainingConfig:
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
     # v5047 one isolated slow-balance teaching hypothesis; 0 keeps old sampler.
     stillness_birth_frac: float = 0.0
+    # v5051 controlled *training* science: default preserves parent economics.
+    # All are in checkpoint configuration identity, not deployment inputs.
+    science_gate_mode: str = "legacy"  # legacy / zero-only / off
+    science_phase_lowcmd_scale: float = 1.0  # clock at 0 request, 0..1
+    science_phase_sync_strength: float = 1.0  # organic lift shaping, 0..1
+    science_crouch_allowance_m: float = 0.0  # only STEP-focused worlds
+    science_stride_efficiency_weight: float = 0.0  # bounded useful-distance proxy
+    science_supported_cross_bonus: float = 0.0  # one-time authentic lip crossing
+    science_foothold_bonus: float = 0.0  # authentic first upper foothold
+    science_bilateral_support_bonus: float = 0.0  # 5-frame both-feet top support
+    science_sensor_teacher_bonus: float = 0.0  # sensor-visible upper foothold
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
