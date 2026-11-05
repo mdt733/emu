@@ -9,6 +9,7 @@ import numpy as np
 
 from .terrain_carpet_mjx import TILE_M, TILE_COUNT
 from .carpet_prism_mjx import PRISM_COUNT
+from .step_autopsy import score_post_lip_missions
 
 
 def first_episode_mask(done):
@@ -130,6 +131,7 @@ def score_prism_crossings(frames, *, required_frames=5):
                 candidate, streak = target, 0
             target_slot = slot(target)
             supported = False
+            lead_foot = None
             for f in range(2):
                 # Two triangles per tile, each a REAL convex MJX collider.
                 contact_ok = any(
@@ -143,6 +145,7 @@ def score_prism_crossings(frames, *, required_frames=5):
                 if inside and abs(
                     feet[t, w, f, 2] - radii[f] - surface) <= .009:
                     supported = True
+                    lead_foot = f
                     break
             if not supported or fell[t, w]:
                 streak = 0
@@ -159,7 +162,8 @@ def score_prism_crossings(frames, *, required_frames=5):
             if abs(rise) > .0015:
                 observed.append(dict(
                     from_cell=list(confirmed), to_cell=list(target),
-                    signed_height_cm=round(rise * 100., 4), frame=t))
+                    signed_height_cm=round(rise * 100., 4), frame=t,
+                    leading_foot=int(lead_foot)))
             else:
                 smooth += 1
             confirmed = target
@@ -303,6 +307,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
+    missions = score_post_lip_missions(measured, independent)
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
     done = np.asarray(measured["done"], dtype=bool)
@@ -361,6 +366,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                     prior_xy = xy_now
         gait_time = max(dt,(stop-start)*dt)
         own = independent["worlds"][w]
+        course = missions["worlds"][w]
         rows.append(dict(
             world=w, survived=bool(not np.any(fell[:stop, w]) and stop == horizon),
             completed_frames=stop,
@@ -385,6 +391,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             verified_up=int(own["independent_up"]),
             verified_down=int(own["independent_down"]),
             supported_lips=own["independently_supported_lips"],
+            completed_post_lip_50cm=int(course["completed"]),
+            post_lip_missions=course["missions"],
         ))
     manifest = dict(
         schema="emu_prism_frozen_exam_v1",
@@ -409,6 +417,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             signed_supported_up=independent["up"],
             signed_supported_down=independent["down"],
             total_supported_lips=independent["total"],
+            complete_post_lip_50cm=missions["completed"],
+            post_lip_mission_thresholds=missions["thresholds"],
             note="Procedural terrain: measured grades/lips, not requested frontiers, are evidence.",
         ),
         elapsed_wall_seconds=round(time.perf_counter()-begun, 2),
@@ -432,7 +442,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "0 m/s trials report world-frame drift, not zero-cost static posture.",
         "A zero crossing count is zero demonstrated crossings, not a failed attempted fixture.", "",
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
-        f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
+        f"Independently supported up/down: **{independent['up']}/{independent['down']}**",
+        f"Completed independently certified post-lip 50cm missions: **{missions['completed']}/{missions['supported_events']} supported events**", "",
         "| World | Survived | Mean vx | vx MAE | Actual mean grade | Up | Down | Shaft J/m* |",
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
     ]
@@ -455,6 +466,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "Per-world net XY drift, footfall rate and same-foot stride length are in `prism_exam.json`.",
         "Footfalls require two frames airborne then two frames supported; stride requires two same-foot contacts.",
         "Per-world measured support and signed lip geometry are in `prism_exam.json`.",
+        "Post-lip missions require sustained OTHER-foot support, 50cm forward travel, heading within 30° and lateral error <=25cm.",
+        "These are completion fractions of physically supported crossings, NOT eligible-approach success rates.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
         " from procedural difficulty alone.",
     ]
