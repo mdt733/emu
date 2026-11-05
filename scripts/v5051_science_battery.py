@@ -132,6 +132,13 @@ def main():
         parser.error("worlds 2..32; horizon 100..650 (existing exam contract)")
     if args.max_panels < 0:
         parser.error("max-panels must be nonnegative")
+    # A fixed commit with uncommitted changes is NOT source pinning.
+    if git_sha()=="unavailable":
+        parser.error("Must run from a real pinned Git checkout")
+    dirty=subprocess.check_output(
+        ["git","status","--porcelain"],text=True).strip()
+    if dirty:
+        parser.error("Dirty source checkout; refuse to mix non-reproducible exams")
     policy=args.policy.expanduser().resolve()
     out=args.output.expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
