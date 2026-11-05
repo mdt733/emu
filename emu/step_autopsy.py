@@ -84,13 +84,20 @@ def inspect_missions(frames, *, minimum_progress_m=.50, heading_limit_rad=.35,
             # five frames, not both feet or a physically loaded CoM transfer.
             landed = [None, None]
             current = [0, 0]
+            both_streak = 0
+            recovered = None
             for t in range(t0,stop):
+                support_now = [on_target(t,f) for f in range(2)]
                 for f in range(2):
-                    current[f] = current[f]+1 if on_target(t,f) else 0
+                    current[f] = current[f]+1 if support_now[f] else 0
                     if current[f] >= support_frames and landed[f] is None:
                         landed[f] = t
-            both = all(x is not None for x in landed)
-            recovered = max(landed) if both else None
+                both_streak = both_streak + 1 if all(support_now) else 0
+                if both_streak >= support_frames and recovered is None:
+                    recovered = t
+            # Distinct landings at separate times do NOT prove bilateral
+            # recovery. Require simultaneous sustained upper-tile support.
+            both = recovered is not None
             completed = False
             best_progress = 0.
             max_heading = 0.
