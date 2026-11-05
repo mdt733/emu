@@ -176,14 +176,23 @@ contract. Full checkpoints are not in Git; keep external backups.
 
 ## Current development — engineering promotion preparation
 
-The current GPU experiment is **v5048**, pinned to original source
+The **v5048 GPU experiment has completed 550M unique steps**,
+pinned to original training SHA
 `088a29be47f624be9e2c322c504ec98049b3f9bf` on
-[draft PR #38](https://github.com/mdt733/emu/pull/38).
-It is training **one 50M-step foundation**, then eight matched
-**50M-step continuations of the SAME checkpoint**, selecting the
-best physically evaluated policy for **another 100M steps**.
-The proposed 550M total is a research plan, **not a completed
-200M gait or proven stair-climbing result**.
+[research PR #38](https://github.com/mdt733/emu/pull/38).
+It trained one shared 50M foundation, eight matched 50M forks and
+continued the automatic temporal-speed finalist to **200,015,872
+steps**, with **148 independent GPU prism-exam panels**.
+[Measured v5048 findings](docs/V5048_SHARED_PARENT_RESULTS_20261105.md).
+
+Early dedicated step training increased distinct worlds with actual
+≥2cm *supported uphill contact* on nominal 3cm procedural terrain:
+**2/32** without Academy versus **19/32** early-lips or **21/32**
+fine-frontier. But full actual 3cm ascent and sustained controlled
+post-step travel are **not yet demonstrated**. The 200M finalist
+achieved **0.595m/s** at a requested 0.70m/s, with **31/32**
+fast-survival worlds, but retained ~12cm zero-command drift
+over ~10 seconds and no gain in ≥2cm uphill incidence after 100M.
 
 The new runtime has four recycled **75cm** squares, each with two
 actual convex triangular-prism colliders (**eight** in all),
@@ -199,8 +208,9 @@ The separate
 [future-main release-prep branch](https://github.com/mdt733/emu/tree/release/v5049-main-promotion-prep)
 retains the production CLI and tests while removing disposable
 v5045/46/48 experiment launchers, stale historical runbooks and
-duplicate workflow code. **It does not modify the running v5048
-source**, and its cleanup is not an actor training continuation.
+duplicate workflow code. **It does not rewrite v5048's original
+source or training checkpoint**, and its cleanup is not an actor
+training continuation.
 
 We plan **two explicit approvals**: upgrade the engineering
 architecture after fresh CI/CUDA verification, and *separately*
