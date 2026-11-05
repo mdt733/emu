@@ -184,15 +184,16 @@ def score_prism_crossings(frames, *, required_frames=5):
 
 def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                           speed=.12, seed=1701, device="cpu", mode="mixed",
-                          grade_deg=3., lip_cm=1., tof_ablation=False):
+                          grade_deg=3., lip_cm=1., tof_ablation=False,
+                          phase_ablation=False):
     """Independent frozen 360-input actor on the same physical prism topology.
 
     Unlike the retired two-slab matrix, terrain is procedurally sampled here:
     requested frontiers are *teacher settings*, and observed geometry/crossings
     are always reported separately. No PPO updates or lesson promotion.
     """
-    if type(tof_ablation) is not bool:
-        raise ValueError("tof_ablation must be boolean")
+    if type(tof_ablation) is not bool or type(phase_ablation) is not bool:
+        raise ValueError("observation ablations must be boolean")
     import hashlib
     import json
     import math
@@ -307,7 +308,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         jnp.asarray(norm["mean"]), jnp.asarray(norm["std"]),
         jax.random.PRNGKey(seed), horizon, 0.,
         jnp.asarray([speed, 0., 0.], dtype=jnp.float32),
-        terrain_sensor_ablation=tof_ablation)
+        terrain_sensor_ablation=tof_ablation,
+        phase_input_ablation=phase_ablation)
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
     missions = score_post_lip_missions(measured, independent)
@@ -413,6 +415,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             actual_collision=f"{PRISM_COUNT} convex prism meshes / {TILE_COUNT} {TILE_M*100:g}cm source tiles",
             sensor="360-input array-only 4x4 ToF",
             terrain_observation_ablation=tof_ablation,
+            phase_observation_ablation=phase_ablation,
             no_optimizer_or_curriculum_updates=True,
             deterministic_seed=True,
         ),
@@ -437,6 +440,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "# Frozen-policy true-prism examination", "",
         f"Actor SHA-256: `{actor['artifact_sha256']}`",
         f"Terrain-channel ablation (raw rays, validity, fit and depth): **{tof_ablation}**",
+        f"Phase sine/cosine ablation: **{phase_ablation}**",
         f"Source training commit: `{actor['source'].get('git_commit')}`",
         f"Mode: **{mode}** | worlds: {worlds} | horizon: {horizon}",
         f"Command: +{speed:.2f} m/s | requested grade frontier: {grade_deg if has_grade else 0.}°"
