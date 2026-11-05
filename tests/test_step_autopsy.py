@@ -1,8 +1,7 @@
 """Minimal physical-course assertions for the v5051 independent examiner."""
 import numpy as np
 
-from emu.prism_exam import score_prism_crossings
-from emu.step_autopsy import score_post_lip_missions
+from emu.prism_exam import score_prism_crossings, score_post_lip_missions
 
 
 def _course():
