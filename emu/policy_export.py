@@ -418,6 +418,25 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "solver_iterations": run_cfg.get('solver_iterations'),
             "solver_ls_iterations": run_cfg.get('solver_ls_iterations'),
             "stillness_birth_frac": _scalar(run_cfg, "stillness_birth_frac", 0.),
+            # v5051 phase and teaching settings are *experiment provenance*.
+            # Phase clock dynamics must also be reproduced at inference.
+            "science_phase_lowcmd_scale": _scalar(
+                run_cfg, "science_phase_lowcmd_scale", 1.),
+            "science_gate_mode": run_cfg.get("science_gate_mode","legacy"),
+            "science_phase_sync_strength": _scalar(
+                run_cfg, "science_phase_sync_strength",1.),
+            "science_crouch_allowance_m": _scalar(
+                run_cfg, "science_crouch_allowance_m",0.),
+            "science_stride_efficiency_weight": _scalar(
+                run_cfg, "science_stride_efficiency_weight",0.),
+            "science_supported_cross_bonus": _scalar(
+                run_cfg, "science_supported_cross_bonus",0.),
+            "science_foothold_bonus": _scalar(
+                run_cfg, "science_foothold_bonus",0.),
+            "science_bilateral_support_bonus": _scalar(
+                run_cfg, "science_bilateral_support_bonus",0.),
+            "science_sensor_teacher_bonus": _scalar(
+                run_cfg, "science_sensor_teacher_bonus",0.),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
