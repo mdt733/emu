@@ -205,6 +205,11 @@ class EnvState(NamedTuple):
     # v5051 five-frame simultaneous bilateral real-top support after a lip.
     academy_transfer_streak: Any
     academy_transfer_seen: Any
+    # One-time 50cm post-transfer progress check in original heading.
+    academy_progress_origin_xy: Any
+    academy_progress_heading_rad: Any
+    academy_progress_active: Any
+    academy_progress_paid: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
     # v5041 physics-only rolling tile state. All four mutable tiles
@@ -958,6 +963,7 @@ class EmuMJXEnv(TaskSampler):
                  science_supported_cross_bonus: float = 0.0,
                  science_foothold_bonus: float = 0.0,
                  science_bilateral_support_bonus: float = 0.0,
+                 science_followthrough_bonus: float = 0.0,
                  science_sensor_teacher_bonus: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
@@ -1003,6 +1009,7 @@ class EmuMJXEnv(TaskSampler):
                     science_supported_cross_bonus=(0.,15.),
                     science_foothold_bonus=(0.,8.),
                     science_bilateral_support_bonus=(0.,10.),
+                    science_followthrough_bonus=(0.,15.),
                     science_sensor_teacher_bonus=(0.,8.))
         candidate=locals()
         for name,(lo,hi) in limits.items():
@@ -1601,6 +1608,7 @@ class EmuMJXEnv(TaskSampler):
         if (self.science_supported_cross_bonus > 0. or
                 self.science_foothold_bonus > 0. or
                 self.science_bilateral_support_bonus > 0. or
+                self.science_followthrough_bonus > 0. or
                 self.science_sensor_teacher_bonus > 0.):
             true_lip=(academy['ordinary_step_new'] | academy['cross_new'])
             extra=(self.science_supported_cross_bonus*
@@ -1608,7 +1616,9 @@ class EmuMJXEnv(TaskSampler):
                    self.science_foothold_bonus*
                    academy['foothold_new'].astype(jnp.float32) +
                    self.science_bilateral_support_bonus*
-                   academy['transfer_new'].astype(jnp.float32))
+                   academy['transfer_new'].astype(jnp.float32) +
+                   self.science_followthrough_bonus*
+                   academy['progress_new'].astype(jnp.float32))
             if self.science_sensor_teacher_bonus > 0.:
                 sensor_now=self._sensor_readout(state.sensor_state,
                                                self._body_packets(data)[0])
@@ -1697,6 +1707,10 @@ class EmuMJXEnv(TaskSampler):
             academy_foothold_seen=academy['foothold_seen'],
             academy_transfer_streak=academy['transfer_streak'],
             academy_transfer_seen=academy['transfer_seen'],
+            academy_progress_origin_xy=academy['progress_origin_xy'],
+            academy_progress_heading_rad=academy['progress_heading_rad'],
+            academy_progress_active=academy['progress_active'],
+            academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
@@ -1911,6 +1925,7 @@ class EmuMJXEnv(TaskSampler):
             'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
+            'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
             'academy_episode_complete':(done & ~terminal_fail &
@@ -2662,6 +2677,10 @@ class EmuMJXEnv(TaskSampler):
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_streak=izeros,
             academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_progress_origin_xy=jnp.zeros((self.num_envs,2),dtype=jnp.float32),
+            academy_progress_heading_rad=zeros,
+            academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
@@ -2983,6 +3002,32 @@ class EmuMJXEnv(TaskSampler):
         transfer_seen=jnp.where(confirmed,False,
                                 state.academy_transfer_seen|new_transfer)
         transfer_streak=jnp.where(confirmed,0,transfer_streak)
+        # Newly confirmed bilateral support creates a single rewardable
+        # continuation episode. Heading is latched at transfer, not
+        # silently redefined as the robot walks or turns around.
+        R=self._rotation_body_to_world(data)
+        yaw=jnp.arctan2(R[:,1,0],R[:,0,0])
+        progress_origin=jnp.where(new_transfer[:,None],
+                                  data.qpos[:,:2],
+                                  state.academy_progress_origin_xy)
+        progress_heading=jnp.where(new_transfer,yaw,
+                                    state.academy_progress_heading_rad)
+        angle=yaw-progress_heading
+        heading_error=jnp.abs(jnp.arctan2(jnp.sin(angle),jnp.cos(angle)))
+        follow_active=jnp.where(
+            confirmed,False,
+            jnp.where(new_transfer,True,
+                      state.academy_progress_active &
+                      (heading_error<=.35) & ~done))
+        travel=jnp.sum(
+            (data.qpos[:,:2]-progress_origin) *
+            jnp.stack((jnp.cos(progress_heading),
+                       jnp.sin(progress_heading)),axis=1),axis=1)
+        fresh_paid=jnp.where(confirmed,False,state.academy_progress_paid)
+        new_progress=(follow_active & ~fresh_paid &
+                      (travel>=.50) & (metrics['cmd_vx']>=.05) &
+                      (metrics['support']>=.5) & healthy)
+        follow_paid=fresh_paid|new_progress
         # No repeated foothold farm after 5-frame verification.
         reward=(3.*new_foothold.astype(jnp.float32)+
                 10.*(paid&academy_focus&lip).astype(jnp.float32))
@@ -3012,6 +3057,11 @@ class EmuMJXEnv(TaskSampler):
             transfer_new=new_transfer,
             transfer_streak=transfer_streak,
             transfer_seen=transfer_seen,
+            progress_new=new_progress,
+            progress_origin_xy=progress_origin,
+            progress_heading_rad=progress_heading,
+            progress_active=follow_active,
+            progress_paid=follow_paid,
             reward=reward,height_m=jnp.where(
                 moved&fresh&shared_lip,rise,zero),
             completed=false)
