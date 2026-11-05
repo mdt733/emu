@@ -48,6 +48,8 @@ jobs:
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+      - name: Real MuJoCo static supported-foot reach (not dynamic proof)
+        run: timeout 90s python scripts/probe_stair_kinematics.py
 
   browser:
     runs-on: ubuntu-latest
