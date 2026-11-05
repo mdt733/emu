@@ -607,7 +607,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
-                       gyro_delay_frames=0, terrain_sensor_ablation=False):
+                       gyro_delay_frames=0, terrain_sensor_ablation=False,
+                       phase_input_ablation=False):
         """Read-only matched course exam with explicit time-varying commands.
 
         The operator schedule drives reset, policy observation and the
@@ -623,9 +624,13 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # but leave the physical sensor state and optical-flow estimator intact.
         # The latter still uses ToF-derived depth, so this is a terrain-channel
         # ablation, NOT a claim to eliminate all ToF information everywhere.
-        if type(terrain_sensor_ablation) is not bool:
-            raise ValueError('terrain_sensor_ablation must be bool')
+        if type(terrain_sensor_ablation) is not bool or type(phase_input_ablation) is not bool:
+            raise ValueError('observation ablation switches must be bool')
         terrain_sensor_cols = ()
+        phase_cols = ()
+        if phase_input_ablation:
+            phase_cols = jnp.asarray([BASE_OBS_FIELDS.index('phase_sin'),
+                                      BASE_OBS_FIELDS.index('phase_cos')], dtype=jnp.int32)
         if terrain_sensor_ablation:
             from .contracts import (TERRAIN_OBS_FIELDS, TERRAIN_RANGE_FIELDS,
                                     TERRAIN_VALID_FIELDS)
@@ -771,6 +776,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Apply to ALL history frames, otherwise older 4x90 samples
                 # still hand the actor terrain data for up to 60ms.
                 policy_hist = hist.at[:, :, terrain_sensor_cols].set(0.)
+            if phase_input_ablation:
+                # Do not freeze the physical clock or generator; isolate the
+                # deployable actor's direct dependence on the two phase fields.
+                policy_hist = policy_hist.at[:, :, phase_cols].set(0.)
             policy_obs=policy_hist.reshape((env.num_envs, obs_dim))
             # Frozen exams need only the actor, never a value network or
             # optimiser. This permits identical evaluation of exported .emupolicy
