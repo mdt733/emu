@@ -28,7 +28,7 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
                 "carpet_prism_mjx", "domain_randomization", "directional"),
     "learning": ("training", "ppo", "rewards", "curriculum",
                  "capability_focus", "capability_field", "training_health"),
-    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam"),
+    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam", "step_autopsy"),
     "delivery": ("policy_export", "viewer_server", "capability_viewer"),
     "diagnostics": ("doctor",),
 }

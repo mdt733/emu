@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_RANGE_FIELDS, actor_observation_fields
+from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_RANGE_FIELDS, TERRAIN_VALID_FIELDS, actor_observation_fields
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -607,7 +607,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
-                       gyro_delay_frames=0):
+                       gyro_delay_frames=0, phase_probe="normal", tof_probe="normal"):
         """Read-only matched course exam with explicit time-varying commands.
 
         The operator schedule drives reset, policy observation and the
@@ -616,6 +616,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         Controller yaw uses integrated noisy/delayed body gyro, never true
         simulator world yaw. Reset aftermath is truncated by gait_exam.py.
         """
+        if phase_probe not in ("normal","hold","invert","random"):
+            raise ValueError("invalid frozen-actor phase probe")
+        if tof_probe not in ("normal","mask"):
+            raise ValueError("invalid frozen-actor ToF probe")
         kp = float(heading_kp)
         delay = int(gyro_delay_frames)
         if not 0. <= kp <= 2. or not 0 <= delay <= 5:
@@ -649,6 +653,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                        BASE_OBS_FIELDS.index('cmd_yaw')]
         sensor_key = jax.random.fold_in(eval_key, 5016)
         noise = jax.random.normal(sensor_key,(horizon,env.num_envs))*jnp.asarray(gyro_noise)
+        phase_noise=jax.random.uniform(
+            jax.random.fold_in(eval_key,5051),
+            (horizon,env.num_envs,HISTORY_LEN),minval=0.,
+            maxval=2.*jnp.pi)
+        phase_cols=(BASE_OBS_FIELDS.index("phase_sin"),
+                    BASE_OBS_FIELDS.index("phase_cos"))
+        tof_range_cols=tuple(actor_observation_fields(
+            OBS_SCHEMA_TERRAIN).index(name) for name in TERRAIN_RANGE_FIELDS)
+        tof_valid_cols=tuple(actor_observation_fields(
+            OBS_SCHEMA_TERRAIN).index(name) for name in TERRAIN_VALID_FIELDS)
         bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
         limit = env.yaw_max_rad_s
         # The live v5046+ world is a 2x2 window of 75cm tiles, NOT the
@@ -699,7 +713,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
         def step(carry, inputs):
             es, ob, target, estimate, history_gyro = carry
-            cmd, sensor_noise = inputs
+            cmd, sensor_noise, phase_draws = inputs
             xy,yaw,foot_xyz,contacts,floor_normal,floor_origin=record_state(es)
             raw_gyro=env._body_packets(es.data)[2][:,2]
             sampled_gyro=raw_gyro+bias+sensor_noise
@@ -747,6 +761,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000))
+            # Frozen-policy INPUT-ONLY intervention. Keep env phase,
+            # reward, sensor acquisition and source normalizer unchanged.
+            # Both channels always form a valid point on the unit circle.
+            if phase_probe=="hold":
+                hist=hist.at[:,:,phase_cols[0]].set(0.)
+                hist=hist.at[:,:,phase_cols[1]].set(1.)
+            elif phase_probe=="invert":
+                hist=hist.at[:,:,phase_cols[0]].set(-hist[:,:,phase_cols[0]])
+                hist=hist.at[:,:,phase_cols[1]].set(-hist[:,:,phase_cols[1]])
+            elif phase_probe=="random":
+                hist=hist.at[:,:,phase_cols[0]].set(jnp.sin(phase_draws))
+                hist=hist.at[:,:,phase_cols[1]].set(jnp.cos(phase_draws))
+            if tof_probe=="mask":
+                hist=hist.at[:,:,tof_range_cols].set(1.5)
+                hist=hist.at[:,:,tof_valid_cols].set(0.)
             policy_obs=hist.reshape((env.num_envs, obs_dim))
             # Frozen exams need only the actor, never a value network or
             # optimiser. This permits identical evaluation of exported .emupolicy
@@ -755,6 +784,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
+                policy_phase_rad=es.phase,
                 foot_xyz=foot_xyz,floor_contact=contacts,
                 actor_action=jnp.clip(mean,-1.,1.),
                 stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
@@ -866,7 +896,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         gyro0=env._body_packets(initial.data)[2][:,2]+bias
         queue=jnp.broadcast_to(gyro0[None,:],(max(1,delay),env.num_envs))
         (last,_,_,_,_),frames=jax.lax.scan(
-            step,(initial,obs,zeros,zeros,queue),(schedule,noise))
+            step,(initial,obs,zeros,zeros,queue),(schedule,noise,phase_noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
         if env.terrain_carpet:
             from .terrain_carpet_mjx import slot_indices
@@ -907,7 +937,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
-    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11,12,13))
 
     return {
         'make_initial_state': make_initial_state,

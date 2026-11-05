@@ -490,7 +490,6 @@ FIXED_EXAM_GUARDS = {
     "eval_dynamic80_survival": ("floor", 0.075),
     "eval_combo70_survival": ("floor", 0.075),
     "eval_resilience75_survival": ("floor", 0.10),
-    "eval_robust40_survival": ("floor", 0.08),
 }
 
 
@@ -530,7 +529,7 @@ def compare_fixed_exam_evidence(
         if any(not (0 <= result[k] <= 1) for k in (
               "eval_core_survival","eval_core_support","eval_core_step_evidence",
               "eval_dynamic80_survival","eval_combo70_survival",
-              "eval_resilience75_survival","eval_robust40_survival")):
+              "eval_resilience75_survival")):
             raise ValueError(f"{name} has out-of-range success/support evidence")
         if any(result[k]<0 for k in required if k.endswith("_mae") or k.endswith("_m")):
             raise ValueError(f"{name} has negative physical errors")

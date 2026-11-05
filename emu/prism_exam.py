@@ -10,6 +10,11 @@ import numpy as np
 from .terrain_carpet_mjx import TILE_M, TILE_COUNT
 from .carpet_prism_mjx import PRISM_COUNT
 
+# Last actor+seed MJX frozen examiner. One in-memory JAX compilation is reused
+# for six task-vector scenarios. Source SHA256 and seed are in the key; never
+# reuse a different actor, physics setting or teacher RNG. Bounded to one.
+_EXAM_SESSIONS = {}
+
 
 def first_episode_mask(done):
     """Count the terminal frame, never a reset-policy frame after death.
@@ -180,7 +185,7 @@ def score_prism_crossings(frames, *, required_frames=5):
 
 def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                           speed=.12, seed=1701, device="cpu", mode="mixed",
-                          grade_deg=3., lip_cm=1.):
+                          grade_deg=3., lip_cm=1., phase_probe="normal", tof_probe="normal"):
     """Independent frozen 360-input actor on the same physical prism topology.
 
     Unlike the retired two-slab matrix, terrain is procedurally sampled here:
@@ -222,48 +227,66 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     if mode in ("step", "mixed") and lip_cm <= 0.:
         raise ValueError("step/mixed exam requires a positive lip")
 
-    params, norm, actor = load_exported_actor_for_exam(policy)
-    if (actor["observation_schema"] != OBS_SCHEMA_TERRAIN or
-            not actor["array_only"] or
-            actor["training"].get("terrain_carpet_prisms") is not True):
-        raise ValueError("prism exam requires a true-prism 360-input source actor")
-    configure_jax(device)
-    import jax
-    import jax.numpy as jnp
-    require_backend(device == "cpu")
-
-    train = actor["training"]
-    control = actor["control"]
-    sensor = actor["sensor_settings"]
-    vi = control.get("velocity_i") or {}
-    env = EmuMJXEnv(
-        str(ROBOT_XML), num_envs=worlds, seed=seed,
-        max_episode_steps=700, push_max_force_n=0.7,
-        observation_schema=OBS_SCHEMA_TERRAIN,
-        terrain_step_max_m=.08, unified_capability_focus=True,
-        terrain_carpet=True, terrain_carpet_prisms=True,
-        solver_iterations=train.get("solver_iterations"),
-        solver_ls_iterations=train.get("solver_ls_iterations"),
-        academy_stream=True, academy_height_cap_m=.15,
-        terrain_lesson="coherent-careful",
-        attitude_profile=train["attitude_profile"],
-        pitch_command_max_deg=float(train["pitch_command_max_deg"]),
-        phase_speed_gain=float(control["phase_speed_gain"]),
-        velocity_i_ramp_s=float(vi.get("ramp_s", .4)),
-        velocity_i_multiplier=float(vi.get("multiplier", 1.)),
-        sensor_noise_scale=float(sensor.get("sensor_noise_scale", 0.)),
-        **{k: v for k, v in sensor.items() if k != "sensor_noise_scale"},
-    )
-    from .contracts import sensor_observation_contract
-    expected = sensor_observation_contract(
-        sensor, schema=OBS_SCHEMA_TERRAIN, array_only=True)
-    if env.sensor_contract != expected:
-        raise RuntimeError("frozen prism examiner changed actor sensor semantics")
-    trainer = make_trainer(
-        env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
-        epochs=1, minibatches=1,
-        entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST,
-    )
+    if phase_probe not in ("normal","hold","invert","random") or tof_probe not in ("normal","mask"):
+        raise ValueError("Invalid frozen-policy observation intervention")
+    # The *same* actor/seed/environment can examine six differently
+    # instructed physical worlds. Reusing its JAX-compiled evaluator removes
+    # five needless model/trainer reconstructions per campaign arm.
+    # Different seeds keep their own physics/PRNG identity. A changed
+    # .emupolicy is never silently admitted to a previous exam.
+    cache_key=(str(policy),hashlib.sha256(policy.read_bytes()).hexdigest(),
+               worlds,seed,device)
+    cached=_EXAM_SESSIONS.get(cache_key)
+    if cached is None:
+        params, norm, actor = load_exported_actor_for_exam(policy)
+        if (actor["observation_schema"] != OBS_SCHEMA_TERRAIN or
+                not actor["array_only"] or
+                actor["training"].get("terrain_carpet_prisms") is not True):
+            raise ValueError("prism exam requires a true-prism 360-input source actor")
+        configure_jax(device)
+        import jax
+        import jax.numpy as jnp
+        require_backend(device == "cpu")
+    
+        train = actor["training"]
+        control = actor["control"]
+        sensor = actor["sensor_settings"]
+        vi = control.get("velocity_i") or {}
+        env = EmuMJXEnv(
+            str(ROBOT_XML), num_envs=worlds, seed=seed,
+            max_episode_steps=700, push_max_force_n=0.7,
+            observation_schema=OBS_SCHEMA_TERRAIN,
+            terrain_step_max_m=.08, unified_capability_focus=True,
+            terrain_carpet=True, terrain_carpet_prisms=True,
+            solver_iterations=train.get("solver_iterations"),
+            solver_ls_iterations=train.get("solver_ls_iterations"),
+            academy_stream=True, academy_height_cap_m=.15,
+            terrain_lesson="coherent-careful",
+            attitude_profile=train["attitude_profile"],
+            pitch_command_max_deg=float(train["pitch_command_max_deg"]),
+            phase_speed_gain=float(control["phase_speed_gain"]),
+            science_phase_lowcmd_scale=float(train.get("science_phase_lowcmd_scale",1.)),
+            velocity_i_ramp_s=float(vi.get("ramp_s", .4)),
+            velocity_i_multiplier=float(vi.get("multiplier", 1.)),
+            sensor_noise_scale=float(sensor.get("sensor_noise_scale", 0.)),
+            **{k: v for k, v in sensor.items() if k != "sensor_noise_scale"},
+        )
+        from .contracts import sensor_observation_contract
+        expected = sensor_observation_contract(
+            sensor, schema=OBS_SCHEMA_TERRAIN, array_only=True)
+        if env.sensor_contract != expected:
+            raise RuntimeError("frozen prism examiner changed actor sensor semantics")
+        trainer = make_trainer(
+            env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
+            epochs=1, minibatches=1,
+            entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST,
+        )
+        _EXAM_SESSIONS.clear()
+        _EXAM_SESSIONS[cache_key]=(params,norm,actor,env,trainer)
+    else:
+        params,norm,actor,env,trainer=cached
+        import jax
+        import jax.numpy as jnp
     has_grade = mode in ("slope", "mixed")
     has_step = mode in ("step", "mixed")
     lip_m = lip_cm / 100.
@@ -300,11 +323,16 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         params, task,
         jnp.asarray(norm["mean"]), jnp.asarray(norm["std"]),
         jax.random.PRNGKey(seed), horizon, 0.,
-        jnp.asarray([speed, 0., 0.], dtype=jnp.float32))
+        jnp.asarray([speed, 0., 0.], dtype=jnp.float32),
+        phase_probe=phase_probe,tof_probe=tof_probe)
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
+    # v5051: independent physical post-contact mission, not a reward counter.
+    from .step_autopsy import inspect_missions
+    autopsy = inspect_missions(measured)
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
+    phase = np.asarray(measured["policy_phase_rad"], dtype=float)
     done = np.asarray(measured["done"], dtype=bool)
     fell = np.asarray(measured["fell"], dtype=bool)
     raw_pairs = np.asarray(measured["carpet_raw_contact_pairs"], dtype=bool)
@@ -342,6 +370,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         # diagnostic, not a target rhythm or evidence of dynamic running.
         footfalls = 0
         same_foot_strides = []
+        aligned_touchdown_phases = []
         valid_foot_contact = support_feet[start:stop, w, :]
         for foot_index in range(2):
             prior_xy = None
@@ -352,6 +381,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                     not bool(valid_foot_contact[ti-3, foot_index])):
                     footfalls += 1
                     fi = start+ti
+                    aligned_touchdown_phases.append(phase[fi,w] + (np.pi if foot_index == 1 else 0.))
                     xy_now = foot_xyz[fi,w,foot_index,:2]
                     if prior_xy is not None:
                         along = (xy_now-prior_xy) @ np.array([
@@ -378,6 +408,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             net_xy_drift_m=float(np.linalg.norm(xy[stop-1,w]-xy[start,w])),
             physical_footfalls=footfalls,
             footfall_rate_hz=footfalls/gait_time,
+            phase_locking_strength=(float(np.abs(np.mean(np.exp(
+                1j*np.asarray(aligned_touchdown_phases)))))
+                if len(aligned_touchdown_phases)>=3 else None),
             same_foot_stride_mean_m=(float(np.mean(same_foot_strides))
                                      if same_foot_strides else None),
             directed_progress_m=progress,
@@ -402,6 +435,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
             actual_collision=f"{PRISM_COUNT} convex prism meshes / {TILE_COUNT} {TILE_M*100:g}cm source tiles",
             sensor="360-input array-only 4x4 ToF",
             no_optimizer_or_curriculum_updates=True,
+            phase_probe=phase_probe,tof_probe=tof_probe,
+            probe_is_input_only=True,
             deterministic_seed=True,
         ),
         measured=dict(
@@ -413,6 +448,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         ),
         elapsed_wall_seconds=round(time.perf_counter()-begun, 2),
         worlds=rows,
+        mission_autopsy=autopsy,
     )
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "prism_exam.json"
@@ -433,6 +469,8 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "A zero crossing count is zero demonstrated crossings, not a failed attempted fixture.", "",
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
         f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
+        f"v5051 post-contact completed missions: **{autopsy['completed_missions']}/{autopsy['eligible_supported_contacts']}** eligible supported contacts",
+        "Not a fixed-height obstacle or full eight-stage climb certification; detection, riser clearance and load transfer remain unmeasured.", "",
         "| World | Survived | Mean vx | vx MAE | Actual mean grade | Up | Down | Shaft J/m* |",
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
     ]

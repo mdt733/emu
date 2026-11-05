@@ -72,18 +72,14 @@ def _episode(steady: float, transition: float, resilience: float, posture: float
     return ep
 
 
-# name -> (world, deterministic key salt, episode parameters)
+# Four retention guards on TWO compiled MJX worlds, not ten similar
+# exams on five JAX compilations. Stair mastery is measured in the
+# separate physical examiner; this score only guards core competence.
 PANELS = {
     'core': ('fixed', 100, _episode(0.0, 0.0, 0.0, 0.0, (1.0, 0.0, 0.0), 0.50)),
-    'stress30': ('fixed', 101, _episode(.30, .30, .30, .20, (1/3, 1/3, 1/3), .50)),
-    'dynamic50': ('fixed', 102, _episode(.45, .60, .25, .25, (.20, .65, .15), .75)),
-    'resilience50': ('fixed', 103, _episode(.35, .35, .60, .40, (.15, .20, .65), .65)),
     'dynamic80': ('fixed', 104, _episode(.75, .85, .35, .35, (.15, .70, .15), .90)),
     'combo70': ('combo', 105, _episode(.70, .72, .30, .35, (.35, .50, .15), .90)),
     'resilience75': ('fixed', 106, _episode(.55, .55, .80, .55, (.10, .20, .70), .80)),
-    'robust40': ('robust', 404, _episode(.40, .45, .50, .35, (.25, .30, .45), .65)),
-    'growth110': ('growth', 811, _episode(1.0, .80, .30, .35, (.55, .35, .10), .90)),
-    'growthcombo110': ('growth_combo', 919, _episode(1.0, .80, .30, .35, (.55, .35, .10), .90)),
 }
 
 EVAL_PERF_TIMER_NAMES = tuple(f'eval_{name}' for name in PANELS)
@@ -119,6 +115,16 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
         terrain_step_max_m=config.terrain_step_max_m,
+        science_gate_mode=config.science_gate_mode,
+        science_phase_lowcmd_scale=config.science_phase_lowcmd_scale,
+        science_phase_sync_strength=config.science_phase_sync_strength,
+        science_crouch_allowance_m=config.science_crouch_allowance_m,
+        science_stride_efficiency_weight=config.science_stride_efficiency_weight,
+        science_supported_cross_bonus=config.science_supported_cross_bonus,
+        science_foothold_bonus=config.science_foothold_bonus,
+        science_bilateral_support_bonus=config.science_bilateral_support_bonus,
+        science_sensor_teacher_bonus=config.science_sensor_teacher_bonus,
+        science_followthrough_bonus=config.science_followthrough_bonus,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
     from .training_config import training_sensor_contract
@@ -131,18 +137,12 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
 
 
 def build_worlds(config: TrainingConfig) -> dict[str, tuple[Any, dict[str, Any]]]:
-    benchmark = (.60, -.20, .22, 1.50)
-    growth = (.75, -.28, .30, 1.90)
-    live = (config.vx_hi_max, config.vx_lo_min, config.vy_max_mps, config.yaw_max_rad_s)
+    """Two compiled teacher worlds shared by four independent retention checks."""
+    benchmark=(.60,-.20,.22,1.50)
     return {
-        'fixed': _world(config, seed_offset=0, limits=benchmark),
-        'combo': _world(config, seed_offset=606, limits=benchmark, combo_mix=1.0),
-        'growth': _world(config, seed_offset=811, limits=growth),
-        'growth_combo': _world(config, seed_offset=919, limits=growth, combo_mix=1.0),
-        'robust': _world(config, seed_offset=404, limits=live,
-                         sensor_scale=SENSOR_NOISE_SCALE),
+        'fixed': _world(config,seed_offset=0,limits=benchmark),
+        'combo': _world(config,seed_offset=606,limits=benchmark,combo_mix=1.0),
     }
-
 
 def initial_metrics() -> dict[str, float]:
     """Complete held-out metric schema, including fields populated only after an exam.
@@ -170,27 +170,23 @@ def initial_metrics() -> dict[str, float]:
 
 
 def broad_score(out: dict[str, float]) -> float:
-    survival_weights = {
-        'core': .05, 'stress30': .08, 'dynamic50': .10, 'dynamic80': .16,
-        'combo70': .12, 'resilience50': .12, 'resilience75': .14,
-        'robust40': .11, 'growth110': .06, 'growthcombo110': .06,
-    }
-    survival = sum(w * out.get(f'eval_{name}_survival', 0.0)
-                   for name, w in survival_weights.items())
-    penalties = (
-        .10 * min(1.0, out.get('eval_dynamic80_vx_mae', 1.0) / .12) +
-        .10 * min(1.0, out.get('eval_dynamic80_yaw_mae', 2.0) / .40) +
-        .08 * min(1.0, out.get('eval_combo70_vy_mae', 1.0) / .12) +
-        .10 * min(1.0, out.get('eval_combo70_yaw_mae', 2.0) / .40) +
-        .06 * min(1.0, out.get('eval_growthcombo110_yaw_mae', 2.0) / .55)
+    """Four-panel locomotion *retention* score, never stair capability."""
+    weights={'core':.15,'dynamic80':.30,'combo70':.30,'resilience75':.25}
+    survival=sum(w*out.get(f'eval_{p}_survival',0.0)
+                 for p,w in weights.items())
+    penalty=(
+        .10*min(1.0,out.get('eval_dynamic80_vx_mae',1.0)/.12) +
+        .10*min(1.0,out.get('eval_dynamic80_yaw_mae',2.0)/.40) +
+        .08*min(1.0,out.get('eval_combo70_vy_mae',1.0)/.12) +
+        .10*min(1.0,out.get('eval_combo70_yaw_mae',2.0)/.40)
     )
-    # v5015 checkpoint selection must not reward a descending gait.
-    panels = ('dynamic50', 'dynamic80', 'combo70', 'resilience75')
-    shortfall = sum(max(0.0, out.get(f'eval_{p}_height_shortfall_m', 0.0)) for p in panels) / len(panels)
-    pitch_err = sum(max(0.0, out.get(f'eval_{p}_pitch_mae', 0.0)) for p in panels) / len(panels)
-    penalties += 0.15 * min(1.0, shortfall / 0.035) + 0.10 * min(1.0, pitch_err / 0.35)
-    return float(survival - penalties)
-
+    panels=('dynamic80','combo70','resilience75')
+    shortfall=sum(max(0.,out.get(f'eval_{p}_height_shortfall_m',0.))
+                  for p in panels)/len(panels)
+    pitch=sum(max(0.,out.get(f'eval_{p}_pitch_mae',0.))
+              for p in panels)/len(panels)
+    return float(survival-penalty-.15*min(1.,shortfall/.035)
+                 -.10*min(1.,pitch/.35))
 
 @contextmanager
 def _eval_heartbeat(progress: Callable[[str], None] | None, label: str,
@@ -340,8 +336,8 @@ def record_fixed_exam(
     print(f"{log_prefix} fixed-eval step={step:,} score={out['eval_broad_score']:.3f} tail3={out['eval_broad_tail3']:.3f} "
           f"core={out['eval_core_survival']:.3f} dyn80={out['eval_dynamic80_survival']:.3f} "
           f"combo70={out['eval_combo70_survival']:.3f}/{out['eval_combo70_yaw_mae']:.3f}yaw "
-          f"res75={out['eval_resilience75_survival']:.3f} robust40={out['eval_robust40_survival']:.3f} "
-          f"growth={out['eval_growth110_survival']:.3f}/{out['eval_growthcombo110_survival']:.3f} "
+          f"res75={out['eval_resilience75_survival']:.3f} "
+          "retention-only (stairs separately examined) "
           f"eval_wall={out.get('perf_fixed_eval_total_s',0.0):.1f}s", flush=True)
     return out, best_score
 

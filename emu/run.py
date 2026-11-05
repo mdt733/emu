@@ -145,6 +145,29 @@ def one_run_config(args) -> TrainingConfig:
             "v5045 prism-only training requires --profile sim2real "
             "--terrain-actor --unified-capabilities --terrain-carpet "
             "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
+    # v5051: independently select *training* hypotheses; fail before GPU
+    # for invented, unbounded or nonfinite experiment configurations.
+    science_gate=str(getattr(args,'science_gate_mode','legacy'))
+    science_values={
+        'science_phase_lowcmd_scale':(0.,1.),
+        'science_phase_sync_strength':(0.,1.),
+        'science_crouch_allowance_m':(0.,.05),
+        'science_stride_efficiency_weight':(0.,.12),
+        'science_supported_cross_bonus':(0.,15.),
+        'science_foothold_bonus':(0.,8.),
+        'science_bilateral_support_bonus':(0.,10.),
+        'science_sensor_teacher_bonus':(0.,8.),
+        'science_followthrough_bonus':(0.,15.),
+    }
+    if science_gate not in ('legacy','zero-only','off'):
+        raise ValueError('Invalid science-gate-mode')
+    science_args={}
+    for key,(lo,hi) in science_values.items():
+        default=1. if key in ('science_phase_lowcmd_scale','science_phase_sync_strength') else 0.
+        value=float(getattr(args,key,default))
+        if not math.isfinite(value) or not lo<=value<=hi:
+            raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
+        science_args[key]=value
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    solver_iterations=solver_iterations,
                    solver_ls_iterations=solver_ls_iterations,
@@ -166,6 +189,7 @@ def one_run_config(args) -> TrainingConfig:
                    academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
+                   science_gate_mode=science_gate, **science_args,
                    stillness_birth_frac=stillness_birth_frac,
                    science_step_promotion_mm=science_promotion,
                    science_step_retreat_mm=science_retreat,
