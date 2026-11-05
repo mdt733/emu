@@ -956,7 +956,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
-    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
+    # Exam-only ablation booleans/offset change the traced policy-input path;
+    # they MUST be static or a frozen GPU exam raises TracerBoolConversionError.
+    evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11,12,13,14))
 
     return {
         'make_initial_state': make_initial_state,
