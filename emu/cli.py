@@ -38,6 +38,8 @@ def main(argv=None) -> int:
     q.add_argument('--lip-cm',type=float,default=1.,help='requested signed-step frontier, not a fixed fixture')
     q.add_argument('--tof-ablation',action='store_true',
                    help='hide 4x4 terrain channels from the frozen policy; sensors still run physically')
+    q.add_argument('--phase-ablation',action='store_true',
+                   help='hide phase sine/cosine from the frozen actor, leaving physical clock unchanged')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -147,7 +149,8 @@ def main(argv=None) -> int:
             horizon=args.horizon, speed=args.speed, seed=args.seed,
             device=args.device, mode=args.mode,
             grade_deg=args.grade_deg, lip_cm=args.lip_cm,
-            tof_ablation=args.tof_ablation)
+            tof_ablation=args.tof_ablation,
+            phase_ablation=args.phase_ablation)
         for path in paths:
             print(path)
         return 0
